@@ -88,7 +88,7 @@ export default function AvatarImage({ user, className, onError, alt = "User" }) 
 
   return (
     <img
-      src={src || ''} 
+      src={src || undefined} 
       alt={alt}
       className={`${className} transition-opacity duration-300 ${loading ? 'opacity-50' : 'opacity-100'}`}
       onError={(e) => {

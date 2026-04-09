@@ -457,7 +457,7 @@ export default function Brokers() {
               </button>
               
               {showExportMenu && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 z-50 min-w-[150px]">
+                  <div className="absolute top-full left-0 right-0 mt-1 card rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 z-50 min-w-[150px]">
                       <button 
                           className="w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
                           onClick={exportBrokersCsv}

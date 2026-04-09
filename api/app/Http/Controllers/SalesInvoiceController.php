@@ -28,16 +28,24 @@ class SalesInvoiceController extends Controller
         $total = (float) ($invoice->total ?? 0);
         $invoice->balance_due = max(0, $total - $paid - $advanceApplied);
 
-        if (strtolower((string) $invoice->status) !== 'cancelled') {
+        $statusLower = strtolower((string) $invoice->status);
+
+        // Keep workflow status separate from settlement status:
+        // - status: Draft / Posted / Cancelled
+        // - payment_status: Unpaid / Partial / Paid
+        if ($statusLower !== 'cancelled') {
             if ($invoice->balance_due <= 0) {
-                $invoice->status = 'Paid';
                 $invoice->payment_status = 'Paid';
             } elseif ($paid > 0 || $advanceApplied > 0) {
-                $invoice->status = 'Partially Paid';
                 $invoice->payment_status = 'Partial';
             } else {
-                $invoice->status = 'Unpaid';
                 $invoice->payment_status = 'Unpaid';
+            }
+
+            // Backward-compat: older code wrote settlement states into `status`.
+            // Normalize them back to workflow `Posted` going forward.
+            if (in_array($statusLower, ['unpaid', 'partial', 'partially paid', 'paid', 'overdue'], true)) {
+                $invoice->status = 'Posted';
             }
         }
 
@@ -53,7 +61,7 @@ class SalesInvoiceController extends Controller
             'order:id,uuid',
         ]);
 
-        if ($request->has('search')) {
+        if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
                 $q->where('invoice_number', 'like', "%{$search}%")
@@ -61,7 +69,7 @@ class SalesInvoiceController extends Controller
             });
         }
 
-        if ($request->has('status')) {
+        if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
 
@@ -121,6 +129,7 @@ class SalesInvoiceController extends Controller
 
                 // Prevent over-application of advance for the same order (simple per-order advance policy)
                 $availableAdvance = (float) SalesInvoice::where('order_id', $orderId)
+                    ->where('status', '!=', 'Cancelled')
                     ->whereRaw("LOWER(COALESCE(invoice_type,'')) = 'advance'")
                     ->sum('paid_amount');
 
@@ -252,6 +261,7 @@ class SalesInvoiceController extends Controller
                 }
 
                 $availableAdvance = (float) SalesInvoice::where('order_id', $orderId)
+                    ->where('status', '!=', 'Cancelled')
                     ->whereRaw("LOWER(COALESCE(invoice_type,'')) = 'advance'")
                     ->sum('paid_amount');
 

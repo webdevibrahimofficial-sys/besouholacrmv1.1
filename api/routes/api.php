@@ -260,6 +260,8 @@ Route::get('revenues', [\App\Http\Controllers\RevenueController::class, 'index']
 Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store']);
     Route::get('leads/delayed', [LeadController::class , 'delayed']);
     Route::post('leads/bulk-assign-referral', [LeadController::class, 'bulkAssignReferral']);
+    Route::post('leads/bulk-remove-referral', [LeadController::class, 'bulkRemoveReferral']);
+
     Route::get('leads/referral-index', [LeadController::class, 'referralIndex']);
     Route::get('referral-leads', [LeadController::class, 'referralIndex']);
     Route::get('leads/referral-filters', [LeadController::class, 'referralFilters']);
@@ -287,6 +289,11 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('customers', CustomerController::class);
     Route::apiResource('inventory-requests', InventoryRequestController::class);
     Route::apiResource('sales-orders', OrderController::class);
+
+    Route::get('sales-orders/{order}/attachments', [OrderController::class, 'attachmentsIndex']);
+    Route::post('sales-orders/{order}/attachments', [OrderController::class, 'attachmentsStore']);
+    Route::delete('sales-orders/{order}/attachments/{attachmentId}', [OrderController::class, 'attachmentsDestroy']);
+    Route::get('sales-orders/{order}/advance-summary', [OrderController::class, 'advanceSummary']);
     Route::apiResource('sales-invoices', \App\Http\Controllers\SalesInvoiceController::class);
     Route::get('sales-invoices/{salesInvoice}/payments', [\App\Http\Controllers\SalesInvoiceController::class, 'payments']);
     Route::post('sales-invoices/{salesInvoice}/payments', [\App\Http\Controllers\SalesInvoiceController::class, 'storePayment']);

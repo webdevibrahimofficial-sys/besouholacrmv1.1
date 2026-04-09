@@ -540,10 +540,10 @@ export default function Campaigns() {
             <FaFilter className="text-blue-500" /> {isArabic ? 'تصفية' : 'Filter'}
           </h2>  
             <div className="flex items-center gap-2">
-              <label className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 bg-white/5 rounded-lg border border-white/10 cursor-pointer select-none">
+              <label className={`flex items-center gap-2 px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'}  rounded-lg border border-white/10 cursor-pointer select-none`}>
                 <input
                   type="checkbox"
-                  className="checkbox checkbox-sm rounded border-gray-500"
+                  className={`checkbox checkbox-sm rounded border-gray-500 ${isLight ? 'text-black' : 'text-white'} `}
                   checked={showOriginColumn}
                   onChange={(e) => setShowOriginColumn(e.target.checked)}
                 />
@@ -853,10 +853,10 @@ export default function Campaigns() {
 
             {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm text-left rtl:text-right dark:text-white">
-                <thead className="text-xs uppercase bg-white/5 dark:bg-gray-700/50 dark:text-white border-b border-white/10 dark:border-gray-700/50">
-                  <tr>
-                    <th className="px-4 py-3 w-[50px]">
+              <table className={`w-full text-sm text-left rtl:text-right ${isLight ? 'text-black' : 'text-white'} `}>
+                <thead className="text-xs uppercase  border-b border-white/10 dark:border-gray-700/50">
+                  <tr className={`${isLight ? 'text-black' : 'text-white'} `}>
+                    <th className={`px-4 py-3 w-[50px] ${isLight ? 'text-black' : 'text-white'} `}>
                       <input 
                         type="checkbox" 
                         className="checkbox checkbox-sm rounded border-gray-500"
@@ -881,10 +881,10 @@ export default function Campaigns() {
                     <th className="px-4 py-3 text-center">{isArabic ? 'الإجراءات' : 'Actions'}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5 dark:divide-gray-700/50">
+                <tbody className="divide-y divide-white/5 dark:divide-gray-700/50  ">
                   {paginatedCampaigns.map(campaign => (
-                    <tr key={campaign.id} className="hover:bg-gray-700/50 transition-colors border-b border-white/5 dark:border-gray-700/50">
-                      <td className="px-4 py-3">
+                    <tr key={campaign.id} className={`hover:bg-gray-700/50 transition-colors border-b border-white/5 dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>
+                      <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} `}>
                         <input 
                           type="checkbox" 
                           className="checkbox checkbox-sm rounded border-gray-500"

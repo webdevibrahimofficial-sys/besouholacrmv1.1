@@ -11,13 +11,14 @@ import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsMo
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
+import { formatUiDateTime } from '../shared/utils/crmDateTime'
 
 export default function CheckInReport() {
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar' || i18n.dir() === 'rtl'
-  const { user } = useAppState()
+  const { user, crmSettings } = useAppState()
   const canExport = canExportReport(user, 'Check In Report')
 
   const isAdminOrManager = useMemo(() => {
@@ -224,17 +225,7 @@ export default function CheckInReport() {
     }
   }
 
-  const formatDateTime = (isoString) => {
-    const date = new Date(isoString)
-    return date.toLocaleString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    })
-  }
+  const formatDateTime = (isoString) => formatUiDateTime(isoString, { crmSettings, language: i18n.language })
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 min-h-screen">

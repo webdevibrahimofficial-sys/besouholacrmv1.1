@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { useDynamicFields } from '../../hooks/useDynamicFields'
 import { useAppState } from '../../shared/context/AppStateProvider'
 import { api, logExportEvent } from '../../utils/api'
-import { FaFileImport, FaPlus, FaFileExport, FaChevronDown } from 'react-icons/fa'
+import { FaFileImport, FaPlus, FaFileExport, FaChevronDown, FaFilePdf } from 'react-icons/fa'
+import { FaFileCsv } from 'react-icons/fa6'
 import { Filter, ChevronDown, ChevronLeft, ChevronRight, Search, Building2, Edit2, Trash2, Briefcase, Users, X, Phone, Mail, MapPin } from 'lucide-react'
 import SearchableSelect from '../../components/SearchableSelect'
 import DevelopersImportModal from './DevelopersImportModal'
@@ -392,9 +393,9 @@ export default function Developers() {
               {showExportMenu && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                  <div className="absolute top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 w-full sm:w-32 overflow-hidden ltr:right-0 rtl:left-0">
+                  <div className="absolute top-full mt-1 card border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 w-full sm:w-32 overflow-hidden ltr:right-0 rtl:left-0">
                     <button
-                      className="w-full text-gray-700 dark:text-gray-200 text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors flex items-center gap-2"
+                      className={`w-full ${isLight ? 'text-black' : 'text-white'} text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors flex items-center gap-2`}
                       onClick={() => {
                         exportDevelopersCsv()
                         setShowExportMenu(false)
@@ -403,7 +404,7 @@ export default function Developers() {
                       <FaFileCsv className="text-green-500" /> CSV
                     </button>
                     <button
-                      className="w-full text-gray-700 dark:text-gray-200 text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors flex items-center gap-2"
+                      className={`w-full ${isLight ? 'text-black' : 'text-white'} text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors flex items-center gap-2`}
                       onClick={() => {
                         exportDevelopersPdf(filtered)
                         setShowExportMenu(false)

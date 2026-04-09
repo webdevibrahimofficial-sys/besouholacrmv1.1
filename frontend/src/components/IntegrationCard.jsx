@@ -9,7 +9,7 @@ export default function IntegrationCard({ integration, onConnect, onConfigure })
   const { name, description, icon: Icon, bg, status, connected } = integration
 
   return (
-    <div className="bg-transparent border border-gray-200/50 dark:border-white/10 rounded-xl p-4 hover:bg-white/5 transition-all flex flex-col items-start gap-3 relative overflow-hidden group">
+    <div className={`bg-transparent border border-gray-200/50 ${isLight ? 'border-black' : 'border-white/10'} rounded-xl p-4 hover:bg-white/5 transition-all flex flex-col items-start gap-3 relative overflow-hidden group`}>
       <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shadow-lg shadow-black/5 z-10`}>
         {Icon && <Icon className="text-white w-5 h-5" />}
       </div>

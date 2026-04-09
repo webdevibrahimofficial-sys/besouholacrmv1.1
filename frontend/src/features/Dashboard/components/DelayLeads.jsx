@@ -7,7 +7,8 @@ import { FaEye, FaPlus, FaPhone, FaWhatsapp, FaEnvelope } from 'react-icons/fa';
 import EnhancedLeadDetailsModal from '@shared/components/EnhancedLeadDetailsModal';
 import AddActionModal from '../../../components/AddActionModal';
 import { getLeadPermissionFlags } from '../../../services/leadPermissions';
-import { formatPhoneForDisplay } from '@shared/utils/phoneDisplay';
+import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay';
+import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone';
 
 const formatDateSafe = (dateStr) => {
   if (!dateStr) return '-'
@@ -35,8 +36,11 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   const { theme, resolvedTheme } = useTheme();
   const isLight = (resolvedTheme || theme) === 'light';
   const { user, crmSettings } = useAppState();
-  const showMobileNumber = Boolean(crmSettings?.showMobileNumber);
-  const displayMobile = (value) => formatPhoneForDisplay(value, { showFull: showMobileNumber });
+  const defaultDialCode = useMemo(() => {
+    return getDefaultDialCode(crmSettings, '+20')
+  }, [crmSettings?.defaultCountryCode])
+  const maskEnabled = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
+  const displayMobile = (value) => formatPhoneForDisplay(value, { showFull: !maskEnabled, defaultCountryCode: defaultDialCode });
   const { stages } = useStages(); // Fetch dynamic stages from hook
   const MEET_ICON_URL = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'><rect x='2' y='4' width='12' height='16' rx='3' fill='%23ffffff'/><rect x='2' y='4' width='12' height='4' rx='2' fill='%234285F4'/><rect x='2' y='4' width='4' height='16' rx='2' fill='%2334A853'/><rect x='10' y='4' width='4' height='16' rx='2' fill='%23FBBC05'/><rect x='2' y='16' width='12' height='4' rx='2' fill='%23EA4335'/><polygon points='14,9 22,5 22,19 14,15' fill='%2334A853'/></svg>"
   const SCROLLBAR_CSS = `
@@ -474,8 +478,13 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
       return ps === s;
     };
     const primary = ranged.filter(matchesStage);
-    // Ensure newest leads (by creation date) are at the top
-    return [...primary].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // Ensure newest delayed leads (by next action datetime) are at the top
+    return [...primary].sort((a, b) => {
+      const ad = new Date(a.actionDate || 0).getTime()
+      const bd = new Date(b.actionDate || 0).getTime()
+      if (bd !== ad) return bd - ad
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    });
   }, [delayLeads, selectedFilter, dateFrom, dateTo]);
   
   // Determine if we need to show scrollbar (when leads > 5)
@@ -650,14 +659,24 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 )}
                 <button
                   title={t('Call')}
-                  onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`tel:${digits}`); }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const raw = lead.phone || lead.mobile || ''
+                    const digits = getPhoneDigits(raw, { defaultCountryCode: defaultDialCode })
+                    if (digits) window.open(`tel:${digits}`)
+                  }}
                   className={`inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-500`}
                 >
                   <FaPhone size={16} className="icon-call" />
                 </button>
                 <button
                   title="WhatsApp"
-                  onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`https://wa.me/${digits}`); }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const raw = lead.phone || lead.mobile || ''
+                    const digits = getPhoneDigits(raw, { defaultCountryCode: defaultDialCode })
+                    if (digits) window.open(`https://wa.me/${digits}`)
+                  }}
                   className={`inline-flex items-center justify-center text-green-600 dark:text-green-400 hover:text-green-500`}
                 >
                   <FaWhatsapp size={16} className="icon-whatsapp" />
@@ -733,14 +752,24 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 )}
                       <button
                         title={t('Call')}
-                        onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`tel:${digits}`); }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const raw = lead.phone || lead.mobile || ''
+                          const digits = getPhoneDigits(raw, { defaultCountryCode: defaultDialCode })
+                          if (digits) window.open(`tel:${digits}`)
+                        }}
                         className={`inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-500`}
                       >
                         <FaPhone size={16} className="icon-call" />
                       </button>
                       <button
                         title="WhatsApp"
-                        onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`https://wa.me/${digits}`); }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const raw = lead.phone || lead.mobile || ''
+                          const digits = getPhoneDigits(raw, { defaultCountryCode: defaultDialCode })
+                          if (digits) window.open(`https://wa.me/${digits}`)
+                        }}
                         className={`inline-flex items-center justify-center text-green-600 dark:text-green-400 hover:text-green-500`}
                       >
                         <FaWhatsapp size={16} className="icon-whatsapp" />

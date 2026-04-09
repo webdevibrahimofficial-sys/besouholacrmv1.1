@@ -25,7 +25,8 @@ import LeadHoverTooltip from '../components/LeadHoverTooltip'
 import { useDynamicFields } from '../hooks/useDynamicFields'
 import { countriesData } from '../data/countriesData'
 import { getLeadModulePermissions, getLeadPermissionFlags } from '../services/leadPermissions'
-import { formatPhoneForDisplay, getPhoneLines } from '@shared/utils/phoneDisplay'
+import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/utils/phoneDisplay'
+import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 
 export const Leads = () => {
   const { t, i18n } = useTranslation()
@@ -34,7 +35,8 @@ export const Leads = () => {
   const isLight = theme === 'light'
   const { user, company, crmSettings } = useAppState()
   const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
-  const showMobileNumber = Boolean(crmSettings?.showMobileNumber)
+  const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
+  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode])
   const formatMoney = (value) => {
     const n = Number(value)
     if (!Number.isFinite(n)) return '-'
@@ -50,7 +52,7 @@ export const Leads = () => {
   const { fields: dynamicFields } = useDynamicFields('leads')
   const isRtl = String(i18n.language || '').startsWith('ar')
 
-  const maskPhoneNumber = (phone, phoneCountry) => formatPhoneForDisplay(phone, { showFull: showMobileNumber, defaultCountryCode: phoneCountry || '+20' })
+  const maskPhoneNumber = (phone, phoneCountry) => formatPhoneForDisplay(phone, { showFull: !maskMobileNumber, defaultCountryCode: phoneCountry || defaultDialCode })
 
   const formatYmdLocal = (date) => {
     if (!date) return ''
@@ -2143,42 +2145,272 @@ if (!s) {
   const totalItems = Math.max(0, Number(leadsQueryData?.total) || 0);
   const paginatedLeads = filteredLeads; // filteredLeads is already the current page data from API
 
-  // FIX 1: Corrected the incomplete object definition for export
-  const handleExportRange = () => {
-    const actualTotal = totalPages
-    const from = Math.max(1, Math.min(Number(exportFrom) || currentPage, actualTotal))
-    const to = Math.max(from, Math.min(Number(exportTo) || from, actualTotal))
-    const startIdx = (from - 1) * itemsPerPage
-    const endIdx = Math.min(to * itemsPerPage, totalItems)
-    const rangeLeads = filteredLeads.slice(startIdx, endIdx)
-    
-    // FIX 1: Completed the object definition to fix the syntax error 'l...'
-    const rows = rangeLeads.map(l => ({
-      'Name': l.name,
-      'Email': l.email,
-      'Phone': l.phone,
-      'Company': l.company,
-      'Stage': l.stage,
-      'Priority': l.priority,
-      'Source': l.source,
-      'Assigned To': l.assignedTo,
-      'Created At': l.createdAt,
-      'Last Contact': l.lastContact,
-      'Last Comment': l.latest_action?.description || l.latest_action?.details?.notes || l.notes || '-',
-      'Estimated Value': l.estimatedValue,
-      'Probability': l.probability
-    }))
+  const buildLeadsQueryParams = ({ page, perPage }) => {
+    const isMyLeads = location.pathname === '/leads/my-leads';
+    const params = {
+      page,
+      per_page: perPage,
+      search: searchTerm,
+      stage: stageFilter.length > 0 ? stageFilter : null,
+      old_stage: oldStageFilter.length > 0 ? oldStageFilter : null,
+      source: sourceFilter.length > 0 ? sourceFilter : null,
+      priority: priorityFilter.length > 0 ? priorityFilter : null,
+      campaign: campaignFilter.length > 0 ? campaignFilter : null,
+      country: countryFilter.length > 0 ? countryFilter : null,
+      project_id: projectFilter.length > 0 ? projectFilter : null,
+      assigned_to: salesPersonFilter.length > 0 ? salesPersonFilter : null,
+      manager_id: managerFilter.length > 0 ? managerFilter[0] : null,
+      created_by: createdByFilter.length > 0 ? createdByFilter : null,
+      created_from: creationDateFrom,
+      created_to: creationDateTo,
+      last_action_from: lastActionFrom,
+      last_action_to: lastActionTo,
+      assigned_date_from: assignDateFrom,
+      assigned_date_to: assignDateTo,
+      closed_from: closedDateFrom,
+      closed_to: closedDateTo,
+      sort_by: sortBy,
+      sort_order: sortOrder,
+      view_type: isMyLeads ? 'my_leads' : 'all_leads'
+    };
 
-    const worksheet = XLSX.utils.json_to_sheet(rows)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads')
-    const fileName = `Leads_Page_${from}_to_${to}.xlsx`
-    XLSX.writeFile(workbook, fileName)
-    logExportEvent({
-      module: 'Leads',
-      fileName,
-      format: 'xlsx',
-    })
+    Object.keys(params).forEach(key => {
+      if (params[key] == null || params[key] === '') delete params[key];
+      if (Array.isArray(params[key]) && params[key].length === 0) delete params[key];
+    });
+
+    return params;
+  };
+
+  const getExportColumnKeys = () => {
+    const keys = (Array.isArray(columnOrder) ? columnOrder : [])
+      .filter(k => visibleColumns?.[k])
+      .filter(k => k !== 'actions');
+    return keys.length ? keys : ['lead', 'contact', 'source', 'project', 'salesPerson', 'actionOwner', 'lastComment', 'nextActionDate', 'lastActionDate', 'stage', 'expectedRevenue', 'priority'];
+  };
+
+  const mapLeadToExportRow = (lead, exportKeys) => {
+    const latestAction = lead?.latest_action || (Array.isArray(lead?.actions) ? lead.actions[0] : null);
+    let latestDetails = latestAction?.details || {};
+    if (typeof latestDetails === 'string') {
+      try { latestDetails = JSON.parse(latestDetails) } catch { latestDetails = {} }
+    }
+
+    const formatLocalDateTime = (iso) => {
+      if (!iso) return ''
+      try {
+        const d = new Date(iso)
+        if (Number.isNaN(d.getTime())) return ''
+        const pad2 = (n) => String(n).padStart(2, '0')
+        const y = d.getFullYear()
+        const m = pad2(d.getMonth() + 1)
+        const day = pad2(d.getDate())
+        const hh = pad2(d.getHours())
+        const mm = pad2(d.getMinutes())
+        return `${y}-${m}-${day} ${hh}:${mm}`
+      } catch {
+        return ''
+      }
+    }
+
+    const computeNextActionDateTime = () => {
+      const nextActionDateRaw = latestAction?.date || latestDetails?.date || ''
+      const nextActionTimeRaw = latestAction?.time || latestDetails?.time || ''
+      const nextActionDatePart = String(nextActionDateRaw || '').includes('T')
+        ? String(nextActionDateRaw).split('T')[0]
+        : String(nextActionDateRaw || '').trim()
+      const nextActionTimePart = String(nextActionTimeRaw || '').trim()
+      return nextActionDatePart
+        ? `${nextActionDatePart}${nextActionTimePart ? ` ${String(nextActionTimePart).slice(0, 5)}` : ''}`
+        : ''
+    }
+
+    const dbAssignedTo = lead?.assigned_to || (typeof lead?.assignedTo === 'object' ? lead.assignedTo?.id : lead?.assignedTo);
+    const currentUserId = user?.id;
+    const isOwner = dbAssignedTo == currentUserId;
+    const hiddenBefore = Number(lead?.history_hidden_before_action_id || 0);
+    const latestId = Number(lead?.latest_action?.id || 0);
+    const hideOldActionFromSales = isOwner && hiddenBefore > 0 && latestId > 0 && latestId <= hiddenBefore;
+
+    const getValueForKey = (key) => {
+      const dynamicField = dynamicFields.find(f => f.key === key);
+      if (dynamicField) {
+        const v = lead?.custom_fields?.[key];
+        return v === undefined || v === null || v === '' ? '-' : String(v);
+      }
+
+      switch (key) {
+        case 'lead': {
+          const name = String(lead?.name || lead?.lead_name || '').trim();
+          const companyName = String(lead?.company || '').trim();
+          return companyName ? `${name}\n${companyName}` : (name || '-');
+        }
+        case 'contact': {
+          const email = String(lead?.email || '').trim();
+          const phone = String(lead?.phone || lead?.mobile || '').trim();
+          if (email && phone) return `${email}\n${phone}`;
+          return email || phone || '-';
+        }
+        case 'source':
+          return String(lead?.source || '').trim() || '-';
+        case 'project': {
+          if (isGeneralTenant) {
+            const byId = projectsList.find(p => p.id === lead?.item_id)?.name;
+            return String(lead?.item_name || byId || lead?.item || '').trim() || '-';
+          }
+          const byId = projectsList.find(p => p.id === lead?.project_id)?.name;
+          return String(lead?.project_name || byId || lead?.project || '').trim() || '-';
+        }
+        case 'salesPerson': {
+          const explicit = String(lead?.sales_person || '').trim();
+          if (explicit) return explicit;
+
+          const assignedId = lead?.assigned_to || (typeof lead?.assignedTo === 'object' ? lead.assignedTo?.id : null);
+          if (assignedId && usersList.length > 0) {
+            const assignedUser = usersList.find(u => u.id == assignedId);
+            if (assignedUser) {
+              const role = String(assignedUser.role || '').toLowerCase();
+              const isSales =
+                role.includes('sales person') ||
+                role.includes('salesperson') ||
+                role.includes('sales_person');
+              if (isSales) return assignedUser.name;
+            }
+          }
+
+          const assignedName = typeof lead?.assignedTo === 'string' ? lead.assignedTo : '';
+          if (assignedName && usersList.length > 0) {
+            const u = usersList.find(x => String(x.name || '').toLowerCase() === String(assignedName).toLowerCase());
+            if (u) {
+              const role = String(u.role || '').toLowerCase();
+              const isSales =
+                role.includes('sales person') ||
+                role.includes('salesperson') ||
+                role.includes('sales_person');
+              if (isSales) return u.name;
+            }
+          }
+
+          return String(lead?.assignedAgent?.name || lead?.assigned_agent?.name || '').trim() || '-';
+        }
+        case 'actionOwner':
+          return String(lead?.action_owner || '').trim() || '-';
+        case 'lastComment': {
+          const text = hideOldActionFromSales
+            ? (lead?.notes || '-')
+            : (latestAction?.description || latestDetails?.notes || lead?.notes || '-');
+          return String(text || '').trim() || '-';
+        }
+        case 'nextActionDate': {
+          const v = computeNextActionDateTime();
+          return v || '-';
+        }
+        case 'lastActionDate': {
+          if (hideOldActionFromSales) return '-';
+          const iso = latestAction?.created_at || latestAction?.createdAt || '';
+          const v = formatLocalDateTime(iso) || String(iso).trim();
+          return v || '-';
+        }
+        case 'stage': {
+          let displayStage = lead?.display_stage || lead?.stage;
+          const leadStatus = String(lead?.status || '').toLowerCase();
+          const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
+          const isNewLead = ['new', 'new lead'].includes(String(lead?.stage || '').toLowerCase());
+          const isUnassigned = !dbAssignedTo;
+          if (!salesFilterActive && leadStatus === 'pending' && !isOwner) {
+            displayStage = 'Pending';
+          }
+          if (!salesFilterActive && !isOwner && isNewLead && !isUnassigned) {
+            displayStage = 'Pending';
+          }
+          return String(displayStage || '').trim() || '-';
+        }
+        case 'expectedRevenue': {
+          const v = lead?.estimatedValue ?? lead?.estimated_value ?? '';
+          if (v === null || v === undefined || v === '') return '-';
+          const n = Number(v);
+          return Number.isFinite(n) ? n : String(v);
+        }
+        case 'priority':
+          return String(lead?.priority || '').trim() || '-';
+        default:
+          return '-';
+      }
+    };
+
+    const row = {};
+    exportKeys.forEach((key) => {
+      const header = displayColumns?.[key] || key;
+      row[header] = getValueForKey(key);
+    });
+    return row;
+  };
+
+  const fetchLeadsPageForExport = async (page) => {
+    const params = buildLeadsQueryParams({ page, perPage: itemsPerPage });
+    const res = await api.get('/api/leads', { params });
+    const payload = res?.data;
+    const rows = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+    return rows;
+  };
+
+  const fetchLeadByIdForExport = async (id) => {
+    const res = await api.get(`/api/leads/${id}`);
+    return res?.data;
+  };
+
+  const handleExportRange = async () => {
+    try {
+      const exportKeys = getExportColumnKeys();
+      const exportIds = Array.isArray(selectedLeads) ? selectedLeads.filter(Boolean) : [];
+
+      if (exportIds.length > 0) {
+        const byId = new Map((leads || []).map(l => [String(l.id || l._id), l]));
+        const ordered = [];
+        const missing = [];
+        for (const id of exportIds) {
+          const key = String(id);
+          const hit = byId.get(key);
+          if (hit) ordered.push(hit);
+          else missing.push(key);
+        }
+
+        if (missing.length) {
+          const fetched = await Promise.all(missing.map(fetchLeadByIdForExport));
+          fetched.forEach(l => { if (l) ordered.push(l); });
+        }
+
+        const rows = ordered.map(l => mapLeadToExportRow(l, exportKeys));
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads');
+        const fileName = `Leads_Selected_${exportIds.length}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+        logExportEvent({ module: 'Leads', fileName, format: 'xlsx' });
+        return;
+      }
+
+      const actualTotal = totalPages;
+      const from = Math.max(1, Math.min(Number(exportFrom) || currentPage, actualTotal));
+      const to = Math.max(from, Math.min(Number(exportTo) || from, actualTotal));
+
+      const all = [];
+      for (let p = from; p <= to; p++) {
+        const pageRows = await fetchLeadsPageForExport(p);
+        all.push(...pageRows);
+      }
+
+      const rows = all.map(l => mapLeadToExportRow(l, exportKeys));
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads');
+      const fileName = `Leads_Page_${from}_to_${to}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+      logExportEvent({ module: 'Leads', fileName, format: 'xlsx' });
+    } catch (e) {
+      console.error('Export failed', e);
+      alert(i18n.language === 'ar' ? 'فشل تصدير البيانات' : 'Export failed');
+    }
   }
 
   const columnMinWidths = {
@@ -3073,27 +3305,25 @@ if (!s) {
                         return (
                           <td key="contact" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                             <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} `}>{lead.email}</div>
-                            {crmSettings?.showMobileNumber !== false && (
-                              <div className="mt-0.5 flex flex-col gap-1">
-                                {getPhoneLines(lead.phone || lead.mobile || '', {
-                                  showFull: showMobileNumber,
-                                  defaultCountryCode: lead.phone_country || lead.phoneCountry || '+20',
-                                }).map((line, idx) => (
-                                  <div
-                                    key={idx}
-                                    className={`font-normal ${isLight ? 'text-black' : 'text-white'} hover:text-[#25D366] cursor-pointer transition-colors duration-200 flex items-center gap-1`}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      if (line?.digits) window.open(`https://wa.me/${line.digits}`, '_blank')
-                                    }}
-                                    title={t('Open WhatsApp')}
-                                  >
-                                    <FaWhatsapp size={12} className="text-[#25D366]" />
-                                    <span dir="ltr">{line.display || maskPhoneNumber(lead.phone, lead.phone_country || lead.phoneCountry)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                            <div className="mt-0.5 flex flex-col gap-1">
+                              {getPhoneLines(lead.phone || lead.mobile || '', {
+                                showFull: !maskMobileNumber,
+                                defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode,
+                              }).map((line, idx) => (
+                                <div
+                                  key={idx}
+                                  className={`font-normal ${isLight ? 'text-black' : 'text-white'} hover:text-[#25D366] cursor-pointer transition-colors duration-200 flex items-center gap-1`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (line?.digits) window.open(`https://wa.me/${line.digits}`, '_blank')
+                                  }}
+                                  title={t('Open WhatsApp')}
+                                >
+                                  <FaWhatsapp size={12} className="text-[#25D366]" />
+                                  <span dir="ltr">{line.display || maskPhoneNumber(lead.phone, lead.phone_country || lead.phoneCountry)}</span>
+                                </div>
+                              ))}
+                            </div>
                           </td>
                         );
 
@@ -3192,10 +3422,15 @@ if (!s) {
                                   </button>
                                 </div>
                               )}
-                              {canPerformActions && crmSettings?.showMobileNumber !== false && (
+                              {canPerformActions && (
                                 <button
                                   title={t('Call')}
-                                  onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`tel:${digits}`); }}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    const raw = lead.phone || lead.mobile || ''
+                                    const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                                    if (digits) window.open(`tel:${digits}`)
+                                  }}
                                   className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"
                                 >
                                   <FaPhone size={16} />
@@ -3566,7 +3801,8 @@ if (!s) {
           getStageStyle={getStageStyle}
           getPriorityColor={getPriorityColor}
           allowConvertToCustomer={crmSettings?.allowConvertToCustomers !== false}
-          showMobileNumberAllowed={crmSettings?.showMobileNumber !== false}
+          maskMobileNumber={maskMobileNumber}
+          defaultDialCode={defaultDialCode}
           onAction={(action) => {
             setShowTooltip(false)
             switch (action) {
@@ -3586,12 +3822,18 @@ if (!s) {
                  handleCompareLead(hoveredLead)
                  break
               case 'call':
-                if (crmSettings?.showMobileNumber === false) return
-                window.open(`tel:${hoveredLead.phone}`)
+                {
+                  const raw = hoveredLead.phone || hoveredLead.mobile || ''
+                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  if (digits) window.open(`tel:${digits}`)
+                }
                 break
               case 'whatsapp':
-                if (crmSettings?.showMobileNumber === false) return
-                window.open(`https://wa.me/${String(hoveredLead.phone || '').replace(/[^0-9]/g, '')}`)
+                {
+                  const raw = hoveredLead.phone || hoveredLead.mobile || ''
+                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  if (digits) window.open(`https://wa.me/${digits}`)
+                }
                 break
               case 'email':
                 window.open(`mailto:${hoveredLead.email}`)

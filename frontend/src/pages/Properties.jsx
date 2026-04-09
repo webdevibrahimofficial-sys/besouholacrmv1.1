@@ -1092,9 +1092,9 @@ export default function Properties() {
               {showExportMenu && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                  <div className="absolute top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 w-full sm:w-32 overflow-hidden ltr:right-0 rtl:left-0">
+                  <div className="absolute top-full mt-1 card border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 w-full sm:w-32 overflow-hidden ltr:right-0 rtl:left-0">
                     <button
-                      className="w-full text-black text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      className={`w-full ${isLight ? 'text-black' : 'text-white'} text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors`}
                       onClick={() => {
                         exportCSV()
                         setShowExportMenu(false)
@@ -1103,7 +1103,7 @@ export default function Properties() {
                       CSV
                     </button>
                     <button
-                      className="w-full text-black text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      className={`w-full ${isLight ? 'text-black' : 'text-white'} text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors`}
                       onClick={() => {
                         exportPDF()
                         setShowExportMenu(false)

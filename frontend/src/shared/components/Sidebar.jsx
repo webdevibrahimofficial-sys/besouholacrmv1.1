@@ -1652,7 +1652,6 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                   <span className={`${iconContainer} ${iconTone}`}>{getIcon('Customers')}</span>
                   <span className="link-label">{t('Customers')}</span>
                 </span>
-                <span className="ml-auto nova-badge link-label">12</span>
                 <span className={`link-label ${isLight ? 'text-theme-text' : 'text-gray-400'} transition-transform`} style={{ transform: customersOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
                     <path d="M6 9l6 6 6-6" />

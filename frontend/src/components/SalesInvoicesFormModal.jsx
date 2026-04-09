@@ -47,15 +47,18 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
               label: c.name
           })))
 
-          if (itemsRes.data?.data) {
-            const mappedItems = itemsRes.data.data.map(item => ({
-               id: item.id,
-               name: item.name,
-               price: item.price || 0,
-               type: 'Product',
-               category: item.category
-            }))
+          const itemsData = itemsRes.data?.data || itemsRes.data || []
+          if (Array.isArray(itemsData)) {
+            const mappedItems = itemsData.map(item => ({
+              id: item.id,
+              name: item.name || item.title || item.code || '',
+              price: Number(item.price || item.unit_price || 0),
+              type: item.type || 'Product',
+              category: item.category?.name || item.category_name || item.category || '',
+            })).filter(i => i.name)
             setProducts(mappedItems)
+          } else {
+            setProducts([])
           }
 
           const oData = oRes.data.data || oRes.data || []
@@ -131,15 +134,25 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
 
   const [isManual, setIsManual] = useState(false)
   const [isNewCustomer, setIsNewCustomer] = useState(false)
+  const [advanceSummary, setAdvanceSummary] = useState({ available: 0, used: 0, remaining: 0 })
+  const [advanceSummaryLoading, setAdvanceSummaryLoading] = useState(false)
+  const [hasUserEditedAdvance, setHasUserEditedAdvance] = useState(false)
+  const [lastAutoAdvanceApplied, setLastAutoAdvanceApplied] = useState(null)
+  const [advanceHint, setAdvanceHint] = useState('')
+  const [advanceAutoHint, setAdvanceAutoHint] = useState('')
+  const [advanceClampHint, setAdvanceClampHint] = useState('')
+  const [lastNonAdvanceTax, setLastNonAdvanceTax] = useState(null)
+  const [lastNonAdvanceDiscountRate, setLastNonAdvanceDiscountRate] = useState(null)
   
   useEffect(() => {
     if (initialData) {
       setFormData({
         ...initialData,
+        id: initialData.id || initialData.invoice_number || initialData.invoiceNumber || `INV-${Math.floor(Math.random() * 10000)}`,
         orderId: initialData.orderId || '',
         date: initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         dueDate: initialData.dueDate ? new Date(initialData.dueDate).toISOString().split('T')[0] : '',
-        items: initialData.items || [],
+        items: initialData.__prefill ? [] : (initialData.items || []),
         tax: initialData.tax || 0,
         paidAmount: initialData.paidAmount || 0,
         advanceAppliedAmount: initialData.advanceAppliedAmount || initialData.advance_applied_amount || 0,
@@ -153,7 +166,6 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
         markAsReceived: false,
         status: initialData.status || 'Draft'
       })
-      // If no order ID, assume manual
       setIsManual(!initialData.orderId)
     } else {
       setFormData({
@@ -181,7 +193,72 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
     }
     setIsNewCustomer(false)
     setErrors({})
+    setHasUserEditedAdvance(false)
+    setLastAutoAdvanceApplied(null)
+    setAdvanceHint('')
+    setAdvanceAutoHint('')
+    setAdvanceClampHint('')
+    setLastNonAdvanceTax(null)
+    setLastNonAdvanceDiscountRate(null)
   }, [initialData, isOpen])
+
+  useEffect(() => {
+    const loadAdvanceSummary = async () => {
+      if (!isOpen) return
+      if (isManual) return
+      if (!formData.orderId) return
+
+      setAdvanceSummaryLoading(true)
+      try {
+        const res = await api.get(`/api/sales-orders/${encodeURIComponent(formData.orderId)}/advance-summary`)
+        const available = Number(res?.data?.available_advance ?? 0)
+        const used = Number(res?.data?.used_advance ?? 0)
+        const remaining = Number(res?.data?.remaining_advance ?? Math.max(0, available - used))
+        setAdvanceSummary({
+          available: Number.isFinite(available) ? available : 0,
+          used: Number.isFinite(used) ? used : 0,
+          remaining: Number.isFinite(remaining) ? remaining : 0
+        })
+      } catch {
+        setAdvanceSummary({ available: 0, used: 0, remaining: 0 })
+      } finally {
+        setAdvanceSummaryLoading(false)
+      }
+    }
+    loadAdvanceSummary()
+  }, [isOpen, isManual, formData.orderId])
+
+  useEffect(() => {
+    if (!isOpen || isManual) return
+    if (!formData.orderId) return
+
+    const exists = availableOrders.some(o => String(o.id) === String(formData.orderId))
+    if (exists) return
+
+    const load = async () => {
+      try {
+        const res = await api.get(`/api/sales-orders/${formData.orderId}`)
+        const o = res?.data
+        if (!o) return
+
+        const mapped = {
+          ...o,
+          label: o.uuid || o.id,
+          customerCode: o.customer_code || o.customerCode,
+          customerName: o.customer_name || o.customerName,
+          salesPerson: o.sales_person || o.salesPerson,
+        }
+
+        setAvailableOrders(prev => {
+          if (prev.some(x => String(x.id) === String(mapped.id))) return prev
+          return [mapped, ...prev]
+        })
+      } catch {
+      }
+    }
+
+    load()
+  }, [isOpen, isManual, formData.orderId, availableOrders])
 
   const [paymentTermsOptions, setPaymentTermsOptions] = useState([
     { value: 'Immediate', label: isRTL ? 'فوري' : 'Immediate' },
@@ -202,6 +279,38 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
   }, [salesPersons, formData.salesPerson])
 
   // Calculations
+  const isPrefill = !!initialData?.__prefill
+  const isEditMode = !!initialData && !isPrefill
+
+  const getItemKey = (item) => {
+    const id = item?.item_id ?? item?.itemId ?? item?.id
+    if (id !== undefined && id !== null && String(id).trim() !== '') return `id:${String(id)}`
+    const name = String(item?.name ?? '').trim()
+    return name ? `name:${name}` : null
+  }
+
+  const getInvoicedQtyByKey = (orderId) => {
+    const map = new Map()
+    const oid = String(orderId ?? '')
+
+    invoices
+      .filter(inv => String(inv?.orderId ?? inv?.order_id ?? '') === oid)
+      .filter(inv => String(inv?.status ?? '').toLowerCase() !== 'cancelled')
+      .filter(inv => String(inv?.invoiceType ?? inv?.invoice_type ?? '').toLowerCase() !== 'advance')
+      .forEach(inv => {
+        const invItems = Array.isArray(inv?.items) ? inv.items : []
+        invItems.forEach(it => {
+          const key = getItemKey(it)
+          if (!key) return
+          const qty = parseFloat(it?.quantity) || 0
+          if (qty <= 0) return
+          map.set(key, (map.get(key) || 0) + qty)
+        })
+      })
+
+    return map
+  }
+
   const calculateSubtotal = () => {
     return formData.items.reduce((sum, item) => {
       const qty = parseFloat(item.quantity) || 0
@@ -215,7 +324,13 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
   const globalDiscountAmount = subtotal * (formData.discountRate || 0)
   const taxAmount = parseFloat(formData.tax) || 0
   const total = subtotal - globalDiscountAmount + taxAmount
-  const balanceDue = total - (parseFloat(formData.paidAmount) || 0) - (parseFloat(formData.advanceAppliedAmount) || 0)
+  const advanceApplied = parseFloat(formData.advanceAppliedAmount) || 0
+  const balanceDue = total - (parseFloat(formData.paidAmount) || 0) - advanceApplied
+  const remainingAdvance = Math.max(0, Number(advanceSummary.remaining || 0))
+  const maxAdvanceToApply = Math.max(
+    0,
+    Math.min(remainingAdvance, Math.max(0, total - (parseFloat(formData.paidAmount) || 0)))
+  )
 
   // Helper to calculate items based on Order and Type
   const calculateInvoiceItems = (order, type) => {
@@ -243,11 +358,15 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
       newPaidAmount = 0
     } else if (type === 'Full' || type === 'Partial') {
       // Load items
-      newItems = order.items
+      const invoicedQtyByKey = getInvoicedQtyByKey(order.id)
+      newItems = (Array.isArray(order.items) ? order.items : [])
         .map(item => {
-          const remaining = item.quantity - (item.invoicedQuantity || 0)
+          const key = getItemKey(item)
+          const alreadyInvoiced = key ? (invoicedQtyByKey.get(key) || 0) : (item.invoicedQuantity || 0)
+          const remaining = (parseFloat(item.quantity) || 0) - alreadyInvoiced
           return {
             ...item,
+            invoicedQuantity: alreadyInvoiced,
             quantity: remaining,
             discount: item.discount || 0
           }
@@ -259,6 +378,102 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
     
     return { items: newItems, paidAmount: newPaidAmount }
   }
+
+  // When opening from Sales Orders (prefill), auto-populate items from the linked order
+  // using remaining quantities (prevents server-side 422 for over-invoicing).
+  useEffect(() => {
+    if (!isOpen) return
+    if (!isPrefill) return
+    if (readOnly) return
+    if (isManual) return
+    if (!formData.orderId) return
+    if (formData.items?.length) return
+
+    const order = availableOrders.find(o => String(o.id) === String(formData.orderId))
+    if (!order) return
+
+    const { items: newItems, paidAmount: newPaidAmount } = calculateInvoiceItems(order, formData.invoiceType || 'Partial')
+    setFormData(prev => ({
+      ...prev,
+      items: newItems,
+      paidAmount: newPaidAmount
+    }))
+  }, [isOpen, isPrefill, readOnly, isManual, formData.orderId, formData.invoiceType, availableOrders, invoices])
+
+  // Stage 1.5: semi-auto suggest/apply advance for create; clamp for edit.
+  useEffect(() => {
+    if (!isOpen) return
+    if (readOnly) return
+    if (isManual) return
+    if (!formData.orderId) return
+    if (!(formData.invoiceType === 'Full' || formData.invoiceType === 'Partial')) return
+
+    // Always compute the current suggestion for UX display.
+    const suggestion = maxAdvanceToApply
+    if (suggestion > 0) {
+      setAdvanceHint(
+        isRTL
+          ? `مقترح: ${Number(suggestion).toLocaleString()}`
+          : `Suggested: ${Number(suggestion).toLocaleString()}`
+      )
+    } else {
+      setAdvanceHint('')
+    }
+
+    // Edit mode: never overwrite, only clamp if out of bounds.
+    if (isEditMode) {
+      const current = parseFloat(formData.advanceAppliedAmount) || 0
+      if (current > suggestion + 0.0001) {
+        setFormData(prev => {
+          const prevVal = parseFloat(prev.advanceAppliedAmount) || 0
+          if (prevVal <= suggestion + 0.0001) return prev
+          return { ...prev, advanceAppliedAmount: suggestion }
+        })
+        setAdvanceAutoHint('')
+        setAdvanceClampHint(
+          isRTL
+            ? 'تم تقليص المبلغ ليتوافق مع الحد المسموح'
+            : 'Adjusted to the maximum allowed amount'
+        )
+      } else {
+        setAdvanceClampHint('')
+      }
+      return
+    }
+
+    // Create mode: apply suggestion once (and keep in sync) until user edits the field.
+    if (hasUserEditedAdvance) return
+
+    const current = parseFloat(formData.advanceAppliedAmount) || 0
+    if (lastAutoAdvanceApplied === null) {
+      setFormData(prev => ({ ...prev, advanceAppliedAmount: suggestion }))
+      setLastAutoAdvanceApplied(suggestion)
+      setAdvanceAutoHint(
+        suggestion > 0
+          ? (isRTL ? 'تم تطبيق أقصى مقدم متاح تلقائياً' : 'Auto-applied maximum available advance')
+          : ''
+      )
+      setAdvanceClampHint('')
+      return
+    }
+
+    if (Math.abs(current - lastAutoAdvanceApplied) <= 0.0001) {
+      setFormData(prev => ({ ...prev, advanceAppliedAmount: suggestion }))
+      setLastAutoAdvanceApplied(suggestion)
+    }
+  }, [
+    isOpen,
+    readOnly,
+    isManual,
+    formData.orderId,
+    formData.invoiceType,
+    formData.advanceAppliedAmount,
+    maxAdvanceToApply,
+    hasUserEditedAdvance,
+    lastAutoAdvanceApplied,
+    isEditMode,
+    isRTL,
+  ])
 
   // Handle Invoice Type Change Logic
   const handleInvoiceTypeChange = (type) => {
@@ -272,13 +487,40 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
 
     const { items: newItems, paidAmount: newPaidAmount } = calculateInvoiceItems(order, type)
 
-    setFormData(prev => ({
-      ...prev,
-      invoiceType: type,
-      items: newItems,
-      paidAmount: newPaidAmount,
-      markAsReceived: type === 'Advance' ? prev.markAsReceived : false
-    }))
+    if (type === 'Advance') {
+      setLastNonAdvanceTax(formData.tax)
+      setLastNonAdvanceDiscountRate(formData.discountRate)
+    }
+
+    setFormData(prev => {
+      const next = {
+        ...prev,
+        invoiceType: type,
+        items: newItems,
+        paidAmount: newPaidAmount,
+        advanceAppliedAmount: type === 'Advance' ? 0 : prev.advanceAppliedAmount,
+        markAsReceived: type === 'Advance' ? prev.markAsReceived : false
+      }
+
+      if (type === 'Advance') {
+        next.tax = 0
+        next.discountRate = 0
+      } else if (prev.invoiceType === 'Advance') {
+        // Restore last known non-advance values when leaving Advance
+        if (lastNonAdvanceTax !== null) next.tax = lastNonAdvanceTax
+        if (lastNonAdvanceDiscountRate !== null) next.discountRate = lastNonAdvanceDiscountRate
+      }
+
+      return next
+    })
+
+    if (type === 'Advance') {
+      setHasUserEditedAdvance(false)
+      setLastAutoAdvanceApplied(null)
+      setAdvanceHint('')
+      setAdvanceAutoHint('')
+      setAdvanceClampHint('')
+    }
   }
 
   if (!isOpen) return null
@@ -418,7 +660,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
             <FaFileInvoiceDollar className="text-blue-600" />
             {readOnly 
               ? (isRTL ? 'عرض تفاصيل الفاتورة' : 'View Invoice Details')
-              : initialData 
+              : initialData && !isPrefill
                 ? (isRTL ? 'تعديل فاتورة مبيعات' : 'Edit Sales Invoice') 
                 : (isRTL ? 'إضافة فاتورة مبيعات' : 'Add Sales Invoice')}
           </h2>
@@ -444,6 +686,11 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                     checked={!isManual} 
                     onChange={() => {
                         setIsManual(false)
+                        setHasUserEditedAdvance(false)
+                        setLastAutoAdvanceApplied(null)
+                        setAdvanceHint('')
+                        setAdvanceAutoHint('')
+                        setAdvanceClampHint('')
                         setFormData(prev => ({ ...prev, orderId: '', items: [] }))
                     }} 
                     className="radio radio-primary  radio-sm" 
@@ -457,6 +704,11 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                     checked={isManual} 
                     onChange={() => {
                         setIsManual(true)
+                        setHasUserEditedAdvance(false)
+                        setLastAutoAdvanceApplied(null)
+                        setAdvanceHint('')
+                        setAdvanceAutoHint('')
+                        setAdvanceClampHint('')
                         setFormData(prev => ({ ...prev, orderId: '', items: [] }))
                     }} 
                     className="radio radio-primary radio-sm" 
@@ -556,6 +808,11 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                       onChange={e => {
                         const selectedOId = e.target.value;
                         const order = availableOrders.find(o => String(o.id) === String(selectedOId));
+                        setHasUserEditedAdvance(false)
+                        setLastAutoAdvanceApplied(null)
+                        setAdvanceHint('')
+                        setAdvanceAutoHint('')
+                        setAdvanceClampHint('')
                         
                         if (order) {
                           const { items: newItems, paidAmount: newPaidAmount } = calculateInvoiceItems(order, 'Partial')
@@ -583,7 +840,10 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                           : (isRTL ? 'يرجى اختيار العميل أولاً' : 'Please select customer first')}
                       </option>
                       {availableOrders
-                        .filter(o => o.customerCode === formData.customerCode && ['Confirmed', 'Partially Invoiced', 'In Progress', 'Completed'].includes(o.status))
+                        .filter(o => {
+                          if (String(o.id) === String(formData.orderId)) return true
+                          return o.customerCode === formData.customerCode && ['Confirmed', 'Partially Invoiced', 'In Progress', 'Completed'].includes(o.status)
+                        })
                         .map((o, idx) => (
                         <option key={o.id || idx} value={o.id}>{o.label || o.id} ({o.status})</option>
                       ))}
@@ -741,6 +1001,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                       </td>
                       <td className="px-2 py-2">
                         <SearchableSelect
+                            placement="bottom"
                             options={products
                                 .filter(i => !item.category || i.category === item.category)
                                 .map(i => ({ value: i.name, label: i.name }))
@@ -889,6 +1150,72 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                     </div>
                  </div>
 
+                {/* Advance settlement (only for Full/Partial linked to Order) */}
+                {!readOnly && !isManual && formData.orderId && (formData.invoiceType === 'Full' || formData.invoiceType === 'Partial') && (
+                  <div className="mb-4 space-y-2 pb-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-theme-text">{isRTL ? 'المقدم المتاح' : 'Available Advance'}</span>
+                      <span className="font-medium">
+                        {advanceSummaryLoading ? '…' : Number(advanceSummary.remaining || 0).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs font-medium text-theme-text mb-1 block">
+                          {isRTL ? 'تطبيق المقدم' : 'Apply Advance'}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className={`input input-sm w-full text-end ${errors.paidAmount ? 'border-red-500' : ''}`}
+                          value={formData.advanceAppliedAmount}
+                          onChange={(e) => {
+                            setHasUserEditedAdvance(true)
+                            setLastAutoAdvanceApplied(null)
+                            setAdvanceAutoHint('')
+                            setAdvanceClampHint('')
+                            setFormData({ ...formData, advanceAppliedAmount: e.target.value })
+                          }}
+                          placeholder="0"
+                        />
+                        {(advanceHint || advanceAutoHint || advanceClampHint) && (
+                          <div className="mt-1 space-y-0.5">
+                            {!!advanceHint && (
+                              <div className="text-[11px] text-theme-text opacity-80">{advanceHint}</div>
+                            )}
+                            {!!advanceAutoHint && (
+                              <div className="text-[11px] text-blue-600">{advanceAutoHint}</div>
+                            )}
+                            {!!advanceClampHint && (
+                              <div className="text-[11px] text-orange-600">{advanceClampHint}</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost mt-6"
+                        onClick={() => {
+                          const maxByTotal = Math.max(0, total - (parseFloat(formData.paidAmount) || 0))
+                          const maxByAdvance = Math.max(0, Number(advanceSummary.remaining || 0))
+                          const next = Math.min(maxByTotal, maxByAdvance)
+                          setHasUserEditedAdvance(true)
+                          setLastAutoAdvanceApplied(null)
+                          setAdvanceAutoHint('')
+                          setAdvanceClampHint('')
+                          setFormData(prev => ({ ...prev, advanceAppliedAmount: next }))
+                        }}
+                        disabled={advanceSummaryLoading}
+                        title={isRTL ? 'تطبيق الحد الأقصى' : 'Apply max'}
+                      >
+                        {isRTL ? 'تطبيق الحد الأقصى' : 'Apply Max'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-theme-text">{isRTL ? 'المجموع الفرعي' : 'Subtotal'}</span>
                   <span className="font-medium">{subtotal.toLocaleString()}</span>
@@ -904,7 +1231,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                     step="0.01"
                     className="input input-sm w-24 text-end text-green-600 font-medium"
                     value={globalDiscountAmount ? parseFloat(globalDiscountAmount.toFixed(2)) : 0}
-                    disabled={readOnly || formData.invoiceType === 'Full'}
+                    disabled={readOnly || formData.invoiceType === 'Full' || formData.invoiceType === 'Advance'}
                     onChange={e => {
                        const val = parseFloat(e.target.value);
                        const amount = isNaN(val) ? 0 : val;
@@ -921,6 +1248,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                     min="0"
                     className="input input-sm w-24 text-end"
                     value={formData.tax}
+                    disabled={readOnly || formData.invoiceType === 'Advance'}
                     onChange={e => setFormData({...formData, tax: e.target.value})}
                   />
                 </div>
@@ -931,17 +1259,28 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                   <span className="text-theme-text">{isRTL ? 'الإجمالي' : 'Total'}</span>
                   <span className="text-blue-600">{total.toLocaleString()}</span>
                 </div>
+
+                <div className="flex justify-between items-center text-sm mt-2">
+                  <span className="text-theme-text">{isRTL ? 'مقدم مطبق' : 'Advance Applied'}</span>
+                  <span className="font-medium text-amber-600">{(advanceApplied || 0).toLocaleString()}</span>
+                </div>
                 
                  <div className="flex justify-between items-center text-sm mt-2">
                   <span className="text-theme-text">{isRTL ? 'المبلغ المدفوع' : 'Paid Amount'}</span>
                   <input
                     type="number"
                     min="0"
-                    className={`input input-sm w-24 text-end ${errors.paidAmount ? 'border-red-500' : ''}`}
+                    className={`input input-sm w-24 text-end opacity-80 cursor-not-allowed ${errors.paidAmount ? 'border-red-500' : ''}`}
                     value={formData.paidAmount}
-                    onChange={e => setFormData({...formData, paidAmount: e.target.value})}
+                    readOnly
+                    disabled
                   />
                 </div>
+                {!readOnly && (
+                  <p className="text-[11px] text-theme-text opacity-70 text-end">
+                    {isRTL ? 'ÙŠØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…Ù† Ù†Ø§ÙØ°Ø© Ø§Ù„ØªØ­ØµÙŠÙ„ ÙÙ‚Ø·.' : 'Payments are recorded via the Payment modal only.'}
+                  </p>
+                )}
                 {errors.paidAmount && <p className="text-xs text-red-500 text-end mt-1">{errors.paidAmount}</p>}
                 
                  <div className="flex justify-between items-center text-sm text-red-500 font-medium">

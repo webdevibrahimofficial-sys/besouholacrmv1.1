@@ -13,6 +13,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
   const [formData, setFormData] = useState({
     id: '',
     quotationId: '',
+    customerId: '',
     customerCode: '',
     customerName: '',
     status: 'Draft',
@@ -70,15 +71,18 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
              setCategories([])
         }
 
-        if (itemsRes.data?.data) {
-          const mappedItems = itemsRes.data.data.map(item => ({
-             id: item.id,
-             name: item.name,
-             price: item.price || 0,
-             type: 'Product',
-             category: item.category
-          }))
+        const itemsData = itemsRes.data?.data || itemsRes.data || []
+        if (Array.isArray(itemsData)) {
+          const mappedItems = itemsData.map(item => ({
+            id: item.id,
+            name: item.name || item.title || item.code || '',
+            price: Number(item.price || item.unit_price || 0),
+            type: item.type || 'Product',
+            category: item.category?.name || item.category_name || item.category || '',
+          })).filter(i => i.name)
           setProducts(mappedItems)
+        } else {
+          setProducts([])
         }
 
         const qData = quotationsRes.data.data || quotationsRes.data || []
@@ -125,6 +129,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
         ...initialData,
         id: initialData.id || '',
         quotationId: initialData.quotationId || '',
+        customerId: initialData.customerId || initialData.customer_id || '',
         customerCode: initialData.customerCode || '',
         customerName: initialData.customerName || '',
         status: initialData.status || 'Draft',
@@ -142,6 +147,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
       setFormData({
         id: `SO-${Math.floor(Math.random() * 10000)}`, // Auto-generate ID for new
         quotationId: '',
+        customerId: '',
         customerCode: '',
         customerName: '',
         status: 'Draft',
@@ -325,11 +331,11 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
               <div className="relative">
                 <FaUser className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                 <SearchableSelect
-                  options={customers.map(c => ({ value: c.id || c.code, label: `${(c.id || c.code)} - ${c.name}` }))}
+                  options={customers.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
                   value={formData.customerCode}
                   onChange={val => {
                     const selectedCode = val;
-                    const customer = customers.find(c => (c.id || c.code) === selectedCode);
+                    const customer = customers.find(c => c.code === selectedCode);
                     
                     // Find sales person name if assignedSalesRep is an ID
                     let salesPersonName = customer?.assignedSalesRep || formData.salesPerson;
@@ -340,6 +346,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
 
                     setFormData({
                       ...formData,
+                      customerId: customer?.id || '',
                       customerCode: selectedCode,
                       customerName: customer ? customer.name : '',
                       salesPerson: salesPersonName,
@@ -383,7 +390,8 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                       setFormData(prev => ({
                         ...prev,
                         quotationId: selectedQId,
-                        customerCode: qData.customerCode || qData.customer_id || prev.customerCode,
+                        customerId: qData.customerId || qData.customer_id || prev.customerId,
+                        customerCode: qData.customer_code || qData.customerCode || prev.customerCode,
                         customerName: qData.customerName || qData.customer_name || prev.customerName,
                         salesPerson: qData.salesPerson || qData.sales_person || prev.salesPerson,
                         items: items.map(item => ({
@@ -408,7 +416,8 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                         applyQuotation({
                           ...data,
                           items: data.items || [],
-                          customerCode: data.customer?.customer_code || data.customer_code || data.customer_id,
+                          customer_id: data.customer_id,
+                          customer_code: data.customer?.customer_code || data.customer_code,
                           customerName: data.customer_name,
                           salesPerson: data.sales_person_name || data.sales_person
                         });
@@ -593,6 +602,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                       </td>
                       <td className="px-2 py-2">
                         <SearchableSelect
+                          placement="bottom"
                           options={products
                             .filter(i => !item.category || i.category === item.category)
                             .map(i => ({ value: i.name, label: i.name }))
@@ -731,6 +741,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                     <div className="col-span-2">
                       <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'اسم البند' : 'Item Name'}</label>
                       <SearchableSelect
+                          placement="bottom"
                           options={products
                             .filter(i => !item.category || i.category === item.category)
                             .map(i => ({ value: i.name, label: i.name }))

@@ -97,6 +97,7 @@ class QuotationController extends Controller
             'date' => 'nullable|date',
             'valid_until' => 'nullable|date',
             'subtotal' => 'nullable|numeric',
+            'tax' => 'nullable|numeric',
             'total' => 'nullable|numeric',
             'items' => 'nullable|array',
             'notes' => 'nullable|string',

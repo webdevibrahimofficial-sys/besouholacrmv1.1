@@ -1004,6 +1004,13 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         }
       }
 
+      // If user selected meeting as next action and didn't choose a meeting status,
+      // default to 'scheduled' to avoid backend validation/normalization edge cases.
+      if ((cleanedData.nextAction === 'meeting' || cleanedData.actionType === 'meeting') && !String(cleanedData.meeting_status || '').trim()) {
+        cleanedData.meeting_status = 'scheduled';
+        cleanedData.doneMeeting = false;
+      }
+
       // Construct description from various sources
       let finalDescription = cleanedData.notes || cleanedData.description || cleanedData.title || '';
       if (cleanedData.reservationNotes) {
@@ -1012,7 +1019,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
       const payload = {
         lead_id: lead.id,
-        type: cleanedData.type,
+        type: cleanedData.type || 'comment',
         status: cleanedData.status,
         date: cleanedData.date,
         time: cleanedData.time,
@@ -1028,6 +1035,31 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       const isMeetingPayload = payload.type === 'meeting' || payload.next_action_type === 'meeting' || cleanedData.nextAction === 'meeting';
       const meetingStatus = String(cleanedData.meeting_status || '').toLowerCase().trim();
       const isFinalMeetingStatus = meetingStatus === 'done' || meetingStatus === 'no_show';
+
+      if (isMeetingPayload && meetingStatus === 'scheduled') {
+        try {
+          const existingRes = await api.get('/api/lead-actions', {
+            params: { lead_id: lead.id, type: 'meeting', limit: 500 },
+          });
+          const existing = Array.isArray(existingRes.data) ? existingRes.data : (existingRes.data?.data || []);
+          const open = existing
+            .filter(a => (a?.action_type === 'meeting' || a?.next_action_type === 'meeting'))
+            .filter(a => String(a?.details?.meeting_status || '').toLowerCase().trim() === 'scheduled')
+            .sort((a, b) => (Number(b?.id || 0) - Number(a?.id || 0)))[0];
+
+          if (open?.id) {
+            const d = String(open?.details?.date || '').trim();
+            const t = String(open?.details?.time || '').trim();
+            const when = `${d}${t ? ` ${String(t).slice(0, 5)}` : ''}`.trim();
+            toast('error', isArabic
+              ? `يوجد اجتماع مفتوح بالفعل (Scheduled). أغلقه (Done/Missed) أو عدّل موعده أولاً.${when ? ` موعده: ${when}` : ''}`
+              : `There is already an open (Scheduled) meeting. Close it (Done/Missed) or reschedule first.${when ? ` When: ${when}` : ''}`);
+            return;
+          }
+        } catch (e) {
+        }
+      }
+
       if (isMeetingPayload && isFinalMeetingStatus) {
         try {
           const existingRes = await api.get('/api/lead-actions', {
@@ -1077,10 +1109,23 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       onClose();
     } catch (error) {
       console.error('Failed to save action:', error);
-      const msg =
+      let msg =
         error?.response?.data?.message ||
         (error?.response?.data?.errors ? JSON.stringify(error.response.data.errors) : null) ||
         (isArabic ? 'فشل حفظ الأكشن' : 'Failed to save action');
+
+      // Make common meeting errors clearer to users
+      const rawMsg = String(msg || '').toLowerCase();
+      if (rawMsg.includes('open') && rawMsg.includes('meeting')) {
+        msg = isArabic
+          ? 'هناك اجتماع مفتوح بالفعل (Scheduled) لهذه الليد. أغلق الاجتماع الحالي (Done/Missed) أو عدّل موعده قبل ترتيب اجتماع جديد.'
+          : 'There is already an open (Scheduled) meeting for this lead. Close it (Done/Missed) or reschedule before arranging a new one.';
+      }
+      if (rawMsg.includes('only the lead owner')) {
+        msg = isArabic
+          ? 'مسموح فقط لصاحب الليد بتنفيذ الأكشن. لو محتاج، قم بإسناد الليد لك أولًا.'
+          : 'Only the lead owner can perform this action. Assign the lead to yourself first if needed.';
+      }
       toast('error', msg);
     } finally {
       setIsSubmitting(false);

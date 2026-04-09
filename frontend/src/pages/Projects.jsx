@@ -894,7 +894,25 @@ export default function Projects() {
 
   // Derive allCities from DB instead of strictly from projects
   const allCities = useMemo(() => {
-    return Array.from(new Set(dbCities.map(c => isRTL ? (c.name_ar || c.name_en) : c.name_en))).sort()
+    const normalize = (v) => String(v || '').trim()
+    const displayName = (c) => {
+      const en = normalize(c?.name_en || c?.nameEn)
+      const ar = normalize(c?.name_ar || c?.nameAr)
+      return isRTL ? (ar || en) : (en || ar)
+    }
+
+    const seen = new Set()
+    const out = []
+    for (const c of dbCities || []) {
+      const name = displayName(c)
+      if (!name) continue
+      const k = name.toLowerCase()
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(name)
+    }
+
+    return out.sort((a, b) => String(a).localeCompare(String(b)))
   }, [dbCities, isRTL])
 
   // Get unique cities from actual projects for summary filter
@@ -1065,9 +1083,9 @@ export default function Projects() {
               {showExportMenu && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                  <div className="absolute top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 w-full sm:w-32 overflow-hidden ltr:right-0 rtl:left-0">
+                  <div className="absolute top-full mt-1 card border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 w-full sm:w-32 overflow-hidden ltr:right-0 rtl:left-0">
                     <button
-                      className="w-full text-black text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      className={`w-full ${isLight ? 'text-black' : 'text-white'} text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors`}
                       onClick={() => {
                         exportProjectsCsv()
                         setShowExportMenu(false)
@@ -1076,7 +1094,7 @@ export default function Projects() {
                       CSV
                     </button>
                     <button
-                      className="w-full text-black text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      className={`w-full ${isLight ? 'text-black' : 'text-white'} text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors`}
                       onClick={() => {
                         exportProjectsPdf(filtered)
                         setShowExportMenu(false)
@@ -1239,7 +1257,7 @@ export default function Projects() {
 
       {/* Summary row (full width) */}
       <div className="mt-4 relative z-10">
-        <SummaryPanel projects={filtered} allCities={projectCities} isRTL={isRTL} onFilterStatus={(s) => setFilters(prev => ({ ...prev, status: s === 'All' ? '' : s }))} onFilterCity={(c) => setFilters(prev => ({ ...prev, city: c === 'All' ? '' : c }))} />
+        <SummaryPanel projects={filtered} allCities={allCities} isRTL={isRTL} onFilterStatus={(s) => setFilters(prev => ({ ...prev, status: s === 'All' ? '' : s }))} onFilterCity={(c) => setFilters(prev => ({ ...prev, city: c === 'All' ? '' : c }))} />
       </div>
 
       {/* Projects list: two per row */}

@@ -393,7 +393,7 @@ export default function LandingPages() {
         {/* Table Container */}
         <div className="card backdrop-blur-md border border-white/50 dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden mb-4">
           <div className="p-4 border-b border-white/20 dark:border-gray-700/50 flex items-center justify-between">
-             <h2 className="text-lg font-bold dark:text-white">
+             <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'} `}>
                 {isRTL ? 'قائمة صفحات الهبوط' : 'Landing Pages List'}
              </h2>
           </div>
@@ -458,8 +458,8 @@ export default function LandingPages() {
 
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase bg-white/5 dark:bg-white/5 dark:text-white">
-                <tr>
+              <thead className={`text-xs uppercase ${isLight ? 'bg-white/5' : 'bg-gray-700/50'} `}>
+                <tr className={` ${isLight ? 'text-black' : 'text-white'}`}>
                   <th className="px-4 py-3 border-b border-white/10 dark:border-gray-700/50">{t('Title')}</th>
                   <th className="px-4 py-3 border-b border-white/10 dark:border-gray-700/50">{t('Source')}</th>
                   <th className="px-4 py-3 border-b border-white/10 dark:border-gray-700/50">{t('Linked Campaign')}</th>

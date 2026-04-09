@@ -391,7 +391,7 @@ export default function RealEstateRequestsPage() {
                         <span className="text-white">{isRTL ? 'تصدير' : 'Export'}</span>
                        </button>
                        {showExportMenu && (
-                         <div className="absolute w-full right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden">
+                         <div className="absolute w-full right-0 mt-1 w-48 card rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden">
                            <button onClick={exportRealEstateRequestsCsv} className="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm flex items-center gap-2">
                              <span className="text-green-600 font-bold">CSV</span> Export as CSV
                            </button>

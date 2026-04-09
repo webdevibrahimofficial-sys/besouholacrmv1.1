@@ -439,6 +439,59 @@ class LeadController extends Controller
         }
     }
 
+    public function bulkRemoveReferral(Request $request)
+    {
+        $request->validate([
+            'lead_ids' => 'required|array',
+            'lead_ids.*' => 'exists:leads,id',
+        ]);
+
+        $currentUser = $request->user();
+        $roleLower = strtolower((string) ($currentUser->role ?? ''));
+        $canManage = $currentUser->is_super_admin ||
+            in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager', 'sales admin', 'branch manager','team leader'], true);
+
+        if (!$canManage) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        DB::beginTransaction();
+        try {
+            $leads = Lead::whereIn('id', $request->lead_ids)->lockForUpdate()->get(['id', 'tenant_id', 'assigned_to']);
+
+            foreach ($leads as $lead) {
+                if ($lead->tenant_id !== $currentUser->tenant_id) {
+                    DB::rollBack();
+                    return response()->json(['message' => 'Unauthorized tenant access.'], 403);
+                }
+            }
+
+            $removed = 0;
+            foreach ($leads as $lead) {
+                $q = LeadReferral::query()
+                    ->where('tenant_id', $currentUser->tenant_id)
+                    ->where('lead_id', $lead->id);
+
+                if (!empty($lead->assigned_to)) {
+                    $q->where('user_id', '!=', (int) $lead->assigned_to);
+                }
+
+                $removed += (int) $q->delete();
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Referral removed',
+                'removed' => $removed,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            \Illuminate\Support\Facades\Log::error('Bulk Remove Referral Error: ' . $e->getMessage());
+            return response()->json(['message' => 'Server Error', 'error' => $e->getMessage()], 500);
+        }
+    }
+
     /**
      * Get eligible referral supervisors for a list of leads.
      */
@@ -450,9 +503,22 @@ class LeadController extends Controller
         ]);
 
         $user = $request->user();
+
+        // Referral assignees should be Sales Persons only (same tenant).
+        // We infer this from either the stored job_title or the Spatie role name.
         $query = User::where('tenant_id', $user->tenant_id)
-                     ->where('id', '!=', $user->id); // Can't refer to self? Or maybe yes? Prompt doesn't say. 
-                     // Usually supervisor is someone else.
+            ->where('id', '!=', $user->id)
+            ->where(function ($q) {
+                $q->whereRaw("LOWER(COALESCE(job_title,'')) LIKE '%sales%'")
+                    ->orWhereHas('roles', function ($rq) {
+                        $rq->whereRaw("LOWER(name) LIKE '%sales%'");
+                    });
+            })
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhere('status', '')
+                    ->orWhereRaw("LOWER(status) = 'active'");
+            });
 
         /*
         if ($request->has('lead_ids') && !empty($request->lead_ids)) {
@@ -2397,20 +2463,20 @@ class LeadController extends Controller
             }
             
             $now = \Carbon\Carbon::now(config('app.timezone'));
+            $eligibleStatuses = ['scheduled', 'Scheduled', 'pending', 'in_progress', 'in-progress', 'in progress'];
 
-            $query->whereHas('actions', function ($q) {
-                $q->whereIn('details->status', ['pending', 'in_progress', 'in-progress', 'in progress'])
+            $query->whereHas('actions', function ($q) use ($eligibleStatuses) {
+                $q->whereIn('details->status', $eligibleStatuses)
                   ->whereNotIn('action_type', ['closing_deals', 'cancel'])
                   ->whereNotIn('next_action_type', ['closing_deals', 'cancel'])
                   ->whereNotNull('details->date')
                   ->where('details->date', '!=', '');
             });
-            
-            // Eager load actions and the assigned agent relationship
+
             $query->with([
                 'assignedAgent:id,name',
-                'actions' => function ($q) {
-                    $q->whereIn('details->status', ['pending', 'in_progress', 'in-progress', 'in progress'])
+                'actions' => function ($q) use ($eligibleStatuses) {
+                    $q->whereIn('details->status', $eligibleStatuses)
                       ->whereNotIn('action_type', ['closing_deals', 'cancel'])
                       ->whereNotIn('next_action_type', ['closing_deals', 'cancel'])
                       ->whereNotNull('details->date')
@@ -2425,22 +2491,10 @@ class LeadController extends Controller
             $perPage = (int) $request->get('per_page', 20);
             $page = max(1, (int) $request->get('page', 1));
 
-            $stageDelay = \App\Models\Stage::withoutGlobalScope('tenant')
-                ->where(function ($q) use ($user) {
-                    $q->whereNull('tenant_id')->orWhere('tenant_id', $user->tenant_id);
-                })
-                ->pluck('delay_time', 'name')
-                ->toArray();
-
             $candidates = $query->limit(2000)->get();
             $filtered = [];
 
             foreach ($candidates as $lead) {
-                $delayHours = (int) ($stageDelay[(string) $lead->stage] ?? 0);
-                if ($delayHours <= 0) {
-                    continue;
-                }
-
                 $latest = $lead->actions->first();
                 if (!$latest) {
                     continue;
@@ -2466,7 +2520,7 @@ class LeadController extends Controller
                     }
                 }
 
-                if ($now->greaterThanOrEqualTo($scheduled->copy()->addHours($delayHours))) {
+                if ($now->greaterThanOrEqualTo($scheduled->copy()->addMinute())) {
                     $filtered[] = $lead;
                 }
             }

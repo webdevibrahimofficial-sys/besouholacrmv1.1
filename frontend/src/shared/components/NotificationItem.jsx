@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { useAppState } from '@shared/context/AppStateProvider'
+import { formatCrmDateTime } from '@shared/utils/crmDateTime'
 
 const typeIcon = (type) => {
   const common = { className: 'w-5 h-5' }
@@ -52,21 +54,9 @@ const typeIcon = (type) => {
   }
 }
 
-const timeAgo = (ts) => {
-  try {
-    const diff = Date.now() - Number(ts || 0)
-    const m = Math.floor(diff / 60000)
-    if (m < 1) return 'now'
-    if (m < 60) return `${m}m`
-    const h = Math.floor(m / 60)
-    if (h < 24) return `${h}h`
-    const d = Math.floor(h / 24)
-    return `${d}d`
-  } catch { return '' }
-}
-
 export default function NotificationItem({ data, onToggleRead, onArchive, onUnarchive, onClick }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { crmSettings } = useAppState()
   const [open, setOpen] = useState(false)
 
   const tone = useMemo(() => {
@@ -111,7 +101,7 @@ export default function NotificationItem({ data, onToggleRead, onArchive, onUnar
                 )}
               </div>
               <p className="text-xs sm:text-sm opacity-80 truncate group-hover:opacity-100 mt-0.5">{data?.body || ''}</p>
-              <div className="text-xs opacity-60 mt-0.5">{timeAgo(data?.createdAt)} • {t(data?.source) || data?.source}</div>
+              <div className="text-xs opacity-60 mt-0.5" dir="ltr">{formatCrmDateTime(data?.createdAt, { crmSettings, language: i18n.language })} • {t(data?.source) || data?.source}</div>
             </Link>
           ) : (
             <>
@@ -126,7 +116,7 @@ export default function NotificationItem({ data, onToggleRead, onArchive, onUnar
                 )}
               </div>
               <p className="text-xs sm:text-sm opacity-80 truncate mt-0.5">{data?.body || ''}</p>
-              <div className="text-xs opacity-60 mt-0.5">{timeAgo(data?.createdAt)} • {t(data?.source) || data?.source}</div>
+              <div className="text-xs opacity-60 mt-0.5" dir="ltr">{formatCrmDateTime(data?.createdAt, { crmSettings, language: i18n.language })} • {t(data?.source) || data?.source}</div>
             </>
           )}
         </div>

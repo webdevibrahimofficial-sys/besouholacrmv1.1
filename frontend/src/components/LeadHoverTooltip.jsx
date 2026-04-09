@@ -1,8 +1,9 @@
 import { FaEye, FaPhone, FaWhatsapp, FaEnvelope, FaVideo, FaTrash, FaUserPlus, FaExchangeAlt } from 'react-icons/fa'
+import { formatPhoneForDisplay } from '@shared/utils/phoneDisplay'
 
-const LeadHoverTooltip = ({ lead, position, onAction, isRtl, onMouseEnter, onMouseLeave, innerRef, getStageStyle, getPriorityColor, allowConvertToCustomer, showMobileNumberAllowed, hideDuplicateCompare = false }) => {
+const LeadHoverTooltip = ({ lead, position, onAction, isRtl, onMouseEnter, onMouseLeave, innerRef, getStageStyle, getPriorityColor, allowConvertToCustomer, maskMobileNumber = true, defaultDialCode = '+20', hideDuplicateCompare = false }) => {
   const isDuplicate = String(lead?.stage || lead?.status || '').toLowerCase().includes('duplicate');
-  const allowMobile = showMobileNumberAllowed !== false;
+  const allowMobile = true;
   const allowConvert = allowConvertToCustomer !== false;
 
   const nonDuplicateBaseActions = [
@@ -57,8 +58,13 @@ const LeadHoverTooltip = ({ lead, position, onAction, isRtl, onMouseEnter, onMou
           <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
             {lead?.name || lead?.leadName || ''}
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-            {lead?.email || (allowMobile ? (lead?.phone || lead?.mobile || '') : '')}
+          <div className="text-xs text-gray-500 dark:text-gray-400 truncate" dir="ltr">
+            {(() => {
+              const email = String(lead?.email || '').trim()
+              const phone = formatPhoneForDisplay(lead?.phone || lead?.mobile || '', { showFull: !maskMobileNumber, defaultCountryCode: lead?.phone_country || lead?.phoneCountry || defaultDialCode })
+              if (email && phone) return `${email} · ${phone}`
+              return email || phone || ''
+            })()}
           </div>
           
           <div className="flex flex-wrap gap-1 mt-2">

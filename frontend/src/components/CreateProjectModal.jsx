@@ -1515,13 +1515,13 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
 
       {/* Modal Shell */}
       <div
-        className="relative z-[210] bg-white dark:!bg-slate-950 rounded-2xl w-[900px] max-w-full h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 shadow-2xl overflow-hidden"
+        className="relative z-[210] card rounded-2xl w-[900px] max-w-full h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 shadow-2xl overflow-hidden"
         style={{ background: 'var(--panel-bg)' }}
         dir={inputLanguage === 'ar' ? 'rtl' : 'ltr'}
       >
 
         {/* Header & Progress Bar */}
-        <div className="bg-blue-50 dark:!bg-slate-900 border-b border-gray-200 dark:!border-slate-700 pt-1 px-2 pb-5 md:pt-2 md:px-3 md:pb-6"
+        <div className=" border-b border-gray-200 dark:!border-slate-700 pt-1 px-2 pb-5 md:pt-2 md:px-3 md:pb-6"
           style={{ background: 'var(--panel-bg)' }}>
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-4">
@@ -1597,7 +1597,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
 
         {/* Footer Actions */}
         <div
-          className="p-2 dark:bg-slate-900/70 backdrop-blur-md border-t border-blue-200 dark:border-slate-800 flex items-center justify-between"
+          className="p-2  backdrop-blur-md border-t border-blue-200 dark:border-slate-800 flex items-center justify-between"
           dir={inputLanguage === 'ar' ? 'rtl' : 'ltr'}
         >
           {currentStep > 1 && (

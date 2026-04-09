@@ -492,21 +492,21 @@ export default function Marketing() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
                   {costRevenueData.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-gray-700/50 dark:hover:bg-gray-800/50 transition-colors">
+                    <tr key={idx} className="hover:bg-gray-800/50 transition-colors">
                       <td className="px-3 py-3 font-medium flex items-center gap-2 dark:text-white">
                         {row.channel === 'Facebook' && <FaFacebook className="text-blue-600" />}
                         {row.channel === 'WhatsApp' && <FaWhatsapp className="text-green-500" />}
                         {row.channel === 'Google' && <FaGoogle className="text-red-500" />}
                         {row.channel}
                       </td>
-                      <td className="px-3 py-3 font-mono dark:text-gray-300">{row.spend}</td>
-                      <td className="px-3 py-3 font-mono dark:text-gray-300">{row.revenue}</td>
-                      <td className="px-3 py-3 text-green-600 font-semibold">{row.roi}</td>
+                      <td className={`px-3 py-3 font-mono ${isLight ? 'text-black' : 'text-white'} `}>{row.spend}</td>
+                      <td className={`px-3 py-3 font-mono ${isLight ? 'text-black' : 'text-white'} `}>{row.revenue}</td>
+                      <td className={`px-3 py-3 font-semibold ${isLight ? 'text-black' : 'text-white'} `}>{row.roi}</td>
                       <td className={`px-3 py-3 font-semibold ${row.profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                         {row.profit}
                       </td>
-                      <td className="px-3 py-3 text-[var(--muted-text)]">{row.spendPct}</td>
-                      <td className="px-3 py-3 text-[var(--muted-text)]">{row.revenuePct}</td>
+                      <td className={`px-3 py-3 ${isLight ? 'text-black' : 'text-white'} `}>{row.spendPct}</td>
+                      <td className={`px-3 py-3 ${isLight ? 'text-black' : 'text-white'} `}>{row.revenuePct}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -611,7 +611,7 @@ export default function Marketing() {
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
               {monthlyOverviewData.map((row, idx) => (
-                <tr key={idx} className="hover:bg-gray-700/50 dark:hover:bg-gray-800/50 transition-colors">
+                <tr key={idx} className="hover:bg-gray-800/50 transition-colors">
                   <td className="px-4 py-3 font-medium dark:text-gray-300">{row.month}</td>
                   <td className="px-4 py-3 font-semibold text-primary">{row.campaign}</td>
                   <td className="px-4 py-3">
@@ -622,11 +622,11 @@ export default function Marketing() {
                       {row.channel}
                     </span>
                   </td>
-                  <td className="px-4 py-3 dark:text-gray-300">{row.spend}</td>
-                  <td className="px-4 py-3 dark:text-gray-300">{row.revenue}</td>
-                  <td className="px-4 py-3 dark:text-gray-300">{row.leads}</td>
-                  <td className="px-4 py-3 dark:text-gray-300">{row.cpl}</td>
-                  <td className="px-4 py-3 dark:text-gray-300">{row.cpa}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} `}>{row.spend}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} `}>{row.revenue}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} `}>{row.leads}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} `}>{row.cpl}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} `}>{row.cpa}</td>
                 </tr>
               ))}
             </tbody>

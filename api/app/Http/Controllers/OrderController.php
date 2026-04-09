@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\CrmSetting;
+use App\Models\SalesInvoice;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class OrderController extends Controller
 {
@@ -44,7 +47,7 @@ class OrderController extends Controller
             }
         }
 
-        if ($request->has('search')) {
+        if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
                 $q->where('id', 'like', "%{$search}%")
@@ -55,7 +58,7 @@ class OrderController extends Controller
             });
         }
 
-        if ($request->has('status')) {
+        if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
 
@@ -161,5 +164,107 @@ class OrderController extends Controller
     {
         $order->delete();
         return response()->noContent();
+    }
+
+    public function attachmentsIndex(Order $order)
+    {
+        $meta = is_array($order->meta_data) ? $order->meta_data : [];
+        $attachments = $meta['attachments'] ?? [];
+        return response()->json(array_values($attachments));
+    }
+
+    public function attachmentsStore(Request $request, Order $order)
+    {
+        $request->validate([
+            'files' => 'required|array',
+            'files.*' => 'file|max:10240',
+        ]);
+
+        $meta = is_array($order->meta_data) ? $order->meta_data : [];
+        $attachments = is_array($meta['attachments'] ?? null) ? $meta['attachments'] : [];
+
+        foreach ($request->file('files', []) as $file) {
+            $id = (string) Str::uuid();
+            $original = $file->getClientOriginalName();
+            $ext = $file->getClientOriginalExtension();
+            $safeBase = pathinfo($original, PATHINFO_FILENAME);
+            $safeBase = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $safeBase) ?: 'file';
+            $filename = $safeBase . '_' . $id . ($ext ? ('.' . $ext) : '');
+
+            $path = $file->storeAs(
+                "tenants/{$order->tenant_id}/orders/{$order->id}/attachments",
+                $filename,
+                'public'
+            );
+
+            $attachments[] = [
+                'id' => $id,
+                'name' => $original,
+                'path' => $path,
+                'url' => asset('storage/' . ltrim($path, '/')),
+                'size' => $file->getSize(),
+                'mime' => $file->getMimeType(),
+                'created_at' => now()->toISOString(),
+            ];
+        }
+
+        $meta['attachments'] = $attachments;
+        $order->meta_data = $meta;
+        $order->save();
+
+        return response()->json(array_values($attachments));
+    }
+
+    public function attachmentsDestroy(Order $order, string $attachmentId)
+    {
+        $meta = is_array($order->meta_data) ? $order->meta_data : [];
+        $attachments = is_array($meta['attachments'] ?? null) ? $meta['attachments'] : [];
+
+        $kept = [];
+        $deletedPath = null;
+        foreach ($attachments as $att) {
+            if ((string)($att['id'] ?? '') === (string)$attachmentId) {
+                $deletedPath = $att['path'] ?? null;
+                continue;
+            }
+            $kept[] = $att;
+        }
+
+        if ($deletedPath) {
+            try {
+                Storage::disk('public')->delete($deletedPath);
+            } catch (\Throwable $e) {
+            }
+        }
+
+        $meta['attachments'] = $kept;
+        $order->meta_data = $meta;
+        $order->save();
+
+        return response()->noContent();
+    }
+
+    public function advanceSummary(Order $order)
+    {
+        $orderId = (int) $order->id;
+
+        $availableAdvance = (float) SalesInvoice::where('order_id', $orderId)
+            ->where('status', '!=', 'Cancelled')
+            ->whereRaw("LOWER(COALESCE(invoice_type,'')) = 'advance'")
+            ->sum('paid_amount');
+
+        $usedAdvance = (float) SalesInvoice::where('order_id', $orderId)
+            ->where('status', '!=', 'Cancelled')
+            ->whereRaw("LOWER(COALESCE(invoice_type,'')) != 'advance'")
+            ->sum('advance_applied_amount');
+
+        $remaining = max(0, $availableAdvance - $usedAdvance);
+
+        return response()->json([
+            'order_id' => $orderId,
+            'available_advance' => $availableAdvance,
+            'used_advance' => $usedAdvance,
+            'remaining_advance' => $remaining,
+        ]);
     }
 }

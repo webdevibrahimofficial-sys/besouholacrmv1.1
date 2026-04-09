@@ -1,13 +1,37 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReactToPrint } from 'react-to-print'
 import { FaDownload, FaTimes, FaFileExcel, FaUser, FaPaperclip, FaPrint, FaFilePdf, FaFileImage } from 'react-icons/fa'
+import { useAppState } from '@shared/context/AppStateProvider'
 
 const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
+  const { company } = useAppState()
   const printRef = useRef()
   const [showAttachments, setShowAttachments] = useState(false)
+
+  const companyInfo = useMemo(() => {
+    const tenant = company || {}
+    const profile = tenant.profile || {}
+    const name = String(tenant.name || tenant.company_name || '').trim()
+    const description = String(profile.description || '').trim()
+    const logoUrl = String(profile.logo_url || tenant.logo_url || '').trim()
+    const phone = String(profile.phone || tenant.phone || '').trim()
+    const email = String(tenant?.meta_data?.email || tenant.email || '').trim()
+    const taxId = String(profile.tax_id || tenant.tax_id || '').trim()
+
+    const address1 = String(tenant.address_line_1 || '').trim()
+    const address2 = String(tenant.address_line_2 || '').trim()
+    const city = String(tenant.city || '').trim()
+    const state = String(tenant.state || '').trim()
+    const country = String(tenant.country || '').trim()
+
+    const addrLines = [address1, address2].filter(Boolean)
+    const cityLine = [city, state, country].filter(Boolean).join(', ')
+
+    return { name, description, logoUrl, phone, email, taxId, addrLines, cityLine }
+  }, [company])
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -93,15 +117,15 @@ const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
             </button>
             <button 
               onClick={onClose}
-              className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            >
-              <FaTimes size={20} />
+              className="p-2 bg-gray-100 text-gray-700 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >x
+           
             </button>
           </div>
         </div>
        
         {/* Scrollable Preview Area */}
-        <div className="flex-1 overflow-auto bg-gray-100 dark:bg-gray-950 p-6 print:p-0 print:bg-white print:overflow-visible relative">
+        <div className="flex-1 overflow-auto bg-gray-100 dark:bg-gray-950 p-3 sm:p-6 print:p-0 print:bg-white print:overflow-visible relative">
           
           {/* Attachments Overlay */}
           {showAttachments && (
@@ -142,7 +166,7 @@ const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
                   <div className="p-4 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-200 dark:border-gray-700 text-center">
                     <button 
                       onClick={() => setShowAttachments(false)}
-                      className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+                      className="px-4 py-2 text-red rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
                     >
                       {isRTL ? 'إغلاق' : 'Close'}
                     </button>
@@ -152,31 +176,38 @@ const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
           )}
 
           {/* Print Content Container (A4 Visual) */}
-          <div ref={printRef} className="print-page bg-white text-black mx-auto shadow-lg max-w-[210mm] min-h-[297mm] p-12 print:shadow-none print:mx-0 print:w-full print:max-w-none relative flex flex-col">
+          <div ref={printRef} className="print-page bg-white text-black mx-auto shadow-lg max-w-[210mm] min-h-[297mm] p-4 sm:p-8 md:p-12 print:shadow-none print:mx-0 print:w-full print:max-w-none relative flex flex-col">
             
             {/* 1. Header Section */}
-            <div className="flex justify-between border-b-2 border-black pb-6 mb-8">
+            <div className="flex flex-wrap sm:flex-row sm:justify-between gap-6 border-b-2 border-black pb-6 mb-8">
               <div className="flex-1">
-                 {/* Logo Area */}
                  <div className="flex items-center gap-4 mb-4">
-                    <div className="w-16 h-16 bg-gray-200 flex items-center justify-center text-xs font-bold border border-black text-black">
-                      LOGO
+                    <div className="w-16 h-16 bg-gray-200 border border-black flex items-center justify-center text-xs font-bold text-black overflow-hidden">
+                      {companyInfo.logoUrl ? (
+                        <img src={companyInfo.logoUrl} alt={companyInfo.name || 'Logo'} className="w-full h-full object-contain" />
+                      ) : (
+                        'LOGO'
+                      )}
                     </div>
                     <div>
-                      <h2 className="text-2xl font-bold uppercase tracking-wide text-black">Your Company</h2>
-                      <p className="text-sm text-gray-800">Innovative Solutions Co.</p>
+                      <h2 className="text-2xl font-bold uppercase tracking-wide text-black">{companyInfo.name || (isRTL ? 'الشركة' : 'Company')}</h2>
+                      {companyInfo.description ? (
+                        <p className="text-sm text-gray-800">{companyInfo.description}</p>
+                      ) : null}
                     </div>
                  </div>
                  <div className="text-sm space-y-1 text-gray-800">
-                   <p>123 Business Avenue, Tech District</p>
-                   <p>Cairo, Egypt, 11511</p>
-                   <p>Phone: +20 123 456 7890</p>
-                   <p>Email: sales@yourcompany.com</p>
-                   <p>Tax ID: 123-456-789</p>
+                   {companyInfo.addrLines.map((line, idx) => (
+                     <p key={idx}>{line}</p>
+                   ))}
+                   {companyInfo.cityLine ? <p>{companyInfo.cityLine}</p> : null}
+                   {companyInfo.phone ? <p>{isRTL ? 'هاتف:' : 'Phone:'} {companyInfo.phone}</p> : null}
+                   {companyInfo.email ? <p>{isRTL ? 'البريد:' : 'Email:'} {companyInfo.email}</p> : null}
+                   {companyInfo.taxId ? <p>{isRTL ? 'الرقم الضريبي:' : 'Tax ID:'} {companyInfo.taxId}</p> : null}
                  </div>
               </div>
 
-              <div className="w-64">
+              <div className="w-full sm:w-64 sm:shrink-0">
                 <div className="border border-black p-4 bg-gray-50 print:bg-transparent">
                   <h3 className="text-lg font-bold border-b border-black mb-2 pb-1 text-center bg-gray-200 print:bg-transparent text-black">
                     {isRTL ? 'عرض سعر' : 'QUOTATION'}
@@ -204,7 +235,7 @@ const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
             </div>
 
             {/* 2. Bill To / Ship To Grid */}
-            <div className="grid grid-cols-2 gap-8 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 mb-8">
               <div className="border border-black p-4">
                  <h3 className="font-bold border-b border-black mb-3 pb-1 bg-gray-100 print:bg-transparent px-2 text-black">
                    {isRTL ? 'بيانات العميل' : 'Bill To'}
@@ -231,18 +262,18 @@ const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
             </div>
 
             {/* 3. Items Table */}
-            <div className="mb-8">
-              <table className="w-full text-sm border-collapse border border-black">
+            <div className="mb-8 overflow-x-auto print:overflow-visible">
+              <table className="w-full min-w-[720px] print:min-w-0 text-xs sm:text-sm border-collapse border border-black">
                 <thead>
                   <tr className="bg-gray-100 print:bg-gray-100">
-                    <th className="border border-black px-3 py-2 text-center w-12 text-black">#</th>
-                    <th className="border border-black px-3 py-2 text-left rtl:text-right text-black">{isRTL ? 'اسم العنصر' : 'Item Name'}</th>
-                    <th className="border border-black px-3 py-2 text-center w-24 text-black">{isRTL ? 'النوع' : 'Type'}</th>
-                    <th className="border border-black px-3 py-2 text-center w-24 text-black">{isRTL ? 'الفئة' : 'Category'}</th>
-                    <th className="border border-black px-3 py-2 text-center w-16 text-black">{isRTL ? 'الكمية' : 'Qty'}</th>
-                    <th className="border border-black px-3 py-2 text-right w-24 text-black">{isRTL ? 'السعر' : 'Price'}</th>
-                    <th className="border border-black px-3 py-2 text-right w-20 text-black">{isRTL ? 'الخصم' : 'Discount'}</th>
-                    <th className="border border-black px-3 py-2 text-right w-24 text-black">{isRTL ? 'الإجمالي' : 'Total'}</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-12 whitespace-nowrap text-black">#</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-left rtl:text-right min-w-[180px] whitespace-nowrap text-black">{isRTL ? 'اسم العنصر' : 'Item Name'}</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-24 whitespace-nowrap text-black">{isRTL ? 'النوع' : 'Type'}</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-24 whitespace-nowrap text-black">{isRTL ? 'الفئة' : 'Category'}</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-16 whitespace-nowrap text-black">{isRTL ? 'الكمية' : 'Qty'}</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-28 whitespace-nowrap text-black">{isRTL ? 'السعر' : 'Price'}</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-24 whitespace-nowrap text-black">{isRTL ? 'الخصم' : 'Discount'}</th>
+                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-28 whitespace-nowrap text-black">{isRTL ? 'الإجمالي' : 'Total'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -255,14 +286,14 @@ const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
                       
                       return (
                         <tr key={index} className="print:bg-transparent">
-                          <td className="border border-black px-3 py-2 text-center text-black">{index + 1}</td>
-                          <td className="border border-black px-3 py-2 text-black font-bold">{item.name}</td>
-                          <td className="border border-black px-3 py-2 text-center text-black">{item.type || '-'}</td>
-                          <td className="border border-black px-3 py-2 text-center text-black">{item.category || '-'}</td>
-                          <td className="border border-black px-3 py-2 text-center text-black">{qty}</td>
-                          <td className="border border-black px-3 py-2 text-right text-black">{price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className="border border-black px-3 py-2 text-right text-black">{discount > 0 ? discount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
-                          <td className="border border-black px-3 py-2 text-right font-bold text-black">{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{index + 1}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-black font-bold">{item.name}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{item.type || '-'}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{item.category || '-'}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{qty}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap text-black">{price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap text-black">{discount > 0 ? discount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
+                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap font-bold text-black">{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                         </tr>
                       )
                     })
@@ -294,7 +325,14 @@ const QuotationPreviewModal = ({ isOpen, onClose, quotation }) => {
                      </div>
                      <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
                         <span className="font-medium">{isRTL ? 'الضريبة' : 'Tax'} (14%)</span>
-                        <span>{Number(quotation.tax || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>{(() => {
+                          const subtotal = Number(quotation.subtotal || 0)
+                          const total = Number(quotation.total || 0)
+                          const stored = Number(quotation.tax || 0)
+                          const computed = Math.max(0, total - subtotal)
+                          const display = stored > 0 ? stored : computed
+                          return display.toLocaleString(undefined, { minimumFractionDigits: 2 })
+                        })()}</span>
                      </div>
                      <div className="flex justify-between px-4 py-2 bg-gray-200 print:bg-gray-200 text-base font-bold text-black">
                         <span>{isRTL ? 'الإجمالي' : 'Total'}</span>

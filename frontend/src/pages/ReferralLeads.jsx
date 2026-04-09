@@ -24,6 +24,8 @@ import * as LucideIcons from 'lucide-react'
 import { useDynamicFields } from '../hooks/useDynamicFields'
 import { countriesData } from '../data/countriesData'
 import { getLeadPermissionFlags } from '../services/leadPermissions'
+import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay'
+import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 
 export const ReferralLeads = () => {
   const { t, i18n } = useTranslation()
@@ -36,6 +38,8 @@ export const ReferralLeads = () => {
   const { stages, statuses } = useStages()
   const { fields: dynamicFields } = useDynamicFields('leads')
   const isRtl = String(i18n.language || '').startsWith('ar')
+  const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
+  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode])
 
   const { data: usersData } = useQuery({
     queryKey: ['users'],
@@ -50,16 +54,7 @@ export const ReferralLeads = () => {
     }
   }, [usersData])
 
-  const maskPhoneNumber = (phone) => {
-    if (!phone) return '';
-    const str = String(phone);
-    if (str.length < 5) return str;
-    // Show first 3 digits, mask the rest until the last 2 digits or similar
-    // User requested "hidden with asterisk"
-    // Assuming format 010******* or similar
-    // Let's keep first 3 digits visible and replace rest with *
-    return str.slice(0, 3) + '*'.repeat(Math.max(0, str.length - 3));
-  };
+  const displayPhone = (value, phoneCountry) => formatPhoneForDisplay(value, { showFull: !maskMobileNumber, defaultCountryCode: phoneCountry || defaultDialCode })
 
   const userRole = (user?.role || '').toLowerCase();
   const isSalesPerson =
@@ -128,6 +123,14 @@ export const ReferralLeads = () => {
     isTenantAdmin ||
     controlModulePerms.includes('assignLeads');
   const canUseBulkMultiActions = canUseBulkActions;
+
+  const toast = (type, message) => {
+    try {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type, message } }))
+    } catch {
+      alert(message)
+    }
+  }
 
   const MEET_ICON_URL = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'><rect x='2' y='4' width='12' height='16' rx='3' fill='%23ffffff'/><rect x='2' y='4' width='12' height='4' rx='2' fill='%234285F4'/><rect x='2' y='4' width='4' height='16' rx='2' fill='%2334A853'/><rect x='10' y='4' width='4' height='16' rx='2' fill='%23FBBC05'/><rect x='2' y='16' width='12' height='4' rx='2' fill='%23EA4335'/><polygon points='14,9 22,5 22,19 14,15' fill='%2334A853'/></svg>"
   
@@ -1233,6 +1236,27 @@ export const ReferralLeads = () => {
     }
   }
 
+  const applyBulkRemoveReferral = async () => {
+    if (!selectedLeads || selectedLeads.length === 0) return
+    const ok = window.confirm(
+      isRtl
+        ? `هل تريد إزالة الإحالة من ${selectedLeads.length} ليد؟`
+        : `Remove referral from ${selectedLeads.length} leads?`
+    )
+    if (!ok) return
+
+    try {
+      await api.post('/api/leads/bulk-remove-referral', { lead_ids: selectedLeads })
+      toast('success', isRtl ? 'تمت إزالة الإحالة' : 'Referral removed')
+      setSelectedLeads([])
+      fetchLeads()
+    } catch (error) {
+      console.error('Bulk remove referral failed', error)
+      const msg = error?.response?.data?.message || (isRtl ? 'فشل إزالة الإحالة' : 'Failed to remove referral')
+      toast('error', msg)
+    }
+  }
+
   const applyBulkStatus = async () => {
     const status = bulkStatus?.trim()
     if (!status) {
@@ -1798,6 +1822,12 @@ export const ReferralLeads = () => {
                 </div>
               )}
 
+              {canUseBulkActions && (
+                <button onClick={applyBulkRemoveReferral} className="btn btn-sm bg-orange-600 hover:bg-orange-700 text-white border-none">
+                  {t('Remove Referral')}
+                </button>
+              )}
+
               {canUseBulkMultiActions && (
                 <>
                   {crmSettings?.allowConvertToCustomers !== false && (
@@ -1981,21 +2011,19 @@ export const ReferralLeads = () => {
                         return (
                           <td key="contact" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                             <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} `}>{lead.email}</div>
-                            {crmSettings?.showMobileNumber !== false && (
-                              <div 
-                                className={`font-normal ${isLight ? 'text-black' : 'text-white'}  hover:text-[#25D366] cursor-pointer transition-colors duration-200 flex items-center gap-1`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const raw = lead.phone || lead.mobile || '';
-                                  const digits = String(raw).replace(/[^0-9]/g, '');
-                                  if (digits) window.open(`https://wa.me/${digits}`, '_blank');
-                                }}
-                                title={t('Open WhatsApp')}
-                              >
-                                <FaWhatsapp size={12} className="text-[#25D366]" />
-                                <span dir="ltr">{maskPhoneNumber(lead.phone)}</span>
-                              </div>
-                            )}
+                            <div
+                              className={`font-normal ${isLight ? 'text-black' : 'text-white'} hover:text-[#25D366] cursor-pointer transition-colors duration-200 flex items-center gap-1`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const raw = lead.phone || lead.mobile || ''
+                                const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                                if (digits) window.open(`https://wa.me/${digits}`, '_blank')
+                              }}
+                              title={t('Open WhatsApp')}
+                            >
+                              <FaWhatsapp size={12} className="text-[#25D366]" />
+                              <span dir="ltr">{displayPhone(lead.phone || lead.mobile || '', lead.phone_country || lead.phoneCountry)}</span>
+                            </div>
                           </td>
                         );
 
@@ -2019,15 +2047,18 @@ export const ReferralLeads = () => {
                                   <FaPlus size={16} className={`${theme === 'light' ? 'text-gray-700' : 'text-emerald-300'}`} />
                                 </button>
                               )}
-                              {crmSettings?.showMobileNumber !== false && (
-                                <button
-                                  title={t('Call')}
-                                  onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`tel:${digits}`); }}
-                                  className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"
-                                >
-                                  <FaPhone size={16} />
-                                </button>
-                              )}
+                              <button
+                                title={t('Call')}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const raw = lead.phone || lead.mobile || ''
+                                  const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                                  if (digits) window.open(`tel:${digits}`)
+                                }}
+                                className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"
+                              >
+                                <FaPhone size={16} />
+                              </button>
 
                               <button
                                 title={t('Email')}
@@ -2246,7 +2277,8 @@ export const ReferralLeads = () => {
           getStageStyle={getStageStyle}
           getPriorityColor={getPriorityColor}
           allowConvertToCustomer={crmSettings?.allowConvertToCustomers !== false}
-          showMobileNumberAllowed={crmSettings?.showMobileNumber !== false}
+          maskMobileNumber={maskMobileNumber}
+          defaultDialCode={defaultDialCode}
           hideDuplicateCompare
           onAction={(action) => {
             setShowTooltip(false)
@@ -2269,12 +2301,18 @@ export const ReferralLeads = () => {
                  handleCompareLead(hoveredLead)
                  break
               case 'call':
-                if (crmSettings?.showMobileNumber === false) return
-                window.open(`tel:${hoveredLead.phone}`)
+                {
+                  const raw = hoveredLead.phone || hoveredLead.mobile || ''
+                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  if (digits) window.open(`tel:${digits}`)
+                }
                 break
               case 'whatsapp':
-                if (crmSettings?.showMobileNumber === false) return
-                window.open(`https://wa.me/${String(hoveredLead.phone || '').replace(/[^0-9]/g, '')}`)
+                {
+                  const raw = hoveredLead.phone || hoveredLead.mobile || ''
+                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  if (digits) window.open(`https://wa.me/${digits}`)
+                }
                 break
               case 'email':
                 window.open(`mailto:${hoveredLead.email}`)

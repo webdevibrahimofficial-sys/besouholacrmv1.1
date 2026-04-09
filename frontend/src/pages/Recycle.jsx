@@ -16,12 +16,17 @@ import EnhancedLeadDetailsModal from '../components/EnhancedLeadDetailsModal'
 import LeadModal from '../components/LeadModal'
 import AddActionModal from '../components/AddActionModal'
 import ImportLeadsModal from '../components/ImportLeadsModal'
+import LeadHoverTooltip from '../components/LeadHoverTooltip'
+import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay'
+import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 
 export const Recycle = () => {
   const { t, i18n } = useTranslation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const { user, company, crmSettings } = useAppState()
+  const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
+  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode])
   const navigate = useNavigate()
   const { stages, statuses } = useStages()
   const isRtl = String(i18n.language || '').startsWith('ar')
@@ -1892,9 +1897,9 @@ export const Recycle = () => {
                 {visibleColumns.contact && (
                   <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
                     <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{lead.email}</div>
-                    {crmSettings?.showMobileNumber !== false && (
-                      <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{lead.phone}</div>
-                    )}
+                    <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} dark:text-white`} dir="ltr">
+                      {formatPhoneForDisplay(lead.phone || lead.mobile || '', { showFull: !maskMobileNumber, defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })}
+                    </div>
                   </td>
                 )}
 
@@ -1923,24 +1928,32 @@ export const Recycle = () => {
                         >
                           <FaPlus size={16} className={`${theme === 'light' ? 'text-gray-700' : 'text-emerald-300'}`} />
                         </button>
-                      {crmSettings?.showMobileNumber !== false && (
                         <>
                           <button
                             title={t('Call')}
-                            onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`tel:${digits}`); }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const raw = lead.phone || lead.mobile || ''
+                              const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                              if (digits) window.open(`tel:${digits}`)
+                            }}
                             className="inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-500"
                           >
                             <FaPhone size={16} />
                           </button>
                           <button
                             title="WhatsApp"
-                            onClick={(e) => { e.stopPropagation(); const raw = lead.phone || lead.mobile || ''; const digits = String(raw).replace(/[^0-9]/g, ''); if (digits) window.open(`https://wa.me/${digits}`); }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const raw = lead.phone || lead.mobile || ''
+                              const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                              if (digits) window.open(`https://wa.me/${digits}`)
+                            }}
                             className="inline-flex items-center justify-center  dark:text-green-400 hover:text-green-500"
                           >
                             <FaWhatsapp size={16} style={{ color: '#25D366' }} />
                           </button>
                         </>
-                      )}
                         <button
                           title={t('Email')}
                           onClick={(e) => { e.stopPropagation(); if (lead.email) window.open(`mailto:${lead.email}`); }}
@@ -2135,7 +2148,8 @@ export const Recycle = () => {
           position={tooltipPosition}
           theme={theme}
           allowConvertToCustomer={crmSettings?.allowConvertToCustomers !== false}
-          showMobileNumberAllowed={crmSettings?.showMobileNumber !== false}
+          maskMobileNumber={maskMobileNumber}
+          defaultDialCode={defaultDialCode}
           onAction={async (action) => {
             setShowTooltip(false)
             switch (action) {
@@ -2152,12 +2166,18 @@ export const Recycle = () => {
                 setShowAddActionModal(true)
                 break
               case 'call':
-                if (crmSettings?.showMobileNumber === false) return
-                window.open(`tel:${hoveredLead.phone}`)
+                {
+                  const raw = hoveredLead.phone || hoveredLead.mobile || ''
+                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  if (digits) window.open(`tel:${digits}`)
+                }
                 break
               case 'whatsapp':
-                if (crmSettings?.showMobileNumber === false) return
-                window.open(`https://wa.me/${String(hoveredLead.phone || '').replace(/[^0-9]/g, '')}`)
+                {
+                  const raw = hoveredLead.phone || hoveredLead.mobile || ''
+                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  if (digits) window.open(`https://wa.me/${digits}`)
+                }
                 break
               case 'email':
                 window.open(`mailto:${hoveredLead.email}`)

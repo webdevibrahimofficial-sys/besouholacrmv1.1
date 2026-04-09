@@ -5,6 +5,8 @@ import { useAppState } from '@shared/context/AppStateProvider'
 import { api } from '../../utils/api'
 import SearchableSelect from './SearchableSelect'
 import EnhancedLeadDetailsModal from './EnhancedLeadDetailsModal'
+import { formatPhoneForDisplay } from '../utils/phoneDisplay'
+import { getDefaultDialCode, isMobileMaskEnabled } from '../utils/crmPhone'
 
 const getActionType = (action) => {
   const text = (typeof action === 'string' ? action : (action.title || action.type || '')).toLowerCase()
@@ -55,13 +57,9 @@ export default function CalendarWidget({ tone }) {
   const { theme } = useTheme()
   const { crmSettings } = useAppState()
   const _lintKeep = { SearchableSelect, EnhancedLeadDetailsModal }
-  const showFullMobileNumber = crmSettings?.showMobileNumber === true
-  const maskPhoneNumber = (phone) => {
-    if (!phone) return ''
-    const str = String(phone)
-    if (str.length < 5) return str
-    return str.slice(0, 3) + 'X'.repeat(Math.max(0, str.length - 3))
-  }
+  const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
+  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode])
+  const maskPhoneNumber = (phone) => formatPhoneForDisplay(phone, { showFull: !maskMobileNumber, defaultCountryCode: defaultDialCode })
   const effectiveTone = tone || theme || 'light'
   const isLight = effectiveTone === 'light'
   const [today] = useState(new Date())
@@ -879,7 +877,7 @@ export default function CalendarWidget({ tone }) {
                     {selectedAction.description && <div className="opacity-80">{selectedAction.description}</div>}
                     <div className="opacity-75">👤 {selectedAction.leadName || '—'} | 🧑‍💼 {selectedAction.assignedTo || '—'}</div>
                     {selectedAction.location && <div className="opacity-75">📍 {selectedAction.location}</div>}
-                    {selectedAction.leadPhone && <div className="opacity-75" dir="ltr">📞 {showFullMobileNumber ? selectedAction.leadPhone : maskPhoneNumber(selectedAction.leadPhone)}</div>}
+                    {selectedAction.leadPhone && <div className="opacity-75" dir="ltr">📞 {maskMobileNumber ? maskPhoneNumber(selectedAction.leadPhone) : String(selectedAction.leadPhone)}</div>}
                   </>
                 )}
                 <div className="flex items-center gap-2 pt-2">
@@ -911,4 +909,3 @@ export default function CalendarWidget({ tone }) {
     </div>
   )
 }
-

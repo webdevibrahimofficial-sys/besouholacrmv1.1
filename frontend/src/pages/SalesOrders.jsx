@@ -5,7 +5,7 @@ import DatePicker from 'react-datepicker'
 import "react-datepicker/dist/react-datepicker.css"
 import { api, logExportEvent } from '../utils/api'
 import { useTheme } from '../shared/context/ThemeProvider'
-import { FaEdit, FaCheck, FaPlay, FaPause, FaBan, FaCheckDouble, FaDownload, FaPlus, FaFileImport, FaEye, FaTrash, FaStickyNote, FaShoppingCart, FaFileInvoiceDollar, FaUndo } from 'react-icons/fa'
+import { FaEdit, FaCheck, FaPlay, FaPause, FaBan, FaCheckDouble, FaDownload, FaPlus, FaFileImport, FaEye, FaTrash, FaStickyNote, FaShoppingCart, FaFileInvoiceDollar, FaUndo, FaEllipsisV } from 'react-icons/fa'
 import { Filter, ChevronDown, Search, User, DollarSign, Calendar } from 'lucide-react'
 import SearchableSelect from '../components/SearchableSelect'
 import SalesOrdersFormModal from '../components/SalesOrdersFormModal'
@@ -79,6 +79,7 @@ export default function SalesOrders() {
   // Lists for tenant-scoped filters
   const [customersList, setCustomersList] = useState([])
   const [usersList, setUsersList] = useState([])
+  const [quotationCodeById, setQuotationCodeById] = useState({})
 
   // Helper for success messages
   const showSuccess = (msg) => {
@@ -87,48 +88,52 @@ export default function SalesOrders() {
   }
 
   const getAvailableActions = (status) => {
-    switch (status) {
-      case 'Draft':
-        return [
-          { type: 'confirm', label: isRTL ? 'تأكيد الطلب' : 'Confirm Order', icon: FaCheck, color: 'text-green-600' },
-          { type: 'edit', label: isRTL ? 'تعديل' : 'Edit Order', icon: FaEdit, color: 'text-blue-600' },
-          { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' }
-        ]
-      case 'Confirmed':
-        return [
-          { type: 'process', label: isRTL ? 'بدء التنفيذ' : 'Start Processing', icon: FaPlay, color: 'text-blue-600' },
-          { type: 'hold', label: isRTL ? 'تعليق' : 'Put On Hold', icon: FaPause, color: 'text-orange-600' },
-          { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' }
-        ]
-      case 'In Progress':
-        return [
-          { type: 'complete', label: isRTL ? 'إكمال الطلب' : 'Complete Order', icon: FaCheckDouble, color: 'text-green-600' },
-          { type: 'hold', label: isRTL ? 'تعليق' : 'Put On Hold', icon: FaPause, color: 'text-orange-600' },
-          { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' }
-        ]
-      case 'On Hold':
-        return [
-          { type: 'resume', label: isRTL ? 'استئناف' : 'Resume', icon: FaPlay, color: 'text-blue-600' }
-        ]
-      case 'Completed':
-      case 'Cancelled':
-      case 'Fully Invoiced':
-      case 'Partially Invoiced':
-      default:
-        return []
+    const s = String(status || '').toLowerCase().trim()
+
+    if (s === 'draft') {
+      return [
+        { type: 'confirm', label: isRTL ? 'تأكيد الطلب' : 'Confirm Order', icon: FaCheck, color: 'text-green-600' },
+        { type: 'edit', label: isRTL ? 'تعديل' : 'Edit Order', icon: FaEdit, color: 'text-blue-600' },
+        { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' },
+      ]
     }
+
+    if (s === 'confirmed') {
+      return [
+        { type: 'process', label: isRTL ? 'بدء التنفيذ' : 'Start Processing', icon: FaPlay, color: 'text-blue-600' },
+        { type: 'hold', label: isRTL ? 'تعليق' : 'Put On Hold', icon: FaPause, color: 'text-orange-600' },
+        { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' },
+      ]
+    }
+
+    if (s === 'in progress' || s === 'in_progress' || s === 'in-progress') {
+      return [
+        { type: 'complete', label: isRTL ? 'إكمال الطلب' : 'Complete Order', icon: FaCheckDouble, color: 'text-green-600' },
+        { type: 'hold', label: isRTL ? 'تعليق' : 'Put On Hold', icon: FaPause, color: 'text-orange-600' },
+        { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' },
+      ]
+    }
+
+    if (s === 'on hold' || s === 'on_hold' || s === 'on-hold') {
+      return [
+        { type: 'resume', label: isRTL ? 'استئناف' : 'Resume', icon: FaPlay, color: 'text-blue-600' },
+      ]
+    }
+
+    return []
   }
 
   const handleCreateInvoice = (order, type) => {
     // 1. Prepare Base Invoice Data
     const baseInvoice = {
+      __prefill: true,
       orderId: order.id,
       customerCode: order.customerCode,
       customerName: order.customerName,
       salesPerson: order.salesPerson,
       currency: 'USD', // Default or from order
-      date: new Date().toISOString(),
-      dueDate: new Date(Date.now() + 30*24*3600*1000).toISOString(), // Default Net 30
+      date: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 30*24*3600*1000).toISOString().split('T')[0], // Default Net 30
       discountRate: order.discountRate || 0,
       tax: order.tax || 0,
       notes: `Invoice for Order #${order.id}`,
@@ -169,7 +174,7 @@ export default function SalesOrders() {
 
     setInvoiceData({
       ...baseInvoice,
-      items: items,
+      items: [],
       invoiceType: type
     })
     setInvoiceType(type)
@@ -179,38 +184,91 @@ export default function SalesOrders() {
 
   const handleSaveInvoice = async (data) => {
     try {
-      const payload = {
-        order_id: data.orderId,
-        customer_code: data.customerCode,
-        customer_name: data.customerName,
-        sales_person: data.salesPerson,
-        invoice_type: data.invoiceType,
-        issue_date: data.date,
-        due_date: data.dueDate,
-        items: data.items,
-        subtotal: data.subtotal,
-        tax: data.tax,
-        discount: data.discountAmount || 0,
-        total: data.total,
-        paid_amount: data.paidAmount,
-        payment_status: (data.total - data.paidAmount) <= 0 ? 'Paid' : (data.paidAmount > 0 ? 'Partial' : 'Unpaid'),
-        currency: 'USD',
-        notes: data.notes,
-        status: data.status || 'Draft'
+      const toNumber = (value, fallback = 0) => {
+        if (typeof value === 'number') return Number.isFinite(value) ? value : fallback
+        const s = String(value ?? '').trim()
+        if (!s) return fallback
+        const normalized = s
+          .replace(/\u066B/g, '.') // Arabic decimal separator
+          .replace(/[,\u066C\u060C\s]/g, '') // thousands separators + spaces
+          .replace(/[^\d.-]/g, '') // strip currency/letters
+        const n = Number(normalized)
+        return Number.isFinite(n) ? n : fallback
       }
 
+      const normalizeDate = (v) => {
+        const s = String(v ?? '').trim()
+        if (!s) return null
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+        if (s.includes('T')) return s.split('T')[0]
+        return s
+      }
+
+      const normalizeInvoiceType = (type) => {
+        const t = String(type || '').toLowerCase().trim()
+        if (t === 'advance') return 'advance'
+        if (t === 'partial') return 'partial'
+        return 'full'
+      }
+
+      const issueDate = normalizeDate(data?.date || data?.issueDate) || new Date().toISOString().split('T')[0]
+      const dueDate = normalizeDate(data?.dueDate) || null
+
+      const rawItems = Array.isArray(data?.items) ? data.items : []
+      const items = rawItems.map((it) => ({
+        ...it,
+        quantity: toNumber(it?.quantity ?? it?.qty ?? 0, 0),
+        price: toNumber(it?.price ?? it?.unit_price ?? it?.unitPrice ?? 0, 0),
+        discount: toNumber(it?.discount ?? 0, 0),
+      }))
+
+      const payload = {
+        customer_id: data?.customerId && !isNaN(data.customerId) ? Number(data.customerId) : null,
+        customer_name: data?.customerName,
+        customer_code: data?.customerCode || null,
+        sales_person: data?.salesPerson || null,
+        order_id: data?.orderId ? Number(data.orderId) : null,
+        invoice_type: normalizeInvoiceType(data?.invoiceType),
+        issue_date: issueDate,
+        due_date: dueDate,
+        items,
+        subtotal: toNumber(data?.subtotal ?? 0, 0),
+        tax: toNumber(data?.tax ?? 0, 0),
+        discount: toNumber(data?.discount ?? data?.discountAmount ?? 0, 0),
+        total: toNumber(data?.total ?? 0, 0),
+        advance_applied_amount: toNumber(data?.advanceAppliedAmount ?? 0, 0),
+        status: data?.status || 'Draft',
+        payment_method: data?.paymentMethod || null,
+        payment_terms: data?.paymentTerms || null,
+        currency: data?.currency || null,
+        notes: data?.notes || null,
+      }
+
+      if (!payload.customer_id) delete payload.customer_id
+
       await api.post('/api/sales-invoices', payload)
-      
-      // Refresh orders to see updated status
+
       await fetchOrders()
 
       setShowInvoiceModal(false)
       setInvoiceData(null)
       setInvoiceType(null)
       showSuccess(isRTL ? 'تم إنشاء الفاتورة بنجاح' : 'Invoice Created Successfully')
-    } catch (error) {
-      console.error('Failed to save invoice:', error)
-      alert(isRTL ? 'فشل إنشاء الفاتورة' : 'Failed to create invoice')
+    } catch (err) {
+      console.error('Failed to save invoice:', {
+        message: err?.message,
+        status: err?.response?.status,
+        data: err?.response?.data,
+      })
+      const msg = err?.response?.data?.message || (isRTL ? 'فشل إنشاء الفاتورة' : 'Failed to create invoice')
+      const errors = err?.response?.data?.errors
+      if (errors && typeof errors === 'object') {
+        const firstKey = Object.keys(errors)[0]
+        const firstMsg = firstKey ? (Array.isArray(errors[firstKey]) ? errors[firstKey][0] : errors[firstKey]) : null
+        alert(firstMsg || msg)
+      } else {
+        alert(msg)
+      }
     }
   }
 
@@ -246,7 +304,8 @@ export default function SalesOrders() {
       type: actionType,
       orderId: order.id,
       nextStatus: nextStatus,
-      currentStatus: order.status
+      currentStatus: order.status,
+      orderSnapshot: order,
     }
 
     if (actionConfig.requireReason) {
@@ -273,8 +332,23 @@ export default function SalesOrders() {
           updates.status = 'Confirmed' 
       }
 
-      await api.put(`/api/sales-orders/${actionData.orderId}`, updates)
+      const res = await api.put(`/api/sales-orders/${actionData.orderId}`, updates)
+      const returnedStatus = res?.data?.status
+      const expected = String(actionData.nextStatus || '').toLowerCase().trim()
+      const actual = String(returnedStatus || '').toLowerCase().trim()
+
+      if (returnedStatus && expected && actual && actual !== expected) {
+        alert(isRTL ? 'تم تنفيذ الطلب لكن لم يتم تغيير الحالة من السيرفر.' : 'Order updated but status did not change on the server.')
+      }
+
       await fetchOrders()
+
+      if (actionData.type === 'confirm') {
+        const orderForInvoice = actionData.orderSnapshot || res?.data || null
+        if (orderForInvoice) {
+          handleCreateInvoice(orderForInvoice, 'Full')
+        }
+      }
 
       showSuccess(isRTL ? 'تم تحديث الحالة بنجاح' : 'Status updated successfully')
       setShowStatusModal(false)
@@ -294,13 +368,13 @@ export default function SalesOrders() {
   const fetchOrders = async () => {
     setLoading(true)
     try {
-      const response = await api.get('/api/sales-orders', {
-        params: {
-          page: currentPage,
-          search: q,
-          status: filters.status
-        }
-      })
+      const params = {
+        page: currentPage,
+      }
+      if (String(q || '').trim()) params.search = String(q).trim()
+      if (String(filters.status || '').trim()) params.status = String(filters.status).trim()
+
+      const response = await api.get('/api/sales-orders', { params })
       
       console.log('Fetch Orders Response:', response.data); // Debugging Log
 
@@ -321,11 +395,11 @@ export default function SalesOrders() {
       const mappedItems = data.map(item => ({
         ...item,
         id: item.id,
-        uuid: item.uuid || `SO-${item.id}`, // Prefer UUID (SO-...) over numeric ID
+        uuid: item.uuid || `SO-${item.id}`,
         customerName: item.customer_name,
         customerCode: item.customer_code,
         salesPerson: item.sales_person,
-        total: parseFloat(item.total) || 0, // Ensure number conversion
+        total: parseFloat(item.total) || 0,
         deliveryDate: item.delivery_date,
         createdBy: item.created_by,
         quotationId: item.quotation_id,
@@ -335,7 +409,8 @@ export default function SalesOrders() {
         cancelReason: item.cancel_reason,
         holdReason: item.hold_reason,
         discountRate: item.discount_rate,
-        status: item.status
+        status: item.status,
+        attachments: Array.isArray(item?.meta_data?.attachments) ? item.meta_data.attachments : [],
       }))
 
       console.log('Mapped Items:', mappedItems); // Debugging Log
@@ -367,6 +442,23 @@ export default function SalesOrders() {
         setUsersList(Array.isArray(uRaw) ? uRaw : [])
       } catch {
         setUsersList([])
+      }
+      try {
+        // Quotations of the current tenant (for code mapping)
+        const qRes = await api.get('/api/quotations?all=1')
+        const qRaw = qRes.data?.data || qRes.data || []
+        const list = Array.isArray(qRaw) ? qRaw : []
+        const map = {}
+        list.forEach(q => {
+          const id = q?.id
+          const code = q?.meta_data?.quotation_code || q?.meta_data?.quotationCode || q?.quotation_code || q?.quotationCode
+          if (id !== null && id !== undefined && code) {
+            map[String(id)] = String(code)
+          }
+        })
+        setQuotationCodeById(map)
+      } catch {
+        setQuotationCodeById({})
       }
     }
     loadLists()
@@ -519,7 +611,7 @@ export default function SalesOrders() {
     try {
       // Prepare payload for backend (snake_case)
       const payload = {
-        customer_id: orderData.customerCode, // This might be wrong if customerCode is a string code not ID
+        customer_id: orderData.customerId || orderData.customerCode, // Prefer numeric customerId when available
         customer_name: orderData.customerName,
         customer_code: orderData.customerCode, 
         sales_person: orderData.salesPerson,
@@ -542,14 +634,30 @@ export default function SalesOrders() {
          delete payload.customer_id;
       }
 
+      let savedOrder = null
       if (editingItem) {
-        await api.put(`/api/sales-orders/${editingItem.id}`, payload)
+        const res = await api.put(`/api/sales-orders/${editingItem.id}`, payload)
+        savedOrder = res?.data || null
         showSuccess(isRTL ? 'تم تحديث الطلب بنجاح' : 'Order updated successfully')
       } else {
-        await api.post('/api/sales-orders', payload)
+        const res = await api.post('/api/sales-orders', payload)
+        savedOrder = res?.data || null
         showSuccess(isRTL ? 'تم إنشاء الطلب بنجاح' : 'Order created successfully')
       }
-      
+
+      const orderId = savedOrder?.id || editingItem?.id
+      if (orderId && orderData?.attachment instanceof File) {
+        const fd = new FormData()
+        fd.append('files[]', orderData.attachment)
+        try {
+          await api.post(`/api/sales-orders/${orderId}/attachments`, fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+        } catch (e) {
+          console.error('Failed to upload attachment:', e)
+        }
+      }
+
       await fetchOrders()
       
       setShowForm(false)
@@ -610,7 +718,7 @@ export default function SalesOrders() {
       Status: item.status,
       'Customer Code': item.customerCode,
       'Customer Name': item.customerName,
-      'Quotation Code': item.quotationId,
+      'Quotation Code': quotationCodeById[String(item.quotationId)] || item.quotationId,
       'Items Count': Array.isArray(item.items) ? item.items.length : 0,
       'Delivery Date': item.deliveryDate ? new Date(item.deliveryDate).toLocaleDateString() : '',
       'Total': item.total,
@@ -1010,7 +1118,7 @@ export default function SalesOrders() {
               <tbody className="divide-y divide-[var(--border-color)] text-sm">
                 {paginatedItems.length === 0 ? (
                   <tr>
-                    <td colSpan={17} className="p-8 text-center text-[var(--muted-text)]">
+                    <td colSpan={14} className="p-8 text-center text-[var(--muted-text)]">
                       <div className="flex flex-col items-center justify-center gap-3">
                         <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-3xl">🔍</div>
                         <p>{isRTL ? 'لا توجد بيانات' : 'No data found'}</p>
@@ -1062,7 +1170,7 @@ export default function SalesOrders() {
                       </td>
                       <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.customerCode || '-'}</td>
                       <td className={`p-4 ${isLight ? 'text-black' : 'text-white'} font-medium`}>{item.customerName || '-'}</td>
-                      <td className="p-4 text-[var(--muted-text)]">{item.quotationId || '-'}</td>
+                      <td className="p-4 text-[var(--muted-text)]">{quotationCodeById[String(item.quotationId)] || item.quotationId || '-'}</td>
                       <td className="p-4 text-center">
                         <span className=" px-2 py-0.5 rounded text-xs">
                           {Array.isArray(item.items) ? item.items.length : 0}
@@ -1071,15 +1179,8 @@ export default function SalesOrders() {
                       <td className="p-4 text-[var(--muted-text)]">
                         {item.deliveryDate ? new Date(item.deliveryDate).toLocaleDateString() : '-'}
                       </td>
-                      <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.paymentType || '-'}</td>
                       <td className={`p-4 font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                         {item.total ? item.total.toLocaleString() : '0'}
-                      </td>
-                      <td className="p-4 text-green-600">
-                        {item.deposit ? item.deposit.toLocaleString() : '0'}
-                      </td>
-                      <td className="p-4 text-red-500">
-                        {item.BalanceDue ? item.BalanceDue.toLocaleString() : '0'}
                       </td>
                       {false && (
                         <td className="p-4 text-[var(--muted-text)]">{item.paymentTerms || '-'}</td>
@@ -1103,6 +1204,7 @@ export default function SalesOrders() {
                           {/* Primary Action */}
                           {getAvailableActions(item.status)[0] && (
                             <button 
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleStatusAction(item, getAvailableActions(item.status)[0].type)
@@ -1117,6 +1219,7 @@ export default function SalesOrders() {
 
                           {/* View Button */}
                           <button 
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               handleView(item)
@@ -1132,6 +1235,7 @@ export default function SalesOrders() {
                           {(getAvailableActions(item.status).length > 1 || true) && (
                             <div className="relative">
                               <button 
+                                type="button"
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setActiveActionDropdown(activeActionDropdown === item.id ? null : item.id)

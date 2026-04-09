@@ -90,18 +90,18 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className={`w-full max-w-lg rounded-xl shadow-2xl border ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+      <div className={`w-full max-w-lg rounded-xl shadow-2xl border card`}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2">
             <FaFileExcel className="text-green-500" />
-            <h2 className="text-sm font-semibold">
+            <h2 className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'} `}>
               {isRTL ? 'استيراد طلبات الريال إستيت من Excel' : 'Import Real Estate Requests from Excel'}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+            className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${isLight ? 'text-black' : 'text-white'} `}
           >
             <FaTimes />
           </button>
@@ -109,9 +109,9 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
 
         <div className="px-5 py-4 space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-gray-600 dark:text-gray-300">
+            <div className={`text-xs ${isLight ? 'text-black' : 'text-white'} `}>
               <p>{isRTL ? 'قم بتحميل ملف طلبات الريال إستيت بصيغة Excel.' : 'Upload your real estate requests Excel file.'}</p>
-              <p className="mt-1">
+              <p className={`mt-1 ${isLight ? 'text-black' : 'text-white'} `}>
                 {isRTL
                   ? 'تأكد من وجود الأعمدة الأساسية مثل المشروع، العميل، الهاتف، الميزانية.'
                   : 'Make sure columns like project, customer, phone and budget exist.'}
@@ -128,7 +128,7 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
           </div>
 
           <label className="block">
-            <span className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-2">
+            <span className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'}  mb-2`}>
               {isRTL ? 'ملف Excel' : 'Excel file'}
             </span>
             <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-4 py-6 text-center cursor-pointer hover:border-blue-500 dark:hover:border-blue-400">
@@ -138,7 +138,7 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
                 className="hidden"
                 onChange={handleFileChange}
               />
-              <div className="flex flex-col items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+              <div className={`flex flex-col items-center gap-2 text-xs ${isLight ? 'text-black' : 'text-white'} `}>
                 <FaCloudUploadAlt className="text-2xl text-blue-500" />
                 <div>
                   {excelFile

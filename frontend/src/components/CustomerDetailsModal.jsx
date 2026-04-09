@@ -229,127 +229,130 @@ const CustomerDetailsModal = ({ isOpen, onClose, customer, initialTab = 'details
           </div>
         </div>
 
-        {/* Content */}
-        <div className="p-8 overflow-y-auto flex-1 relative">
-          {/* Attachments Overlay */}
-          {showAttachments && (
-            <div className="absolute inset-0 z-[50] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-              <div
-                className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                  <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                    <FaPaperclip className="text-blue-500" />
-                    {isArabic ? 'المرفقات' : 'Attachments'}
-                  </h3>
-                  <button onClick={() => setShowAttachments(false)} className="text-gray-400 hover:text-gray-600">
-                    <FaTimes />
+        {/* Attachments Modal (fixed overlay over the whole modal) */}
+        {showAttachments && (
+          <div
+            className="fixed inset-0 z-[2100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+            onClick={() => setShowAttachments(false)}
+          >
+            <div
+              className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                  <FaPaperclip className="text-blue-500" />
+                  {isArabic ? 'المرفقات' : 'Attachments'}
+                </h3>
+                <button onClick={() => setShowAttachments(false)} className="text-gray-400 hover:text-gray-600">
+                  <FaTimes />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className={`btn btn-sm ${attachmentsUploading ? 'btn-disabled' : 'btn-primary'} gap-2`}>
+                    <FaUpload />
+                    {isArabic ? 'رفع مرفق' : 'Upload'}
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      disabled={attachmentsUploading}
+                      onChange={(e) => uploadAttachments(e.target.files)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={fetchAttachments}
+                    disabled={attachmentsLoading}
+                  >
+                    {isArabic ? 'تحديث' : 'Refresh'}
                   </button>
                 </div>
 
-                <div className="p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <label className={`btn btn-sm ${attachmentsUploading ? 'btn-disabled' : 'btn-primary'} gap-2`}>
-                      <FaUpload />
-                      {isArabic ? 'رفع مرفق' : 'Upload'}
-                      <input
-                        type="file"
-                        multiple
-                        className="hidden"
-                        disabled={attachmentsUploading}
-                        onChange={(e) => uploadAttachments(e.target.files)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      onClick={fetchAttachments}
-                      disabled={attachmentsLoading}
-                    >
-                      {isArabic ? 'تحديث' : 'Refresh'}
-                    </button>
-                  </div>
+                {attachmentsLoading ? (
+                  <div className="p-6 text-center text-gray-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
+                ) : attachments.length === 0 ? (
+                  <div className="p-6 text-center text-gray-500">{isArabic ? 'لا توجد مرفقات' : 'No attachments yet'}</div>
+                ) : (
+                  <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                    {attachments.map((att) => {
+                      const name = att?.name || att?.file_name || 'Attachment';
+                      const sizeText = formatBytes(att?.size);
+                      const uploadedAt = att?.uploaded_at || att?.created_at || null;
+                      const meta = [
+                        sizeText,
+                        uploadedAt ? new Date(uploadedAt).toLocaleDateString() : null
+                      ].filter(Boolean).join(' • ');
 
-                  {attachmentsLoading ? (
-                    <div className="p-6 text-center text-gray-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
-                  ) : attachments.length === 0 ? (
-                    <div className="p-6 text-center text-gray-500">{isArabic ? 'لا توجد مرفقات' : 'No attachments yet'}</div>
-                  ) : (
-                    <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
-                      {attachments.map((att) => {
-                        const name = att?.name || att?.file_name || 'Attachment';
-                        const sizeText = formatBytes(att?.size);
-                        const uploadedAt = att?.uploaded_at || att?.created_at || null;
-                        const meta = [
-                          sizeText,
-                          uploadedAt ? new Date(uploadedAt).toLocaleDateString() : null
-                        ].filter(Boolean).join(' • ');
+                      const { Icon, tone } = getFileIcon(name, att?.type || att?.mime_type);
+                      const toneCls =
+                        tone === 'red'
+                          ? 'bg-red-100 text-red-500'
+                          : tone === 'blue'
+                            ? 'bg-blue-100 text-blue-500'
+                            : 'bg-gray-100 text-gray-500';
 
-                        const { Icon, tone } = getFileIcon(name, att?.type || att?.mime_type);
-                        const toneCls =
-                          tone === 'red'
-                            ? 'bg-red-100 text-red-500'
-                            : tone === 'blue'
-                              ? 'bg-blue-100 text-blue-500'
-                              : 'bg-gray-100 text-gray-500';
-
-                        return (
-                          <div
-                            key={att.id || name}
-                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 hover:bg-blue-50 transition-colors group"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className={`w-10 h-10 ${toneCls} rounded-lg flex items-center justify-center flex-shrink-0`}>
-                                <Icon size={18} />
-                              </div>
-                              <div className="min-w-0">
-                                <p className="font-medium text-gray-800 text-sm truncate">{name}</p>
-                                <p className="text-xs text-gray-500 truncate">{meta || '-'}</p>
-                              </div>
+                      return (
+                        <div
+                          key={att.id || name}
+                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 hover:bg-blue-50 transition-colors group"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-10 h-10 ${toneCls} rounded-lg flex items-center justify-center flex-shrink-0`}>
+                              <Icon size={18} />
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              {att?.url && (
-                                <a
-                                  className="text-gray-400 hover:text-blue-600 opacity-100 transition-opacity"
-                                  href={att.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title={isArabic ? 'تحميل' : 'Download'}
-                                >
-                                  <FaDownload />
-                                </a>
-                              )}
-                              {att?.id && (
-                                <button
-                                  type="button"
-                                  className="text-gray-400 hover:text-red-600 opacity-100 transition-opacity"
-                                  onClick={() => deleteAttachment(att.id)}
-                                  title={isArabic ? 'حذف' : 'Delete'}
-                                >
-                                  <FaTrash />
-                                </button>
-                              )}
+                            <div className="min-w-0">
+                              <p className="font-medium text-gray-800 text-sm truncate">{name}</p>
+                              <p className="text-xs text-gray-500 truncate">{meta || '-'}</p>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {att?.url && (
+                              <a
+                                className="text-gray-400 hover:text-blue-600 opacity-100 transition-opacity"
+                                href={att.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={isArabic ? 'تحميل' : 'Download'}
+                              >
+                                <FaDownload />
+                              </a>
+                            )}
+                            {att?.id && (
+                              <button
+                                type="button"
+                                className="text-gray-400 hover:text-red-600 opacity-100 transition-opacity"
+                                onClick={() => deleteAttachment(att.id)}
+                                title={isArabic ? 'حذف' : 'Delete'}
+                              >
+                                <FaTrash />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
-                <div className="p-4 bg-gray-50 border-t border-gray-100 text-center">
-                  <button
-                    onClick={() => setShowAttachments(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
-                  >
-                    {isArabic ? 'إغلاق' : 'Close'}
-                  </button>
-                </div>
+              <div className="p-4 bg-gray-50 border-t border-gray-100 text-center">
+                <button
+                  onClick={() => setShowAttachments(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
+                >
+                  {isArabic ? 'إغلاق' : 'Close'}
+                </button>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
+        {/* Content */}
+        <div className="p-8 overflow-y-auto flex-1 relative">
           {activeTab === 'details' && (
             <div className="space-y-8">
               {/* Basic Information */}

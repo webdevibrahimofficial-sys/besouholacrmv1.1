@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { useLocation } from 'react-router-dom'
 import DatePicker from 'react-datepicker'
 import "react-datepicker/dist/react-datepicker.css"
 import { api, logExportEvent } from '../utils/api'
@@ -16,6 +17,7 @@ import * as XLSX from 'xlsx'
 
 export default function SalesInvoices() {
   const { t, i18n } = useTranslation()
+  const location = useLocation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const isRTL = String(i18n.language || '').startsWith('ar')
@@ -89,17 +91,51 @@ export default function SalesInvoices() {
     setTimeout(() => setSuccessMessage(''), 3000)
   }
 
+  const normalizeWorkflowStatus = (status) => {
+    const s = String(status ?? '').trim()
+    if (!s) return 'Draft'
+    const lower = s.toLowerCase()
+
+    // Backward-compat: older backend code wrote settlement states into `status`.
+    if (['unpaid', 'partial', 'partially paid', 'paid', 'overdue'].includes(lower)) return 'Posted'
+
+    if (lower === 'draft') return 'Draft'
+    if (lower === 'posted') return 'Posted'
+    if (lower === 'cancelled' || lower === 'canceled' || lower === 'void') return 'Cancelled'
+
+    return s
+  }
+
+  const normalizePaymentStatus = (status) => {
+    const s = String(status ?? '').trim()
+    if (!s) return 'Unpaid'
+    const lower = s.toLowerCase()
+    if (lower === 'paid') return 'Paid'
+    if (lower === 'partial' || lower === 'partially_paid' || lower === 'partially paid') return 'Partial'
+    if (lower === 'unpaid') return 'Unpaid'
+    return s
+  }
+
+  const isOverdueInvoice = (invoice, balanceDue) => {
+    const workflow = normalizeWorkflowStatus(invoice?.status)
+    if (String(workflow).toLowerCase() !== 'posted') return false
+    if ((Number(balanceDue) || 0) <= 0) return false
+    const due = invoice?.dueDate
+    if (!due) return false
+    const dueDate = new Date(due)
+    if (Number.isNaN(dueDate.getTime())) return false
+    return dueDate < new Date()
+  }
+
   // Load Data
   const fetchInvoices = async () => {
     setLoading(true)
     try {
-      const response = await api.get('/api/sales-invoices', {
-        params: {
-          page: currentPage,
-          search: q,
-          status: filters.status
-        }
-      })
+      const params = { page: currentPage }
+      if (String(q || '').trim()) params.search = String(q).trim()
+      if (String(filters.status || '').trim()) params.status = String(filters.status).trim()
+
+      const response = await api.get('/api/sales-invoices', { params })
       // Handle both paginated and non-paginated responses
       const rawData = response.data.data || response.data
       const data = Array.isArray(rawData) ? rawData : []
@@ -108,6 +144,7 @@ export default function SalesInvoices() {
       const mappedItems = data.map(item => ({
         ...item,
         invoiceNumber: item.invoice_number || item.invoiceNumber || String(item.id),
+        status: normalizeWorkflowStatus(item.status),
         invoiceType: (() => {
           const t = String(item.invoice_type || item.invoiceType || '').toLowerCase()
           if (t === 'advance') return 'Advance'
@@ -120,7 +157,7 @@ export default function SalesInvoices() {
         balanceDue: item.balance_due != null
           ? Number(item.balance_due)
           : Math.max(0, Number(item.total ?? 0) - Number(item.paid_amount ?? 0) - Number(item.advance_applied_amount ?? 0)),
-        paymentStatus: item.payment_status || item.paymentStatus,
+        paymentStatus: normalizePaymentStatus(item.payment_status || item.paymentStatus),
         paymentMethod: item.payment_method || item.paymentMethod,
         paymentTerms: item.payment_terms || item.paymentTerms,
         customerName: item.customer_name || item.customerName,
@@ -147,6 +184,72 @@ export default function SalesInvoices() {
     fetchInvoices()
   }, [currentPage, q, filters.status])
 
+  useEffect(() => {
+    const invoiceId = new URLSearchParams(location.search || '').get('invoice_id')
+    if (!invoiceId) return
+
+    if (loading) return
+
+    const existing = items.find(x => String(x.id) === String(invoiceId))
+    if (existing) {
+      setPreviewItem(existing)
+      setShowPreview(true)
+      return
+    }
+
+    const open = async () => {
+      try {
+        const res = await api.get(`/api/sales-invoices/${invoiceId}`)
+        const raw = res?.data
+        if (!raw) return
+
+        const mapped = {
+          ...raw,
+          invoiceNumber: raw.invoice_number || raw.invoiceNumber || String(raw.id),
+          status: normalizeWorkflowStatus(raw.status),
+          invoiceType: (() => {
+            const t = String(raw.invoice_type || raw.invoiceType || '').toLowerCase()
+            if (t === 'advance') return 'Advance'
+            if (t === 'partial') return 'Partial'
+            if (t === 'full') return 'Full'
+            return raw.invoice_type || raw.invoiceType || ''
+          })(),
+          paidAmount: Number(raw.paid_amount ?? raw.paidAmount ?? 0),
+          advanceAppliedAmount: Number(raw.advance_applied_amount ?? raw.advanceAppliedAmount ?? 0),
+          balanceDue: raw.balance_due != null
+            ? Number(raw.balance_due)
+            : Math.max(0, Number(raw.total ?? 0) - Number(raw.paid_amount ?? 0) - Number(raw.advance_applied_amount ?? 0)),
+          paymentStatus: normalizePaymentStatus(raw.payment_status || raw.paymentStatus),
+          paymentMethod: raw.payment_method || raw.paymentMethod,
+          paymentTerms: raw.payment_terms || raw.paymentTerms,
+          customerName: raw.customer_name || raw.customerName,
+          customerCode: raw.customer_code || raw.customerCode,
+          dueDate: raw.due_date || raw.dueDate,
+          createdAt: raw.created_at || raw.createdAt,
+          issueDate: raw.issue_date || raw.issueDate,
+          orderId: raw.order_id ?? raw.orderId ?? '',
+          orderUuid: raw.order?.uuid || raw.orderUuid || ''
+        }
+
+        setPreviewItem(mapped)
+        setShowPreview(true)
+      } catch (e) {
+        const status = e?.response?.status
+        if (status === 404) {
+          const evt = new CustomEvent('app:toast', {
+            detail: { type: 'warning', message: isRTL ? 'لم يتم العثور على الفاتورة من الرابط. اعرضها من الجدول.' : 'Invoice not found from link. Please open it from the table.' },
+          })
+          window.dispatchEvent(evt)
+          return
+        }
+        const msg = e?.response?.data?.message || (isRTL ? 'فشل فتح الفاتورة' : 'Failed to open invoice')
+        alert(msg)
+      }
+    }
+
+    open()
+  }, [location.search, items, loading])
+
   // Handlers
   const handleSelectAll = (e) => {
     if (e.target.checked) {
@@ -164,6 +267,26 @@ export default function SalesInvoices() {
 
   const handleSaveInvoice = async (data) => {
     try {
+      const toNumber = (value, fallback = 0) => {
+        if (typeof value === 'number') return Number.isFinite(value) ? value : fallback
+        const s = String(value ?? '').trim()
+        if (!s) return fallback
+        const normalized = s
+          .replace(/\u066B/g, '.') // Arabic decimal separator
+          .replace(/[,\u066C\u060C\s]/g, '') // thousands separators + spaces
+          .replace(/[^\d.-]/g, '') // strip currency/letters
+        const n = Number(normalized)
+        return Number.isFinite(n) ? n : fallback
+      }
+
+      const normalizeDate = (v) => {
+        const s = String(v ?? '').trim()
+        if (!s) return null
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+        if (s.includes('T')) return s.split('T')[0]
+        return s
+      }
+
       const normalizeInvoiceType = (type) => {
         const t = String(type || '').toLowerCase()
         if (t === 'advance') return 'advance'
@@ -171,20 +294,31 @@ export default function SalesInvoices() {
         return 'full'
       }
 
+      const issueDate = normalizeDate(data.date || data.issueDate) || new Date().toISOString().split('T')[0]
+      const dueDate = normalizeDate(data.dueDate) || null
+
+      const rawItems = Array.isArray(data.items) ? data.items : []
+      const items = rawItems.map(it => ({
+        ...it,
+        quantity: toNumber(it?.quantity ?? it?.qty ?? 0, 0),
+        price: toNumber(it?.price ?? it?.unit_price ?? it?.unitPrice ?? 0, 0),
+        discount: toNumber(it?.discount ?? 0, 0),
+      }))
+
       const payload = {
         customer_name: data.customerName,
         customer_code: data.customerCode || null,
         sales_person: data.salesPerson || null,
         order_id: data.orderId ? Number(data.orderId) : null,
         invoice_type: normalizeInvoiceType(data.invoiceType),
-        issue_date: data.date || data.issueDate || new Date().toISOString().split('T')[0],
-        due_date: data.dueDate || null,
-        items: Array.isArray(data.items) ? data.items : [],
-        subtotal: Number(data.subtotal ?? 0),
-        tax: Number(data.tax ?? 0),
-        discount: Number(data.discount ?? data.discountAmount ?? 0),
-        total: Number(data.total ?? 0),
-        advance_applied_amount: Number(data.advanceAppliedAmount ?? 0),
+        issue_date: issueDate,
+        due_date: dueDate,
+        items,
+        subtotal: toNumber(data.subtotal ?? 0, 0),
+        tax: toNumber(data.tax ?? 0, 0),
+        discount: toNumber(data.discount ?? data.discountAmount ?? 0, 0),
+        total: toNumber(data.total ?? 0, 0),
+        advance_applied_amount: toNumber(data.advanceAppliedAmount ?? 0, 0),
         status: data.status || 'Draft',
         payment_method: data.paymentMethod || null,
         payment_terms: data.paymentTerms || null,
@@ -206,7 +340,7 @@ export default function SalesInvoices() {
       if (!isUpdate && createdInvoiceId && String(data.invoiceType) === 'Advance' && data.markAsReceived) {
         await api.post(`/api/sales-invoices/${createdInvoiceId}/payments`, {
           payment_date: payload.issue_date,
-          amount: payload.total,
+          amount: Number(payload.total) || 0,
           payment_method: payload.payment_method || 'Bank Transfer',
           reference: null,
           notes: isRTL ? 'تحصيل مقدم عند إنشاء الفاتورة' : 'Advance received on creation',
@@ -297,7 +431,10 @@ export default function SalesInvoices() {
 
   // New action resolver (works with backend statuses like Unpaid / Partially Paid)
   const getAvailableActionsForInvoice = (invoice, balanceDue) => {
-    const status = String(invoice?.status || '').toLowerCase()
+    const workflow = normalizeWorkflowStatus(invoice?.status)
+    const status = String(workflow || '').toLowerCase()
+    const paymentStatus = normalizePaymentStatus(invoice?.paymentStatus)
+    const paymentStatusLower = String(paymentStatus || '').toLowerCase()
     const settled = (Number(invoice?.paidAmount || 0) + Number(invoice?.advanceAppliedAmount || 0)) > 0.0001
 
     if (status === 'cancelled' || status === 'void') return []
@@ -310,7 +447,7 @@ export default function SalesInvoices() {
       ]
     }
 
-    if (status === 'paid') {
+    if (paymentStatusLower === 'paid') {
       return [
         { type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' },
         { type: 'print', label: isRTL ? 'طباعة' : 'Print / PDF', icon: FaPrint, color: 'text-gray-600' }
@@ -325,7 +462,7 @@ export default function SalesInvoices() {
       { type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' },
       { type: 'print', label: isRTL ? 'طباعة' : 'Print / PDF', icon: FaPrint, color: 'text-gray-600' }
     )
-    if (!settled) {
+    if (!settled && status === 'posted') {
       actions.push({ type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Invoice', icon: FaBan, color: 'text-red-600' })
     }
     return actions
@@ -390,7 +527,7 @@ export default function SalesInvoices() {
     try {
       // Prepare update data
       let updates = { status: actionData.nextStatus }
-      if (actionData.type === 'cancel') updates.cancelReason = statusReason
+      if (actionData.type === 'cancel') updates.cancel_reason = statusReason
       
       // Call API to update status
       await api.put(`/api/sales-invoices/${actionData.invoiceId}`, updates)
@@ -403,7 +540,15 @@ export default function SalesInvoices() {
       setStatusAction(null)
     } catch (e) {
       console.error('Update failed:', e)
-      alert(isRTL ? 'فشل التحديث' : 'Update failed')
+      const msg = e?.response?.data?.message || (isRTL ? 'فشل التحديث' : 'Update failed')
+      const errors = e?.response?.data?.errors
+      if (errors && typeof errors === 'object') {
+        const firstKey = Object.keys(errors)[0]
+        const firstMsg = firstKey ? (Array.isArray(errors[firstKey]) ? errors[firstKey][0] : errors[firstKey]) : null
+        alert(firstMsg || msg)
+      } else {
+        alert(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -719,8 +864,6 @@ export default function SalesInvoices() {
               options={[
                 { value: 'Draft', label: 'Draft' },
                 { value: 'Posted', label: 'Posted' },
-                { value: 'Paid', label: 'Paid' },
-                { value: 'Overdue', label: 'Overdue' },
                 { value: 'Cancelled', label: 'Cancelled' }
               ]}
               placeholder={isRTL ? 'كل الحالات' : 'All Statuses'}
@@ -937,10 +1080,11 @@ export default function SalesInvoices() {
                     </td>
                   </tr>
                 ) : (
-                  paginatedItems.map((item) => {
-                    const balanceDue = Number(item.balanceDue ?? ((Number(item.total) || 0) - (Number(item.paidAmount) || 0) - (Number(item.advanceAppliedAmount) || 0))) || 0
-                    return (
-                      <tr 
+                   paginatedItems.map((item) => {
+                     const balanceDue = Number(item.balanceDue ?? ((Number(item.total) || 0) - (Number(item.paidAmount) || 0) - (Number(item.advanceAppliedAmount) || 0))) || 0
+                     const overdue = isOverdueInvoice(item, balanceDue)
+                     return (
+                       <tr 
                         key={item.id} 
                         className={`
                           group transition-colors cursor-pointer
@@ -962,15 +1106,28 @@ export default function SalesInvoices() {
                         </td>
                         <td className={`p-4 font-medium ${isLight ? 'text-black' : 'text-white'}`}>{item.invoiceNumber || item.id}</td>
                         <td className="p-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
-                            item.status === 'Draft' ? ` ${isLight ? 'text-black' : 'text-white'} border-gray-200  dark:text-gray-300 dark:border-gray-700` :
-                            item.status === 'Posted' ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800' :
-                            item.status === 'Paid' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
-                            item.status === 'Overdue' ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800' :
-                            'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
-                          }`}>
-                            {item.status}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
+                              item.status === 'Draft' ? ` ${isLight ? 'text-black' : 'text-white'} border-gray-200  dark:text-gray-300 dark:border-gray-700` :
+                              item.status === 'Posted' ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800' :
+                              item.status === 'Cancelled' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800' :
+                              'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
+                            }`}>
+                              {item.status}
+                            </span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
+                              item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
+                              item.paymentStatus === 'Partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-800' :
+                              'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
+                            }`}>
+                              {item.paymentStatus || 'Unpaid'}
+                            </span>
+                            {overdue && (
+                              <span className="px-2 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800">
+                                {isRTL ? 'Ù…ØªØ£Ø®Ø±Ø©' : 'Overdue'}
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{new Date(item.dueDate).toLocaleDateString()}</td>
@@ -1029,6 +1186,7 @@ export default function SalesInvoices() {
             ) : (
               paginatedItems.map((item) => {
                 const balanceDue = Number(item.balanceDue ?? ((Number(item.total) || 0) - (Number(item.paidAmount) || 0) - (Number(item.advanceAppliedAmount) || 0))) || 0
+                const overdue = isOverdueInvoice(item, balanceDue)
                 return (
                   <div key={item.id} className=" p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
                     <div className="flex justify-between items-start">
@@ -1039,15 +1197,28 @@ export default function SalesInvoices() {
                         </h3>
                         <p className="text-sm text-gray-500 dark:text-gray-400">{item.customerName}</p>
                       </div>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
-                        item.status === 'Draft' ? ` ${isLight ? 'text-black' : 'text-white'} border-gray-200  dark:text-gray-300 dark:border-gray-700` :
-                        item.status === 'Posted' ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800' :
-                        item.status === 'Paid' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
-                        item.status === 'Overdue' ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800' :
-                        'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
-                      }`}>
-                        {item.status}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1 justify-end">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
+                          item.status === 'Draft' ? ` ${isLight ? 'text-black' : 'text-white'} border-gray-200  dark:text-gray-300 dark:border-gray-700` :
+                          item.status === 'Posted' ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800' :
+                          item.status === 'Cancelled' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800' :
+                          'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
+                        }`}>
+                          {item.status}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
+                          item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
+                          item.paymentStatus === 'Partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-800' :
+                          'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
+                        }`}>
+                          {item.paymentStatus || 'Unpaid'}
+                        </span>
+                        {overdue && (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800">
+                            {isRTL ? 'Ù…ØªØ£Ø®Ø±Ø©' : 'Overdue'}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 text-sm">

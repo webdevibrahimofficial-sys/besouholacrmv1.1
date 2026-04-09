@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api';
+import { useAppState } from '@shared/context/AppStateProvider'
+import { formatCrmDateTime } from '@shared/utils/crmDateTime'
 
 export default function TaskDetailsModal({ isOpen, onClose, task }) {
   const { i18n } = useTranslation();
   const isArabic = (i18n?.language || '').toLowerCase().startsWith('ar');
+  const { crmSettings } = useAppState()
+  const fmt = useMemo(() => (iso) => formatCrmDateTime(iso, { crmSettings, language: i18n?.language }), [crmSettings, i18n?.language])
   const [visits, setVisits] = useState([]);
 
   useEffect(() => {
@@ -234,10 +238,10 @@ export default function TaskDetailsModal({ isOpen, onClose, task }) {
                     {visits.map((visit, idx) => (
                       <tr key={visit.id || idx} className="hover:bg-[var(--hover-bg)]/50 transition-colors">
                         <td className="px-4 py-3 text-[var(--content-text)] opacity-90">
-                          {visit.checkInDate ? new Date(visit.checkInDate).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : '-'}
+                          {visit.checkInDate ? fmt(visit.checkInDate) : '-'}
                         </td>
                         <td className="px-4 py-3 text-[var(--content-text)] opacity-90">
-                          {visit.checkOutDate ? new Date(visit.checkOutDate).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : '-'}
+                          {visit.checkOutDate ? fmt(visit.checkOutDate) : '-'}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2 max-w-[350px]">

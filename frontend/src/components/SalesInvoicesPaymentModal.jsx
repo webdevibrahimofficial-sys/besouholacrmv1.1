@@ -23,7 +23,7 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
 
   useEffect(() => {
     if (invoice) {
-      const balanceDue = Number(invoice.balanceDue ?? ((Number(invoice.total) || 0) - (Number(invoice.paidAmount) || 0))) || 0
+      const balanceDue = Number(invoice.balanceDue ?? ((Number(invoice.total) || 0) - (Number(invoice.paidAmount) || 0) - (Number(invoice.advanceAppliedAmount) || 0))) || 0
       setPaymentData({
         amount: balanceDue > 0 ? balanceDue : 0,
         date: new Date().toISOString().split('T')[0],
@@ -53,7 +53,7 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
 
   if (!isOpen || !invoice) return null
 
-  const balanceDue = Number(invoice.balanceDue ?? ((Number(invoice.total) || 0) - (Number(invoice.paidAmount) || 0))) || 0
+  const balanceDue = Number(invoice.balanceDue ?? ((Number(invoice.total) || 0) - (Number(invoice.paidAmount) || 0) - (Number(invoice.advanceAppliedAmount) || 0))) || 0
 
   const handleSubmit = async (e) => {
     e.preventDefault()

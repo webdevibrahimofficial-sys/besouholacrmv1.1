@@ -2300,18 +2300,18 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={onClose} />
 
       <div
-        className="relative z-[210]  dark:!bg-slate-950 rounded-2xl w-[900px] max-w-full h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 shadow-2xl overflow-hidden animate-slideUp"
+        className="relative z-[210]  card rounded-2xl w-[900px] max-w-full h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 shadow-2xl overflow-hidden animate-slideUp"
         style={{ background: 'var(--panel-bg)' }}
         dir={inputLanguage === 'ar' ? 'rtl' : 'ltr'}
       >
 
         {/* Header & Progress Bar */}
         <div
-          className="flex-shrink-0 bg-blue-50 dark:!bg-slate-900 border-b border-gray-200 dark:!border-slate-700 pt-1 px-2 pb-5 md:pt-2 md:px-3 md:pb-6"
+          className="flex-shrink-0  border-b border-gray-200 dark:!border-slate-700 pt-1 px-2 pb-5 md:pt-2 md:px-3 md:pb-6"
           style={{ background: 'var(--panel-bg)' }}
         >
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-4">
+            <h2 className={`text-lg font-bold ${inputLanguage === 'ar' ? 'text-white' : 'text-gray-700'} px-4`}>
               {isEdit
                 ? (inputLanguage === 'ar' ? 'تعديل العقار' : 'Edit Property')
                 : (inputLanguage === 'ar' ? 'إضافة عقار جديد' : 'Add Property')}

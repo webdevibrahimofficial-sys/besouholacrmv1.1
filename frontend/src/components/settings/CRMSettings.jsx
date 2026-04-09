@@ -13,6 +13,7 @@ const DEFAULTS = {
   showBroker: true,
   showDeveloper: true,
   showColdCallsStage: true,
+  maskMobileNumber: true,
   showMobileNumber: false,
   startUnitCode: '0001',
   startCustomerCode: '0001',
@@ -64,6 +65,9 @@ export default function CRMSettings() {
           if (patched.reservationHoldHours === null || patched.reservationHoldHours === undefined) {
             patched.reservationHoldHours = ''
           }
+          if (typeof patched.maskMobileNumber !== 'boolean' && typeof patched.showMobileNumber === 'boolean') {
+            patched.maskMobileNumber = !patched.showMobileNumber
+          }
           setSettings(prev => ({ ...prev, ...patched }))
         }
       } catch (_) {}
@@ -76,6 +80,7 @@ export default function CRMSettings() {
   const save = async () => {
     try {
       const payload = { ...settings }
+      payload.showMobileNumber = !payload.maskMobileNumber
       const rawHold = String(payload.reservationHoldHours ?? '').trim()
       if (!rawHold) {
         payload.reservationHoldHours = null
@@ -152,7 +157,7 @@ export default function CRMSettings() {
           <Toggle label={t('Show Broker')} value={settings.showBroker} onChange={v => setField('showBroker', v)} />
           <Toggle label={t('Show Developer')} value={settings.showDeveloper} onChange={v => setField('showDeveloper', v)} />
           <Toggle label={t('Show Cold Calls Stage (Pipeline)')} value={settings.showColdCallsStage} onChange={v => setField('showColdCallsStage', v)} />
-          <Toggle label={t('Mobile Number (Lead Management)')} value={settings.showMobileNumber} onChange={v => setField('showMobileNumber', v)} />
+          <Toggle label={t('Mask Mobile Number')} value={settings.maskMobileNumber} onChange={v => setField('maskMobileNumber', v)} />
         </div>
       </Section>
 

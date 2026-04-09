@@ -688,18 +688,16 @@ const LeadDetailsModal = ({ isOpen, onClose, lead }) => {
 
               {/* Quick Actions */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                {crmSettings?.showMobileNumber !== false && (
-                  <button 
-                    onClick={() => {
-                      const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
-                      if (digits) window.open(`https://wa.me/${digits}`, '_blank')
-                    }}
-                    className="flex flex-col items-center justify-center p-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
-                  >
-                    <FaWhatsapp className="text-2xl mb-2" />
-                    <span className="text-sm font-medium">{isArabic ? 'واتساب' : 'WhatsApp'}</span>
-                  </button>
-                )}
+                <button 
+                  onClick={() => {
+                    const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
+                    if (digits) window.open(`https://wa.me/${digits}`, '_blank')
+                  }}
+                  className="flex flex-col items-center justify-center p-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
+                >
+                  <FaWhatsapp className="text-2xl mb-2" />
+                  <span className="text-sm font-medium">{isArabic ? 'واتساب' : 'WhatsApp'}</span>
+                </button>
                 <button 
                   onClick={() => window.open(`mailto:${lead?.email}`, '_blank')}
                   className="flex flex-col items-center justify-center p-4 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
@@ -707,18 +705,16 @@ const LeadDetailsModal = ({ isOpen, onClose, lead }) => {
                   <FaEnvelope className="text-2xl mb-2" />
                   <span className="text-sm font-medium">{isArabic ? 'بريد إلكتروني' : 'Email'}</span>
                 </button>
-                {crmSettings?.showMobileNumber !== false && (
-                  <button 
-                    onClick={() => {
-                      const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
-                      if (digits) window.open(`tel:${digits}`, '_blank')
-                    }}
-                    className="flex flex-col items-center justify-center p-4 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
-                  >
-                    <FaPhone className="text-2xl mb-2" />
-                    <span className="text-sm font-medium">{isArabic ? 'مكالمة' : 'Call'}</span>
-                  </button>
-                )}
+                <button 
+                  onClick={() => {
+                    const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
+                    if (digits) window.open(`tel:${digits}`, '_blank')
+                  }}
+                  className="flex flex-col items-center justify-center p-4 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
+                >
+                  <FaPhone className="text-2xl mb-2" />
+                  <span className="text-sm font-medium">{isArabic ? 'مكالمة' : 'Call'}</span>
+                </button>
                 <button 
                   onClick={() => alert(isArabic ? 'سيتم فتح تطبيق الفيديو قريباً' : 'Video app will open soon')}
                   className="flex flex-col items-center justify-center p-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"

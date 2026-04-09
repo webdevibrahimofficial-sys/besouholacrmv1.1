@@ -894,7 +894,7 @@ export default function RevenueReport() {
   const renderPieCard = (title, data, headerRight) => {
     const total = data.reduce((sum, item) => sum + (item.value || 0), 0)
     return (
-      <div className="group relative  dark:bg-gray-800/30 backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+      <div className="group relative   backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
         <div className="flex items-center justify-between mb-2">
           <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{title}</div>
           {headerRight}
@@ -1106,7 +1106,7 @@ export default function RevenueReport() {
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        <div className="group relative   dark:bg-gray-800/30 backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+        <div className="group relative   backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2`}>
               <Target size={18} className="text-blue-500" />
@@ -1306,7 +1306,7 @@ export default function RevenueReport() {
             ? (isRTL ? 'الإيرادات حسب المشروع' : 'Revenue by project')
             : (isRTL ? 'الإيرادات حسب المصدر' : 'Revenue by source'),
           revenuePieMode === 'project' ? revenueByProjectSegments : revenueBySourceSegments,
-          <div className="inline-flex items-center gap-1 bg-black/5 dark:bg-gray-800/30 rounded-full p-0.5">
+          <div className="inline-flex items-center gap-1  rounded-full p-0.5">
             <button
               type="button"
               onClick={() => setRevenuePieMode('project')}
@@ -1332,7 +1332,7 @@ export default function RevenueReport() {
           </div>
         )}
 
-        <div className="group relative   dark:bg-gray-800/30 backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+        <div className="group relative    backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Trophy size={18} className="text-yellow-400" />

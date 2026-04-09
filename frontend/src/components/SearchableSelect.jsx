@@ -3,10 +3,10 @@ import { createPortal } from 'react-dom'
 import * as LucideIcons from 'lucide-react'
 import { FaSearch, FaTimes, FaChevronDown } from 'react-icons/fa'
 
-export default function SearchableSelect({ options, value, onChange, placeholder, label, isRTL, icon: Icon, multiple = false, className = '', showAllOption = true, dropdownZIndex = 20050 }) {
+export default function SearchableSelect({ options, value, onChange, placeholder, label, isRTL, icon: Icon, multiple = false, className = '', showAllOption = true, dropdownZIndex = 20050, placement = 'auto' }) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 })
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, maxHeight: 280 })
   const wrapperRef = useRef(null)
   const dropdownRef = useRef(null)
   const rafRef = useRef(null)
@@ -31,16 +31,36 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     const estimatedHeight = 280
     const dropdownHeight = dropdownRef.current?.getBoundingClientRect?.().height || estimatedHeight
 
-    let top = rect.bottom + gap
-    const wouldOverflowBottom = top + dropdownHeight > viewportHeight - margin
-    const canFlipTop = rect.top - dropdownHeight - gap >= margin
-    if (wouldOverflowBottom && canFlipTop) {
-      top = rect.top - dropdownHeight - gap
+    const belowTop = rect.bottom + gap
+    const belowSpace = Math.max(0, viewportHeight - margin - belowTop)
+
+    const aboveBottom = rect.top - gap
+    const aboveSpace = Math.max(0, aboveBottom - margin)
+
+    const capHeight = (h) => Math.min(280, Math.max(160, h))
+
+    let top = belowTop
+    let maxHeight = capHeight(belowSpace)
+
+    const wantTop = placement === 'top'
+    const wantBottom = placement === 'bottom'
+
+    if (wantTop) {
+      maxHeight = capHeight(aboveSpace)
+      top = Math.max(margin, rect.top - gap - Math.min(dropdownHeight, maxHeight))
+    } else if (!wantBottom) {
+      const canFitBelow = belowSpace >= Math.min(dropdownHeight, 240)
+      const canFitAbove = aboveSpace >= Math.min(dropdownHeight, 240)
+      if (!canFitBelow && canFitAbove && aboveSpace > belowSpace) {
+        maxHeight = capHeight(aboveSpace)
+        top = Math.max(margin, rect.top - gap - Math.min(dropdownHeight, maxHeight))
+      }
     }
 
-    top = Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - margin))
+    if (top < margin) top = margin
+    if (top > viewportHeight - margin) top = viewportHeight - margin
 
-    setCoords({ top, left, width })
+    setCoords({ top, left, width, maxHeight })
   }
 
   const renderIcon = (icon) => {
@@ -163,9 +183,10 @@ export default function SearchableSelect({ options, value, onChange, placeholder
         top: coords.top,
         left: coords.left,
         width: coords.width,
-        zIndex: dropdownZIndex
+        zIndex: dropdownZIndex,
+        maxHeight: coords.maxHeight
       }}
-      className="rounded-xl shadow-xl bg-[var(--card-bg)] border border-[var(--panel-border)] backdrop-blur-md max-h-60 overflow-hidden flex flex-col"
+      className="rounded-xl shadow-xl bg-[var(--card-bg)] border border-[var(--panel-border)] backdrop-blur-md overflow-hidden flex flex-col"
       dir={isRTL ? 'rtl' : 'ltr'}
     >
       <div className="p-2 border-b border-[var(--panel-border)]/70">
@@ -182,7 +203,7 @@ export default function SearchableSelect({ options, value, onChange, placeholder
           />
         </div>
       </div>
-      <div className="overflow-y-auto max-h-48 py-1 scrollbar-thin-blue">
+      <div className="overflow-y-auto py-1 scrollbar-thin-blue" style={{ maxHeight: Math.max(0, coords.maxHeight - 58) }}>
           {showAllOption && (
             <div
               className={`mx-1 rounded-lg px-3 py-2 cursor-pointer text-sm transition-colors ${(!multiple && value === '') || (multiple && allSelected) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`}

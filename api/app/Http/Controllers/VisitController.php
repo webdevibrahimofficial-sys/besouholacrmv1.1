@@ -5,12 +5,38 @@ namespace App\Http\Controllers;
 use App\Models\Visit;
 use App\Models\Lead;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
 class VisitController extends Controller
 {
+    private function normalizeToUtcDbString($value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+        try {
+            $dt = Carbon::parse($value);
+            return $dt->copy()->utc()->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function rawUtcToIso(?string $raw): ?string
+    {
+        if (!$raw) {
+            return null;
+        }
+        try {
+            return Carbon::parse($raw, 'UTC')->toISOString();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -36,12 +62,21 @@ class VisitController extends Controller
             $query->where('status', $request->status);
         }
 
-        if ($request->has('from_date')) {
-            $query->whereDate('check_in_at', '>=', $request->from_date);
+        $appTz = config('app.timezone') ?: 'UTC';
+        if ($request->filled('from_date')) {
+            try {
+                $fromUtc = Carbon::parse($request->from_date, $appTz)->startOfDay()->utc()->format('Y-m-d H:i:s');
+                $query->where('check_in_at', '>=', $fromUtc);
+            } catch (\Throwable $e) {
+            }
         }
 
-        if ($request->has('to_date')) {
-            $query->whereDate('check_in_at', '<=', $request->to_date);
+        if ($request->filled('to_date')) {
+            try {
+                $toUtc = Carbon::parse($request->to_date, $appTz)->endOfDay()->utc()->format('Y-m-d H:i:s');
+                $query->where('check_in_at', '<=', $toUtc);
+            } catch (\Throwable $e) {
+            }
         }
 
         $limit = (int) $request->input('limit', 2000);
@@ -61,8 +96,8 @@ class VisitController extends Controller
                 'customerName' => $visit->customer_name,
                 'salesPerson' => $visit->sales_person_name,
                 'salesPersonId' => $visit->sales_person_id,
-                'checkInDate' => $visit->check_in_at ? $visit->check_in_at->toISOString() : null,
-                'checkOutDate' => $visit->check_out_at ? $visit->check_out_at->toISOString() : null,
+                'checkInDate' => $this->rawUtcToIso($visit->getRawOriginal('check_in_at')),
+                'checkOutDate' => $this->rawUtcToIso($visit->getRawOriginal('check_out_at')),
                 'location' => [
                     'lat' => $visit->check_in_lat,
                     'lng' => $visit->check_in_lng,
@@ -119,7 +154,7 @@ class VisitController extends Controller
         $visit->customer_name = $request->customer_name ?: ($lead ? $lead->name : null);
         $visit->sales_person_id = $salesPerson ? $salesPerson->id : $user->id;
         $visit->sales_person_name = $request->sales_person_name ?: ($salesPerson ? $salesPerson->name : $user->name);
-        $visit->check_in_at = $request->check_in_date;
+        $visit->check_in_at = $this->normalizeToUtcDbString($request->check_in_date);
         $visit->check_in_lat = $request->lat;
         $visit->check_in_lng = $request->lng;
         $visit->check_in_address = $request->address;
@@ -136,7 +171,7 @@ class VisitController extends Controller
             'customerId' => $visit->customer_id,
             'customerName' => $visit->customer_name,
             'salesPerson' => $visit->sales_person_name,
-            'checkInDate' => $visit->check_in_at ? $visit->check_in_at->toISOString() : null,
+            'checkInDate' => $this->rawUtcToIso($visit->getRawOriginal('check_in_at')),
             'checkOutDate' => null,
             'location' => [
                 'lat' => $visit->check_in_lat,
@@ -166,7 +201,7 @@ class VisitController extends Controller
         }
 
         if ($request->has('check_out_date')) {
-            $visit->check_out_at = $request->check_out_date;
+            $visit->check_out_at = $this->normalizeToUtcDbString($request->check_out_date);
         }
 
         if ($request->has('lat') || $request->has('lng') || $request->has('address')) {
@@ -186,8 +221,8 @@ class VisitController extends Controller
             'customerId' => $visit->customer_id,
             'customerName' => $visit->customer_name,
             'salesPerson' => $visit->sales_person_name,
-            'checkInDate' => $visit->check_in_at ? $visit->check_in_at->toISOString() : null,
-            'checkOutDate' => $visit->check_out_at ? $visit->check_out_at->toISOString() : null,
+            'checkInDate' => $this->rawUtcToIso($visit->getRawOriginal('check_in_at')),
+            'checkOutDate' => $this->rawUtcToIso($visit->getRawOriginal('check_out_at')),
             'location' => [
                 'lat' => $visit->check_in_lat,
                 'lng' => $visit->check_in_lng,
@@ -202,4 +237,3 @@ class VisitController extends Controller
         ]);
     }
 }
-

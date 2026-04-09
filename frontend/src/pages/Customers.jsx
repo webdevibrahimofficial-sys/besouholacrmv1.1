@@ -392,8 +392,9 @@ export const Customers = () => {
 
   const handleAddQuotation = (customer) => {
     const preparedData = {
-      customerCode: customer.id,
-      customerName: customer.name,
+      customerId: customer.id,
+      customerCode: customer.customerCode || customer.customer_code || customer.code || '',
+      customerName: customer.name || customer.companyName || customer.company_name || '',
       salesPerson: customer.assignedSalesRep
     }
     setTargetCustomer(preparedData)
@@ -402,8 +403,9 @@ export const Customers = () => {
 
   const handleAddSalesOrder = (customer) => {
     const preparedData = {
-      customerCode: customer.id,
-      customerName: customer.name,
+      customerId: customer.id,
+      customerCode: customer.customerCode || customer.customer_code || customer.code || '',
+      customerName: customer.name || customer.companyName || customer.company_name || '',
       salesPerson: customer.assignedSalesRep
     }
     setTargetCustomer(preparedData)
@@ -572,12 +574,14 @@ export const Customers = () => {
     try {
       setLoading(true)
       const payload = {
-        customer_id: data.customerCode, // backend expects customer_id
+        customer_id: data.customerId !== null && data.customerId !== undefined && String(data.customerId).trim() ? String(data.customerId).trim() : undefined,
         customer_name: data.customerName,
+        customer_code: data.customerCode,
         status: data.status,
         date: data.date,
         valid_until: data.expiryDate,
         subtotal: data.subtotal,
+        tax: data.tax,
         total: data.total,
         items: data.items,
         notes: data.notes,
@@ -589,7 +593,15 @@ export const Customers = () => {
       showSuccess(isRTL ? 'تم إضافة عرض السعر بنجاح' : 'Quotation added successfully')
     } catch (e) {
       console.error(e)
-      alert(isRTL ? 'فشل حفظ عرض السعر' : 'Failed to save quotation')
+      const msg = e?.response?.data?.message || (isRTL ? 'فشل حفظ عرض السعر' : 'Failed to save quotation')
+      const errors = e?.response?.data?.errors
+      if (errors && typeof errors === 'object') {
+        const firstKey = Object.keys(errors)[0]
+        const firstMsg = firstKey ? (Array.isArray(errors[firstKey]) ? errors[firstKey][0] : errors[firstKey]) : null
+        alert(firstMsg || msg)
+      } else {
+        alert(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -599,12 +611,13 @@ export const Customers = () => {
     try {
       setLoading(true)
       const payload = {
-        customer_id: data.customerCode,
+        customer_id: data.customerId && !isNaN(data.customerId) ? Number(data.customerId) : undefined,
         customer_name: data.customerName,
         customer_code: data.customerCode,
         sales_person: data.salesPerson,
         items: data.items,
         total: data.total,
+        amount: data.subtotal || data.total,
         status: data.status,
         payment_terms: data.paymentTerms,
         delivery_date: data.deliveryDate,
@@ -619,7 +632,15 @@ export const Customers = () => {
       showSuccess(isRTL ? 'تم إضافة طلب البيع بنجاح' : 'Sales Order added successfully')
     } catch (e) {
       console.error(e)
-      alert(isRTL ? 'فشل حفظ طلب البيع' : 'Failed to save sales order')
+      const msg = e?.response?.data?.message || (isRTL ? 'فشل حفظ طلب البيع' : 'Failed to save sales order')
+      const errors = e?.response?.data?.errors
+      if (errors && typeof errors === 'object') {
+        const firstKey = Object.keys(errors)[0]
+        const firstMsg = firstKey ? (Array.isArray(errors[firstKey]) ? errors[firstKey][0] : errors[firstKey]) : null
+        alert(firstMsg || msg)
+      } else {
+        alert(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -996,7 +1017,7 @@ export const Customers = () => {
         
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead className={`bg-gray-50/50 dark:bg-gray-800/50 text-xs uppercase ${isLight ? 'text-black' : 'text-white'} font-semibold backdrop-blur-sm`}>
+            <thead className={` text-xs uppercase ${isLight ? 'text-black' : 'text-white'} font-semibold backdrop-blur-sm`}>
               <tr>
                 <th className="p-4 w-10">
                   <input 
@@ -1062,7 +1083,7 @@ export const Customers = () => {
                 paginatedItems.map((item, index) => (
                   <tr 
                     key={item.id || index} 
-                    className={`transition-colors group cursor-pointer ${activeRowId === item.id ? ' dark:bg-blue-900/20' : 'hover:bg-blue-900/10'}`}
+                    className={`transition-colors group cursor-pointer ${activeRowId === item.id ? 'bg-blue-900/20' : 'hover:bg-blue-900/10'}`}
                     onClick={() => setActiveRowId(activeRowId === item.id ? null : item.id)}
                   >
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
@@ -1149,8 +1170,8 @@ export const Customers = () => {
                       </td>
                     ))}
                     <td className={`p-4 whitespace-nowrap ${
-                      viewMode === 'floating' 
-                        ? `sticky ltr:right-0 rtl:left-0 bg-theme-bg shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)] dark:shadow-none z-10 transition-opacity duration-200 ${activeRowId === item.id ? 'opacity-100' : 'opacity-0 pointer-events-none'}`
+                      viewMode === 'floating'
+                        ? 'sticky ltr:right-0 rtl:left-0 bg-theme-bg shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)] dark:shadow-none z-10'
                         : ''
                     }`}>
                       <div className="flex items-center justify-end gap-2">

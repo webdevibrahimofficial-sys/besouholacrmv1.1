@@ -1143,18 +1143,44 @@ export default function SalesQuotations() {
         }}
         onSave={async (data) => {
             try {
-                // Save Order
-                await api.post('/api/sales-orders', data)
-                // Update Quotation Status if needed (e.g., to Sent or Accepted)
-                // await api.put(`/api/quotations/${data.quotationId}`, { status: 'Accepted' })
-                
+                const payload = {
+                    customer_id: data.customerId && !isNaN(data.customerId) ? Number(data.customerId) : undefined,
+                    customer_name: data.customerName,
+                    customer_code: data.customerCode,
+                    sales_person: data.salesPerson,
+                    items: Array.isArray(data.items) ? data.items : [],
+                    total: Number(data.total ?? 0),
+                    amount: Number(data.subtotal ?? data.total ?? 0),
+                    status: data.status || 'Draft',
+                    payment_terms: data.paymentTerms || null,
+                    delivery_date: data.deliveryDate || null,
+                    quotation_id: data.quotationId !== null && data.quotationId !== undefined && String(data.quotationId).trim() ? String(data.quotationId).trim() : null,
+                    tax: Number(data.tax ?? 0),
+                    discount_rate: Number(data.discountRate ?? 0),
+                    notes: data.notes || null,
+                }
+
+                if (payload.customer_id && isNaN(payload.customer_id)) {
+                    delete payload.customer_id
+                }
+
+                await api.post('/api/sales-orders', payload)
+
                 showSuccess(isRTL ? 'تم إنشاء الطلب بنجاح' : 'Order created successfully')
                 setShowOrderModal(false)
                 setOrderData(null)
-                load() // Refresh quotations to show status change if any
+                load()
             } catch (e) {
                 console.error('Failed to create order', e)
-                alert(isRTL ? 'فشل إنشاء الطلب' : 'Failed to create order')
+                const msg = e?.response?.data?.message || (isRTL ? 'فشل إنشاء الطلب' : 'Failed to create order')
+                const errors = e?.response?.data?.errors
+                if (errors && typeof errors === 'object') {
+                    const firstKey = Object.keys(errors)[0]
+                    const firstMsg = firstKey ? (Array.isArray(errors[firstKey]) ? errors[firstKey][0] : errors[firstKey]) : null
+                    alert(firstMsg || msg)
+                } else {
+                    alert(msg)
+                }
             }
         }}
         initialData={orderData}
