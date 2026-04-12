@@ -181,7 +181,7 @@ export default function Projects() {
   const { i18n } = useTranslation()
   const isRTL = String(i18n.language || '').startsWith('ar')
   const { companySetup } = useCompanySetup()
-  const { user, refreshInventoryBadges } = useAppState()
+  const { user, company, refreshInventoryBadges } = useAppState()
   const getShareOrigin = () => {
     const normalizeHost = (hostLike) => {
       const host = String(hostLike || '')
@@ -220,15 +220,31 @@ export default function Projects() {
     return []
   })()
   const roleLower = String(user?.role || '').toLowerCase()
+  const tenantTypeNorm = String(company?.company_type || company?.type || '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '')
+    .trim()
+  const isRealEstateTenant = tenantTypeNorm === 'realestate'
+  const allowAllTenantTypes = !tenantTypeNorm
   const isTenantAdmin =
     roleLower === 'admin' ||
     roleLower === 'tenant admin' ||
     roleLower === 'tenant-admin'
   const canManageProjects =
-    effectiveInventoryPerms.includes('addProject') ||
-    user?.is_super_admin ||
-    isTenantAdmin ||
-    roleLower.includes('director')
+    (allowAllTenantTypes || isRealEstateTenant) && (
+      effectiveInventoryPerms.includes('addProject') ||
+      user?.is_super_admin ||
+      isTenantAdmin ||
+      roleLower.includes('director')
+    )
+
+  const canExportProjects =
+    (allowAllTenantTypes || isRealEstateTenant) && (
+      effectiveInventoryPerms.includes('exportProject') ||
+      user?.is_super_admin ||
+      isTenantAdmin ||
+      roleLower.includes('director')
+    )
 
   const canDeleteInventory =
     user?.is_super_admin ||
@@ -1071,6 +1087,7 @@ export default function Projects() {
               </button>
             )}
 
+            {canExportProjects && (
             <div className="relative w-full lg:w-auto">
               <button
                 className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 text-white border-none flex items-center justify-center gap-2"
@@ -1106,6 +1123,7 @@ export default function Projects() {
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
 

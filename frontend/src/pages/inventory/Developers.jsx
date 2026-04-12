@@ -14,21 +14,29 @@ export default function Developers() {
   const isArabic = i18n.language === 'ar'
   const isRTL = isArabic
   const { fields: dynamicFields } = useDynamicFields('developers')
-  const { user, refreshInventoryBadges } = useAppState()
+  const { user, company, refreshInventoryBadges } = useAppState()
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitInventoryPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Inventory')
   const inventoryModulePerms = hasExplicitInventoryPerms && Array.isArray(modulePermissions.Inventory) ? modulePermissions.Inventory : []
   const effectiveInventoryPerms = hasExplicitInventoryPerms ? inventoryModulePerms : []
   const roleLower = String(user?.role || '').toLowerCase()
+  const tenantTypeNorm = String(company?.company_type || company?.type || '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '')
+    .trim()
+  const isRealEstateTenant = tenantTypeNorm === 'realestate'
+  const allowAllTenantTypes = !tenantTypeNorm
   const isTenantAdmin =
     roleLower === 'admin' ||
     roleLower === 'tenant admin' ||
     roleLower === 'tenant-admin'
   const canManageDevelopers =
-    effectiveInventoryPerms.includes('addDeveloper') ||
-    user?.is_super_admin ||
-    isTenantAdmin
+    (allowAllTenantTypes || isRealEstateTenant) && (
+      effectiveInventoryPerms.includes('addDeveloper') ||
+      user?.is_super_admin ||
+      isTenantAdmin
+    )
 
   const canDeleteInventory =
     user?.is_super_admin ||

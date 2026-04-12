@@ -12,7 +12,7 @@ export default function ItemsPage() {
   const { i18n } = useTranslation()
   const isArabic = i18n.language === 'ar'
   const { fields: dynamicFields } = useDynamicFields('items')
-  const { user, crmSettings } = useAppState()
+  const { user, crmSettings, company } = useAppState()
   const currencySymbol = crmSettings?.default_currency || '$'
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
@@ -20,14 +20,29 @@ export default function ItemsPage() {
   const inventoryModulePerms = hasExplicitInventoryPerms && Array.isArray(modulePermissions.Inventory) ? modulePermissions.Inventory : []
   const effectiveInventoryPerms = hasExplicitInventoryPerms ? inventoryModulePerms : []
   const roleLower = String(user?.role || '').toLowerCase()
+  const tenantTypeNorm = String(company?.company_type || company?.type || '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '')
+    .trim()
+  const isGeneralTenant = tenantTypeNorm === 'general'
+  const allowAllTenantTypes = !tenantTypeNorm
   const isTenantAdmin =
     roleLower === 'admin' ||
     roleLower === 'tenant admin' ||
     roleLower === 'tenant-admin'
   const canManageItems =
-    effectiveInventoryPerms.includes('addItems') ||
-    user?.is_super_admin ||
-    isTenantAdmin
+    (allowAllTenantTypes || isGeneralTenant) && (
+      effectiveInventoryPerms.includes('addItems') ||
+      user?.is_super_admin ||
+      isTenantAdmin
+    )
+
+  const canExportItem =
+    (allowAllTenantTypes || isGeneralTenant) && (
+      effectiveInventoryPerms.includes('exportItem') ||
+      user?.is_super_admin ||
+      isTenantAdmin
+    )
 
   const labels = useMemo(() => ({
     title: isArabic ? 'إدارة الأصناف' : 'Items Management',
@@ -462,6 +477,7 @@ export default function ItemsPage() {
               <FaPlus className='text-white' /><span className="text-white">{labels.add}</span>
             </button>
           )}
+          {canExportItem && (
           <div className="relative  dropdown-container w-full lg:w-auto">
             <button
               className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 text-white border-none flex items-center justify-center gap-2"
@@ -481,6 +497,7 @@ export default function ItemsPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 

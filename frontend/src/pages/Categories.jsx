@@ -63,22 +63,37 @@ export default function Categories() {
     description: ''
   })
 
-  const { user } = useAppState()
+  const { user, company } = useAppState()
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitInventoryPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Inventory')
   const inventoryModulePerms = hasExplicitInventoryPerms && Array.isArray(modulePermissions.Inventory) ? modulePermissions.Inventory : []
   const effectiveInventoryPerms = hasExplicitInventoryPerms ? inventoryModulePerms : []
   const roleLower = String(user?.role || '').toLowerCase()
+  const tenantTypeNorm = String(company?.company_type || company?.type || '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '')
+    .trim()
+  const isGeneralTenant = tenantTypeNorm === 'general'
+  const allowAllTenantTypes = !tenantTypeNorm
   const isTenantAdmin =
     roleLower === 'admin' ||
     roleLower === 'tenant admin' ||
     roleLower === 'tenant-admin'
   const canManageCategories =
-    effectiveInventoryPerms.includes('addCategory') ||
-    effectiveInventoryPerms.includes('addProducts') ||
-    user?.is_super_admin ||
-    isTenantAdmin
+    (allowAllTenantTypes || isGeneralTenant) && (
+      effectiveInventoryPerms.includes('addCategory') ||
+      effectiveInventoryPerms.includes('addProducts') ||
+      user?.is_super_admin ||
+      isTenantAdmin
+    )
+
+  const canExportCategory =
+    (allowAllTenantTypes || isGeneralTenant) && (
+      effectiveInventoryPerms.includes('exportCategory') ||
+      user?.is_super_admin ||
+      isTenantAdmin
+    )
 
   const canDeleteInventory =
     user?.is_super_admin ||
@@ -327,6 +342,7 @@ export default function Categories() {
                 <FaPlus className="text-white" /><span className="text-white">{labels.add}</span>
               </button>
             )}
+            {canExportCategory && (
             <div className="relative  dropdown-container w-full lg:w-auto">
               <button 
                 className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 text-white border-none flex items-center justify-center gap-2"
@@ -353,6 +369,7 @@ export default function Categories() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
 

@@ -41,12 +41,35 @@ const isSalesPersonRole = (role) => {
 
 export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const { i18n } = useTranslation()
-  const { crmSettings } = useAppState()
+  const { crmSettings, company } = useAppState()
   const isArabic = i18n.language === 'ar'
   const navigate = useNavigate();
   const isEdit = !!user;
 
   const currencySymbol = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'SAR'
+  const tenantTypeRaw =
+    crmSettings?.company_type ??
+    crmSettings?.companyType ??
+    company?.company_type ??
+    company?.type ??
+    ''
+  const tenantTypeNorm = String(tenantTypeRaw || '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '')
+    .trim()
+  const isGeneralTenant = tenantTypeNorm === 'general'
+  const isRealEstateTenant = tenantTypeNorm === 'realestate'
+  const allowAllTenantTypes = !tenantTypeNorm
+
+  const filterInventoryPermsByTenantType = useCallback((list) => {
+    const perms = Array.isArray(list) ? list : []
+    if (allowAllTenantTypes) return perms
+    const generalOnly = new Set(['addCategory', 'addItems', 'exportCategory', 'exportItem'])
+    const realEstateOnly = new Set(['addProject', 'addProperties', 'addBroker', 'addDeveloper', 'revertSoldProperty', 'exportProject', 'exportProperties'])
+    if (isGeneralTenant) return perms.filter(p => !realEstateOnly.has(p))
+    if (isRealEstateTenant) return perms.filter(p => !generalOnly.has(p))
+    return perms
+  }, [allowAllTenantTypes, isGeneralTenant, isRealEstateTenant])
 
   const [form, setForm] = useState({
     fullName: (user?.fullName || user?.name || '').trim(),
@@ -485,7 +508,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       }
 
       Object.entries(customPerms || {}).forEach(([group, perms]) => {
-        const allowed = group === 'Reports' ? null : (PERMISSIONS[group] || []);
+        const baseAllowed = group === 'Reports' ? null : (PERMISSIONS[group] || []);
+        const allowed = (group === 'Inventory' && baseAllowed) ? filterInventoryPermsByTenantType(baseAllowed) : baseAllowed;
         (perms || []).forEach((perm) => {
           if (allowed && !allowed.includes(perm)) return;
           if (isSalesPersonRole(form.role) && group === 'Leads' && perm === 'addAction') return;
@@ -970,8 +994,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     const uiPerms = (isSalesPersonRole(form.role) && group === 'Leads')
                       ? perms.filter(p => p !== 'addAction')
                       : perms;
-                    const visibleGroupPerms = group === 'Reports' ? groupPerms : groupPerms.filter(p => uiPerms.includes(p));
-                    const allSelected = uiPerms.length > 0 && uiPerms.every(p => visibleGroupPerms.includes(p));
+                    const tenantUiPerms = group === 'Inventory' ? filterInventoryPermsByTenantType(uiPerms) : uiPerms;
+                    const visibleGroupPerms = group === 'Reports' ? groupPerms : groupPerms.filter(p => tenantUiPerms.includes(p));
+                    const allSelected = tenantUiPerms.length > 0 && tenantUiPerms.every(p => visibleGroupPerms.includes(p));
                     const isExpanded = expandedGroups[group];
 
                     return (
@@ -986,7 +1011,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                           </button>
                           <h3 className="font-medium">{isArabic ? (PERM_LABELS_AR.groups[group] || group) : group}</h3>
                           <span className="text-xs bg-base-content/10 px-2 py-0.5 rounded-full text-base-content/60">
-                            {visibleGroupPerms.length} / {uiPerms.length}
+                            {visibleGroupPerms.length} / {tenantUiPerms.length}
                           </span>
                         </div>
                         <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
@@ -995,7 +1020,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                                 type="checkbox" 
                                 className="checkbox checkbox-xs checkbox-primary" 
                                 checked={allSelected} 
-                                onChange={() => toggleAllPerms(group, uiPerms, lockedPerms)} 
+                                onChange={() => toggleAllPerms(group, tenantUiPerms, lockedPerms)} 
                               />
                               <span>{isArabic ? 'تحديد الكل' : 'Select All'}</span>
                             </label>
@@ -1005,7 +1030,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                       {isExpanded && (
                         <div className="p-2 sm:p-3 pt-0 border-t border-base-content/5 bg-base-200/10">
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4 pt-3 sm:pt-4">
-                            {uiPerms.map((p) => {
+                            {tenantUiPerms.map((p) => {
                               const checked = visibleGroupPerms.includes(p);
                               return (
                                 <label key={p} className="cursor-pointer flex items-center gap-2 sm:gap-3 select-none hover:bg-base-content/5 px-3 py-2 rounded-lg transition-colors border border-transparent hover:border-base-content/5 bg-base-100/50">

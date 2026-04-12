@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { FaPhone, FaEnvelope, FaCalendarAlt, FaClock, FaComments, FaHandshake, FaFileAlt, FaTimes, FaChevronDown, FaToggleOn, FaToggleOff, FaTrash, FaPlus } from 'react-icons/fa';
@@ -29,6 +29,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const [items, setItems] = useState([]);
   const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const cancelAutoNotesRef = useRef('');
+  const cancelNotesTouchedRef = useRef(false);
 
   useEffect(() => {
     const fetchStages = async () => {
@@ -850,10 +852,42 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     const { name, value, type, checked, files } = e.target;
 
     if (name === 'cancelReason') {
-      setActionData(prev => ({
-        ...prev,
-        cancelReason: value
-      }));
+      setActionData(prev => {
+        const newReason = value;
+        const prevNotes = String(prev.notes || '');
+        const lastAuto = String(cancelAutoNotesRef.current || '');
+        const shouldAutoFillNotes =
+          prev.nextAction === 'cancel' &&
+          !cancelNotesTouchedRef.current &&
+          (prevNotes.trim() === '' || prevNotes === lastAuto);
+
+        if (shouldAutoFillNotes) {
+          cancelAutoNotesRef.current = newReason;
+        }
+
+        return {
+          ...prev,
+          cancelReason: newReason,
+          notes: shouldAutoFillNotes ? newReason : prev.notes,
+        };
+      });
+      return;
+    }
+
+    if (name === 'notes') {
+      setActionData(prev => {
+        if (prev.nextAction === 'cancel') {
+          const lastAuto = String(cancelAutoNotesRef.current || '');
+          if (String(value || '').trim() !== '' && String(value) !== lastAuto) {
+            cancelNotesTouchedRef.current = true;
+          }
+        }
+        return {
+          ...prev,
+          [name]: value,
+          ...(name === 'actionType' ? { type: value } : {}),
+        };
+      });
       return;
     }
 
@@ -904,6 +938,18 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         status: 'pending'
       }));
     }
+  };
+
+  const buildCancelDescription = (reason, notes) => {
+    const r = String(reason || '').trim();
+    const n = String(notes || '').trim();
+    if (!r) return n;
+    if (!n) return r;
+    if (n === r) return r;
+    const nLower = n.toLowerCase();
+    const rLower = r.toLowerCase();
+    if (nLower.startsWith(rLower) || nLower.includes(rLower)) return n;
+    return `${r} - ${n}`;
   };
 
   const handleSubmit = async (e) => {
@@ -1015,6 +1061,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       let finalDescription = cleanedData.notes || cleanedData.description || cleanedData.title || '';
       if (cleanedData.reservationNotes) {
         finalDescription = finalDescription ? `${finalDescription} - ${cleanedData.reservationNotes}` : cleanedData.reservationNotes;
+      }
+
+      if (cleanedData.nextAction === 'cancel') {
+        finalDescription = buildCancelDescription(cleanedData.cancelReason, finalDescription);
       }
 
       const payload = {
@@ -1131,6 +1181,23 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       setIsSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (actionData.nextAction !== 'cancel') {
+      cancelNotesTouchedRef.current = false;
+      cancelAutoNotesRef.current = '';
+      return;
+    }
+
+    const reason = String(actionData.cancelReason || '').trim();
+    const notes = String(actionData.notes || '').trim();
+    if (!reason) return;
+    if (cancelNotesTouchedRef.current) return;
+    if (notes !== '') return;
+
+    cancelAutoNotesRef.current = reason;
+    setActionData(prev => ({ ...prev, notes: reason }));
+  }, [actionData.nextAction, actionData.cancelReason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedActionType = actionTypes.find(type => type.value === actionData.type);
   const ActionIcon = selectedActionType?.icon || FaComments;
@@ -1772,22 +1839,28 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Comment */}
-          {actionData.nextAction !== 'cancel' && (
           <div>
             <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
-              {isArabic ? 'تعليق *' : 'Comment *'}
+              {isArabic
+                ? (actionData.nextAction === 'cancel' ? 'تعليق' : 'تعليق *')
+                : (actionData.nextAction === 'cancel' ? 'Comment' : 'Comment *')}
             </label>
             <textarea
               name="notes"
               value={actionData.notes}
               onChange={handleInputChange}
-              placeholder={isArabic ? 'اكتب تعليقك هنا. يُسمح بعدد غير محدود من الكلمات...' : 'Write your comment here. Unlimited words are allowed...'}
+              placeholder={isArabic
+                ? (actionData.nextAction === 'cancel'
+                  ? 'سيتم وضع سبب الإلغاء تلقائيًا هنا...'
+                  : 'اكتب تعليقك هنا. يُسمح بعدد غير محدود من الكلمات...')
+                : (actionData.nextAction === 'cancel'
+                  ? 'Cancel reason will be filled here automatically...'
+                  : 'Write your comment here. Unlimited words are allowed...')}
               rows="4"
               className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-gray-400' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400'} resize-none`}
-              required
+              required={actionData.nextAction !== 'cancel'}
             />
           </div>
-          )}
 
           {/* Buttons */}
           <div className="flex justify-between gap-2 pt-4">

@@ -565,7 +565,7 @@ export default function Properties() {
     fetchData()
   }, [])
 
-  const { user, refreshInventoryBadges } = useAppState()
+  const { user, company, refreshInventoryBadges } = useAppState()
 
   useEffect(() => {
     const markSeen = async () => {
@@ -586,15 +586,31 @@ export default function Properties() {
     return []
   })()
   const roleLower = String(user?.role || '').toLowerCase()
+  const tenantTypeNorm = String(company?.company_type || company?.type || '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '')
+    .trim()
+  const isRealEstateTenant = tenantTypeNorm === 'realestate'
+  const allowAllTenantTypes = !tenantTypeNorm
   const isTenantAdmin =
     roleLower === 'admin' ||
     roleLower === 'tenant admin' ||
     roleLower === 'tenant-admin'
   const canManageProperties =
-    effectiveInventoryPerms.includes('addProperties') ||
-    user?.is_super_admin ||
-    isTenantAdmin ||
-    roleLower.includes('director')
+    (allowAllTenantTypes || isRealEstateTenant) && (
+      effectiveInventoryPerms.includes('addProperties') ||
+      user?.is_super_admin ||
+      isTenantAdmin ||
+      roleLower.includes('director')
+    )
+
+  const canExportProperties =
+    (allowAllTenantTypes || isRealEstateTenant) && (
+      effectiveInventoryPerms.includes('exportProperties') ||
+      user?.is_super_admin ||
+      isTenantAdmin ||
+      roleLower.includes('director')
+    )
 
   const canDeleteInventory =
     user?.is_super_admin ||
@@ -602,9 +618,11 @@ export default function Properties() {
     effectiveInventoryPerms.includes('deleteInventory')
 
   const canRevertSoldProperty =
-    user?.is_super_admin ||
-    isTenantAdmin ||
-    effectiveInventoryPerms.includes('revertSoldProperty')
+    (allowAllTenantTypes || isRealEstateTenant) && (
+      user?.is_super_admin ||
+      isTenantAdmin ||
+      effectiveInventoryPerms.includes('revertSoldProperty')
+    )
 
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [filters, setFilters] = useState({
@@ -1079,6 +1097,7 @@ export default function Properties() {
               </button>
             )}
 
+            {canExportProperties && (
             <div className="relative w-full lg:w-auto">
               <button
                 className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 text-white border-none flex items-center justify-center gap-2"
@@ -1115,6 +1134,7 @@ export default function Properties() {
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
 

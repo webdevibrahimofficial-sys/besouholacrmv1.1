@@ -1232,7 +1232,7 @@ if (!s) {
     item: ['item', 'الصنف', 'product', 'project/item'],
     assignedTo: ['assignedto', 'assigned', 'المسؤول', 'المسند إليه', 'salesperson', 'sales person', 'بائع', 'المندوب', 'sales_person'],
     creationDate: ['creation date', 'creationdate', 'creation_date', 'createdat', 'created_at', 'تاريخ الإنشاء', 'created'],
-    firstActionDate: ['first action date', 'firstactiondate', 'first_action_date', 'تاريخ أول إجراء', 'تاريخ اول إجراء', 'تاريخ أول اكشن', 'تاريخ اول اكشن'],
+    firstActionDate: ['first action date', 'firstactiondate', 'first_action_date', 'last action date', 'lastactiondate', 'last_action_date', 'action date', 'actiondate', 'action_date', 'تاريخ أول إجراء', 'تاريخ اول إجراء', 'تاريخ أول اكشن', 'تاريخ اول اكشن', 'تاريخ آخر إجراء', 'تاريخ اخر إجراء', 'تاريخ آخر اكشن', 'تاريخ اخر اكشن'],
     lastContact: ['lastcontact', 'آخر اتصال'],
     estimatedValue: ['estimatedvalue', 'القيمة التقديرية', 'value'],
     probability: ['probability', 'الاحتمالية'],
