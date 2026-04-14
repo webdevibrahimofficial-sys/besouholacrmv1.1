@@ -5,6 +5,7 @@ import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import { api, logExportEvent } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
+import { useTheme } from '../shared/context/ThemeProvider'
 import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEdit, FaTrash, FaFileExport, FaFileExcel, FaFilePdf, FaTimes, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 
@@ -17,6 +18,7 @@ export default function Campaigns() {
   const { i18n } = useTranslation()
   const isArabic = (i18n?.language || '').toLowerCase().startsWith('ar')
   const { user } = useAppState()
+  const { isLight } = useTheme()
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitMarketingPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Marketing')

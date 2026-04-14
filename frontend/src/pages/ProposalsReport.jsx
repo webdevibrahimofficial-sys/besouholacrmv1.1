@@ -8,6 +8,7 @@ import { canExportReport } from '../shared/utils/reportPermissions'
 import { api, logExportEvent } from '../utils/api'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import { PieChart } from '../shared/components/PieChart'
 import { Filter, ChevronDown, ChevronUp, User, Users, Tag, Briefcase, Calendar, Trophy, FileText, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react'
@@ -201,7 +202,8 @@ export default function ProposalsReport() {
   const [managerFilter, setManagerFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [projectFilter, setProjectFilter] = useState('all')
-  const [proposalDateFilter, setProposalDateFilter] = useState('')
+  const [proposalDateFrom, setProposalDateFrom] = useState('')
+  const [proposalDateTo, setProposalDateTo] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
 
@@ -246,14 +248,21 @@ export default function ProposalsReport() {
       })()
       const bySource = sourceFilter === 'all' || p.source === sourceFilter
       const byProject = projectFilter === 'all' || p.project === projectFilter
-      const byDate = !proposalDateFilter ? true : p.proposalDate === proposalDateFilter
+      const byDate = (() => {
+        if (!proposalDateFrom && !proposalDateTo) return true
+        const d = p.proposalDate || ''
+        if (!d) return false
+        if (proposalDateFrom && d < proposalDateFrom) return false
+        if (proposalDateTo && d > proposalDateTo) return false
+        return true
+      })()
       return bySales && byManager && bySource && byProject && byDate
     })
-  }, [proposals, salesPersonFilter, managerFilter, sourceFilter, projectFilter, proposalDateFilter, usersList])
+  }, [proposals, salesPersonFilter, managerFilter, sourceFilter, projectFilter, proposalDateFrom, proposalDateTo, usersList])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, proposalDateFilter])
+  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, proposalDateFrom, proposalDateTo])
 
   const totalRecords = filtered.length
   const pageCount = Math.ceil(totalRecords / entriesPerPage)
@@ -412,7 +421,8 @@ export default function ProposalsReport() {
     setManagerFilter('all')
     setSourceFilter('all')
     setProjectFilter('all')
-    setProposalDateFilter('')
+    setProposalDateFrom('')
+    setProposalDateTo('')
   }
 
   const renderPieCard = (title, data) => {
@@ -546,11 +556,15 @@ export default function ProposalsReport() {
                 <Calendar size={12} className="text-blue-400" />
                 {isRTL ? 'تاريخ العرض' : 'Proposal Date'}
               </label>
-              <input
-                type="date"
+              <DateRangePicker
+                from={proposalDateFrom}
+                to={proposalDateTo}
+                onChange={({ from, to }) => {
+                  setProposalDateFrom(from)
+                  setProposalDateTo(to)
+                }}
+                isRTL={isRTL}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                value={proposalDateFilter}
-                onChange={e => setProposalDateFilter(e.target.value)}
               />
             </div>
           </div>

@@ -6,10 +6,9 @@ import { logExportEvent, logImportEvent } from '../../utils/api'
 import { FaCloudUploadAlt, FaDownload, FaTimes, FaFileExcel, FaUpload } from 'react-icons/fa'
 
 export default function RealEstateRequestsImportModal({ isOpen, onClose, onImport }) {
-  const { theme } = useTheme()
+  const { isLight, isDark } = useTheme()
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const isDark = theme === 'dark'
 
   const [excelFile, setExcelFile] = useState(null)
   const [importing, setImporting] = useState(false)

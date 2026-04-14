@@ -12,6 +12,7 @@ import { api } from '../utils/api'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import { canExportReport } from '../shared/utils/reportPermissions'
 
 export default function CustomersReport() {
@@ -28,9 +29,11 @@ export default function CustomersReport() {
   const [manager, setManager] = useState('all')
   const [source, setSource] = useState('all')
   const [project, setProject] = useState('all')
-  const [convertDate, setConvertDate] = useState('')
+  const [convertDateFrom, setConvertDateFrom] = useState('')
+  const [convertDateTo, setConvertDateTo] = useState('')
   const [clientType, setClientType] = useState('all')
-  const [actionDate, setActionDate] = useState('')
+  const [actionDateFrom, setActionDateFrom] = useState('')
+  const [actionDateTo, setActionDateTo] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(true)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
@@ -125,12 +128,26 @@ export default function CustomersReport() {
       const prjOk = project === 'all' || c.project === project
       const typeOk = clientType === 'all' || c.clientType === clientType
       
-      const convOk = !convertDate || c.joinedDate === convertDate
-      const actOk = !actionDate || c.lastActivity === actionDate
+      const convOk = (() => {
+        if (!convertDateFrom && !convertDateTo) return true
+        const d = c.joinedDate || ''
+        if (!d) return false
+        if (convertDateFrom && d < convertDateFrom) return false
+        if (convertDateTo && d > convertDateTo) return false
+        return true
+      })()
+      const actOk = (() => {
+        if (!actionDateFrom && !actionDateTo) return true
+        const d = c.lastActivity || ''
+        if (!d) return false
+        if (actionDateFrom && d < actionDateFrom) return false
+        if (actionDateTo && d > actionDateTo) return false
+        return true
+      })()
 
       return spOk && mgrOk && srcOk && prjOk && typeOk && convOk && actOk
     })
-  }, [customers, salesperson, manager, source, project, clientType, convertDate, actionDate])
+  }, [customers, salesperson, manager, source, project, clientType, convertDateFrom, convertDateTo, actionDateFrom, actionDateTo])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -239,9 +256,11 @@ export default function CustomersReport() {
     setManager('all')
     setSource('all')
     setProject('all')
-    setConvertDate('')
+    setConvertDateFrom('')
+    setConvertDateTo('')
     setClientType('all')
-    setActionDate('')
+    setActionDateFrom('')
+    setActionDateTo('')
     setCurrentPage(1)
   }
 
@@ -493,13 +512,15 @@ export default function CustomersReport() {
               <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 {isRTL ? 'تاريخ التحويل' : 'Convert Date'}
               </label>
-              <input
-                type="date"
-                value={convertDate}
-                onChange={e => {
-                  setConvertDate(e.target.value)
+              <DateRangePicker
+                from={convertDateFrom}
+                to={convertDateTo}
+                onChange={({ from, to }) => {
+                  setConvertDateFrom(from)
+                  setConvertDateTo(to)
                   setCurrentPage(1)
                 }}
+                isRTL={isRTL}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-transparent ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
               />
             </div>
@@ -524,13 +545,15 @@ export default function CustomersReport() {
               <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 {isRTL ? 'تاريخ الإجراء' : 'Action Date'}
               </label>
-              <input
-                type="date"
-                value={actionDate}
-                onChange={e => {
-                  setActionDate(e.target.value)
+              <DateRangePicker
+                from={actionDateFrom}
+                to={actionDateTo}
+                onChange={({ from, to }) => {
+                  setActionDateFrom(from)
+                  setActionDateTo(to)
                   setCurrentPage(1)
                 }}
+                isRTL={isRTL}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-transparent ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
               />
             </div>

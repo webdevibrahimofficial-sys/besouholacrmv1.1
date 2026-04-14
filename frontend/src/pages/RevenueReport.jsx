@@ -12,6 +12,7 @@ import { api } from '../utils/api'
 import BackButton from '../components/BackButton'
 import { PieChart } from '../shared/components/PieChart'
 import SearchableSelect from '../components/SearchableSelect'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import { Filter, User, Users, Target, FileText, DollarSign, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, Search, Eye, ChevronDown } from 'lucide-react'
 import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -1031,28 +1032,20 @@ export default function RevenueReport() {
               showAllFilters ? 'max-h-[1000px] opacity-100 pt-2' : 'max-h-0 opacity-0'
             }`}
           >
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2 lg:col-span-2">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'من تاريخ' : 'Date From'}
+                {isRTL ? 'نطاق التاريخ' : 'Date Range'}
               </label>
-              <input
-                type="date"
+              <DateRangePicker
+                from={dateFromFilter}
+                to={dateToFilter}
+                onChange={({ from, to }) => {
+                  setDateFromFilter(from)
+                  setDateToFilter(to)
+                }}
+                isRTL={isRTL}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                value={dateFromFilter}
-                onChange={e => setDateFromFilter(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'إلى تاريخ' : 'Date To'}
-              </label>
-              <input
-                type="date"
-                className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                value={dateToFilter}
-                onChange={e => setDateToFilter(e.target.value)}
               />
             </div>
             <div className="space-y-1">

@@ -17,6 +17,7 @@ import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { Filter, User, Tag, Briefcase, Trophy, ChevronDown, ChevronLeft, ChevronRight, Eye, Phone, Trash, Calendar } from 'lucide-react'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import LeadDetailsModal from '../components/LeadDetailsModal'
+import DateRangePicker from '../shared/components/DateRangePicker'
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 export default function ReservationsReport() {
@@ -361,7 +362,8 @@ export default function ReservationsReport() {
   const [source, setSource] = useState('all')
   const [project, setProject] = useState('all')
   const [lastActionDate, setLastActionDate] = useState('')
-  const [reservationDate, setReservationDate] = useState('')
+  const [reservationDateFrom, setReservationDateFrom] = useState('')
+  const [reservationDateTo, setReservationDateTo] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
 
   const staffList = useMemo(() => {
@@ -438,10 +440,17 @@ export default function ReservationsReport() {
       const bySource = source === 'all' ? true : r.source === source
       const byProject = project === 'all' ? true : r.project === project
       const byLastAction = !lastActionDate ? true : String(r.lastAction || '').slice(0, 10) === lastActionDate
-      const byReservationDate = !reservationDate ? true : String(r.reservationDateTime || '').slice(0, 10) === reservationDate
+      const byReservationDate = (() => {
+        if (!reservationDateFrom && !reservationDateTo) return true
+        const d = String(r.reservationDateTime || '').slice(0, 10)
+        if (!d) return false
+        if (reservationDateFrom && d < reservationDateFrom) return false
+        if (reservationDateTo && d > reservationDateTo) return false
+        return true
+      })()
       return byStaff && byManager && bySource && byProject && byLastAction && byReservationDate
     })
-  }, [raw, staff, manager, source, project, lastActionDate, reservationDate])
+  }, [raw, staff, manager, source, project, lastActionDate, reservationDateFrom, reservationDateTo])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -581,7 +590,8 @@ export default function ReservationsReport() {
                   setSource('all')
                   setProject('all')
                   setLastActionDate('')
-                  setReservationDate('')
+                  setReservationDateFrom('')
+                  setReservationDateTo('')
                   setCurrentPage(1)
                 }}
                 className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
@@ -674,13 +684,15 @@ export default function ReservationsReport() {
                     <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                     {isRTL ? 'إلى تاريخ' : 'To Date'}
                   </label>
-                    <input
-                      type="date"
-                      value={reservationDate}
-                      onChange={(e) => {
-                        setReservationDate(e.target.value)
+                    <DateRangePicker
+                      from={reservationDateFrom}
+                      to={reservationDateTo}
+                      onChange={({ from, to }) => {
+                        setReservationDateFrom(from)
+                        setReservationDateTo(to)
                         setCurrentPage(1)
                       }}
+                      isRTL={isRTL}
                       className={`w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 dark:bg-gray-900 ${isLight ? 'text-black' : 'text-white'} focus:ring-2 focus:ring-blue-500/20`}
                     />
                   </div>

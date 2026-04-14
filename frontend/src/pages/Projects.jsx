@@ -2,6 +2,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import * as XLSX from 'xlsx'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -180,6 +181,7 @@ const RangeSlider = ({ min, max, value, onChange, label, isRTL, unit = '' }) => 
 export default function Projects() {
   const { i18n } = useTranslation()
   const isRTL = String(i18n.language || '').startsWith('ar')
+  const { isLight } = useTheme()
   const { companySetup } = useCompanySetup()
   const { user, company, refreshInventoryBadges } = useAppState()
   const getShareOrigin = () => {
@@ -276,7 +278,8 @@ export default function Projects() {
     category: '',
     paymentPlan: '',
     createdBy: '',
-    createdDate: '',
+    createdDateFrom: '',
+    createdDateTo: '',
     minPrice: '',
     maxPrice: '',
     minSpace: '',
@@ -978,7 +981,12 @@ export default function Projects() {
       if (filters.country && !(p.country || 'Egypt').toLowerCase().includes(filters.country.toLowerCase())) return false
       if (filters.category && !(p.category || '').toLowerCase().includes(filters.category.toLowerCase())) return false
       if (filters.createdBy && Number(p.createdBy) !== Number(filters.createdBy)) return false
-      if (filters.createdDate && (p.createdDate || p.lastUpdated) !== filters.createdDate) return false
+      if (filters.createdDateFrom || filters.createdDateTo) {
+        const d0 = (p.createdDate || p.lastUpdated || '')
+        if (!d0) return false
+        if (filters.createdDateFrom && d0 < filters.createdDateFrom) return false
+        if (filters.createdDateTo && d0 > filters.createdDateTo) return false
+      }
       if (filters.minPrice && (p.maxPrice || 0) < Number(filters.minPrice)) return false
       if (filters.maxPrice && (p.minPrice || 0) > Number(filters.maxPrice)) return false
       if (filters.minSpace && (p.maxSpace || 0) < Number(filters.minSpace)) return false
@@ -1024,7 +1032,8 @@ export default function Projects() {
       category: '',
       paymentPlan: '',
       createdBy: '',
-      createdDate: '',
+      createdDateFrom: '',
+      createdDateTo: '',
       minPrice: '',
       maxPrice: '',
       minSpace: '',
@@ -1236,11 +1245,12 @@ export default function Projects() {
             {/* 9. Created Date */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaFilter className="text-blue-500" size={10} /> {Label.createdDate}</label>
-              <input
-                type="date"
+              <DateRangePicker
+                from={filters.createdDateFrom}
+                to={filters.createdDateTo}
+                onChange={({ from, to }) => setFilters({ ...filters, createdDateFrom: from, createdDateTo: to })}
+                isRTL={isRTL}
                 className="input w-full"
-                value={filters.createdDate}
-                onChange={e => setFilters({ ...filters, createdDate: e.target.value })}
               />
             </div>
 

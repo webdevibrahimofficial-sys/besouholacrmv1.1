@@ -99,6 +99,7 @@ export const ThemeProvider = ({ children }) => {
       resolvedTheme,
       palette, 
       fonts,
+      isLight: resolvedTheme === 'light',
       isDark: resolvedTheme === 'dark',
       isDarkMode: resolvedTheme === 'dark'
     }}>

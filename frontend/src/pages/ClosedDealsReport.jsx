@@ -11,6 +11,7 @@ import BackButton from '../components/BackButton'
 import { PieChart } from '../shared/components/PieChart'
 import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import { Filter, User, Users, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react'
 import { FaChevronDown, FaFileExport } from 'react-icons/fa'
 
@@ -35,8 +36,10 @@ export default function ClosedDealsReport() {
   const [managerFilter, setManagerFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [projectFilter, setProjectFilter] = useState('all')
-  const [lastActionDateFilter, setLastActionDateFilter] = useState('')
-  const [closedDealDateFilter, setClosedDealDateFilter] = useState('')
+  const [lastActionDateFrom, setLastActionDateFrom] = useState('')
+  const [lastActionDateTo, setLastActionDateTo] = useState('')
+  const [closedDealDateFrom, setClosedDealDateFrom] = useState('')
+  const [closedDealDateTo, setClosedDealDateTo] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showLeadModal, setShowLeadModal] = useState(false)
@@ -252,18 +255,32 @@ export default function ClosedDealsReport() {
       })()
       const bySource = sourceFilter === 'all' ? true : d.source === sourceFilter
       const byProject = projectFilter === 'all' ? true : d.project === projectFilter
-      const byLastAction = !lastActionDateFilter ? true : d.closedDate >= lastActionDateFilter
-      const byClosedDate = !closedDealDateFilter ? true : d.closedDate === closedDealDateFilter
+      const byLastAction = (() => {
+        if (!lastActionDateFrom && !lastActionDateTo) return true
+        const d0 = d.closedDate || ''
+        if (!d0) return false
+        if (lastActionDateFrom && d0 < lastActionDateFrom) return false
+        if (lastActionDateTo && d0 > lastActionDateTo) return false
+        return true
+      })()
+      const byClosedDate = (() => {
+        if (!closedDealDateFrom && !closedDealDateTo) return true
+        const d0 = d.closedDate || ''
+        if (!d0) return false
+        if (closedDealDateFrom && d0 < closedDealDateFrom) return false
+        if (closedDealDateTo && d0 > closedDealDateTo) return false
+        return true
+      })()
       return bySales && byManager && bySource && byProject && byLastAction && byClosedDate
     })
-  }, [deals, salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFilter, closedDealDateFilter, usersList])
+  }, [deals, salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFrom, lastActionDateTo, closedDealDateFrom, closedDealDateTo, usersList])
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFilter, closedDealDateFilter])
+  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFrom, lastActionDateTo, closedDealDateFrom, closedDealDateTo])
 
   const totalDeals = filtered.length
   const pageCount = Math.ceil(totalDeals / entriesPerPage)
@@ -424,8 +441,10 @@ export default function ClosedDealsReport() {
     setManagerFilter('all')
     setSourceFilter('all')
     setProjectFilter('all')
-    setLastActionDateFilter('')
-    setClosedDealDateFilter('')
+    setLastActionDateFrom('')
+    setLastActionDateTo('')
+    setClosedDealDateFrom('')
+    setClosedDealDateTo('')
   }
 
   const renderPieCard = (title, data) => {
@@ -568,11 +587,15 @@ export default function ClosedDealsReport() {
                 <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Last Action Date')}
               </label>
-              <input
-                type="date"
+              <DateRangePicker
+                from={lastActionDateFrom}
+                to={lastActionDateTo}
+                onChange={({ from, to }) => {
+                  setLastActionDateFrom(from)
+                  setLastActionDateTo(to)
+                }}
+                isRTL={isRTL}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                value={lastActionDateFilter}
-                onChange={e => setLastActionDateFilter(e.target.value)}
               />
             </div>
             <div className="space-y-1">
@@ -580,11 +603,15 @@ export default function ClosedDealsReport() {
                 <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Closed Deal Date')}
               </label>
-              <input
-                type="date"
+              <DateRangePicker
+                from={closedDealDateFrom}
+                to={closedDealDateTo}
+                onChange={({ from, to }) => {
+                  setClosedDealDateFrom(from)
+                  setClosedDealDateTo(to)
+                }}
+                isRTL={isRTL}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                value={closedDealDateFilter}
-                onChange={e => setClosedDealDateFilter(e.target.value)}
               />
             </div>
           </div>

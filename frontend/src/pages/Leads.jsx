@@ -1092,6 +1092,7 @@ if (!s) {
     stage: t('Stage'),
     expectedRevenue: t('Expected Revenue'),
     priority: t('Priority'),
+    creationDate: t('Creation Date'),
     actions: t('Actions')
   }), [t, isGeneralTenant])
 
@@ -1108,6 +1109,7 @@ if (!s) {
     stage: labels.stage,
     expectedRevenue: labels.expectedRevenue,
     priority: labels.priority,
+    creationDate: labels.creationDate,
     actions: labels.actions
   }), [labels])
 
@@ -1471,6 +1473,7 @@ if (!s) {
     stage: true,
     expectedRevenue: true,
     priority: true,
+    creationDate: true,
     actions: true
   })
 
@@ -1478,15 +1481,27 @@ if (!s) {
   const [columnOrder, setColumnOrder] = useState(() => {
     // Default order: Lead, Contact, Actions, Source, Project, Sales Person, Last Comment, Stage, Expected Revenue, Priority
     // Note: Actions is 3rd (index 2)
-    const defaults = ['lead', 'contact', 'actions', 'source', 'project', 'salesPerson', 'actionOwner', 'lastComment', 'stage', 'expectedRevenue', 'priority']
+    const defaults = ['lead', 'contact', 'actions', 'source', 'project', 'salesPerson', 'actionOwner', 'lastComment', 'stage', 'expectedRevenue', 'priority', 'creationDate']
     const allKeys = Object.keys(allColumns)
     // Merge any other keys that might exist in allColumns but not in defaults
     const remaining = allKeys.filter(k => !defaults.includes(k))
-    return [...defaults, ...remaining]
+    // Keep creationDate as the last static column
+    const next = [...defaults, ...remaining]
+    if (next.includes('creationDate')) {
+      const without = next.filter(k => k !== 'creationDate')
+      return [...without, 'creationDate']
+    }
+    return next
   })
 
   const handleColumnReorder = (newOrder) => {
-    setColumnOrder(newOrder)
+    if (!Array.isArray(newOrder)) return
+    if (!newOrder.includes('creationDate')) {
+      setColumnOrder(newOrder)
+      return
+    }
+    const without = newOrder.filter(k => k !== 'creationDate')
+    setColumnOrder([...without, 'creationDate'])
   }
 
   // Sync dynamic fields with visibleColumns and columnOrder
@@ -1522,7 +1537,12 @@ if (!s) {
       const newKeys = allKeys.filter(k => !prev.includes(k))
       
       // 3. Combine
-      const next = [...validExisting, ...newKeys]
+      let next = [...validExisting, ...newKeys]
+
+      // Keep creationDate at the end (per requested table order)
+      if (next.includes('creationDate')) {
+        next = [...next.filter(k => k !== 'creationDate'), 'creationDate']
+      }
       
       // 4. Check if changed
       if (next.length !== prev.length || next.some((k, i) => k !== prev[i])) {
@@ -2333,6 +2353,11 @@ if (!s) {
         }
         case 'priority':
           return String(lead?.priority || '').trim() || '-';
+        case 'creationDate': {
+          const iso = lead?.createdAt || lead?.created_at || lead?.created || ''
+          const v = formatLocalDateTime(iso) || String(iso).trim()
+          return v || '-'
+        }
         default:
           return '-';
       }
@@ -2424,6 +2449,7 @@ if (!s) {
     stage: 140,
     expectedRevenue: 160,
     priority: 140,
+    creationDate: 180,
   };
 
   return (
@@ -3662,6 +3688,28 @@ if (!s) {
                             <span className={`inline-flex px-2 py-0.5 text-xs font-semibold leading-5 rounded-full ${getPriorityColor(lead.priority)}`}>
                               {t(lead.priority || 'N/A')}
                             </span>
+                          </td>
+                        );
+
+                      case 'creationDate':
+                        return (
+                          <td key="creationDate" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `} style={{ minWidth: `${columnMinWidths.creationDate}px` }}>
+                            {(() => {
+                              const iso = lead.createdAt || lead.created_at || lead.created || ''
+                              if (!iso) return '-'
+                              try {
+                                const d = new Date(iso)
+                                if (Number.isNaN(d.getTime())) return '-'
+                                const locale = i18n.language === 'ar' ? 'ar-EG' : 'en-US'
+                                return (
+                                  <span dir="ltr">
+                                    {d.toLocaleDateString(locale)} {d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                )
+                              } catch {
+                                return '-'
+                              }
+                            })()}
                           </td>
                         );
 

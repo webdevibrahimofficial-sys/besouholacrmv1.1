@@ -10,6 +10,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { logExportEvent } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
+import { useTheme } from '../shared/context/ThemeProvider'
 
 // --- Helper Components from original file ---
 function Sparkline({ data = [], color = 'emerald', width = 120, height = 36, padding = 6 }) {
@@ -71,6 +72,7 @@ export default function Marketing() {
   const { t, i18n } = useTranslation()
   const isRTL = (i18n.language || '').toLowerCase() === 'ar'
   const { user } = useAppState()
+  const { isLight } = useTheme()
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitMarketingPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Marketing')

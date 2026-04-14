@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '../utils/api'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import { PieChart } from '../shared/components/PieChart'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -92,11 +93,16 @@ export default function SalesActivitiesReport() {
   const [sourceFilter, setSourceFilter] = useState([])
   const [projectFilter, setProjectFilter] = useState([])
   
-  const [assignDateFilter, setAssignDateFilter] = useState('')
-  const [creationDateFilter, setCreationDateFilter] = useState('')
-  const [lastActionDateFilter, setLastActionDateFilter] = useState('')
-  const [closeDealsDateFilter, setCloseDealsDateFilter] = useState('')
-  const [proposalDateFilter, setProposalDateFilter] = useState('')
+  const [assignDateFrom, setAssignDateFrom] = useState('')
+  const [assignDateTo, setAssignDateTo] = useState('')
+  const [creationDateFrom, setCreationDateFrom] = useState('')
+  const [creationDateTo, setCreationDateTo] = useState('')
+  const [lastActionDateFrom, setLastActionDateFrom] = useState('')
+  const [lastActionDateTo, setLastActionDateTo] = useState('')
+  const [closeDealsDateFrom, setCloseDealsDateFrom] = useState('')
+  const [closeDealsDateTo, setCloseDealsDateTo] = useState('')
+  const [proposalDateFrom, setProposalDateFrom] = useState('')
+  const [proposalDateTo, setProposalDateTo] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
 
   const [usersList, setUsersList] = useState([])
@@ -439,8 +445,8 @@ export default function SalesActivitiesReport() {
     const fetchRevenueSummary = async () => {
       try {
         const params = {}
-        if (lastActionDateFilter) params.date_from = lastActionDateFilter
-        if (closeDealsDateFilter) params.date_to = closeDealsDateFilter
+        if (lastActionDateFrom) params.date_from = lastActionDateFrom
+        if (lastActionDateTo) params.date_to = lastActionDateTo
         const res = await api.get('/api/revenues/summary', { params })
         const arr = Array.isArray(res.data?.data) ? res.data.data : []
         const byId = {}
@@ -458,7 +464,7 @@ export default function SalesActivitiesReport() {
       }
     }
     fetchRevenueSummary()
-  }, [usersList, lastActionDateFilter, closeDealsDateFilter])
+  }, [usersList, lastActionDateFrom, lastActionDateTo])
 
   const filteredData = useMemo(() => {
     const rowsMap = new Map()
@@ -760,11 +766,16 @@ export default function SalesActivitiesReport() {
     setStageFilter([])
     setSourceFilter([])
     setProjectFilter([])
-    setAssignDateFilter('')
-    setCreationDateFilter('')
-    setLastActionDateFilter('')
-    setCloseDealsDateFilter('')
-    setProposalDateFilter('')
+    setAssignDateFrom('')
+    setAssignDateTo('')
+    setCreationDateFrom('')
+    setCreationDateTo('')
+    setLastActionDateFrom('')
+    setLastActionDateTo('')
+    setCloseDealsDateFrom('')
+    setCloseDealsDateTo('')
+    setProposalDateFrom('')
+    setProposalDateTo('')
   }
 
   const renderPieChart = (title, data) => {
@@ -886,36 +897,81 @@ export default function SalesActivitiesReport() {
                  <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                  {isRTL ? 'تاريخ التعيين' : 'Assign Date'}
                </label>
-               <input type="date" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20" value={assignDateFilter} onChange={(e) => setAssignDateFilter(e.target.value)} />
+               <DateRangePicker
+                 from={assignDateFrom}
+                 to={assignDateTo}
+                 onChange={({ from, to }) => {
+                   setAssignDateFrom(from)
+                   setAssignDateTo(to)
+                 }}
+                 isRTL={isRTL}
+                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+               />
              </div>
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                       <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                       {isRTL ? 'الفترة' : 'Duration'}
                     </label>
-               <input type="date" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20" value={creationDateFilter} onChange={(e) => setCreationDateFilter(e.target.value)} />
+               <DateRangePicker
+                 from={creationDateFrom}
+                 to={creationDateTo}
+                 onChange={({ from, to }) => {
+                   setCreationDateFrom(from)
+                   setCreationDateTo(to)
+                 }}
+                 isRTL={isRTL}
+                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+               />
              </div>
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                  <Clock size={12} className="text-blue-500 dark:text-blue-400" />
                  {isRTL ? 'تاريخ آخر إجراء' : 'Last Action Date'}
                </label>
-               <input type="date" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20" value={lastActionDateFilter} onChange={(e) => setLastActionDateFilter(e.target.value)} />
+               <DateRangePicker
+                 from={lastActionDateFrom}
+                 to={lastActionDateTo}
+                 onChange={({ from, to }) => {
+                   setLastActionDateFrom(from)
+                   setLastActionDateTo(to)
+                 }}
+                 isRTL={isRTL}
+                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+               />
              </div>
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                  <CheckCircle size={12} className="text-blue-500 dark:text-blue-400" />
                  {isRTL ? 'تاريخ إغلاق الصفقات' : 'Close Deals Date'}
                </label>
-               <input type="date" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20" value={closeDealsDateFilter} onChange={(e) => setCloseDealsDateFilter(e.target.value)} />
+               <DateRangePicker
+                 from={closeDealsDateFrom}
+                 to={closeDealsDateTo}
+                 onChange={({ from, to }) => {
+                   setCloseDealsDateFrom(from)
+                   setCloseDealsDateTo(to)
+                 }}
+                 isRTL={isRTL}
+                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+               />
              </div>
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                       <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                       {isRTL ? 'إلى تاريخ' : 'To Date'}
                     </label>
-               <input type="date" className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`} value={proposalDateFilter} onChange={(e) => setProposalDateFilter(e.target.value)} />
-             </div>
+               <DateRangePicker
+                 from={proposalDateFrom}
+                 to={proposalDateTo}
+                 onChange={({ from, to }) => {
+                   setProposalDateFrom(from)
+                   setProposalDateTo(to)
+                 }}
+                 isRTL={isRTL}
+                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
+               />
+              </div>
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDynamicFields } from '../../hooks/useDynamicFields'
 import { useAppState } from '../../shared/context/AppStateProvider'
+import { useTheme } from '../../shared/context/ThemeProvider'
 import { api, logExportEvent } from '../../utils/api'
 import { FaFileImport, FaPlus, FaFileExport, FaChevronDown, FaFilePdf } from 'react-icons/fa'
 import { FaFileCsv } from 'react-icons/fa6'
@@ -13,6 +14,7 @@ export default function Developers() {
   const { i18n } = useTranslation()
   const isArabic = i18n.language === 'ar'
   const isRTL = isArabic
+  const { isLight } = useTheme()
   const { fields: dynamicFields } = useDynamicFields('developers')
   const { user, company, refreshInventoryBadges } = useAppState()
 

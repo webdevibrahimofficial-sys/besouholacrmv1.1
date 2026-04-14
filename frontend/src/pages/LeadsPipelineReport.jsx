@@ -5,6 +5,7 @@ import { useAppState } from '../shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
 import { Filter, Users, Tag, Calendar, XCircle, FileText, CheckCircle, ChevronDown, User, Layers, Briefcase, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '../utils/api'
 import BackButton from '../components/BackButton'
@@ -16,8 +17,7 @@ export default function LeadsPipelineReport() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
 
-  const { theme } = useTheme()
-  const isLight = theme === 'light'
+  const { isLight } = useTheme()
 
   const [activeTab, setActiveTab] = useState('pipeline')
   const [users, setUsers] = useState([])
@@ -82,10 +82,14 @@ export default function LeadsPipelineReport() {
   const [stageFilter, setStageFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
-  const [assignDate, setAssignDate] = useState('')
-  const [creationDate, setCreationDate] = useState('')
-  const [lastActionDate, setLastActionDate] = useState('')
-  const [closeDealsDate, setCloseDealsDate] = useState('')
+  const [assignDateFrom, setAssignDateFrom] = useState('')
+  const [assignDateTo, setAssignDateTo] = useState('')
+  const [creationDateFrom, setCreationDateFrom] = useState('')
+  const [creationDateTo, setCreationDateTo] = useState('')
+  const [lastActionDateFrom, setLastActionDateFrom] = useState('')
+  const [lastActionDateTo, setLastActionDateTo] = useState('')
+  const [closeDealsDateFrom, setCloseDealsDateFrom] = useState('')
+  const [closeDealsDateTo, setCloseDealsDateTo] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const exportMenuRef = useRef(null)
@@ -163,13 +167,15 @@ export default function LeadsPipelineReport() {
           stage: stageFilter || undefined,
           source: sourceFilter || undefined,
           project: projectFilter || undefined,
-          assigned_date_from: assignDate || undefined,
-          assigned_date_to: assignDate || undefined,
-          created_from: creationDate || undefined,
-          created_to: creationDate || undefined,
-          last_action_date: lastActionDate || undefined,
-          closed_from: closeDealsDate || undefined,
-          closed_to: closeDealsDate || undefined,
+          assigned_date_from: assignDateFrom || undefined,
+          assigned_date_to: assignDateTo || undefined,
+          created_from: creationDateFrom || undefined,
+          created_to: creationDateTo || undefined,
+          last_action_date: lastActionDateFrom && lastActionDateTo && lastActionDateFrom === lastActionDateTo ? lastActionDateFrom : undefined,
+          last_action_date_from: lastActionDateFrom || undefined,
+          last_action_date_to: lastActionDateTo || undefined,
+          closed_from: closeDealsDateFrom || undefined,
+          closed_to: closeDealsDateTo || undefined,
         }
 
         const res = await api.get('/api/leads/pipeline-report', { params })
@@ -213,10 +219,14 @@ export default function LeadsPipelineReport() {
     stageFilter,
     sourceFilter,
     projectFilter,
-    assignDate,
-    creationDate,
-    lastActionDate,
-    closeDealsDate,
+    assignDateFrom,
+    assignDateTo,
+    creationDateFrom,
+    creationDateTo,
+    lastActionDateFrom,
+    lastActionDateTo,
+    closeDealsDateFrom,
+    closeDealsDateTo,
   ])
 
   const growthData = useMemo(() => {
@@ -265,12 +275,12 @@ export default function LeadsPipelineReport() {
       stage: stageFilter || undefined,
       source: sourceFilter || undefined,
       project: projectFilter || undefined,
-      assigned_date_from: assignDate || undefined,
-      assigned_date_to: assignDate || undefined,
-      created_from: creationDate || undefined,
-      created_to: creationDate || undefined,
-      closed_from: closeDealsDate || undefined,
-      closed_to: closeDealsDate || undefined,
+      assigned_date_from: assignDateFrom || undefined,
+      assigned_date_to: assignDateTo || undefined,
+      created_from: creationDateFrom || undefined,
+      created_to: creationDateTo || undefined,
+      closed_from: closeDealsDateFrom || undefined,
+      closed_to: closeDealsDateTo || undefined,
     }
 
     do {
@@ -284,8 +294,14 @@ export default function LeadsPipelineReport() {
       page += 1
     } while (page <= lastPage)
 
-    if (lastActionDate) {
-      all = all.filter(l => (l.updated_at || '').substring(0, 10) === lastActionDate)
+    if (lastActionDateFrom || lastActionDateTo) {
+      all = all.filter(l => {
+        const d = (l.updated_at || '').substring(0, 10)
+        if (!d) return false
+        if (lastActionDateFrom && d < lastActionDateFrom) return false
+        if (lastActionDateTo && d > lastActionDateTo) return false
+        return true
+      })
     }
 
     return all.slice(0, maxRows)
@@ -451,10 +467,14 @@ export default function LeadsPipelineReport() {
                 setStageFilter('')
                 setSourceFilter('')
                 setProjectFilter('')
-                setAssignDate('')
-                setCreationDate('')
-                setLastActionDate('')
-                setCloseDealsDate('')
+                setAssignDateFrom('')
+                setAssignDateTo('')
+                setCreationDateFrom('')
+                setCreationDateTo('')
+                setLastActionDateFrom('')
+                setLastActionDateTo('')
+                setCloseDealsDateFrom('')
+                setCloseDealsDateTo('')
                 setShowAllFilters(false)
               }}
               className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
@@ -563,11 +583,15 @@ export default function LeadsPipelineReport() {
                   <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                   {isRTL ? 'تاريخ التعيين' : 'Assign Date'}
                 </label>
-                <input 
-                  type="date" 
+                <DateRangePicker
+                  from={assignDateFrom}
+                  to={assignDateTo}
+                  onChange={({ from, to }) => {
+                    setAssignDateFrom(from)
+                    setAssignDateTo(to)
+                  }}
+                  isRTL={isRTL}
                   className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                  value={assignDate}
-                  onChange={(e) => setAssignDate(e.target.value)}
                 />
               </div>
 
@@ -577,11 +601,15 @@ export default function LeadsPipelineReport() {
                   <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                   {isRTL ? 'تاريخ الإنشاء' : 'Creation Date'}
                 </label>
-                <input 
-                  type="date" 
+                <DateRangePicker
+                  from={creationDateFrom}
+                  to={creationDateTo}
+                  onChange={({ from, to }) => {
+                    setCreationDateFrom(from)
+                    setCreationDateTo(to)
+                  }}
+                  isRTL={isRTL}
                   className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                  value={creationDate}
-                  onChange={(e) => setCreationDate(e.target.value)}
                 />
               </div>
 
@@ -591,11 +619,15 @@ export default function LeadsPipelineReport() {
                   <Clock size={12} className="text-blue-500 dark:text-blue-400" />
                   {isRTL ? 'تاريخ آخر إجراء' : 'Last Action Date'}
                 </label>
-                <input 
-                  type="date" 
+                <DateRangePicker
+                  from={lastActionDateFrom}
+                  to={lastActionDateTo}
+                  onChange={({ from, to }) => {
+                    setLastActionDateFrom(from)
+                    setLastActionDateTo(to)
+                  }}
+                  isRTL={isRTL}
                   className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                  value={lastActionDate}
-                  onChange={(e) => setLastActionDate(e.target.value)}
                 />
               </div>
 
@@ -605,11 +637,15 @@ export default function LeadsPipelineReport() {
                   <CheckCircle size={12} className="text-blue-500 dark:text-blue-400" />
                   {isRTL ? 'تاريخ إغلاق الصفقات' : 'Close Deals Date'}
                 </label>
-                <input 
-                  type="date" 
+                <DateRangePicker
+                  from={closeDealsDateFrom}
+                  to={closeDealsDateTo}
+                  onChange={({ from, to }) => {
+                    setCloseDealsDateFrom(from)
+                    setCloseDealsDateTo(to)
+                  }}
+                  isRTL={isRTL}
                   className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                  value={closeDealsDate}
-                  onChange={(e) => setCloseDealsDate(e.target.value)}
                 />
               </div>
             </div>

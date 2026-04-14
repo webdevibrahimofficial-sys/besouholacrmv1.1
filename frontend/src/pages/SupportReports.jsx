@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../utils/api'
 import { PieChart } from '../shared/components/PieChart'
 import { useAppState } from '../shared/context/AppStateProvider'
+import DateRangePicker from '../shared/components/DateRangePicker'
 
 export default function SupportReports() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.dir() === 'rtl'
   const { user } = useAppState()
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
@@ -251,8 +253,17 @@ export default function SupportReports() {
           <option value="">{t('Channel')}</option>
           {channelOptions.map(x => <option key={x} value={x}>{t(x)}</option>)}
         </SearchableSelect>
-        <input type="date" value={dateFrom} onChange={(e)=>setDateFrom(e.target.value)} className="px-3 py-1 rounded bg-white/5 border border-white/10 text-sm" />
-        <input type="date" value={dateTo} onChange={(e)=>setDateTo(e.target.value)} className="px-3 py-1 rounded bg-white/5 border border-white/10 text-sm" />
+        <DateRangePicker
+          from={dateFrom}
+          to={dateTo}
+          onChange={({ from, to }) => {
+            setDateFrom(from)
+            setDateTo(to)
+          }}
+          isRTL={isRTL}
+          className="px-3 py-1 rounded bg-white/5 border border-white/10 text-sm"
+          wrapperClassName="w-auto"
+        />
         <button onClick={loadTickets} className="px-3 py-1 rounded bg-white/10 text-sm">{t('Refresh')}</button>
       </div>
 
@@ -338,4 +349,3 @@ export default function SupportReports() {
     </>
   )
 }
-

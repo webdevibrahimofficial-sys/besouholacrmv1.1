@@ -7,8 +7,10 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { api } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
+import { useTheme } from '../shared/context/ThemeProvider'
 import { FaFileImport, FaPlus, FaFileExport, FaChevronDown, FaChevronLeft, FaChevronRight, FaTimes, FaFilter, FaSearch, FaBuilding, FaUser, FaMapMarkerAlt, FaImage, FaCloudDownloadAlt, FaPaperclip, FaVideo } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import PropertiesSummaryPanel from '../components/PropertiesSummaryPanel'
 import PropertyCard from '../components/PropertyCard'
 import CreatePropertyModal from '../components/CreatePropertyModal'
@@ -244,6 +246,7 @@ const RangeSlider = ({ min, max, value, onChange, label, isRTL, unit = '' }) => 
 export default function Properties() {
   const { i18n } = useTranslation()
   const isRTL = String(i18n.language || '').startsWith('ar')
+  const { isLight } = useTheme()
   const { fields: dynamicFields } = useDynamicFields('properties')
   const { companySetup } = useCompanySetup()
   const getShareOrigin = () => {
@@ -521,6 +524,8 @@ export default function Properties() {
           externalMeterPrice: item.external_meter_price,
           meterPrice: item.meter_price,
           area: item.total_area || item.area,
+          createdDateIso: item.created_at ? String(item.created_at).split('T')[0] : '',
+          lastUpdatedIso: item.updated_at ? String(item.updated_at).split('T')[0] : '',
           createdDate: item.created_at ? new Date(item.created_at).toLocaleDateString(isRTL ? 'ar-EG' : 'en-US') : '-',
           lastUpdated: item.updated_at ? new Date(item.updated_at).toLocaleDateString(isRTL ? 'ar-EG' : 'en-US') : '-',
           createdBy: item.creator?.name || '-',
@@ -640,7 +645,8 @@ export default function Properties() {
     minArea: '',
     maxArea: '',
     createdBy: '',
-    createdDate: '',
+    createdDateFrom: '',
+    createdDateTo: '',
     paymentPlan: '',
     room: '',
     floor: ''
@@ -789,7 +795,12 @@ export default function Properties() {
       if (filters.createdBy && p.createdBy !== filters.createdBy) return false
 
       // 10. Created Date
-      if (filters.createdDate && p.createdDate !== filters.createdDate) return false
+      if (filters.createdDateFrom || filters.createdDateTo) {
+        const d0 = (p.createdDateIso || p.lastUpdatedIso || '')
+        if (!d0) return false
+        if (filters.createdDateFrom && d0 < filters.createdDateFrom) return false
+        if (filters.createdDateTo && d0 > filters.createdDateTo) return false
+      }
 
       // 11. Payment Plan
       if (filters.paymentPlan && p.paymentPlan !== filters.paymentPlan) return false
@@ -832,7 +843,8 @@ export default function Properties() {
       minArea: '',
       maxArea: '',
       createdBy: '',
-      createdDate: '',
+      createdDateFrom: '',
+      createdDateTo: '',
       paymentPlan: '',
       room: '',
       floor: ''
@@ -1280,11 +1292,12 @@ export default function Properties() {
             {/* 10. Created Date */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaFilter className="text-blue-500" size={10} /> {Label.createdDate}</label>
-              <input
-                type="date"
+              <DateRangePicker
+                from={filters.createdDateFrom}
+                to={filters.createdDateTo}
+                onChange={({ from, to }) => setFilters({ ...filters, createdDateFrom: from, createdDateTo: to })}
+                isRTL={isRTL}
                 className="input w-full"
-                value={filters.createdDate}
-                onChange={e => setFilters({ ...filters, createdDate: e.target.value })}
               />
             </div>
 

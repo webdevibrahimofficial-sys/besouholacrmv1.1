@@ -1272,7 +1272,15 @@ class LeadController extends Controller
                 $query->whereIn('project', (array) $request->project);
             }
 
-            if ($request->filled('last_action_date')) {
+            $hasLastActionRange = $request->filled('last_action_date_from') || $request->filled('last_action_date_to');
+            if ($hasLastActionRange) {
+                if ($request->filled('last_action_date_from')) {
+                    $query->whereDate('updated_at', '>=', $request->last_action_date_from);
+                }
+                if ($request->filled('last_action_date_to')) {
+                    $query->whereDate('updated_at', '<=', $request->last_action_date_to);
+                }
+            } elseif ($request->filled('last_action_date')) {
                 $query->whereDate('updated_at', $request->last_action_date);
             }
 

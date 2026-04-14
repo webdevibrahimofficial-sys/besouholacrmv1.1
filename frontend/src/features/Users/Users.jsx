@@ -230,9 +230,9 @@ export default function UserManagementUsers() {
   // Pagination & Sorting
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  // Default: after admins, sort by creation date+time (most recent first)
+  // Default: admins pinned to top, then sort by creation date+time (oldest first)
   const [sortBy, setSortBy] = useState('createdAtTs');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortOrder, setSortOrder] = useState('asc');
 
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -388,9 +388,8 @@ export default function UserManagementUsers() {
         const isAdminA = !!a?.is_super_admin || roleA === 'admin' || roleA === 'tenant admin' || roleA === 'tenant-admin';
         const isAdminB = !!b?.is_super_admin || roleB === 'admin' || roleB === 'tenant admin' || roleB === 'tenant-admin';
 
-        // Always keep admins pinned to the top. Sorting applies after admins.
+        // Always keep admins pinned to the top.
         if (isAdminA !== isAdminB) return isAdminA ? -1 : 1;
-        if (isAdminA && isAdminB) return 0;
 
         // Special case: created_at sorting must include time, not date only.
         if (sortBy === 'createdAtTs') {

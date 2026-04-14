@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import DateRangePicker from '../shared/components/DateRangePicker'
 
 import { FaArrowUp, FaArrowDown 
 } from 'react-icons/fa'
@@ -494,25 +495,18 @@ export default function MarketingReports() {
             />
           </div>
 
-          {/* Date From */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{t('From')}</label>
-            <input 
-              type="date"
-              className="input w-full" 
-              value={startDate} 
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-
-          {/* Date To */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{t('To')}</label>
-            <input 
-              type="date"
-              className="input w-full" 
-              value={endDate} 
-              onChange={(e) => setEndDate(e.target.value)}
+          {/* Date Range */}
+          <div className="space-y-1 md:col-span-2">
+            <label className="text-xs font-medium text-[var(--muted-text)]">{t('Date Range')}</label>
+            <DateRangePicker
+              from={startDate}
+              to={endDate}
+              onChange={({ from, to }) => {
+                setStartDate(from)
+                setEndDate(to)
+              }}
+              isRTL={isArabic}
+              className="input w-full"
             />
           </div>
         </div>

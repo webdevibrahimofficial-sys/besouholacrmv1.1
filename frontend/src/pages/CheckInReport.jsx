@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '../utils/api'
 import BackButton from '../components/BackButton'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
@@ -293,24 +294,16 @@ export default function CheckInReport() {
                 <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Action Date')}
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={actionDateFrom}
-                    onChange={(e) => setActionDateFrom(e.target.value)}
-                    className={`w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-transparent ${isLight ? 'text-black' : 'text-white'}`}
-                  />
-                </div>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={actionDateTo}
-                    onChange={(e) => setActionDateTo(e.target.value)}
-                    className={`w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-transparent ${isLight ? 'text-black' : 'text-white'}`}
-                  />
-                </div>
-              </div>
+              <DateRangePicker
+                from={actionDateFrom}
+                to={actionDateTo}
+                onChange={({ from, to }) => {
+                  setActionDateFrom(from)
+                  setActionDateTo(to)
+                }}
+                isRTL={isRTL}
+                className={`w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-transparent ${isLight ? 'text-black' : 'text-white'}`}
+              />
             </div>
 
             {/* Type Filter */}

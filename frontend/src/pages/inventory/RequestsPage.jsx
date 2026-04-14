@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 
 import SearchableSelect from '../../components/SearchableSelect'
+import DateRangePicker from '../../shared/components/DateRangePicker'
 import RequestPreviewModal from '../../components/RequestPreviewModal'
 import RequestsImportModal from './RequestsImportModal'
 import { useDynamicFields } from '../../hooks/useDynamicFields'
@@ -754,26 +755,17 @@ export default function RequestsPage() {
             </div>
 
             {/* 7. Date Range */}
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2 lg:col-span-2">
               <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                <Calendar className="text-blue-500" size={10} /> {isRTL ? 'التاريخ من' : 'Date From'}
+                <Calendar className="text-blue-500" size={10} /> {isRTL ? 'نطاق التاريخ' : 'Date Range'}
               </label>
-              <input
-                type="date"
+              <DateRangePicker
+                from={filters.dateFrom}
+                to={filters.dateTo}
+                onChange={({ from, to }) => setFilters(prev => ({ ...prev, dateFrom: from, dateTo: to }))}
+                isRTL={isRTL}
                 className="input w-full"
-                value={filters.dateFrom}
-                onChange={e => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                <Calendar className="text-blue-500" size={10} /> {isRTL ? 'التاريخ إلى' : 'Date To'}
-              </label>
-              <input
-                type="date"
-                className="input w-full"
-                value={filters.dateTo}
-                onChange={e => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
+                wrapperClassName="w-full"
               />
             </div>
 

@@ -6,10 +6,9 @@ import { useTranslation } from 'react-i18next'
 import { logExportEvent, logImportEvent } from '../../utils/api'
 
 export default function BrokersImportModal({ isRTL, onClose, onImport }) {
-  const { theme } = useTheme()
+  const { isLight, isDark } = useTheme()
   const { i18n } = useTranslation()
   const rtl = typeof isRTL === 'boolean' ? isRTL : i18n.language === 'ar'
-  const isDark = theme === 'dark'
 
   const [excelFile, setExcelFile] = useState(null)
   const [importing, setImporting] = useState(false)

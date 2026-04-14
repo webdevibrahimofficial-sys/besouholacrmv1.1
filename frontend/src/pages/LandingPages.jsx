@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
+import { useTheme } from '../shared/context/ThemeProvider'
 import SearchableSelect from '../components/SearchableSelect'
 import AddLandingPage from './AddLandingPage'
 import { FaLayerGroup, FaPlus, FaTimes, FaGlobe, FaCopy, FaEdit, FaTrash, FaUsers, FaMousePointer, FaChartLine, FaFilter, FaSearch } from 'react-icons/fa'
@@ -57,6 +58,7 @@ export default function LandingPages() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { user, company } = useAppState()
+  const { isLight } = useTheme()
 
   const companyTypeLower = String(company?.company_type || '').toLowerCase()
   const isRealEstate =

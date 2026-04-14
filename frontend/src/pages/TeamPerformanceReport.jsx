@@ -8,6 +8,7 @@ import { logExportEvent } from '../utils/api'
 import { useLocation, useNavigate } from 'react-router-dom'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import Layout from '../components/Layout'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend } from 'chart.js'
 
@@ -267,16 +268,20 @@ const TeamPerformanceReport = () => {
               </div>
             )}
             {dateMode === 'range' && (
-              <>
-                <div>
-                  <label className="label">{isRTL ? 'من' : 'Start'}</label>
-                  <input type="date" className="input w-full" value={startDate} onChange={(e)=>setStartDate(e.target.value)} />
-                </div>
-                <div>
-                  <label className="label">{isRTL ? 'إلى' : 'End'}</label>
-                  <input type="date" className="input w-full" value={endDate} onChange={(e)=>setEndDate(e.target.value)} />
-                </div>
-              </>
+              <div>
+                <label className="label">{isRTL ? 'نطاق التاريخ' : 'Date Range'}</label>
+                <DateRangePicker
+                  from={startDate}
+                  to={endDate}
+                  onChange={({ from, to }) => {
+                    setStartDate(from)
+                    setEndDate(to)
+                  }}
+                  isRTL={isRTL}
+                  className="input w-full"
+                  wrapperClassName="w-full"
+                />
+              </div>
             )}
           </div>
         </div>

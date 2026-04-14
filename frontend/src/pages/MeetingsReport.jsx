@@ -8,6 +8,7 @@ import { useAppState } from '../shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
+import DateRangePicker from '../shared/components/DateRangePicker'
 import { Filter, ChevronDown, User, Users, Tag, Briefcase, Calendar, Trophy, ChevronRight, ChevronLeft } from 'lucide-react'
 import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { RiEyeLine, RiDeleteBinLine } from 'react-icons/ri'
@@ -41,7 +42,8 @@ export default function MeetingsReport() {
   const [projectFilter, setProjectFilter] = useState([])
   const [sourceFilter, setSourceFilter] = useState([])
   const [managerFilter, setManagerFilter] = useState([])
-  const [meetingDateFilter, setMeetingDateFilter] = useState('')
+  const [meetingDateFrom, setMeetingDateFrom] = useState('')
+  const [meetingDateTo, setMeetingDateTo] = useState('')
   const [users, setUsers] = useState([])
   const [projects, setProjects] = useState([])
 
@@ -114,7 +116,8 @@ export default function MeetingsReport() {
           manager_id: managerFilter,
           project: projectFilter,
           source: sourceFilter,
-          meeting_date: meetingDateFilter
+          start_date: meetingDateFrom,
+          end_date: meetingDateTo,
         }
         
         // Clean up empty params
@@ -173,7 +176,7 @@ export default function MeetingsReport() {
       isMounted = false
       window.removeEventListener('leadsDataUpdated', handleUpdate)
     }
-  }, [salesPersonFilter, managerFilter, projectFilter, sourceFilter, meetingDateFilter])
+  }, [salesPersonFilter, managerFilter, projectFilter, sourceFilter, meetingDateFrom, meetingDateTo])
 
   // Options for Filters
   const salesPersonOptions = useMemo(() => {
@@ -323,7 +326,8 @@ export default function MeetingsReport() {
     setManagerFilter([])
     setSourceFilter([])
     setProjectFilter([])
-    setMeetingDateFilter('')
+    setMeetingDateFrom('')
+    setMeetingDateTo('')
     setCurrentPage(1)
   }
 
@@ -393,7 +397,16 @@ export default function MeetingsReport() {
           <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 transition-all duration-500 ease-in-out overflow-hidden ${showAllFilters ? 'max-h-[1000px] opacity-100 pt-2' : 'max-h-0 opacity-0'}`}>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}><Calendar size={12} className="text-blue-500 dark:text-blue-400" />{isRTL ? 'تاريخ الاجتماع' : 'Meeting Date'}</label>
-              <input type="date" className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`} value={meetingDateFilter} onChange={(e) => setMeetingDateFilter(e.target.value)} />
+              <DateRangePicker
+                from={meetingDateFrom}
+                to={meetingDateTo}
+                onChange={({ from, to }) => {
+                  setMeetingDateFrom(from)
+                  setMeetingDateTo(to)
+                }}
+                isRTL={isRTL}
+                className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
+              />
             </div>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { FaBullseye, FaClipboardList, FaFileSignature, FaClipboardCheck, FaHandshake, FaTimesCircle } from 'react-icons/fa'
 import { api } from '../utils/api'
+import DateRangePicker from '../shared/components/DateRangePicker'
 
 export default function SalesReport() {
   const { t, i18n } = useTranslation()
@@ -381,13 +382,19 @@ export default function SalesReport() {
         {/* Filters */}
         <div className="card glass-card p-4">
           <div className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col">
-              <label className="text-sm text-[var(--muted-text)]">{t('From')}</label>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input" placeholder={t('Date Input Placeholder')} />
-            </div>
-            <div className="flex flex-col">
-              <label className="text-sm text-[var(--muted-text)]">{t('To')}</label>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="input" placeholder={t('Date Input Placeholder')} />
+            <div className="flex flex-col min-w-[240px]">
+              <label className="text-sm text-[var(--muted-text)]">{isRTL ? 'نطاق التاريخ' : 'Date Range'}</label>
+              <DateRangePicker
+                from={dateFrom}
+                to={dateTo}
+                onChange={({ from, to }) => {
+                  setDateFrom(from)
+                  setDateTo(to)
+                }}
+                isRTL={isRTL}
+                className="input w-full"
+                wrapperClassName="w-full"
+              />
             </div>
 
             {activeTab === 'opportunities' && (
