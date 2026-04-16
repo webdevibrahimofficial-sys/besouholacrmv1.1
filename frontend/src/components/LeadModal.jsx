@@ -234,7 +234,17 @@ const LeadModal = ({ isOpen, onClose, lead, assignees = [], onAssign, canAddActi
                   <label className={`text-sm font-medium ${secondaryTextColor}`}>{t('Mobile')}</label>
                   {(() => {
                     const raw = lead.mobile || lead.phone || ''
-                    const lines = getPhoneLines(raw, { showFull: true, defaultCountryCode: lead.phone_country || lead.phoneCountry || '+20' })
+                    const lines = getPhoneLines(raw, {
+                      showFull: true,
+                      defaultCountryCode:
+                        lead.phone_country ||
+                        lead.phoneCountry ||
+                        lead?.meta_data?.phone_country ||
+                        lead?.metaData?.phone_country ||
+                        lead?.meta_data?.phoneCountry ||
+                        lead?.metaData?.phoneCountry ||
+                        '+20',
+                    })
                     if (!lines.length) return <p className="text-lg">{'N/A'}</p>
                     return (
                       <div className="text-lg space-y-1">

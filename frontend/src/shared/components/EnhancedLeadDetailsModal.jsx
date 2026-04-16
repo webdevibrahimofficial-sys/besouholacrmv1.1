@@ -2528,7 +2528,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     <button
                       onClick={() => {
                         const raw = lead?.phone || lead?.mobile || ''
-                        const digits = getPhoneDigits(raw, { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
+                        const digits = getPhoneDigits(raw, {
+                          defaultCountryCode:
+                            lead?.phone_country ||
+                            lead?.phoneCountry ||
+                            lead?.meta_data?.phone_country ||
+                            lead?.metaData?.phone_country ||
+                            lead?.meta_data?.phoneCountry ||
+                            lead?.metaData?.phoneCountry ||
+                            '+20',
+                        })
                         if (digits) window.open(`tel:${digits}`, '_blank')
                       }}
                       className={`${isLight ? 'bg-white/70 backdrop-blur-md text-slate-800 border border-gray-200 hover:bg-white/80' : 'bg-slate-800/70 backdrop-blur-md text-white border border-slate-700 hover:bg-slate-800/80'} flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl`}
@@ -2539,7 +2548,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     <button
                       onClick={() => {
                         const raw = lead?.phone || lead?.mobile || ''
-                        const digits = getPhoneDigits(raw, { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
+                        const digits = getPhoneDigits(raw, {
+                          defaultCountryCode:
+                            lead?.phone_country ||
+                            lead?.phoneCountry ||
+                            lead?.meta_data?.phone_country ||
+                            lead?.metaData?.phone_country ||
+                            lead?.meta_data?.phoneCountry ||
+                            lead?.metaData?.phoneCountry ||
+                            '+20',
+                        })
                         if (digits) window.open(`https://wa.me/${digits}`, '_blank')
                       }}
                       className={`${isLight ? 'bg-white/70 backdrop-blur-md text-slate-800 border border-gray-200 hover:bg-white/80' : 'bg-slate-800/70 backdrop-blur-md text-white border border-slate-700 hover:bg-slate-800/80'} flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl`}

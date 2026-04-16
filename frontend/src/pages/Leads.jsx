@@ -726,6 +726,15 @@ if (!s) {
       const data = leadsQueryData.data || [];
       
       const mappedLeads = data.map(lead => {
+        const phoneCountry =
+          lead?.phone_country ||
+          lead?.phoneCountry ||
+          lead?.meta_data?.phone_country ||
+          lead?.metaData?.phone_country ||
+          lead?.meta_data?.phoneCountry ||
+          lead?.metaData?.phoneCountry ||
+          null;
+
         // Find manager
         let managerName = null;
         let managerId = lead.manager_id || lead.managerId || null;
@@ -766,6 +775,8 @@ if (!s) {
 
        return {
         ...lead,
+        phone_country: phoneCountry || lead?.phone_country || lead?.phoneCountry || null,
+        phoneCountry: phoneCountry || lead?.phoneCountry || lead?.phone_country || null,
         assignedTo: lead.assigned_to || lead.assignedTo,
         sales_person: salesPersonName || lead.assignedAgent?.name || lead.assigned_agent?.name, // Fallback to assigned agent relationship or keep existing
         action_owner: lead.latest_action?.user?.name || null,
@@ -3334,7 +3345,14 @@ if (!s) {
                             <div className="mt-0.5 flex flex-col gap-1">
                               {getPhoneLines(lead.phone || lead.mobile || '', {
                                 showFull: !maskMobileNumber,
-                                defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode,
+                                defaultCountryCode:
+                                  lead.phone_country ||
+                                  lead.phoneCountry ||
+                                  lead?.meta_data?.phone_country ||
+                                  lead?.metaData?.phone_country ||
+                                  lead?.meta_data?.phoneCountry ||
+                                  lead?.metaData?.phoneCountry ||
+                                  defaultDialCode,
                               }).map((line, idx) => (
                                 <div
                                   key={idx}
@@ -3346,7 +3364,18 @@ if (!s) {
                                   title={t('Open WhatsApp')}
                                 >
                                   <FaWhatsapp size={12} className="text-[#25D366]" />
-                                  <span dir="ltr">{line.display || maskPhoneNumber(lead.phone, lead.phone_country || lead.phoneCountry)}</span>
+                                  <span dir="ltr">
+                                    {line.display ||
+                                      maskPhoneNumber(
+                                        lead.phone,
+                                        lead.phone_country ||
+                                          lead.phoneCountry ||
+                                          lead?.meta_data?.phone_country ||
+                                          lead?.metaData?.phone_country ||
+                                          lead?.meta_data?.phoneCountry ||
+                                          lead?.metaData?.phoneCountry
+                                      )}
+                                  </span>
                                 </div>
                               ))}
                             </div>
@@ -3454,7 +3483,16 @@ if (!s) {
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     const raw = lead.phone || lead.mobile || ''
-                                    const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                                    const digits = getPhoneDigits(raw, {
+                                      defaultCountryCode:
+                                        lead.phone_country ||
+                                        lead.phoneCountry ||
+                                        lead?.meta_data?.phone_country ||
+                                        lead?.metaData?.phone_country ||
+                                        lead?.meta_data?.phoneCountry ||
+                                        lead?.metaData?.phoneCountry ||
+                                        defaultDialCode,
+                                    })
                                     if (digits) window.open(`tel:${digits}`)
                                   }}
                                   className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"
@@ -3872,14 +3910,32 @@ if (!s) {
               case 'call':
                 {
                   const raw = hoveredLead.phone || hoveredLead.mobile || ''
-                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  const digits = getPhoneDigits(raw, {
+                    defaultCountryCode:
+                      hoveredLead.phone_country ||
+                      hoveredLead.phoneCountry ||
+                      hoveredLead?.meta_data?.phone_country ||
+                      hoveredLead?.metaData?.phone_country ||
+                      hoveredLead?.meta_data?.phoneCountry ||
+                      hoveredLead?.metaData?.phoneCountry ||
+                      defaultDialCode,
+                  })
                   if (digits) window.open(`tel:${digits}`)
                 }
                 break
               case 'whatsapp':
                 {
                   const raw = hoveredLead.phone || hoveredLead.mobile || ''
-                  const digits = getPhoneDigits(raw, { defaultCountryCode: hoveredLead.phone_country || hoveredLead.phoneCountry || defaultDialCode })
+                  const digits = getPhoneDigits(raw, {
+                    defaultCountryCode:
+                      hoveredLead.phone_country ||
+                      hoveredLead.phoneCountry ||
+                      hoveredLead?.meta_data?.phone_country ||
+                      hoveredLead?.metaData?.phone_country ||
+                      hoveredLead?.meta_data?.phoneCountry ||
+                      hoveredLead?.metaData?.phoneCountry ||
+                      defaultDialCode,
+                  })
                   if (digits) window.open(`https://wa.me/${digits}`)
                 }
                 break

@@ -2016,13 +2016,32 @@ export const ReferralLeads = () => {
                               onClick={(e) => {
                                 e.stopPropagation()
                                 const raw = lead.phone || lead.mobile || ''
-                                const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                                const digits = getPhoneDigits(raw, {
+                                  defaultCountryCode:
+                                    lead.phone_country ||
+                                    lead.phoneCountry ||
+                                    lead?.meta_data?.phone_country ||
+                                    lead?.metaData?.phone_country ||
+                                    lead?.meta_data?.phoneCountry ||
+                                    lead?.metaData?.phoneCountry ||
+                                    defaultDialCode,
+                                })
                                 if (digits) window.open(`https://wa.me/${digits}`, '_blank')
                               }}
                               title={t('Open WhatsApp')}
                             >
                               <FaWhatsapp size={12} className="text-[#25D366]" />
-                              <span dir="ltr">{displayPhone(lead.phone || lead.mobile || '', lead.phone_country || lead.phoneCountry)}</span>
+                              <span dir="ltr">
+                                {displayPhone(
+                                  lead.phone || lead.mobile || '',
+                                  lead.phone_country ||
+                                    lead.phoneCountry ||
+                                    lead?.meta_data?.phone_country ||
+                                    lead?.metaData?.phone_country ||
+                                    lead?.meta_data?.phoneCountry ||
+                                    lead?.metaData?.phoneCountry
+                                )}
+                              </span>
                             </div>
                           </td>
                         );
@@ -2052,7 +2071,16 @@ export const ReferralLeads = () => {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   const raw = lead.phone || lead.mobile || ''
-                                  const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                                  const digits = getPhoneDigits(raw, {
+                                    defaultCountryCode:
+                                      lead.phone_country ||
+                                      lead.phoneCountry ||
+                                      lead?.meta_data?.phone_country ||
+                                      lead?.metaData?.phone_country ||
+                                      lead?.meta_data?.phoneCountry ||
+                                      lead?.metaData?.phoneCountry ||
+                                      defaultDialCode,
+                                  })
                                   if (digits) window.open(`tel:${digits}`)
                                 }}
                                 className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"

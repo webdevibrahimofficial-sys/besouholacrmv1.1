@@ -74,39 +74,75 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
 
       // Parse mobile numbers
       const phoneStr = lead.mobile || lead.phone || '';
+      const defaultCode =
+        lead.phone_country ||
+        lead.phoneCountry ||
+        lead?.meta_data?.phone_country ||
+        lead?.metaData?.phone_country ||
+        lead?.meta_data?.phoneCountry ||
+        lead?.metaData?.phoneCountry ||
+        crmSettings?.defaultCountryCode ||
+        '+20';
       if (phoneStr) {
-        const parsed = phoneStr.split('/').map(p => {
-          const trimmed = p.trim();
-          // Try to split by space to separate code and number if possible
-          // Assuming format "+Code Number" or just "Number"
-          // We can try to find if it starts with a known country code
-          let matchedCode = '+20'; // default
-          let numberPart = trimmed;
+        const parsed = phoneStr
+          .split('/')
+          .map((p) => {
+            const trimmed = String(p || '').trim();
+            if (!trimmed) return null;
 
-          // Simple heuristic: if contains space, assume first part is code
-          if (trimmed.includes(' ')) {
-             const parts = trimmed.split(' ');
-             if (parts.length >= 2) {
-                 matchedCode = parts[0];
-                 numberPart = parts.slice(1).join('');
-             }
-          } else if (trimmed.startsWith('+')) {
-              // If starts with +, try to match with known codes
-               const codeMatch = COUNTRY_CODES.find(c => trimmed.startsWith(c.dialCode));
-               if (codeMatch) {
-                   matchedCode = codeMatch.dialCode;
-                   numberPart = trimmed.slice(codeMatch.dialCode.length);
-               }
-          }
-          
-          return { code: matchedCode, number: numberPart };
-        });
-        setMobileNumbers(parsed.length > 0 ? parsed : [{ code: '+20', number: '' }]);
+            let matchedCode = defaultCode;
+            let numberPart = trimmed;
+
+            // 1) If it is "CODE NUMBER" and CODE is known, split it
+            const tokens = trimmed.split(/\s+/).filter(Boolean);
+            if (tokens.length >= 2) {
+              const maybeCodeRaw = tokens[0] || '';
+              const maybeCode =
+                maybeCodeRaw.startsWith('+')
+                  ? maybeCodeRaw
+                  : maybeCodeRaw.startsWith('00')
+                    ? '+' + maybeCodeRaw.slice(2)
+                    : maybeCodeRaw;
+
+              const isKnownCode = COUNTRY_CODES.some((c) => c.dialCode === maybeCode);
+              if (isKnownCode) {
+                matchedCode = maybeCode;
+                numberPart = tokens.slice(1).join('');
+              } else {
+                numberPart = tokens.join('');
+              }
+            } else if (trimmed.startsWith('+') || trimmed.startsWith('00')) {
+              // 2) If it starts with +/00, infer by prefix match
+              const normalized = trimmed.startsWith('00') ? '+' + trimmed.slice(2) : trimmed;
+              const codeMatch = COUNTRY_CODES.find((c) => normalized.startsWith(c.dialCode));
+              if (codeMatch) {
+                matchedCode = codeMatch.dialCode;
+                numberPart = normalized.slice(codeMatch.dialCode.length);
+              } else {
+                numberPart = normalized;
+              }
+            }
+
+            // Keep only digits in the number part
+            numberPart = String(numberPart || '').replace(/[^0-9]/g, '').trim();
+
+            // Backend normalizer stores Gulf numbers as 05xxxxxxxx (10 digits).
+            // UI validation expects Gulf numbers without the leading 0 (e.g., 5xxxxxxxx, 9 digits for +966/+971).
+            const rule = COUNTRY_CODES.find((c) => c.dialCode === matchedCode);
+            if (rule && numberPart.startsWith('0') && numberPart.length === rule.maxLen + 1) {
+              numberPart = numberPart.slice(1);
+            }
+
+            return { code: matchedCode || defaultCode || '+20', number: numberPart };
+          })
+          .filter(Boolean);
+
+        setMobileNumbers(parsed.length > 0 ? parsed : [{ code: defaultCode, number: '' }]);
       } else {
-        setMobileNumbers([{ code: '+20', number: '' }]);
+        setMobileNumbers([{ code: defaultCode, number: '' }]);
       }
     }
-  }, [lead]);
+  }, [lead, crmSettings?.defaultCountryCode, COUNTRY_CODES]);
 
   // Fetch Data
   useEffect(() => {

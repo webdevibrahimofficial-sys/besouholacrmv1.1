@@ -385,7 +385,17 @@ const EnhancedLeadDetailsModal = ({ isOpen, onClose, lead }) => {
                     <label className="block text-sm font-medium text-gray-500 mb-2">{isArabic ? 'رقم الهاتف' : 'Phone Number'}</label>
                     {(() => {
                       const raw = lead.mobile || lead.phone || ''
-                      const lines = getPhoneLines(raw, { showFull: true, defaultCountryCode: lead.phone_country || lead.phoneCountry || '+20' })
+                      const lines = getPhoneLines(raw, {
+                        showFull: true,
+                        defaultCountryCode:
+                          lead.phone_country ||
+                          lead.phoneCountry ||
+                          lead?.meta_data?.phone_country ||
+                          lead?.metaData?.phone_country ||
+                          lead?.meta_data?.phoneCountry ||
+                          lead?.metaData?.phoneCountry ||
+                          '+20',
+                      })
                       if (!lines.length) {
                         return <p className="text-gray-800 font-medium">{isArabic ? 'غير محدد' : 'Not specified'}</p>
                       }

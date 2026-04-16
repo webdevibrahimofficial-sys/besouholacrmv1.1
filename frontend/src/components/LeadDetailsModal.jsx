@@ -321,7 +321,17 @@ const LeadDetailsModal = ({ isOpen, onClose, lead }) => {
                     <label className="block text-sm font-medium text-gray-500 mb-2">{isArabic ? 'رقم الهاتف' : 'Phone Number'}</label>
                     {(() => {
                       const raw = lead.mobile || lead.phone || ''
-                      const lines = getPhoneLines(raw, { showFull: true, defaultCountryCode: lead.phone_country || lead.phoneCountry || '+20' })
+                      const lines = getPhoneLines(raw, {
+                        showFull: true,
+                        defaultCountryCode:
+                          lead.phone_country ||
+                          lead.phoneCountry ||
+                          lead?.meta_data?.phone_country ||
+                          lead?.metaData?.phone_country ||
+                          lead?.meta_data?.phoneCountry ||
+                          lead?.metaData?.phoneCountry ||
+                          '+20',
+                      })
                       if (!lines.length) {
                         return <p className="text-gray-800 font-medium">{isArabic ? 'غير محدد' : 'Not specified'}</p>
                       }
@@ -690,7 +700,16 @@ const LeadDetailsModal = ({ isOpen, onClose, lead }) => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <button 
                   onClick={() => {
-                    const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
+                    const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', {
+                      defaultCountryCode:
+                        lead?.phone_country ||
+                        lead?.phoneCountry ||
+                        lead?.meta_data?.phone_country ||
+                        lead?.metaData?.phone_country ||
+                        lead?.meta_data?.phoneCountry ||
+                        lead?.metaData?.phoneCountry ||
+                        '+20',
+                    })
                     if (digits) window.open(`https://wa.me/${digits}`, '_blank')
                   }}
                   className="flex flex-col items-center justify-center p-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
@@ -707,7 +726,16 @@ const LeadDetailsModal = ({ isOpen, onClose, lead }) => {
                 </button>
                 <button 
                   onClick={() => {
-                    const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', { defaultCountryCode: lead?.phone_country || lead?.phoneCountry || '+20' })
+                    const digits = getPhoneDigits(lead?.phone || lead?.mobile || '', {
+                      defaultCountryCode:
+                        lead?.phone_country ||
+                        lead?.phoneCountry ||
+                        lead?.meta_data?.phone_country ||
+                        lead?.metaData?.phone_country ||
+                        lead?.meta_data?.phoneCountry ||
+                        lead?.metaData?.phoneCountry ||
+                        '+20',
+                    })
                     if (digits) window.open(`tel:${digits}`, '_blank')
                   }}
                   className="flex flex-col items-center justify-center p-4 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"

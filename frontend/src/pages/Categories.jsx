@@ -11,6 +11,10 @@ import CategoriesImportModal from './inventory/CategoriesImportModal'
 export default function Categories() {
   const { i18n } = useTranslation()
   const isArabic = i18n.language === 'ar'
+  const itemsCountLabel = useMemo(
+    () => (isArabic ? '\u0639\u062f\u062f \u0627\u0644\u0623\u0635\u0646\u0627\u0641' : 'Items Count'),
+    [isArabic]
+  )
 
   const labels = useMemo(() => ({
     title: isArabic ? ' التصنيفات' : ' Categories',
@@ -131,7 +135,7 @@ export default function Categories() {
         code: c.code || '',
         status: c.status || 'Active',
         description: c.description || '',
-        offeringsCount: typeof c.items_count === 'number' ? c.items_count : 0
+        itemsCount: typeof c.items_count === 'number' ? c.items_count : 0
       }))
       setCategories(mapped)
     } catch (error) {
@@ -434,8 +438,8 @@ export default function Categories() {
                       <span className="font-medium dark:text-white">{c.appliesTo}</span>
                     </div>
                     <div className="flex justify-between border-b border-gray-100 dark:border-white/10 pb-2">
-                      <span className=" dark:text-white">{labels.offeringsCount}:</span>
-                      <span className="font-medium dark:text-white">{c.offeringsCount ?? 0}</span>
+                      <span className=" dark:text-white">{itemsCountLabel}:</span>
+                      <span className="font-medium dark:text-white">{c.itemsCount ?? 0}</span>
                     </div>
                      <div className="flex flex-col gap-1 pt-1">
                       <span className=" dark:text-white">{labels.description}:</span>
@@ -468,7 +472,7 @@ export default function Categories() {
                     <th className="text-start px-3 min-w-[200px]">{labels.name}</th>
                     <th className="text-start px-3 min-w-[160px]">{labels.appliesTo}</th>
                     <th className="text-start px-3 min-w-[100px]">{labels.status}</th>
-                    <th className="text-center px-3 min-w-[120px]">{labels.offeringsCount}</th>
+                    <th className="text-center px-3 min-w-[120px]">{itemsCountLabel}</th>
                     <th className="text-start px-3 min-w-[220px]">{labels.description}</th>
                     <th className="text-center px-3 min-w-[110px]">{labels.actions}</th>
                   </tr>
@@ -484,7 +488,7 @@ export default function Categories() {
                           {c.status === 'Active' ? labels.active : labels.inactive}
                         </span>
                       </td>
-                      <td className="px-3 text-center">{c.offeringsCount ?? 0}</td>
+                      <td className="px-3 text-center">{c.itemsCount ?? 0}</td>
                       <td className="px-3">{c.description}</td>
                       <td className="px-3 text-center">
                         <div className="flex items-center gap-2 justify-center">

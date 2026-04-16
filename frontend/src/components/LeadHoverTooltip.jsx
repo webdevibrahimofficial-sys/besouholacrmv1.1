@@ -61,7 +61,17 @@ const LeadHoverTooltip = ({ lead, position, onAction, isRtl, onMouseEnter, onMou
           <div className="text-xs text-gray-500 dark:text-gray-400 truncate" dir="ltr">
             {(() => {
               const email = String(lead?.email || '').trim()
-              const phone = formatPhoneForDisplay(lead?.phone || lead?.mobile || '', { showFull: !maskMobileNumber, defaultCountryCode: lead?.phone_country || lead?.phoneCountry || defaultDialCode })
+              const phone = formatPhoneForDisplay(lead?.phone || lead?.mobile || '', {
+                showFull: !maskMobileNumber,
+                defaultCountryCode:
+                  lead?.phone_country ||
+                  lead?.phoneCountry ||
+                  lead?.meta_data?.phone_country ||
+                  lead?.metaData?.phone_country ||
+                  lead?.meta_data?.phoneCountry ||
+                  lead?.metaData?.phoneCountry ||
+                  defaultDialCode,
+              })
               if (email && phone) return `${email} · ${phone}`
               return email || phone || ''
             })()}

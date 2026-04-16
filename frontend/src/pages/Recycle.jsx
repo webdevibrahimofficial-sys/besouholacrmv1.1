@@ -1898,7 +1898,17 @@ export const Recycle = () => {
                   <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
                     <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{lead.email}</div>
                     <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} dark:text-white`} dir="ltr">
-                      {formatPhoneForDisplay(lead.phone || lead.mobile || '', { showFull: !maskMobileNumber, defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })}
+                      {formatPhoneForDisplay(lead.phone || lead.mobile || '', {
+                        showFull: !maskMobileNumber,
+                        defaultCountryCode:
+                          lead.phone_country ||
+                          lead.phoneCountry ||
+                          lead?.meta_data?.phone_country ||
+                          lead?.metaData?.phone_country ||
+                          lead?.meta_data?.phoneCountry ||
+                          lead?.metaData?.phoneCountry ||
+                          defaultDialCode,
+                      })}
                     </div>
                   </td>
                 )}
@@ -1934,7 +1944,16 @@ export const Recycle = () => {
                             onClick={(e) => {
                               e.stopPropagation()
                               const raw = lead.phone || lead.mobile || ''
-                              const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                              const digits = getPhoneDigits(raw, {
+                                defaultCountryCode:
+                                  lead.phone_country ||
+                                  lead.phoneCountry ||
+                                  lead?.meta_data?.phone_country ||
+                                  lead?.metaData?.phone_country ||
+                                  lead?.meta_data?.phoneCountry ||
+                                  lead?.metaData?.phoneCountry ||
+                                  defaultDialCode,
+                              })
                               if (digits) window.open(`tel:${digits}`)
                             }}
                             className="inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-500"
@@ -1946,7 +1965,16 @@ export const Recycle = () => {
                             onClick={(e) => {
                               e.stopPropagation()
                               const raw = lead.phone || lead.mobile || ''
-                              const digits = getPhoneDigits(raw, { defaultCountryCode: lead.phone_country || lead.phoneCountry || defaultDialCode })
+                              const digits = getPhoneDigits(raw, {
+                                defaultCountryCode:
+                                  lead.phone_country ||
+                                  lead.phoneCountry ||
+                                  lead?.meta_data?.phone_country ||
+                                  lead?.metaData?.phone_country ||
+                                  lead?.meta_data?.phoneCountry ||
+                                  lead?.metaData?.phoneCountry ||
+                                  defaultDialCode,
+                              })
                               if (digits) window.open(`https://wa.me/${digits}`)
                             }}
                             className="inline-flex items-center justify-center  dark:text-green-400 hover:text-green-500"
