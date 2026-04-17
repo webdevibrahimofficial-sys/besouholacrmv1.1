@@ -17,6 +17,14 @@ class User extends Authenticatable
     use HasFactory, Notifiable, HasApiTokens, HasRoles, BelongsToTenant, HasPushSubscriptions;
 
     /**
+     * Spatie Permission guard.
+     *
+     * This app authenticates API requests via `auth:sanctum`, but roles/permissions are stored under `web`.
+     * For consistency, force Spatie to always use the `web` guard when resolving/assigning roles.
+     */
+    protected $guard_name = 'web';
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var list<string>
