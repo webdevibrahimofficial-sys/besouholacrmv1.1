@@ -40,7 +40,10 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     return getDefaultDialCode(crmSettings, '+20')
   }, [crmSettings?.defaultCountryCode])
   const maskEnabled = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
-  const displayMobile = (value) => formatPhoneForDisplay(value, { showFull: !maskEnabled, defaultCountryCode: defaultDialCode });
+  const displayMobile = (value, lead) => {
+    const raw = value ?? lead?.phone ?? lead?.mobile ?? lead?.whatsapp ?? ''
+    return formatPhoneForDisplay(raw, { showFull: !maskEnabled, defaultCountryCode: defaultDialCode })
+  }
   const { stages } = useStages(); // Fetch dynamic stages from hook
   const MEET_ICON_URL = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'><rect x='2' y='4' width='12' height='16' rx='3' fill='%23ffffff'/><rect x='2' y='4' width='12' height='4' rx='2' fill='%234285F4'/><rect x='2' y='4' width='4' height='16' rx='2' fill='%2334A853'/><rect x='10' y='4' width='4' height='16' rx='2' fill='%23FBBC05'/><rect x='2' y='16' width='12' height='4' rx='2' fill='%23EA4335'/><polygon points='14,9 22,5 22,19 14,15' fill='%2334A853'/></svg>"
   const SCROLLBAR_CSS = `
@@ -623,7 +626,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                   <div className="flex justify-between items-start mb-2">
                 <div>
                   <div className="font-medium text-sm">{lead.leadName}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400" dir="ltr">{displayMobile(lead.mobile)}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400" dir="ltr">{displayMobile(lead.mobile, lead)}</div>
                   {lead.pendingActionsCount > 0 && (
                     <div className="text-xs text-red-600 font-bold mt-1">
                       {t('Pending Actions')}: {lead.pendingActionsCount}
@@ -731,7 +734,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                     </div>
                     ) : '-'}
                   </td>
-                  <td className={`px-6 py-4`} dir="ltr">{displayMobile(lead.mobile)}</td>
+                  <td className={`px-6 py-4`} dir="ltr">{displayMobile(lead.mobile, lead)}</td>
                   <td className={`px-6 py-4`}>
                     <div className="flex items-center gap-2 flex-nowrap">
                 <button
