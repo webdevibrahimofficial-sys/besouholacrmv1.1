@@ -40,9 +40,25 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     return getDefaultDialCode(crmSettings, '+20')
   }, [crmSettings?.defaultCountryCode])
   const maskEnabled = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
+  const getLeadDialCode = (lead) => {
+    const code =
+      lead?.phone_country ||
+      lead?.phoneCountry ||
+      lead?.meta_data?.phone_country ||
+      lead?.metaData?.phone_country ||
+      lead?.meta_data?.phoneCountry ||
+      lead?.metaData?.phoneCountry
+    return String(code || '').trim()
+  }
+
+  const getLeadDefaultCountryCode = (lead) => getLeadDialCode(lead) || defaultDialCode
+
   const displayMobile = (value, lead) => {
     const raw = value ?? lead?.phone ?? lead?.mobile ?? lead?.whatsapp ?? ''
-    return formatPhoneForDisplay(raw, { showFull: !maskEnabled, defaultCountryCode: defaultDialCode })
+    return formatPhoneForDisplay(raw, {
+      showFull: !maskEnabled,
+      defaultCountryCode: getLeadDefaultCountryCode(lead),
+    })
   }
   const { stages } = useStages(); // Fetch dynamic stages from hook
   const MEET_ICON_URL = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'><rect x='2' y='4' width='12' height='16' rx='3' fill='%23ffffff'/><rect x='2' y='4' width='12' height='4' rx='2' fill='%234285F4'/><rect x='2' y='4' width='4' height='16' rx='2' fill='%2334A853'/><rect x='10' y='4' width='4' height='16' rx='2' fill='%23FBBC05'/><rect x='2' y='16' width='12' height='4' rx='2' fill='%23EA4335'/><polygon points='14,9 22,5 22,19 14,15' fill='%2334A853'/></svg>"
@@ -758,7 +774,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                         onClick={(e) => {
                           e.stopPropagation()
                           const raw = lead.phone || lead.mobile || ''
-                          const digits = getPhoneDigits(raw, { defaultCountryCode: defaultDialCode })
+                          const digits = getPhoneDigits(raw, { defaultCountryCode: getLeadDefaultCountryCode(lead) })
                           if (digits) window.open(`tel:${digits}`)
                         }}
                         className={`inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-500`}
@@ -770,7 +786,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                         onClick={(e) => {
                           e.stopPropagation()
                           const raw = lead.phone || lead.mobile || ''
-                          const digits = getPhoneDigits(raw, { defaultCountryCode: defaultDialCode })
+                          const digits = getPhoneDigits(raw, { defaultCountryCode: getLeadDefaultCountryCode(lead) })
                           if (digits) window.open(`https://wa.me/${digits}`)
                         }}
                         className={`inline-flex items-center justify-center text-green-600 dark:text-green-400 hover:text-green-500`}
