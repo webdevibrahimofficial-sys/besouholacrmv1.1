@@ -123,7 +123,7 @@ const getIcon = (key) => {
           <path d="M21 12a9 9 0 10-18 0 3 3 0 003 3h1v3l4-3h6a3 3 0 003-3z" />
         </svg>
       )
-    case 'Contract & Collections':
+    case 'Contracts and Collections':
       return (
         <svg {...common} aria-hidden="true">
           <path d="M7 4h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z" />
@@ -1737,7 +1737,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
           <div className="w-full">
             {ccOpen && (
               <div className={`${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} sticky top-0 z-10 section-header flex items-center mb-2 px-2 py-1`}>
-                <span className="text-sm font-bold link-label">{t('Contract & Collections')}</span>
+                <span className="text-sm font-bold link-label">{t('Contracts and Collections')}</span>
                 <button type="button" onClick={() => setCcOpen(false)} className={`close-btn text-sm font-semibold ${isLight ? 'text-theme-text hover:text-gray-900' : 'text-gray-200 hover:text-white'} flex items-center gap-2`}>
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M15 18l-6-6 6-6" /></svg>
                   <span>{backLabel}</span>
@@ -1745,8 +1745,8 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               </div>
             )}
             {!ccOpen && (
-              <button type="button" title={isCollapsed ? t('Contract & Collections') : ''} onClick={() => { setCcOpen(true); setLeadMgmtOpen(false); setInventoryOpen(false); setMarketingOpen(false); setCustomersOpen(false); setUsersOpen(false); setSettingsOpen(false); }} className={`${baseLink} w-full justify-between ${isContractCollectionsActive ? 'active-parent' : ''}`} aria-expanded={ccOpen}>
-                <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>{getIcon('Contract & Collections')}</span><span className="link-label">{t('Contract & Collections')}</span></span>
+              <button type="button" title={isCollapsed ? t('Contracts and Collections') : ''} onClick={() => { setCcOpen(true); setLeadMgmtOpen(false); setInventoryOpen(false); setMarketingOpen(false); setCustomersOpen(false); setUsersOpen(false); setSettingsOpen(false); }} className={`${baseLink} w-full justify-between ${isContractCollectionsActive ? 'active-parent' : ''}`} aria-expanded={ccOpen}>
+                <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>{getIcon('Contracts and Collections')}</span><span className="link-label">{t('Contracts and Collections')}</span></span>
                 <span className={`link-label ${isLight ? 'text-theme-text' : 'text-gray-400'} transition-transform`} style={{ transform: ccOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M6 9l6 6 6-6" /></svg>
                 </span>

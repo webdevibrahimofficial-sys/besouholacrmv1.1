@@ -39,7 +39,7 @@ const AVAILABLE_MODULES = [
   { id: 'inventory', name: 'Inventory' },
   { id: 'campaigns', name: 'Marketing Campaigns' },
   { id: 'customers', name: 'Customers' },
-  { id: 'contract_collections', name: 'Contract & Collections' },
+  { id: 'contract_collections', name: 'Contracts and Collections' },
   { id: 'users', name: 'User Management' },
   { id: 'reports', name: 'Reports' },
   { id: 'settings', name: 'Settings' },

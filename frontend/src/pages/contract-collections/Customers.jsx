@@ -11,7 +11,7 @@ export default function ContractCollectionsCustomers() {
   const isRealEstate = companyTypeLower.includes('real')
 
   const title = useMemo(
-    () => (isArabic ? 'العملاء (التعاقد والتحصيل)' : 'Customers (Contract & Collections)'),
+    () => (isArabic ? 'إدارة العملاء' : 'Customers Management'),
     [isArabic]
   )
 
@@ -44,4 +44,3 @@ export default function ContractCollectionsCustomers() {
     </div>
   )
 }
-
