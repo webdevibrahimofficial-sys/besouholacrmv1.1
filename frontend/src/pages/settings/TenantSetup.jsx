@@ -29,7 +29,7 @@ const PLANS = [
   { id: 'core', name: 'Core System', modules: ['dashboard', 'reports', 'users', 'settings'] },
   { id: 'basic', name: 'Basic', modules: ['leads', 'inventory', 'campaigns', 'users'] },
   { id: 'professional', name: 'Professional', modules: ['leads', 'inventory', 'campaigns', 'customers', 'users'] },
-  { id: 'enterprise', name: 'Enterprise', modules: ['leads', 'inventory', 'campaigns', 'customers', 'support', 'users'] },
+  { id: 'enterprise', name: 'Enterprise', modules: ['leads', 'inventory', 'campaigns', 'customers', 'users'] },
   { id: 'custom', name: 'Custom Plan', modules: [] }
 ];
 
@@ -39,7 +39,7 @@ const AVAILABLE_MODULES = [
   { id: 'inventory', name: 'Inventory' },
   { id: 'campaigns', name: 'Marketing Campaigns' },
   { id: 'customers', name: 'Customers' },
-  { id: 'support', name: 'Support Tickets' },
+  { id: 'contract_collections', name: 'Contract & Collections' },
   { id: 'users', name: 'User Management' },
   { id: 'reports', name: 'Reports' },
   { id: 'settings', name: 'Settings' },
@@ -272,6 +272,7 @@ const TenantSetup = () => {
   const { register, handleSubmit, formState: { errors }, reset, watch, setValue } = useForm();
   const domainSuffix = '.besouholacrm.net';
   const selectedPlan = watch('plan');
+  const selectedCompanyType = watch('company_type') || 'General';
   const isLifetime = watch('is_lifetime');
   const tenancyType = watch('tenancy_type');
   const [customModules, setCustomModules] = useState([]);
@@ -1151,7 +1152,19 @@ const TenantSetup = () => {
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 ml-7">
-                    {plan.modules.length > 0 ? plan.modules.map(m => t(m.charAt(0).toUpperCase() + m.slice(1))).join(', ') : t('Flexible Selection')}
+                    {(() => {
+                      const base = Array.isArray(plan.modules) ? [...plan.modules] : []
+                      if (plan.id === 'enterprise' && selectedCompanyType === 'Real Estate') {
+                        base.push('contract_collections')
+                      }
+                      if (base.length === 0) return t('Flexible Selection')
+                      return base
+                        .map((m) => {
+                          const found = AVAILABLE_MODULES.find(x => x.id === m)
+                          return t(found?.name || String(m))
+                        })
+                        .join(', ')
+                    })()}
                   </p>
                 </label>
               ))}
@@ -1162,14 +1175,20 @@ const TenantSetup = () => {
                 <h3 className="text-sm font-semibold text-theme mb-3">{t('select_modules', 'Select Modules')}</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {AVAILABLE_MODULES.map(module => (
-                    <label key={module.id} className="flex items-center space-x-2 cursor-pointer">
+                    <label key={module.id} className={`flex items-center space-x-2 cursor-pointer ${module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate' ? 'opacity-60 cursor-not-allowed' : ''}`}>
                       <input
                         type="checkbox"
+                        disabled={module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate'}
                         checked={customModules.includes(module.id)}
-                        onChange={() => handleModuleToggle(module.id)}
+                        onChange={() => {
+                          if (module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate') return
+                          handleModuleToggle(module.id)
+                        }}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm text-theme">{t(module.name)}</span>
+                      <span className="text-sm text-theme">
+                        {t(module.name)}{module.id === 'contract_collections' ? (selectedCompanyType === 'Real Estate' ? '' : ` (${t('Real Estate')})`) : ''}
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -1475,6 +1494,7 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
   });
 
   const selectedPlan = watch('plan');
+  const selectedCompanyType = watch('company_type') || (tenant?.company_type || 'General');
   const isLifetime = watch('is_lifetime');
   const password = watch('password');
 
@@ -1781,7 +1801,19 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 ml-7">
-                    {plan.modules.length > 0 ? plan.modules.map(m => t(m.charAt(0).toUpperCase() + m.slice(1))).join(', ') : t('Flexible Selection')}
+                    {(() => {
+                      const base = Array.isArray(plan.modules) ? [...plan.modules] : []
+                      if (plan.id === 'enterprise' && selectedCompanyType === 'Real Estate') {
+                        base.push('contract_collections')
+                      }
+                      if (base.length === 0) return t('Flexible Selection')
+                      return base
+                        .map((m) => {
+                          const found = AVAILABLE_MODULES.find(x => x.id === m)
+                          return t(found?.name || String(m))
+                        })
+                        .join(', ')
+                    })()}
                   </p>
                 </label>
               ))}
@@ -1792,14 +1824,20 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
                 <h3 className="text-sm font-semibold text-theme mb-3">{t('select_modules', 'Select Modules')}</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {AVAILABLE_MODULES.map(module => (
-                    <label key={module.id} className="flex items-center space-x-2 cursor-pointer">
+                    <label key={module.id} className={`flex items-center space-x-2 cursor-pointer ${module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate' ? 'opacity-60 cursor-not-allowed' : ''}`}>
                       <input
                         type="checkbox"
+                        disabled={module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate'}
                         checked={customModules.includes(module.id)}
-                        onChange={() => handleModuleToggle(module.id)}
+                        onChange={() => {
+                          if (module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate') return
+                          handleModuleToggle(module.id)
+                        }}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm text-theme">{t(module.name)}</span>
+                      <span className="text-sm text-theme">
+                        {t(module.name)}{module.id === 'contract_collections' ? (selectedCompanyType === 'Real Estate' ? '' : ` (${t('Real Estate')})`) : ''}
+                      </span>
                     </label>
                   ))}
                 </div>

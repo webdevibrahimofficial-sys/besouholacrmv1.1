@@ -95,7 +95,12 @@ class TenantService
             return;
         }
 
-        $modules = array_values(array_unique($modules));
+        // Systemwide removals / guards
+        $modules = array_values(array_unique(array_filter($modules, function ($slug) use ($companyType) {
+            if ($slug === 'support') return false;
+            if ($slug === 'contract_collections' && $companyType !== 'Real Estate') return false;
+            return true;
+        })));
 
         $moduleIds = [];
 
