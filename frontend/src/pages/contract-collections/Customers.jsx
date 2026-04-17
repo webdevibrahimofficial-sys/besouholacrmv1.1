@@ -27,7 +27,7 @@ function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl' }
     <div className="fixed inset-0 z-[20000]">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className={`w-full ${widthClass} bg-[var(--content-bg)] rounded-2xl shadow-2xl border border-[var(--panel-border)] overflow-hidden`}>
+        <div className={`card w-full ${widthClass} bg-[var(--content-bg)] rounded-2xl shadow-2xl border border-[var(--panel-border)] overflow-hidden`}>
           <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--panel-border)]">
             <div className="min-w-0">
               <div className="text-base font-semibold text-theme-text dark:text-gray-100 truncate">{title}</div>
@@ -45,105 +45,6 @@ function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl' }
           <div className="p-4 max-h-[80vh] overflow-auto">{children}</div>
         </div>
       </div>
-
-      {/* Create modal */}
-      <ModalShell
-        open={createOpen}
-        title={isArabic ? 'إضافة عميل' : 'Add Customer'}
-        onClose={() => (createLoading ? null : setCreateOpen(false))}
-        widthClass="max-w-2xl"
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الاسم' : 'Name'}</label>
-            <input
-              value={createForm.name}
-              onChange={(e) => setCreateForm((p) => ({ ...p, name: e.target.value }))}
-              className="input w-full"
-              placeholder={isArabic ? 'اسم العميل' : 'Customer name'}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الموبايل' : 'Phone'}</label>
-            <input
-              value={createForm.phone}
-              onChange={(e) => setCreateForm((p) => ({ ...p, phone: e.target.value }))}
-              className="input w-full"
-              placeholder={isArabic ? 'رقم الموبايل' : 'Mobile'}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'البريد' : 'Email'}</label>
-            <input
-              value={createForm.email}
-              onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))}
-              className="input w-full"
-              placeholder="email"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المصدر' : 'Source'}</label>
-            <input
-              value={createForm.source}
-              onChange={(e) => setCreateForm((p) => ({ ...p, source: e.target.value }))}
-              className="input w-full"
-              placeholder={isArabic ? 'المصدر' : 'Source'}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المشروع' : 'Project'}</label>
-            <SearchableSelect
-              options={projects}
-              value={createForm.project_id}
-              onChange={(v) => setCreateForm((p) => ({ ...p, project_id: v }))}
-              placeholder={isArabic ? 'اختر المشروع' : 'Select Project'}
-              className="w-full"
-              isRTL={isArabic}
-              multiple={false}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</label>
-            <SearchableSelect
-              options={salesOwners}
-              value={createForm.sales_owner_id}
-              onChange={(v) => setCreateForm((p) => ({ ...p, sales_owner_id: v }))}
-              placeholder={isArabic ? 'اختر الموظف' : 'Select User'}
-              className="w-full"
-              isRTL={isArabic}
-              multiple={false}
-            />
-          </div>
-          <div className="space-y-1 md:col-span-2">
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'ملاحظات' : 'Notes'}</label>
-            <textarea
-              rows={3}
-              value={createForm.last_comments}
-              onChange={(e) => setCreateForm((p) => ({ ...p, last_comments: e.target.value }))}
-              className="w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-[var(--content-bg)] p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder={isArabic ? 'ملاحظة داخلية...' : 'Internal note...'}
-            />
-          </div>
-        </div>
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setCreateOpen(false)}
-            disabled={createLoading}
-            className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-800 disabled:opacity-50"
-          >
-            {isArabic ? 'إلغاء' : 'Cancel'}
-          </button>
-          <button
-            type="button"
-            onClick={submitCreate}
-            disabled={createLoading || !String(createForm.name || '').trim()}
-            className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm disabled:opacity-50"
-          >
-            {createLoading ? (isArabic ? 'جارٍ الحفظ...' : 'Saving...') : isArabic ? 'حفظ' : 'Save'}
-          </button>
-        </div>
-      </ModalShell>
     </div>
   )
 }
@@ -527,7 +428,7 @@ export default function ContractCollectionsCustomers() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.65fr] gap-4">
+      <div className="space-y-4">
         {/* List */}
         <div className="glass-panel rounded-2xl overflow-hidden">
           {/* Mobile cards */}
@@ -682,19 +583,27 @@ export default function ContractCollectionsCustomers() {
           </div>
         </div>
 
-        {/* Details */}
-        <div className="glass-panel rounded-2xl p-4">
+        {/* Preview modal */}
+        <ModalShell
+          open={previewOpen}
+          title={activeCustomer ? `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}` : isArabic ? 'عرض العميل' : 'Customer Preview'}
+          onClose={() => {
+            setPreviewOpen(false)
+            setActiveCustomer(null)
+            setActiveTab('details')
+            setComments([])
+            setCommentText('')
+          }}
+        >
           {!activeCustomer ? (
-            <div className={`text-sm ${mutedTextClass}`}>
-              {isArabic ? 'اختر عميل لعرض التفاصيل.' : 'Select a customer to view details.'}
-            </div>
+            <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
           ) : (
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className={`text-xs ${mutedTextClass}`}>{formatCustomerId(activeCustomer.id)}</div>
                   <div className="text-lg font-semibold truncate">{safeStr(activeCustomer.name)}</div>
-                  <div className={`text-sm ${mutedTextClass}`}>{safeStr(activeCustomer.phone)}</div>
+                  <div className={`text-sm ${mutedTextClass}`} dir="ltr">{safeStr(activeCustomer.phone)}</div>
                 </div>
                 <div className={`text-right text-xs ${mutedTextClass}`}>
                   {safeStr(activeCustomer.source)}
@@ -837,7 +746,7 @@ export default function ContractCollectionsCustomers() {
               )}
             </div>
           )}
-        </div>
+        </ModalShell>
       </div>
     </div>
   )
