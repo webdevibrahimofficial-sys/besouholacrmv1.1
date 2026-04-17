@@ -123,6 +123,15 @@ const getIcon = (key) => {
           <path d="M21 12a9 9 0 10-18 0 3 3 0 003 3h1v3l4-3h6a3 3 0 003-3z" />
         </svg>
       )
+    case 'Contract & Collections':
+      return (
+        <svg {...common} aria-hidden="true">
+          <path d="M7 4h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z" />
+          <path d="M9 8h6" />
+          <path d="M9 12h6" />
+          <path d="M9 16h4" />
+        </svg>
+      )
     case 'Settings':
       return (
         <svg {...common} aria-hidden="true">
@@ -464,6 +473,8 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const navRef = useRef(null)
   const role = user?.role || ''
   const roleLower = role.toLowerCase()
+  const companyTypeLower = String(company?.company_type || '').toLowerCase()
+  const isRealEstateTenant = companyTypeLower.includes('real')
   const isSalesPerson = roleLower.includes('sales person') || roleLower.includes('salesperson')
   const isTeamLeader = roleLower.includes('team leader') || roleLower.includes('teamleader')
   const isTenantAdmin =
@@ -601,6 +612,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const [customersOpen, setCustomersOpen] = useState(false)
   const [usersOpen, setUsersOpen] = useState(false)
   const [reportsOpen, setReportsOpen] = useState(false)
+  const [ccOpen, setCcOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -662,6 +674,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const isAdminOwnerUser = roleLower.includes('admin') || roleLower.includes('super admin') || roleLower.includes('owner')
   const _isReportsActive = location.pathname.startsWith('/reports') || location.pathname.startsWith('/marketing/reports')
   const isUsersActive = location.pathname.startsWith('/user-management')
+  const isContractCollectionsActive = location.pathname.startsWith('/contract-collections')
   const isSupportActive = location.pathname.startsWith('/support')
   // Restore missing Marketing submenu state with persistence and route-aware default
   const [marketingOpen, setMarketingOpen] = useState(() => {
@@ -690,6 +703,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       setInventoryOpen(false)
       setCustomersOpen(false)
       setUsersOpen(false)
+      setCcOpen(false)
       setSupportOpen(false)
       setSettingsOpen(false)
       try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('leadMgmtOpen', 'false') } } catch { }
@@ -706,7 +720,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   useEffect(() => { if (isCompanySetupActive) { openOnly('companySetup') } else { setCompanySetupOpen(false) } }, [isCompanySetupActive])
   useEffect(() => { if (isBillingActiveFlag) { openOnly('billing') } else { setBillingOpen(false) } }, [isBillingActiveFlag])
 
-  const isSectionViewOpen = leadMgmtOpen || inventoryOpen || marketingOpen || customersOpen || usersOpen || supportOpen || reportsOpen || settingsOpen
+  const isSectionViewOpen = leadMgmtOpen || inventoryOpen || marketingOpen || customersOpen || usersOpen || ccOpen || supportOpen || reportsOpen || settingsOpen
 
   // Auto-open Settings submenu when on any /settings route; close when leaving
   useEffect(() => {
@@ -726,6 +740,23 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   useEffect(() => {
     setCustomersOpen(!!isCustomersActive)
   }, [isCustomersActive])
+
+  // Keep Contract & Collections submenu in sync with /contract-collections routes
+  useEffect(() => {
+    setCcOpen(!!isContractCollectionsActive)
+  }, [isContractCollectionsActive])
+
+  useEffect(() => {
+    if (isContractCollectionsActive) {
+      setLeadMgmtOpen(false)
+      setInventoryOpen(false)
+      setMarketingOpen(false)
+      setCustomersOpen(false)
+      setUsersOpen(false)
+      setSupportOpen(false)
+      setSettingsOpen(false)
+    }
+  }, [isContractCollectionsActive])
 
   // Keep Support submenu in sync with /support routes
   useEffect(() => {
@@ -1697,6 +1728,40 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                 <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>💳</span><span className="text-[15px] link-label">{t('Invoices')}</span></span>
               </NavLink>
               {/* Customer Tickets removed per request */}
+            </div>
+          </div>
+        )}
+
+        {/* Contract & Collections section (Real Estate only) */}
+        {!isSystemArea && !isSuperAdmin && !isMarketingActive && isRealEstateTenant && (!isSectionViewOpen || ccOpen) && canAccess('contract_collections') && (
+          <div className="w-full">
+            {ccOpen && (
+              <div className={`${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} sticky top-0 z-10 section-header flex items-center mb-2 px-2 py-1`}>
+                <span className="text-sm font-bold link-label">{t('Contract & Collections')}</span>
+                <button type="button" onClick={() => setCcOpen(false)} className={`close-btn text-sm font-semibold ${isLight ? 'text-theme-text hover:text-gray-900' : 'text-gray-200 hover:text-white'} flex items-center gap-2`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M15 18l-6-6 6-6" /></svg>
+                  <span>{backLabel}</span>
+                </button>
+              </div>
+            )}
+            {!ccOpen && (
+              <button type="button" title={isCollapsed ? t('Contract & Collections') : ''} onClick={() => { setCcOpen(true); setLeadMgmtOpen(false); setInventoryOpen(false); setMarketingOpen(false); setCustomersOpen(false); setUsersOpen(false); setSettingsOpen(false); }} className={`${baseLink} w-full justify-between ${isContractCollectionsActive ? 'active-parent' : ''}`} aria-expanded={ccOpen}>
+                <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>{getIcon('Contract & Collections')}</span><span className="link-label">{t('Contract & Collections')}</span></span>
+                <span className={`link-label ${isLight ? 'text-theme-text' : 'text-gray-400'} transition-transform`} style={{ transform: ccOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M6 9l6 6 6-6" /></svg>
+                </span>
+              </button>
+            )}
+            <div className={`${isRTL ? 'mr-0 pr-0 border-r' : 'ml-0 pl-0 border-l'} border-theme-border dark:border-gray-700 space-y-0.5 transition-all glass-neon`} style={{ maxHeight: ccOpen ? '800px' : '0', overflow: 'hidden', opacity: ccOpen ? 1 : 0 }}>
+              <NavLink to="/contract-collections/customers" title={isCollapsed ? t('Customers') : ''} onClick={onClose} className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-10' : '!pl-10'} ${isActive ? activeLink : ''}`}>
+                <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>👤</span><span className="text-[15px] link-label">{t('Customers')}</span></span>
+              </NavLink>
+              <NavLink to="/contract-collections/contracts" title={isCollapsed ? t('Contracts') : ''} onClick={onClose} className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-10' : '!pl-10'} ${isActive ? activeLink : ''}`}>
+                <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>📄</span><span className="text-[15px] link-label">{t('Contracts')}</span></span>
+              </NavLink>
+              <NavLink to="/contract-collections/installments" title={isCollapsed ? t('Installments') : ''} onClick={onClose} className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-10' : '!pl-10'} ${isActive ? activeLink : ''}`}>
+                <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>💳</span><span className="text-[15px] link-label">{t('Installments')}</span></span>
+              </NavLink>
             </div>
           </div>
         )}
