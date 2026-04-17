@@ -32,6 +32,7 @@ class AlIsraaTenantSeeder extends Seeder
         $businessRoles = [
             'Director',
             'Operation Manager',
+            'Accountant',
             'Sales Admin',
             'Branch Manager',
             'Sales Manager',
@@ -91,7 +92,6 @@ class AlIsraaTenantSeeder extends Seeder
             ['slug' => 'leads', 'name' => 'Leads Management'],
             ['slug' => 'campaigns', 'name' => 'Marketing Campaigns'],
             ['slug' => 'customers', 'name' => 'Customer Management'],
-            ['slug' => 'support', 'name' => 'Support Tickets'],
             ['slug' => 'items', 'name' => 'Item Management'],
             ['slug' => 'orders', 'name' => 'Order Management'],
         ];

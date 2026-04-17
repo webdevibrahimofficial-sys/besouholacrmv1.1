@@ -16,7 +16,7 @@ class TenantBootstrapper
         setPermissionsTeamId($tenant->id);
 
         // 1. Create Default Roles for this Tenant
-        $roles = ['Tenant Admin', 'Manager', 'Employee', 'Viewer'];
+        $roles = ['Tenant Admin', 'Manager', 'Employee', 'Viewer', 'Accountant'];
         
         $teamFk = config('permission.column_names.team_foreign_key', 'tenant_id');
 

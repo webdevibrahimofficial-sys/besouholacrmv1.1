@@ -70,13 +70,12 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
         const requestId = data?.request_id || data?.requestId
         if (!link && requestId) return `/requests?request_id=${requestId}`
 
+        // Support module removed systemwide: don't generate /support links anymore.
+        // Keep notifications readable but without a dead link.
         const ticketId = data?.ticket_id || data?.ticketId
-        if (!link && ticketId) return `/support/tickets?ticket_id=${ticketId}`
+        if (!link && ticketId) return undefined
         const mTicketLegacy = link.match(/^\/tickets\/(\d+)\b/)
-        if (mTicketLegacy) {
-          const id = mTicketLegacy[1]
-          return `/support/tickets?ticket_id=${id}`
-        }
+        if (mTicketLegacy) return undefined
 
         const invoiceId = data?.invoice_id || data?.invoiceId
         if (!link && invoiceId) return `/sales/invoices?invoice_id=${invoiceId}`

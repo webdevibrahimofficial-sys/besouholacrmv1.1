@@ -527,11 +527,12 @@ class UserController extends Controller
         $roleName = (string) ($request->input('role') ?? $user->job_title ?? $user->role ?? '');
         $roleNorm = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $roleName))));
         $isSalesPerson = $roleNorm === 'sales person' || $roleNorm === 'salesperson';
+        $isAccountant = $roleNorm === 'accountant';
 
-        // If permissions were not sent, do nothing for non-sales users.
-        // For Sales Person, preserve existing permissions and ensure `addAction` exists.
+        // If permissions were not sent, do nothing for most users.
+        // For Sales Person / Accountant, preserve existing permissions and ensure defaults exist.
         if (!is_array($permissions)) {
-            if (!$isSalesPerson) {
+            if (!$isSalesPerson && !$isAccountant) {
                 return;
             }
             $permissions = $current;
@@ -544,6 +545,16 @@ class UserController extends Controller
                 $leadPerms[] = 'addAction';
             }
             $permissions['Leads'] = array_values(array_unique($leadPerms));
+        }
+
+        // Auto-grant: Accountant users get Contract & Collections core permissions by default.
+        if ($isAccountant) {
+            $ccPerms = $permissions['ContractCollections'] ?? [];
+            $ccPerms = is_array($ccPerms) ? $ccPerms : [];
+            foreach (['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt'] as $p) {
+                if (!in_array($p, $ccPerms, true)) $ccPerms[] = $p;
+            }
+            $permissions['ContractCollections'] = array_values(array_unique($ccPerms));
         }
         $meta['module_permissions'] = $permissions;
         $user->meta_data = $meta;

@@ -72,3 +72,4 @@ Schedule::command('google:sync-all')->hourly();
 Schedule::command('meta:refresh-tokens')->daily();
 Schedule::command('gmail:sync')->everyFiveMinutes();
 Schedule::command('erp:sync')->everyFiveMinutes();
+Schedule::command('cc:mark-overdue')->daily();

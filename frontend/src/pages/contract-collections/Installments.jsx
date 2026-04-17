@@ -1,0 +1,47 @@
+import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useAppState } from '@shared/context/AppStateProvider'
+
+export default function ContractCollectionsInstallments() {
+  const { i18n } = useTranslation()
+  const { company } = useAppState()
+
+  const isArabic = i18n.language === 'ar'
+  const companyTypeLower = String(company?.company_type || '').toLowerCase()
+  const isRealEstate = companyTypeLower.includes('real')
+
+  const title = useMemo(
+    () => (isArabic ? 'الأقساط (التعاقد والتحصيل)' : 'Installments (Contract & Collections)'),
+    [isArabic]
+  )
+
+  if (!isRealEstate) {
+    return (
+      <div className="p-6">
+        <div className="glass-panel rounded-2xl p-6">
+          <h2 className="text-lg font-semibold">{isArabic ? 'غير متاح' : 'Not available'}</h2>
+          <p className="text-sm text-[var(--muted-text)] mt-2">
+            {isArabic ? 'هذا الموديول متاح فقط لشركات Real Estate.' : 'This module is available only for Real Estate tenants.'}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{title}</h1>
+      </div>
+
+      <div className="glass-panel rounded-2xl p-6">
+        <p className="text-sm text-[var(--muted-text)]">
+          {isArabic
+            ? 'قريبًا: داشبورد الأقساط + الدفع + الإيصالات + حالات Overdue.'
+            : 'Coming soon: installments dashboard, payments, receipts, and overdue status.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+

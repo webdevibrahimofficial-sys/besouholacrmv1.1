@@ -208,6 +208,9 @@ export function AppStateProvider({ children }) {
       roleLower === 'tenant-admin'
 
     if (isSuperAdmin) return true
+
+    // Support module is removed systemwide (all tenants).
+    if (moduleKey === 'support') return false
     
     // Tenant Admin has full access to reports regardless of module settings
     if (isTenantAdmin && moduleKey === 'reports') return true

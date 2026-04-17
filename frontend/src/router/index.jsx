@@ -37,13 +37,10 @@ const Layout = lazyRetry(() => import('../components/Layout'))
 // --- Customers ---
 const Customers = lazyRetry(() => import('../pages/Customers'))
 
-// --- Support ---
-const SupportDashboard = lazyRetry(() => import('../pages/SupportDashboard'))
-const SupportTickets = lazyRetry(() => import('../pages/SupportTickets'))
-const SupportCustomers = lazyRetry(() => import('../pages/SupportCustomers'))
-const SupportSLA = lazyRetry(() => import('../pages/SupportSLA'))
-const SupportReports = lazyRetry(() => import('../pages/SupportReports'))
-const SupportFeedbacks = lazyRetry(() => import('../pages/SupportFeedbacks'))
+// --- Contract & Collections (Real Estate) ---
+const ContractCollectionsCustomers = lazyRetry(() => import('../pages/contract-collections/Customers'))
+const ContractCollectionsContracts = lazyRetry(() => import('../pages/contract-collections/Contracts'))
+const ContractCollectionsInstallments = lazyRetry(() => import('../pages/contract-collections/Installments'))
 
 // --- Sales ---
 const SalesQuotations = lazyRetry(() => import('../pages/SalesQuotations'))
@@ -309,13 +306,10 @@ export default function AppRouter() {
             <Route element={<ProtectedModuleRoute moduleKey="customers" />}>
               <Route path="/customers" element={<Customers />} />
             </Route>
-            <Route element={<ProtectedModuleRoute moduleKey="support" />}>
-              <Route path="/support" element={<SupportDashboard />} />
-              <Route path="/support/tickets" element={<SupportTickets />} />
-              <Route path="/support/customers" element={<SupportCustomers />} />
-              <Route path="/support/sla" element={<SupportSLA />} />
-              <Route path="/support/reports" element={<SupportReports />} />
-              <Route path="/support/feedbacks" element={<SupportFeedbacks />} />
+            <Route element={<ProtectedModuleRoute moduleKey="contract_collections" />}>
+              <Route path="/contract-collections/customers" element={<ContractCollectionsCustomers />} />
+              <Route path="/contract-collections/contracts" element={<ContractCollectionsContracts />} />
+              <Route path="/contract-collections/installments" element={<ContractCollectionsInstallments />} />
             </Route>
 
             <Route element={<ProtectedModuleRoute moduleKey="sales" />}>

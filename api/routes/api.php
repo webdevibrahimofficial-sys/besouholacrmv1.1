@@ -36,6 +36,11 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ShareLinkController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\ContractCollections\CcCustomersController;
+use App\Http\Controllers\ContractCollections\CcCustomerUnitsController;
+use App\Http\Controllers\ContractCollections\CcContractsController;
+use App\Http\Controllers\ContractCollections\CcInstallmentsController;
+use App\Http\Controllers\ContractCollections\CcPrintController;
 use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\InitializeTenancy;
 use App\Http\Middleware\SetTenantTimezone;
@@ -187,6 +192,24 @@ Route::middleware([ResolveTenant::class])
 
     Route::post('/share-links', [ShareLinkController::class, 'store']);
 
+    // Contract & Collections (Real Estate)
+    Route::prefix('cc')->group(function () {
+        Route::apiResource('customers', CcCustomersController::class)->except(['create', 'edit']);
+        Route::post('customer-units', [CcCustomerUnitsController::class, 'store']);
+        Route::put('customer-units/{id}', [CcCustomerUnitsController::class, 'update']);
+        Route::post('customer-units/{id}/payment-plan', [CcCustomerUnitsController::class, 'createPaymentPlanVersion']);
+
+        Route::get('contracts', [CcContractsController::class, 'index']);
+        Route::post('contracts', [CcContractsController::class, 'store']);
+        Route::get('contracts/{id}', [CcContractsController::class, 'show']);
+        Route::get('contracts/{id}/print', [CcPrintController::class, 'printContract']);
+
+        Route::get('installments', [CcInstallmentsController::class, 'index']);
+        Route::post('installments/{id}/pay', [CcInstallmentsController::class, 'pay']);
+
+        Route::get('receipts/{paymentId}/print', [CcPrintController::class, 'printReceipt']);
+    });
+
     // Meta Integration
     Route::get('/auth/meta/redirect', [\App\Http\Controllers\MetaAuthController::class, 'redirect']);
     Route::post('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback']);
@@ -299,7 +322,6 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::post('sales-invoices/{salesInvoice}/payments', [\App\Http\Controllers\SalesInvoiceController::class, 'storePayment']);
     Route::apiResource('departments', \App\Http\Controllers\DepartmentController::class);
     Route::apiResource('teams', \App\Http\Controllers\TeamController::class);
-    Route::apiResource('tickets', \App\Http\Controllers\TicketController::class);
     Route::apiResource('tasks', \App\Http\Controllers\TaskController::class);
     Route::apiResource('users', \App\Http\Controllers\UserController::class);
     Route::get('/users/{user}/avatar', [\App\Http\Controllers\UserController::class, 'avatar']); // New Avatar Endpoint

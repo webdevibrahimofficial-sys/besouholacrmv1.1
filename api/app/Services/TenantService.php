@@ -148,7 +148,11 @@ class TenantService
             case 'professional':
                 return array_merge($core, ['leads', 'campaigns', 'customers'], $inventoryWithRoot);
             case 'enterprise':
-                return array_merge($core, ['leads', 'campaigns', 'customers', 'support'], $inventoryWithRoot);
+                $enterprise = array_merge($core, ['leads', 'campaigns', 'customers'], $inventoryWithRoot);
+                if ($companyType === 'Real Estate') {
+                    $enterprise[] = 'contract_collections';
+                }
+                return $enterprise;
             case 'custom':
                 return [];
             default:

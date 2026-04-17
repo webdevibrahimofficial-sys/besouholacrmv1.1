@@ -1,6 +1,7 @@
 export const ROLES = [
   'Director',
   'Operation Manager',
+  'Accountant',
   'Sales Admin',
   'Branch Manager',
   'Sales Manager',
@@ -52,7 +53,7 @@ export const PERMISSIONS = {
   ],
   Marketing: ['showMarketingDashboard', 'showCampaign', 'addLandingPage', 'integration'],
   Customers: ['showModule', 'convertFromLead', 'addCustomer', 'editInfo', 'deleteCustomer'],
-  Support: ['showModule', 'addTickets', 'sla', 'editInfo', 'exportReports', 'convertFromCustomer', 'convertFromLead', 'reports', 'deleteTickets'],
+  ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt', 'exportReports'],
   Control: [
     'addRegions',
     'addArea',
