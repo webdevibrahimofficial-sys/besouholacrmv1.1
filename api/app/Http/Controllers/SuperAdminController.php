@@ -103,7 +103,8 @@ class SuperAdminController extends Controller
             'admin_password' => 'required|string|min:8',
             'plan' => 'nullable|string|in:core,basic,professional,enterprise,custom',
             'modules' => 'nullable|array',
-            'modules.*' => 'string|exists:modules,slug',
+            // Do not require modules to already exist in DB; TenantService will create/sanitize module slugs.
+            'modules.*' => ['string', 'regex:/^[a-z0-9_-]+$/i'],
             'company_type' => 'nullable|string|in:General,Real Estate',
             'users_limit' => 'nullable|integer|min:1',
             'start_date' => 'nullable|date',
@@ -193,7 +194,8 @@ class SuperAdminController extends Controller
             'city' => 'nullable|string|max:255',
             'state' => 'nullable|string|max:255',
             'modules' => 'nullable|array',
-            'modules.*' => 'string|exists:modules,slug',
+            // Do not require modules to already exist in DB; TenantService will create/sanitize module slugs.
+            'modules.*' => ['string', 'regex:/^[a-z0-9_-]+$/i'],
             'admin_name' => 'nullable|string|max:255',
             'admin_email' => [
                 'nullable',
