@@ -14,6 +14,7 @@ class CcCustomersController extends BaseCcController
         $tenantId = $this->tenantId($request);
         $q = trim((string) $request->query('q', ''));
         $projectId = $request->query('project_id');
+        $salesOwnerId = $request->query('sales_owner_id');
 
         $query = CcCustomer::query()->where('tenant_id', $tenantId);
 
@@ -26,6 +27,9 @@ class CcCustomersController extends BaseCcController
         }
         if ($projectId) {
             $query->where('project_id', (int) $projectId);
+        }
+        if ($salesOwnerId) {
+            $query->where('sales_owner_id', (int) $salesOwnerId);
         }
 
         $customers = $query
