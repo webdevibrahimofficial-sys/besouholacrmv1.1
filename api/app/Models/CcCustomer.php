@@ -33,9 +33,18 @@ class CcCustomer extends Model
         return $this->hasMany(CcCustomerUnit::class, 'customer_id');
     }
 
+    public function project()
+    {
+        return $this->belongsTo(Project::class, 'project_id');
+    }
+
+    public function salesOwner()
+    {
+        return $this->belongsTo(User::class, 'sales_owner_id');
+    }
+
     public function contracts()
     {
         return $this->hasMany(CcContract::class, 'customer_id');
     }
 }
-

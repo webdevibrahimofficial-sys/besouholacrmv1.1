@@ -1733,7 +1733,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Contract & Collections section (Real Estate only) */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && isRealEstateTenant && (!isSectionViewOpen || ccOpen) && canAccess('contract_collections') && (
+        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || ccOpen) && canAccess('contract_collections') && (
           <div className="w-full">
             {ccOpen && (
               <div className={`${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} sticky top-0 z-10 section-header flex items-center mb-2 px-2 py-1`}>

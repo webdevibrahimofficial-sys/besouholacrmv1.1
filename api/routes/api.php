@@ -41,6 +41,7 @@ use App\Http\Controllers\ContractCollections\CcCustomerUnitsController;
 use App\Http\Controllers\ContractCollections\CcContractsController;
 use App\Http\Controllers\ContractCollections\CcInstallmentsController;
 use App\Http\Controllers\ContractCollections\CcPrintController;
+use App\Http\Controllers\ContractCollections\CcCustomerCommentsController;
 use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\InitializeTenancy;
 use App\Http\Middleware\SetTenantTimezone;
@@ -195,6 +196,8 @@ Route::middleware([ResolveTenant::class])
     // Contract & Collections (Real Estate)
     Route::prefix('cc')->group(function () {
         Route::apiResource('customers', CcCustomersController::class)->except(['create', 'edit']);
+        Route::get('customers/{customerId}/comments', [CcCustomerCommentsController::class, 'index']);
+        Route::post('customers/{customerId}/comments', [CcCustomerCommentsController::class, 'store']);
         Route::post('customer-units', [CcCustomerUnitsController::class, 'store']);
         Route::put('customer-units/{id}', [CcCustomerUnitsController::class, 'update']);
         Route::post('customer-units/{id}/payment-plan', [CcCustomerUnitsController::class, 'createPaymentPlanVersion']);

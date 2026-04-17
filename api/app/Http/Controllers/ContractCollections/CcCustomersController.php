@@ -28,7 +28,10 @@ class CcCustomersController extends BaseCcController
             $query->where('project_id', (int) $projectId);
         }
 
-        $customers = $query->orderByDesc('id')->paginate(25);
+        $customers = $query
+            ->with(['project:id,name', 'salesOwner:id,name'])
+            ->orderByDesc('id')
+            ->paginate(25);
 
         return response()->json($customers);
     }
@@ -63,6 +66,12 @@ class CcCustomersController extends BaseCcController
         $tenantId = $this->tenantId($request);
         $customer = CcCustomer::where('tenant_id', $tenantId)->with([
             'units.property',
+            'units.activePaymentPlan',
+            'project:id,name',
+            'salesOwner:id,name',
+            'contracts' => function ($q) {
+                $q->orderByDesc('contract_date');
+            },
             'contracts.installments',
             'contracts.payments',
         ])->findOrFail($id);
