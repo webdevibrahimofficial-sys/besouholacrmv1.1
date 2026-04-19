@@ -6,6 +6,7 @@ import { api } from '@utils/api'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { useTheme } from '@shared/context/ThemeProvider'
 import SearchableSelect from '@components/SearchableSelect'
+import CcCustomersImportModal from '@components/CcCustomersImportModal'
 
 const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
 
@@ -110,6 +111,8 @@ export default function ContractCollectionsCustomers() {
     sales_owner_id: '',
     last_comments: '',
   })
+
+  const [importOpen, setImportOpen] = useState(false)
 
   const canEdit = true
   const canDelete = (String(user?.role || '').toLowerCase().includes('admin') || !!user?.is_super_admin)
@@ -230,6 +233,66 @@ export default function ContractCollectionsCustomers() {
     setSalesOwnerId('')
   }
 
+  const resolveOptionValue = (options, input) => {
+    const raw = String(input ?? '').trim()
+    if (!raw) return ''
+    const rawLower = raw.toLowerCase()
+    const list = Array.isArray(options) ? options : []
+
+    const byValue = list.find((o) => String(o?.value ?? '').trim() === raw)
+    if (byValue?.value) return String(byValue.value)
+
+    const byLabel = list.find((o) => String(o?.label ?? '').trim().toLowerCase() === rawLower)
+    if (byLabel?.value) return String(byLabel.value)
+
+    return ''
+  }
+
+  const handleImport = async (rows) => {
+    const list = Array.isArray(rows) ? rows : []
+    let added = 0
+    let failed = 0
+    const errors = []
+
+    for (const row of list) {
+      const rowNo = row?.__rowNumber ?? ''
+      const name = String(row?.name ?? '').trim()
+      const phone = String(row?.phone ?? '').trim()
+      if (!name || !phone) {
+        failed += 1
+        errors.push(isArabic ? `صف ${rowNo}: الاسم والهاتف مطلوبين` : `Row ${rowNo}: name and phone are required`)
+        continue
+      }
+
+      const project_id = resolveOptionValue(projects, row?.project)
+      const sales_owner_id = resolveOptionValue(salesOwners, row?.sales_person)
+      const payload = {
+        name,
+        phone,
+        email: String(row?.email ?? '').trim(),
+        source: String(row?.source ?? '').trim(),
+        project_id: project_id ? Number(project_id) : null,
+        sales_owner_id: sales_owner_id ? Number(sales_owner_id) : null,
+        last_comments: String(row?.last_comments ?? '').trim(),
+      }
+
+      try {
+        await api.post('/api/cc/customers', payload)
+        added += 1
+      } catch (e) {
+        failed += 1
+        const msg =
+          e?.response?.data?.message ||
+          (typeof e?.message === 'string' ? e.message : '') ||
+          (isArabic ? 'فشل الاستيراد' : 'Import failed')
+        errors.push(isArabic ? `صف ${rowNo}: ${msg}` : `Row ${rowNo}: ${msg}`)
+      }
+    }
+
+    await load(1)
+    return { added, failed, errors }
+  }
+
   const openCreate = () => {
     setCreateForm({
       name: '',
@@ -325,7 +388,7 @@ export default function ContractCollectionsCustomers() {
           <div className="w-full lg:w-auto flex flex-wrap lg:flex-row items-stretch lg:items-center gap-2 lg:gap-3">
             <button
               type="button"
-              onClick={() => alert(isArabic ? 'قريبًا' : 'Coming soon')}
+              onClick={() => setImportOpen(true)}
               className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 !text-white border-none flex items-center justify-center gap-2"
             >
               <FaFileImport />
@@ -864,6 +927,14 @@ export default function ContractCollectionsCustomers() {
             </div>
           </div>
         </ModalShell>
+
+        {importOpen && (
+          <CcCustomersImportModal
+            onClose={() => setImportOpen(false)}
+            onImport={handleImport}
+            isRTL={isRTL}
+          />
+        )}
       </div>
     </div>
   )
