@@ -243,6 +243,10 @@ export default function ContractCollectionsCustomers() {
     setCreateOpen(true)
   }
 
+  const setCreateField = (key, value) => {
+    setCreateForm((prev) => ({ ...prev, [key]: value }))
+  }
+
   const submitCreate = async () => {
     const payload = {
       ...createForm,
@@ -746,6 +750,119 @@ export default function ContractCollectionsCustomers() {
               )}
             </div>
           )}
+        </ModalShell>
+
+        {/* Create */}
+        <ModalShell
+          open={createOpen}
+          title={isArabic ? 'إضافة عميل' : 'Add Customer'}
+          onClose={() => {
+            if (createLoading) return
+            setCreateOpen(false)
+          }}
+          widthClass="max-w-3xl"
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'اسم العميل' : 'Customer Name'}</label>
+                <input
+                  value={createForm.name}
+                  onChange={(e) => setCreateField('name', e.target.value)}
+                  className="input w-full bg-[var(--content-bg)]"
+                  placeholder={isArabic ? 'اكتب اسم العميل' : 'Enter customer name'}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الموبايل' : 'Phone'}</label>
+                <input
+                  value={createForm.phone}
+                  onChange={(e) => setCreateField('phone', e.target.value)}
+                  className="input w-full bg-[var(--content-bg)]"
+                  placeholder={isArabic ? 'رقم الموبايل' : 'Phone number'}
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'البريد' : 'Email'}</label>
+                <input
+                  value={createForm.email}
+                  onChange={(e) => setCreateField('email', e.target.value)}
+                  className="input w-full bg-[var(--content-bg)]"
+                  placeholder={isArabic ? 'البريد الإلكتروني' : 'Email'}
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المصدر' : 'Source'}</label>
+                <input
+                  value={createForm.source}
+                  onChange={(e) => setCreateField('source', e.target.value)}
+                  className="input w-full bg-[var(--content-bg)]"
+                  placeholder={isArabic ? 'مثال: Cold-Call' : 'e.g. Cold-Call'}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المشروع' : 'Project'}</label>
+                <SearchableSelect
+                  options={projects}
+                  value={createForm.project_id}
+                  onChange={(v) => setCreateField('project_id', v)}
+                  placeholder={isArabic ? 'اختر المشروع' : 'Select Project'}
+                  className="w-full"
+                  isRTL={isArabic}
+                  multiple={false}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</label>
+                <SearchableSelect
+                  options={salesOwners}
+                  value={createForm.sales_owner_id}
+                  onChange={(v) => setCreateField('sales_owner_id', v)}
+                  placeholder={isArabic ? 'اختر الموظف' : 'Select User'}
+                  className="w-full"
+                  isRTL={isArabic}
+                  multiple={false}
+                />
+              </div>
+
+              <div className="space-y-1 md:col-span-2">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'آخر تعليق' : 'Last Comment'}</label>
+                <textarea
+                  value={createForm.last_comments}
+                  onChange={(e) => setCreateField('last_comments', e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-[var(--content-bg)] p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={isArabic ? 'اكتب تعليق/ملاحظة' : 'Write a comment / note'}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                disabled={createLoading}
+                className="btn btn-sm bg-[var(--muted-bg)] hover:bg-black/5 dark:hover:bg-white/5 border border-[var(--panel-border)] text-theme-text"
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={submitCreate}
+                disabled={createLoading || !String(createForm.name || '').trim()}
+                className="btn btn-sm bg-green-600 hover:bg-green-700 !text-white border-none disabled:opacity-50"
+              >
+                {createLoading ? (isArabic ? 'جارٍ الحفظ...' : 'Saving...') : isArabic ? 'حفظ' : 'Save'}
+              </button>
+            </div>
+          </div>
         </ModalShell>
       </div>
     </div>
