@@ -26,6 +26,7 @@ import { countriesData } from '../data/countriesData'
 import { getLeadPermissionFlags } from '../services/leadPermissions'
 import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
+import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
 
 export const ReferralLeads = () => {
   const { t, i18n } = useTranslation()
@@ -1149,10 +1150,15 @@ export const ReferralLeads = () => {
     }
 
     try {
+      const { stage } = buildLeadTransferPayload(assignData);
+      const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : stage === 'new_lead' ? 'New Lead' : null;
+
       await api.post('/api/leads/bulk-assign', {
         ids: selectedLeads,
         assigned_to: target,
-        assign_role: assignData.assignRole // 'sales' | 'manager'
+        assign_role: assignData.assignRole, // 'sales' | 'manager'
+        assign_method: assignData.method,
+        options: assignData.options
       });
 
       setLeads(prev => prev.map(l => {
@@ -1160,7 +1166,12 @@ export const ReferralLeads = () => {
           if (assignData.assignRole === 'manager') {
              return { ...l, manager_id: target };
           } else {
-             return { ...l, assignedTo: assignData.userName, sales_person: assignData.userName, stage: 'Follow Up' };
+             return {
+               ...l,
+               assignedTo: assignData.userName,
+               sales_person: assignData.userName,
+               ...(nextStageLabel ? { stage: nextStageLabel } : {})
+             };
           }
         }
         return l;
@@ -2756,7 +2767,7 @@ export const ReferralLeads = () => {
           theme={theme}
           assignees={uniqueAssignees}
           usersList={usersList}
-          onAssign={(newAssignee) => handleAssignLead(selectedLead.id, newAssignee)}
+          onAssign={() => fetchLeads()}
           onUpdateLead={handleUpdateLead}
           canAddAction={canAddAction}
           canShowCreator={canShowCreator}

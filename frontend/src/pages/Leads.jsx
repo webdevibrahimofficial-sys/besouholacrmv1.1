@@ -27,6 +27,7 @@ import { countriesData } from '../data/countriesData'
 import { getLeadModulePermissions, getLeadPermissionFlags } from '../services/leadPermissions'
 import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
+import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
 
 export const Leads = () => {
   const { t, i18n } = useTranslation()
@@ -425,7 +426,29 @@ if (!s) {
     }
     return s
   }
-  
+
+  const normalizeStageFilterValue = (stageVal) => {
+    const raw = String(stageVal ?? '').trim()
+    if (!raw) return ''
+    const lower = raw.toLowerCase()
+    const compact = lower.replace(/[\s_-]+/g, '')
+
+    if (compact === 'coldcall' || compact === 'coldcalls') return 'cold calls'
+    if (compact === 'new' || compact === 'newlead' || compact === 'fresh') return 'new lead'
+    if (compact === 'followup') return 'follow up'
+    if (compact === 'inprogress') return 'in-progress'
+    if (compact === 'pending') return 'pending'
+    if (compact === 'duplicate') return 'duplicate'
+
+    return lower
+  }
+
+  const setStageFilterNormalized = (next) => {
+    const arr = Array.isArray(next) ? next : (next ? [next] : [])
+    const normalized = arr.map(normalizeStageFilterValue).filter(Boolean)
+    setStageFilter(normalized)
+  }
+   
   const tableHeaderBgClass = 'bg-theme-sidebar dark:bg-gray-900/95'
   const buttonBase = 'text-sm font-semibold rounded-lg transition-all duration-200 ease-out'
   const primaryButton = `btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none`
@@ -721,6 +744,12 @@ if (!s) {
     return descendants;
   };
 
+  const getUserRoleLabel = (u) => {
+    const roleFromRolesArray = Array.isArray(u?.roles) && u.roles[0]?.name ? u.roles[0].name : null;
+    const role = String(roleFromRolesArray || u?.role || '').trim();
+    return role;
+  };
+
   useEffect(() => {
     if (leadsQueryData) {
       const data = leadsQueryData.data || [];
@@ -814,12 +843,6 @@ if (!s) {
       .map((u) => ({ ...u, __roleLabel: getUserRoleLabel(u) }));
   }, [usersList]);
 
-  const getUserRoleLabel = (u) => {
-    const roleFromRolesArray = Array.isArray(u?.roles) && u.roles[0]?.name ? u.roles[0].name : null;
-    const role = String(roleFromRolesArray || u?.role || '').trim();
-    return role;
-  };
-
   const availableSalesPersons = useMemo(() => {
     if (!usersList.length) return [];
 
@@ -909,13 +932,7 @@ if (!s) {
         const raw = String(s || '').trim()
         const normalized = normStageKey(raw)
         const mapped = stageAliasMap[normalized] || raw
-        const mappedLower = String(mapped).toLowerCase().trim()
-        const resolvedStage =
-          mappedLower === 'cold calls' || normalized === 'coldcalls' || normalized === 'coldcall'
-            ? 'coldCall'
-            : mappedLower === 'new'
-              ? 'new lead'
-              : mapped
+        const resolvedStage = normalizeStageFilterValue(mapped)
         setStageFilter(prev => (Array.isArray(prev) && prev.length === 1 && String(prev[0]) === String(resolvedStage) ? prev : [resolvedStage]))
       } else {
         // Only reset stage filter if we are not on my-leads (or maybe my-leads can also have stage?)
@@ -1912,10 +1929,14 @@ if (!s) {
     }
 
     try {
+      const { stage } = buildLeadTransferPayload(assignData);
+      const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : stage === 'new_lead' ? 'New Lead' : null;
+
       await api.post('/api/leads/bulk-assign', {
         ids: selectedLeads,
         assigned_to: target,
         assign_role: assignData.assignRole,
+        assign_method: assignData.method,
         options: assignData.options
       });
 
@@ -1933,7 +1954,12 @@ if (!s) {
              };
              return next;
           } else {
-             return { ...l, assignedTo: assignData.userName, sales_person: assignData.userName };
+             return {
+               ...l,
+               assignedTo: assignData.userName,
+               sales_person: assignData.userName,
+               ...(nextStageLabel ? { stage: nextStageLabel } : {})
+             };
           }
         }
         return l;
@@ -2685,7 +2711,7 @@ if (!s) {
                 <SearchableSelect
                 value={stageFilter}
                 multiple={true}
-                onChange={setStageFilter}
+                onChange={setStageFilterNormalized}
                   options={(() => {
                     // Create list of all stages including fixed ones
                     const fixedStages = [
@@ -2706,11 +2732,22 @@ if (!s) {
                     // Combine fixed and dynamic stages
                     const allStages = [...fixedStages, ...dynamicStages];
 
-                    return allStages.map(s => ({ 
-                      value: s.name, 
-                      label: isRtl ? (s.name_ar || s.name) : s.name, 
-                      icon: s.icon 
-                    }));
+                    return allStages.map(s => {
+                      const normalizedValue = normalizeStageFilterValue(s.name);
+                      const nameEn = String(s.name || '').trim();
+                      const normalizedName = String(normalizedValue || '').trim();
+
+                      const labelEn =
+                        normalizedName === 'new lead' && nameEn.toLowerCase() === 'new'
+                          ? 'New Lead'
+                          : nameEn;
+
+                      return {
+                        value: normalizedValue || nameEn,
+                        label: isRtl ? (s.name_ar || labelEn) : labelEn,
+                        icon: s.icon
+                      };
+                    });
                   })()}
                   placeholder={t('All ')}
                   isRTL={isRtl}
@@ -3065,7 +3102,7 @@ if (!s) {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4 items-stretch">
         <button
-          onClick={() => setStageFilter([])}
+          onClick={() => setStageFilterNormalized([])}
           className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor}`}
         >
           <span className="flex items-center gap-2 text-left"><span>Σ</span><span>{t('total leads')}</span></span>
@@ -3077,20 +3114,20 @@ if (!s) {
             key={s.key}
             onClick={() => {
                 // Special handling for Cold Calls
-                if (s.backendKey === 'coldCall' || s.key === 'cold calls') {
+                if (s.backendKey === 'coldCall' || normalizeStageFilterValue(s.key) === 'cold calls') {
                     // Toggle logic
-                    if (stageFilter.includes('coldCall')) {
-                        setStageFilter([]);
+                    if (stageFilter.includes('cold calls')) {
+                        setStageFilterNormalized([]);
                     } else {
-                        setStageFilter(['coldCall']);
+                        setStageFilterNormalized(['cold calls']);
                     }
                 } else {
-                    setStageFilter([s.key]);
+                    setStageFilterNormalized([s.key]);
                 }
             }}
             className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor} ${
                // Highlight active filter
-               (stageFilter.includes(s.key) || (s.backendKey === 'coldCall' && stageFilter.includes('coldCall'))) 
+               (stageFilter.includes(normalizeStageFilterValue(s.key)) || (s.backendKey === 'coldCall' && stageFilter.includes('cold calls'))) 
                ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' 
                : ''
             }`}
@@ -4531,7 +4568,7 @@ if (!s) {
           theme={theme}
           assignees={uniqueAssignees}
           usersList={usersList}
-          onAssign={(newAssignee) => handleAssignLead(selectedLead.id, newAssignee)}
+          onAssign={() => fetchLeads()}
           onUpdateLead={handleUpdateLead}
           canAddAction={canAddAction}
           canShowCreator={canShowCreator}

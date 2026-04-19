@@ -138,10 +138,13 @@ export default function SearchableSelect({ options, value, onChange, placeholder
   })
 
   const getOptionValue = (opt) => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt)
+  const normalizeComparableValue = (val) => (val === undefined || val === null ? '' : String(val))
 
   const isSelected = (opt) => {
     const val = getOptionValue(opt)
-    return multiple ? Array.isArray(value) && value.includes(val) : value === val
+    return multiple
+      ? Array.isArray(value) && value.some((selectedValue) => normalizeComparableValue(selectedValue) === normalizeComparableValue(val))
+      : normalizeComparableValue(value) === normalizeComparableValue(val)
   }
   
   const clearValue = () => multiple ? onChange([]) : onChange('')
@@ -152,7 +155,7 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     multiple &&
     Array.isArray(value) &&
     allOptionValues.length > 0 &&
-    allOptionValues.every(v => value.includes(v))
+    allOptionValues.every(v => value.some(selectedValue => normalizeComparableValue(selectedValue) === normalizeComparableValue(v)))
 
   const isEmpty = multiple
     ? !Array.isArray(value) || value.length === 0 || allSelected
@@ -163,14 +166,14 @@ export default function SearchableSelect({ options, value, onChange, placeholder
       if (allSelected) return (isRTL ? 'الكل' : 'All')
       if (Array.isArray(value) && value.length > 0) {
         return value.map(v => {
-          const opt = (options || []).find(o => (typeof o === 'object' && o !== null && 'value' in o ? o.value : o) === v)
+          const opt = (options || []).find(o => normalizeComparableValue(typeof o === 'object' && o !== null && 'value' in o ? o.value : o) === normalizeComparableValue(v))
           return opt ? (typeof opt === 'object' && 'label' in opt ? opt.label : opt) : v
         }).join(', ')
       }
       return placeholder || (showAllOption ? (isRTL ? 'الكل' : 'All') : '')
     }
     if (!value) return placeholder || (showAllOption ? (isRTL ? 'الكل' : 'All') : '')
-    const opt = (options || []).find(o => (typeof o === 'object' && o !== null && 'value' in o ? o.value : o) === value)
+    const opt = (options || []).find(o => normalizeComparableValue(typeof o === 'object' && o !== null && 'value' in o ? o.value : o) === normalizeComparableValue(value))
     return opt ? (typeof opt === 'object' && 'label' in opt ? opt.label : opt) : value
   }
 
@@ -234,8 +237,10 @@ export default function SearchableSelect({ options, value, onChange, placeholder
                 onClick={() => {
                   if (multiple) {
                     const cur = Array.isArray(value) ? value : []
-                    const exists = cur.includes(val)
-                    const next = exists ? cur.filter(v => v !== val) : [...cur, val]
+                    const exists = cur.some(v => normalizeComparableValue(v) === normalizeComparableValue(val))
+                    const next = exists
+                      ? cur.filter(v => normalizeComparableValue(v) !== normalizeComparableValue(val))
+                      : [...cur, val]
                     onChange(next)
                   } else {
                     onChange(val)
