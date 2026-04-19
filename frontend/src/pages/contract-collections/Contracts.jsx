@@ -5,6 +5,8 @@ import { useTheme } from '@shared/context/ThemeProvider'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { ChevronDown, ChevronUp, Eye, Filter, Paperclip, Printer, Search, Trash2, Upload, X } from 'lucide-react'
+import { FaFileImport } from 'react-icons/fa'
+import CcContractsImportModal from '@components/CcContractsImportModal'
 
 const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
 
@@ -78,6 +80,16 @@ export default function ContractCollectionsContracts() {
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
   const [pageMeta, setPageMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
+  const [importOpen, setImportOpen] = useState(false)
+
+  const statusOptions = useMemo(
+    () => [
+      { value: '', label: isArabic ? 'الكل' : 'All' },
+      { value: 'active', label: 'active' },
+      { value: 'cancelled', label: 'cancelled' },
+    ],
+    [isArabic]
+  )
 
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -91,8 +103,16 @@ export default function ContractCollectionsContracts() {
       const [projRes, usersRes] = await Promise.all([api.get('/api/projects?all=1'), api.get('/api/users')])
       const proj = Array.isArray(projRes?.data?.data) ? projRes.data.data : (Array.isArray(projRes?.data) ? projRes.data : [])
       const users = Array.isArray(usersRes?.data?.data) ? usersRes.data.data : (Array.isArray(usersRes?.data) ? usersRes.data : [])
-      setProjects(proj)
-      setSalesOwners(users.map((u) => ({ value: u.id, label: u.name || u.email || String(u.id) })))
+      setProjects(
+        (Array.isArray(proj) ? proj : [])
+          .map((p) => ({ value: String(p.id), label: String(p.name || p.title || `#${p.id}`) }))
+          .filter((x) => x.value && x.label)
+      )
+      setSalesOwners(
+        (Array.isArray(users) ? users : [])
+          .map((u) => ({ value: String(u.id), label: String(u.name || u.email || `#${u.id}`) }))
+          .filter((x) => x.value && x.label)
+      )
     } catch {
       setProjects([])
       setSalesOwners([])
@@ -139,7 +159,12 @@ export default function ContractCollectionsContracts() {
     load(1)
   }, [isRealEstate, loadLookups, load])
 
-  const clearFilters = () => {
+  useEffect(() => {
+    const t = setTimeout(() => load(1), 350)
+    return () => clearTimeout(t)
+  }, [q, contractNumber, customerId, unitCode, projectId, salesOwnerId, status, contractDateFrom, contractDateTo, load])
+
+  const resetFilters = () => {
     setQ('')
     setContractNumber('')
     setCustomerId('')
@@ -149,8 +174,63 @@ export default function ContractCollectionsContracts() {
     setStatus('')
     setContractDateFrom('')
     setContractDateTo('')
-    setShowAllFilters(false)
-    load(1)
+  }
+
+  const parseId = (v) => {
+    const raw = String(v ?? '').trim()
+    if (!raw) return null
+    const cleaned = raw.replace(/[^\d]/g, '')
+    const n = Number(cleaned || raw)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+
+  const parseNumber = (v) => {
+    const raw = String(v ?? '').replace(/,/g, '').trim()
+    if (!raw) return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const handleImport = async (rows) => {
+    const list = Array.isArray(rows) ? rows : []
+    let added = 0
+    let failed = 0
+    const errors = []
+
+    for (const row of list) {
+      const rowNo = row?.__rowNumber ?? ''
+      const customer_id = parseId(row?.customer_id)
+      const property_id = parseId(row?.property_id)
+      if (!customer_id || !property_id) {
+        failed += 1
+        errors.push(isArabic ? `صف ${rowNo}: Customer ID و Property ID مطلوبين` : `Row ${rowNo}: Customer ID and Property ID are required`)
+        continue
+      }
+
+      const payload = {
+        customer_id,
+        property_id,
+        contract_number: String(row?.contract_number ?? '').trim() || undefined,
+        contract_date: String(row?.contract_date ?? '').trim() || undefined,
+        first_due_date: String(row?.first_due_date ?? '').trim() || undefined,
+        total_price: parseNumber(row?.total_price),
+      }
+
+      try {
+        await api.post('/api/cc/contracts', payload)
+        added += 1
+      } catch (e) {
+        failed += 1
+        const msg =
+          e?.response?.data?.message ||
+          (typeof e?.message === 'string' ? e.message : '') ||
+          (isArabic ? 'فشل الاستيراد' : 'Import failed')
+        errors.push(isArabic ? `صف ${rowNo}: ${msg}` : `Row ${rowNo}: ${msg}`)
+      }
+    }
+
+    await load(1)
+    return { added, failed, errors }
   }
 
   const openPreview = async (row) => {
@@ -234,10 +314,18 @@ export default function ContractCollectionsContracts() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{title}</h1>
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          className="btn btn-sm bg-blue-600 hover:bg-blue-700 !text-white border-none flex items-center gap-2"
+        >
+          <FaFileImport />
+          {isArabic ? 'استيراد' : 'Import'}
+        </button>
       </div>
 
       {/* Filters (before list) */}
-      <div className="glass-panel rounded-2xl p-4 space-y-3">
+      <div className="glass-panel p-4 rounded-xl">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[240px]">
             <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${isRTL ? 'right-3' : 'left-3'} ${mutedTextClass}`} />
@@ -257,7 +345,7 @@ export default function ContractCollectionsContracts() {
           <button
             type="button"
             className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
-            onClick={clearFilters}
+            onClick={resetFilters}
           >
             <X className="w-4 h-4" />
             {isArabic ? 'مسح' : 'Clear'}
@@ -571,6 +659,14 @@ export default function ContractCollectionsContracts() {
           </div>
         )}
       </ModalShell>
+
+      {importOpen && (
+        <CcContractsImportModal
+          onClose={() => setImportOpen(false)}
+          onImport={handleImport}
+          isRTL={isRTL}
+        />
+      )}
     </div>
   )
 }

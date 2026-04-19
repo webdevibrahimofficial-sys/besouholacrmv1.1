@@ -5,6 +5,8 @@ import { useTheme } from '@shared/context/ThemeProvider'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { ChevronDown, ChevronUp, CreditCard, FileText, Filter, Pencil, Search, X } from 'lucide-react'
+import { FaFileImport } from 'react-icons/fa'
+import CcInstallmentsImportModal from '@components/CcInstallmentsImportModal'
 
 const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
 
@@ -117,11 +119,17 @@ export default function ContractCollectionsInstallments() {
   const [payReference, setPayReference] = useState('')
   const [payNotes, setPayNotes] = useState('')
 
+  const [importOpen, setImportOpen] = useState(false)
+
   const loadLookups = useCallback(async () => {
     try {
       const projRes = await api.get('/api/projects?all=1')
       const proj = Array.isArray(projRes?.data?.data) ? projRes.data.data : (Array.isArray(projRes?.data) ? projRes.data : [])
-      setProjects(proj)
+      setProjects(
+        (Array.isArray(proj) ? proj : [])
+          .map((p) => ({ value: String(p.id), label: String(p.name || p.title || `#${p.id}`) }))
+          .filter((x) => x.value && x.label)
+      )
     } catch {
       setProjects([])
     }
@@ -175,7 +183,13 @@ export default function ContractCollectionsInstallments() {
     load(1)
   }, [isRealEstate, loadLookups, load])
 
-  const clearFilters = () => {
+  useEffect(() => {
+    if (!isRealEstate) return
+    const t = setTimeout(() => load(1), 350)
+    return () => clearTimeout(t)
+  }, [isRealEstate, q, paymentMethod, referenceNumber, projectId, status, dueFrom, dueTo, payFrom, payTo, load])
+
+  const resetFilters = () => {
     setQ('')
     setPaymentMethod('')
     setReferenceNumber('')
@@ -186,7 +200,89 @@ export default function ContractCollectionsInstallments() {
     setPayFrom('')
     setPayTo('')
     setShowAllFilters(false)
-    load(1)
+  }
+
+  const parseInstallmentId = (v) => {
+    const raw = String(v ?? '').trim()
+    if (!raw) return null
+    const cleaned = raw.replace(/[^\d]/g, '')
+    const n = Number(cleaned || raw)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+
+  const parseAmount = (v) => {
+    const raw = String(v ?? '').replace(/,/g, '').trim()
+    if (!raw) return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const handleImport = async (rows) => {
+    const list = Array.isArray(rows) ? rows : []
+    let paid = 0
+    let rescheduled = 0
+    let failed = 0
+    const errors = []
+
+    for (const row of list) {
+      const rowNo = row?.__rowNumber ?? ''
+      const installmentId = parseInstallmentId(row?.installment_id ?? row?.id)
+      if (!installmentId) {
+        failed += 1
+        errors.push(isArabic ? `صف ${rowNo}: Installment ID غير صحيح` : `Row ${rowNo}: invalid Installment ID`)
+        continue
+      }
+
+      const newDueDate = String(row?.new_due_date ?? '').trim()
+      const amount = parseAmount(row?.amount)
+      const actionRaw = String(row?.action ?? '').trim().toLowerCase()
+      const action = actionRaw || (newDueDate ? 'reschedule' : 'pay')
+
+      try {
+        if (action === 'reschedule' || action === 'move' || action === 'postpone') {
+          if (!newDueDate) {
+            failed += 1
+            errors.push(isArabic ? `صف ${rowNo}: New Due Date مطلوب` : `Row ${rowNo}: New Due Date is required`)
+            continue
+          }
+          await api.post(`/api/cc/installments/${encodeURIComponent(installmentId)}/reschedule`, {
+            new_due_date: newDueDate,
+            notes: String(row?.notes ?? '').trim() || undefined,
+          })
+          rescheduled += 1
+          continue
+        }
+
+        // pay
+        if (!amount || amount <= 0) {
+          failed += 1
+          errors.push(isArabic ? `صف ${rowNo}: Amount مطلوب للدفع` : `Row ${rowNo}: Amount is required for pay`)
+          continue
+        }
+
+        const paymentMethodValue = String(row?.payment_method ?? '').trim()
+        const normalizedMethod = ['cash', 'check', 'bank_transfer'].includes(paymentMethodValue) ? paymentMethodValue : undefined
+
+        await api.post(`/api/cc/installments/${encodeURIComponent(installmentId)}/pay`, {
+          amount,
+          payment_method: normalizedMethod,
+          payment_date: String(row?.payment_date ?? '').trim() || undefined,
+          reference_number: String(row?.reference_number ?? '').trim() || undefined,
+          notes: String(row?.notes ?? '').trim() || undefined,
+        })
+        paid += 1
+      } catch (e) {
+        failed += 1
+        const msg =
+          e?.response?.data?.message ||
+          (typeof e?.message === 'string' ? e.message : '') ||
+          (isArabic ? 'فشل الاستيراد' : 'Import failed')
+        errors.push(isArabic ? `صف ${rowNo}: ${msg}` : `Row ${rowNo}: ${msg}`)
+      }
+    }
+
+    await load(1)
+    return { paid, rescheduled, failed, errors }
   }
 
   const openEdit = (row) => {
@@ -272,14 +368,38 @@ export default function ContractCollectionsInstallments() {
   }
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{title}</h1>
+    <div className="p-4 md:p-6 space-y-6 text-theme-text dark:text-gray-100" dir={isRTL ? 'rtl' : 'ltr'}>
+      {/* Header (System UX) */}
+      <div className="rounded-xl p-4 md:p-6 relative">
+        <div className="flex flex-wrap lg:flex-row lg:items-center justify-between gap-4">
+          <div className="w-full lg:w-auto flex items-center justify-between lg:justify-start gap-3">
+            <div className="relative flex flex-col items-start gap-1">
+              <h1 className={`text-xl md:text-2xl font-bold text-start ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2`}>
+                {title}
+                <span className={`text-sm font-normal ${isLight ? 'text-black' : 'text-white'} bg-[var(--muted-bg)] px-2 py-1 rounded-full flex items-center justify-center`}>
+                  {loading ? (isArabic ? '...' : '...') : summary.total_installments || pageMeta.total || 0}
+                </span>
+              </h1>
+              <span aria-hidden="true" className="inline-block h-[2px] w-full rounded bg-gradient-to-r from-blue-500 to-purple-600" />
+            </div>
+          </div>
+
+          <div className="w-full lg:w-auto flex flex-wrap lg:flex-row items-stretch lg:items-center gap-2 lg:gap-3">
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 !text-white border-none flex items-center justify-center gap-2"
+            >
+              <FaFileImport />
+              {isArabic ? 'استيراد' : 'Import'}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Filters (before list) */}
-      <div className="glass-panel rounded-2xl p-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
+      {/* Filter (System UX) */}
+      <div className="glass-panel p-4 rounded-xl">
+        <div className="flex justify-between items-center mb-3">
           <div className="relative flex-1 min-w-[240px]">
             <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${isRTL ? 'right-3' : 'left-3'} ${mutedTextClass}`} />
             <input
@@ -290,28 +410,20 @@ export default function ContractCollectionsInstallments() {
             />
           </div>
 
-          <button type="button" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm inline-flex items-center gap-2" onClick={() => load(1)}>
-            <Filter className="w-4 h-4" />
-            {isArabic ? 'فلتر' : 'Filter'}
+          <button type="button" onClick={() => setShowAllFilters((v) => !v)} className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex items-center gap-2">
+            <span>{isArabic ? 'عرض الكل' : 'Show All'}</span>
+            {showAllFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
 
           <button
             type="button"
             className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
-            onClick={clearFilters}
+            onClick={resetFilters}
           >
             <X className="w-4 h-4" />
-            {isArabic ? 'مسح' : 'Clear'}
+            {isArabic ? 'إعادة تعيين' : 'Reset'}
           </button>
 
-          <button
-            type="button"
-            className="ml-auto px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
-            onClick={() => setShowAllFilters((v) => !v)}
-          >
-            {showAllFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            {isArabic ? 'مزيد' : 'More'}
-          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -343,7 +455,7 @@ export default function ContractCollectionsInstallments() {
             <label className={`text-xs font-semibold ${mutedTextClass}`}>Project</label>
             <div className="mt-1">
               <SearchableSelect
-                options={projects.map((p) => ({ value: p.id, label: p.name }))}
+                options={projects}
                 value={projectId}
                 onChange={setProjectId}
                 placeholder={isArabic ? 'الكل' : 'All'}
@@ -730,6 +842,14 @@ export default function ContractCollectionsInstallments() {
           </div>
         </div>
       </ModalShell>
+
+      {importOpen && (
+        <CcInstallmentsImportModal
+          onClose={() => setImportOpen(false)}
+          onImport={handleImport}
+          isRTL={isRTL}
+        />
+      )}
     </div>
   )
 }
