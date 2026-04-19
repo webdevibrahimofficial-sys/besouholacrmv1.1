@@ -109,7 +109,7 @@ export default function TopPerformersWidget() {
       </div>
 
       {/* Content */}
-      <div className={`p-4 custom-scrollbar ${data.length > 5 ? 'max-h-[420px] overflow-y-auto' : ''}`}>
+      <div className="p-4 custom-scrollbar h-[420px] overflow-y-auto">
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-2">
             <Loader2 className="w-8 h-8 animate-spin text-amber-500" />

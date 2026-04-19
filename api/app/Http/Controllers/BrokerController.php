@@ -14,9 +14,55 @@ class BrokerController extends Controller
 {
     use InventoryDeleteAuthorization;
 
-    public function index()
+    private function isSalesPersonUser($user): bool
     {
-        return Broker::with('customFieldValues.field')->latest()->paginate(10);
+        $role = strtolower(trim((string) ($user->role ?? '')));
+        if ($role === '') return false;
+        return str_contains($role, 'sales person') || str_contains($role, 'salesperson') || str_contains($role, 'sales_person');
+    }
+
+    private function normalizeAssignedSalesPersonIds($raw): array
+    {
+        if ($raw === null) return [];
+        $vals = is_array($raw) ? $raw : [$raw];
+        $ids = [];
+        foreach ($vals as $v) {
+            if ($v === null) continue;
+            $s = trim((string) $v);
+            if ($s === '') continue;
+            // Support comma-separated values.
+            foreach (preg_split('/\s*,\s*/', $s) as $part) {
+                $part = trim((string) $part);
+                if ($part === '') continue;
+                if (is_numeric($part)) {
+                    $n = (int) $part;
+                    if ($n > 0) $ids[] = $n;
+                }
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+        return $ids;
+    }
+
+    private function queryForUser(Request $request)
+    {
+        $user = $request->user();
+        $query = Broker::query()->with('customFieldValues.field')->latest();
+        if ($user && !$user->is_super_admin && $this->isSalesPersonUser($user)) {
+            $query->where(function ($q) use ($user) {
+                $q->whereJsonContains('meta_data->assigned_sales_person_ids', (int) $user->id)
+                  // Backward compatibility keys (if any legacy data exists)
+                  ->orWhereJsonContains('meta_data->sales_person_ids', (int) $user->id)
+                  ->orWhereJsonContains('meta_data->salesPersons', (int) $user->id);
+            });
+        }
+        return $query;
+    }
+
+    public function index(Request $request)
+    {
+        return $this->queryForUser($request)->paginate(10);
     }
 
     public function store(Request $request)
@@ -78,6 +124,19 @@ class BrokerController extends Controller
                 $data['phone'] = $request->input('phone');
             }
 
+            // Assignment: sales person can only assign to themselves. Others can assign explicitly.
+            $user = $request->user();
+            $assignedIds = $this->normalizeAssignedSalesPersonIds($request->input('salesPersons'));
+            if ($user && $this->isSalesPersonUser($user) && !$user->is_super_admin) {
+                $assignedIds = [(int) $user->id];
+            }
+            if (!empty($assignedIds)) {
+                $meta = is_array($request->input('meta_data')) ? $request->input('meta_data') : [];
+                if (!is_array($meta)) $meta = [];
+                $meta['assigned_sales_person_ids'] = $assignedIds;
+                $data['meta_data'] = $meta;
+            }
+
             $broker = Broker::create($data);
 
             if ($request->has('custom_fields') && $entity) {
@@ -104,12 +163,12 @@ class BrokerController extends Controller
 
     public function show($id)
     {
-        return Broker::with('customFieldValues.field')->findOrFail($id);
+        return $this->queryForUser(request())->where('id', $id)->firstOrFail();
     }
 
     public function update(Request $request, $id)
     {
-        $broker = Broker::findOrFail($id);
+        $broker = $this->queryForUser($request)->where('id', $id)->firstOrFail();
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
@@ -146,6 +205,20 @@ class BrokerController extends Controller
         } elseif ($request->has('phone')) {
             $data['phone'] = $request->input('phone');
         }
+
+        // Assignment updates (manager/admin only). Sales person cannot reassign away.
+        $user = $request->user();
+        $isSales = $user && !$user->is_super_admin && $this->isSalesPersonUser($user);
+        if ($request->has('salesPersons') || $isSales) {
+            $assignedIds = $this->normalizeAssignedSalesPersonIds($request->input('salesPersons'));
+            if ($isSales) {
+                $assignedIds = [(int) $user->id];
+            }
+            $meta = is_array($broker->meta_data ?? null) ? ($broker->meta_data ?? []) : [];
+            if (!is_array($meta)) $meta = [];
+            $meta['assigned_sales_person_ids'] = $assignedIds;
+            $data['meta_data'] = $meta;
+        }
         
         $broker->update($data);
         
@@ -170,7 +243,8 @@ class BrokerController extends Controller
         if ($resp = $this->authorizeInventoryDelete($request, 'realestate')) {
             return $resp;
         }
-        Broker::findOrFail($id)->delete();
+        $broker = $this->queryForUser($request)->where('id', $id)->firstOrFail();
+        $broker->delete();
         return response()->json(['message' => 'Broker deleted']);
     }
 }

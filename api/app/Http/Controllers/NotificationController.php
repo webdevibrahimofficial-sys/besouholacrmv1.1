@@ -177,6 +177,19 @@ class NotificationController extends Controller
                     break;
                 case 'brokers':
                     $query = Broker::query();
+                    // Sales person should only see inventory counts for their assigned brokers.
+                    try {
+                        $role = strtolower(trim((string) ($user->role ?? '')));
+                        $isSales = $role !== '' && (str_contains($role, 'sales person') || str_contains($role, 'salesperson') || str_contains($role, 'sales_person'));
+                        if ($isSales && !$user->is_super_admin) {
+                            $query->where(function ($q) use ($user) {
+                                $q->whereJsonContains('meta_data->assigned_sales_person_ids', (int) $user->id)
+                                  ->orWhereJsonContains('meta_data->sales_person_ids', (int) $user->id)
+                                  ->orWhereJsonContains('meta_data->salesPersons', (int) $user->id);
+                            });
+                        }
+                    } catch (\Throwable $e) {
+                    }
                     break;
                 case 'requests':
                     $query = RealEstateRequest::query();

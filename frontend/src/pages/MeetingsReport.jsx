@@ -207,16 +207,18 @@ export default function MeetingsReport() {
   const kpiData = useMemo(() => {
     let totalArranged = 0;
     let totalDone = 0;
+    let totalMissed = 0;
     meetings.forEach(m => {
       totalArranged += Number(m.arrangedCount || 0);
       totalDone += Number(m.doneCount || 0);
+      totalMissed += Number(m.missedCount || 0);
     });
     return {
       totalMeetings: totalArranged,
       totalLeads: meetings.length,
       arrangeMeetings: totalArranged,
       doneMeetings: totalDone,
-      missedMeetings: Math.max(0, totalArranged - totalDone)
+      missedMeetings: totalMissed
     };
   }, [meetings]);
 

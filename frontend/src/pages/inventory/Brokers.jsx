@@ -21,6 +21,10 @@ export default function Brokers() {
   const inventoryModulePerms = hasExplicitInventoryPerms && Array.isArray(modulePermissions.Inventory) ? modulePermissions.Inventory : []
   const effectiveInventoryPerms = hasExplicitInventoryPerms ? inventoryModulePerms : []
   const roleLower = String(user?.role || '').toLowerCase()
+  const isSalesPerson =
+    roleLower.includes('sales person') ||
+    roleLower.includes('salesperson') ||
+    roleLower.includes('sales_person')
   const tenantTypeNorm = String(company?.company_type || company?.type || '')
     .toLowerCase()
     .replace(/[\s_]+/g, '')
@@ -107,8 +111,72 @@ export default function Brokers() {
         api.get('/api/brokers'),
         api.get('/api/users')
       ]);
-      setBrokers(Array.isArray(brokersRes.data) ? brokersRes.data : brokersRes.data.data || []);
-      setSalesUsers(Array.isArray(usersRes.data) ? usersRes.data : usersRes.data.data || []);
+      const usersRaw = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || []);
+      const users = Array.isArray(usersRaw) ? usersRaw : [];
+
+      const salesOnly = users.filter(u => {
+        const r = String(
+          u?.role ||
+          (Array.isArray(u?.roles) && u.roles[0]?.name ? u.roles[0].name : '') ||
+          ''
+        ).toLowerCase();
+        return r.includes('sales person') || r.includes('salesperson') || r.includes('sales_person');
+      });
+
+      const brokersRaw = Array.isArray(brokersRes.data) ? brokersRes.data : (brokersRes.data?.data || []);
+
+      const normalizeAssignedIds = (raw) => {
+        if (raw == null) return [];
+        const arr = Array.isArray(raw) ? raw : [raw];
+        const ids = [];
+        for (const v of arr) {
+          if (v == null) continue;
+          const s = String(v).trim();
+          if (!s) continue;
+          for (const part of s.split(',')) {
+            const p = String(part).trim();
+            if (!p) continue;
+            const n = Number(p);
+            if (Number.isFinite(n) && n > 0) ids.push(String(Math.trunc(n)));
+          }
+        }
+        return Array.from(new Set(ids));
+      };
+
+      const idToName = new Map(users.map(u => [String(u.id), (u.name || u.username || u.email || String(u.id))]));
+
+      const enriched = (Array.isArray(brokersRaw) ? brokersRaw : []).map((b) => {
+        const meta = b?.meta_data || b?.metaData || {};
+        const assignedIds = normalizeAssignedIds(
+          meta?.assigned_sales_person_ids ?? meta?.sales_person_ids ?? meta?.salesPersons ?? b?.salesPersonIds ?? null
+        );
+
+        const normalizeIdField = (v) => {
+          if (v === null || v === undefined) return '';
+          const s = String(v).trim();
+          return s;
+        };
+        const taxId = normalizeIdField(b?.taxId ?? b?.tax_id ?? b?.taxIdOrCard ?? meta?.taxId ?? meta?.tax_id ?? '');
+        const nationalId = normalizeIdField(b?.nationalId ?? b?.national_id ?? meta?.nationalId ?? meta?.national_id ?? '');
+
+        const legacyNames = Array.isArray(b?.salesPersons)
+          ? b.salesPersons.map(x => String(x || '').trim()).filter(Boolean)
+          : (Array.isArray(meta?.salesPersons) ? meta.salesPersons.map(x => String(x || '').trim()).filter(Boolean) : []);
+
+        const namesFromIds = assignedIds.map(id => idToName.get(String(id)) || String(id)).filter(Boolean);
+        const assignedNames = namesFromIds.length ? namesFromIds : legacyNames;
+
+        return {
+          ...b,
+          taxId,
+          nationalId,
+          salesPersonIds: assignedIds,
+          salesPersons: assignedNames,
+        };
+      });
+
+      setBrokers(enriched);
+      setSalesUsers(salesOnly);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error(isArabic ? 'فشل تحميل البيانات' : 'Failed to fetch data');
@@ -201,7 +269,7 @@ export default function Brokers() {
       commissionRate: '',
       status: 'Active',
       brokerType: 'individual',
-      salesPersons: [],
+      salesPersons: isSalesPerson && user?.id ? [String(user.id)] : [],
       contracted: false,
       taxId: '',
       nationalId: '',
@@ -214,14 +282,20 @@ export default function Brokers() {
 
   const handleEdit = (broker) => {
     const nextPhones = Array.isArray(broker.phones) ? broker.phones : (broker.phone ? [broker.phone] : []);
+    const taxId = String(broker.taxId ?? broker.tax_id ?? broker.taxIdOrCard ?? '').trim();
+    const nationalId = String(broker.nationalId ?? broker.national_id ?? '').trim();
     setForm({ 
       ...broker, 
-      salesPersons: Array.isArray(broker.salesPersons) ? broker.salesPersons : [], 
+      salesPersons: isSalesPerson && user?.id
+        ? [String(user.id)]
+        : (Array.isArray(broker.salesPersonIds) && broker.salesPersonIds.length
+            ? broker.salesPersonIds.map(String)
+            : []),
       address: broker.address || '', 
       phones: nextPhones.length > 0 ? nextPhones : [''],
       contracted: typeof broker.contracted === 'boolean' ? broker.contracted : false,
-      taxId: broker.taxId || broker.taxIdOrCard || '',
-      nationalId: broker.nationalId || '',
+      taxId,
+      nationalId,
       taxAttachment: broker.taxAttachment || broker.documentAttachment || null,
       nationalAttachment: broker.nationalAttachment || null,
       custom_fields: broker.custom_fields || {}
@@ -280,7 +354,10 @@ export default function Brokers() {
   }, [brokers, filters]);
 
   const salesTeamOptions = useMemo(() => {
-    return salesUsers.map(m => m.name || m.username || m.email)
+    return salesUsers.map(m => ({
+      value: String(m.id),
+      label: m.role ? `${m.name} - ${m.role}` : (m.name || m.username || m.email || String(m.id))
+    }))
   }, [salesUsers])
 
   // Pagination State
@@ -638,11 +715,11 @@ export default function Brokers() {
                  <div>
                     <h4 className="text-xs font-semibold text-[var(--muted-text)] uppercase tracking-wider mb-2">{isArabic ? 'المستندات' : 'Documents'}</h4>
                     <div className="space-y-2">
-                      {broker.taxId ? (
+                      {String(broker.taxId || broker.tax_id || '').trim() ? (
                         <div className="flex flex-col">
                           <span className="text-xs text-gray-500">{isArabic ? 'الرقم الضريبي' : 'Tax ID'}</span>
                           <div className="flex items-center gap-1">
-                            <span className="font-medium">{broker.taxId}</span>
+                            <span className="font-medium">{String(broker.taxId || broker.tax_id || '').trim()}</span>
                             {broker.taxAttachment && (
                               <a href={broker.taxAttachment.dataUrl} download={broker.taxAttachment.name} className="text-blue-600 hover:text-blue-800" title={isArabic ? 'تحميل' : 'Download'}>
                                 <FaPaperclip size={12} />
@@ -654,11 +731,11 @@ export default function Brokers() {
                         <div className="text-xs text-gray-400 italic">{isArabic ? 'لا يوجد رقم ضريبي' : 'No Tax ID'}</div>
                       )}
 
-                      {broker.nationalId ? (
+                      {String(broker.nationalId || broker.national_id || '').trim() ? (
                         <div className="flex flex-col">
                            <span className="text-xs text-gray-500">{isArabic ? 'رقم البطاقة' : 'National ID'}</span>
                            <div className="flex items-center gap-1">
-                             <span className="font-medium">{broker.nationalId}</span>
+                             <span className="font-medium">{String(broker.nationalId || broker.national_id || '').trim()}</span>
                              {broker.nationalAttachment && (
                                <a href={broker.nationalAttachment.dataUrl} download={broker.nationalAttachment.name} className="text-blue-600 hover:text-blue-800" title={isArabic ? 'تحميل' : 'Download'}>
                                  <FaPaperclip size={12} />
@@ -674,18 +751,22 @@ export default function Brokers() {
               </div>
 
               {/* Sales Assignment */}
-              {Array.isArray(broker.salesPersons) && broker.salesPersons.length > 0 && (
+              {true && (
                 <>
                   <div className="h-px bg-[var(--panel-border)]/50" />
                   <div>
                     <h4 className="text-xs font-semibold text-[var(--muted-text)] uppercase tracking-wider mb-2">{isArabic ? 'معين إلى' : 'Assigned To'}</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {broker.salesPersons.map((sp, idx) => (
-                        <span key={idx} className="px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 text-xs border border-gray-200 dark:border-gray-700 flex items-center gap-1">
-                           <Users size={10} className="opacity-50" /> {sp}
-                        </span>
-                      ))}
-                    </div>
+                    {Array.isArray(broker.salesPersons) && broker.salesPersons.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {broker.salesPersons.map((sp, idx) => (
+                          <span key={idx} className="px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 text-xs border border-gray-200 dark:border-gray-700 flex items-center gap-1">
+                             <Users size={10} className="opacity-50" /> {sp}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-400 italic">{isArabic ? 'ØºÙŠØ± Ù…Ø¹ÙŠÙ†' : 'Unassigned'}</div>
+                    )}
                   </div>
                 </>
               )}
@@ -951,13 +1032,19 @@ export default function Brokers() {
 
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-[var(--muted-text)]">{isArabic ? 'تعيين إلى موظفي المبيعات' : 'Assign to Sales Persons'}</label>
-                  <SearchableSelect
-                    options={salesTeamOptions}
-                    value={form.salesPersons}
-                    onChange={(vals)=>setForm(prev=>({...prev, salesPersons: vals}))}
-                    isRTL={isArabic}
-                    multiple
-                  />
+                  {isSalesPerson ? (
+                    <div className="input w-full flex items-center text-sm text-[var(--content-text)]">
+                      {user?.name || user?.username || user?.email || '-'}
+                    </div>
+                  ) : (
+                    <SearchableSelect
+                      options={salesTeamOptions}
+                      value={form.salesPersons}
+                      onChange={(vals)=>setForm(prev=>({...prev, salesPersons: vals}))}
+                      isRTL={isArabic}
+                      multiple
+                    />
+                  )}
                 </div>
 
                 

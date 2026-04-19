@@ -800,47 +800,47 @@ if (!s) {
 
   // Filter Options Calculation
   const availableManagers = useMemo(() => {
-      if (!usersList.length) return [];
-      
-      let candidates = [];
-      // Admin/Super Admin/General Manager see all
-      if (['admin', 'super admin', 'general manager'].includes(userRole)) {
-          candidates = usersList;
-      } else {
-          // Others see themselves + descendants
-          if (user?.id) {
-              candidates = [user, ...getDescendants(user.id, usersList)];
-          }
-      }
-      
-      const usersWithSubordinates = new Set(usersList.map(u => u.manager_id).filter(Boolean));
-      const managersOfLeads = new Set(leads.map(l => l.managerId).filter(Boolean));
-      
-      return candidates.filter(u => usersWithSubordinates.has(u.id) || managersOfLeads.has(u.id));
+    if (!usersList.length) return [];
 
-  }, [usersList, userRole, user, leads]);
+    // Match Dashboard logic: managers dropdown is limited to these roles.
+    const allowed = ['team leader', 'sales manager', 'branch manager', 'sales admin'];
+    const hasAllowedRole = (u) => {
+      const role = String(getUserRoleLabel(u) || '').toLowerCase().trim();
+      return allowed.some((a) => role === a || role.includes(a));
+    };
+
+    return usersList
+      .filter(hasAllowedRole)
+      .map((u) => ({ ...u, __roleLabel: getUserRoleLabel(u) }));
+  }, [usersList]);
+
+  const getUserRoleLabel = (u) => {
+    const roleFromRolesArray = Array.isArray(u?.roles) && u.roles[0]?.name ? u.roles[0].name : null;
+    const role = String(roleFromRolesArray || u?.role || '').trim();
+    return role;
+  };
 
   const availableSalesPersons = useMemo(() => {
-      if (!usersList.length) return [];
-      
-      let candidates = [];
-      if (['admin', 'super admin', 'general manager'].includes(userRole)) {
-          candidates = usersList;
-      } else {
-          if (user?.id) {
-            candidates = [user, ...getDescendants(user.id, usersList)];
-          }
-      }
+    if (!usersList.length) return [];
 
-      // Apply Manager Filter
-      if (managerFilter.length > 0) {
-           const selectedManagerIdStrings = managerFilter.map(v => String(v))
-           candidates = candidates.filter(u => selectedManagerIdStrings.includes(String(u.manager_id)))
-      }
-      
-      return candidates;
+    // Match Dashboard logic: show all users unless Manager filter is applied,
+    // then show the full descendants tree (not just direct reports).
+    let candidates = usersList;
 
-  }, [usersList, userRole, user, managerFilter]);
+    if (Array.isArray(managerFilter) && managerFilter.length > 0) {
+      const ids = new Set();
+      const selectedManagerIds = managerFilter.map((v) => String(v)).filter(Boolean);
+      selectedManagerIds.forEach((mid) => {
+        const n = Number(mid);
+        const descendants = getDescendants(Number.isFinite(n) ? n : mid, usersList);
+        descendants.forEach((u) => ids.add(String(u.id)));
+      });
+      candidates = usersList.filter((u) => ids.has(String(u.id)));
+    }
+
+    // Normalize role label (used in dropdown labels).
+    return candidates.map((u) => ({ ...u, __roleLabel: getUserRoleLabel(u) }));
+  }, [usersList, managerFilter]);
 
   // Removed direct fetchLeads() call in useEffect as useQuery handles it
   useEffect(() => {
@@ -850,16 +850,60 @@ if (!s) {
 
   useEffect(() => {
     try {
+      const params = new URLSearchParams(location.search || '');
+      const src = String(params.get('src') || '').toLowerCase().trim();
+      const fromDashboard = src === 'dashboard';
+
+      const readIds = (key) => {
+        const all = params.getAll(key).map(v => String(v || '').trim()).filter(Boolean);
+        if (all.length) return all;
+        const single = String(params.get(key) || '').trim();
+        if (!single) return [];
+        // Support comma-separated values.
+        return single.split(',').map(s => String(s || '').trim()).filter(Boolean);
+      };
+
       if (location.pathname === '/leads/my-leads') {
         if (user && user.id) {
             const idStr = String(user.id)
             setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 1 && String(prev[0]) === idStr ? prev : [idStr]))
         }
       } else if (location.pathname === '/leads') {
-        setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []))
+        // If we came from Dashboard, apply Dashboard filters (including clearing).
+        if (fromDashboard) {
+          if (params.has('assigned_to')) {
+            const ids = readIds('assigned_to');
+            setSalesPersonFilter(prev => {
+              const next = ids.length ? ids : [];
+              const same = Array.isArray(prev) && prev.length === next.length && prev.every((v, i) => String(v) === String(next[i]));
+              return same ? prev : next;
+            });
+          } else {
+            setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []));
+          }
+
+          if (params.has('manager_id')) {
+            const ids = readIds('manager_id');
+            setManagerFilter(prev => {
+              const next = ids.length ? ids : [];
+              const same = Array.isArray(prev) && prev.length === next.length && prev.every((v, i) => String(v) === String(next[i]));
+              return same ? prev : next;
+            });
+          }
+
+          if (params.has('created_from')) {
+            const v = String(params.get('created_from') || '').trim();
+            setCreationDateFrom(prev => (String(prev || '') === v ? prev : v));
+          }
+          if (params.has('created_to')) {
+            const v = String(params.get('created_to') || '').trim();
+            setCreationDateTo(prev => (String(prev || '') === v ? prev : v));
+          }
+        } else {
+          setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []))
+        }
       }
 
-      const params = new URLSearchParams(location.search || '')
       const s = params.get('stage')
       if (s) {
         const raw = String(s || '').trim()
@@ -2327,9 +2371,11 @@ if (!s) {
         case 'actionOwner':
           return String(lead?.action_owner || '').trim() || '-';
         case 'lastComment': {
-          const text = hideOldActionFromSales
-            ? (lead?.notes || '-')
-            : (latestAction?.description || latestDetails?.notes || lead?.notes || '-');
+          const actionType = String(latestAction?.action_type || latestAction?.type || '').toLowerCase().trim();
+          const isNote = actionType === 'note';
+          const text = (hideOldActionFromSales || isNote)
+            ? '-'
+            : (latestAction?.description || latestDetails?.notes || '-');
           return String(text || '').trim() || '-';
         }
         case 'nextActionDate': {
@@ -2684,7 +2730,7 @@ if (!s) {
                   value={managerFilter}
                   multiple={true}
                   onChange={setManagerFilter}
-                  options={availableManagers.map(u => ({ value: u.id, label: u.name }))}
+                  options={availableManagers.map(u => ({ value: u.id, label: u.__roleLabel ? `${u.name} - ${u.__roleLabel}` : u.name }))}
                   placeholder={t('All ')}
                   isRTL={isRtl}
                 />
@@ -2704,7 +2750,7 @@ if (!s) {
                   value={salesPersonFilter}
                   multiple={true}
                   onChange={setSalesPersonFilter}
-                  options={availableSalesPersons.map(u => ({ value: u.id, label: u.name }))}
+                  options={availableSalesPersons.map(u => ({ value: u.id, label: u.__roleLabel ? `${u.name} - ${u.__roleLabel}` : u.name }))}
                   placeholder={t('All ')}
                   isRTL={isRtl}
                 />
@@ -3607,13 +3653,15 @@ if (!s) {
                                 try { details = JSON.parse(details) } catch { details = {} }
                               }
 
-                              const text = hideOldActionFromSales
-                                ? (lead.notes || '-')
-                                : (lead.latest_action?.description || details?.notes || lead.notes || '-');
+                              const actionType = String(lead.latest_action?.action_type || lead.latest_action?.type || '').toLowerCase().trim();
+                              const isNote = actionType === 'note';
+                              const text = (hideOldActionFromSales || isNote)
+                                ? '-'
+                                : (lead.latest_action?.description || details?.notes || '-');
 
-                              const title = hideOldActionFromSales
-                                ? (lead.notes || '')
-                                : (lead.latest_action?.description || details?.notes || lead.notes || '');
+                              const title = (hideOldActionFromSales || isNote)
+                                ? ''
+                                : (lead.latest_action?.description || details?.notes || '');
 
                               return (
                                 <div className="max-w-[200px] truncate" title={title}>

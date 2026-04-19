@@ -511,7 +511,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   }, [delayLeads, selectedFilter, dateFrom, dateTo]);
   
   // Determine if we need to show scrollbar (when leads > 5)
-  const showScroll = filteredLeads.length > 5;
+  const FIXED_LIST_HEIGHT_CLASS = 'h-[420px]';
 
   // Background colors matching the sidebar
   const bgColor = isLight ? 'bg-gray-100' : 'bg-gray-900';
@@ -544,7 +544,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   }, [showTooltip]);
 
   return (
-    <div className={`p-4 ${bgColor} h-full overflow-auto rounded-lg shadow-md border ${isLight ? 'border-gray-200' : 'border-gray-700'} ${textColor}`}>
+    <div className={`p-4 ${bgColor} rounded-lg shadow-md border ${isLight ? 'border-gray-200' : 'border-gray-700'} ${textColor}`}>
 
       <div className="hidden">
         {(() => {
@@ -635,10 +635,14 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
       {/* Table container with conditional max height and scrolling */}
       <style>{SCROLLBAR_CSS}</style>
       <style>{ICON_CSS}</style>
-      <div className={`overflow-x-auto scrollbar-thin-blue ${showScroll ? 'max-h-80 overflow-y-auto' : ''}`}>
+      <div className={`overflow-x-auto scrollbar-thin-blue ${FIXED_LIST_HEIGHT_CLASS} overflow-y-auto`}>
         <div className="sm:hidden">
           {/* Mobile card layout */}
-          {filteredLeads.map((lead, index) => (
+          {filteredLeads.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+              {t('No data available')}
+            </div>
+          ) : filteredLeads.map((lead, index) => (
             <div
               key={index}
               className={`p-3 mb-2 rounded-lg border ${isLight ? 'bg-white border-gray-200' : 'bg-gray-800 border-gray-700'} cursor-default`}
@@ -740,7 +744,13 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
               </tr>
             </thead>
             <tbody>
-              {filteredLeads.map((lead, index) => (
+              {filteredLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    {t('No data available')}
+                  </td>
+                </tr>
+              ) : filteredLeads.map((lead, index) => (
                 <tr
                   key={index}
                   className={`border-b ${isLight ? 'bg-white border-gray-200 hover:bg-gray-50' : 'bg-gray-800 border-gray-700 dark:hover:bg-blue-900/25 dark:hover:shadow-md dark:hover:shadow-black/40'}`}

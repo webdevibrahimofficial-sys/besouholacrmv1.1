@@ -692,6 +692,18 @@ export const Dashboard = () => {
   // Use API data
   const leadsStats = leadsStatsData;
 
+  const buildLeadsStageLink = (stageKey) => {
+    const params = new URLSearchParams();
+    params.set('stage', String(stageKey || ''));
+    params.set('src', 'dashboard');
+    // Keep filter-state parity between Dashboard and Leads page.
+    params.set('created_from', String(dateFrom || ''));
+    params.set('created_to', String(dateTo || ''));
+    params.set('manager_id', String((selectedManager || '').trim()));
+    params.set('assigned_to', String((selectedEmployee || '').trim()));
+    return `/leads?${params.toString()}`;
+  };
+
   const quickNumbersBase = [
     {
       title: i18n.language === 'ar' ? 'أجمالى العملاء' : 'All Leads',
@@ -1158,7 +1170,7 @@ export const Dashboard = () => {
                     className={`relative overflow-hidden rounded-2xl p-1 group ${style.containerLight} border-2 shadow-2xl hover:shadow-3xl transform hover:scale-[1.02] hover:-translate-y-1 transition-all duration-500 cursor-pointer ${selectedStageFilter === stageKey ? 'ring-2 ring-blue-500' : ''}`}
                     onClick={() => {
                       setSelectedStageFilter(stageKey)
-                      navigate(`/leads?stage=${encodeURIComponent(stageKey)}`)
+                      navigate(buildLeadsStageLink(stageKey))
                     }}
                     role="button"
                     tabIndex={0}
@@ -1257,7 +1269,7 @@ export const Dashboard = () => {
                     style={customContainer}
                     onClick={() => {
                       setSelectedStageFilter(norm);
-                      navigate(`/leads?stage=${encodeURIComponent(norm)}`);
+                      navigate(buildLeadsStageLink(norm));
                     }}
                     role="button"
                     tabIndex={0}
