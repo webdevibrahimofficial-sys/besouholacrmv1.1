@@ -20,6 +20,7 @@ import { getLeadEmailMessages, sendEmailText } from '../../services/emailService
 import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
 import { getPhoneDigits } from '../utils/phoneDisplay'
+import { buildLeadTransferPayload } from '../utils/leadTransfer'
 
 const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId }) => {
   const { theme: contextTheme, resolvedTheme } = useTheme();
@@ -1008,14 +1009,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
   const handleReAssign = async (assignData) => {
     try {
-      const payload = {
-        assignedTo: assignData.userName,
-        assigned_to_id: assignData.userId,
-        assign_method: assignData.method,
-        assign_options: assignData.options
-      };
+      const { stage, history_option } = buildLeadTransferPayload(assignData);
 
-      await api.put(`/api/leads/${lead.id}`, payload);
+      await api.post(`/api/leads/${lead.id}/transfer`, {
+        assigned_to: assignData.userId,
+        stage,
+        history_option
+      });
 
       try {
         const freshLeadRes = await api.get(`/api/leads/${lead.id}`);
