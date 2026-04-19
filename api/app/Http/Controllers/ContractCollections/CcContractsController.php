@@ -18,19 +18,53 @@ class CcContractsController extends BaseCcController
 
         $tenantId = $this->tenantId($request);
         $q = trim((string) $request->query('q', ''));
+        $contractNumber = trim((string) $request->query('contract_number', ''));
+        $customerId = $request->query('customer_id');
+        $unitCode = trim((string) $request->query('unit_code', ''));
+        $projectId = $request->query('project_id');
+        $salesOwnerId = $request->query('sales_owner_id');
+        $contractDateFrom = $request->query('contract_date_from');
+        $contractDateTo = $request->query('contract_date_to');
         $status = $request->query('status');
 
         $query = CcContract::query()
             ->where('tenant_id', $tenantId)
-            ->with(['customer', 'property']);
+            ->with([
+                'customer',
+                'customer.project:id,name',
+                'customer.salesOwner:id,name',
+                'property',
+            ]);
 
         if ($status) {
             $query->where('status', $status);
         }
+        if ($contractNumber !== '') {
+            $query->where('contract_number', 'like', "%{$contractNumber}%");
+        }
+        if ($customerId) {
+            $query->where('customer_id', $customerId);
+        }
+        if ($unitCode !== '') {
+            $query->whereHas('property', fn ($p) => $p->where('unit_code', 'like', "%{$unitCode}%"));
+        }
+        if ($projectId) {
+            $query->whereHas('customer', fn ($c) => $c->where('project_id', $projectId));
+        }
+        if ($salesOwnerId) {
+            $query->whereHas('customer', fn ($c) => $c->where('sales_owner_id', $salesOwnerId));
+        }
+        if ($contractDateFrom) {
+            $query->whereDate('contract_date', '>=', $contractDateFrom);
+        }
+        if ($contractDateTo) {
+            $query->whereDate('contract_date', '<=', $contractDateTo);
+        }
         if ($q !== '') {
             $query->where(function ($sub) use ($q) {
                 $sub->where('contract_number', 'like', "%{$q}%")
-                    ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$q}%")->orWhere('phone', 'like', "%{$q}%"));
+                    ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$q}%")->orWhere('phone', 'like', "%{$q}%"))
+                    ->orWhereHas('property', fn ($p) => $p->where('unit_code', 'like', "%{$q}%"));
             });
         }
 
@@ -77,4 +111,3 @@ class CcContractsController extends BaseCcController
         ]);
     }
 }
-

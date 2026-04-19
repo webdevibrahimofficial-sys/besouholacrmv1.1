@@ -39,6 +39,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\ContractCollections\CcCustomersController;
 use App\Http\Controllers\ContractCollections\CcCustomerUnitsController;
 use App\Http\Controllers\ContractCollections\CcContractsController;
+use App\Http\Controllers\ContractCollections\CcContractAttachmentsController;
 use App\Http\Controllers\ContractCollections\CcInstallmentsController;
 use App\Http\Controllers\ContractCollections\CcPrintController;
 use App\Http\Controllers\ContractCollections\CcCustomerCommentsController;
@@ -206,9 +207,13 @@ Route::middleware([ResolveTenant::class])
         Route::post('contracts', [CcContractsController::class, 'store']);
         Route::get('contracts/{id}', [CcContractsController::class, 'show']);
         Route::get('contracts/{id}/print', [CcPrintController::class, 'printContract']);
+        Route::get('contracts/{id}/attachments', [CcContractAttachmentsController::class, 'index']);
+        Route::post('contracts/{id}/attachments', [CcContractAttachmentsController::class, 'store']);
+        Route::delete('contracts/{id}/attachments/{attachmentId}', [CcContractAttachmentsController::class, 'destroy']);
 
         Route::get('installments', [CcInstallmentsController::class, 'index']);
         Route::post('installments/{id}/pay', [CcInstallmentsController::class, 'pay']);
+        Route::post('installments/{id}/reschedule', [CcInstallmentsController::class, 'reschedule']);
 
         Route::get('receipts/{paymentId}/print', [CcPrintController::class, 'printReceipt']);
     });
@@ -388,6 +393,8 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('sms-templates', \App\Http\Controllers\SmsTemplateController::class);
     // Email Templates
     Route::apiResource('email-templates', \App\Http\Controllers\EmailTemplateController::class);
+    // Contract Templates
+    Route::apiResource('contract-templates', \App\Http\Controllers\ContractTemplateController::class);
 
     // WhatsApp Settings
     Route::get('/whatsapp-settings', [\App\Http\Controllers\WhatsappSettingController::class , 'show']);

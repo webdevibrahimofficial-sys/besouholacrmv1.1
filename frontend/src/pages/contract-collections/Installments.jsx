@@ -1,19 +1,262 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppState } from '@shared/context/AppStateProvider'
+import { useTheme } from '@shared/context/ThemeProvider'
+import { api } from '@utils/api'
+import SearchableSelect from '@components/SearchableSelect'
+import { ChevronDown, ChevronUp, CreditCard, FileText, Filter, Pencil, Search, X } from 'lucide-react'
+
+const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
+
+const formatCustomerId = (id) => {
+  const n = Number(id)
+  if (!Number.isFinite(n)) return safeStr(id)
+  return `C-${String(n).padStart(4, '0')}`
+}
+
+const formatMoney = (v) => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '0'
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
+
+const pickLatestPayment = (allocations) => {
+  const list = Array.isArray(allocations) ? allocations : []
+  const withPayment = list
+    .map((a) => ({ allocation: a, payment: a?.payment || null }))
+    .filter((x) => x.payment)
+
+  if (withPayment.length === 0) return null
+
+  withPayment.sort((a, b) => {
+    const ad = a.payment?.payment_date ? new Date(a.payment.payment_date).getTime() : 0
+    const bd = b.payment?.payment_date ? new Date(b.payment.payment_date).getTime() : 0
+    if (ad !== bd) return bd - ad
+    return Number(b.payment?.id || 0) - Number(a.payment?.id || 0)
+  })
+  return withPayment[0].payment
+}
+
+function ModalShell({ open, title, onClose, children, widthClass = 'max-w-lg' }) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-[20000]">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-0 flex items-center justify-center p-4">
+        <div className={`card w-full ${widthClass} bg-[var(--content-bg)] rounded-2xl shadow-2xl border border-[var(--panel-border)] overflow-hidden`}>
+          <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--panel-border)]">
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-theme-text dark:text-gray-100 truncate">{title}</div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+              aria-label="Close"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-4">{children}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function ContractCollectionsInstallments() {
   const { i18n } = useTranslation()
   const { company } = useAppState()
+  const { isLight } = useTheme()
 
   const isArabic = i18n.language === 'ar'
+  const isRTL = i18n.dir(i18n.language || 'en') === 'rtl'
   const companyTypeLower = String(company?.company_type || '').toLowerCase()
   const isRealEstate = companyTypeLower.includes('real')
 
-  const title = useMemo(
-    () => (isArabic ? 'الأقساط' : 'Installments'),
-    [isArabic]
+  const title = useMemo(() => (isArabic ? 'الأقساط' : 'Installments'), [isArabic])
+  const mutedTextClass = isLight ? 'text-gray-600' : 'text-gray-400'
+
+  const [q, setQ] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('')
+  const [referenceNumber, setReferenceNumber] = useState('')
+  const [projectId, setProjectId] = useState('')
+  const [status, setStatus] = useState('')
+  const [dueFrom, setDueFrom] = useState('')
+  const [dueTo, setDueTo] = useState('')
+  const [payFrom, setPayFrom] = useState('')
+  const [payTo, setPayTo] = useState('')
+  const [showAllFilters, setShowAllFilters] = useState(false)
+
+  const [projects, setProjects] = useState([])
+
+  const [loading, setLoading] = useState(false)
+  const [items, setItems] = useState([])
+  const [pageMeta, setPageMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
+  const [summary, setSummary] = useState({
+    total_installments: 0,
+    total_amount: 0,
+    total_paid_amount: 0,
+    total_unpaid_amount: 0,
+    by_status: {},
+  })
+
+  const [editOpen, setEditOpen] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editRow, setEditRow] = useState(null)
+  const [editDueDate, setEditDueDate] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+
+  const [payOpen, setPayOpen] = useState(false)
+  const [paySaving, setPaySaving] = useState(false)
+  const [payRow, setPayRow] = useState(null)
+  const [payAmount, setPayAmount] = useState('')
+  const [payMethod, setPayMethod] = useState('cash')
+  const [payDate, setPayDate] = useState('')
+  const [payReference, setPayReference] = useState('')
+  const [payNotes, setPayNotes] = useState('')
+
+  const loadLookups = useCallback(async () => {
+    try {
+      const projRes = await api.get('/api/projects?all=1')
+      const proj = Array.isArray(projRes?.data?.data) ? projRes.data.data : (Array.isArray(projRes?.data) ? projRes.data : [])
+      setProjects(proj)
+    } catch {
+      setProjects([])
+    }
+  }, [])
+
+  const load = useCallback(
+    async (page = 1) => {
+      setLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('page', String(page))
+        if (q.trim()) params.set('q', q.trim())
+        if (paymentMethod) params.set('payment_method', String(paymentMethod))
+        if (referenceNumber.trim()) params.set('reference_number', referenceNumber.trim())
+        if (projectId) params.set('project_id', String(projectId))
+        if (status) params.set('status', String(status))
+        if (dueFrom) params.set('due_date_from', String(dueFrom))
+        if (dueTo) params.set('due_date_to', String(dueTo))
+        if (payFrom) params.set('payment_date_from', String(payFrom))
+        if (payTo) params.set('payment_date_to', String(payTo))
+
+        const res = await api.get(`/api/cc/installments?${params.toString()}`)
+        const data = res?.data || {}
+        setItems(Array.isArray(data.data) ? data.data : [])
+        setPageMeta({
+          current_page: Number(data.current_page || 1),
+          last_page: Number(data.last_page || 1),
+          total: Number(data.total || 0),
+        })
+        setSummary({
+          total_installments: Number(data.summary?.total_installments || 0),
+          total_amount: Number(data.summary?.total_amount || 0),
+          total_paid_amount: Number(data.summary?.total_paid_amount || 0),
+          total_unpaid_amount: Number(data.summary?.total_unpaid_amount || 0),
+          by_status: data.summary?.by_status || {},
+        })
+      } catch {
+        setItems([])
+        setPageMeta({ current_page: 1, last_page: 1, total: 0 })
+        setSummary({ total_installments: 0, total_amount: 0, total_paid_amount: 0, total_unpaid_amount: 0, by_status: {} })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [q, paymentMethod, referenceNumber, projectId, status, dueFrom, dueTo, payFrom, payTo]
   )
+
+  useEffect(() => {
+    if (!isRealEstate) return
+    loadLookups()
+    load(1)
+  }, [isRealEstate, loadLookups, load])
+
+  const clearFilters = () => {
+    setQ('')
+    setPaymentMethod('')
+    setReferenceNumber('')
+    setProjectId('')
+    setStatus('')
+    setDueFrom('')
+    setDueTo('')
+    setPayFrom('')
+    setPayTo('')
+    setShowAllFilters(false)
+    load(1)
+  }
+
+  const openEdit = (row) => {
+    setEditRow(row)
+    setEditDueDate(safeStr(row?.due_date || ''))
+    setEditNotes('')
+    setEditOpen(true)
+  }
+
+  const openPay = (row) => {
+    setPayRow(row)
+    const amount = Number(row?.amount || 0)
+    const paid = Number(row?.paid_amount || 0)
+    const remaining = Math.max(0, amount - paid)
+    setPayAmount(remaining ? String(remaining.toFixed(2)) : '')
+    setPayMethod('cash')
+    setPayDate(new Date().toISOString().slice(0, 10))
+    setPayReference('')
+    setPayNotes('')
+    setPayOpen(true)
+  }
+
+  const saveEdit = async () => {
+    if (!editRow?.id || !editDueDate) return
+    setEditSaving(true)
+    try {
+      await api.post(`/api/cc/installments/${encodeURIComponent(editRow.id)}/reschedule`, {
+        new_due_date: editDueDate,
+        notes: editNotes || undefined,
+      })
+      setEditOpen(false)
+      setEditRow(null)
+      await load(pageMeta.current_page || 1)
+    } catch {
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const savePay = async () => {
+    if (!payRow?.id) return
+    const amt = Number(payAmount)
+    if (!Number.isFinite(amt) || amt <= 0) return
+
+    setPaySaving(true)
+    try {
+      const res = await api.post(`/api/cc/installments/${encodeURIComponent(payRow.id)}/pay`, {
+        amount: amt,
+        payment_method: payMethod || undefined,
+        payment_date: payDate || undefined,
+        reference_number: payReference || undefined,
+        notes: payNotes || undefined,
+      })
+
+      setPayOpen(false)
+      setPayRow(null)
+      await load(pageMeta.current_page || 1)
+
+      const paymentId = res?.data?.payment?.id
+      if (paymentId) openReceipt(paymentId)
+    } catch {
+    } finally {
+      setPaySaving(false)
+    }
+  }
+
+  const openReceipt = (paymentId) => {
+    if (!paymentId) return
+    window.open(`/api/cc/receipts/${encodeURIComponent(paymentId)}/print?autoprint=1`, '_blank')
+  }
 
   if (!isRealEstate) {
     return (
@@ -34,13 +277,459 @@ export default function ContractCollectionsInstallments() {
         <h1 className="text-2xl font-bold">{title}</h1>
       </div>
 
-      <div className="glass-panel rounded-2xl p-6">
-        <p className="text-sm text-[var(--muted-text)]">
-          {isArabic
-            ? 'قريبًا: داشبورد الأقساط + الدفع + الإيصالات + حالات Overdue.'
-            : 'Coming soon: installments dashboard, payments, receipts, and overdue status.'}
-        </p>
+      {/* Filters (before list) */}
+      <div className="glass-panel rounded-2xl p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[240px]">
+            <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${isRTL ? 'right-3' : 'left-3'} ${mutedTextClass}`} />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className={`w-full px-9 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] outline-none focus:ring-2 focus:ring-blue-500 text-sm ${isRTL ? 'pr-9 pl-3' : 'pl-9 pr-3'}`}
+              placeholder={isArabic ? 'بحث (عميل / عقد / Unit Code)...' : 'Search (customer / contract / unit code)...'}
+            />
+          </div>
+
+          <button type="button" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm inline-flex items-center gap-2" onClick={() => load(1)}>
+            <Filter className="w-4 h-4" />
+            {isArabic ? 'فلتر' : 'Filter'}
+          </button>
+
+          <button
+            type="button"
+            className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
+            onClick={clearFilters}
+          >
+            <X className="w-4 h-4" />
+            {isArabic ? 'مسح' : 'Clear'}
+          </button>
+
+          <button
+            type="button"
+            className="ml-auto px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
+            onClick={() => setShowAllFilters((v) => !v)}
+          >
+            {showAllFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {isArabic ? 'مزيد' : 'More'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'طريقة الدفع' : 'Payment Method'}</label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">{isArabic ? 'الكل' : 'All'}</option>
+              <option value="cash">{isArabic ? 'كاش' : 'Cash'}</option>
+              <option value="check">{isArabic ? 'شيك' : 'Check'}</option>
+              <option value="bank_transfer">{isArabic ? 'تحويل بنكي' : 'Bank Transfer'}</option>
+            </select>
+          </div>
+
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'رقم الشيك/المرجع' : 'Check/Reference No.'}</label>
+            <input
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="..."
+            />
+          </div>
+
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>Project</label>
+            <div className="mt-1">
+              <SearchableSelect
+                options={projects.map((p) => ({ value: p.id, label: p.name }))}
+                value={projectId}
+                onChange={setProjectId}
+                placeholder={isArabic ? 'الكل' : 'All'}
+                isRTL={isRTL}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">{isArabic ? 'الكل' : 'All'}</option>
+              {['pending', 'paid', 'partial', 'unpaid', 'rejected', 'overdue'].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {showAllFilters && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Due Date (From)' : 'Due Date (From)'}</label>
+              <input
+                type="date"
+                value={dueFrom}
+                onChange={(e) => setDueFrom(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Due Date (To)' : 'Due Date (To)'}</label>
+              <input
+                type="date"
+                value={dueTo}
+                onChange={(e) => setDueTo(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Payment Date (From)' : 'Payment Date (From)'}</label>
+              <input
+                type="date"
+                value={payFrom}
+                onChange={(e) => setPayFrom(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Payment Date (To)' : 'Payment Date (To)'}</label>
+              <input
+                type="date"
+                value={payTo}
+                onChange={(e) => setPayTo(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Analytics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="glass-panel rounded-2xl p-4">
+          <div className={`text-xs font-semibold ${mutedTextClass} mb-1`}>{isArabic ? 'عدد الأقساط' : 'Total Installments'}</div>
+          <div className="text-2xl font-bold">{summary.total_installments || pageMeta.total}</div>
+          <div className={`mt-2 text-xs ${mutedTextClass}`}>
+            {Object.entries(summary.by_status || {}).slice(0, 6).map(([k, v]) => (
+              <div key={k} className="flex items-center justify-between">
+                <span>{k}</span>
+                <span className="font-semibold">{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="glass-panel rounded-2xl p-4">
+          <div className={`text-xs font-semibold ${mutedTextClass} mb-1`}>{isArabic ? 'إجمالي المبلغ' : 'Total Amount'}</div>
+          <div className="text-2xl font-bold">{formatMoney(summary.total_amount)}</div>
+          <div className={`mt-3 text-sm ${mutedTextClass} flex items-center justify-between`}>
+            <span>{isArabic ? 'إجمالي المدفوع' : 'Total Paid'}</span>
+            <span className="font-semibold">{formatMoney(summary.total_paid_amount)}</span>
+          </div>
+          <div className={`mt-1 text-sm ${mutedTextClass} flex items-center justify-between`}>
+            <span>{isArabic ? 'إجمالي غير المدفوع' : 'Total Unpaid'}</span>
+            <span className="font-semibold">{formatMoney(summary.total_unpaid_amount)}</span>
+          </div>
+        </div>
+        <div className="glass-panel rounded-2xl p-4">
+          <div className={`text-xs font-semibold ${mutedTextClass} mb-1`}>{isArabic ? 'إجمالي المتبقي' : 'Outstanding'}</div>
+          <div className="text-2xl font-bold">{formatMoney(summary.total_unpaid_amount)}</div>
+          <div className={`mt-2 text-xs ${mutedTextClass}`}>{isArabic ? 'المتبقي = المبلغ - المدفوع' : 'Outstanding = Amount - Paid'}</div>
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="glass-panel rounded-2xl p-4">
+        <div className={`text-xs ${mutedTextClass} mb-3`}>Total: {pageMeta.total}</div>
+        <div className="overflow-auto rounded-xl border border-[var(--panel-border)]">
+          <table className="min-w-full text-sm">
+            <thead className="bg-black/5 dark:bg-white/5">
+              <tr>
+                <th className="text-left px-3 py-2">{isArabic ? 'القسط' : 'Installment'}</th>
+                <th className="text-left px-3 py-2">ID</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'العميل' : 'Customer'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'الهاتف' : 'Phone'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'Unit' : 'Unit'}</th>
+                <th className="text-left px-3 py-2">Project</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'المبلغ' : 'Amount'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'Due Date' : 'Due Date'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'Status' : 'Status'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'Check No.' : 'Check No.'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'Payment Date' : 'Payment Date'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'Payment Method' : 'Payment Method'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'New Due Date' : 'New Due Date'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'Actions' : 'Actions'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={14} className={`px-3 py-4 ${mutedTextClass}`}>
+                    {isArabic ? 'جاري التحميل...' : 'Loading...'}
+                  </td>
+                </tr>
+              ) : items.length === 0 ? (
+                <tr>
+                  <td colSpan={14} className={`px-3 py-4 ${mutedTextClass}`}>
+                    {isArabic ? 'لا توجد أقساط' : 'No installments found'}
+                  </td>
+                </tr>
+              ) : (
+                items.map((row) => {
+                  const contract = row?.contract || {}
+                  const customer = contract?.customer || {}
+                  const property = contract?.property || {}
+                  const latestPayment = pickLatestPayment(row?.allocations)
+                  const paymentId = latestPayment?.id
+                  const meta = typeof row?.meta_data === 'object' && row.meta_data ? row.meta_data : {}
+                  const originalDue = meta?.rescheduled_from || row?.due_date
+                  const newDue = meta?.rescheduled_from ? row?.due_date : ''
+                  const paid = Number(row?.paid_amount || 0)
+                  const amount = Number(row?.amount || 0)
+                  const outstanding = Math.max(0, amount - paid)
+                  const canPay = outstanding > 0.00001 && String(row?.status || '').toLowerCase() !== 'paid'
+
+                  return (
+                    <tr key={row.id} className="border-t border-[var(--panel-border)] hover:bg-black/5 dark:hover:bg-white/5">
+                      <td className="px-3 py-2 font-medium">{isArabic ? `قسط #${row.installment_number}` : `Installment #${row.installment_number}`}</td>
+                      <td className="px-3 py-2">{row.id}</td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{safeStr(customer?.name)}</div>
+                        <div className={`text-xs ${mutedTextClass}`}>{formatCustomerId(contract?.customer_id)}</div>
+                      </td>
+                      <td className="px-3 py-2" dir="ltr">
+                        {safeStr(customer?.phone)}
+                      </td>
+                      <td className="px-3 py-2">{safeStr(property?.unit_code)}</td>
+                      <td className="px-3 py-2">{safeStr(customer?.project?.name)}</td>
+                      <td className="px-3 py-2">
+                        <div>{formatMoney(row.amount)}</div>
+                        <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'مدفوع' : 'Paid'}: {formatMoney(paid)}</div>
+                        <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'متبقي' : 'Unpaid'}: {formatMoney(outstanding)}</div>
+                      </td>
+                      <td className="px-3 py-2" dir="ltr">
+                        {safeStr(originalDue)}
+                      </td>
+                      <td className="px-3 py-2">{safeStr(row.status)}</td>
+                      <td className="px-3 py-2">{safeStr(latestPayment?.reference_number)}</td>
+                      <td className="px-3 py-2" dir="ltr">
+                        {safeStr(latestPayment?.payment_date)}
+                      </td>
+                      <td className="px-3 py-2">{safeStr(latestPayment?.payment_method)}</td>
+                      <td className="px-3 py-2" dir="ltr">
+                        {safeStr(newDue)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${canPay ? '' : 'opacity-40 cursor-not-allowed'}`}
+                            title={isArabic ? 'Pay' : 'Pay'}
+                            onClick={() => canPay && openPay(row)}
+                            disabled={!canPay}
+                          >
+                            <CreditCard className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+                            title={isArabic ? 'تعديل تاريخ القسط' : 'Edit due date'}
+                            onClick={() => openEdit(row)}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${paymentId ? '' : 'opacity-40 cursor-not-allowed'}`}
+                            title={isArabic ? 'إيصال' : 'Receipt'}
+                            onClick={() => paymentId && openReceipt(paymentId)}
+                            disabled={!paymentId}
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between">
+          <div className={`text-xs ${mutedTextClass}`}>
+            Page {pageMeta.current_page} / {pageMeta.last_page}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm disabled:opacity-50 hover:bg-black/5 dark:hover:bg-white/5"
+              disabled={loading || pageMeta.current_page <= 1}
+              onClick={() => load(pageMeta.current_page - 1)}
+            >
+              {isArabic ? 'السابق' : 'Prev'}
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm disabled:opacity-50 hover:bg-black/5 dark:hover:bg-white/5"
+              disabled={loading || pageMeta.current_page >= pageMeta.last_page}
+              onClick={() => load(pageMeta.current_page + 1)}
+            >
+              {isArabic ? 'التالي' : 'Next'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <ModalShell
+        open={editOpen}
+        title={isArabic ? 'تعديل تاريخ القسط' : 'Edit Installment Due Date'}
+        onClose={() => setEditOpen(false)}
+      >
+        <div className="space-y-3">
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'التاريخ الجديد' : 'New Due Date'}</label>
+            <input
+              type="date"
+              value={editDueDate}
+              onChange={(e) => setEditDueDate(e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'ملاحظات (اختياري)' : 'Notes (optional)'}</label>
+            <textarea
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              rows={3}
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder={isArabic ? 'سبب التعديل...' : 'Reason...'}
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => setEditOpen(false)}
+            >
+              {isArabic ? 'إلغاء' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm disabled:opacity-50"
+              onClick={saveEdit}
+              disabled={editSaving || !editDueDate}
+            >
+              {editSaving ? (isArabic ? 'جاري الحفظ...' : 'Saving...') : (isArabic ? 'حفظ' : 'Save')}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+
+      <ModalShell open={payOpen} title={isArabic ? 'Pay' : 'Pay Installment'} onClose={() => setPayOpen(false)} widthClass="max-w-xl">
+        <div className="space-y-3">
+          <div className="rounded-xl border border-[var(--panel-border)] p-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className={`text-xs ${mutedTextClass}`}>Installment</div>
+              <div className="font-semibold">#{safeStr(payRow?.installment_number || payRow?.id)}</div>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <div className={`text-xs ${mutedTextClass}`}>Amount</div>
+                <div>{formatMoney(payRow?.amount)}</div>
+              </div>
+              <div>
+                <div className={`text-xs ${mutedTextClass}`}>Paid</div>
+                <div>{formatMoney(payRow?.paid_amount)}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>Pay Amount</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={payAmount}
+                onChange={(e) => setPayAmount(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>Payment Method</label>
+              <select
+                value={payMethod}
+                onChange={(e) => setPayMethod(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="cash">Cash</option>
+                <option value="check">Check</option>
+                <option value="bank_transfer">Bank Transfer</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>Payment Date</label>
+              <input
+                type="date"
+                value={payDate}
+                onChange={(e) => setPayDate(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className={`text-xs font-semibold ${mutedTextClass}`}>Reference / Check No.</label>
+              <input
+                value={payReference}
+                onChange={(e) => setPayReference(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="..."
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>Notes</label>
+            <textarea
+              value={payNotes}
+              onChange={(e) => setPayNotes(e.target.value)}
+              rows={3}
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Optional"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => setPayOpen(false)}
+              disabled={paySaving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm disabled:opacity-50"
+              onClick={savePay}
+              disabled={paySaving || !payAmount}
+            >
+              {paySaving ? 'Saving...' : 'Pay'}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
     </div>
   )
 }
