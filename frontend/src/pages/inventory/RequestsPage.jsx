@@ -876,10 +876,10 @@ export default function RequestsPage() {
                       </td>
                     ))}
                     <td className="p-4 text-center">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.status === 'Approved' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                        item.status === 'Converted' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                          item.status === 'Rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                            'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium border bg-transparent ${item.status === 'Approved' ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400' :
+                        item.status === 'Converted' ? 'border-purple-300 text-purple-700 dark:border-purple-700 dark:text-purple-400' :
+                          item.status === 'Rejected' ? 'border-red-300 text-red-700 dark:border-red-700 dark:text-red-400' :
+                            'border-yellow-300 text-yellow-700 dark:border-yellow-700 dark:text-yellow-400'
                         }`}>
                         {item.status}
                       </span>

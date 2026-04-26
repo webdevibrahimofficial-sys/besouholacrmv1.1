@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { FaDownload, FaFilter, FaChevronDown, FaSearch, FaFileImport, FaPlus, FaFileExport, FaEdit, FaTrash, FaCheck, FaBuilding, FaTimes, FaChevronLeft, FaChevronRight, FaFileContract } from 'react-icons/fa';
 
 import { useDynamicFields } from '../../hooks/useDynamicFields';
-import { getRequests, saveRequest, deleteRequest } from '../../data/realEstateRequests';
+import { getRequests, saveRequest, deleteRequest, convertRequestToDeal } from '../../data/realEstateRequests';
 import { useAppState } from '../../shared/context/AppStateProvider'
 import { api } from '../../utils/api';
 import SearchableSelect from '../../components/SearchableSelect';
@@ -307,8 +307,24 @@ export default function RealEstateRequestsPage() {
         }
     };
 
-    const handleConvertToDeal = (request) => {
+    const handleConvertToDeal = async (request) => {
         if (!canManageRequests) return;
+        if (!request?.id) return;
+
+        try {
+            await convertRequestToDeal(request.id);
+            setRequests((prev) =>
+                Array.isArray(prev)
+                    ? prev.map((r) => (r.id === request.id ? { ...r, status: 'Converted' } : r))
+                    : prev
+            );
+            alert(isRTL ? 'ØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨ Ø¥Ù„Ù‰ ØµÙÙ‚Ø© Ø¨Ù†Ø¬Ø§Ø­' : 'Request converted to deal successfully');
+        } catch (error) {
+            console.error('Error converting to deal:', error);
+            const msg = error?.response?.data?.message;
+            alert(msg || (isRTL ? 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„ØªØ­ÙˆÙŠÙ„' : 'Error converting to deal'));
+        }
+        return;
         // Create a new opportunity in localStorage
         const newOpportunity = {
             id: `OPP-RE-${Date.now()}`,
@@ -545,11 +561,11 @@ export default function RealEstateRequestsPage() {
                                         {request.date}
                                     </td>
                                     <td className="px-3 py-4 whitespace-nowrap text-center">
-                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                                            ${request.status === 'Approved' ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400' : 
-                                              request.status === 'Rejected' ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400' : 
-                                              request.status === 'Converted' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400' :
-                                              'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'}`}>
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border bg-transparent
+                                            ${request.status === 'Approved' ? 'border-green-300 text-green-800 dark:border-green-700 dark:text-green-400' : 
+                                              request.status === 'Rejected' ? 'border-red-300 text-red-800 dark:border-red-700 dark:text-red-400' : 
+                                              request.status === 'Converted' ? 'border-purple-300 text-purple-800 dark:border-purple-700 dark:text-purple-400' :
+                                              'border-yellow-300 text-yellow-800 dark:border-yellow-700 dark:text-yellow-400'}`}>
                                             {request.status}
                                         </span>
                                     </td>
@@ -888,4 +904,3 @@ export default function RealEstateRequestsPage() {
         </div>
     );
 }
-

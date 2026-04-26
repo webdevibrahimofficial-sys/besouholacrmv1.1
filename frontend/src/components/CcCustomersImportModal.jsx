@@ -17,10 +17,10 @@ const CcCustomersImportModal = ({ onClose, onImport, isRTL }) => {
   const [showDetails, setShowDetails] = useState(false)
 
   const generateTemplate = () => {
-    const headers = ['Customer Name', 'Phone', 'Email', 'Source', 'Project', 'Sales Person', 'Last Comment']
+    const headers = ['Customer Name', 'Phone', 'Email', 'Source', 'Project', 'Unit', 'Sales Person', 'Last Comment']
     const dummyData = [
-      ['Ahmed Ali', '01000000000', 'ahmed@example.com', 'Cold-Call', 'Project A', 'Sales 1', 'First call'],
-      ['Mona Samir', '01111111111', 'mona@example.com', 'Referral', 'Project B', 'Sales 2', 'Interested'],
+      ['Ahmed Ali', '01000000000', 'ahmed@example.com', 'Cold-Call', 'Project A', 'U-00001', 'Sales 1', 'First call'],
+      ['Mona Samir', '01111111111', 'mona@example.com', 'Referral', 'Project B', 'U-00012', 'Sales 2', 'Interested'],
     ]
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dummyData])
@@ -120,6 +120,7 @@ const CcCustomersImportModal = ({ onClose, onImport, isRTL }) => {
             email: findKey(row, ['Email', 'البريد', 'البريد الإلكتروني']),
             source: findKey(row, ['Source', 'المصدر']),
             project: findKey(row, ['Project', 'المشروع']),
+            unit: findKey(row, ['Unit', 'Unit Code', 'Unit Number', 'Unit Name', 'الوحدة', 'رقم الوحدة', 'كود الوحدة', 'اسم الوحدة']),
             sales_person: findKey(row, ['Sales Person', 'Sales', 'مندوب المبيعات', 'المبيعات']),
             last_comments: findKey(row, ['Last Comment', 'Comment', 'آخر تعليق', 'تعليق']),
           }))
@@ -349,4 +350,3 @@ const CcCustomersImportModal = ({ onClose, onImport, isRTL }) => {
 }
 
 export default CcCustomersImportModal
-

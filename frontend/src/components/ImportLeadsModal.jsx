@@ -197,19 +197,15 @@ const ImportLeadsModal = ({
     <div className={`fixed inset-0 z-[2000] ${i18n.language === 'ar' ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 <div 
-        className="relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200"
-        style={{
-          backgroundColor: isDark ? '#172554' : 'white',
-          borderColor: isDark ? '#1e3a8a' : '#e5e7eb',
-          color: isDark ? 'white' : '#111827'
-        }}
+        className="relative card max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200"
+      
       >        {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-[#1e3a8a]">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
               <FaDownload className="w-4 h-4" />
             </div>
-            <h3 className="text-lg font-bold  dark:text-white">{t('import.title')}</h3>
+            <h3 className={`text-lg font-bold ${isDark? 'text-white' : 'text-black'}`}>{t('import.title')}</h3>
           </div>
           <button
             onClick={onClose}
@@ -222,15 +218,15 @@ const ImportLeadsModal = ({
         {/* Body */}
         <div className="px-6 py-6 overflow-y-auto custom-scrollbar">
           {/* Template Download Section */}
-          <div className="mb-6 p-4  dark:bg-[#1e3a8a]/40 rounded-xl border border-blue-200 dark:border-[#1e3a8a]">
+          <div className="mb-6 p-4   rounded-xl border border-blue-200 dark:border-[#1e3a8a]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <FaFileExcel className="w-5 h-5 text-green-600" />
                 <div>
-                  <h4 className="text-sm font-semibold dark:text-white">
+                  <h4 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-black'}`}>
                     {t('template.downloadExcel')}
                   </h4>
-                  <p className="text-xs  dark:text-gray-400">
+                  <p className={`text-xs  ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                     {t('template.downloadDescription')}
                   </p>
                 </div>
@@ -243,7 +239,7 @@ const ImportLeadsModal = ({
                 {t('template.downloadButton')}
               </button>
             </div>
-            <div className="mt-3 text-xs  dark:text-gray-400">
+            <div className={`mt-3 text-xs  ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
               <strong>{t('template.requiredFields')}</strong> {i18n.language==='ar'
                 ? (isGeneral ? 'الاسم، رقم التليفون، المصدر، الصنف' : 'الاسم، رقم التليفون، المصدر، المشروع')
                 : (isGeneral ? 'Name, Phone, Source, Item' : 'Name, Phone, Source, Project')}
@@ -265,7 +261,7 @@ const ImportLeadsModal = ({
             <svg className="w-10 h-10 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0l-3 3m3-3l3 3m7 4v12m0 0l-3-3m3 3l3-3" />
             </svg>
-            <p className="dark:text-gray-300 text-center">
+            <p className={`text-center ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
               {t('import.dropzone')}
             </p>
             <input
@@ -363,7 +359,7 @@ const ImportLeadsModal = ({
                   {showJobDetails && (
                     <div className="mt-3">
                       {issueRows.length === 0 ? (
-                        <div className="text-xs text-gray-600 dark:text-gray-300">
+                        <div className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                           {i18n.language === 'ar'
                             ? 'لا توجد تفاصيل صفوف محملة حالياً (أو لا توجد مشاكل).'
                             : 'No row details loaded yet (or no issues found).'}
@@ -372,7 +368,7 @@ const ImportLeadsModal = ({
                         <div className="overflow-x-auto">
                           <table className="table table-xs w-full">
                             <thead>
-                              <tr className="text-gray-700 dark:text-gray-200">
+                              <tr className={`${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                                 <th>{i18n.language === 'ar' ? 'الصف' : 'Row'}</th>
                                 <th>{i18n.language === 'ar' ? 'الحالة' : 'Status'}</th>
                                 <th>{i18n.language === 'ar' ? 'التفاصيل' : 'Details'}</th>
@@ -401,7 +397,7 @@ const ImportLeadsModal = ({
                               })}
                             </tbody>
                           </table>
-                          <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                          <div className={`mt-2 text-[11px] ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                             {i18n.language === 'ar'
                               ? 'يتم عرض أول 50 صف فقط من الصفوف التي تحتوي على مشاكل/تحذيرات.'
                               : 'Showing first 50 rows with issues/warnings.'}
@@ -423,13 +419,13 @@ const ImportLeadsModal = ({
                
               {importSummary.errors && importSummary.errors.length > 0 && (
                 <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50">
-                  <h4 className="text-sm font-bold text-amber-800 dark:text-amber-400 mb-2 flex items-center gap-2">
+                  <h4 className={`text-sm font-bold ${isDark ? 'text-amber-400' : 'text-amber-800'} mb-2 flex items-center gap-2`}>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                     {i18n.language === 'ar' ? 'تنبيهات أثناء الاستيراد:' : 'Import Warnings:'}
                   </h4>
-                  <ul className="text-xs text-amber-700 dark:text-amber-300 list-disc list-inside space-y-1 max-h-40 overflow-y-auto custom-scrollbar">
+                  <ul className={`text-xs ${isDark ? 'text-amber-300' : 'text-amber-700'} list-disc list-inside space-y-1 max-h-40 overflow-y-auto custom-scrollbar`}>
                     {importSummary.errors.map((err, idx) => (
                       <li key={idx}>{err}</li>
                     ))}
@@ -439,7 +435,7 @@ const ImportLeadsModal = ({
             </div>
           )}
 
-          <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          <div className={`mt-3 text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
             {t('import.supportedFields')}
           </div>
         </div>

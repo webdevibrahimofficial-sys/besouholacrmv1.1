@@ -68,7 +68,15 @@ class CcContractsController extends BaseCcController
             });
         }
 
-        return response()->json($query->orderByDesc('id')->paginate(25));
+        $perPage = (int) $request->query('per_page', 25);
+        if ($perPage <= 0) {
+            $perPage = 25;
+        }
+        if ($perPage > 200) {
+            $perPage = 200;
+        }
+
+        return response()->json($query->orderByDesc('id')->paginate($perPage));
     }
 
     public function store(Request $request)

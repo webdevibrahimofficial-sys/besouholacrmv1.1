@@ -932,7 +932,13 @@ if (!s) {
         const raw = String(s || '').trim()
         const normalized = normStageKey(raw)
         const mapped = stageAliasMap[normalized] || raw
-        const resolvedStage = normalizeStageFilterValue(mapped)
+        const mappedLower = String(mapped).toLowerCase().trim()
+        const resolvedStage =
+          mappedLower === 'cold calls' || normalized === 'coldcalls' || normalized === 'coldcall'
+            ? 'coldCall'
+            : mappedLower === 'new'
+              ? 'new lead'
+              : mapped
         setStageFilter(prev => (Array.isArray(prev) && prev.length === 1 && String(prev[0]) === String(resolvedStage) ? prev : [resolvedStage]))
       } else {
         // Only reset stage filter if we are not on my-leads (or maybe my-leads can also have stage?)
@@ -1157,8 +1163,9 @@ if (!s) {
     source: t('Source'),
     project: isGeneralTenant ? t('Item') : t('Project'),
     salesPerson: t('Sales Person'),
-    actionOwner: t('Action Owner'),
+    createdBy: t('Created By'),
     lastComment: t('Last Comment'),
+    notes: t('Notes'),
     nextActionDate: t('Next Action Date'),
     lastActionDate: t('Last Action Date'),
     stage: t('Stage'),
@@ -1174,8 +1181,9 @@ if (!s) {
     source: labels.source,
     project: labels.project,
     salesPerson: labels.salesPerson,
-    actionOwner: labels.actionOwner,
+    createdBy: labels.createdBy,
     lastComment: labels.lastComment,
+    notes: labels.notes,
     nextActionDate: labels.nextActionDate,
     lastActionDate: labels.lastActionDate,
     stage: labels.stage,
@@ -1540,8 +1548,9 @@ if (!s) {
     source: true,
     project: true,
     salesPerson: true,
-    actionOwner: true,
+    createdBy: true,
     lastComment: true,
+    notes: true,
     stage: true,
     expectedRevenue: true,
     priority: true,
@@ -1553,7 +1562,7 @@ if (!s) {
   const [columnOrder, setColumnOrder] = useState(() => {
     // Default order: Lead, Contact, Actions, Source, Project, Sales Person, Last Comment, Stage, Expected Revenue, Priority
     // Note: Actions is 3rd (index 2)
-    const defaults = ['lead', 'contact', 'actions', 'source', 'project', 'salesPerson', 'actionOwner', 'lastComment', 'stage', 'expectedRevenue', 'priority', 'creationDate']
+    const defaults = ['lead', 'contact', 'actions', 'source', 'project', 'salesPerson', 'createdBy', 'lastComment', 'notes', 'stage', 'expectedRevenue', 'priority', 'creationDate']
     const allKeys = Object.keys(allColumns)
     // Merge any other keys that might exist in allColumns but not in defaults
     const remaining = allKeys.filter(k => !defaults.includes(k))
@@ -2287,7 +2296,7 @@ if (!s) {
     const keys = (Array.isArray(columnOrder) ? columnOrder : [])
       .filter(k => visibleColumns?.[k])
       .filter(k => k !== 'actions');
-    return keys.length ? keys : ['lead', 'contact', 'source', 'project', 'salesPerson', 'actionOwner', 'lastComment', 'nextActionDate', 'lastActionDate', 'stage', 'expectedRevenue', 'priority'];
+    return keys.length ? keys : ['lead', 'contact', 'source', 'project', 'salesPerson', 'createdBy', 'lastComment', 'notes', 'nextActionDate', 'lastActionDate', 'stage', 'expectedRevenue', 'priority'];
   };
 
   const mapLeadToExportRow = (lead, exportKeys) => {
@@ -2394,8 +2403,20 @@ if (!s) {
 
           return String(lead?.assignedAgent?.name || lead?.assigned_agent?.name || '').trim() || '-';
         }
-        case 'actionOwner':
-          return String(lead?.action_owner || '').trim() || '-';
+        case 'createdBy': {
+          const direct = String(lead?.createdBy || lead?.created_by_name || lead?.creator?.name || lead?.creator_name || '').trim()
+          if (direct) return direct
+
+          const createdById = lead?.created_by || lead?.createdById || lead?.created_by_id
+          if (createdById && Array.isArray(usersList) && usersList.length > 0) {
+            const creatorUser = usersList.find(u => u.id == createdById)
+            if (creatorUser?.name) return String(creatorUser.name).trim()
+          }
+
+          return '-'
+        }
+        case 'notes':
+          return String(lead?.notes || '').trim() || '-';
         case 'lastComment': {
           const actionType = String(latestAction?.action_type || latestAction?.type || '').toLowerCase().trim();
           const isNote = actionType === 'note';
@@ -2525,8 +2546,9 @@ if (!s) {
     source: 140,
     project: 140,
     salesPerson: 140,
-    actionOwner: 140,
+    createdBy: 140,
     lastComment: 220,
+    notes: 220,
     nextActionDate: 170,
     lastActionDate: 170,
     stage: 140,
@@ -3114,7 +3136,7 @@ if (!s) {
             key={s.key}
             onClick={() => {
                 // Special handling for Cold Calls
-                if (s.backendKey === 'coldCall' || normalizeStageFilterValue(s.key) === 'cold calls') {
+                if (s.backendKey === 'coldCall' || s.key === 'cold calls') {
                     // Toggle logic
                     if (stageFilter.includes('cold calls')) {
                         setStageFilterNormalized([]);
@@ -3666,10 +3688,21 @@ if (!s) {
                           </td>
                         );
                       
-                      case 'actionOwner':
+                      case 'createdBy':
                         return (
-                          <td key="actionOwner" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `} style={{ minWidth: `${columnMinWidths.actionOwner}px` }}>
-                            {lead.action_owner || '-'}
+                          <td key="createdBy" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `} style={{ minWidth: `${columnMinWidths.createdBy}px` }}>
+                            {(() => {
+                              const direct = String(lead?.createdBy || lead?.created_by_name || lead?.creator?.name || lead?.creator_name || '').trim()
+                              if (direct) return direct
+
+                              const createdById = lead?.created_by || lead?.createdById || lead?.created_by_id
+                              if (createdById && Array.isArray(usersList) && usersList.length > 0) {
+                                const creatorUser = usersList.find(u => u.id == createdById)
+                                if (creatorUser?.name) return String(creatorUser.name).trim()
+                              }
+
+                              return '-'
+                            })()}
                           </td>
                         );
 
@@ -3705,6 +3738,20 @@ if (!s) {
                                   {text}
                                 </div>
                               );
+                            })()}
+                          </td>
+                        );
+
+                      case 'notes':
+                        return (
+                          <td key="notes" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `} style={{ minWidth: `${columnMinWidths.notes}px` }}>
+                            {(() => {
+                              const text = String(lead?.notes || '').trim() || '-'
+                              return (
+                                <div className="max-w-[220px] truncate" title={text === '-' ? '' : text}>
+                                  {text}
+                                </div>
+                              )
                             })()}
                           </td>
                         );

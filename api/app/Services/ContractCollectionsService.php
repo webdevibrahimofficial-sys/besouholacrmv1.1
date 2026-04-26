@@ -82,6 +82,32 @@ class ContractCollectionsService
         $propertyId = (int) $payload['property_id'];
 
         $customer = CcCustomer::where('tenant_id', $tenantId)->findOrFail($customerId);
+        $property = Property::where('tenant_id', $tenantId)->findOrFail($propertyId);
+
+        $existing = CcContract::where('tenant_id', $tenantId)->where('property_id', $property->id)->first();
+        if ($existing) {
+            throw ValidationException::withMessages(['property_id' => 'This unit already has a contract.']);
+        }
+
+        $existingReservedUnit = CcCustomerUnit::where('tenant_id', $tenantId)
+            ->where('property_id', $property->id)
+            ->whereIn('status', ['reserved', 'contracted'])
+            ->orderByDesc('id')
+            ->first();
+
+        if ($existingReservedUnit && (int) $existingReservedUnit->customer_id !== (int) $customer->id) {
+            throw ValidationException::withMessages(['property_id' => 'This unit is already reserved for another customer.']);
+        }
+
+        $curStatus = strtolower(trim((string) ($property->status ?? '')));
+        if (in_array($curStatus, ['sold', 'rented'], true)) {
+            throw ValidationException::withMessages(['property_id' => 'This unit is not available.']);
+        }
+
+        if ($curStatus === 'reserved' && !empty($property->reserved_expires_at) && now()->lt($property->reserved_expires_at)) {
+            // Reserved via lead actions (time-boxed). CC reservations should normally clear reserved_expires_at.
+            throw ValidationException::withMessages(['property_id' => 'This unit is currently reserved.']);
+        }
 
         return DB::transaction(function () use ($payload, $actor, $tenantId, $customer, $propertyId) {
             $unit = CcCustomerUnit::firstOrCreate(
@@ -423,4 +449,3 @@ class ContractCollectionsService
         }
     }
 }
-

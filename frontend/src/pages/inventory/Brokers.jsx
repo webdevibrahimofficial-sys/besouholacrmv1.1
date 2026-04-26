@@ -619,7 +619,7 @@ export default function Brokers() {
           <div key={broker.id} className="glass-panel rounded-xl p-0 overflow-hidden hover:shadow-lg transition-all duration-200 border border-[var(--panel-border)] group">
             
             {/* Header */}
-            <div className="bg-gradient-to-r from-blue-50 to-white dark:from-blue-900/10 dark:to-[var(--content-bg)] p-4 border-b border-[var(--panel-border)] flex justify-between items-start">
+            <div className="bg-transparent p-4 border-b border-[var(--panel-border)] flex justify-between items-start">
               <div className="flex gap-3">
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${broker.brokerType === 'company' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'}`}>
                   {broker.brokerType === 'company' ? <Building2 size={20} /> : <Users size={20} />}
@@ -627,10 +627,10 @@ export default function Brokers() {
                 <div>
                   <h3 className="font-bold text-lg leading-tight mb-1">{broker.name}</h3>
                   <div className="flex flex-wrap gap-2 text-xs">
-                     <span className={`px-2 py-0.5 rounded-full ${broker.brokerType === 'company' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'}`}>
+                     <span className={`px-2 py-0.5 rounded-full border bg-transparent ${broker.brokerType === 'company' ? 'border-purple-300 text-purple-700 dark:border-purple-700 dark:text-purple-300' : 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300'}`}>
                        {broker.brokerType === 'company' ? (isArabic ? 'شركة' : 'Company') : (isArabic ? 'فرد' : 'Individual')}
                      </span>
-                     <span className={`px-2 py-0.5 rounded-full ${broker.status === 'Active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}>
+                     <span className={`px-2 py-0.5 rounded-full border bg-transparent ${broker.status === 'Active' ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400' : 'border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300'}`}>
                        {broker.status === 'Active' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'غير نشط' : 'Inactive')}
                      </span>
                   </div>
@@ -902,7 +902,9 @@ export default function Brokers() {
                 {form.brokerType === 'company' ? (
                   <>
                     <div className="space-y-1">
-                      <label className="text-sm font-medium text-[var(--muted-text)]">{isArabic ? 'اسم الشركة' : 'Company Name'}</label>
+                      <label className="text-sm font-medium text-[var(--muted-text)]">
+                        {isArabic ? 'اسم الشركة' : 'Company Name'} <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         required
@@ -924,7 +926,9 @@ export default function Brokers() {
                 ) : (
                   <>
                     <div className="space-y-1">
-                      <label className="text-sm font-medium text-[var(--muted-text)]">{isArabic ? 'اسم الوسيط' : 'Broker Name'}</label>
+                      <label className="text-sm font-medium text-[var(--muted-text)]">
+                        {isArabic ? 'اسم الوسيط' : 'Broker Name'} <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         required

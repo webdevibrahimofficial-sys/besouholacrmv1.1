@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getSmtpSettings, updateSmtpSettings, testSmtpConnection } from '../../services/smtpService'
 import { api } from '../../utils/api'
-import { Globe, Server, User, Mail, Shield, Bell, Save, RefreshCw, Eye, EyeOff, Check, X, CheckCircle, Send, Lock, Loader2 } from 'lucide-react'
+import { Globe, Server, User, Mail, Shield, Bell, Save, RefreshCw, Eye, EyeOff, Check, X, CheckCircle, AlertCircle, Send, Lock, Loader2 } from 'lucide-react'
 
 const Section = ({ title, icon, children, className = "" }) => (
   <div className={`glass-panel rounded-2xl p-6 border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 ${className}`}>

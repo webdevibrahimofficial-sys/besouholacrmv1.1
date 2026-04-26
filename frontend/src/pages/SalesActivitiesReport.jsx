@@ -676,7 +676,8 @@ export default function SalesActivitiesReport() {
     }
   }, [])
 
-  const exportPDF = async () => {
+  const exportToPdf = async () => {
+    if (!canExport) return
     try {
       const jsPDF = (await import('jspdf')).default
       const autoTable = await import('jspdf-autotable')

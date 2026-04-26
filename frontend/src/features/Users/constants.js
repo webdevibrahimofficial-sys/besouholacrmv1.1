@@ -1,7 +1,6 @@
 export const ROLES = [
   'Director',
   'Operation Manager',
-  'Accountant',
   'Sales Admin',
   'Branch Manager',
   'Sales Manager',
@@ -15,6 +14,7 @@ export const ROLES = [
   'Support Manager',
   'Support Team Leader',
   'Support Agent',
+  'Accountant',
   'Custom',
 ];
 

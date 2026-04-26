@@ -590,9 +590,9 @@ export default function Developers() {
               </div>
 
               <div className="mt-4 pt-4 border-t border-[var(--panel-border)] flex justify-between items-center">
-                <span className={`px-2 py-1 text-xs rounded-full ${r.status === 'Active' || r.status === 'نشط'
-                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                  : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                <span className={`px-2 py-1 text-xs rounded-full border bg-transparent ${r.status === 'Active' || r.status === 'نشط'
+                  ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400'
+                  : 'border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300'
                   }`}>
                   {r.status}
                 </span>

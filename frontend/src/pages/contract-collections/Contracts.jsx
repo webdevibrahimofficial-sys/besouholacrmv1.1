@@ -5,7 +5,7 @@ import { useTheme } from '@shared/context/ThemeProvider'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { ChevronDown, ChevronUp, Eye, Filter, Paperclip, Printer, Search, Trash2, Upload, X } from 'lucide-react'
-import { FaFileImport } from 'react-icons/fa'
+import { FaChevronLeft, FaChevronRight, FaFileImport } from 'react-icons/fa'
 import CcContractsImportModal from '@components/CcContractsImportModal'
 
 const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
@@ -80,6 +80,7 @@ export default function ContractCollectionsContracts() {
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
   const [pageMeta, setPageMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
+  const [perPage, setPerPage] = useState(25)
   const [importOpen, setImportOpen] = useState(false)
 
   const statusOptions = useMemo(
@@ -120,11 +121,13 @@ export default function ContractCollectionsContracts() {
   }, [])
 
   const load = useCallback(
-    async (page = 1) => {
+    async (page = 1, perPageOverride) => {
       setLoading(true)
       try {
+        const pageSize = Number(perPageOverride || perPage || 25) || 25
         const params = new URLSearchParams()
         params.set('page', String(page))
+        params.set('per_page', String(pageSize))
         if (q.trim()) params.set('q', q.trim())
         if (contractNumber.trim()) params.set('contract_number', contractNumber.trim())
         if (customerId) params.set('customer_id', String(customerId))
@@ -137,6 +140,8 @@ export default function ContractCollectionsContracts() {
 
         const res = await api.get(`/api/cc/contracts?${params.toString()}`)
         const data = res?.data || {}
+        const serverPerPage = Number(data?.per_page || pageSize) || pageSize
+        if (serverPerPage !== pageSize) setPerPage(serverPerPage)
         setItems(Array.isArray(data.data) ? data.data : [])
         setPageMeta({
           current_page: Number(data.current_page || 1),
@@ -150,7 +155,7 @@ export default function ContractCollectionsContracts() {
         setLoading(false)
       }
     },
-    [q, contractNumber, customerId, unitCode, projectId, salesOwnerId, status, contractDateFrom, contractDateTo]
+    [q, contractNumber, customerId, unitCode, projectId, salesOwnerId, status, contractDateFrom, contractDateTo, perPage]
   )
 
   useEffect(() => {
@@ -326,129 +331,124 @@ export default function ContractCollectionsContracts() {
 
       {/* Filters (before list) */}
       <div className="glass-panel p-4 rounded-xl">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[240px]">
-            <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${isRTL ? 'right-3' : 'left-3'} ${mutedTextClass}`} />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className={`w-full px-9 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] outline-none focus:ring-2 focus:ring-blue-500 text-sm ${isRTL ? 'pr-9 pl-3' : 'pl-9 pr-3'}`}
-              placeholder={isArabic ? 'بحث (رقم العقد / العميل / Unit Code)...' : 'Search (contract # / customer / unit code)...'}
-            />
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-sm font-semibold flex items-center gap-2 text-theme-text">
+            <Filter className="text-blue-500" size={16} /> {isArabic ? 'تصفية' : 'Filter'}
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAllFilters(!showAllFilters)}
+              className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <span>{isArabic ? 'عرض الكل' : 'Show All'}</span>
+              {showAllFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="px-3 py-1.5 text-sm text-theme-text hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            >
+              {isArabic ? 'إعادة تعيين' : 'Reset'}
+            </button>
           </div>
-
-          <button type="button" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm inline-flex items-center gap-2" onClick={() => load(1)}>
-            <Filter className="w-4 h-4" />
-            {isArabic ? 'فلتر' : 'Filter'}
-          </button>
-
-          <button
-            type="button"
-            className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
-            onClick={resetFilters}
-          >
-            <X className="w-4 h-4" />
-            {isArabic ? 'مسح' : 'Clear'}
-          </button>
-
-          <button
-            type="button"
-            className="ml-auto px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
-            onClick={() => setShowAllFilters((v) => !v)}
-          >
-            {showAllFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            {isArabic ? 'مزيد' : 'More'}
-          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'رقم العقد' : 'Contract No.'}</label>
-            <input
-              value={contractNumber}
-              onChange={(e) => setContractNumber(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="CN-..."
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass} flex items-center gap-1`}>
+              <Search className="text-blue-500" size={12} /> {isArabic ? 'بحث' : 'Search'}
+            </label>
+            <div className="relative">
+              <Search className={`w-4 h-4 absolute top-1/2 -translate-y-1/2 ${isRTL ? 'right-3' : 'left-3'} text-gray-400`} />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={isArabic ? 'بحث رقم العقد / العميل / Unit Code' : 'Search by contract # / customer / unit code'}
+                className={`input w-full bg-[var(--content-bg)] ${isRTL ? 'pr-10' : 'pl-10'}`}
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => setQ('')}
+                  className={`absolute top-1/2 -translate-y-1/2 ${isRTL ? 'left-2' : 'right-2'} p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5`}
+                  title={isArabic ? 'مسح' : 'Clear'}
+                >
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المشروع' : 'Project'}</label>
+            <SearchableSelect
+              options={projects}
+              value={projectId}
+              onChange={(v) => setProjectId(v)}
+              placeholder={isArabic ? 'اختر المشروع' : 'Select Project'}
+              className="w-full"
+              isRTL={isArabic}
+              multiple={false}
             />
           </div>
 
-          <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>Customer ID</label>
-            <input
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="123"
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</label>
+            <SearchableSelect
+              options={salesOwners}
+              value={salesOwnerId}
+              onChange={(v) => setSalesOwnerId(v)}
+              placeholder={isArabic ? 'اختر الموظف' : 'Select User'}
+              className="w-full"
+              isRTL={isArabic}
+              multiple={false}
             />
           </div>
 
-          <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>Unit Code</label>
-            <input
-              value={unitCode}
-              onChange={(e) => setUnitCode(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="U-..."
-            />
-          </div>
-
-          <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">{isArabic ? 'الكل' : 'All'}</option>
-              {['active', 'cancelled'].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
+          {showAllFilters ? (
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
+              <SearchableSelect
+                options={statusOptions}
+                value={status}
+                onChange={(v) => setStatus(v)}
+                placeholder={isArabic ? 'الكل' : 'All'}
+                className="w-full"
+                isRTL={isArabic}
+                multiple={false}
+              />
+            </div>
+          ) : (
+            <div className="hidden lg:block" />
+          )}
         </div>
 
         {showAllFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>Project</label>
-              <div className="mt-1">
-                <SearchableSelect
-                  options={projects.map((p) => ({ value: p.id, label: p.name }))}
-                  value={projectId}
-                  onChange={setProjectId}
-                  placeholder={isArabic ? 'الكل' : 'All'}
-                  isRTL={isRTL}
-                />
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم العقد' : 'Contract No.'}</label>
+              <input value={contractNumber} onChange={(e) => setContractNumber(e.target.value)} className="input w-full bg-[var(--content-bg)]" placeholder="CN-..." />
             </div>
 
-            <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>Sales Person</label>
-              <div className="mt-1">
-                <SearchableSelect options={salesOwners} value={salesOwnerId} onChange={setSalesOwnerId} placeholder={isArabic ? 'الكل' : 'All'} isRTL={isRTL} />
-              </div>
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم العميل' : 'Customer ID'}</label>
+              <input value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="input w-full bg-[var(--content-bg)]" placeholder="123" />
             </div>
 
-            <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>Contract Date (From)</label>
-              <input
-                type="date"
-                value={contractDateFrom}
-                onChange={(e) => setContractDateFrom(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              />
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'كود الوحدة' : 'Unit Code'}</label>
+              <input value={unitCode} onChange={(e) => setUnitCode(e.target.value)} className="input w-full bg-[var(--content-bg)]" placeholder="U-..." />
             </div>
 
-            <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>Contract Date (To)</label>
-              <input
-                type="date"
-                value={contractDateTo}
-                onChange={(e) => setContractDateTo(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              />
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ العقد (من)' : 'Contract Date (From)'}</label>
+              <input type="date" value={contractDateFrom} onChange={(e) => setContractDateFrom(e.target.value)} className="input w-full bg-[var(--content-bg)]" />
+            </div>
+
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ العقد (إلى)' : 'Contract Date (To)'}</label>
+              <input type="date" value={contractDateTo} onChange={(e) => setContractDateTo(e.target.value)} className="input w-full bg-[var(--content-bg)]" />
             </div>
           </div>
         )}
@@ -511,7 +511,7 @@ export default function ContractCollectionsContracts() {
           </table>
         </div>
 
-        <div className="mt-3 flex items-center justify-between">
+        <div className="hidden">
           <div className={`text-xs ${mutedTextClass}`}>
             Page {pageMeta.current_page} / {pageMeta.last_page}
           </div>
@@ -534,6 +534,60 @@ export default function ContractCollectionsContracts() {
             </button>
           </div>
         </div>
+
+        {pageMeta.total > 0 && (
+          <div className="mt-2 flex flex-wrap items-center justify-between rounded-xl p-2 glass-panel gap-4">
+            <div className="text-xs text-[var(--muted-text)]">
+              {(() => {
+                const cur = Number(pageMeta.current_page || 1)
+                const total = Number(pageMeta.total || 0)
+                const from = total ? (cur - 1) * perPage + 1 : 0
+                const to = total ? Math.min(cur * perPage, total) : 0
+                return isArabic ? `Ø¹Ø±Ø¶ ${from}-${to} Ù…Ù† ${total}` : `Showing ${from}-${to} of ${total}`
+              })()}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
+                  disabled={loading || Number(pageMeta.current_page || 1) <= 1}
+                  title={isArabic ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
+                >
+                  <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
+                </button>
+                <span className="text-sm whitespace-nowrap">
+                  {isArabic ? `Ø§Ù„ØµÙØ­Ø© ${pageMeta.current_page} Ù…Ù† ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
+                </span>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
+                  disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
+                  title={isArabic ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
+                >
+                  <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}</span>
+                <select
+                  className="input w-16 text-sm py-0 px-2 h-8"
+                  value={perPage}
+                  onChange={(e) => {
+                    const next = Number(e.target.value)
+                    setPerPage(next)
+                    load(1, next)
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <ModalShell open={previewOpen} title={isArabic ? 'معاينة العقد' : 'Contract Preview'} onClose={() => setPreviewOpen(false)}>

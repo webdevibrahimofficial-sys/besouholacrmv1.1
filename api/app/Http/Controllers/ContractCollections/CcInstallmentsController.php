@@ -94,7 +94,15 @@ class CcInstallmentsController extends BaseCcController
             $byStatus[(string) $row->status] = (int) $row->cnt;
         }
 
-        $paginator = $query->orderBy('due_date')->paginate(50);
+        $perPage = (int) $request->query('per_page', 50);
+        if ($perPage <= 0) {
+            $perPage = 50;
+        }
+        if ($perPage > 200) {
+            $perPage = 200;
+        }
+
+        $paginator = $query->orderBy('due_date')->paginate($perPage);
 
         return response()->json(array_merge($paginator->toArray(), [
             'summary' => [

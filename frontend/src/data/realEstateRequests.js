@@ -53,3 +53,14 @@ export const deleteRequest = async (id) => {
         throw e;
     }
 };
+
+export const convertRequestToDeal = async (id) => {
+  try {
+    const response = await api.post(`/api/real-estate-requests/${id}/convert-to-deal`);
+    window.dispatchEvent(new Event('real-estate-requests-updated'));
+    return response.data;
+  } catch (e) {
+    console.error('Error converting real estate request to deal', e);
+    throw e;
+  }
+};

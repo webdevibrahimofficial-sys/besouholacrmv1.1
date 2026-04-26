@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
-import { FaDownload, FaCloudUploadAlt } from 'react-icons/fa'
+import { FaCloudUploadAlt, FaDownload, FaFileExcel, FaTimes } from 'react-icons/fa'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { useTranslation } from 'react-i18next'
 import { logExportEvent, logImportEvent } from '../../utils/api'
 
+const HeaderIcon = FaFileExcel
+const CloseIcon = FaTimes
+const DownloadIcon = FaDownload
+const UploadIcon = FaCloudUploadAlt
+
 export default function BrokersImportModal({ isRTL, onClose, onImport }) {
-  const { isLight, isDark } = useTheme()
+  const { isLight } = useTheme()
   const { i18n } = useTranslation()
   const rtl = typeof isRTL === 'boolean' ? isRTL : i18n.language === 'ar'
 
@@ -88,10 +93,10 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className={`w-full max-w-lg rounded-xl shadow-2xl border card`}>
+      <div className=" card w-full max-w-lg rounded-xl shadow-2xl border ">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2">
-            <FaFileExcel className="text-green-500" />
+            {HeaderIcon && <HeaderIcon className="text-green-500" />}
             <h2 className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
               {rtl ? 'استيراد الوسطاء من ملف Excel' : 'Import Brokers from Excel'}
             </h2>
@@ -101,7 +106,7 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
             onClick={onClose}
             className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${isLight ? 'text-black' : 'text-white'}`}
           >
-            <FaTimes />
+            {CloseIcon && <CloseIcon />}
           </button>
         </div>
 
@@ -120,7 +125,7 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
               onClick={generateTemplate}
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white"
             >
-              <FaDownload />
+              {DownloadIcon && <DownloadIcon />}
               {rtl ? 'تحميل نموذج' : 'Download Template'}
             </button>
           </div>
@@ -137,7 +142,7 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
                 onChange={handleFileChange}
               />
               <div className={`flex flex-col items-center gap-2 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
-                <FaCloudUploadAlt className="text-2xl text-blue-500" />
+                {UploadIcon && <UploadIcon className="text-2xl text-blue-500" />}
                 <div>
                   {excelFile
                     ? excelFile.name

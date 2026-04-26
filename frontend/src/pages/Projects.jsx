@@ -2246,9 +2246,9 @@ function ProjectCard({ p, isRTL, Label, onView, onEdit, onDelete, onAddUnit, onS
       </div>
       <div className="mt-1 flex items-center justify-between">
         {p.status && (
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${(p.status === 'Active' || p.status === 'Sales') ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-            p.status === 'Completed' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-              'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border bg-transparent ${(p.status === 'Active' || p.status === 'Sales') ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400' :
+            p.status === 'Completed' ? 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400' :
+              'border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300'
             }`}>
             {p.status}
           </span>
@@ -2499,7 +2499,7 @@ function ProjectDetailsModal({ p, isRTL, onClose }) {
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3 min-w-0">
             <h2 className="text-xl font-bold truncate flex-1">{p.name}</h2>
-            <span className={`px-2 py-0.5 text-xs rounded-full ${p.status === 'Active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
+            <span className={`px-2 py-0.5 text-xs rounded-full border bg-transparent ${p.status === 'Active' ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400' : 'border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-400'}`}>
               {p.status}
             </span>
           </div>

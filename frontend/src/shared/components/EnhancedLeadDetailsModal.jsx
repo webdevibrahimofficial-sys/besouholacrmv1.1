@@ -1875,13 +1875,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                           </button>
                         )}
                       <button
-                        onClick={() => setActiveTab('attachments')}
+                        onClick={() => setShowEditLeadModal(true)}
                         className={`${isLight ? 'bg-blue-500 hover:bg-blue-600' : 'bg-blue-600 hover:bg-blue-700'} text-white py-1.5 sm:py-2 px-3 sm:px-4 rounded-full font-medium transition-colors flex items-center justify-center gap-2 flex-grow sm:flex-grow-0`}
                       >
                         <span className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-blue-400 flex items-center justify-center">
                           <FaPaperclip className="text-[10px] sm:text-xs" />
                         </span>
-                        <span className="text-xs sm:text-sm whitespace-nowrap">{isArabic ? 'المرفقات' : 'Attachments'}</span>
+                        <span className="text-xs sm:text-sm whitespace-nowrap">{isArabic ? 'إضافة مرفق' : 'Add Attachment'}</span>
                       </button>
                       {canConvertToCustomer && (
                         <button

@@ -13,7 +13,7 @@ import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { Filter, User, Users, Tag, Layers, Calendar, Home, ChevronLeft, ChevronRight } from 'lucide-react'
-import { FaChevronDown, FaFileExport } from 'react-icons/fa'
+import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 

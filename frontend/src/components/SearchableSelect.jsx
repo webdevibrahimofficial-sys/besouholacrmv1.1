@@ -37,28 +37,32 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     const aboveBottom = rect.top - gap
     const aboveSpace = Math.max(0, aboveBottom - margin)
 
-    const capHeight = (h) => Math.min(280, Math.max(160, h))
+    const clampMaxHeight = (h) => Math.max(0, Math.min(280, h))
 
-    let top = belowTop
-    let maxHeight = capHeight(belowSpace)
-
+    const minUsableHeight = 160
     const wantTop = placement === 'top'
     const wantBottom = placement === 'bottom'
 
-    if (wantTop) {
-      maxHeight = capHeight(aboveSpace)
-      top = Math.max(margin, rect.top - gap - Math.min(dropdownHeight, maxHeight))
-    } else if (!wantBottom) {
-      const canFitBelow = belowSpace >= Math.min(dropdownHeight, 240)
-      const canFitAbove = aboveSpace >= Math.min(dropdownHeight, 240)
-      if (!canFitBelow && canFitAbove && aboveSpace > belowSpace) {
-        maxHeight = capHeight(aboveSpace)
-        top = Math.max(margin, rect.top - gap - Math.min(dropdownHeight, maxHeight))
-      }
+    let openDirection = 'bottom'
+    if (wantTop) openDirection = 'top'
+    else if (wantBottom) openDirection = 'bottom'
+    else {
+      if (belowSpace >= minUsableHeight) openDirection = 'bottom'
+      else if (aboveSpace >= minUsableHeight) openDirection = 'top'
+      else openDirection = belowSpace >= aboveSpace ? 'bottom' : 'top'
     }
 
-    if (top < margin) top = margin
-    if (top > viewportHeight - margin) top = viewportHeight - margin
+    let top = belowTop
+    let maxHeight = clampMaxHeight(belowSpace)
+
+    if (openDirection === 'top') {
+      maxHeight = clampMaxHeight(aboveSpace)
+      top = rect.top - gap - Math.min(dropdownHeight, maxHeight || dropdownHeight)
+    }
+
+    // Keep dropdown within viewport while still staying close to the trigger
+    const maxTop = Math.max(margin, viewportHeight - margin - Math.max(0, maxHeight))
+    top = Math.min(Math.max(top, margin), maxTop)
 
     setCoords({ top, left, width, maxHeight })
   }

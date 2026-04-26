@@ -341,6 +341,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('sources', \App\Http\Controllers\SourceController::class);
     Route::apiResource('items', ItemController::class);
     Route::apiResource('real-estate-requests', \App\Http\Controllers\RealEstateRequestController::class);
+    Route::post('real-estate-requests/{realEstateRequest}/convert-to-deal', [\App\Http\Controllers\RealEstateRequestController::class, 'convertToDeal']);
     Route::apiResource('countries', \App\Http\Controllers\CountryController::class);
     Route::apiResource('cities', \App\Http\Controllers\CityController::class);
     Route::apiResource('regions', \App\Http\Controllers\RegionController::class);

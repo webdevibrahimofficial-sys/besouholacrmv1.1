@@ -5,7 +5,7 @@ import { useTheme } from '@shared/context/ThemeProvider'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { ChevronDown, ChevronUp, CreditCard, FileText, Filter, Pencil, Search, X } from 'lucide-react'
-import { FaFileImport } from 'react-icons/fa'
+import { FaChevronLeft, FaChevronRight, FaFileImport } from 'react-icons/fa'
 import CcInstallmentsImportModal from '@components/CcInstallmentsImportModal'
 
 const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
@@ -96,6 +96,7 @@ export default function ContractCollectionsInstallments() {
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
   const [pageMeta, setPageMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
+  const [perPage, setPerPage] = useState(50)
   const [summary, setSummary] = useState({
     total_installments: 0,
     total_amount: 0,
@@ -136,11 +137,13 @@ export default function ContractCollectionsInstallments() {
   }, [])
 
   const load = useCallback(
-    async (page = 1) => {
+    async (page = 1, perPageOverride) => {
       setLoading(true)
       try {
+        const pageSize = Number(perPageOverride || perPage || 50) || 50
         const params = new URLSearchParams()
         params.set('page', String(page))
+        params.set('per_page', String(pageSize))
         if (q.trim()) params.set('q', q.trim())
         if (paymentMethod) params.set('payment_method', String(paymentMethod))
         if (referenceNumber.trim()) params.set('reference_number', referenceNumber.trim())
@@ -153,6 +156,8 @@ export default function ContractCollectionsInstallments() {
 
         const res = await api.get(`/api/cc/installments?${params.toString()}`)
         const data = res?.data || {}
+        const serverPerPage = Number(data?.per_page || pageSize) || pageSize
+        if (serverPerPage !== pageSize) setPerPage(serverPerPage)
         setItems(Array.isArray(data.data) ? data.data : [])
         setPageMeta({
           current_page: Number(data.current_page || 1),
@@ -174,7 +179,7 @@ export default function ContractCollectionsInstallments() {
         setLoading(false)
       }
     },
-    [q, paymentMethod, referenceNumber, projectId, status, dueFrom, dueTo, payFrom, payTo]
+    [q, paymentMethod, referenceNumber, projectId, status, dueFrom, dueTo, payFrom, payTo, perPage]
   )
 
   useEffect(() => {
@@ -395,6 +400,60 @@ export default function ContractCollectionsInstallments() {
             </button>
           </div>
         </div>
+
+        {pageMeta.total > 0 && (
+          <div className="mt-2 flex flex-wrap items-center justify-between rounded-xl p-2 glass-panel gap-4">
+            <div className="text-xs text-[var(--muted-text)]">
+              {(() => {
+                const cur = Number(pageMeta.current_page || 1)
+                const total = Number(pageMeta.total || 0)
+                const from = total ? (cur - 1) * perPage + 1 : 0
+                const to = total ? Math.min(cur * perPage, total) : 0
+                return isArabic ? `Ø¹Ø±Ø¶ ${from}-${to} Ù…Ù† ${total}` : `Showing ${from}-${to} of ${total}`
+              })()}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
+                  disabled={loading || Number(pageMeta.current_page || 1) <= 1}
+                  title={isArabic ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
+                >
+                  <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
+                </button>
+                <span className="text-sm whitespace-nowrap">
+                  {isArabic ? `Ø§Ù„ØµÙØ­Ø© ${pageMeta.current_page} Ù…Ù† ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
+                </span>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
+                  disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
+                  title={isArabic ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
+                >
+                  <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}</span>
+                <select
+                  className="input w-16 text-sm py-0 px-2 h-8"
+                  value={perPage}
+                  onChange={(e) => {
+                    const next = Number(e.target.value)
+                    setPerPage(next)
+                    load(1, next)
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Filter (System UX) */}
@@ -675,7 +734,7 @@ export default function ContractCollectionsInstallments() {
           </table>
         </div>
 
-        <div className="mt-3 flex items-center justify-between">
+        <div className="hidden">
           <div className={`text-xs ${mutedTextClass}`}>
             Page {pageMeta.current_page} / {pageMeta.last_page}
           </div>

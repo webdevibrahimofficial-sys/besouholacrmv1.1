@@ -2,11 +2,18 @@
 
 namespace App\Http\Controllers\ContractCollections;
 
+use App\Models\CcCustomerUnit;
 use App\Models\CcCustomer;
+use App\Models\Property;
+use App\Services\ContractCollectionsService;
 use Illuminate\Http\Request;
 
 class CcCustomersController extends BaseCcController
 {
+    public function __construct(protected ContractCollectionsService $service)
+    {
+    }
+
     public function index(Request $request)
     {
         $this->requireCcPermission($request, 'showModule');
@@ -32,10 +39,22 @@ class CcCustomersController extends BaseCcController
             $query->where('sales_owner_id', (int) $salesOwnerId);
         }
 
+        $perPage = (int) $request->query('per_page', 25);
+        if ($perPage <= 0) {
+            $perPage = 25;
+        }
+        if ($perPage > 200) {
+            $perPage = 200;
+        }
+
         $customers = $query
-            ->with(['project:id,name', 'salesOwner:id,name'])
+            ->with([
+                'project:id,name',
+                'salesOwner:id,name',
+                'units.property:id,project_id,unit_code,name',
+            ])
             ->orderByDesc('id')
-            ->paginate(25);
+            ->paginate($perPage);
 
         return response()->json($customers);
     }
@@ -49,6 +68,7 @@ class CcCustomersController extends BaseCcController
             'lead_id' => 'nullable|integer',
             'project_id' => 'nullable|integer',
             'sales_owner_id' => 'nullable|integer',
+            'property_id' => 'nullable|integer',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:100',
             'email' => 'nullable|string|max:255',
@@ -58,7 +78,26 @@ class CcCustomersController extends BaseCcController
 
         $data['tenant_id'] = $tenantId;
 
+        $propertyId = $data['property_id'] ?? null;
+        unset($data['property_id']);
+
         $customer = CcCustomer::create($data);
+
+        if ($propertyId) {
+            $unit = $this->service->createCustomerUnit([
+                'customer_id' => $customer->id,
+                'property_id' => (int) $propertyId,
+                'status' => 'reserved',
+                'meta_data' => [
+                    'created_from' => 'cc_customers_store',
+                ],
+            ], $request->user());
+
+            $meta = is_array($customer->meta_data) ? $customer->meta_data : [];
+            $meta['primary_customer_unit_id'] = $unit->id;
+            $customer->meta_data = $meta;
+            $customer->save();
+        }
 
         return response()->json($customer, 201);
     }
@@ -104,6 +143,7 @@ class CcCustomersController extends BaseCcController
         $data = $request->validate([
             'project_id' => 'nullable|integer',
             'sales_owner_id' => 'nullable|integer',
+            'property_id' => 'nullable|integer',
             'name' => 'sometimes|required|string|max:255',
             'phone' => 'nullable|string|max:100',
             'email' => 'nullable|string|max:255',
@@ -111,8 +151,27 @@ class CcCustomersController extends BaseCcController
             'last_comments' => 'nullable|string',
         ]);
 
+        $propertyId = $data['property_id'] ?? null;
+        unset($data['property_id']);
+
         $customer->fill($data);
         $customer->save();
+
+        if ($propertyId) {
+            $unit = $this->service->createCustomerUnit([
+                'customer_id' => $customer->id,
+                'property_id' => (int) $propertyId,
+                'status' => 'reserved',
+                'meta_data' => [
+                    'created_from' => 'cc_customers_update',
+                ],
+            ], $request->user());
+
+            $meta = is_array($customer->meta_data) ? $customer->meta_data : [];
+            $meta['primary_customer_unit_id'] = $unit->id;
+            $customer->meta_data = $meta;
+            $customer->save();
+        }
 
         return response()->json($customer);
     }
