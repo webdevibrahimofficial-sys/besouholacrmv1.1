@@ -9,10 +9,10 @@ import 'prismjs/components/prism-clike'
 import 'prismjs/components/prism-javascript'
 import 'prismjs/components/prism-markup'
 import 'prismjs/themes/prism.css'
-import { FaGlobe, FaFacebook, FaInstagram, FaTwitter, FaLinkedin, FaCode, FaPaintBrush, FaImages, FaShareAlt, FaChartPie, FaCheck, FaTimes } from 'react-icons/fa'
+import { FaGlobe, FaTimes } from 'react-icons/fa'
 
 export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = null }) {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { theme } = useTheme()
   const isDark = theme === 'dark'
