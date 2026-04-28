@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Database\QueryException;
 
 use App\Models\Lead;
 use App\Models\Campaign;
@@ -52,6 +53,65 @@ class LandingPageController extends Controller
                 return array_intersect_key($data, $allowed);
             } catch (\Throwable $inner) {
                 return [];
+            }
+        }
+    }
+
+    private function extractUnknownColumnFromException(QueryException $e): ?string
+    {
+        $msg = (string) $e->getMessage();
+
+        // MySQL: Unknown column 'meta_data' in 'field list'
+        if (preg_match("/Unknown column '([^']+)'/i", $msg, $m)) {
+            return (string) ($m[1] ?? '');
+        }
+        // PostgreSQL: column "meta_data" of relation "landing_pages" does not exist
+        if (preg_match('/column \"([^\"]+)\" .* does not exist/i', $msg, $m)) {
+            return (string) ($m[1] ?? '');
+        }
+
+        return null;
+    }
+
+    private function createLandingPageSafe(array $data): LandingPage
+    {
+        $filtered = $this->filterLandingPageColumns($data);
+        $payload = !empty($filtered) ? $filtered : $data;
+
+        $attempts = 0;
+        while (true) {
+            try {
+                return LandingPage::create($payload);
+            } catch (QueryException $e) {
+                $attempts += 1;
+                $col = $this->extractUnknownColumnFromException($e);
+                if (!$col || $attempts > 12 || !array_key_exists($col, $payload)) {
+                    throw $e;
+                }
+                unset($payload[$col]);
+                Log::warning('Landing Page: dropped unknown column during create', ['column' => $col]);
+            }
+        }
+    }
+
+    private function updateLandingPageSafe(LandingPage $landingPage, array $data): void
+    {
+        $filtered = $this->filterLandingPageColumns($data);
+        $payload = !empty($filtered) ? $filtered : $data;
+
+        $attempts = 0;
+        while (true) {
+            try {
+                $landingPage->update($payload);
+                return;
+            } catch (QueryException $e) {
+                $attempts += 1;
+                $col = $this->extractUnknownColumnFromException($e);
+                if (!$col || $attempts > 12 || !array_key_exists($col, $payload)) {
+                    throw $e;
+                }
+                unset($payload[$col]);
+                Log::warning('Landing Page: dropped unknown column during update', ['column' => $col, 'landing_page_id' => $landingPage->id]);
             }
         }
     }
@@ -198,7 +258,7 @@ class LandingPageController extends Controller
             }
             $data['meta_data'] = $metaData;
 
-            $landingPage = LandingPage::create($this->filterLandingPageColumns($data));
+            $landingPage = $this->createLandingPageSafe($data);
 
             return new LandingPageResource($landingPage);
         } catch (\Throwable $e) {
@@ -395,7 +455,7 @@ class LandingPageController extends Controller
 
             $data['meta_data'] = $metaData;
 
-            $landingPage->update($this->filterLandingPageColumns($data));
+            $this->updateLandingPageSafe($landingPage, $data);
 
             return new LandingPageResource($landingPage);
         } catch (\Throwable $e) {
