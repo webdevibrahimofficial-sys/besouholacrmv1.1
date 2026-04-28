@@ -3892,13 +3892,17 @@ class LeadController extends Controller
             $request->validate([
                 'original_lead_id' => 'required|exists:leads,id',
                 'action' => 'required|in:keep_original,keep_duplicate',
-                'updated_data' => 'nullable|array'
+                'updated_data' => 'nullable|array',
+                // When keeping the original, callers may optionally choose not to merge/transfer history from duplicate.
+                // Default is true for backward compatibility.
+                'move_history' => 'nullable|boolean',
             ]);
             
             $originalLead = Lead::findOrFail($request->original_lead_id);
             $action = $request->action;
+            $moveHistory = filter_var($request->input('move_history', true), FILTER_VALIDATE_BOOLEAN);
             
-            DB::transaction(function() use ($originalLead, $duplicateLead, $action, $request) {
+            DB::transaction(function() use ($originalLead, $duplicateLead, $action, $request, $moveHistory) {
                 if ($action === 'keep_duplicate') {
                     // 1. Update original lead with data from request (which came from duplicate)
                     if ($request->has('updated_data')) {
@@ -3935,20 +3939,25 @@ class LeadController extends Controller
                     }
                     $originalLead->save();
 
-                    // only move history from duplicate to original
-                    \App\Models\LeadAction::where('lead_id', $duplicateLead->id)
-                        ->update(['lead_id' => $originalLead->id]);
+                    if ($moveHistory) {
+                        // move history from duplicate to original
+                        \App\Models\LeadAction::where('lead_id', $duplicateLead->id)
+                            ->update(['lead_id' => $originalLead->id]);
+                    }
                 }
                 
                 // Finally delete the duplicate lead
                 $duplicateLead->delete();
                 
                 // Log the merge on original lead
-                activity()
-                    ->performedOn($originalLead)
-                    ->causedBy(Auth::user())
-                    ->withProperties(['duplicate_lead_id' => $duplicateLead->id, 'action' => $action])
-                    ->log("Lead resolved as duplicate. Action: {$action}");
+                // Only log if we actually altered data/history, otherwise "Keep & Save" should be a no-op on the original.
+                if ($action === 'keep_duplicate' || $moveHistory) {
+                    activity()
+                        ->performedOn($originalLead)
+                        ->causedBy(Auth::user())
+                        ->withProperties(['duplicate_lead_id' => $duplicateLead->id, 'action' => $action, 'move_history' => $moveHistory])
+                        ->log("Lead resolved as duplicate. Action: {$action}");
+                }
             });
             
             return response()->json([

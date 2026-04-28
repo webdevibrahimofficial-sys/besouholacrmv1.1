@@ -4156,6 +4156,7 @@ if (!s) {
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
                   original_lead_id: originalId,
                   action: 'keep_original',
+                  move_history: false,
                 });
 
                 setLeads(prev => prev.filter(l => (l.id || l._id) !== targetDuplicateId));
