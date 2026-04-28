@@ -42,6 +42,9 @@ use App\Http\Controllers\ContractCollections\CcContractsController;
 use App\Http\Controllers\ContractCollections\CcContractAttachmentsController;
 use App\Http\Controllers\ContractCollections\CcInstallmentsController;
 use App\Http\Controllers\ContractCollections\CcPrintController;
+use App\Http\Controllers\ContractCollections\CcPaymentsController;
+use App\Http\Controllers\ContractCollections\CcAuditController;
+use App\Http\Controllers\ContractCollections\CcLeadConversionController;
 use App\Http\Controllers\ContractCollections\CcCustomerCommentsController;
 use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\InitializeTenancy;
@@ -214,6 +217,13 @@ Route::middleware([ResolveTenant::class])
         Route::get('installments', [CcInstallmentsController::class, 'index']);
         Route::post('installments/{id}/pay', [CcInstallmentsController::class, 'pay']);
         Route::post('installments/{id}/reschedule', [CcInstallmentsController::class, 'reschedule']);
+        Route::post('installments/{id}/mark-unpaid', [CcInstallmentsController::class, 'markUnpaid']);
+
+        Route::post('payments/{id}/void', [CcPaymentsController::class, 'void']);
+        Route::post('payments/{id}/reject', [CcPaymentsController::class, 'reject']);
+
+        Route::get('audit/customer-units/{id}', [CcAuditController::class, 'customerUnit']);
+        Route::post('leads/{leadId}/convert-to-customer', [CcLeadConversionController::class, 'convertToCustomer']);
 
         Route::get('receipts/{paymentId}/print', [CcPrintController::class, 'printReceipt']);
     });

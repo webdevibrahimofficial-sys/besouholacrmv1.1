@@ -32,6 +32,48 @@ const normalizeInstallmentType = (raw) => {
   return v
 }
 
+const deriveCcPlanFromProperty = (property) => {
+  const prop = property || {}
+  const plans = Array.isArray(prop.installment_plans)
+    ? prop.installment_plans
+    : (Array.isArray(prop.installmentPlans) ? prop.installmentPlans : [])
+
+  if (plans.length === 0) return null
+
+  const firstPlan = plans[0] || {}
+  const basePrice = Number(prop.total_after_discount ?? prop.net_amount ?? prop.total_price ?? prop.price ?? 0) || 0
+
+  const dpType = String(firstPlan.downPaymentType ?? firstPlan.down_payment_type ?? '').toLowerCase()
+  const dpRaw = Number(firstPlan.downPayment ?? firstPlan.down_payment ?? 0) || 0
+  const downPayment = dpType === 'percentage' || dpType === 'percent' ? basePrice * (dpRaw / 100) : dpRaw
+
+  const years = Number(firstPlan.years ?? 0) || 0
+  const installmentCount = years > 0
+    ? years * 12
+    : (Number(firstPlan.installmentCount ?? firstPlan.installment_count ?? 0) || 0)
+
+  const reservationAmount = Number(firstPlan.reservationAmount ?? firstPlan.reservation_amount ?? prop.reservation_amount ?? 0) || 0
+  const deliveryPayment = Number(firstPlan.receiptAmount ?? firstPlan.receipt_amount ?? firstPlan.delivery_payment ?? 0) || 0
+  const installmentValue = Number(firstPlan.installmentAmount ?? firstPlan.installment_amount ?? firstPlan.installment_value ?? 0) || 0
+
+  return {
+    reservation_amount: reservationAmount,
+    down_payment: downPayment,
+    delivery_payment: deliveryPayment,
+    installment_type: normalizeInstallmentType(firstPlan.installmentType ?? firstPlan.installment_type ?? 'monthly') || 'monthly',
+    installment_count: installmentCount > 0 ? installmentCount : 0,
+    installment_value: installmentValue,
+    meta_data: {
+      created_from: 'property_installment_plans',
+      property_installment_plan: firstPlan,
+      base_price: basePrice,
+      years: years > 0 ? years : null,
+      additional_payments: firstPlan.extraPayment ?? firstPlan.extra_payment ?? null,
+      delivery_date: firstPlan.deliveryDate ?? firstPlan.delivery_date ?? null,
+    },
+  }
+}
+
 function openPrintWindow({ title, blocks, dir = 'ltr' }) {
   const win = window.open('', '_blank', 'noopener,noreferrer')
   if (!win) return
@@ -155,7 +197,7 @@ export default function ContractCollectionsCustomers() {
   const [activeCustomer, setActiveCustomer] = useState(null)
   const [activeTotals, setActiveTotals] = useState(null)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState('details') // details | comments | attachments
+  const [activeTab, setActiveTab] = useState('details') // details | comments | attachments | audit
   const [selectedUnitId, setSelectedUnitId] = useState(null)
   const [selectedContractId, setSelectedContractId] = useState(null)
   const [contractAttachments, setContractAttachments] = useState([])
@@ -168,14 +210,25 @@ export default function ContractCollectionsCustomers() {
   const commentsAbortRef = useRef(null)
   const attachmentsAbortRef = useRef(null)
 
+  // Audit
+  const [auditQ, setAuditQ] = useState('')
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditItems, setAuditItems] = useState([])
+  const auditAbortRef = useRef(null)
+
   // Convert to Contract
   const [convertOpen, setConvertOpen] = useState(false)
   const [convertLoading, setConvertLoading] = useState(false)
   const [convertForm, setConvertForm] = useState({
-    contract_number: '',
     contract_date: '',
     first_due_date: '',
     total_price: '',
+    reservation_amount: '',
+    down_payment: '',
+    delivery_payment: '',
+    installment_type: 'monthly',
+    installment_count: '',
+    installment_value: '',
   })
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -665,28 +718,47 @@ export default function ContractCollectionsCustomers() {
 
   const openConvert = () => {
     if (!activeCustomer?.id) return
-    if (!selectedUnit?.id || !selectedUnitProp?.id) return
+    if (!selectedUnit?.id || !selectedPropertyId) return
     if (!selectedPlan) {
       alert(isArabic ? 'لا يمكن التحويل بدون خطة دفع نشطة' : 'Cannot convert without an active payment plan')
       return
     }
     const today = new Date().toISOString().slice(0, 10)
-    setConvertForm({ contract_number: '', contract_date: today, first_due_date: today, total_price: '' })
+    setConvertForm({
+      contract_date: today,
+      first_due_date: today,
+      total_price: '',
+      reservation_amount: selectedPlan?.reservation_amount ?? '',
+      down_payment: selectedPlan?.down_payment ?? '',
+      delivery_payment: selectedPlan?.delivery_payment ?? '',
+      installment_type: selectedPlan?.installment_type ?? 'monthly',
+      installment_count: selectedPlan?.installment_count ?? '',
+      installment_value: selectedPlan?.installment_value ?? '',
+    })
     setConvertOpen(true)
   }
 
   const submitConvert = async () => {
     if (!activeCustomer?.id) return
-    if (!selectedUnitProp?.id) return
+    if (!selectedPropertyId) return
     if (!selectedPlan) return
+    if (!selectedUnitId) return
 
     const raw = String(convertForm.total_price || '').replace(/,/g, '').trim()
     const total_price = raw ? Number(raw) : undefined
 
+    const planPayload = {
+      reservation_amount: Number(convertForm.reservation_amount !== '' ? convertForm.reservation_amount : (selectedPlan?.reservation_amount ?? 0)) || 0,
+      down_payment: Number(convertForm.down_payment !== '' ? convertForm.down_payment : (selectedPlan?.down_payment ?? 0)) || 0,
+      delivery_payment: Number(convertForm.delivery_payment !== '' ? convertForm.delivery_payment : (selectedPlan?.delivery_payment ?? 0)) || 0,
+      installment_type: String(convertForm.installment_type || selectedPlan?.installment_type || 'monthly'),
+      installment_count: Number(convertForm.installment_count !== '' ? convertForm.installment_count : (selectedPlan?.installment_count ?? 0)) || 0,
+      installment_value: Number(convertForm.installment_value !== '' ? convertForm.installment_value : (selectedPlan?.installment_value ?? 0)) || 0,
+    }
+
     const payload = {
       customer_id: Number(activeCustomer.id),
-      property_id: Number(selectedUnitProp.id),
-      contract_number: String(convertForm.contract_number || '').trim() || undefined,
+      property_id: Number(selectedPropertyId),
       contract_date: String(convertForm.contract_date || '').trim() || undefined,
       first_due_date: String(convertForm.first_due_date || '').trim() || undefined,
       total_price: Number.isFinite(total_price) ? total_price : undefined,
@@ -694,6 +766,7 @@ export default function ContractCollectionsCustomers() {
 
     setConvertLoading(true)
     try {
+      await api.post(`/api/cc/customer-units/${encodeURIComponent(selectedUnitId)}/payment-plan`, planPayload)
       await api.post('/api/cc/contracts', payload)
       setConvertOpen(false)
       await loadDetails(activeCustomer.id)
@@ -738,7 +811,51 @@ export default function ContractCollectionsCustomers() {
   }, [activeUnits, selectedUnitId])
 
   const selectedUnitProp = selectedUnit?.property || null
-  const selectedPlan = selectedUnit?.active_payment_plan || selectedUnit?.activePaymentPlan || null
+  const selectedPropertyId = useMemo(() => {
+    const raw = selectedUnitProp?.id ?? selectedUnit?.property_id ?? selectedUnit?.propertyId ?? selectedUnit?.property?.id ?? null
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }, [selectedUnitProp?.id, selectedUnit?.property_id, selectedUnit?.propertyId, selectedUnit?.property])
+  const selectedPlan = useMemo(() => {
+    if (!selectedUnit) return null
+    const ccPlan = selectedUnit?.active_payment_plan || selectedUnit?.activePaymentPlan || null
+    if (ccPlan) return ccPlan
+    return deriveCcPlanFromProperty(selectedUnit?.property || null)
+  }, [selectedUnit])
+
+  const loadAudit = useCallback(async (unitId) => {
+    if (!unitId) {
+      setAuditItems([])
+      return
+    }
+    setAuditLoading(true)
+    try {
+      if (auditAbortRef.current) {
+        try { auditAbortRef.current.abort() } catch {}
+      }
+      const controller = new AbortController()
+      auditAbortRef.current = controller
+
+      const params = new URLSearchParams()
+      if (auditQ.trim()) params.set('q', auditQ.trim())
+      params.set('per_page', '100')
+
+      const res = await api.get(`/api/cc/audit/customer-units/${encodeURIComponent(unitId)}?${params.toString()}`, { signal: controller.signal })
+      setAuditItems(Array.isArray(res?.data?.data) ? res.data.data : [])
+    } catch {
+      setAuditItems([])
+    } finally {
+      setAuditLoading(false)
+    }
+  }, [auditQ])
+
+  useEffect(() => {
+    if (!previewOpen) return
+    if (activeTab !== 'audit') return
+    if (!selectedUnitId) return
+    const t = setTimeout(() => loadAudit(selectedUnitId), 250)
+    return () => clearTimeout(t)
+  }, [previewOpen, activeTab, selectedUnitId, loadAudit])
 
   if (!isRealEstate) {
     return (
@@ -1173,8 +1290,17 @@ export default function ContractCollectionsCustomers() {
                       <div className="space-y-3">
                         {activeUnits.map((u) => {
                           const prop = u.property || {}
-                          const plan = u.active_payment_plan || u.activePaymentPlan || null
+                          const plan = u.active_payment_plan || u.activePaymentPlan || deriveCcPlanFromProperty(prop) || null
+                          const planMeta = plan?.meta_data || {}
+                          const propertyPlan = planMeta?.property_installment_plan || {}
                           const unitTitle = prop.unit_code || prop.name || prop.title || `#${prop.id}`
+
+                          const years = planMeta?.years ?? propertyPlan?.years ?? null
+                          const additionalPayment = planMeta?.additional_payments ?? propertyPlan?.extraPayment ?? propertyPlan?.extra_payment ?? null
+                          const deliveryDate = propertyPlan?.deliveryDate ?? propertyPlan?.delivery_date ?? null
+                          const garageAmount = prop?.garage_amount ?? prop?.garageAmount ?? null
+                          const maintenanceAmount = prop?.maintenance_amount ?? prop?.maintenanceAmount ?? null
+                          const totalAmount = prop?.total_after_discount ?? prop?.net_amount ?? prop?.total_price ?? prop?.price ?? null
                           return (
                             <div
                               key={u.id}
@@ -1213,6 +1339,20 @@ export default function ContractCollectionsCustomers() {
                                     <div>
                                       {isArabic ? 'الأقساط' : 'Installments'}: {safeStr(plan.installment_type)} × {safeStr(plan.installment_count)}
                                     </div>
+                                    {years ? <div>{isArabic ? 'سنوات' : 'Years'}: {safeStr(years)}</div> : null}
+                                    {additionalPayment != null && String(additionalPayment).trim() !== '' ? (
+                                      <div>{isArabic ? 'مدفوعات إضافية' : 'Additional Payment'}: {formatMoney(additionalPayment)}</div>
+                                    ) : null}
+                                    {deliveryDate ? <div>{isArabic ? 'تاريخ التسليم' : 'Delivery Date'}: {safeStr(deliveryDate)}</div> : null}
+                                    {garageAmount != null && String(garageAmount).trim() !== '' ? (
+                                      <div>{isArabic ? 'قيمة الجراج' : 'Garage'}: {formatMoney(garageAmount)}</div>
+                                    ) : null}
+                                    {maintenanceAmount != null && String(maintenanceAmount).trim() !== '' ? (
+                                      <div>{isArabic ? 'قيمة الصيانة' : 'Maintenance'}: {formatMoney(maintenanceAmount)}</div>
+                                    ) : null}
+                                    {totalAmount != null && String(totalAmount).trim() !== '' ? (
+                                      <div>{isArabic ? 'إجمالي السعر' : 'Total Amount'}: {formatMoney(totalAmount)}</div>
+                                    ) : null}
                                   </div>
                                 ) : (
                                   <div className={mutedTextClass}>{isArabic ? 'لا يوجد خطة دفع نشطة' : 'No active payment plan'}</div>
@@ -1267,6 +1407,78 @@ export default function ContractCollectionsCustomers() {
                             <div className="text-sm mt-1 whitespace-pre-wrap">{safeStr(c.comment)}</div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'audit' && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-semibold">{isArabic ? 'سجل التعديلات المالية' : 'Audit Log'}</div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={auditQ}
+                          onChange={(e) => setAuditQ(e.target.value)}
+                          className="input h-9 text-sm"
+                          placeholder={isArabic ? 'بحث...' : 'Search...'}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => loadAudit(selectedUnitId)}
+                          disabled={auditLoading || !selectedUnitId}
+                          title={isArabic ? 'تحديث' : 'Refresh'}
+                        >
+                          ↻
+                        </button>
+                      </div>
+                    </div>
+
+                    {!selectedUnitId ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'اختر وحدة لعرض السجل' : 'Select a unit to view audit log'}</div>
+                    ) : auditLoading ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</div>
+                    ) : auditItems.length === 0 ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'لا يوجد سجلات' : 'No audit entries'}</div>
+                    ) : (
+                      <div className="overflow-auto rounded-xl border border-[var(--panel-border)] mt-3">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-black/5 dark:bg-white/5">
+                            <tr>
+                              <th className="text-left px-3 py-2">{isArabic ? 'الوقت' : 'Time'}</th>
+                              <th className="text-left px-3 py-2">{isArabic ? 'المستخدم' : 'User'}</th>
+                              <th className="text-left px-3 py-2">{isArabic ? 'الإجراء' : 'Action'}</th>
+                              <th className="text-left px-3 py-2">{isArabic ? 'التفاصيل' : 'Details'}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {auditItems.map((a) => {
+                              const props = a?.properties || {}
+                              const action = props?.action || a?.description || a?.log_name || ''
+                              const details = (() => {
+                                const p = props?.payload || props?.new_values || props?.old_values || props
+                                try {
+                                  return JSON.stringify(p)
+                                } catch {
+                                  return ''
+                                }
+                              })()
+                              return (
+                                <tr key={a.id} className="border-t border-[var(--panel-border)]">
+                                  <td className="px-3 py-2 whitespace-nowrap" dir="ltr">{safeStr(a.created_at)}</td>
+                                  <td className="px-3 py-2">{safeStr(a.causer?.name)}</td>
+                                  <td className="px-3 py-2">{safeStr(action)}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="max-w-[520px] truncate" title={details}>{details}</div>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
@@ -1387,6 +1599,21 @@ export default function ContractCollectionsCustomers() {
                     {isArabic ? 'مرفقات' : 'Attachments'}
                   </span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('audit')}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border flex items-center justify-between gap-2 ${
+                    activeTab === 'audit'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    {isArabic ? 'سجل التعديلات' : 'Audit Log'}
+                  </span>
+                </button>
               </div>
 
               <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-3 space-y-2">
@@ -1395,7 +1622,7 @@ export default function ContractCollectionsCustomers() {
                   onClick={openConvert}
                   disabled={
                     !activeCustomer?.id ||
-                    !selectedUnitProp?.id ||
+                    !selectedPropertyId ||
                     !selectedPlan ||
                     String(selectedUnit?.status || '').toLowerCase() === 'contracted'
                   }
@@ -1454,16 +1681,6 @@ export default function ContractCollectionsCustomers() {
             <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم العقد' : 'Contract Number'}</label>
-                  <input
-                    className="input w-full bg-[var(--content-bg)]"
-                    value={convertForm.contract_number}
-                    onChange={(e) => setConvertForm((p) => ({ ...p, contract_number: e.target.value }))}
-                    placeholder={isArabic ? 'اختياري' : 'Optional'}
-                  />
-                </div>
-
-                <div className="space-y-1">
                   <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'إجمالي السعر' : 'Total Price'}</label>
                   <input
                     className="input w-full bg-[var(--content-bg)]"
@@ -1494,6 +1711,75 @@ export default function ContractCollectionsCustomers() {
                     onChange={(e) => setConvertForm((p) => ({ ...p, first_due_date: e.target.value }))}
                     dir="ltr"
                   />
+                </div>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-[var(--panel-border)]">
+                <div className={`text-xs font-semibold mb-2 ${mutedTextClass}`}>{isArabic ? 'خطة الدفع' : 'Payment Plan'}</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الحجز' : 'Reservation Amount'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.reservation_amount}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, reservation_amount: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المقدم' : 'Down Payment'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.down_payment}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, down_payment: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'التسليم' : 'Delivery Payment'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.delivery_payment}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, delivery_payment: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'نوع التقسيط' : 'Installment Type'}</label>
+                    <select
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.installment_type}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, installment_type: e.target.value }))}
+                    >
+                      <option value="monthly">{isArabic ? 'شهري' : 'Monthly'}</option>
+                      <option value="quarterly">{isArabic ? 'ربع سنوي' : 'Quarterly'}</option>
+                      <option value="half-yearly">{isArabic ? 'نصف سنوي' : 'Half-yearly'}</option>
+                      <option value="yearly">{isArabic ? 'سنوي' : 'Yearly'}</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'عدد الأقساط' : 'Installment Count'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.installment_count}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, installment_count: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'قيمة القسط' : 'Installment Value'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.installment_value}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, installment_value: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
                 </div>
               </div>
 

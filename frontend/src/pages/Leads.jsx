@@ -1237,7 +1237,7 @@ if (!s) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
 
     // Common formats: dd/mm/yyyy or mm/dd/yyyy
-    const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+    const m = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
     if (m) {
       const a = Number(m[1])
       const b = Number(m[2])
@@ -3425,7 +3425,7 @@ if (!s) {
                     }
 
                     switch (key) {
-                      case 'lead':
+                      case 'lead': {
                         // Only show duplicate icon if duplicate is allowed for the user
                         const isDuplicate = isDuplicateAllowed && (String(lead.stage || '').toLowerCase().includes('duplicate') || 
                                           String(lead.status || '').toLowerCase().includes('duplicate'));
@@ -3443,6 +3443,7 @@ if (!s) {
                           </td>
                         );
 
+                      }
                       case 'contact':
                         return (
                           <td key="contact" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
@@ -4188,106 +4189,120 @@ if (!s) {
                 break;
               }
 
-              case 'warn':
+              case 'warn': {
                 // Call backend to warn agent
-                const warnNotes = (targetDuplicate.notes ? targetDuplicate.notes + '\n' : '') + `[System Warning] This lead is a duplicate of ${original.name} (#${originalId}).`;
+                const warnNotes =
+                  (targetDuplicate.notes ? targetDuplicate.notes + '\n' : '') +
+                  `[System Warning] This lead is a duplicate of ${original.name} (#${originalId}).`
                 await api.post(`/api/leads/${targetDuplicateId}/warn-duplicate`, {
-                    original_lead_id: originalId,
-                    notes: warnNotes
-                });
-                
+                  original_lead_id: originalId,
+                  notes: warnNotes,
+                })
+
                 // Update frontend
                 const warningLead = {
                   ...targetDuplicate,
                   id: targetDuplicateId,
-                  notes: warnNotes
-                };
-                handleUpdateLead(warningLead);
-                break;
+                  notes: warnNotes,
+                }
+                handleUpdateLead(warningLead)
+                break
+              }
 
-              case 'transfer':
-                const { salesPersonId, historyOption, stageOption } = extraData || {};
+              case 'transfer': {
+                const { salesPersonId, historyOption, stageOption } = extraData || {}
                 if (!salesPersonId) {
-                    console.error('Transfer failed: No sales person selected');
-                    break;
+                  console.error('Transfer failed: No sales person selected')
+                  break
                 }
 
                 // Call backend transfer
                 await api.post(`/api/leads/${originalId}/transfer`, {
-                    assigned_to: salesPersonId,
-                    stage: stageOption,
-                    history_option: historyOption,
-                    assign_as_new: historyOption === 'assign_as_new',
-                    duplicate_id: targetDuplicateId // Inform backend to resolve this duplicate
-                });
+                  assigned_to: salesPersonId,
+                  stage: stageOption,
+                  history_option: historyOption,
+                  assign_as_new: historyOption === 'assign_as_new',
+                  duplicate_id: targetDuplicateId, // Inform backend to resolve this duplicate
+                })
 
                 // The backend now handles deletion of the duplicate and updating original
-                
-                // Add to deleted leads local storage for undo (optional)
-                const deletedLeadTransfer = { ...targetDuplicate, id: targetDuplicateId, deletedAt: new Date().toISOString() };
-                const existingDeletedLeadsTransfer = JSON.parse(localStorage.getItem('deletedLeads') || '[]');
-                existingDeletedLeadsTransfer.push(deletedLeadTransfer);
-                localStorage.setItem('deletedLeads', JSON.stringify(existingDeletedLeadsTransfer));
-                
-                // Remove duplicate from local state
-                setLeads(prev => prev.filter(l => (l.id || l._id) !== targetDuplicateId));
-                
-                // Refresh to see original updated
-                fetchLeads(); 
-                break;
-                
-              case 'keep_duplicate':
-                 // Update original with duplicate data
-                 // We take all fields from targetDuplicate except ID and timestamps
-                 const { 
-                   id: dupId, _id: dupId2, created_at, updated_at, deleted_at, 
-                   permissions, activities, creator, assignedAgent, customFieldValues,
-                   ...duplicateData 
-                 } = targetDuplicate;
-                 
-                 const mergePayload = {
-                     ...duplicateData,
-                     // Ensure we use correct keys for API
-                     name: duplicateData.name || duplicateData.fullName,
-                     assigned_to: duplicateData.assigned_to || duplicateData.assignedTo,
-                     sales_person: duplicateData.sales_person || duplicateData.salesPerson,
-                 };
-                 
-                 // Call atomic backend merge endpoint
-                 const resolveResponse = await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                     original_lead_id: originalId,
-                     action: 'keep_duplicate',
-                     updated_data: mergePayload
-                 });
-                 
-                 const updatedOriginalFromDup = resolveResponse.data?.lead || { ...original, ...mergePayload, id: originalId };
-                 
-                 handleUpdateLead(updatedOriginalFromDup);
-                 setLeads(prev => prev.filter(l => (l.id || l._id) !== targetDuplicateId));
-                 fetchLeads();
-                 break;
 
-              case 'keep_original':
+                // Add to deleted leads local storage for undo (optional)
+                const deletedLeadTransfer = { ...targetDuplicate, id: targetDuplicateId, deletedAt: new Date().toISOString() }
+                const existingDeletedLeadsTransfer = JSON.parse(localStorage.getItem('deletedLeads') || '[]')
+                existingDeletedLeadsTransfer.push(deletedLeadTransfer)
+                localStorage.setItem('deletedLeads', JSON.stringify(existingDeletedLeadsTransfer))
+
+                // Remove duplicate from local state
+                setLeads((prev) => prev.filter((l) => (l.id || l._id) !== targetDuplicateId))
+
+                // Refresh to see original updated
+                fetchLeads()
+                break
+              }
+
+              case 'keep_duplicate': {
+                // Update original with duplicate data
+                // We take all fields from targetDuplicate except ID and timestamps
+                const {
+                  id: dupId,
+                  _id: dupId2,
+                  created_at,
+                  updated_at,
+                  deleted_at,
+                  permissions,
+                  activities,
+                  creator,
+                  assignedAgent,
+                  customFieldValues,
+                  ...duplicateData
+                } = targetDuplicate
+
+                const mergePayload = {
+                  ...duplicateData,
+                  // Ensure we use correct keys for API
+                  name: duplicateData.name || duplicateData.fullName,
+                  assigned_to: duplicateData.assigned_to || duplicateData.assignedTo,
+                  sales_person: duplicateData.sales_person || duplicateData.salesPerson,
+                }
+
+                // Call atomic backend merge endpoint
+                const resolveResponse = await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
+                  original_lead_id: originalId,
+                  action: 'keep_duplicate',
+                  updated_data: mergePayload,
+                })
+
+                const updatedOriginalFromDup = resolveResponse.data?.lead || { ...original, ...mergePayload, id: originalId }
+
+                handleUpdateLead(updatedOriginalFromDup)
+                setLeads((prev) => prev.filter((l) => (l.id || l._id) !== targetDuplicateId))
+                fetchLeads()
+                break
+              }
+
+              case 'keep_original': {
                 // Call atomic backend resolve endpoint
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                    original_lead_id: originalId,
-                    action: 'keep_original'
-                });
+                  original_lead_id: originalId,
+                  action: 'keep_original',
+                })
 
                 const deletedLead = {
                   ...targetDuplicate,
                   id: targetDuplicateId,
-                  deletedAt: new Date().toISOString()
-                };
-                
+                  deletedAt: new Date().toISOString(),
+                }
+
                 // Save to deleted leads in localStorage
-                const existingDeletedLeads = JSON.parse(localStorage.getItem('deletedLeads') || '[]');
-                existingDeletedLeads.push(deletedLead);
-                localStorage.setItem('deletedLeads', JSON.stringify(existingDeletedLeads));
-                
-                setLeads(prev => prev.filter(l => (l.id || l._id) !== targetDuplicateId));
-                fetchLeads();
-                break;
+                const existingDeletedLeads = JSON.parse(localStorage.getItem('deletedLeads') || '[]')
+                existingDeletedLeads.push(deletedLead)
+                localStorage.setItem('deletedLeads', JSON.stringify(existingDeletedLeads))
+
+                setLeads((prev) => prev.filter((l) => (l.id || l._id) !== targetDuplicateId))
+                fetchLeads()
+                break
+              }
             }
           } catch (e) {
             console.error('Failed to resolve duplicate action', e);

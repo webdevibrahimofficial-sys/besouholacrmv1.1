@@ -197,4 +197,20 @@ class CcInstallmentsController extends BaseCcController
             'installment' => $installment,
         ]);
     }
+
+    public function markUnpaid(Request $request, int $id)
+    {
+        $this->requireCcPermission($request, 'payInstallment');
+
+        $tenantId = $this->tenantId($request);
+        $installment = CcInstallment::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $data = $request->validate([
+            'reason' => 'nullable|string|max:2000',
+        ]);
+
+        $result = $this->service->markInstallmentUnpaid($installment, $data, $request->user());
+
+        return response()->json(['installment' => $result], 200);
+    }
 }

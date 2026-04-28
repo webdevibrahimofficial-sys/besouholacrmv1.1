@@ -211,6 +211,11 @@ class ContractCollectionsService
                 'status' => 'active',
             ]);
 
+            if (!$contract->contract_number) {
+                $contract->contract_number = sprintf('CC-%d-%06d', $tenantId, (int) $contract->id);
+                $contract->save();
+            }
+
             $this->generateInstallments($contract);
 
             $customerUnit->status = 'contracted';
@@ -349,6 +354,114 @@ class ContractCollectionsService
         });
     }
 
+    public function voidPayment(CcPayment $payment, array $payload, User $actor, string $voidStatus = 'voided'): array
+    {
+        $tenantId = (int) $actor->tenant_id;
+        if ((int) $payment->tenant_id !== $tenantId) {
+            throw ValidationException::withMessages(['payment_id' => 'Invalid payment for tenant.']);
+        }
+
+        return DB::transaction(function () use ($payment, $payload, $actor, $tenantId, $voidStatus) {
+            $payment = CcPayment::where('tenant_id', $tenantId)->lockForUpdate()->findOrFail($payment->id);
+
+            $curStatus = strtolower((string) ($payment->status ?? ''));
+            if (!in_array($curStatus, ['posted'], true)) {
+                throw ValidationException::withMessages(['status' => 'Only posted payments can be voided/rejected.']);
+            }
+
+            $allocs = CcPaymentAllocation::where('tenant_id', $tenantId)
+                ->where('payment_id', $payment->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($allocs as $alloc) {
+                $installment = CcInstallment::where('tenant_id', $tenantId)->lockForUpdate()->find($alloc->installment_id);
+                if (!$installment) continue;
+
+                $installment->paid_amount = max(0, (float) $installment->paid_amount - (float) $alloc->amount_applied);
+                $installment->status = $this->deriveInstallmentStatus($installment);
+                $installment->save();
+            }
+
+            $meta = is_array($payment->meta_data) ? $payment->meta_data : [];
+            $meta['voided_at'] = now()->toDateTimeString();
+            $meta['voided_by'] = $actor->id;
+            $reason = trim((string) ($payload['reason'] ?? ''));
+            if ($reason !== '') {
+                $meta['void_reason'] = $reason;
+            }
+
+            $payment->status = $voidStatus;
+            $payment->meta_data = $meta;
+            $payment->save();
+
+            try {
+                activity('contract_collections')
+                    ->causedBy($actor)
+                    ->performedOn($payment)
+                    ->withProperties([
+                        'action' => $voidStatus === 'rejected' ? 'payment_rejected' : 'payment_voided',
+                        'payment_id' => $payment->id,
+                        'contract_id' => $payment->contract_id,
+                        'amount' => (float) $payment->amount,
+                        'reason' => $reason ?: null,
+                    ])
+                    ->log($voidStatus === 'rejected' ? 'cc_payment_rejected' : 'cc_payment_voided');
+            } catch (\Throwable $e) {
+            }
+
+            return [
+                'payment' => $payment->fresh(['allocations']),
+            ];
+        });
+    }
+
+    public function markInstallmentUnpaid(CcInstallment $installment, array $payload, User $actor): CcInstallment
+    {
+        $tenantId = (int) $actor->tenant_id;
+        if ((int) $installment->tenant_id !== $tenantId) {
+            throw ValidationException::withMessages(['installment_id' => 'Invalid installment for tenant.']);
+        }
+
+        return DB::transaction(function () use ($installment, $payload, $actor, $tenantId) {
+            $installment = CcInstallment::where('tenant_id', $tenantId)->lockForUpdate()->findOrFail($installment->id);
+
+            $amount = (float) $installment->amount;
+            $paid = (float) $installment->paid_amount;
+            if ($paid >= $amount - 0.00001) {
+                throw ValidationException::withMessages(['status' => 'Cannot mark a fully paid installment as unpaid.']);
+            }
+
+            $meta = is_array($installment->meta_data) ? $installment->meta_data : [];
+            $meta['marked_unpaid_at'] = now()->toDateTimeString();
+            $meta['marked_unpaid_by'] = $actor->id;
+            $reason = trim((string) ($payload['reason'] ?? ''));
+            if ($reason !== '') {
+                $meta['unpaid_reason'] = $reason;
+            }
+
+            $installment->meta_data = $meta;
+            $installment->status = 'unpaid';
+            $installment->save();
+
+            try {
+                activity('contract_collections')
+                    ->causedBy($actor)
+                    ->performedOn($installment)
+                    ->withProperties([
+                        'action' => 'installment_marked_unpaid',
+                        'installment_id' => $installment->id,
+                        'contract_id' => $installment->contract_id,
+                        'reason' => $reason ?: null,
+                    ])
+                    ->log('cc_installment_marked_unpaid');
+            } catch (\Throwable $e) {
+            }
+
+            return $installment->fresh();
+        });
+    }
+
     public function markOverdueForTenant(int $tenantId): int
     {
         $today = now()->toDateString();
@@ -377,11 +490,19 @@ class ContractCollectionsService
         $amount = (float) $installment->amount;
         $due = $installment->due_date ? \Carbon\Carbon::parse($installment->due_date)->startOfDay() : null;
 
+        $current = strtolower((string) ($installment->status ?? ''));
         if ($paid >= $amount - 0.00001) {
             return 'paid';
         }
         if ($paid > 0) {
             return 'partial';
+        }
+        // Preserve explicit states when no money is paid (they may come from rejected/voided actions).
+        if (in_array($current, ['rejected', 'unpaid'], true)) {
+            if ($due && $due->lt(now()->startOfDay())) {
+                return 'overdue';
+            }
+            return $current;
         }
         if ($due && $due->lt(now()->startOfDay())) {
             return 'overdue';

@@ -29,6 +29,12 @@ class LandingPageResource extends JsonResource
                 'id' => $meta['lead_unit_id'],
                 'name' => $meta['lead_unit_name'] ?? null,
             ];
+        } elseif (!empty($meta['lead_item_id'])) {
+            $leadContext = [
+                'type' => 'item',
+                'id' => $meta['lead_item_id'],
+                'name' => $meta['lead_item_name'] ?? null,
+            ];
         }
 
         return [

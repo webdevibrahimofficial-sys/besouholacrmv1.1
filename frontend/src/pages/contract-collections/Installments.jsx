@@ -4,7 +4,7 @@ import { useAppState } from '@shared/context/AppStateProvider'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
-import { ChevronDown, ChevronUp, CreditCard, FileText, Filter, Pencil, Search, X } from 'lucide-react'
+import { Ban, ChevronDown, ChevronUp, CreditCard, FileText, Filter, Pencil, RotateCcw, Search, X, XCircle } from 'lucide-react'
 import { FaChevronLeft, FaChevronRight, FaFileImport } from 'react-icons/fa'
 import CcInstallmentsImportModal from '@components/CcInstallmentsImportModal'
 
@@ -89,7 +89,7 @@ export default function ContractCollectionsInstallments() {
   const [dueTo, setDueTo] = useState('')
   const [payFrom, setPayFrom] = useState('')
   const [payTo, setPayTo] = useState('')
-  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [showAllFilters, setShowAllFilters] = useState(true)
 
   const [projects, setProjects] = useState([])
 
@@ -119,6 +119,13 @@ export default function ContractCollectionsInstallments() {
   const [payDate, setPayDate] = useState('')
   const [payReference, setPayReference] = useState('')
   const [payNotes, setPayNotes] = useState('')
+
+  const [actionOpen, setActionOpen] = useState(false)
+  const [actionSaving, setActionSaving] = useState(false)
+  const [actionType, setActionType] = useState('void') // void | reject | unpaid
+  const [actionRow, setActionRow] = useState(null)
+  const [actionPaymentId, setActionPaymentId] = useState(null)
+  const [actionReason, setActionReason] = useState('')
 
   const [importOpen, setImportOpen] = useState(false)
 
@@ -204,7 +211,7 @@ export default function ContractCollectionsInstallments() {
     setDueTo('')
     setPayFrom('')
     setPayTo('')
-    setShowAllFilters(false)
+    setShowAllFilters(true)
   }
 
   const parseInstallmentId = (v) => {
@@ -354,9 +361,58 @@ export default function ContractCollectionsInstallments() {
     }
   }
 
-  const openReceipt = (paymentId) => {
+  const openAction = (type, row, paymentId) => {
+    setActionType(type)
+    setActionRow(row || null)
+    setActionPaymentId(paymentId || null)
+    setActionReason('')
+    setActionOpen(true)
+  }
+
+  const submitAction = async () => {
+    if (!actionRow?.id) return
+    if (actionType === 'reject' && !actionReason.trim()) return
+
+    setActionSaving(true)
+    try {
+      if (actionType === 'unpaid') {
+        await api.post(`/api/cc/installments/${encodeURIComponent(actionRow.id)}/mark-unpaid`, {
+          reason: actionReason.trim() || undefined,
+        })
+      } else {
+        if (!actionPaymentId) return
+        const endpoint = actionType === 'reject' ? 'reject' : 'void'
+        await api.post(`/api/cc/payments/${encodeURIComponent(actionPaymentId)}/${endpoint}`, {
+          reason: actionReason.trim() || undefined,
+        })
+      }
+
+      setActionOpen(false)
+      setActionRow(null)
+      setActionPaymentId(null)
+      setActionReason('')
+      await load(pageMeta.current_page || 1)
+    } catch {
+    } finally {
+      setActionSaving(false)
+    }
+  }
+
+  const openReceipt = async (paymentId) => {
     if (!paymentId) return
-    window.open(`/api/cc/receipts/${encodeURIComponent(paymentId)}/print?autoprint=1`, '_blank')
+
+    // Use authenticated API client (cookies/headers) then open as a blob URL.
+    // This avoids 404/401 issues when opening a protected route in a new tab without auth headers.
+    try {
+      const res = await api.get(`/api/cc/receipts/${encodeURIComponent(paymentId)}/print?autoprint=1`, {
+        responseType: 'blob',
+        headers: { Accept: 'text/html' },
+      })
+      const blobUrl = URL.createObjectURL(res.data)
+      window.open(blobUrl, '_blank')
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    } catch {
+    }
   }
 
   if (!isRealEstate) {
@@ -665,6 +721,9 @@ export default function ContractCollectionsInstallments() {
                   const amount = Number(row?.amount || 0)
                   const outstanding = Math.max(0, amount - paid)
                   const canPay = outstanding > 0.00001 && String(row?.status || '').toLowerCase() !== 'paid'
+                  const paymentStatus = String(latestPayment?.status || '').toLowerCase()
+                  const canReversePayment = !!paymentId && (paymentStatus === '' || paymentStatus === 'posted')
+                  const canMarkUnpaid = paid <= 0.00001 && String(row?.status || '').toLowerCase() !== 'paid'
 
                   return (
                     <tr key={row.id} className="border-t border-[var(--panel-border)] hover:bg-black/5 dark:hover:bg-white/5">
@@ -714,6 +773,33 @@ export default function ContractCollectionsInstallments() {
                             onClick={() => openEdit(row)}
                           >
                             <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${canMarkUnpaid ? '' : 'opacity-40 cursor-not-allowed'}`}
+                            title={isArabic ? 'تعيين كغير مدفوع' : 'Mark unpaid'}
+                            onClick={() => canMarkUnpaid && openAction('unpaid', row, null)}
+                            disabled={!canMarkUnpaid}
+                          >
+                            <Ban className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${canReversePayment ? '' : 'opacity-40 cursor-not-allowed'}`}
+                            title={isArabic ? 'إلغاء الدفعة' : 'Void payment'}
+                            onClick={() => canReversePayment && openAction('void', row, paymentId)}
+                            disabled={!canReversePayment}
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${canReversePayment ? '' : 'opacity-40 cursor-not-allowed'}`}
+                            title={isArabic ? 'رفض الدفعة' : 'Reject payment'}
+                            onClick={() => canReversePayment && openAction('reject', row, paymentId)}
+                            disabled={!canReversePayment}
+                          >
+                            <XCircle className="w-4 h-4" />
                           </button>
                           <button
                             type="button"
@@ -897,6 +983,79 @@ export default function ContractCollectionsInstallments() {
               disabled={paySaving || !payAmount}
             >
               {paySaving ? 'Saving...' : 'Pay'}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+
+      <ModalShell
+        open={actionOpen}
+        title={
+          actionType === 'reject'
+            ? (isArabic ? 'رفض الدفعة' : 'Reject Payment')
+            : actionType === 'unpaid'
+              ? (isArabic ? 'تعيين كغير مدفوع' : 'Mark Installment Unpaid')
+              : (isArabic ? 'إلغاء الدفعة' : 'Void Payment')
+        }
+        onClose={() => setActionOpen(false)}
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl border border-[var(--panel-border)] p-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'القسط' : 'Installment'}</div>
+              <div className="font-semibold">#{safeStr(actionRow?.installment_number || actionRow?.id)}</div>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'المبلغ' : 'Amount'}</div>
+                <div>{formatMoney(actionRow?.amount)}</div>
+              </div>
+              <div>
+                <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'المدفوع' : 'Paid'}</div>
+                <div>{formatMoney(actionRow?.paid_amount)}</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className={`text-xs font-semibold ${mutedTextClass}`}>
+              {actionType === 'reject'
+                ? (isArabic ? 'سبب الرفض (مطلوب)' : 'Reason (required)')
+                : (isArabic ? 'سبب (اختياري)' : 'Reason (optional)')}
+            </label>
+            <textarea
+              value={actionReason}
+              onChange={(e) => setActionReason(e.target.value)}
+              rows={3}
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="..."
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => setActionOpen(false)}
+              disabled={actionSaving}
+            >
+              {isArabic ? 'إلغاء' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              className={`px-4 py-2 rounded-xl text-white text-sm disabled:opacity-50 ${
+                actionType === 'reject' ? 'bg-red-600' : actionType === 'unpaid' ? 'bg-gray-900' : 'bg-amber-600'
+              }`}
+              onClick={submitAction}
+              disabled={actionSaving || (actionType === 'reject' && !actionReason.trim())}
+            >
+              {actionSaving
+                ? (isArabic ? 'جاري...' : 'Saving...')
+                : actionType === 'reject'
+                  ? (isArabic ? 'رفض' : 'Reject')
+                  : actionType === 'unpaid'
+                    ? (isArabic ? 'تحديث' : 'Mark Unpaid')
+                    : (isArabic ? 'إلغاء' : 'Void')}
             </button>
           </div>
         </div>

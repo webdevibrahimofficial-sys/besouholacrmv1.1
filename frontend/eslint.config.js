@@ -53,6 +53,9 @@ export default [
       'react-hooks/rules-of-hooks': 'error', // Enforce Rules of Hooks
       'react-hooks/exhaustive-deps': 'warn', // Warn about missing dependencies
 
+      // Ensure JSX component vars count as "used" for unused-imports/no-unused-imports.
+      'react/jsx-uses-vars': 'error',
+
       // --- React Refresh (HMR) ---
       'react-refresh/only-export-components': [
         'warn',

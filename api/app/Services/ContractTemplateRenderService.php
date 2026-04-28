@@ -160,11 +160,6 @@ class ContractTemplateRenderService
             . '<p><strong>Total Price:</strong> {{total_price}}</p>'
             . '</div>'
             . '<div class="section"><h3>Payment Plan</h3>{{payment_plan_table}}</div>'
-            . '<div class="section"><h3>Installments</h3>{{installments_table}}</div>'
-            . '<div class="section" style="margin-top:22px;display:flex;gap:24px;justify-content:space-between">'
-            . '<div style="flex:1"><div style="font-weight:700;margin-bottom:6px">Seller</div><div>Signature: __________________</div></div>'
-            . '<div style="flex:1"><div style="font-weight:700;margin-bottom:6px">Buyer</div><div>Signature: __________________</div></div>'
-            . '</div>';
+            . '<div class="section"><h3>Installments</h3>{{installments_table}}</div>';
     }
 }
-

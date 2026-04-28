@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\RealEstateRequest;
 use App\Models\CcCustomer;
+use App\Models\CcCustomerUnit;
+use App\Models\CcPaymentPlanVersion;
 use App\Models\CrmSetting;
 use App\Models\Lead;
+use App\Models\Property;
 use App\Models\User;
 use App\Notifications\RequestCreated;
 use App\Traits\InventoryDeleteAuthorization;
@@ -300,6 +303,165 @@ class RealEstateRequestController extends Controller
 
                 if ($hasRequestMetaColumn && $existingCustomer) {
                     $meta['cc_customer_id'] = $existingCustomer->id;
+                }
+            }
+
+            // Link request unit to CC customer so it appears in CC Customers table/preview.
+            if ($existingCustomer && Schema::hasTable('cc_customer_units')) {
+                $propertyId = null;
+
+                if (isset($meta['property_id'])) {
+                    $maybeId = (int) $meta['property_id'];
+                    $propertyId = $maybeId > 0 ? $maybeId : null;
+                }
+
+                if (!$propertyId) {
+                    $unitCode = trim((string) ($realEstateRequest->unit ?? ''));
+                    if ($unitCode !== '') {
+                        $propertyId = Property::where('tenant_id', $tenantId)
+                            ->where(function ($q) use ($unitCode) {
+                                $q->where('unit_code', $unitCode)
+                                    ->orWhere('unit_number', $unitCode)
+                                    ->orWhere('name', $unitCode)
+                                    ->orWhere('title', $unitCode);
+                            })
+                            ->value('id');
+                    }
+                }
+
+                if ($propertyId) {
+                    try {
+                        $unit = CcCustomerUnit::firstOrCreate(
+                            [
+                                'tenant_id' => $tenantId,
+                                'customer_id' => $existingCustomer->id,
+                                'property_id' => (int) $propertyId,
+                            ],
+                            [
+                                'status' => 'reserved',
+                                'reserved_at' => now(),
+                                'meta_data' => [
+                                    'created_from' => 'real_estate_request',
+                                    'real_estate_request_id' => (int) $realEstateRequest->id,
+                                ],
+                            ]
+                        );
+
+                        $custMeta = is_array($existingCustomer->meta_data) ? $existingCustomer->meta_data : [];
+                        if (!isset($custMeta['primary_customer_unit_id']) || (int) $custMeta['primary_customer_unit_id'] <= 0) {
+                            $custMeta['primary_customer_unit_id'] = (int) $unit->id;
+                            $existingCustomer->meta_data = $custMeta;
+                            $existingCustomer->save();
+                        }
+
+                        if ($hasRequestMetaColumn) {
+                            $meta['property_id'] = (int) $propertyId;
+                            $meta['cc_customer_unit_id'] = (int) $unit->id;
+                        }
+
+                        // If the property has installment plans, seed an initial active payment plan version for this CC unit.
+                        if (Schema::hasTable('cc_payment_plan_versions')) {
+                            $hasActive = CcPaymentPlanVersion::where('tenant_id', $tenantId)
+                                ->where('customer_unit_id', $unit->id)
+                                ->where('is_active', true)
+                                ->exists();
+
+                            if (!$hasActive) {
+                                $property = Property::where('tenant_id', $tenantId)->find($propertyId);
+
+                                $leadMeta = is_array($lead?->meta_data) ? $lead->meta_data : [];
+                                $leadPlan = isset($leadMeta['payment_plan']) && is_array($leadMeta['payment_plan']) ? $leadMeta['payment_plan'] : null;
+
+                                $leadUnitNo = $leadPlan ? trim((string) ($leadPlan['unitNo'] ?? $leadPlan['unit_no'] ?? '')) : '';
+                                $reqUnitNo = trim((string) ($realEstateRequest->unit ?? ''));
+                                $propUnitNo = trim((string) ($property?->unit_code ?? $property?->unit_number ?? $property?->name ?? $property?->title ?? ''));
+
+                                $useLeadPlan = $leadPlan
+                                    && $leadUnitNo !== ''
+                                    && (
+                                        ($reqUnitNo !== '' && strcasecmp($leadUnitNo, $reqUnitNo) === 0)
+                                        || ($propUnitNo !== '' && strcasecmp($leadUnitNo, $propUnitNo) === 0)
+                                    );
+
+                                if ($useLeadPlan) {
+                                    $baseAmount = (float) ($leadPlan['totalAmount'] ?? $leadPlan['total_amount'] ?? $leadPlan['netAmount'] ?? $leadPlan['net_amount'] ?? 0);
+                                    $downPayment = (float) ($leadPlan['downPayment'] ?? $leadPlan['down_payment'] ?? 0);
+                                    $delivery = (float) ($leadPlan['receiptAmount'] ?? $leadPlan['receipt_amount'] ?? 0);
+                                    $installmentValue = (float) ($leadPlan['installmentAmount'] ?? $leadPlan['installment_amount'] ?? 0);
+                                    $installmentCount = (int) ($leadPlan['noOfMonths'] ?? $leadPlan['no_of_months'] ?? $leadPlan['months'] ?? 0);
+                                    $additionalPayments = (float) ($leadPlan['extraInstallments'] ?? $leadPlan['extra_installments'] ?? 0);
+
+                                    CcPaymentPlanVersion::create([
+                                        'tenant_id' => $tenantId,
+                                        'customer_unit_id' => $unit->id,
+                                        'version' => 1,
+                                        'is_active' => true,
+                                        'reservation_amount' => (float) ($property?->reservation_amount ?? 0),
+                                        'down_payment' => $downPayment,
+                                        'delivery_payment' => $delivery,
+                                        'installment_type' => 'monthly',
+                                        'installment_count' => $installmentCount > 0 ? $installmentCount : 0,
+                                        'installment_value' => $installmentValue,
+                                        'meta_data' => [
+                                            'created_from' => 'lead_payment_plan',
+                                            'real_estate_request_id' => (int) $realEstateRequest->id,
+                                            'lead_id' => (int) ($lead?->id ?? 0),
+                                            'lead_payment_plan' => $leadPlan,
+                                            'base_price' => $baseAmount,
+                                            'additional_payments' => $additionalPayments,
+                                            'garage_amount' => $leadPlan['garageAmount'] ?? $leadPlan['garage_amount'] ?? null,
+                                            'maintenance' => $leadPlan['maintenanceAmount'] ?? $leadPlan['maintenance_amount'] ?? null,
+                                            'net_amount' => $leadPlan['netAmount'] ?? $leadPlan['net_amount'] ?? null,
+                                        ],
+                                    ]);
+                                } else {
+                                    $plans = is_array($property?->installment_plans) ? $property->installment_plans : [];
+                                    $firstPlan = is_array($plans) ? ($plans[0] ?? null) : null;
+
+                                    if (is_array($firstPlan) && !empty($firstPlan)) {
+                                        $basePrice = (float) ($property?->total_after_discount ?? $property?->net_amount ?? $property?->total_price ?? $property?->price ?? 0);
+                                        $dpType = strtolower(trim((string) ($firstPlan['downPaymentType'] ?? $firstPlan['down_payment_type'] ?? '')));
+                                        $dpRaw = (float) ($firstPlan['downPayment'] ?? $firstPlan['down_payment'] ?? 0);
+                                        $downPayment = ($dpType === 'percentage' || $dpType === 'percent') ? ($basePrice * ($dpRaw / 100.0)) : $dpRaw;
+
+                                        $years = (int) ($firstPlan['years'] ?? 0);
+                                        $installmentCount = $years > 0 ? ($years * 12) : (int) ($firstPlan['installmentCount'] ?? $firstPlan['installment_count'] ?? 0);
+                                        $installmentValue = (float) ($firstPlan['installmentAmount'] ?? $firstPlan['installment_amount'] ?? $firstPlan['installment_value'] ?? 0);
+
+                                        CcPaymentPlanVersion::create([
+                                            'tenant_id' => $tenantId,
+                                            'customer_unit_id' => $unit->id,
+                                            'version' => 1,
+                                            'is_active' => true,
+                                            'reservation_amount' => (float) ($firstPlan['reservationAmount'] ?? $firstPlan['reservation_amount'] ?? $property?->reservation_amount ?? 0),
+                                            'down_payment' => $downPayment,
+                                            'delivery_payment' => (float) ($firstPlan['receiptAmount'] ?? $firstPlan['receipt_amount'] ?? $firstPlan['delivery_payment'] ?? 0),
+                                            'installment_type' => $firstPlan['installmentType'] ?? $firstPlan['installment_type'] ?? 'monthly',
+                                            'installment_count' => $installmentCount > 0 ? $installmentCount : 0,
+                                            'installment_value' => $installmentValue,
+                                            'meta_data' => [
+                                                'created_from' => 'real_estate_request',
+                                                'real_estate_request_id' => (int) $realEstateRequest->id,
+                                                'property_installment_plan' => $firstPlan,
+                                                'base_price' => $basePrice,
+                                                'years' => $years > 0 ? $years : null,
+                                                'additional_payments' => $firstPlan['extraPayment'] ?? $firstPlan['extra_payment'] ?? null,
+                                                'delivery_date' => $firstPlan['deliveryDate'] ?? $firstPlan['delivery_date'] ?? null,
+                                            ],
+                                        ]);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('RealEstateRequest convertToDeal: cc_customer_unit create failed', [
+                            'request_id' => $realEstateRequest->id ?? null,
+                            'tenant_id' => $tenantId,
+                            'cc_customer_id' => $existingCustomer->id ?? null,
+                            'property_id' => $propertyId,
+                            'exception' => $e->getMessage(),
+                        ]);
+                    }
                 }
             }
 

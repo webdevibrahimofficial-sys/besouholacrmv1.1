@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate, NavLink } from 'react-router-dom'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { RiCloseLine } from 'react-icons/ri'
-import { Table, Users, Key, Settings2, Settings, Share2, Server, Database, Bell, MessageCircle, Mail, Globe, RefreshCw, Smartphone, Wrench, User, Building2, Building, Kanban, XCircle, MapPin, Flag, Map, FormInput, UserPlus, Box, Home, Briefcase } from 'lucide-react'
+import { Table, Users, Key, Settings2, Settings, Share2, Server, Database, Bell, MessageCircle, Mail, Globe, RefreshCw, Smartphone, Wrench, User, Building2, Building, Kanban, XCircle, MapPin, Flag, Map, FormInput, UserPlus, Box, Home, Briefcase, FileText } from 'lucide-react'
 import lightLogo from '../../assets/be-souhola-logo-light.png'
 import darkLogo from '../../assets/be-souhola-logo-dark.png'
 import lightLogoCollapse from '../../assets/be-souhola-logo-light-collapse.png'
@@ -520,6 +520,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewPipelineStages = hasFullSettingsAccess || effectiveControlPerms.includes('addStage')
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
+  const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')
   const canViewLocationsSettings =
     hasFullSettingsAccess || effectiveControlPerms.some(p => ['addRegions', 'addArea'].includes(p))
@@ -2034,6 +2035,11 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                         {canViewCrmSettings && (
                           <NavLink to="/settings/system/crm" onClick={onClose} title={isCollapsed ? t('CRM Settings') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
                             <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><Settings2 size={18} /></span><span className="text-[14px] link-label">{t('CRM Settings')}</span></span>
+                          </NavLink>
+                        )}
+                        {canViewContractsSettings && (
+                          <NavLink to="/settings/operations/contracts" onClick={onClose} title={isCollapsed ? t('Contracts Settings') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
+                            <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><FileText size={18} /></span><span className="text-[14px] link-label">{t('Contracts Settings')}</span></span>
                           </NavLink>
                         )}
                         {canViewSourcesSettings && (

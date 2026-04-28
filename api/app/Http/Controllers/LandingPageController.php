@@ -5,16 +5,57 @@ namespace App\Http\Controllers;
 use App\Models\LandingPage;
 use App\Http\Resources\LandingPageResource;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 use App\Models\Lead;
 use App\Models\Campaign;
 use App\Models\Project;
 use App\Models\Unit;
+use App\Models\Item;
 
 class LandingPageController extends Controller
 {
+    private function tenantSchema()
+    {
+        $connection = (new LandingPage())->getConnectionName() ?: config('database.default');
+        return Schema::connection($connection);
+    }
+
+    private function tenantHasTable(string $table): bool
+    {
+        try {
+            return $this->tenantSchema()->hasTable($table);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function filterLandingPageColumns(array $data): array
+    {
+        $model = new LandingPage();
+
+        try {
+            $table = $model->getTable();
+            $connection = $model->getConnectionName() ?: config('database.default');
+            $columns = Schema::connection($connection)->getColumnListing($table);
+
+            $allowed = array_flip($columns);
+            return array_intersect_key($data, $allowed);
+        } catch (\Throwable $e) {
+            // Schema introspection might be blocked in some environments. Fall back to model fillable keys.
+            try {
+                $allowed = array_flip($model->getFillable() ?: []);
+                return array_intersect_key($data, $allowed);
+            } catch (\Throwable $inner) {
+                return [];
+            }
+        }
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -29,94 +70,153 @@ class LandingPageController extends Controller
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'title' => 'required|string|max:255',
-            'campaign_id' => 'nullable|exists:campaigns,id',
-            'lead_project_id' => 'nullable|exists:projects,id|prohibited_with:lead_unit_id',
-            'lead_unit_id' => 'nullable|exists:units,id|prohibited_with:lead_project_id',
-            'source' => 'nullable|string',
-            'email' => 'nullable|email',
-            'phone' => 'nullable|string',
-            'theme' => 'nullable|string',
-            'description' => 'nullable|string',
-            'header_script' => 'nullable|string',
-            'header_script_enabled' => 'nullable|boolean',
-            'body_script' => 'nullable|string',
-            'body_script_enabled' => 'nullable|boolean',
-            'pixel_id' => 'nullable|string',
-            'is_pixel_enabled' => 'nullable|boolean',
-            'gtm_id' => 'nullable|string',
-            'is_gtm_enabled' => 'nullable|boolean',
-            'facebook' => 'nullable|url',
-            'instagram' => 'nullable|url',
-            'twitter' => 'nullable|url',
-            'linkedin' => 'nullable|url',
-            'logo' => 'nullable|image|max:2048',
-            'cover' => 'nullable|image|max:2048',
-            'media.*' => 'nullable|file|max:10240',
-        ]);
+        try {
+            $hasProjects = $this->tenantHasTable('projects');
+            $hasUnits = $this->tenantHasTable('units');
+            $hasItems = $this->tenantHasTable('items');
 
-        if ($validator->fails()) {
-            \Illuminate\Support\Facades\Log::error('Landing Page Validation Error', $validator->errors()->toArray());
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+            $validator = Validator::make($request->all(), [
+                'title' => 'required|string|max:255',
+                'campaign_id' => 'nullable|exists:campaigns,id',
+                'lead_project_id' => array_values(array_filter([
+                    'nullable',
+                    'integer',
+                    'prohibited_with:lead_unit_id,lead_item_id',
+                    $hasProjects ? Rule::exists('projects', 'id') : null,
+                    function ($attribute, $value, $fail) use ($hasProjects) {
+                        if (!empty($value) && !$hasProjects) {
+                            $fail('Projects are not available for this tenant.');
+                        }
+                    },
+                ])),
+                'lead_unit_id' => array_values(array_filter([
+                    'nullable',
+                    'integer',
+                    'prohibited_with:lead_project_id,lead_item_id',
+                    $hasUnits ? Rule::exists('units', 'id') : null,
+                    function ($attribute, $value, $fail) use ($hasUnits) {
+                        if (!empty($value) && !$hasUnits) {
+                            $fail('Units are not available for this tenant.');
+                        }
+                    },
+                ])),
+                'lead_item_id' => array_values(array_filter([
+                    'nullable',
+                    'integer',
+                    'prohibited_with:lead_project_id,lead_unit_id',
+                    $hasItems ? Rule::exists('items', 'id') : null,
+                    function ($attribute, $value, $fail) use ($hasItems) {
+                        if (!empty($value) && !$hasItems) {
+                            $fail('Items are not available for this tenant.');
+                        }
+                    },
+                ])),
+                'source' => 'nullable|string',
+                'email' => 'nullable|email',
+                'phone' => 'nullable|string',
+                'theme' => 'nullable|string',
+                'description' => 'nullable|string',
+                'header_script' => 'nullable|string',
+                'header_script_enabled' => 'nullable|boolean',
+                'body_script' => 'nullable|string',
+                'body_script_enabled' => 'nullable|boolean',
+                'pixel_id' => 'nullable|string',
+                'is_pixel_enabled' => 'nullable|boolean',
+                'gtm_id' => 'nullable|string',
+                'is_gtm_enabled' => 'nullable|boolean',
+                'facebook' => 'nullable|url',
+                'instagram' => 'nullable|url',
+                'twitter' => 'nullable|url',
+                'linkedin' => 'nullable|url',
+                'logo' => 'nullable|image|max:2048',
+                'cover' => 'nullable|image|max:2048',
+                'media.*' => 'nullable|file|max:10240',
+            ]);
 
-        $data = $request->except(['logo', 'cover', 'media']);
-
-        // Generate Slug
-        $data['slug'] = Str::slug($request->title) . '-' . Str::random(6);
-
-        // Created By
-        if ($request->user()) {
-            $data['created_by'] = $request->user()->name;
-        }
-
-        if ($request->hasFile('logo')) {
-            $path = $request->file('logo')->store('landing-pages/logos', 'public');
-            $data['logo'] = '/storage/' . $path;
-        }
-        
-        if ($request->hasFile('cover')) {
-            $path = $request->file('cover')->store('landing-pages/covers', 'public');
-            $data['cover'] = '/storage/' . $path;
-        }
-
-        // Handle Media Array
-        $metaData = [];
-        if ($request->hasFile('media')) {
-            $mediaPaths = [];
-            foreach ($request->file('media') as $file) {
-                $path = $file->store('landing-pages/media', 'public');
-                $mediaPaths[] = [
-                    'path' => '/storage/' . $path,
-                    'name' => $file->getClientOriginalName(),
-                    'size' => $file->getSize(),
-                    'mime' => $file->getMimeType(),
-                ];
+            if ($validator->fails()) {
+                Log::warning('Landing Page Validation Error', $validator->errors()->toArray());
+                return response()->json(['errors' => $validator->errors()], 422);
             }
-            $metaData['media'] = $mediaPaths;
-        }
 
-        // Lead context (Project / Unit) stored in meta_data
-        if ($request->filled('lead_project_id')) {
-            $project = Project::find($request->input('lead_project_id'));
-            if ($project) {
-                $metaData['lead_project_id'] = $project->id;
-                $metaData['lead_project_name'] = $project->name;
+            $data = $request->except(['logo', 'cover', 'media']);
+
+            // Generate Slug
+            $data['slug'] = Str::slug($request->title) . '-' . Str::random(6);
+
+            // Created By
+            if ($request->user()) {
+                $data['created_by'] = $request->user()->name;
             }
-        }
-        if ($request->filled('lead_unit_id')) {
-            $unit = Unit::find($request->input('lead_unit_id'));
-            if ($unit) {
-                $metaData['lead_unit_id'] = $unit->id;
-                $metaData['lead_unit_name'] = $unit->name;
+
+            if ($request->hasFile('logo')) {
+                $path = $request->file('logo')->store('landing-pages/logos', 'public');
+                $data['logo'] = '/storage/' . $path;
             }
+
+            if ($request->hasFile('cover')) {
+                $path = $request->file('cover')->store('landing-pages/covers', 'public');
+                $data['cover'] = '/storage/' . $path;
+            }
+
+            // Handle Media Array
+            $metaData = [];
+            if ($request->hasFile('media')) {
+                $mediaPaths = [];
+                foreach ($request->file('media') as $file) {
+                    $path = $file->store('landing-pages/media', 'public');
+                    $mediaPaths[] = [
+                        'path' => '/storage/' . $path,
+                        'name' => $file->getClientOriginalName(),
+                        'size' => $file->getSize(),
+                        'mime' => $file->getMimeType(),
+                    ];
+                }
+                $metaData['media'] = $mediaPaths;
+            }
+
+            // Lead context (Project / Unit / Item) stored in meta_data
+            if ($hasProjects && $request->filled('lead_project_id')) {
+                $project = Project::find($request->input('lead_project_id'));
+                if ($project) {
+                    $metaData['lead_project_id'] = $project->id;
+                    $metaData['lead_project_name'] = $project->name;
+                }
+            }
+            if ($hasUnits && $request->filled('lead_unit_id')) {
+                $unit = Unit::find($request->input('lead_unit_id'));
+                if ($unit) {
+                    $metaData['lead_unit_id'] = $unit->id;
+                    $metaData['lead_unit_name'] = $unit->name;
+                }
+            }
+            if ($hasItems && $request->filled('lead_item_id')) {
+                $item = Item::find($request->input('lead_item_id'));
+                if ($item) {
+                    $metaData['lead_item_id'] = $item->id;
+                    $metaData['lead_item_name'] = $item->name;
+                }
+            }
+            $data['meta_data'] = $metaData;
+
+            $landingPage = LandingPage::create($this->filterLandingPageColumns($data));
+
+            return new LandingPageResource($landingPage);
+        } catch (\Throwable $e) {
+            $errorId = (string) Str::uuid();
+
+            Log::error('Landing Page Store Failed', [
+                'error_id' => $errorId,
+                'message' => $e->getMessage(),
+                'exception' => get_class($e),
+                'tenant_id' => app()->bound('current_tenant_id') ? app('current_tenant_id') : null,
+                'request' => $request->except(['logo', 'cover', 'media']),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to save landing page.',
+                'error_id' => $errorId,
+            ], 500);
         }
-        $data['meta_data'] = $metaData;
-
-        $landingPage = LandingPage::create($data);
-
-        return new LandingPageResource($landingPage);
     }
 
     /**
@@ -132,123 +232,189 @@ class LandingPageController extends Controller
      */
     public function update(Request $request, LandingPage $landingPage)
     {
-        $validator = Validator::make($request->all(), [
-            'title' => 'required|string|max:255',
-            'campaign_id' => 'nullable|exists:campaigns,id',
-            'lead_project_id' => 'nullable|exists:projects,id|prohibited_with:lead_unit_id',
-            'lead_unit_id' => 'nullable|exists:units,id|prohibited_with:lead_project_id',
-            'source' => 'nullable|string',
-            'email' => 'nullable|email',
-            'phone' => 'nullable|string',
-            'theme' => 'nullable|string',
-            'description' => 'nullable|string',
-            'header_script' => 'nullable|string',
-            'header_script_enabled' => 'nullable|boolean',
-            'body_script' => 'nullable|string',
-            'body_script_enabled' => 'nullable|boolean',
-            'pixel_id' => 'nullable|string',
-            'is_pixel_enabled' => 'nullable|boolean',
-            'gtm_id' => 'nullable|string',
-            'is_gtm_enabled' => 'nullable|boolean',
-            'facebook' => 'nullable|url',
-            'instagram' => 'nullable|url',
-            'twitter' => 'nullable|url',
-            'linkedin' => 'nullable|url',
-            'logo' => 'nullable|image|max:2048',
-            'cover' => 'nullable|image|max:2048',
-            'media.*' => 'nullable|file|max:10240',
-        ]);
+        try {
+            $hasProjects = $this->tenantHasTable('projects');
+            $hasUnits = $this->tenantHasTable('units');
+            $hasItems = $this->tenantHasTable('items');
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+            $validator = Validator::make($request->all(), [
+                'title' => 'required|string|max:255',
+                'campaign_id' => 'nullable|exists:campaigns,id',
+                'lead_project_id' => array_values(array_filter([
+                    'nullable',
+                    'integer',
+                    'prohibited_with:lead_unit_id,lead_item_id',
+                    $hasProjects ? Rule::exists('projects', 'id') : null,
+                    function ($attribute, $value, $fail) use ($hasProjects) {
+                        if (!empty($value) && !$hasProjects) {
+                            $fail('Projects are not available for this tenant.');
+                        }
+                    },
+                ])),
+                'lead_unit_id' => array_values(array_filter([
+                    'nullable',
+                    'integer',
+                    'prohibited_with:lead_project_id,lead_item_id',
+                    $hasUnits ? Rule::exists('units', 'id') : null,
+                    function ($attribute, $value, $fail) use ($hasUnits) {
+                        if (!empty($value) && !$hasUnits) {
+                            $fail('Units are not available for this tenant.');
+                        }
+                    },
+                ])),
+                'lead_item_id' => array_values(array_filter([
+                    'nullable',
+                    'integer',
+                    'prohibited_with:lead_project_id,lead_unit_id',
+                    $hasItems ? Rule::exists('items', 'id') : null,
+                    function ($attribute, $value, $fail) use ($hasItems) {
+                        if (!empty($value) && !$hasItems) {
+                            $fail('Items are not available for this tenant.');
+                        }
+                    },
+                ])),
+                'source' => 'nullable|string',
+                'email' => 'nullable|email',
+                'phone' => 'nullable|string',
+                'theme' => 'nullable|string',
+                'description' => 'nullable|string',
+                'header_script' => 'nullable|string',
+                'header_script_enabled' => 'nullable|boolean',
+                'body_script' => 'nullable|string',
+                'body_script_enabled' => 'nullable|boolean',
+                'pixel_id' => 'nullable|string',
+                'is_pixel_enabled' => 'nullable|boolean',
+                'gtm_id' => 'nullable|string',
+                'is_gtm_enabled' => 'nullable|boolean',
+                'facebook' => 'nullable|url',
+                'instagram' => 'nullable|url',
+                'twitter' => 'nullable|url',
+                'linkedin' => 'nullable|url',
+                'logo' => 'nullable|image|max:2048',
+                'cover' => 'nullable|image|max:2048',
+                'media.*' => 'nullable|file|max:10240',
+            ]);
 
-        $data = $request->except(['logo', 'cover', 'media', 'slug']);
-
-        if ($request->hasFile('logo')) {
-            // Delete old logo
-            if ($landingPage->logo && strpos($landingPage->logo, '/storage/') === 0) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('/storage/', '', $landingPage->logo));
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
             }
-            $path = $request->file('logo')->store('landing-pages/logos', 'public');
-            $data['logo'] = '/storage/' . $path;
-        }
-        
-        if ($request->hasFile('cover')) {
-            // Delete old cover
-            if ($landingPage->cover && strpos($landingPage->cover, '/storage/') === 0) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('/storage/', '', $landingPage->cover));
-            }
-            $path = $request->file('cover')->store('landing-pages/covers', 'public');
-            $data['cover'] = '/storage/' . $path;
-        }
 
-        // Handle Media Array
-        $metaData = $landingPage->meta_data ?? [];
-        
-        // 1. Filter existing media (remove deleted ones)
-        $oldMedia = $metaData['media'] ?? [];
-        $retainedPaths = $request->input('existing_media', []);
-        
-        $keptMedia = [];
-        foreach ($oldMedia as $mediaItem) {
-            if (in_array($mediaItem['path'], $retainedPaths)) {
-                $keptMedia[] = $mediaItem;
-            } else {
-                // Delete file from storage if not retained
-                if (isset($mediaItem['path']) && strpos($mediaItem['path'], '/storage/') === 0) {
-                     \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('/storage/', '', $mediaItem['path']));
+            $data = $request->except(['logo', 'cover', 'media', 'slug']);
+
+            if ($request->hasFile('logo')) {
+                // Delete old logo
+                if ($landingPage->logo && strpos($landingPage->logo, '/storage/') === 0) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('/storage/', '', $landingPage->logo));
+                }
+                $path = $request->file('logo')->store('landing-pages/logos', 'public');
+                $data['logo'] = '/storage/' . $path;
+            }
+
+            if ($request->hasFile('cover')) {
+                // Delete old cover
+                if ($landingPage->cover && strpos($landingPage->cover, '/storage/') === 0) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('/storage/', '', $landingPage->cover));
+                }
+                $path = $request->file('cover')->store('landing-pages/covers', 'public');
+                $data['cover'] = '/storage/' . $path;
+            }
+
+            // Handle Media Array
+            $metaData = $landingPage->meta_data ?? [];
+
+            // 1. Filter existing media (remove deleted ones)
+            $oldMedia = $metaData['media'] ?? [];
+            $retainedPaths = $request->input('existing_media', []);
+
+            $keptMedia = [];
+            foreach ($oldMedia as $mediaItem) {
+                if (in_array($mediaItem['path'], $retainedPaths)) {
+                    $keptMedia[] = $mediaItem;
+                } else {
+                    // Delete file from storage if not retained
+                    if (isset($mediaItem['path']) && strpos($mediaItem['path'], '/storage/') === 0) {
+                        \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('/storage/', '', $mediaItem['path']));
+                    }
                 }
             }
-        }
-        
-        // 2. Append new media
-        if ($request->hasFile('media')) {
-            foreach ($request->file('media') as $file) {
-                $path = $file->store('landing-pages/media', 'public');
-                $keptMedia[] = [
-                    'path' => '/storage/' . $path,
-                    'name' => $file->getClientOriginalName(),
-                    'size' => $file->getSize(),
-                    'mime' => $file->getMimeType(),
-                ];
-            }
-        }
-        
-        $metaData['media'] = $keptMedia;
 
-        // Update / clear lead context (Project / Unit)
-        if ($request->has('lead_project_id')) {
-            if ($request->filled('lead_project_id')) {
-                $project = Project::find($request->input('lead_project_id'));
-                if ($project) {
-                    $metaData['lead_project_id'] = $project->id;
-                    $metaData['lead_project_name'] = $project->name;
-                    unset($metaData['lead_unit_id'], $metaData['lead_unit_name']);
+            // 2. Append new media
+            if ($request->hasFile('media')) {
+                foreach ($request->file('media') as $file) {
+                    $path = $file->store('landing-pages/media', 'public');
+                    $keptMedia[] = [
+                        'path' => '/storage/' . $path,
+                        'name' => $file->getClientOriginalName(),
+                        'size' => $file->getSize(),
+                        'mime' => $file->getMimeType(),
+                    ];
                 }
-            } else {
-                unset($metaData['lead_project_id'], $metaData['lead_project_name']);
             }
-        }
 
-        if ($request->has('lead_unit_id')) {
-            if ($request->filled('lead_unit_id')) {
-                $unit = Unit::find($request->input('lead_unit_id'));
-                if ($unit) {
-                    $metaData['lead_unit_id'] = $unit->id;
-                    $metaData['lead_unit_name'] = $unit->name;
+            $metaData['media'] = $keptMedia;
+
+            // Update / clear lead context (Project / Unit / Item)
+            if ($request->has('lead_project_id')) {
+                if ($request->filled('lead_project_id')) {
+                    if ($hasProjects && ($project = Project::find($request->input('lead_project_id')))) {
+                        $metaData['lead_project_id'] = $project->id;
+                        $metaData['lead_project_name'] = $project->name;
+                        unset($metaData['lead_unit_id'], $metaData['lead_unit_name']);
+                        unset($metaData['lead_item_id'], $metaData['lead_item_name']);
+                    }
+                } else {
                     unset($metaData['lead_project_id'], $metaData['lead_project_name']);
                 }
-            } else {
-                unset($metaData['lead_unit_id'], $metaData['lead_unit_name']);
             }
+
+            if ($request->has('lead_unit_id')) {
+                if ($request->filled('lead_unit_id')) {
+                    if ($hasUnits && ($unit = Unit::find($request->input('lead_unit_id')))) {
+                        $metaData['lead_unit_id'] = $unit->id;
+                        $metaData['lead_unit_name'] = $unit->name;
+                        unset($metaData['lead_project_id'], $metaData['lead_project_name']);
+                        unset($metaData['lead_item_id'], $metaData['lead_item_name']);
+                    }
+                } else {
+                    unset($metaData['lead_unit_id'], $metaData['lead_unit_name']);
+                }
+            }
+
+            if ($request->has('lead_item_id')) {
+                if ($request->filled('lead_item_id')) {
+                    if ($hasItems && ($item = Item::find($request->input('lead_item_id')))) {
+                        $metaData['lead_item_id'] = $item->id;
+                        $metaData['lead_item_name'] = $item->name;
+                        unset($metaData['lead_project_id'], $metaData['lead_project_name']);
+                        unset($metaData['lead_unit_id'], $metaData['lead_unit_name']);
+                    }
+                } else {
+                    unset($metaData['lead_item_id'], $metaData['lead_item_name']);
+                }
+            }
+
+            $data['meta_data'] = $metaData;
+
+            $landingPage->update($this->filterLandingPageColumns($data));
+
+            return new LandingPageResource($landingPage);
+        } catch (\Throwable $e) {
+            $errorId = (string) Str::uuid();
+
+            Log::error('Landing Page Update Failed', [
+                'error_id' => $errorId,
+                'landing_page_id' => $landingPage->id,
+                'message' => $e->getMessage(),
+                'exception' => get_class($e),
+                'tenant_id' => app()->bound('current_tenant_id') ? app('current_tenant_id') : null,
+                'request' => $request->except(['logo', 'cover', 'media']),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to save landing page.',
+                'error_id' => $errorId,
+            ], 500);
         }
-
-        $data['meta_data'] = $metaData;
-
-        $landingPage->update($data);
-
-        return new LandingPageResource($landingPage);
     }
 
     /**

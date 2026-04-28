@@ -237,16 +237,51 @@ export default function ContractsSettings() {
         )}
         <div className="font-semibold text-gray-900">{tenantInfo.name || t('Tenant')}</div>
       </div>
-      <div className="text-xs text-gray-500">{t('Contract')}</div>
+      <div className="text-right text-xs text-gray-700">
+        <div><span className="text-gray-500">Phone:</span> {tenantInfo.phone || '-'}</div>
+        <div><span className="text-gray-500">Email:</span> {tenantInfo.email || '-'}</div>
+        <div><span className="text-gray-500">Tax No.:</span> {tenantInfo.taxId || '-'}</div>
+      </div>
     </div>
   )
 
   const Footer = () => (
     <div className="px-10 py-5 border-t border-gray-200 text-xs text-gray-700">
       <div className="flex flex-wrap gap-x-6 gap-y-2">
-        <div><span className="text-gray-500">{t('Phone')}:</span> {tenantInfo.phone || '-'}</div>
-        <div><span className="text-gray-500">{t('Email')}:</span> {tenantInfo.email || '-'}</div>
-        <div><span className="text-gray-500">{t('Tax ID')}:</span> {tenantInfo.taxId || '-'}</div>
+        <div><span className="text-gray-500">Phone:</span> {tenantInfo.phone || '-'}</div>
+        <div><span className="text-gray-500">Email:</span> {tenantInfo.email || '-'}</div>
+        <div><span className="text-gray-500">Tax No.:</span> {tenantInfo.taxId || '-'}</div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-6 text-[11px]">
+        <div>
+          <div className="font-semibold mb-2">Seller</div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">Signature</span>
+            <span className="flex-1 border-b border-gray-300 h-4" />
+          </div>
+        </div>
+        <div>
+          <div className="font-semibold mb-2">Buyer</div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">Signature</span>
+            <span className="flex-1 border-b border-gray-300 h-4" />
+          </div>
+        </div>
+        <div>
+          <div className="font-semibold mb-2">Witness 1</div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">Signature</span>
+            <span className="flex-1 border-b border-gray-300 h-4" />
+          </div>
+        </div>
+        <div>
+          <div className="font-semibold mb-2">Witness 2</div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">Signature</span>
+            <span className="flex-1 border-b border-gray-300 h-4" />
+          </div>
+        </div>
       </div>
     </div>
   )

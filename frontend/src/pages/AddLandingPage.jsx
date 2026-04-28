@@ -23,6 +23,10 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
     companyTypeLower === 'real estate' ||
     companyTypeLower === 'realestate' ||
     companyTypeLower === 'real_estate'
+  const isGeneral =
+    companyTypeLower === 'general' ||
+    companyTypeLower === 'gen' ||
+    companyTypeLower === 'default'
 
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('general')
@@ -30,6 +34,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
   const [sources, setSources] = useState([])
   const [projects, setProjects] = useState([])
   const [units, setUnits] = useState([])
+  const [items, setItems] = useState([])
 
   useEffect(() => {
     if (isOpen) {
@@ -41,14 +46,17 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
             setSources(res.data || [])
         }).catch(err => console.error('Failed to fetch sources', err))
 
-        const req = isRealEstate ? api.get('/api/projects?all=1') : api.get('/api/units?all=1')
+        const req = isGeneral
+          ? api.get('/api/items?all=1')
+          : (isRealEstate ? api.get('/api/projects?all=1') : api.get('/api/units?all=1'))
         req.then((res) => {
           const data = res?.data?.data || res?.data || []
-          if (isRealEstate) setProjects(Array.isArray(data) ? data : [])
+          if (isGeneral) setItems(Array.isArray(data) ? data : [])
+          else if (isRealEstate) setProjects(Array.isArray(data) ? data : [])
           else setUnits(Array.isArray(data) ? data : [])
         }).catch(err => console.error('Failed to fetch projects/units', err))
     }
-  }, [isOpen, isRealEstate])
+  }, [isOpen, isRealEstate, isGeneral])
 
   const [form, setForm] = useState({
     title: '',
@@ -206,8 +214,32 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
       return `https://${str}`;
   }
 
+  const validateRequired = () => {
+    const missing = []
+
+    if (!String(form.title || '').trim()) missing.push(isRTL ? 'العنوان' : 'Title')
+    if (!String(form.source || '').trim()) missing.push(isRTL ? 'المصدر' : 'Source')
+    if (!String(form.leadContextId || '').trim()) {
+      missing.push(
+        isGeneral
+          ? (isRTL ? 'الآيتم' : 'Item')
+          : (isRealEstate ? (isRTL ? 'المشروع' : 'Project') : (isRTL ? 'الوحدة' : 'Unit'))
+      )
+    }
+
+    if (!missing.length) return true
+
+    alert(
+      isRTL
+        ? `برجاء ملء الحقول الأساسية: ${missing.join('، ')}`
+        : `Please fill the required fields: ${missing.join(', ')}`
+    )
+    return false
+  }
+
   const onSave = async () => {
     if (saving) return
+    if (!validateRequired()) return
     setSaving(true)
     
     try {
@@ -243,15 +275,15 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
       formData.append('body_script_enabled', form.bodyScriptEnabled ? '1' : '0')
 
       if (form.leadContextId) {
-        if (isRealEstate) {
+        if (isGeneral) {
+          formData.append('lead_item_id', String(form.leadContextId))
+        } else if (isRealEstate) {
           formData.append('lead_project_id', String(form.leadContextId))
         } else {
           formData.append('lead_unit_id', String(form.leadContextId))
         }
       }
-
-      formData.append('update_media', '1')
-      
+       
       // Validate File Sizes (Client Side)
       const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
       
@@ -289,11 +321,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
 
       const url = initialData ? `/api/landing-pages/${initialData.id}` : '/api/landing-pages'
 
-      await api.post(url, formData, {
-          headers: {
-              'Content-Type': 'multipart/form-data'
-          }
-      })
+      await api.post(url, formData)
       
       if (onAdd) {
         onAdd()
@@ -380,7 +408,9 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
             <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${isRTL ? 'text-right' : ''}`}>
               {/* Title */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-[var(--muted-text)] font-medium">{isRTL ? 'العنوان' : 'Title'}</label>
+                <label className="text-xs text-[var(--muted-text)] font-medium">
+                  {isRTL ? 'العنوان' : 'Title'} <span className="text-red-500">*</span>
+                </label>
                 <input 
                   name="title" 
                   value={form.title} 
@@ -392,7 +422,9 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
 
               {/* Source */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-[var(--muted-text)] font-medium">{isRTL ? 'المصدر' : 'Source'}</label>
+                <label className="text-xs text-[var(--muted-text)] font-medium">
+                  {isRTL ? 'المصدر' : 'Source'} <span className="text-red-500">*</span>
+                </label>
                 <select 
                   name="source" 
                   value={form.source} 
@@ -425,7 +457,10 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
               {/* Project / Unit context */}
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-[var(--muted-text)] font-medium">
-                  {isRealEstate ? (isRTL ? 'المشروع' : 'Project') : (isRTL ? 'الوحدة' : 'Unit')}
+                  {isGeneral
+                    ? (isRTL ? 'الآيتم' : 'Item')
+                    : (isRealEstate ? (isRTL ? 'المشروع' : 'Project') : (isRTL ? 'الوحدة' : 'Unit'))}{' '}
+                  <span className="text-red-500">*</span>
                 </label>
                 <select
                   name="leadContextId"
@@ -434,7 +469,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
                   className="select w-full bg-transparent border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 >
                   <option value="">{isRTL ? 'اختيار' : 'Select'}</option>
-                  {(isRealEstate ? projects : units).map((x) => (
+                  {(isGeneral ? items : (isRealEstate ? projects : units)).map((x) => (
                     <option key={x.id} value={x.id}>{x.name}</option>
                   ))}
                 </select>
@@ -643,7 +678,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
             <div className="grid grid-cols-1 gap-6">
               {/* Standard Integrations */}
               <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-gray-100 border-b dark:border-gray-700 pb-2">
+                  <h4 className="text-sm font-bold ${isLight ? 'text-black' : 'text-white'} border-b dark:border-gray-700 pb-2">
                     {isRTL ? 'التكاملات القياسية (موصى به)' : 'Standard Integrations (Recommended)'}
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -700,7 +735,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
 
               {/* Advanced Custom Scripts */}
               <div className="space-y-4">
-                <h4 className="text-sm font-bold text-gray-100 border-b dark:border-gray-700 pb-2 flex items-center justify-between">
+                <h4 className="text-sm font-bold  border-b dark:border-gray-700 pb-2 flex items-center justify-between">
                     <span>{isRTL ? 'أكواد مخصصة (متقدم)' : 'Custom Scripts (Advanced)'}</span>
                     <span className="text-xs font-normal text-amber-500 flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-md border border-amber-200 dark:border-amber-800">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -711,7 +746,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
                 </h4>
 
                 {/* Header Script */}
-                <div className="flex flex-col gap-2 p-4 bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:border-blue-300 dark:hover:border-blue-700">
+                <div className="flex flex-col gap-2 p-4  rounded-lg border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:border-blue-300 dark:hover:border-blue-700">
                     <div className="flex items-center justify-between mb-1">
                         <label className="text-xs text-[var(--muted-text)] font-medium flex items-center gap-2">
                             {isRTL ? 'كود الرأس (Header)' : 'Header Script'}
@@ -775,7 +810,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
                 </div>
 
                 {/* Body Script */}
-                <div className="flex flex-col gap-2 p-4 bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:border-blue-300 dark:hover:border-blue-700">
+                <div className="flex flex-col gap-2 p-4  rounded-lg border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:border-blue-300 dark:hover:border-blue-700">
                     <div className="flex items-center justify-between mb-1">
                         <label className="text-xs text-[var(--muted-text)] font-medium flex items-center gap-2">
                             {isRTL ? 'كود الجسم (Body)' : 'Body Script'}

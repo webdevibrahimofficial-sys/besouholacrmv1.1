@@ -838,7 +838,14 @@ export default function RealEstateRequestsPage() {
                                                 setNewRequest(prev => ({
                                                     ...prev,
                                                     project: proj ? (proj.name || proj.name_ar || proj.title || '') : '',
-                                                    unit: ''
+                                                    unit: '',
+                                                    meta_data: (() => {
+                                                        const next = { ...(prev.meta_data || {}) };
+                                                        delete next.property_id;
+                                                        delete next.unit_id;
+                                                        delete next.unit_code;
+                                                        return next;
+                                                    })()
                                                 }));
                                             }}
                                         >
@@ -858,7 +865,19 @@ export default function RealEstateRequestsPage() {
                                         <select
                                             className="input w-full appearance-none pr-8"
                                             value={newRequest.unit}
-                                            onChange={e => setNewRequest(prev => ({ ...prev, unit: e.target.value }))}
+                                            onChange={e => {
+                                                const unitName = e.target.value;
+                                                const picked = units.find(u => String(u.name) === String(unitName));
+                                                setNewRequest(prev => ({
+                                                    ...prev,
+                                                    unit: unitName,
+                                                    meta_data: {
+                                                        ...(prev.meta_data || {}),
+                                                        ...(picked?.id ? { property_id: picked.id, unit_id: picked.id } : {}),
+                                                        ...(picked?.name ? { unit_code: picked.name } : {}),
+                                                    }
+                                                }));
+                                            }}
                                         >
                                             <option value="">{isRTL ? 'اختر' : 'Select'}</option>
                                             {units

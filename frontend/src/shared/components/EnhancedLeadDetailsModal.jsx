@@ -32,6 +32,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [leadActions, setLeadActions] = useState([]);
+  const [convertCustomerLoading, setConvertCustomerLoading] = useState(false);
 
   useEffect(() => {
     if (initialActionId && leadActions.length > 0) {
@@ -489,6 +490,36 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     return isOwner && crmSettings?.allowConvertToCustomers !== false;
   })();
 
+  const doConvertToCustomer = async () => {
+    if (!lead?.id) return;
+    if (convertCustomerLoading) return;
+
+    const ok = window.confirm(isArabic ? 'هل تريد تحويل العميل إلى عميل فعلي؟' : 'Convert this lead to a customer?');
+    if (!ok) return;
+
+    setConvertCustomerLoading(true);
+    try {
+      const res = await api.post(`/api/cc/leads/${encodeURIComponent(lead.id)}/convert-to-customer`);
+      const customerId = res?.data?.customer?.id;
+
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'success', message: isArabic ? 'تم التحويل إلى عميل' : 'Converted to customer' }
+      }));
+
+      setShowHeaderMenu(false);
+
+      try {
+        const url = `/contract-collections/customers${customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch (e) {}
+    } catch (error) {
+      const msg = error?.response?.data?.message || (isArabic ? 'فشل التحويل' : 'Convert failed');
+      alert(msg);
+    } finally {
+      setConvertCustomerLoading(false);
+    }
+  };
+
   // Helper to transform API action to UI format
   const transformAction = (action) => {
     if (!action) return null;
@@ -795,19 +826,20 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
       console.log('Effective Reservation Type:', effectiveType);
 
-      if (effectiveType === 'project') {
-        const realEstateRequest = {
-          id: Date.now(),
-          customer: leadData.name,
-          project: newAction.reservationProject,
-          unit: newAction.reservationUnit,
-          amount: newAction.reservationAmount,
-          status: 'Pending',
-          type: 'Booking',
-          date: new Date().toISOString().split('T')[0],
-          notes: newAction.reservationNotes,
-          phone: leadData.phone
-        };
+        if (effectiveType === 'project') {
+          const realEstateRequest = {
+            id: Date.now(),
+            customer: leadData.name,
+            project: newAction.reservationProject,
+            unit: newAction.reservationUnit,
+            amount: newAction.reservationAmount,
+            status: 'Pending',
+            type: 'Booking',
+            date: new Date().toISOString().split('T')[0],
+            notes: newAction.reservationNotes,
+            phone: leadData.phone,
+            ...(lead?.id ? { meta_data: { lead_id: lead.id } } : {})
+          };
         console.log('Saving to Real Estate:', realEstateRequest);
         await saveRealEstateRequest(realEstateRequest);
         const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم حفظ طلب المشروع' : 'Project Request Saved' } });
@@ -1674,17 +1706,14 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     </button>
 
                     {canConvertToCustomer && (
-                      <button onClick={() => {
-                        setShowHeaderMenu(false);
-                        const ok = window.confirm(isArabic ? 'هل تريد تحويل العميل إلى عميل فعلي؟' : 'Convert this lead to a customer?');
-                        if (ok) {
-                          const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم التحويل إلى عميل' : 'Converted to customer' } });
-                          window.dispatchEvent(evt);
-                        }
-                      }}
+                      <button
+                        onClick={doConvertToCustomer}
+                        disabled={convertCustomerLoading}
                         className="flex items-center justify-start text-start gap-3 w-full px-3 py-2 rounded-lg hover:bg-black/5 whitespace-nowrap">
                         <FaUserCheck className="text-yellow-500 text-lg flex-shrink-0" />
-                        <span className="text-sm font-medium">{isArabic ? 'تحويل إلى عميل' : 'Convert to Customer'}</span>
+                        <span className="text-sm font-medium">
+                          {convertCustomerLoading ? (isArabic ? 'جارٍ التحويل...' : 'Converting...') : (isArabic ? 'تحويل إلى عميل' : 'Convert to Customer')}
+                        </span>
                       </button>
                     )}
                   </div>
@@ -1760,11 +1789,24 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
           isOpen={showPaymentPlanModal}
           onClose={() => setShowPaymentPlanModal(false)}
           onSave={(plan) => {
-            const updatedLead = { ...lead, paymentPlan: plan };
-            setPaymentPlan(plan);
-            if (onUpdateLead) onUpdateLead(updatedLead);
+            const meta = (lead && typeof lead === 'object' && lead.meta_data && typeof lead.meta_data === 'object') ? lead.meta_data : {}
+            const nextMeta = { ...meta, payment_plan: plan }
+            const updatedLead = { ...lead, paymentPlan: plan, meta_data: nextMeta }
+            setPaymentPlan(plan)
+            if (onUpdateLead) onUpdateLead(updatedLead)
             const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم حفظ خطة الدفع' : 'Payment plan saved' } });
-            window.dispatchEvent(evt);
+            void evt
+            ;(async () => {
+              try {
+                if (lead?.id) {
+                  await api.put(`/api/leads/${encodeURIComponent(lead.id)}`, { meta_data: nextMeta })
+                }
+                window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم حفظ خطة الدفع' : 'Payment plan saved' } }))
+              } catch (e) {
+                const msg = e?.response?.data?.message || (isArabic ? 'فشل حفظ خطة الدفع' : 'Failed to save payment plan')
+                window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: msg } }))
+              }
+            })()
           }}
           lead={lead}
         />

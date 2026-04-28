@@ -265,10 +265,19 @@ export default function ContractCollectionsContracts() {
     }
   }
 
-  const openContractPrint = (contractId) => {
+  const openContractPrint = async (contractId) => {
     if (!contractId) return
     const rtl = isRTL ? '1' : '0'
-    window.open(`/api/cc/contracts/${encodeURIComponent(contractId)}/print?autoprint=1&rtl=${rtl}`, '_blank')
+    try {
+      const res = await api.get(`/api/cc/contracts/${encodeURIComponent(contractId)}/print?autoprint=1&rtl=${rtl}`, {
+        responseType: 'blob',
+        headers: { Accept: 'text/html' },
+      })
+      const blobUrl = URL.createObjectURL(res.data)
+      window.open(blobUrl, '_blank')
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    } catch {
+    }
   }
 
   const uploadAttachments = async (contractId, files) => {
