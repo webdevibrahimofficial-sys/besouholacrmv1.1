@@ -46,6 +46,7 @@ const UserActions = ({
   canToggleStatus,
   canDelete,
   canManageRotation,
+  isRotationAssigned,
   onEdit,
   onPreview,
   onChangePassword,
@@ -53,6 +54,7 @@ const UserActions = ({
   onDelete,
   onAssignRotation,
   onDelayRotation,
+  onUnassignRotation,
 }) => {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
@@ -131,6 +133,12 @@ const UserActions = ({
                {canManageRotation && (
                  <button onClick={() => { onAssignRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
                     <UserCog className="w-4 h-4 block shrink-0 text-purple-500"/> Assign Rotation
+                    {isRotationAssigned ? <Check className="w-4 h-4 ms-auto text-green-500" /> : null}
+                 </button>
+               )}
+               {canManageRotation && isRotationAssigned && (
+                 <button onClick={() => { onUnassignRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                    <X className="w-4 h-4 block shrink-0 text-red-500"/> Unassign Rotation
                  </button>
                )}
                {canManageRotation && (
@@ -238,13 +246,29 @@ export default function UserManagementUsers() {
   const [departments, setDepartments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [assignedRotationUserIds, setAssignedRotationUserIds] = useState(() => new Set());
+
+  const fetchAssignedRotationUsers = useCallback(async () => {
+    try {
+      const rulesRes = await api.get('/api/rotation-rules', { params: { type: 'assign' } });
+      const rules = Array.isArray(rulesRes?.data?.rules) ? rulesRes.data.rules : [];
+      const next = new Set();
+      for (const r of rules) {
+        if (r?.is_active && r?.user_id != null) next.add(Number(r.user_id));
+      }
+      setAssignedRotationUserIds(next);
+    } catch {
+      setAssignedRotationUserIds(new Set());
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [usersRes, deptsRes] = await Promise.all([
+      const [usersRes, deptsRes, rulesRes] = await Promise.all([
         api.get('/api/users'),
         api.get('/api/departments'),
+        api.get('/api/rotation-rules', { params: { type: 'assign' } }),
       ]);
       const rawUsers = Array.isArray(usersRes.data)
         ? usersRes.data
@@ -285,6 +309,13 @@ export default function UserManagementUsers() {
 
       setUsers(normalizedUsers);
       setDepartments(deptsRes.data);
+
+      const rules = Array.isArray(rulesRes?.data?.rules) ? rulesRes.data.rules : [];
+      const next = new Set();
+      for (const r of rules) {
+        if (r?.is_active && r?.user_id != null) next.add(Number(r.user_id));
+      }
+      setAssignedRotationUserIds(next);
     } catch (err) {
       console.error('Failed to fetch data', err);
       window.dispatchEvent(new CustomEvent('app:toast', { 
@@ -622,6 +653,27 @@ export default function UserManagementUsers() {
     setRotationRuleType('delay')
     setRotationRuleUser(target)
     setRotationRuleOpen(true)
+  }
+
+  const unassignRotation = async (id) => {
+    if (!canRunMultiAction) return;
+    const target = users.find(u => Number(u.id) === Number(id)) || { id };
+    const ok = window.confirm(isArabic
+      ? `هل أنت متأكد من إلغاء Assign Rotation للمستخدم ${target.name || ''}؟`
+      : `Unassign rotation for ${target.name || ''}?`);
+    if (!ok) return;
+    try {
+      await api.post('/api/rotation-rules/unassign', { user_id: Number(id) });
+      await fetchAssignedRotationUsers();
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'success', message: isArabic ? 'تم إلغاء التعيين بنجاح' : 'Rotation unassigned' },
+      }));
+    } catch (e) {
+      const message = e?.response?.data?.message || (isArabic ? 'فشل إلغاء التعيين' : 'Failed to unassign rotation');
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'error', message },
+      }));
+    }
   }
 
   const openAssign = (context, assignType='user', userId='') => {
@@ -1149,6 +1201,7 @@ export default function UserManagementUsers() {
                           canToggleStatus={canToggleUsers}
                           canDelete={canDeleteUsers}
                           canManageRotation={canRunMultiAction}
+                          isRotationAssigned={assignedRotationUserIds.has(Number(u.id))}
                           onPreview={() => handlePreviewUser(u)}
                           onEdit={() => handleEditUser(u)}
                           onChangePassword={() => changePassword(u.id)}
@@ -1156,6 +1209,7 @@ export default function UserManagementUsers() {
                           onDelete={() => deleteUser(u.id)}
                           onAssignRotation={() => assignRotation(u.id)}
                           onDelayRotation={() => delayRotation(u.id)}
+                          onUnassignRotation={() => unassignRotation(u.id)}
                         />
                       </td>
                     </tr>
@@ -1241,21 +1295,23 @@ export default function UserManagementUsers() {
                        )}
                     </div>
                      <div className="flex justify-end gap-1">
-                       <UserActions
-                         user={u}
-                        canEdit={canEditUsers}
-                        canChangePassword={canChangeUsersPassword}
-                        canToggleStatus={canToggleUsers}
-                        canDelete={canDeleteUsers}
-                        canManageRotation={canRunMultiAction}
-                         onPreview={() => handlePreviewUser(u)}
-                         onEdit={() => handleEditUser(u)}
-                         onChangePassword={() => changePassword(u.id)}
-                        onToggleActive={() => deactivateActivate(u.id)}
-                        onDelete={() => deleteUser(u.id)}
-                        onAssignRotation={() => assignRotation(u.id)}
-                        onDelayRotation={() => delayRotation(u.id)}
-                      />
+                        <UserActions
+                          user={u}
+                          canEdit={canEditUsers}
+                          canChangePassword={canChangeUsersPassword}
+                          canToggleStatus={canToggleUsers}
+                          canDelete={canDeleteUsers}
+                          canManageRotation={canRunMultiAction}
+                          isRotationAssigned={assignedRotationUserIds.has(Number(u.id))}
+                          onPreview={() => handlePreviewUser(u)}
+                          onEdit={() => handleEditUser(u)}
+                          onChangePassword={() => changePassword(u.id)}
+                          onToggleActive={() => deactivateActivate(u.id)}
+                          onDelete={() => deleteUser(u.id)}
+                          onAssignRotation={() => assignRotation(u.id)}
+                          onDelayRotation={() => delayRotation(u.id)}
+                          onUnassignRotation={() => unassignRotation(u.id)}
+                        />
                     </div>
                  </div>
                </div>
@@ -1328,12 +1384,13 @@ export default function UserManagementUsers() {
           />
         )}
 
-        <RotationRuleModal
-          open={rotationRuleOpen}
-          onClose={() => setRotationRuleOpen(false)}
-          user={rotationRuleUser}
-          type={rotationRuleType}
-        />
+          <RotationRuleModal
+            open={rotationRuleOpen}
+            onClose={() => setRotationRuleOpen(false)}
+            user={rotationRuleUser}
+            type={rotationRuleType}
+            onSaved={fetchAssignedRotationUsers}
+          />
 
         {canAddUsers && showCreateModal && createPortal(
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-hidden">

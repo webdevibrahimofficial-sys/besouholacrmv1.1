@@ -28,7 +28,7 @@ const toBool = (v) => {
   return !!v
 }
 
-export default function RotationRuleModal({ open, onClose, user, type }) {
+export default function RotationRuleModal({ open, onClose, user, type, onSaved }) {
   const { i18n, t } = useTranslation()
   const isArabic = i18n.language === 'ar'
   const isAssign = type === 'assign'
@@ -201,6 +201,12 @@ export default function RotationRuleModal({ open, onClose, user, type }) {
 
       await fetchData()
 
+      if (okCount > 0) {
+        try {
+          if (typeof onSaved === 'function') onSaved()
+        } catch {}
+      }
+
       if (okCount > 0 && failCount === 0) {
         window.dispatchEvent(new CustomEvent('app:toast', {
           detail: { type: 'success', message: isArabic ? `تمت الإضافة بنجاح (${okCount})` : `Added successfully (${okCount})` },
@@ -221,7 +227,7 @@ export default function RotationRuleModal({ open, onClose, user, type }) {
     } finally {
       setSaving(false)
     }
-  }, [companyType, fetchData, isActive, isArabic, isAssign, itemIds, position, projectIds, regionValues, sourceValues, type, user?.id])
+  }, [companyType, fetchData, isActive, isArabic, isAssign, itemIds, onSaved, position, projectIds, regionValues, sourceValues, type, user?.id])
 
   if (!open) return null
 

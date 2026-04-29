@@ -123,4 +123,23 @@ class RotationRuleController extends Controller
         $rule->delete();
         return response()->json(['ok' => true]);
     }
+
+    public function unassign(Request $request)
+    {
+        $auth = Auth::user();
+
+        $validated = $request->validate([
+            'user_id' => 'required|integer',
+        ]);
+
+        $updated = RotationRule::where('tenant_id', $auth->tenant_id)
+            ->where('type', 'assign')
+            ->where('user_id', (int) $validated['user_id'])
+            ->update(['is_active' => false]);
+
+        return response()->json([
+            'ok' => true,
+            'updated' => (int) $updated,
+        ]);
+    }
 }
