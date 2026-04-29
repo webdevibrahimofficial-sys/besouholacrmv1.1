@@ -19,6 +19,7 @@ use App\Models\Campaign;
 use App\Models\Project;
 use App\Models\Unit;
 use App\Models\Item;
+use App\Models\Tenant;
 
 class LandingPageController extends Controller
 {
@@ -209,7 +210,10 @@ class LandingPageController extends Controller
                 ? app('current_tenant_id')
                 : (Auth::check() ? Auth::user()?->tenant_id : null);
             if (!$tenantId) {
-                $tenantId = $request->header('X-Tenant-Id') ?: $request->header('x-tenant-id');
+                $tenantSlug = $request->header('X-Tenant') ?: ($request->header('X-Tenant-Id') ?: $request->header('x-tenant-id'));
+                if ($tenantSlug) {
+                    $tenantId = Tenant::where('slug', (string) $tenantSlug)->value('id');
+                }
             }
             if (!$tenantId) {
                 throw ValidationException::withMessages([
