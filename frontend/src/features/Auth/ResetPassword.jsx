@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
+import { motion } from 'framer-motion';
+import { ArrowLeft, ArrowRight, CheckCircle, Globe, Loader2, Eye, EyeOff } from 'lucide-react';
 import lightLogo from '../../assets/be-souhola-logo-light.png';
 import DarkLogo from '../../assets/be-souhola-logo-dark.png';
 import { api } from '../../utils/api';

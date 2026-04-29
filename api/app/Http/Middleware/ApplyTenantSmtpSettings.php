@@ -61,12 +61,10 @@ class ApplyTenantSmtpSettings
                     if ($settings->from_name) {
                         Config::set('mail.from.name', $settings->from_name);
                     }
-                } else {
-                    Config::set('mail.default', 'log');
                 }
             } catch (\Throwable $e) {
                 // Never block requests due to SMTP settings lookup / missing table.
-                Config::set('mail.default', 'log');
+                // Keep the app-level mail configuration (e.g. MAIL_* env) as-is.
             }
         }
 
