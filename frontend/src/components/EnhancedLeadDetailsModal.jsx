@@ -200,6 +200,7 @@ const EnhancedLeadDetailsModal = ({ isOpen, onClose, lead }) => {
 
   const getPriorityColor = (priority) => {
     switch (priority) {
+      case 'hot': return 'bg-red-100 text-red-800';
       case 'high': return 'bg-red-100 text-red-800';
       case 'medium': return 'bg-yellow-100 text-yellow-800';
       case 'low': return 'bg-green-100 text-green-800';
@@ -210,6 +211,7 @@ const EnhancedLeadDetailsModal = ({ isOpen, onClose, lead }) => {
   const getPriorityLabel = (priority) => {
     if (isArabic) {
       switch (priority) {
+        case 'hot': return 'ساخنة';
         case 'high': return 'عالية';
         case 'medium': return 'متوسطة';
         case 'low': return 'منخفضة';
@@ -217,6 +219,7 @@ const EnhancedLeadDetailsModal = ({ isOpen, onClose, lead }) => {
       }
     } else {
       switch (priority) {
+        case 'hot': return 'Hot';
         case 'high': return 'High';
         case 'medium': return 'Medium';
         case 'low': return 'Low';
@@ -244,7 +247,7 @@ const EnhancedLeadDetailsModal = ({ isOpen, onClose, lead }) => {
         case 'type':
           return a.type.localeCompare(b.type);
         case 'priority':
-          const priorityOrder = { high: 3, medium: 2, low: 1 };
+          const priorityOrder = { hot: 4, high: 3, medium: 2, low: 1 };
           return priorityOrder[b.priority] - priorityOrder[a.priority];
         case 'status':
           return a.status.localeCompare(b.status);

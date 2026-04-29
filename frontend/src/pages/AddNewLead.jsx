@@ -180,6 +180,7 @@ export const AddNewLead = () => {
   })), [stages, i18n.language]);
 
   const priorityOptions = useMemo(() => [
+    { value: 'hot', label: t('Hot') },
     { value: 'low', label: t('Low') },
     { value: 'medium', label: t('Medium') },
     { value: 'high', label: t('High') }

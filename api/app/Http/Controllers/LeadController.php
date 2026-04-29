@@ -1718,6 +1718,7 @@ class LeadController extends Controller
                 if ($hasSalesPersonFilter) {
                     $byStage = (clone $nonDupQuery)->select(DB::raw("
                           CASE
+                              WHEN lower(COALESCE(priority,'')) = 'hot' THEN 'hot'
                               WHEN stage IS NULL OR stage = '' THEN status
                               ELSE stage
                           END as display_stage
@@ -1728,6 +1729,7 @@ class LeadController extends Controller
                 } else {
                     $byStage = (clone $nonDupQuery)->select(DB::raw("
                           CASE 
+                              WHEN lower(COALESCE(priority,'')) = 'hot' THEN 'hot'
                               WHEN (lower(status) = 'pending' or lower(status) = 'in-progress')
                                    AND assigned_to IS NOT NULL
                                    AND assigned_to != $currentUserId
@@ -1763,6 +1765,17 @@ class LeadController extends Controller
                     + ($normalizedByStage['coldcalls'] ?? 0)
                     + ($normalizedByStage['cold call'] ?? 0)
                     + ($normalizedByStage['cold-call'] ?? 0);
+                $hotCount = $normalizedByStage['hot'] ?? 0;
+
+                // Closed Deals count (exclude duplicates) - matches pipeline report predicate.
+                $closedDealsCount = (int) (clone $nonDupQuery)->whereRaw("
+                    (
+                        lower(coalesce(stage,'')) like '%closing%' OR
+                        lower(coalesce(stage,'')) like '%closed%' OR
+                        lower(coalesce(stage,'')) like '%إغلاق%' OR
+                        lower(coalesce(status,'')) in ('converted','won','فوز')
+                    )
+                ")->count();
 
                 return [
                     'total' => $totalFromByStage,
@@ -1770,6 +1783,8 @@ class LeadController extends Controller
                     'pending' => $hasSalesPersonFilter ? 0 : $pendingFromByStage,
                     'coldCall' => $coldCallsFromByStage,
                     'duplicate' => $duplicateCount,
+                    'closedDeals' => $closedDealsCount,
+                    'hotCount' => (int) $hotCount,
                     'byStage' => $byStage
                 ];
             });

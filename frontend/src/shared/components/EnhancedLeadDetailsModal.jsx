@@ -1206,7 +1206,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         return dateB - dateA;
       }
       if (sortBy === 'priority') {
-        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        const priorityOrder = { hot: 4, high: 3, medium: 2, low: 1 };
         return priorityOrder[b.priority] - priorityOrder[a.priority];
       }
       if (sortBy === 'status') {
@@ -1327,6 +1327,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
   const getPriorityColor = (priority) => {
     switch (priority) {
+      case 'hot': return 'text-red-400 border-red-400';
       case 'high': return 'text-green-400 border-green-400';
       case 'medium': return 'text-yellow-400 border-yellow-400';
       case 'low': return 'text-red-400 border-red-400';

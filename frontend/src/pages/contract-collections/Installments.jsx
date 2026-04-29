@@ -89,7 +89,7 @@ export default function ContractCollectionsInstallments() {
   const [dueTo, setDueTo] = useState('')
   const [payFrom, setPayFrom] = useState('')
   const [payTo, setPayTo] = useState('')
-  const [showAllFilters, setShowAllFilters] = useState(true)
+  const [showAllFilters, setShowAllFilters] = useState(false)
 
   const [projects, setProjects] = useState([])
 
@@ -211,7 +211,6 @@ export default function ContractCollectionsInstallments() {
     setDueTo('')
     setPayFrom('')
     setPayTo('')
-    setShowAllFilters(true)
   }
 
   const parseInstallmentId = (v) => {
@@ -457,97 +456,68 @@ export default function ContractCollectionsInstallments() {
           </div>
         </div>
 
-        {pageMeta.total > 0 && (
-          <div className="mt-2 flex flex-wrap items-center justify-between rounded-xl p-2 glass-panel gap-4">
-            <div className="text-xs text-[var(--muted-text)]">
-              {(() => {
-                const cur = Number(pageMeta.current_page || 1)
-                const total = Number(pageMeta.total || 0)
-                const from = total ? (cur - 1) * perPage + 1 : 0
-                const to = total ? Math.min(cur * perPage, total) : 0
-                return isArabic ? `Ø¹Ø±Ø¶ ${from}-${to} Ù…Ù† ${total}` : `Showing ${from}-${to} of ${total}`
-              })()}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1">
-                <button
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
-                  disabled={loading || Number(pageMeta.current_page || 1) <= 1}
-                  title={isArabic ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
-                >
-                  <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
-                </button>
-                <span className="text-sm whitespace-nowrap">
-                  {isArabic ? `Ø§Ù„ØµÙØ­Ø© ${pageMeta.current_page} Ù…Ù† ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
-                </span>
-                <button
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
-                  disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
-                  title={isArabic ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
-                >
-                  <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
-                </button>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}</span>
-                <select
-                  className="input w-16 text-sm py-0 px-2 h-8"
-                  value={perPage}
-                  onChange={(e) => {
-                    const next = Number(e.target.value)
-                    setPerPage(next)
-                    load(1, next)
-                  }}
-                >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Filter (System UX) */}
       <div className="glass-panel p-4 rounded-xl">
         <div className="flex justify-between items-center mb-3">
-          <div className="relative flex-1 min-w-[240px]">
-            <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${isRTL ? 'right-3' : 'left-3'} ${mutedTextClass}`} />
+          <h2 className="text-sm font-semibold flex items-center gap-2 text-theme-text">
+            <Filter className="text-blue-500" size={16} /> {isArabic ? 'تصفية' : 'Filter'}
+          </h2>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAllFilters((v) => !v)}
+              className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <span>{isArabic ? 'عرض الكل' : 'Show All'}</span>
+              {showAllFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="px-3 py-1.5 text-sm text-theme-text hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors inline-flex items-center gap-2"
+            >
+              <X className="w-4 h-4" />
+              {isArabic ? 'إعادة تعيين' : 'Reset'}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-1 mb-3">
+          <label className={`text-xs font-medium ${mutedTextClass} flex items-center gap-1`}>
+            <Search className="text-blue-500" size={12} /> {isArabic ? 'بحث' : 'Search'}
+          </label>
+          <div className="relative">
+            <Search className={`w-4 h-4 absolute top-1/2 -translate-y-1/2 ${isRTL ? 'right-3' : 'left-3'} text-gray-400`} />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className={`w-full px-9 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] outline-none focus:ring-2 focus:ring-blue-500 text-sm ${isRTL ? 'pr-9 pl-3' : 'pl-9 pr-3'}`}
               placeholder={isArabic ? 'بحث (عميل / عقد / Unit Code)...' : 'Search (customer / contract / unit code)...'}
+              className={`input w-full bg-[var(--content-bg)] ${isRTL ? 'pr-10' : 'pl-10'}`}
             />
+            {q ? (
+              <button
+                type="button"
+                onClick={() => setQ('')}
+                className={`absolute top-1/2 -translate-y-1/2 ${isRTL ? 'left-2' : 'right-2'} p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5`}
+                title={isArabic ? 'مسح' : 'Clear'}
+              >
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            ) : null}
           </div>
-
-          <button type="button" onClick={() => setShowAllFilters((v) => !v)} className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex items-center gap-2">
-            <span>{isArabic ? 'عرض الكل' : 'Show All'}</span>
-            {showAllFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-
-          <button
-            type="button"
-            className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
-            onClick={resetFilters}
-          >
-            <X className="w-4 h-4" />
-            {isArabic ? 'إعادة تعيين' : 'Reset'}
-          </button>
-
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'طريقة الدفع' : 'Payment Method'}</label>
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'طريقة الدفع' : 'Payment Method'}</label>
             <select
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="input w-full bg-[var(--content-bg)]"
             >
               <option value="">{isArabic ? 'الكل' : 'All'}</option>
               <option value="cash">{isArabic ? 'كاش' : 'Cash'}</option>
@@ -557,34 +527,36 @@ export default function ContractCollectionsInstallments() {
           </div>
 
           <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'رقم الشيك/المرجع' : 'Check/Reference No.'}</label>
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم الشيك/المرجع' : 'Check/Reference No.'}</label>
             <input
               value={referenceNumber}
               onChange={(e) => setReferenceNumber(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="input w-full bg-[var(--content-bg)]"
               placeholder="..."
             />
           </div>
 
           <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>Project</label>
-            <div className="mt-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>Project</label>
+            <div>
               <SearchableSelect
                 options={projects}
                 value={projectId}
                 onChange={setProjectId}
                 placeholder={isArabic ? 'الكل' : 'All'}
                 isRTL={isRTL}
+                className="w-full"
+                multiple={false}
               />
             </div>
           </div>
 
           <div>
-            <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="input w-full bg-[var(--content-bg)]"
             >
               <option value="">{isArabic ? 'الكل' : 'All'}</option>
               {['pending', 'paid', 'partial', 'unpaid', 'rejected', 'overdue'].map((s) => (
@@ -597,41 +569,41 @@ export default function ContractCollectionsInstallments() {
         </div>
 
         {showAllFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
             <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Due Date (From)' : 'Due Date (From)'}</label>
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Due Date (From)' : 'Due Date (From)'}</label>
               <input
                 type="date"
                 value={dueFrom}
                 onChange={(e) => setDueFrom(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="input w-full bg-[var(--content-bg)]"
               />
             </div>
             <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Due Date (To)' : 'Due Date (To)'}</label>
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Due Date (To)' : 'Due Date (To)'}</label>
               <input
                 type="date"
                 value={dueTo}
                 onChange={(e) => setDueTo(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="input w-full bg-[var(--content-bg)]"
               />
             </div>
             <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Payment Date (From)' : 'Payment Date (From)'}</label>
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Payment Date (From)' : 'Payment Date (From)'}</label>
               <input
                 type="date"
                 value={payFrom}
                 onChange={(e) => setPayFrom(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="input w-full bg-[var(--content-bg)]"
               />
             </div>
             <div>
-              <label className={`text-xs font-semibold ${mutedTextClass}`}>{isArabic ? 'Payment Date (To)' : 'Payment Date (To)'}</label>
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Payment Date (To)' : 'Payment Date (To)'}</label>
               <input
                 type="date"
                 value={payTo}
                 onChange={(e) => setPayTo(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-[var(--panel-border)] bg-[var(--content-bg)] text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="input w-full bg-[var(--content-bg)]"
               />
             </div>
           </div>
@@ -820,29 +792,61 @@ export default function ContractCollectionsInstallments() {
           </table>
         </div>
 
-        <div className="hidden">
-          <div className={`text-xs ${mutedTextClass}`}>
-            Page {pageMeta.current_page} / {pageMeta.last_page}
+        {pageMeta.total > 0 && (
+          <div className="mt-2 flex flex-wrap items-center justify-between rounded-xl p-2 glass-panel gap-4">
+            <div className="text-xs text-[var(--muted-text)]">
+              {(() => {
+                const cur = Number(pageMeta.current_page || 1)
+                const total = Number(pageMeta.total || 0)
+                const from = total ? (cur - 1) * perPage + 1 : 0
+                const to = total ? Math.min(cur * perPage, total) : 0
+                return isArabic ? `Ø¹Ø±Ø¶ ${from}-${to} Ù…Ù† ${total}` : `Showing ${from}-${to} of ${total}`
+              })()}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
+                  disabled={loading || Number(pageMeta.current_page || 1) <= 1}
+                  title={isArabic ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
+                >
+                  <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
+                </button>
+                <span className="text-sm whitespace-nowrap">
+                  {isArabic ? `Ø§Ù„ØµÙØ­Ø© ${pageMeta.current_page} Ù…Ù† ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
+                </span>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
+                  disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
+                  title={isArabic ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
+                >
+                  <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}</span>
+                <select
+                  className="input w-16 text-sm py-0 px-2 h-8"
+                  value={perPage}
+                  onChange={(e) => {
+                    const next = Number(e.target.value)
+                    setPerPage(next)
+                    load(1, next)
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm disabled:opacity-50 hover:bg-black/5 dark:hover:bg-white/5"
-              disabled={loading || pageMeta.current_page <= 1}
-              onClick={() => load(pageMeta.current_page - 1)}
-            >
-              {isArabic ? 'السابق' : 'Prev'}
-            </button>
-            <button
-              type="button"
-              className="px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm disabled:opacity-50 hover:bg-black/5 dark:hover:bg-white/5"
-              disabled={loading || pageMeta.current_page >= pageMeta.last_page}
-              onClick={() => load(pageMeta.current_page + 1)}
-            >
-              {isArabic ? 'التالي' : 'Next'}
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
       <ModalShell

@@ -622,6 +622,8 @@ export const Dashboard = () => {
     duplicate: 0,
     pending: 0,
     coldCall: 0,
+    closedDeals: 0,
+    hotCount: 0,
     byStage: {}
   });
   const [statsLoading, setStatsLoading] = useState(true);
@@ -646,6 +648,8 @@ export const Dashboard = () => {
                 duplicate: data.duplicate || 0,
                 pending: data.pending || 0,
                 coldCall: data.coldCall || 0,
+                closedDeals: data.closedDeals || 0,
+                hotCount: data.hotCount || 0,
                 byStage: data.byStage || {}
             });
         }
@@ -691,6 +695,8 @@ export const Dashboard = () => {
 
   // Use API data
   const leadsStats = leadsStatsData;
+  const conversionRatePct = leadsStats.total > 0 ? ((Number(leadsStats.closedDeals || 0) / leadsStats.total) * 100) : 0;
+  const hotLeadsPct = leadsStats.total > 0 ? ((Number(leadsStats.hotCount || leadsStats.byStage?.hot || 0) / leadsStats.total) * 100) : 0;
 
   const buildLeadsStageLink = (stageKey) => {
     const params = new URLSearchParams();
@@ -1398,7 +1404,7 @@ export const Dashboard = () => {
                 <div className={`p-3 rounded-lg bg-white border border-gray-200 shadow-sm`}>
                   <LeadsStatsCard
                     title={t('Conversion Rate')}
-                    value="-"
+                    value={`${conversionRatePct.toFixed(1)}%`}
                     change="-"
                     changeType="neutral"
                     icon={<TrendingUp className="w-5 h-5" />}
@@ -1420,7 +1426,7 @@ export const Dashboard = () => {
                 <div className={`p-3 rounded-lg bg-white border border-gray-200 shadow-sm`}>
                   <LeadsStatsCard
                     title={t('Hot Leads')}
-                    value={(leadsStats.byStage['hot'] || 0).toLocaleString()}
+                    value={`${hotLeadsPct.toFixed(1)}%`}
                     change="-"
                     changeType="neutral"
                     icon={<Flame className="w-5 h-5" />}

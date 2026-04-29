@@ -966,6 +966,7 @@ export const ReferralLeads = () => {
 
   const getPriorityColor = (priority) => {
     switch (String(priority).toLowerCase()) {
+      case 'hot': return 'bg-red-200 text-red-900 dark:bg-red-900 dark:text-red-200'
       case 'high': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
       case 'medium': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
       case 'low': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
@@ -1725,6 +1726,7 @@ export const ReferralLeads = () => {
                   multiple={true}
                   onChange={setPriorityFilter}
                   options={[
+                    { value: 'hot', label: t('Hot') },
                     { value: 'high', label: t('High') },
                     { value: 'medium', label: t('Medium') },
                     { value: 'low', label: t('Low') }
@@ -2120,8 +2122,8 @@ export const ReferralLeads = () => {
                       case 'stage':
                         const displayStage = lead.visible_stage || lead.stage;
                         return (
-                          <td key="stage" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-black'} `} style={{ minWidth: `${columnMinWidths.stage}px` }}>
-                            <span className={`inline-flex px-2 py-0.5 text-xs font-semibold leading-5 rounded-full ${getStatusColor(displayStage)}`}>
+                          <td key="stage" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `} style={{ minWidth: `${columnMinWidths.stage}px` }}>
+                            <span className="inline-flex px-2 py-0.5 text-xs font-semibold leading-5 rounded-full bg-transparent border border-gray-200 dark:border-gray-600">
                               {t(displayStage || 'N/A')}
                             </span>
                           </td>
