@@ -4,6 +4,13 @@ import { Eye, FilePlus2, Save, Trash2, Upload, X } from 'lucide-react'
 import i18n from '../../../i18n'
 import { api } from '@utils/api'
 import { createContractTemplate, deleteContractTemplate, getContractTemplates, updateContractTemplate } from '@services/contractTemplateService'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
+import TextAlign from '@tiptap/extension-text-align'
+import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
+import { TextStyle } from '@tiptap/extension-text-style'
+import { Color } from '@tiptap/extension-color'
 
 const emptyDraft = () => ({
   id: null,
@@ -20,7 +27,7 @@ export default function ContractsSettings() {
   const { t } = useTranslation()
   const isRTL = useMemo(() => i18n.language === 'ar', [])
 
-  const bodyRef = useRef(null)
+  const shouldIgnoreNextEditorUpdateRef = useRef(false)
 
   const [loading, setLoading] = useState(true)
   const [templates, setTemplates] = useState([])
@@ -100,7 +107,19 @@ export default function ContractsSettings() {
     setDraft(nextDraft)
     setPdfFile(null)
     setDirty(false)
-    if (bodyRef.current) bodyRef.current.innerHTML = nextDraft.content_type === 'html' ? (nextDraft.body || '') : ''
+
+    if (nextDraft.content_type === 'html' && editor) {
+      try {
+        shouldIgnoreNextEditorUpdateRef.current = true
+        editor.commands.setContent(nextDraft.body || '', false)
+      } catch {
+      } finally {
+        // Clear on next tick to avoid catching chained updates
+        setTimeout(() => {
+          shouldIgnoreNextEditorUpdateRef.current = false
+        }, 0)
+      }
+    }
   }, [activeTemplate])
 
   useEffect(() => {
@@ -119,37 +138,57 @@ export default function ContractsSettings() {
     }
   }, [pdfFile])
 
-  const applyFormat = (command) => {
-    if (!bodyRef.current) return
-    bodyRef.current.focus()
-    try {
-      document.execCommand(command, false, null)
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      TextStyle,
+      Color,
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
+    ],
+    content: draft.body || '',
+    editorProps: {
+      attributes: {
+        class:
+          'tiptap-editor w-full min-h-[520px] p-4 bg-white text-black outline-none',
+        dir: isRTL ? 'rtl' : 'ltr',
+      },
+    },
+    onUpdate: ({ editor }) => {
+      if (shouldIgnoreNextEditorUpdateRef.current) return
       setDirty(true)
-    } catch {}
-  }
+      try {
+        const html = editor.getHTML()
+        setDraft((prev) => ({ ...prev, body: html }))
+      } catch {
+      }
+    },
+  })
+
+  useEffect(() => {
+    if (!editor) return
+    // Keep editor direction synced
+    editor.view.dom.setAttribute('dir', isRTL ? 'rtl' : 'ltr')
+  }, [editor, isRTL])
 
   const insertPlaceholder = (token) => {
     if (!token) return
-    if (!bodyRef.current) return
-    bodyRef.current.focus()
-    try {
-      document.execCommand('insertText', false, token)
-      setDirty(true)
-    } catch {
-      try {
-        bodyRef.current.innerHTML = `${bodyRef.current.innerHTML || ''}${token}`
-        setDirty(true)
-      } catch {}
-    }
+    if (!editor) return
+    editor.chain().focus().insertContent(token).run()
   }
 
   const onBodyPaste = (e) => {
     if (!pastePlainText) return
+    if (!editor) return
     try {
       const text = e.clipboardData?.getData?.('text/plain') ?? ''
+      if (!text) return
       e.preventDefault()
-      document.execCommand('insertText', false, text)
-      setDirty(true)
+      editor.chain().focus().insertContent(text).run()
     } catch {
     }
   }
@@ -160,7 +199,17 @@ export default function ContractsSettings() {
     setDraft(d)
     setPdfFile(null)
     setDirty(false)
-    if (bodyRef.current) bodyRef.current.innerHTML = ''
+    if (editor) {
+      try {
+        shouldIgnoreNextEditorUpdateRef.current = true
+        editor.commands.setContent('', false)
+      } catch {
+      } finally {
+        setTimeout(() => {
+          shouldIgnoreNextEditorUpdateRef.current = false
+        }, 0)
+      }
+    }
   }
 
   const save = async () => {
@@ -191,7 +240,7 @@ export default function ContractsSettings() {
           project_id: projectId,
           status,
           content_type: 'html',
-          body: bodyRef.current ? bodyRef.current.innerHTML : (draft.body || ''),
+          body: editor ? editor.getHTML() : (draft.body || ''),
           pdf_path: null,
         }
         res = draft.id ? await updateContractTemplate(draft.id, payload) : await createContractTemplate(payload)
@@ -217,7 +266,7 @@ export default function ContractsSettings() {
   }
 
   const previewHtml = () => {
-    if (bodyRef.current) return bodyRef.current.innerHTML || ''
+    if (editor) return editor.getHTML() || ''
     return draft.body || ''
   }
 
@@ -369,67 +418,206 @@ export default function ContractsSettings() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm text-[var(--content-text)] opacity-80">{t('Content')}</div>
-            <div className="flex items-center gap-2">
-              <button
-                className={`px-3 py-1.5 rounded-lg border ${draft.content_type === 'html' ? 'bg-white/10' : 'bg-transparent'} border-[var(--panel-border)]`}
-                onClick={() => {
-                  setDraft(prev => ({ ...prev, content_type: 'html', pdf_url: '', pdf_original_name: '' }))
-                  setPdfFile(null)
-                  if (bodyRef.current) bodyRef.current.innerHTML = draft.body || ''
-                  setDirty(true)
-                }}
-                type="button"
-              >
-                {t('Copy / Paste')}
-              </button>
-              <button
-                className={`px-3 py-1.5 rounded-lg border ${draft.content_type === 'pdf' ? 'bg-white/10' : 'bg-transparent'} border-[var(--panel-border)]`}
-                onClick={() => {
-                  setDraft(prev => ({ ...prev, content_type: 'pdf' }))
-                  if (bodyRef.current) bodyRef.current.innerHTML = ''
-                  setDirty(true)
-                }}
-                type="button"
-              >
-                {t('Upload PDF')}
-              </button>
-            </div>
-          </div>
+           <div className="flex flex-wrap items-center gap-2">
+             <div className="text-sm text-[var(--content-text)] opacity-80">{t('Content')}</div>
+             <div className="flex items-center gap-2">
+               <button
+                 className={`px-3 py-1.5 rounded-lg border ${draft.content_type === 'html' ? 'bg-white/10' : 'bg-transparent'} border-[var(--panel-border)]`}
+                 onClick={() => {
+                   setDraft(prev => ({ ...prev, content_type: 'html', pdf_url: '', pdf_original_name: '' }))
+                   setPdfFile(null)
+                   if (editor) {
+                     try {
+                       shouldIgnoreNextEditorUpdateRef.current = true
+                       editor.commands.setContent(draft.body || '', false)
+                     } catch {
+                     } finally {
+                       setTimeout(() => {
+                         shouldIgnoreNextEditorUpdateRef.current = false
+                       }, 0)
+                     }
+                   }
+                   setDirty(true)
+                 }}
+                 type="button"
+               >
+                 {t('Copy / Paste')}
+               </button>
+               <button
+                 className={`px-3 py-1.5 rounded-lg border ${draft.content_type === 'pdf' ? 'bg-white/10' : 'bg-transparent'} border-[var(--panel-border)]`}
+                 onClick={() => {
+                   setDraft(prev => ({ ...prev, content_type: 'pdf' }))
+                   if (editor) {
+                     try {
+                       shouldIgnoreNextEditorUpdateRef.current = true
+                       editor.commands.setContent('', false)
+                     } catch {
+                     } finally {
+                       setTimeout(() => {
+                         shouldIgnoreNextEditorUpdateRef.current = false
+                       }, 0)
+                     }
+                   }
+                   setDirty(true)
+                 }}
+                 type="button"
+               >
+                 {t('Upload PDF')}
+               </button>
+             </div>
+           </div>
 
-          {draft.content_type !== 'pdf' && (
-            <div className="flex flex-wrap items-center gap-2 border border-[var(--panel-border)] rounded-xl p-2">
-              <button onClick={() => applyFormat('bold')} className="px-2 py-1 rounded hover:bg-gray-100/10 font-bold">B</button>
-              <button onClick={() => applyFormat('italic')} className="px-2 py-1 rounded hover:bg-gray-100/10 italic">I</button>
-              <button onClick={() => applyFormat('underline')} className="px-2 py-1 rounded hover:bg-gray-100/10 underline">U</button>
-              <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
-              <button onClick={() => applyFormat('insertUnorderedList')} className="px-2 py-1 rounded hover:bg-gray-100/10">{t('• List')}</button>
-              <button onClick={() => applyFormat('insertOrderedList')} className="px-2 py-1 rounded hover:bg-gray-100/10">{t('1. List')}</button>
-              <select
-                className="px-2 py-1 rounded bg-gray-900/40 border border-[var(--panel-border)] text-sm"
-                defaultValue=""
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (v) insertPlaceholder(v)
-                  e.target.value = ''
-                }}
-                title={t('Insert Field')}
-              >
-                <option value="">{t('Insert Field')}</option>
-                <option value="{{contract_number}}">{t('Contract No.')}</option>
-                <option value="{{contract_date}}">{t('Contract Date')}</option>
-                <option value="{{customer_name}}">{t('Customer Name')}</option>
-                <option value="{{customer_phone}}">{t('Customer Phone')}</option>
-                <option value="{{unit_code}}">{t('Unit Code')}</option>
-                <option value="{{project_name}}">{t('Project')}</option>
-                <option value="{{total_price}}">{t('Total Price')}</option>
-                <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
-                <option value="{{installments_table}}">{t('Installments Table')}</option>
-              </select>
-              <button onClick={() => applyFormat('removeFormat')} className="ml-auto px-2 py-1 rounded hover:bg-gray-100/10 text-xs opacity-80">{t('Clear format')}</button>
-            </div>
-          )}
+           {draft.content_type !== 'pdf' && (
+             <div className="flex flex-wrap items-center gap-2 border border-[var(--panel-border)] rounded-xl p-2">
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleBold().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 font-bold ${editor?.isActive('bold') ? 'bg-white/10' : ''}`}
+                 disabled={!editor?.can().chain().focus().toggleBold().run()}
+                 title={t('Bold')}
+               >
+                 B
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleItalic().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 italic ${editor?.isActive('italic') ? 'bg-white/10' : ''}`}
+                 disabled={!editor?.can().chain().focus().toggleItalic().run()}
+                 title={t('Italic')}
+               >
+                 I
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleUnderline().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 underline ${editor?.isActive('underline') ? 'bg-white/10' : ''}`}
+                 title={t('Underline')}
+               >
+                 U
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleStrike().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 line-through ${editor?.isActive('strike') ? 'bg-white/10' : ''}`}
+                 title={t('Strike')}
+               >
+                 S
+               </button>
+               <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
+
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().setParagraph().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 text-xs ${editor?.isActive('paragraph') ? 'bg-white/10' : ''}`}
+               >
+                 {t('P')}
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 text-xs ${editor?.isActive('heading', { level: 1 }) ? 'bg-white/10' : ''}`}
+               >
+                 H1
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 text-xs ${editor?.isActive('heading', { level: 2 }) ? 'bg-white/10' : ''}`}
+               >
+                 H2
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 text-xs ${editor?.isActive('heading', { level: 3 }) ? 'bg-white/10' : ''}`}
+               >
+                 H3
+               </button>
+
+               <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleBulletList().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 ${editor?.isActive('bulletList') ? 'bg-white/10' : ''}`}
+                 title={t('Bullet List')}
+               >
+                 {t('• List')}
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 ${editor?.isActive('orderedList') ? 'bg-white/10' : ''}`}
+                 title={t('Ordered List')}
+               >
+                 {t('1. List')}
+               </button>
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().toggleBlockquote().run()}
+                 className={`px-2 py-1 rounded hover:bg-gray-100/10 text-xs ${editor?.isActive('blockquote') ? 'bg-white/10' : ''}`}
+                 title={t('Quote')}
+               >
+                 {t('Quote')}
+               </button>
+
+               <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
+               <button type="button" onClick={() => editor?.chain().focus().setTextAlign('left').run()} className="px-2 py-1 rounded hover:bg-gray-100/10 text-xs">L</button>
+               <button type="button" onClick={() => editor?.chain().focus().setTextAlign('center').run()} className="px-2 py-1 rounded hover:bg-gray-100/10 text-xs">C</button>
+               <button type="button" onClick={() => editor?.chain().focus().setTextAlign('right').run()} className="px-2 py-1 rounded hover:bg-gray-100/10 text-xs">R</button>
+               <button type="button" onClick={() => editor?.chain().focus().setTextAlign('justify').run()} className="px-2 py-1 rounded hover:bg-gray-100/10 text-xs">J</button>
+
+               <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+                 className="px-2 py-1 rounded hover:bg-gray-100/10 text-xs"
+                 title={t('Insert Table')}
+               >
+                 {t('Table')}
+               </button>
+
+               <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
+               <label className="text-xs opacity-80 flex items-center gap-2 px-2">
+                 {t('Color')}
+                 <input
+                   type="color"
+                   className="h-6 w-6 bg-transparent border-0 p-0"
+                   onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
+                   title={t('Text Color')}
+                 />
+               </label>
+
+               <select
+                 className="px-2 py-1 rounded bg-gray-900/40 border border-[var(--panel-border)] text-sm"
+                 defaultValue=""
+                 onChange={(e) => {
+                   const v = e.target.value
+                   if (v) insertPlaceholder(v)
+                   e.target.value = ''
+                 }}
+                 title={t('Insert Field')}
+               >
+                 <option value="">{t('Insert Field')}</option>
+                 <option value="{{contract_number}}">{t('Contract No.')}</option>
+                 <option value="{{contract_date}}">{t('Contract Date')}</option>
+                 <option value="{{customer_name}}">{t('Customer Name')}</option>
+                 <option value="{{customer_phone}}">{t('Customer Phone')}</option>
+                 <option value="{{unit_code}}">{t('Unit Code')}</option>
+                 <option value="{{project_name}}">{t('Project')}</option>
+                 <option value="{{total_price}}">{t('Total Price')}</option>
+                 <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
+                 <option value="{{installments_table}}">{t('Installments Table')}</option>
+               </select>
+
+               <button
+                 type="button"
+                 onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}
+                 className="ml-auto px-2 py-1 rounded hover:bg-gray-100/10 text-xs opacity-80"
+               >
+                 {t('Clear format')}
+               </button>
+             </div>
+           )}
 
           {draft.content_type === 'pdf' ? (
             <div className="space-y-3">
@@ -453,14 +641,24 @@ export default function ContractsSettings() {
                   <button
                     type="button"
                     className="px-3 py-2 rounded-lg border border-[var(--panel-border)] hover:bg-white/5 inline-flex items-center gap-2"
-                    onClick={() => {
-                      setPdfFile(null)
-                      setDraft(prev => ({ ...prev, content_type: 'html', pdf_url: '', pdf_original_name: '' }))
-                      if (bodyRef.current) bodyRef.current.innerHTML = draft.body || ''
-                      setDirty(true)
-                    }}
-                    title={t('Remove PDF')}
-                  >
+                      onClick={() => {
+                        setPdfFile(null)
+                        setDraft(prev => ({ ...prev, content_type: 'html', pdf_url: '', pdf_original_name: '' }))
+                      if (editor) {
+                        try {
+                          shouldIgnoreNextEditorUpdateRef.current = true
+                          editor.commands.setContent(draft.body || '', false)
+                        } catch {
+                        } finally {
+                          setTimeout(() => {
+                            shouldIgnoreNextEditorUpdateRef.current = false
+                          }, 0)
+                        }
+                      }
+                        setDirty(true)
+                      }}
+                      title={t('Remove PDF')}
+                    >
                     <X className="w-4 h-4" />
                     {t('Remove PDF')}
                   </button>
@@ -486,14 +684,9 @@ export default function ContractsSettings() {
             </div>
           ) : (
             <ContractPage>
-              <div
-                ref={bodyRef}
-                className="w-full min-h-[520px] p-0 bg-white text-black outline-none overflow-y-auto"
-                contentEditable
-                onInput={() => setDirty(true)}
-                onPaste={onBodyPaste}
-                onBlur={(e) => setDraft(prev => ({ ...prev, body: e.currentTarget.innerHTML }))}
-              />
+              <div onPaste={onBodyPaste}>
+                <EditorContent editor={editor} />
+              </div>
             </ContractPage>
           )}
 

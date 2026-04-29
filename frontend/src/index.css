@@ -2599,3 +2599,65 @@ svg.lucide {
   min-width: 1em;
   min-height: 1em;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Contract Templates: TipTap editor                                           */
+/* -------------------------------------------------------------------------- */
+.tiptap-editor:focus {
+  outline: none;
+}
+
+.tiptap-editor p {
+  margin: 0.5rem 0;
+}
+
+.tiptap-editor h1,
+.tiptap-editor h2,
+.tiptap-editor h3 {
+  font-weight: 700;
+  margin: 0.9rem 0 0.5rem;
+}
+
+.tiptap-editor ul,
+.tiptap-editor ol {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+[dir='rtl'] .tiptap-editor ul,
+[dir='rtl'] .tiptap-editor ol {
+  padding-left: 0;
+  padding-right: 1.5rem;
+}
+
+.tiptap-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+}
+
+.tiptap-editor th,
+.tiptap-editor td {
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  padding: 0.4rem 0.5rem;
+  vertical-align: top;
+}
+
+.tiptap-editor th {
+  background: rgba(0, 0, 0, 0.04);
+  font-weight: 700;
+}
+
+.tiptap-editor blockquote {
+  border-left: 3px solid rgba(0, 0, 0, 0.25);
+  padding-left: 0.75rem;
+  margin: 0.75rem 0;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+[dir='rtl'] .tiptap-editor blockquote {
+  border-left: 0;
+  border-right: 3px solid rgba(0, 0, 0, 0.25);
+  padding-left: 0;
+  padding-right: 0.75rem;
+}
