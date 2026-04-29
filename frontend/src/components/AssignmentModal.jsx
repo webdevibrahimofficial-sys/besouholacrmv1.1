@@ -72,7 +72,7 @@ export default function AssignmentModal({
   const isAr = i18n?.language === 'ar'
   
   // Memoized options similar to NewTaskModal
-  const taskTypes = useMemo(() => ['visit', 'mission', 'delivery', 'email', 'meeting', 'call'], [])
+  const taskTypes = useMemo(() => ['visit', 'mission', 'delivery', 'email', 'meeting', 'call', 'orientation'], [])
   const ticketStatusOptions = useMemo(() => ['Open', 'In Progress', 'Escalated', 'Closed'], [])
   const ticketTypeOptions = useMemo(() => ['Complaint', 'Inquiry', 'Request'], [])
   const channelOptions = useMemo(() => ['Email', 'Phone', 'WhatsApp', 'Customer Portal', 'Social Media'], [])

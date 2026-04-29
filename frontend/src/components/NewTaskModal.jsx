@@ -33,7 +33,7 @@ export default function NewTaskModal({ isOpen, onClose, onSave, users = [] }) {
     'Lead', 'Deal', 'Contact', 'Opportunity', 'Ticket', 'Project'
   ], []);
   const taskTypes = useMemo(() => [
-    'visit', 'mission', 'delivery', 'email', 'meeting', 'call'
+    'visit', 'mission', 'delivery', 'email', 'meeting', 'call', 'orientation'
   ], []);
   const reminderOptions = useMemo(() => [
     { value: '5m', label: isArabic ? 'قبل 5 دقائق' : '5 minutes before' },
