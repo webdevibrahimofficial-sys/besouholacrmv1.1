@@ -635,24 +635,36 @@ export default function CheckInReport() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <div className="flex items-center justify-center gap-2">
-                      {isAdminOrManager && item.salesPersonId !== user?.id && (item.status !== 'accepted' && item.status !== 'rejected') && (
-                        <>
-                          <button
-                            onClick={() => handleAccept(item.id)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100/50 rounded-md hover:bg-green-200/50 dark:bg-green-900/30 dark:text-green-300 transition-colors border border-green-200/50 dark:border-green-800/50"
-                          >
-                            <Check size={14} />
-                            {t('Accept')}
-                          </button>
-                          <button
-                            onClick={() => handleReject(item.id)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100/50 rounded-md hover:bg-red-200/50 dark:bg-red-900/30 dark:text-red-300 transition-colors border border-red-200/50 dark:border-red-800/50"
-                          >
-                            <X size={14} />
-                            {t('Reject')}
-                          </button>
-                        </>
-                      )}
+                      {(() => {
+                        const canModerate =
+                          isAdminOrManager &&
+                          item.salesPersonId !== user?.id &&
+                          item.status !== 'accepted' &&
+                          item.status !== 'rejected'
+
+                        if (!canModerate) {
+                          return <span className="text-xs text-[var(--muted-text)]">—</span>
+                        }
+
+                        return (
+                          <>
+                            <button
+                              onClick={() => handleAccept(item.id)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100/50 rounded-md hover:bg-green-200/50 dark:bg-green-900/30 dark:text-green-300 transition-colors border border-green-200/50 dark:border-green-800/50"
+                            >
+                              <Check size={14} />
+                              {t('Accept')}
+                            </button>
+                            <button
+                              onClick={() => handleReject(item.id)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100/50 rounded-md hover:bg-red-200/50 dark:bg-red-900/30 dark:text-red-300 transition-colors border border-red-200/50 dark:border-red-800/50"
+                            >
+                              <X size={14} />
+                              {t('Reject')}
+                            </button>
+                          </>
+                        )
+                      })()}
                     </div>
                   </td>
                 </tr>
