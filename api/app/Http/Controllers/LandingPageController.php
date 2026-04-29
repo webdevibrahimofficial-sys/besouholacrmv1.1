@@ -8,8 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Database\QueryException;
 
 use App\Models\Lead;
@@ -200,6 +202,22 @@ class LandingPageController extends Controller
 
             $data = $request->except(['logo', 'cover', 'media']);
 
+            // Tenant context is mandatory for storing landing pages.
+            // BelongsToTenant auto-fills tenant_id for regular users, but super-admin requests may not
+            // have tenant context unless ResolveTenant binds it (e.g. via X-Tenant-Id).
+            $tenantId = app()->bound('current_tenant_id')
+                ? app('current_tenant_id')
+                : (Auth::check() ? Auth::user()?->tenant_id : null);
+            if (!$tenantId) {
+                $tenantId = $request->header('X-Tenant-Id') ?: $request->header('x-tenant-id');
+            }
+            if (!$tenantId) {
+                throw ValidationException::withMessages([
+                    'tenant_id' => ['Tenant context is required to create landing pages.'],
+                ]);
+            }
+            $data['tenant_id'] = (int) $tenantId;
+
             // Generate Slug
             $data['slug'] = Str::slug($request->title) . '-' . Str::random(6);
 
@@ -261,6 +279,8 @@ class LandingPageController extends Controller
             $landingPage = $this->createLandingPageSafe($data);
 
             return new LandingPageResource($landingPage);
+        } catch (ValidationException $e) {
+            return response()->json(['errors' => $e->errors()], 422);
         } catch (\Throwable $e) {
             $errorId = (string) Str::uuid();
 
