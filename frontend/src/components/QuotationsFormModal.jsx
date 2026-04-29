@@ -107,11 +107,11 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
         date: initialData.createdAt ? new Date(initialData.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         expiryDate: initialData.expiryDate ? new Date(initialData.expiryDate).toISOString().split('T')[0] : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         items: initialData.items || [],
-        tax: initialData.tax || 0,
+        tax: Number(initialData.tax || 0),
         notes: initialData.notes || '',
         attachment: initialData.attachment || null,
         salesPerson: initialData.salesPerson || '',
-        isTaxEnabled: initialData.tax > 0 
+        isTaxEnabled: Number(initialData.tax || 0) > 0 
       })
     } else {
       setFormData({
@@ -743,14 +743,22 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
                     </label>
                   </div>
                   <div className="flex items-center gap-2 w-1/3">
-                    <input
-                      type="number"
-                      value={formData.tax}
-                      onChange={e => setFormData({...formData, tax: Number(e.target.value)})}
-                      className={`input input-sm w-full text-right ${formData.isTaxEnabled ? 'opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700' : ''}`}
-                      placeholder="0.00"
-                      readOnly={formData.isTaxEnabled}
-                    />
+                    {formData.isTaxEnabled ? (
+                      <input
+                        type="text"
+                        value={(Number(formData.tax) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        className="input input-sm w-full text-right opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700"
+                        readOnly
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        value={Number(formData.tax) || 0}
+                        onChange={e => setFormData({...formData, tax: Number(e.target.value)})}
+                        className="input input-sm w-full text-right"
+                        placeholder="0.00"
+                      />
+                    )}
                   </div>
                 </div>
 

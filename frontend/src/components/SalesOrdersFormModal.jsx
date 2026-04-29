@@ -136,8 +136,8 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
         date: initialData.createdAt ? new Date(initialData.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         deliveryDate: initialData.deliveryDate ? new Date(initialData.deliveryDate).toISOString().split('T')[0] : '',
         items: initialData.items || [],
-        tax: initialData.tax || 0,
-        isTaxEnabled: initialData.tax > 0,
+        tax: Number(initialData.tax || 0),
+        isTaxEnabled: Number(initialData.tax || 0) > 0,
         notes: initialData.notes || '',
         attachment: initialData.attachment || null,
         salesPerson: initialData.salesPerson || '',
@@ -901,14 +901,22 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                       <span className="text-xs text-gray-500">{isRTL ? 'تطبيق 14%' : 'Apply 14%'}</span>
                     </label>
                   </div>
-                  <input
-                    type="number"
-                    value={formData.tax}
-                    onChange={e => setFormData({...formData, tax: Number(e.target.value)})}
-                    className={`input input-sm w-24 text-end ${formData.isTaxEnabled ? 'opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700' : ''}`}
-                    placeholder="0.00"
-                    readOnly={formData.isTaxEnabled}
-                  />
+                  {formData.isTaxEnabled ? (
+                    <input
+                      type="text"
+                      value={(Number(formData.tax) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      className="input input-sm w-24 text-end opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700"
+                      readOnly
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      value={Number(formData.tax) || 0}
+                      onChange={e => setFormData({...formData, tax: Number(e.target.value)})}
+                      className="input input-sm w-24 text-end"
+                      placeholder="0.00"
+                    />
+                  )}
                 </div>
                 
                 <div className={`h-px w-full ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
