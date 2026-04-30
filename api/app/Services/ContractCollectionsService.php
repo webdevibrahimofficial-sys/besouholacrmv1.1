@@ -292,7 +292,8 @@ class ContractCollectionsService
         }
 
         return DB::transaction(function () use ($installment, $payload, $actor, $tenantId) {
-            $installment->refresh();
+            // Lock the installment row to prevent concurrent double-payments.
+            $installment = CcInstallment::where('tenant_id', $tenantId)->lockForUpdate()->findOrFail($installment->id);
 
             $amount = (float) ($payload['amount'] ?? 0);
             if ($amount <= 0) {
@@ -304,7 +305,7 @@ class ContractCollectionsService
                 throw ValidationException::withMessages(['amount' => 'Amount exceeds installment remaining balance.']);
             }
 
-            $contract = $installment->contract()->lockForUpdate()->first();
+            $contract = $installment->contract()->first();
             if (!$contract) {
                 throw ValidationException::withMessages(['contract' => 'Missing contract.']);
             }

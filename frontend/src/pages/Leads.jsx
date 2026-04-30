@@ -233,7 +233,7 @@ export const Leads = () => {
   const [whatsappIntentsFilter, setWhatsappIntentsFilter] = useState([])
   const [actionTypeFilter, setActionTypeFilter] = useState([])
   const [duplicateStatusFilter, setDuplicateStatusFilter] = useState([])
-  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortBy, setSortBy] = useState('smart')
   const [sortOrder, setSortOrder] = useState('desc')
   const [selectedLeads, setSelectedLeads] = useState([])
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
@@ -656,8 +656,8 @@ if (!s) {
       assigned_date_to: filters.assignedToDate,
       closed_from: filters.closedFrom,
       closed_to: filters.closedTo,
-      sort_by: filters.sortBy,
-      sort_order: filters.sortOrder,
+      sort_by: filters.sortBy === 'smart' ? '' : filters.sortBy,
+      sort_order: filters.sortBy === 'smart' ? '' : filters.sortOrder,
       view_type: isMyLeads ? 'my_leads' : 'all_leads'
     };
     
@@ -2280,8 +2280,8 @@ if (!s) {
       assigned_date_to: assignDateTo,
       closed_from: closedDateFrom,
       closed_to: closedDateTo,
-      sort_by: sortBy,
-      sort_order: sortOrder,
+      sort_by: sortBy === 'smart' ? '' : sortBy,
+      sort_order: sortBy === 'smart' ? '' : sortOrder,
       view_type: isMyLeads ? 'my_leads' : 'all_leads'
     };
 
@@ -2437,9 +2437,11 @@ if (!s) {
           return v || '-';
         }
         case 'stage': {
-          let displayStage = lead?.display_stage || lead?.stage;
-          const leadStatus = String(lead?.status || '').toLowerCase();
           const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
+          // Front-End Display Logic only:
+          // When Sales Person filter is active, show the real stage (not the manager virtual "Pending").
+          let displayStage = salesFilterActive ? (lead?.stage || lead?.status) : (lead?.display_stage || lead?.stage);
+          const leadStatus = String(lead?.status || '').toLowerCase();
           const isNewLead = ['new', 'new lead'].includes(String(lead?.stage || '').toLowerCase());
           const isUnassigned = !dbAssignedTo;
           if (!salesFilterActive && leadStatus === 'pending' && !isOwner) {
@@ -2630,7 +2632,7 @@ if (!s) {
                 setEmailFilter('')
                 setActionTypeFilter([])
                 setDuplicateStatusFilter([])
-                setSortBy('createdAt')
+                setSortBy('smart')
                 setSortOrder('desc')
                 setCurrentPage(1)
               }}
@@ -3818,13 +3820,15 @@ if (!s) {
 
                       case 'stage':
                         // Use virtual stage from backend if available, otherwise fallback to standard logic
-                        let displayStage = lead.display_stage || lead.stage;
+                        const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
+                        // Front-End Display Logic only:
+                        // When Sales Person filter is active, show the real stage (not the manager virtual "Pending").
+                        let displayStage = salesFilterActive ? (lead.stage || lead.status) : (lead.display_stage || lead.stage);
                         
                         const dbAssignedTo = lead.assigned_to || (typeof lead.assignedTo === 'object' ? lead.assignedTo?.id : lead.assignedTo);
                         const currentUserId = user?.id;
                         const isOwner = dbAssignedTo == currentUserId;
                         const leadStatus = String(lead.status || '').toLowerCase();
-                        const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
 
                         // Hard rule: if lead is Pending and viewer is NOT the owner -> show Pending
                         // (even if backend sent display_stage)

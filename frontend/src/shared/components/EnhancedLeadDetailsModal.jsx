@@ -33,6 +33,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [error, setError] = useState(null);
   const [leadActions, setLeadActions] = useState([]);
   const [convertCustomerLoading, setConvertCustomerLoading] = useState(false);
+  const [uploadingLeadAttachments, setUploadingLeadAttachments] = useState(false);
+  const leadAttachmentInputRef = useRef(null);
 
   useEffect(() => {
     if (initialActionId && leadActions.length > 0) {
@@ -77,6 +79,49 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       setFetchedLead(null);
     }
   }, [isOpen, lead?.id]);
+
+  const showToast = (type, message) => {
+    try {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type, message } }));
+    } catch { }
+  };
+
+  const handlePickLeadAttachments = () => {
+    if (uploadingLeadAttachments) return;
+    leadAttachmentInputRef.current?.click();
+  };
+
+  const handleLeadAttachmentsSelected = async (e) => {
+    const files = Array.from(e?.target?.files || []);
+    if (e?.target) e.target.value = '';
+    if (!lead?.id || files.length === 0) return;
+
+    const formData = new FormData();
+    files.forEach((file) => formData.append('attachments[]', file));
+
+    setUploadingLeadAttachments(true);
+    showToast('info', isArabic ? 'جاري رفع المرفقات...' : 'Uploading attachments...');
+
+    try {
+      const res = await api.post(`/api/leads/${lead.id}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const updated = res?.data;
+      if (updated) {
+        setFetchedLead(updated);
+        onUpdateLead?.(updated);
+      }
+
+      showToast('success', isArabic ? 'تم رفع المرفقات بنجاح' : 'Attachments uploaded');
+      if (activeTab !== 'attachments') setActiveTab('attachments');
+    } catch (err) {
+      console.error('Failed to upload lead attachments:', err);
+      showToast('error', isArabic ? 'فشل رفع المرفقات' : 'Failed to upload attachments');
+    } finally {
+      setUploadingLeadAttachments(false);
+    }
+  };
 
 
   useEffect(() => {
@@ -1903,6 +1948,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                       <h4 className={`${isLight ? 'text-black border-gray-300' : 'text-white border-slate-700'} font-semibold mb-2 sm:mb-3 border-b pb-2`}>
                         {isArabic ? 'إجراءات سريعة' : 'Quick Actions'}
                       </h4>
+                      <input
+                        ref={leadAttachmentInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={handleLeadAttachmentsSelected}
+                      />
                       <div className="flex flex-wrap items-center gap-2 sm:gap-3 rtl:flex-row-reverse">
                         {canAddAction && (
                           <button
@@ -1918,8 +1970,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                           </button>
                         )}
                       <button
-                        onClick={() => setShowEditLeadModal(true)}
-                        className={`${isLight ? 'bg-blue-500 hover:bg-blue-600' : 'bg-blue-600 hover:bg-blue-700'} text-white py-1.5 sm:py-2 px-3 sm:px-4 rounded-full font-medium transition-colors flex items-center justify-center gap-2 flex-grow sm:flex-grow-0`}
+                        onClick={handlePickLeadAttachments}
+                        disabled={uploadingLeadAttachments}
+                        className={`${isLight ? 'bg-blue-500 hover:bg-blue-600' : 'bg-blue-600 hover:bg-blue-700'} ${uploadingLeadAttachments ? 'opacity-70 cursor-not-allowed' : ''} text-white py-1.5 sm:py-2 px-3 sm:px-4 rounded-full font-medium transition-colors flex items-center justify-center gap-2 flex-grow sm:flex-grow-0`}
                       >
                         <span className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-blue-400 flex items-center justify-center">
                           <FaPaperclip className="text-[10px] sm:text-xs" />

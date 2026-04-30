@@ -220,6 +220,13 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
           detail: { type: 'error', message: isArabic ? 'فشل الإضافة' : 'Add failed' },
         }))
       }
+
+      // UX: close modal automatically when at least one rule is added successfully.
+      if (okCount > 0) {
+        try {
+          if (typeof onClose === 'function') onClose()
+        } catch {}
+      }
     } catch {
       window.dispatchEvent(new CustomEvent('app:toast', {
         detail: { type: 'error', message: isArabic ? 'فشل الإضافة' : 'Add failed' },

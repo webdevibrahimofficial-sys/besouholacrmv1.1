@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Support\PhoneNormalizer;
 use App\Services\LeadRotationEngine;
+use Illuminate\Support\Str;
 
 use App\Models\LeadReferral;
 use App\Notifications\LeadReferralAssignedNotification;
@@ -1612,14 +1613,20 @@ class LeadController extends Controller
             ]);
 
             // Sorting
-            $sortBy = $request->get('sort_by', 'created_at');
-            if ($sortBy === 'createdAt') $sortBy = 'created_at';
+            $sortBy = $request->get('sort_by');
             $sortOrder = $request->get('sort_order', 'desc');
-            
-            if (in_array($sortBy, ['name', 'created_at', 'updated_at', 'estimated_value', 'stage'])) {
-                $query->orderBy($sortBy, $sortOrder);
+
+            if (!$sortBy) {
+                $this->applyLeadsSmartOrdering($query, $request, $user);
             } else {
-                $query->latest();
+                if ($sortBy === 'createdAt') $sortBy = 'created_at';
+                if ($sortBy === 'updatedAt') $sortBy = 'updated_at';
+
+                if (in_array($sortBy, ['name', 'created_at', 'updated_at', 'estimated_value', 'stage'], true)) {
+                    $query->orderBy($sortBy, $sortOrder);
+                } else {
+                    $query->latest();
+                }
             }
 
             return $query->paginate($request->get('per_page', 10));
@@ -1627,6 +1634,133 @@ class LeadController extends Controller
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Leads Index Error: ' . $e->getMessage());
             return response()->json(['message' => 'Failed to fetch leads', 'error' => $e->getMessage(), 'data' => []], 500);
+        }
+    }
+
+    /**
+     * Default "smart" ordering rule for Leads Management.
+     *
+     * - Total Leads + New Leads + Duplicates + Pending + Cold Calls:
+     *   sort by creation date (newest first).
+     * - Other stages:
+     *   sort by Next Action Date (closest follow-up first).
+     */
+    private function applyLeadsSmartOrdering($query, Request $request, $user): void
+    {
+        $stages = [];
+        if ($request->has('stage')) {
+            $stages = (array) $request->stage;
+        }
+
+        $stages = array_values(array_filter(array_map(fn($v) => strtolower(trim((string) $v)), $stages), fn($v) => $v !== ''));
+
+        $creationStages = [
+            'new',
+            'new lead',
+            'new_lead',
+            'newlead',
+            'duplicate',
+            'duplicates',
+            'pending',
+            'in-progress',
+            'in progress',
+            'inprogress',
+            'cold calls',
+            'coldcalls',
+            'cold-call',
+            'cold_call',
+            'cold_calls',
+        ];
+
+        $shouldSortByCreatedAt = empty($stages) || empty(array_diff($stages, $creationStages));
+        if ($shouldSortByCreatedAt) {
+            $query->orderBy('leads.created_at', 'desc');
+            return;
+        }
+
+        $this->applyNextActionDateOrdering($query, $user);
+    }
+
+    private function applyNextActionDateOrdering($query, $user): void
+    {
+        $driver = DB::connection()->getDriverName();
+
+        $roleLower = strtolower($user->role ?? '');
+        $roles = $user->getRoleNames()->map(fn($r) => strtolower($r))->toArray();
+        $isAdmin = str_contains($roleLower, 'admin')
+            || in_array('admin', $roles, true)
+            || in_array('tenant admin', $roles, true)
+            || $user->is_super_admin;
+
+        $latestActionIds = DB::table('lead_actions as la')
+            ->selectRaw('MAX(la.id) as id, la.lead_id')
+            ->when(!$isAdmin, function ($q) use ($driver) {
+                // Exclude manager-only actions from ordering for non-admins.
+                // Keep in sync with the visibility logic used when eager-loading latestAction.
+                $q->whereRaw($this->buildActionVisibilityWhere($driver, 'la'));
+            })
+            ->groupBy('la.lead_id');
+
+        $query->leftJoinSub($latestActionIds, 'la_latest', function ($join) {
+            $join->on('la_latest.lead_id', '=', 'leads.id');
+        });
+        $query->leftJoin('lead_actions as la', 'la.id', '=', 'la_latest.id');
+
+        [$dateExpr, $timeExpr] = $this->buildNextActionExtractExpr($driver, 'la');
+
+        // Null/empty next action date => push to bottom
+        $query->orderByRaw("CASE WHEN {$dateExpr} IS NULL THEN 1 ELSE 0 END asc");
+        $query->orderByRaw("{$dateExpr} asc");
+        $query->orderByRaw("COALESCE({$timeExpr}, '') asc");
+        $query->orderBy('leads.created_at', 'desc');
+    }
+
+    private function buildActionVisibilityWhere(string $driver, string $alias): string
+    {
+        // Returns a predicate that evaluates to TRUE when the action is visible (not manager-only).
+        switch ($driver) {
+            case 'pgsql':
+                return "COALESCE({$alias}.details->>'visibility', '') <> 'manager'";
+            case 'sqlite':
+                return "COALESCE(json_extract({$alias}.details, '$.visibility'), '') <> 'manager'";
+            case 'sqlsrv':
+                return "COALESCE(JSON_VALUE({$alias}.details, '$.visibility'), '') <> 'manager'";
+            case 'mysql':
+            default:
+                $vis = "JSON_UNQUOTE(JSON_EXTRACT({$alias}.details, '$.visibility'))";
+                return "COALESCE({$vis}, '') <> 'manager'";
+        }
+    }
+
+    /**
+     * Builds SQL expressions to extract next action date/time from lead_actions.details JSON.
+     *
+     * Returns [dateExpr, timeExpr] where dateExpr is normalized to YYYY-MM-DD and NULL if missing/empty.
+     */
+    private function buildNextActionExtractExpr(string $driver, string $alias): array
+    {
+        switch ($driver) {
+            case 'pgsql': {
+                $date = "NULLIF(substring(COALESCE({$alias}.details->>'date', ''), 1, 10), '')";
+                $time = "NULLIF(COALESCE({$alias}.details->>'time', ''), '')";
+                return [$date, $time];
+            }
+            case 'sqlite': {
+                $date = "NULLIF(substr(COALESCE(json_extract({$alias}.details, '$.date'), ''), 1, 10), '')";
+                $time = "NULLIF(COALESCE(json_extract({$alias}.details, '$.time'), ''), '')";
+                return [$date, $time];
+            }
+            case 'sqlsrv': {
+                $date = "NULLIF(LEFT(COALESCE(JSON_VALUE({$alias}.details, '$.date'), ''), 10), '')";
+                $time = "NULLIF(COALESCE(JSON_VALUE({$alias}.details, '$.time'), ''), '')";
+                return [$date, $time];
+            }
+            case 'mysql':
+            default: {
+                $date = "NULLIF(LEFT(COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$alias}.details, '$.date')), ''), 10), '')";
+                $time = "NULLIF(COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$alias}.details, '$.time')), ''), '')";
+                return [$date, $time];
+            }
         }
     }
 
@@ -2769,6 +2903,85 @@ class LeadController extends Controller
             DB::rollBack();
             return response()->json(['message' => 'Failed to update lead', 'error' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Append uploaded attachment files to the lead's attachments array.
+     * Stores files on the public disk and persists their paths in DB.
+     */
+    public function addAttachments(Request $request, $id)
+    {
+        $lead = Lead::findOrFail($id);
+
+        // Enterprise Referral Supervision: Block Update
+        if ($this->isReferralSupervisor($request->user(), $lead)) {
+            abort(403, 'Referral supervisors cannot update leads.');
+        }
+
+        $authUser = $request->user();
+        if (!$authUser) {
+            abort(401, 'Unauthorized');
+        }
+
+        if (!$this->hasLeadModulePermission($authUser, 'editInfo')) {
+            abort(403, 'You do not have permission to edit lead info.');
+        }
+
+        $request->validate([
+            'attachments' => ['required'],
+            'attachments.*' => ['file'],
+        ]);
+
+        $files = $request->file('attachments');
+        if (!$files) {
+            return response()->json(['message' => 'No files uploaded.'], 422);
+        }
+
+        if (!is_array($files)) {
+            $files = [$files];
+        }
+
+        $tenantId = $authUser->tenant_id ?? $lead->tenant_id;
+        $storedPaths = [];
+
+        foreach ($files as $file) {
+            if (!$file) {
+                continue;
+            }
+
+            $originalName = $file->getClientOriginalName();
+            $baseName = pathinfo($originalName, PATHINFO_FILENAME);
+            $extension = $file->getClientOriginalExtension();
+            $safeBase = Str::slug($baseName, '_');
+            $safeExt = $extension ? ('.' . strtolower($extension)) : '';
+
+            $filename = $safeBase . '_' . time() . '_' . Str::random(6) . $safeExt;
+            $folder = "leads/attachments/tenant_{$tenantId}/lead_{$lead->id}";
+            $path = $file->storeAs($folder, $filename, 'public');
+
+            if ($path) {
+                $storedPaths[] = $path;
+            }
+        }
+
+        if (empty($storedPaths)) {
+            return response()->json(['message' => 'Failed to store uploaded files.'], 500);
+        }
+
+        $existing = $lead->attachments;
+        if (!is_array($existing)) {
+            try {
+                $decoded = json_decode((string) $existing, true);
+                $existing = is_array($decoded) ? $decoded : [];
+            } catch (\Throwable $e) {
+                $existing = [];
+            }
+        }
+
+        $lead->attachments = array_values(array_merge($existing, $storedPaths));
+        $lead->save();
+
+        return response()->json($lead->fresh()->load(['customFieldValues.field', 'creator:id,name', 'assignedAgent:id,name']));
     }
 
     /**

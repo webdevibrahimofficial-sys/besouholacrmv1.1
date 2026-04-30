@@ -174,10 +174,27 @@ export const AddNewLead = () => {
     { value: 'Individual', label: t('Individual') }
   ], [t]);
 
-  const stageOptions = useMemo(() => stages.map(s => ({
-    value: s.name,
-    label: i18n.language === 'ar' ? (s.nameAr || s.name) : s.name
-  })), [stages, i18n.language]);
+  const stageOptions = useMemo(() => {
+    const normalize = (v) => String(v ?? '')
+      .toLowerCase()
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const base = (Array.isArray(stages) ? stages : []).map(s => ({
+      value: s.name,
+      label: i18n.language === 'ar' ? (s.nameAr || s.name) : s.name
+    })).filter(o => o.value && o.label);
+
+    const baseSet = new Set(base.map(o => normalize(o.value)));
+
+    const extras = [
+      { value: 'new lead', label: t('new lead') },
+      { value: 'cold calls', label: t('cold calls') },
+    ].filter(o => !baseSet.has(normalize(o.value)));
+
+    return [...extras, ...base];
+  }, [stages, i18n.language, t]);
 
   const priorityOptions = useMemo(() => [
     { value: 'hot', label: t('Hot') },

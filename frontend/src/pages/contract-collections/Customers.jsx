@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Eye, Pencil, Trash2, Search, X, MessageSquareText, Paperclip, Filter, ChevronDown, ChevronUp, Printer, FileDown, FileText } from 'lucide-react'
 import { FaChevronLeft, FaChevronRight, FaFileImport, FaPlus } from 'react-icons/fa'
@@ -30,6 +30,158 @@ const normalizeInstallmentType = (raw) => {
   if (v === 'half_yearly' || v === 'halfyearly') return 'half-yearly'
   if (v === 'annual' || v === 'annually') return 'yearly'
   return v
+}
+
+const stripNullKeyPrefix = (key) => {
+  const k = safeStr(key)
+  if (!k) return k
+  // Keys like "\u0000*\u0000items" (Laravel Collection internals) should become "items"
+  const nullChar = '\u0000'
+  if (!k.includes(nullChar)) return k
+  const parts = k.split(nullChar).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : k.replaceAll(nullChar, '')
+}
+
+const cleanAuditValue = (value) => {
+  if (value === null || value === undefined) return value
+  if (Array.isArray(value)) return value.map(cleanAuditValue)
+  if (typeof value === 'object') {
+    const out = {}
+    for (const [rawKey, rawVal] of Object.entries(value)) {
+      out[stripNullKeyPrefix(rawKey)] = cleanAuditValue(rawVal)
+    }
+    return out
+  }
+  if (typeof value === 'string') {
+    // Remove embedded null chars if any made it through JSON decoding
+    return value.replaceAll('\u0000', '')
+  }
+  return value
+}
+
+const tryParseJson = (value) => {
+  if (value === null || value === undefined) return value
+  if (typeof value !== 'string') return value
+  const s = value.trim()
+  if (!s) return value
+  if (!(s.startsWith('{') || s.startsWith('['))) return value
+  try {
+    return JSON.parse(s)
+  } catch {
+    return value
+  }
+}
+
+const humanizeToken = (token) => {
+  const raw = safeStr(token)
+  if (!raw) return ''
+  return raw
+    .replaceAll('_', ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+const auditTypeFromAction = ({ actionKey, logName }) => {
+  const a = safeStr(actionKey).toLowerCase()
+  const l = safeStr(logName).toLowerCase()
+  if (a.includes('payment_plan') || l.includes('payment_plan')) return 'Payment'
+  if (a.includes('contract') || l.includes('contract')) return 'Contract'
+  if (a.includes('property') || l.includes('property')) return 'Inventory'
+  if (a.includes('installment') || l.includes('installment')) return 'Installment'
+  return 'Other'
+}
+
+const auditSeverityFromAction = ({ actionKey, logName }) => {
+  const a = safeStr(actionKey).toLowerCase()
+  const l = safeStr(logName).toLowerCase()
+  if (a.includes('deleted') || a.includes('rejected') || a.includes('void')) return 'danger'
+  if (a.includes('sold')) return 'danger'
+  if (a.includes('reserved')) return 'warning'
+  if (a.includes('created') || l.includes('created')) return 'success'
+  return 'info'
+}
+
+const auditActionLabel = ({ actionKey, logName, isArabic }) => {
+  const a = safeStr(actionKey)
+  const l = safeStr(logName)
+  const key = a || l
+  const map = {
+    payment_plan_version_created: isArabic ? 'تم تحديث خطة الدفع' : 'Payment Plan Updated',
+    contract_created: isArabic ? 'تم إنشاء العقد' : 'Contract Created',
+    property_reserved: isArabic ? 'تم حجز الوحدة' : 'Unit Reserved',
+    property_sold: isArabic ? 'تم بيع الوحدة' : 'Unit Sold',
+  }
+  if (map[key]) return map[key]
+  if (map[a]) return map[a]
+  if (map[l]) return map[l]
+  return humanizeToken(key)
+}
+
+const formatAuditLines = ({ props, actionKey, logName, isArabic }) => {
+  const action = safeStr(actionKey)
+  const payloadRaw = props?.payload ?? props?.new_values ?? props?.old_values ?? props
+  const payload = cleanAuditValue(tryParseJson(payloadRaw))
+
+  // Prefer showing "before → after" if present
+  const before = props?.old_values ?? props?.before ?? null
+  const after = props?.new_values ?? props?.after ?? null
+  const beforeObj = before && typeof before === 'object' ? cleanAuditValue(before) : null
+  const afterObj = after && typeof after === 'object' ? cleanAuditValue(after) : null
+
+  if (beforeObj && afterObj) {
+    const keys = Array.from(new Set([...Object.keys(beforeObj), ...Object.keys(afterObj)]))
+    const lines = []
+    for (const k of keys) {
+      const b = beforeObj[k]
+      const n = afterObj[k]
+      if (JSON.stringify(b) === JSON.stringify(n)) continue
+      lines.push(`${humanizeToken(k)}: ${safeStr(b)} → ${safeStr(n)}`)
+    }
+    return lines.length ? lines : [isArabic ? 'تم تحديث البيانات' : 'Updated']
+  }
+
+  if (action === 'payment_plan_version_created') {
+    const r = Number(payload?.reservation_amount ?? 0) || 0
+    const dp = Number(payload?.down_payment ?? 0) || 0
+    const del = Number(payload?.delivery_payment ?? 0) || 0
+    const count = Number(payload?.installment_count ?? 0) || 0
+    const val = Number(payload?.installment_value ?? 0) || 0
+    const type = normalizeInstallmentType(payload?.installment_type ?? '') || ''
+
+    const lines = []
+    lines.push(`${isArabic ? 'مقدم الحجز' : 'Reservation'}: ${formatMoney(r)}`)
+    lines.push(`${isArabic ? 'الدفعة المقدمة' : 'Down Payment'}: ${formatMoney(dp)}`)
+    lines.push(`${isArabic ? 'دفعة الاستلام' : 'Delivery'}: ${formatMoney(del)}`)
+    if (count || val || type) {
+      lines.push(`${isArabic ? 'الأقساط' : 'Installments'}: ${count} × ${formatMoney(val)}${type ? ` (${humanizeToken(type)})` : ''}`)
+    }
+    if (props?.version) {
+      lines.unshift(`${isArabic ? 'الإصدار' : 'Version'}: ${safeStr(props.version)}`)
+    }
+    return lines
+  }
+
+  if (action === 'contract_created') {
+    const lines = []
+    if (props?.contract_id) lines.push(`${isArabic ? 'رقم العقد' : 'Contract ID'}: ${safeStr(props.contract_id)}`)
+    if (props?.property_id) lines.push(`${isArabic ? 'رقم الوحدة' : 'Property ID'}: ${safeStr(props.property_id)}`)
+    return lines.length ? lines : [isArabic ? 'تم إنشاء العقد' : 'Contract created']
+  }
+
+  if (action === 'property_reserved' || action === 'property_sold') {
+    const lines = []
+    if (props?.property_id) lines.push(`${isArabic ? 'رقم الوحدة' : 'Property ID'}: ${safeStr(props.property_id)}`)
+    return lines.length ? lines : [auditActionLabel({ actionKey, logName, isArabic })]
+  }
+
+  if (payload && typeof payload === 'object') {
+    const entries = Object.entries(payload).slice(0, 6)
+    const lines = entries.map(([k, v]) => `${humanizeToken(k)}: ${typeof v === 'number' ? formatMoney(v) : safeStr(v)}`)
+    return lines.length ? lines : [auditActionLabel({ actionKey, logName, isArabic })]
+  }
+
+  return [safeStr(payload)]
 }
 
 const deriveCcPlanFromProperty = (property) => {
@@ -219,6 +371,11 @@ export default function ContractCollectionsCustomers() {
   const [auditQ, setAuditQ] = useState('')
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditItems, setAuditItems] = useState([])
+  const [auditType, setAuditType] = useState('all')
+  const [auditUser, setAuditUser] = useState('all')
+  const [auditFrom, setAuditFrom] = useState('')
+  const [auditTo, setAuditTo] = useState('')
+  const [auditExpandedId, setAuditExpandedId] = useState(null)
   const auditAbortRef = useRef(null)
 
   // Convert to Contract
@@ -869,7 +1026,6 @@ export default function ContractCollectionsCustomers() {
       auditAbortRef.current = controller
 
       const params = new URLSearchParams()
-      if (auditQ.trim()) params.set('q', auditQ.trim())
       params.set('per_page', '100')
 
       const res = await api.get(`/api/cc/audit/customer-units/${encodeURIComponent(unitId)}?${params.toString()}`, { signal: controller.signal })
@@ -879,7 +1035,73 @@ export default function ContractCollectionsCustomers() {
     } finally {
       setAuditLoading(false)
     }
-  }, [auditQ])
+  }, [])
+
+  const auditUsers = useMemo(() => {
+    const set = new Map()
+    for (const a of auditItems) {
+      const id = a?.causer?.id ?? 'system'
+      const name = safeStr(a?.causer?.name || 'System')
+      if (!set.has(String(id))) set.set(String(id), name)
+    }
+    return Array.from(set.entries()).map(([id, name]) => ({ id, name }))
+  }, [auditItems])
+
+  const auditRows = useMemo(() => {
+    const fromDate = auditFrom ? new Date(`${auditFrom}T00:00:00`) : null
+    const toDate = auditTo ? new Date(`${auditTo}T23:59:59`) : null
+
+    const q = safeStr(auditQ).trim().toLowerCase()
+
+    return auditItems
+      .map((a) => {
+        const rawProps = a?.properties || {}
+        const props = cleanAuditValue(rawProps)
+        const actionKey = safeStr(props?.action || a?.description || a?.log_name || '')
+        const logName = safeStr(a?.log_name || '')
+        const type = auditTypeFromAction({ actionKey, logName })
+        const severity = auditSeverityFromAction({ actionKey, logName })
+        const label = auditActionLabel({ actionKey, logName, isArabic })
+        const lines = formatAuditLines({ props, actionKey, logName, isArabic })
+        const createdAt = safeStr(a?.created_at)
+        const createdDate = createdAt ? new Date(createdAt.replace(' ', 'T')) : null
+
+        return {
+          id: a?.id,
+          created_at: createdAt,
+          createdDate,
+          causerName: safeStr(a?.causer?.name || 'System'),
+          causerId: a?.causer?.id ?? 'system',
+          logName,
+          actionKey,
+          type,
+          severity,
+          label,
+          lines,
+          rawProps: props,
+        }
+      })
+      .filter((row) => {
+        if (auditType !== 'all' && row.type !== auditType) return false
+        if (auditUser !== 'all' && String(row.causerId) !== String(auditUser)) return false
+        if (fromDate && row.createdDate && row.createdDate < fromDate) return false
+        if (toDate && row.createdDate && row.createdDate > toDate) return false
+
+        if (q) {
+          const hay = [
+            row.created_at,
+            row.causerName,
+            row.label,
+            row.actionKey,
+            row.logName,
+            row.lines.join(' '),
+          ].join(' ').toLowerCase()
+          if (!hay.includes(q)) return false
+        }
+
+        return true
+      })
+  }, [auditItems, auditFrom, auditTo, auditQ, auditType, auditUser, isArabic])
 
   useEffect(() => {
     if (!previewOpen) return
@@ -888,6 +1110,10 @@ export default function ContractCollectionsCustomers() {
     const t = setTimeout(() => loadAudit(selectedUnitId), 250)
     return () => clearTimeout(t)
   }, [previewOpen, activeTab, selectedUnitId, loadAudit])
+
+  useEffect(() => {
+    setAuditExpandedId(null)
+  }, [activeTab, selectedUnitId])
 
   if (!isRealEstate) {
     return (
@@ -1511,12 +1737,48 @@ export default function ContractCollectionsCustomers() {
                       </div>
                     </div>
 
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
+                      <select className="input h-9 text-sm" value={auditType} onChange={(e) => setAuditType(e.target.value)}>
+                        <option value="all">{isArabic ? 'كل الأنواع' : 'All Types'}</option>
+                        <option value="Payment">{isArabic ? 'خطة الدفع' : 'Payment Plan'}</option>
+                        <option value="Contract">{isArabic ? 'عقد' : 'Contract'}</option>
+                        <option value="Inventory">{isArabic ? 'مخزون' : 'Inventory'}</option>
+                        <option value="Installment">{isArabic ? 'قسط' : 'Installment'}</option>
+                        <option value="Other">{isArabic ? 'أخرى' : 'Other'}</option>
+                      </select>
+
+                      <select className="input h-9 text-sm" value={auditUser} onChange={(e) => setAuditUser(e.target.value)}>
+                        <option value="all">{isArabic ? 'كل المستخدمين' : 'All Users'}</option>
+                        {auditUsers.map((u) => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="date"
+                        className="input h-9 text-sm"
+                        value={auditFrom}
+                        onChange={(e) => setAuditFrom(e.target.value)}
+                        placeholder={isArabic ? 'من' : 'From'}
+                      />
+
+                      <input
+                        type="date"
+                        className="input h-9 text-sm"
+                        value={auditTo}
+                        onChange={(e) => setAuditTo(e.target.value)}
+                        placeholder={isArabic ? 'إلى' : 'To'}
+                      />
+                    </div>
+
                     {!selectedUnitId ? (
                       <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'اختر وحدة لعرض السجل' : 'Select a unit to view audit log'}</div>
                     ) : auditLoading ? (
                       <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</div>
                     ) : auditItems.length === 0 ? (
                       <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'لا يوجد سجلات' : 'No audit entries'}</div>
+                    ) : auditRows.length === 0 ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'لا يوجد نتائج' : 'No matching entries'}</div>
                     ) : (
                       <div className="overflow-auto rounded-xl border border-[var(--panel-border)] mt-3">
                         <table className="min-w-full text-sm">
@@ -1529,26 +1791,71 @@ export default function ContractCollectionsCustomers() {
                             </tr>
                           </thead>
                           <tbody>
-                            {auditItems.map((a) => {
-                              const props = a?.properties || {}
-                              const action = props?.action || a?.description || a?.log_name || ''
-                              const details = (() => {
-                                const p = props?.payload || props?.new_values || props?.old_values || props
-                                try {
-                                  return JSON.stringify(p)
-                                } catch {
-                                  return ''
-                                }
-                              })()
+                            {auditRows.map((row) => {
+                              const isExpanded = String(auditExpandedId) === String(row.id)
+                              const badge = row.severity === 'danger'
+                                ? 'bg-red-600/15 text-red-300 border-red-500/30'
+                                : row.severity === 'warning'
+                                  ? 'bg-amber-600/15 text-amber-300 border-amber-500/30'
+                                  : row.severity === 'success'
+                                    ? 'bg-emerald-600/15 text-emerald-300 border-emerald-500/30'
+                                    : 'bg-blue-600/15 text-blue-300 border-blue-500/30'
+
                               return (
-                                <tr key={a.id} className="border-t border-[var(--panel-border)]">
-                                  <td className="px-3 py-2 whitespace-nowrap" dir="ltr">{safeStr(a.created_at)}</td>
-                                  <td className="px-3 py-2">{safeStr(a.causer?.name)}</td>
-                                  <td className="px-3 py-2">{safeStr(action)}</td>
-                                  <td className="px-3 py-2">
-                                    <div className="max-w-[520px] truncate" title={details}>{details}</div>
-                                  </td>
-                                </tr>
+                                <Fragment key={row.id}>
+                                  <tr key={row.id} className="border-t border-[var(--panel-border)] align-top">
+                                    <td className="px-3 py-2 whitespace-nowrap" dir="ltr">{safeStr(row.created_at)}</td>
+                                    <td className="px-3 py-2">{safeStr(row.causerName)}</td>
+                                    <td className="px-3 py-2">
+                                      <div className="flex flex-col gap-1">
+                                        <span className={`inline-flex w-fit px-2 py-0.5 rounded-full border text-xs ${badge}`}>{row.type}</span>
+                                        <div className="font-medium">{safeStr(row.label)}</div>
+                                        <div className={`text-xs ${mutedTextClass} opacity-80`}>{safeStr(row.actionKey || row.logName)}</div>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <div className="max-w-[560px]">
+                                        <div className="space-y-0.5">
+                                          {row.lines.slice(0, 3).map((ln, idx) => (
+                                            <div key={idx} className="text-xs">{safeStr(ln)}</div>
+                                          ))}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                          onClick={() => setAuditExpandedId(isExpanded ? null : row.id)}
+                                        >
+                                          {isExpanded ? (isArabic ? 'إخفاء التفاصيل' : 'Hide details') : (isArabic ? 'عرض التفاصيل' : 'View details')}
+                                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr className="border-t border-[var(--panel-border)]">
+                                      <td className="px-3 py-3" colSpan={4}>
+                                        <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3 space-y-2">
+                                          <div className="text-xs font-semibold">{isArabic ? 'تفاصيل' : 'Details'}</div>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                                            {row.lines.map((ln, idx) => (
+                                              <div key={idx} className="rounded-lg bg-white/60 dark:bg-black/20 border border-[var(--panel-border)] px-2 py-1">
+                                                {safeStr(ln)}
+                                              </div>
+                                            ))}
+                                          </div>
+                                          <details className="text-xs">
+                                            <summary className="cursor-pointer opacity-80">{isArabic ? 'عرض البيانات الخام' : 'View raw data'}</summary>
+                                            <pre className="mt-2 p-3 rounded-xl bg-black/10 dark:bg-white/10 overflow-auto max-h-[260px]">
+{(() => {
+  try { return JSON.stringify(row.rawProps, null, 2) } catch { return safeStr(row.rawProps) }
+})()}
+                                            </pre>
+                                          </details>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
                               )
                             })}
                           </tbody>

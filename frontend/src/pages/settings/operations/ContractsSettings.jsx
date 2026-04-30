@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Eye, FilePlus2, Save, Trash2, Upload, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Copy, Eye, FilePlus2, RefreshCcw, Save, Trash2, Upload, X } from 'lucide-react'
 import { api } from '@utils/api'
 import { createContractTemplate, deleteContractTemplate, getContractTemplates, updateContractTemplate } from '@services/contractTemplateService'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import Underline from '@tiptap/extension-underline'
 import TextAlign from '@tiptap/extension-text-align'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -85,6 +84,7 @@ export default function ContractsSettings() {
   const [templates, setTemplates] = useState([])
   const [projects, setProjects] = useState([])
   const [tenantInfo, setTenantInfo] = useState({
+    id: '',
     name: '',
     logoUrl: '',
     phone: '',
@@ -100,7 +100,12 @@ export default function ContractsSettings() {
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [serverPreviewHtml, setServerPreviewHtml] = useState('')
+  const [serverPreviewLoading, setServerPreviewLoading] = useState(false)
   const [pastePlainText, setPastePlainText] = useState(false)
+  const [lastSavedAt, setLastSavedAt] = useState(null)
+  const [editorView, setEditorView] = useState('edit') // edit|preview
+  const [templatesQuery, setTemplatesQuery] = useState('')
 
   const activeTemplate = useMemo(() => templates.find(tpl => tpl.id === activeId) || null, [templates, activeId])
   const activeProjectName = useMemo(() => {
@@ -124,25 +129,19 @@ export default function ContractsSettings() {
       setTemplates([])
     }
 
-    if (projRes.status === 'fulfilled') {
-      const data = projRes.value?.data
-      setProjects(Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []))
-    } else {
-      setProjects([])
-    }
-
     if (companyRes.status === 'fulfilled') {
       const tenant = companyRes.value?.data?.tenant || companyRes.value?.data?.data?.tenant || {}
       const profile = tenant?.profile || {}
       setTenantInfo((prev) => ({
         ...prev,
+        id: tenant?.id || '',
         name: tenant?.name || '',
         logoUrl: profile?.logo_url || '',
         phone: profile?.phone || '',
         taxId: profile?.tax_id || '',
       }))
     } else {
-      setTenantInfo((prev) => ({ ...prev, name: '', logoUrl: '', phone: '', taxId: '' }))
+      setTenantInfo((prev) => ({ ...prev, id: '', name: '', logoUrl: '', phone: '', taxId: '' }))
     }
 
     if (smtpRes.status === 'fulfilled') {
@@ -151,6 +150,49 @@ export default function ContractsSettings() {
     } else {
       setTenantInfo((prev) => ({ ...prev, email: '' }))
     }
+
+    // Projects: ensure tenant-scoped list is populated (some APIs require tenant_id explicitly)
+    const resolvedTenantId = companyRes.status === 'fulfilled'
+      ? (companyRes.value?.data?.tenant?.id || companyRes.value?.data?.data?.tenant?.id || null)
+      : null
+
+    const normalizeProjects = (payload) => {
+      const list =
+        Array.isArray(payload) ? payload
+          : Array.isArray(payload?.data) ? payload.data
+            : Array.isArray(payload?.data?.data) ? payload.data.data
+              : []
+      const tenantId = Number(resolvedTenantId || 0)
+      if (!tenantId) return list
+      // If projects include tenant_id, filter by it. Otherwise keep as-is.
+      const hasTenantKey = list.some(p => p && Object.prototype.hasOwnProperty.call(p, 'tenant_id'))
+      return hasTenantKey ? list.filter(p => Number(p?.tenant_id || 0) === tenantId) : list
+    }
+
+    let nextProjects = []
+    if (projRes.status === 'fulfilled') {
+      nextProjects = normalizeProjects(projRes.value?.data)
+    }
+
+    // Prefer explicit tenant_id fetch when tenant is known (ensures tenant-scoped dropdown).
+    if (resolvedTenantId) {
+      try {
+        const res = await api.get('/api/projects', { params: { all: 1, tenant_id: resolvedTenantId } })
+        const tenantProjects = normalizeProjects(res?.data)
+        if (tenantProjects.length) nextProjects = tenantProjects
+      } catch {
+      }
+    }
+
+    if (nextProjects.length === 0) {
+      try {
+        const res = await api.get('/api/projects', { params: { all: 1, tenant_id: resolvedTenantId || undefined } })
+        nextProjects = normalizeProjects(res?.data)
+      } catch {
+      }
+    }
+
+    setProjects(Array.isArray(nextProjects) ? nextProjects : [])
 
     setLoading(false)
   }
@@ -174,18 +216,11 @@ export default function ContractsSettings() {
     setDraft(nextDraft)
     setPdfFile(null)
     setDirty(false)
+    setLastSavedAt(null)
+    setEditorView('edit')
 
-    if (nextDraft.content_type === 'html' && editor) {
-      try {
-        shouldIgnoreNextEditorUpdateRef.current = true
-        editor.commands.setContent(nextDraft.body || '', false)
-      } catch {
-      } finally {
-        // Clear on next tick to avoid catching chained updates
-        setTimeout(() => {
-          shouldIgnoreNextEditorUpdateRef.current = false
-        }, 0)
-      }
+    if (nextDraft.content_type === 'html') {
+      safeSetEditorContent(nextDraft.body || '')
     }
   }, [activeTemplate, editor])
 
@@ -208,7 +243,6 @@ export default function ContractsSettings() {
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Underline,
       TextStyle,
       Color,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -241,6 +275,40 @@ export default function ContractsSettings() {
   // Note: do not touch `editor.view.dom` here — the view may not be mounted yet and TipTap will throw.
   // Direction is controlled via `editorProps.attributes.dir` and the wrapper around `<EditorContent />`.
 
+  const safeSetEditorContent = (html) => {
+    const run = (attempt = 0) => {
+      if (!editor || editor.isDestroyed) return
+
+      // Accessing `editor.view.dom` (directly or indirectly) can throw before mount.
+      // We treat failures as "not mounted yet" and retry a bit.
+      let isMounted = false
+      try {
+        // `options.element` is set by <EditorContent /> once the view is mounted.
+        isMounted = Boolean(editor?.options?.element)
+      } catch {
+        isMounted = false
+      }
+
+      if (isMounted) {
+        try {
+          shouldIgnoreNextEditorUpdateRef.current = true
+          editor.commands.setContent(html, false)
+        } catch {
+        } finally {
+          setTimeout(() => {
+            shouldIgnoreNextEditorUpdateRef.current = false
+          }, 0)
+        }
+        return
+      }
+
+      if (attempt >= 10) return
+      setTimeout(() => run(attempt + 1), 50)
+    }
+
+    run(0)
+  }
+
   const insertPlaceholder = (token) => {
     if (!token) return
     if (!editor) return
@@ -265,17 +333,9 @@ export default function ContractsSettings() {
     setDraft(d)
     setPdfFile(null)
     setDirty(false)
-    if (editor) {
-      try {
-        shouldIgnoreNextEditorUpdateRef.current = true
-        editor.commands.setContent('', false)
-      } catch {
-      } finally {
-        setTimeout(() => {
-          shouldIgnoreNextEditorUpdateRef.current = false
-        }, 0)
-      }
-    }
+    setLastSavedAt(null)
+    setEditorView('edit')
+    safeSetEditorContent('')
   }
 
   const save = async () => {
@@ -318,6 +378,7 @@ export default function ContractsSettings() {
       setActiveId(res?.id ?? null)
       setPdfFile(null)
       setDirty(false)
+      setLastSavedAt(new Date())
     } finally {
       setSaving(false)
     }
@@ -338,7 +399,67 @@ export default function ContractsSettings() {
     return stripWordTipsFromHtml(draft.body || '')
   }
 
+  const fetchServerPreview = async () => {
+    if (draft.content_type === 'pdf') return
+    setServerPreviewLoading(true)
+    try {
+      const body = previewHtml()
+      const res = await api.post('/api/contract-templates/preview', {
+        template_id: activeId || null,
+        project_id: draft.project_id || null,
+        body,
+        rtl: i18n.language === 'ar',
+      }, { responseType: 'text' })
+      setServerPreviewHtml(typeof res?.data === 'string' ? res.data : '')
+    } catch {
+      setServerPreviewHtml('')
+    } finally {
+      setServerPreviewLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!previewOpen) return
+    if (draft.content_type === 'pdf') return
+    fetchServerPreview()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewOpen])
+
   const pdfPreviewUrl = pdfObjectUrl || draft.pdf_url || ''
+
+  useEffect(() => {
+    if (editorView !== 'preview') return
+    if (draft.content_type === 'pdf') return
+    const id = setTimeout(() => {
+      fetchServerPreview()
+    }, 600)
+    return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorView, draft.body, draft.project_id, activeId])
+
+  const filteredTemplates = useMemo(() => {
+    const q = String(templatesQuery || '').trim().toLowerCase()
+    if (!q) return templates
+    return templates.filter((tpl) => {
+      const name = String(tpl?.name || '').toLowerCase()
+      const project = String(tpl?.project?.name || '').toLowerCase()
+      const status = String(tpl?.status || '').toLowerCase()
+      return name.includes(q) || project.includes(q) || status.includes(q)
+    })
+  }, [templates, templatesQuery])
+
+  const isNameValid = Boolean(String(draft.name || '').trim())
+  const isPdfValid = draft.content_type !== 'pdf' ? true : Boolean(pdfFile || draft.pdf_url)
+  const canSave = !saving && dirty && isNameValid && isPdfValid
+
+  const templateTypeLabel = draft.content_type === 'pdf' ? t('PDF Template') : t('HTML Template')
+  const saveStateLabel = saving
+    ? t('Saving...')
+    : dirty
+      ? t('Unsaved changes')
+      : lastSavedAt
+        ? t('Saved')
+        : ''
 
   const Header = () => (
     <div className="flex items-center justify-between gap-4 px-10 py-6 border-b border-gray-200">
@@ -422,15 +543,15 @@ export default function ContractsSettings() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Editor */}
         <div className="lg:col-span-2 glass-panel rounded-2xl p-4 space-y-4">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               className="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-2 disabled:opacity-50"
               onClick={save}
-              disabled={saving || !dirty || !String(draft.name || '').trim()}
+              disabled={!canSave}
               title={t('Save')}
             >
               <Save className="w-4 h-4" />
-              {saving ? t('Saving...') : t('Save')}
+              {t('Save')}
             </button>
             <button
               className="px-3 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 inline-flex items-center gap-2"
@@ -440,95 +561,98 @@ export default function ContractsSettings() {
               <Eye className="w-4 h-4" />
               {t('Preview')}
             </button>
-            <div className="ml-auto flex items-center gap-2 text-xs text-[var(--content-text)] opacity-80">
-              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+
+            <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-[var(--content-text)] opacity-80">
+              {saveStateLabel ? (
+                <div className="inline-flex items-center gap-1.5">
+                  {dirty ? <AlertCircle className="w-4 h-4 text-amber-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                  <span>{saveStateLabel}</span>
+                </div>
+              ) : null}
+              <span className="px-2 py-1 rounded-lg border border-[var(--panel-border)] bg-white/5">{templateTypeLabel}</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-[var(--content-text)]">{t('Template Info')}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm text-[var(--content-text)] opacity-80">
+                  {t('Template Name')} <span className="text-red-400">*</span>
+                </label>
+                <input
+                  value={draft.name}
+                  onChange={(e) => {
+                    setDraft(prev => ({ ...prev, name: e.target.value }))
+                    setDirty(true)
+                  }}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-[var(--panel-border)] bg-gray-900/70 text-white"
+                  placeholder={t('e.g. Contract (1)')}
+                />
+                {!isNameValid && <div className="mt-1 text-xs text-red-400">{t('Template name is required')}</div>}
+              </div>
+              <div>
+                <label className="text-sm text-[var(--content-text)] opacity-80">{t('Project')}</label>
+                <select
+                  value={draft.project_id}
+                  onChange={(e) => {
+                    setDraft(prev => ({ ...prev, project_id: e.target.value }))
+                    setDirty(true)
+                  }}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-[var(--panel-border)] bg-gray-900/70 text-white"
+                >
+                  <option value="">{t('All Projects')}</option>
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-[var(--content-text)]">{t('Content Type')}</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex rounded-xl border border-[var(--panel-border)] overflow-hidden" role="tablist" aria-label="content-type">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={draft.content_type === 'html'}
+                  className={`px-4 py-2 text-sm ${draft.content_type === 'html' ? 'bg-white/10' : 'bg-transparent hover:bg-white/5'}`}
+                  onClick={() => {
+                    setDraft(prev => ({ ...prev, content_type: 'html', pdf_url: '', pdf_original_name: '' }))
+                    setPdfFile(null)
+                    safeSetEditorContent(draft.body || '')
+                    setDirty(true)
+                    setEditorView('edit')
+                  }}
+                >
+                  {t('HTML Template')}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={draft.content_type === 'pdf'}
+                  className={`px-4 py-2 text-sm ${draft.content_type === 'pdf' ? 'bg-white/10' : 'bg-transparent hover:bg-white/5'}`}
+                  onClick={() => {
+                    setDraft(prev => ({ ...prev, content_type: 'pdf' }))
+                    safeSetEditorContent('')
+                    setDirty(true)
+                    setEditorView('edit')
+                  }}
+                >
+                  {t('PDF Template')}
+                </button>
+              </div>
+
+              <label className="ml-auto inline-flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--content-text)] opacity-80">
                 <input type="checkbox" checked={pastePlainText} onChange={(e) => setPastePlainText(e.target.checked)} />
                 {t('Paste as plain text')}
               </label>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm text-[var(--content-text)] opacity-80">{t('Template Name')}</label>
-              <input
-                value={draft.name}
-                onChange={(e) => {
-                  setDraft(prev => ({ ...prev, name: e.target.value }))
-                  setDirty(true)
-                }}
-                className="w-full mt-1 px-3 py-2 rounded-lg border border-[var(--panel-border)] bg-gray-900/70 text-white"
-                placeholder={t('e.g. Contract (1)')}
-              />
-            </div>
-            <div>
-              <label className="text-sm text-[var(--content-text)] opacity-80">{t('Project')}</label>
-              <select
-                value={draft.project_id}
-                onChange={(e) => {
-                  setDraft(prev => ({ ...prev, project_id: e.target.value }))
-                  setDirty(true)
-                }}
-                className="w-full mt-1 px-3 py-2 rounded-lg border border-[var(--panel-border)] bg-gray-900/70 text-white"
-              >
-                <option value="">{t('All Projects')}</option>
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-           <div className="flex flex-wrap items-center gap-2">
-             <div className="text-sm text-[var(--content-text)] opacity-80">{t('Content')}</div>
-             <div className="flex items-center gap-2">
-               <button
-                 className={`px-3 py-1.5 rounded-lg border ${draft.content_type === 'html' ? 'bg-white/10' : 'bg-transparent'} border-[var(--panel-border)]`}
-                 onClick={() => {
-                   setDraft(prev => ({ ...prev, content_type: 'html', pdf_url: '', pdf_original_name: '' }))
-                   setPdfFile(null)
-                   if (editor) {
-                     try {
-                       shouldIgnoreNextEditorUpdateRef.current = true
-                       editor.commands.setContent(draft.body || '', false)
-                     } catch {
-                     } finally {
-                       setTimeout(() => {
-                         shouldIgnoreNextEditorUpdateRef.current = false
-                       }, 0)
-                     }
-                   }
-                   setDirty(true)
-                 }}
-                 type="button"
-               >
-                 {t('Copy / Paste')}
-               </button>
-               <button
-                 className={`px-3 py-1.5 rounded-lg border ${draft.content_type === 'pdf' ? 'bg-white/10' : 'bg-transparent'} border-[var(--panel-border)]`}
-                 onClick={() => {
-                   setDraft(prev => ({ ...prev, content_type: 'pdf' }))
-                   if (editor) {
-                     try {
-                       shouldIgnoreNextEditorUpdateRef.current = true
-                       editor.commands.setContent('', false)
-                     } catch {
-                     } finally {
-                       setTimeout(() => {
-                         shouldIgnoreNextEditorUpdateRef.current = false
-                       }, 0)
-                     }
-                   }
-                   setDirty(true)
-                 }}
-                 type="button"
-               >
-                 {t('Upload PDF')}
-               </button>
-             </div>
-           </div>
 
            {draft.content_type !== 'pdf' && (
              <div className="flex flex-wrap items-center gap-2 border border-[var(--panel-border)] rounded-xl p-2">
@@ -552,7 +676,11 @@ export default function ContractsSettings() {
                </button>
                <button
                  type="button"
-                 onClick={() => editor?.chain().focus().toggleUnderline().run()}
+                 onClick={() => {
+                   if (!editor) return
+                   if (typeof editor?.commands?.toggleUnderline !== 'function') return
+                   editor.chain().focus().toggleUnderline().run()
+                 }}
                  className={`px-2 py-1 rounded hover:bg-gray-100/10 underline ${editor?.isActive('underline') ? 'bg-white/10' : ''}`}
                  title={t('Underline')}
                >
@@ -566,6 +694,8 @@ export default function ContractsSettings() {
                >
                  S
                </button>
+               <div className="basis-full h-0" />
+
                <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
 
                <button
@@ -629,6 +759,8 @@ export default function ContractsSettings() {
                <button type="button" onClick={() => editor?.chain().focus().setTextAlign('right').run()} className="px-2 py-1 rounded hover:bg-gray-100/10 text-xs">R</button>
                <button type="button" onClick={() => editor?.chain().focus().setTextAlign('justify').run()} className="px-2 py-1 rounded hover:bg-gray-100/10 text-xs">J</button>
 
+               <div className="basis-full h-0" />
+
                <span className="w-px h-5 bg-[var(--panel-border)] mx-1" />
                <button
                  type="button"
@@ -650,22 +782,22 @@ export default function ContractsSettings() {
                  />
                </label>
 
-               <select
-                 className="px-2 py-1 rounded bg-gray-900/40 border border-[var(--panel-border)] text-sm"
-                 defaultValue=""
-                 onChange={(e) => {
-                   const v = e.target.value
-                   if (v) insertPlaceholder(v)
-                   e.target.value = ''
-                 }}
-                 title={t('Insert Field')}
-               >
-                 <option value="">{t('Insert Field')}</option>
-                 <option value="{{contract_number}}">{t('Contract No.')}</option>
-                 <option value="{{contract_date}}">{t('Contract Date')}</option>
-                 <option value="{{customer_name}}">{t('Customer Name')}</option>
-                 <option value="{{customer_phone}}">{t('Customer Phone')}</option>
-                 <option value="{{unit_code}}">{t('Unit Code')}</option>
+                <select
+                  className="px-3 py-2 rounded-lg bg-blue-600/10 border border-blue-500/30 text-sm min-w-[220px]"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const v = e.target.value
+                    if (v) insertPlaceholder(v)
+                    e.target.value = ''
+                  }}
+                  title={t('Insert Field')}
+                >
+                  <option value="">{t('+ Insert Field')}</option>
+                  <option value="{{contract_number}}">{t('Contract No.')}</option>
+                  <option value="{{contract_date}}">{t('Contract Date')}</option>
+                  <option value="{{customer_name}}">{t('Customer Name')}</option>
+                  <option value="{{customer_phone}}">{t('Customer Phone')}</option>
+                  <option value="{{unit_code}}">{t('Unit Code')}</option>
                  <option value="{{project_name}}">{t('Project')}</option>
                  <option value="{{total_price}}">{t('Total Price')}</option>
                  <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
@@ -687,7 +819,7 @@ export default function ContractsSettings() {
               <div className="flex items-center gap-3">
                 <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--panel-border)] cursor-pointer hover:bg-white/5">
                   <Upload className="w-4 h-4" />
-                  <span className="text-sm">{t('Choose PDF')}</span>
+                  <span className="text-sm">{t('Browse PDF')}</span>
                   <input
                     type="file"
                     accept="application/pdf"
@@ -697,6 +829,7 @@ export default function ContractsSettings() {
                       setPdfFile(file)
                       setDraft(prev => ({ ...prev, content_type: 'pdf', pdf_original_name: file?.name || prev.pdf_original_name }))
                       setDirty(true)
+                      setEditorView('edit')
                     }}
                   />
                 </label>
@@ -707,18 +840,9 @@ export default function ContractsSettings() {
                       onClick={() => {
                         setPdfFile(null)
                         setDraft(prev => ({ ...prev, content_type: 'html', pdf_url: '', pdf_original_name: '' }))
-                      if (editor) {
-                        try {
-                          shouldIgnoreNextEditorUpdateRef.current = true
-                          editor.commands.setContent(draft.body || '', false)
-                        } catch {
-                        } finally {
-                          setTimeout(() => {
-                            shouldIgnoreNextEditorUpdateRef.current = false
-                          }, 0)
-                        }
-                      }
+                        safeSetEditorContent(draft.body || '')
                         setDirty(true)
+                        setEditorView('edit')
                       }}
                       title={t('Remove PDF')}
                     >
@@ -730,6 +854,10 @@ export default function ContractsSettings() {
                   {pdfFile?.name || draft.pdf_original_name || (draft.pdf_url ? t('PDF attached') : t('No PDF selected'))}
                 </div>
               </div>
+
+              {!isPdfValid && (
+                <div className="text-xs text-red-400">{t('Please upload a PDF file')}</div>
+              )}
 
               <ContractPage>
                 {pdfPreviewUrl ? (
@@ -746,15 +874,63 @@ export default function ContractsSettings() {
               </ContractPage>
             </div>
           ) : (
-            <ContractPage>
-              <div onPaste={onBodyPaste} dir={isRTL ? 'rtl' : 'ltr'}>
-                <EditorContent editor={editor} />
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="inline-flex rounded-xl border border-[var(--panel-border)] overflow-hidden">
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-sm ${editorView === 'edit' ? 'bg-white/10' : 'hover:bg-white/5'}`}
+                    onClick={() => setEditorView('edit')}
+                  >
+                    {t('Edit')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-sm ${editorView === 'preview' ? 'bg-white/10' : 'hover:bg-white/5'}`}
+                    onClick={() => setEditorView('preview')}
+                  >
+                    {t('Live Preview')}
+                  </button>
+                </div>
+
+                {editorView === 'preview' && (
+                  <button
+                    type="button"
+                    className="ml-auto px-3 py-1.5 rounded-lg border border-[var(--panel-border)] hover:bg-white/5 inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    onClick={fetchServerPreview}
+                    disabled={serverPreviewLoading}
+                    title={t('Refresh preview')}
+                  >
+                    <RefreshCcw className="w-4 h-4" />
+                    {t('Refresh')}
+                  </button>
+                )}
               </div>
-            </ContractPage>
+
+              <ContractPage>
+                {editorView === 'preview' ? (
+                  serverPreviewLoading ? (
+                    <div className="text-sm opacity-70">{t('Loading...')}</div>
+                  ) : (
+                    <iframe
+                      title="contract-template-live-preview"
+                      srcDoc={serverPreviewHtml || `<!doctype html><html><body>${previewHtml()}</body></html>`}
+                      className="w-full h-[70vh] rounded-lg border border-gray-200"
+                    />
+                  )
+                ) : (
+                  <div onPaste={onBodyPaste} dir={isRTL ? 'rtl' : 'ltr'}>
+                    <EditorContent editor={editor} />
+                  </div>
+                )}
+              </ContractPage>
+            </div>
           )}
 
-          <div className="text-xs text-[var(--content-text)] opacity-70">
-            {t('Header & footer are auto-filled from tenant settings. Tip: you can copy from Word and paste here, or upload a PDF to keep exact formatting.')}
+          <div className="rounded-xl border border-[var(--panel-border)] bg-blue-500/10 p-3 text-xs text-[var(--content-text)]">
+            <div className="font-semibold mb-1">{t('Header & Footer')}</div>
+            <div className="opacity-80">{t('Header & footer are automatically added from company settings (logo, tenant name, phone, email, tax).')}</div>
+            <div className="opacity-80 mt-1">{t('Tip: copy from Word and paste here, or upload a PDF to keep exact formatting.')}</div>
           </div>
         </div>
 
@@ -772,6 +948,13 @@ export default function ContractsSettings() {
             </button>
           </div>
 
+          <input
+            value={templatesQuery}
+            onChange={(e) => setTemplatesQuery(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-[var(--panel-border)] bg-gray-900/40 text-white"
+            placeholder={t('Search templates...')}
+          />
+
           <div className="overflow-auto rounded-xl border border-[var(--panel-border)]">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-100/10">
@@ -785,16 +968,36 @@ export default function ContractsSettings() {
                 {loading ? (
                   <tr><td className="px-3 py-3 opacity-70" colSpan={3}>{t('Loading...')}</td></tr>
                 ) : templates.length === 0 ? (
-                  <tr><td className="px-3 py-3 opacity-70" colSpan={3}>{t('No templates yet')}</td></tr>
+                  <tr>
+                    <td className="px-3 py-5 opacity-80" colSpan={3}>
+                      <div className="text-sm font-medium">{t('No templates yet')}</div>
+                      <div className="text-xs opacity-70 mt-1">{t('Create your first contract template to start printing contracts.')}</div>
+                      <button
+                        className="mt-3 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-2"
+                        onClick={startNewTemplate}
+                      >
+                        <FilePlus2 className="w-4 h-4" />
+                        {t('Create Template')}
+                      </button>
+                    </td>
+                  </tr>
+                ) : filteredTemplates.length === 0 ? (
+                  <tr><td className="px-3 py-3 opacity-70" colSpan={3}>{t('No matching templates')}</td></tr>
                 ) : (
-                  templates.map(tpl => {
+                  filteredTemplates.map(tpl => {
                     const isActive = tpl.id === activeId
+                    const isGlobal = !tpl.project_id && !tpl.project
+                    const typeLabel = (tpl.content_type || (tpl.pdf_url ? 'pdf' : 'html')).toLowerCase() === 'pdf' ? t('PDF') : t('HTML')
                     return (
                       <tr key={tpl.id} className={`border-t border-[var(--panel-border)] ${isActive ? 'bg-blue-500/10' : 'hover:bg-white/5'}`}>
                         <td className="px-3 py-2">
                           <button className="text-left w-full" onClick={() => setActiveId(tpl.id)}>
                             <div className="font-medium">{tpl.name}</div>
-                            <div className="text-xs opacity-70">{tpl.status || 'Active'}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-80">
+                              <span className="px-2 py-0.5 rounded border border-[var(--panel-border)] bg-white/5">{tpl.status || 'Active'}</span>
+                              <span className="px-2 py-0.5 rounded border border-[var(--panel-border)] bg-white/5">{typeLabel}</span>
+                              <span className="px-2 py-0.5 rounded border border-[var(--panel-border)] bg-white/5">{isGlobal ? t('Global') : t('Project')}</span>
+                            </div>
                           </button>
                         </td>
                         <td className="px-3 py-2">{tpl.project?.name || t('All')}</td>
@@ -802,6 +1005,28 @@ export default function ContractsSettings() {
                           <div className="flex items-center gap-2">
                             <button className="p-2 rounded hover:bg-white/10" onClick={() => { setActiveId(tpl.id); setPreviewOpen(true) }} title={t('Preview')}>
                               <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              className="p-2 rounded hover:bg-white/10 disabled:opacity-40"
+                              disabled={(tpl.content_type || (tpl.pdf_url ? 'pdf' : 'html')) === 'pdf'}
+                              onClick={async () => {
+                                // Duplicate HTML templates only (PDF needs a binary re-upload)
+                                if ((tpl.content_type || (tpl.pdf_url ? 'pdf' : 'html')) === 'pdf') return
+                                const payload = {
+                                  name: `${tpl.name || t('Template')} ${t('(Copy)')}`,
+                                  project_id: tpl.project_id ?? null,
+                                  status: tpl.status || 'Active',
+                                  content_type: 'html',
+                                  body: tpl.body || '',
+                                  pdf_path: null,
+                                }
+                                const created = await createContractTemplate(payload)
+                                await loadAll()
+                                setActiveId(created?.id ?? null)
+                              }}
+                              title={t('Duplicate')}
+                            >
+                              <Copy className="w-4 h-4" />
                             </button>
                             <button className="p-2 rounded hover:bg-white/10 text-red-400" onClick={() => remove(tpl)} title={t('Delete')}>
                               <Trash2 className="w-4 h-4" />
@@ -820,11 +1045,14 @@ export default function ContractsSettings() {
 
       {/* Preview modal */}
       {previewOpen && (
-        <div className="fixed inset-0 z-[10000] bg-black/50 flex items-center justify-center p-4" onMouseDown={() => setPreviewOpen(false)}>
+        <div
+          className="fixed inset-0 z-[10000] bg-black/50 flex items-center justify-center p-4"
+          onMouseDown={() => { setPreviewOpen(false); setServerPreviewHtml('') }}
+        >
           <div className="w-full max-w-4xl rounded-2xl card border border-[var(--panel-border)] overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
             <div className="p-4 border-b border-[var(--panel-border)] flex items-center justify-between">
               <div className="font-semibold">{t('Preview')}</div>
-              <button className="px-3 py-1.5 rounded-lg hover:bg-white/10" onClick={() => setPreviewOpen(false)}>{t('Close')}</button>
+              <button className="px-3 py-1.5 rounded-lg hover:bg-white/10" onClick={() => { setPreviewOpen(false); setServerPreviewHtml('') }}>{t('Close')}</button>
             </div>
             <div className="p-6 max-h-[70vh] overflow-auto">
               <div className="mb-3 text-sm opacity-80">
@@ -845,7 +1073,15 @@ export default function ContractsSettings() {
                 </ContractPage>
               ) : (
                 <ContractPage>
-                  <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: previewHtml() }} />
+                  {serverPreviewLoading ? (
+                    <div className="text-sm opacity-70">{t('Loading...')}</div>
+                  ) : (
+                    <iframe
+                      title="contract-template-preview"
+                      srcDoc={serverPreviewHtml || `<!doctype html><html><body>${previewHtml()}</body></html>`}
+                      className="w-full h-[70vh] rounded-lg border border-gray-200"
+                    />
+                  )}
                 </ContractPage>
               )}
             </div>

@@ -312,6 +312,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::post('leads/{id}/resolve-duplicate', [LeadController::class , 'resolveDuplicate']);
     Route::post('leads/duplicates/bulk-action', [LeadController::class , 'bulkDuplicateAction']);
     Route::post('leads/{id}/transfer', [LeadController::class , 'transfer']);
+    Route::post('leads/{id}/attachments', [LeadController::class, 'addAttachments']);
     Route::apiResource('leads', LeadController::class);
 
     Route::apiResource('quotations', QuotationController::class);
@@ -405,6 +406,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     // Email Templates
     Route::apiResource('email-templates', \App\Http\Controllers\EmailTemplateController::class);
     // Contract Templates
+    Route::post('contract-templates/preview', [\App\Http\Controllers\ContractTemplateController::class, 'preview']);
     Route::apiResource('contract-templates', \App\Http\Controllers\ContractTemplateController::class);
 
     // WhatsApp Settings

@@ -3,9 +3,13 @@
 namespace App\Services;
 
 use App\Models\CcContract;
+use App\Models\CcCustomer;
+use App\Models\CcInstallment;
 use App\Models\ContractTemplate;
+use App\Models\Project;
 use App\Models\SmtpSetting;
 use App\Models\Tenant;
+use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\View;
 
@@ -76,6 +80,123 @@ class ContractTemplateRenderService
             'template' => $template,
             'body_html' => $bodyHtml,
         ];
+    }
+
+    /**
+     * Build a preview payload using the same render pipeline as printing.
+     *
+     * If no contract is provided, a synthetic sample contract is generated for preview purposes.
+     */
+    public function buildPreviewPayload(int $tenantId, string $rawBody, int $projectId = 0, ?CcContract $contract = null): array
+    {
+        $tenant = Tenant::find($tenantId);
+        $profile = is_array($tenant?->profile) ? $tenant->profile : [];
+        $smtp = SmtpSetting::where('tenant_id', $tenantId)->first();
+
+        $tenantName = (string) ($tenant?->name ?? 'Tenant');
+        $logoUrl = (string) ($profile['logo_url'] ?? '');
+        $phone = (string) ($profile['phone'] ?? '');
+        $taxId = (string) ($profile['tax_id'] ?? '');
+        $email = (string) ($smtp?->from_email ?? '');
+
+        $contract = $contract ?: $this->buildSampleContract($tenantId, $projectId);
+
+        if (trim((string) $rawBody) === '') {
+            $rawBody = $this->defaultBodyHtml();
+        }
+
+        $paymentPlanTable = $this->renderPaymentPlanTable($contract);
+        $installmentsTable = $this->renderInstallmentsTableSnapshot($contract);
+
+        $replacements = [
+            'contract_number' => ['type' => 'text', 'value' => (string) ($contract->contract_number ?: $contract->id)],
+            'contract_date' => ['type' => 'text', 'value' => (string) ($contract->contract_date?->toDateString() ?? '')],
+            'customer_name' => ['type' => 'text', 'value' => (string) ($contract->customer?->name ?? '')],
+            'customer_phone' => ['type' => 'text', 'value' => (string) ($contract->customer?->phone ?? '')],
+            'unit_code' => ['type' => 'text', 'value' => (string) ($contract->property?->unit_code ?? '')],
+            'project_name' => ['type' => 'text', 'value' => (string) ($contract->customer?->project?->name ?? '')],
+            'total_price' => ['type' => 'text', 'value' => number_format((float) ($contract->total_price ?? 0), 2)],
+            'payment_plan_table' => ['type' => 'html', 'value' => $paymentPlanTable],
+            'installments_table' => ['type' => 'html', 'value' => $installmentsTable],
+        ];
+
+        $bodyHtml = $this->replaceAllowlistedPlaceholders((string) $rawBody, $replacements);
+        $bodyHtml = $this->stripScripts($bodyHtml);
+        $bodyHtml = $this->stripUnknownPlaceholders($bodyHtml);
+
+        return [
+            'tenant' => [
+                'name' => $tenantName,
+                'logo_url' => $logoUrl,
+                'phone' => $phone,
+                'email' => $email,
+                'tax_id' => $taxId,
+            ],
+            'contract' => $contract,
+            'template' => null,
+            'body_html' => $bodyHtml,
+        ];
+    }
+
+    protected function buildSampleContract(int $tenantId, int $projectId = 0): CcContract
+    {
+        $today = Carbon::now()->startOfDay();
+
+        $project = null;
+        if ($projectId > 0) {
+            $project = Project::query()->where('tenant_id', $tenantId)->find($projectId);
+        }
+
+        $customer = new CcCustomer([
+            'tenant_id' => $tenantId,
+            'name' => 'Sample Customer',
+            'phone' => '01000000000',
+            'project_id' => $project?->id,
+        ]);
+        if ($project) {
+            $customer->setRelation('project', $project);
+        }
+
+        $property = new \App\Models\Property([
+            'tenant_id' => $tenantId,
+            'unit_code' => 'U-000',
+            'price' => 100000,
+        ]);
+
+        $contract = new CcContract([
+            'tenant_id' => $tenantId,
+            'contract_number' => 'PREVIEW',
+            'contract_date' => $today->toDateString(),
+            'first_due_date' => $today->toDateString(),
+            'total_price' => 100000,
+            'payment_plan_snapshot' => [
+                'reservation_amount' => 5000,
+                'down_payment' => 10000,
+                'delivery_payment' => 0,
+                'installment_type' => 'monthly',
+                'installment_count' => 6,
+                'installment_value' => 14166.67,
+            ],
+        ]);
+
+        $contract->setRelation('customer', $customer);
+        $contract->setRelation('property', $property);
+
+        $installments = collect();
+        for ($i = 1; $i <= 6; $i++) {
+            $due = (clone $today)->addMonths($i - 1);
+            $installments->push(new CcInstallment([
+                'tenant_id' => $tenantId,
+                'installment_number' => $i,
+                'due_date' => $due->toDateString(),
+                'amount' => 14166.67,
+                'paid_amount' => 0,
+                'status' => 'pending',
+            ]));
+        }
+        $contract->setRelation('installments', $installments);
+
+        return $contract;
     }
 
     public function renderPaymentPlanTable(CcContract $contract): string

@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CcContract;
 use App\Models\ContractTemplate;
+use App\Services\ContractTemplateRenderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 
 class ContractTemplateController extends Controller
 {
@@ -173,5 +176,77 @@ class ContractTemplateController extends Controller
         $tpl->delete();
 
         return response()->json(null, 204);
+    }
+
+    /**
+     * Backend preview for contract templates using the same render pipeline as printing.
+     *
+     * Returns a full HTML document (same view as print) to avoid mismatch between frontend/backend rendering.
+     */
+    public function preview(Request $request, ContractTemplateRenderService $renderer)
+    {
+        if ($resp = $this->ensureContractTemplatesReady()) {
+            return $resp;
+        }
+
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $validated = $request->validate([
+            'template_id' => ['nullable', 'integer'],
+            'project_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('projects', 'id')->where(fn ($q) => $q->where('tenant_id', $user->tenant_id)),
+            ],
+            'contract_id' => ['nullable', 'integer'],
+            'body' => ['nullable', 'string'],
+            'rtl' => ['nullable'],
+        ]);
+
+        $tenantId = (int) $user->tenant_id;
+
+        $contract = null;
+        if (!empty($validated['contract_id'])) {
+            $contract = CcContract::where('tenant_id', $tenantId)->with([
+                'customer',
+                'customer.project:id,name',
+                'property',
+                'installments' => fn ($q) => $q->orderBy('installment_number'),
+            ])->find((int) $validated['contract_id']);
+        }
+
+        $projectId = (int) ($validated['project_id'] ?? ($contract?->customer?->project_id ?? 0));
+
+        $body = (string) ($validated['body'] ?? '');
+        if (trim($body) === '' && !empty($validated['template_id'])) {
+            $tpl = ContractTemplate::where('tenant_id', $tenantId)->find((int) $validated['template_id']);
+            if ($tpl && (string) ($tpl->content_type ?? 'html') === 'html') {
+                $body = (string) ($tpl->body ?? '');
+            }
+        }
+
+        $isRtl = filter_var($validated['rtl'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($isRtl === null) {
+            $accept = strtolower((string) $request->header('Accept-Language', ''));
+            $isRtl = Str::startsWith($accept, 'ar') || app()->getLocale() === 'ar';
+        }
+
+        $payload = $renderer->buildPreviewPayload($tenantId, $body, $projectId, $contract);
+        $contractNumber = (string) (($payload['contract']?->contract_number ?? '') ?: ($payload['contract']?->id ?? ''));
+        $contractDate = (string) (($payload['contract']?->contract_date?->toDateString() ?? '') ?: (string) ($payload['contract']?->contract_date ?? ''));
+
+        return response()
+            ->view('cc.contracts.print', [
+                'tenant' => $payload['tenant'],
+                'contractNumber' => $contractNumber ?: 'PREVIEW',
+                'contractDate' => $contractDate,
+                'bodyHtml' => (string) ($payload['body_html'] ?? ''),
+                'dir' => $isRtl ? 'rtl' : 'ltr',
+                'autoprint' => false,
+            ])
+            ->header('Content-Type', 'text/html; charset=UTF-8');
     }
 }
