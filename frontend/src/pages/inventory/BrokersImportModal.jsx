@@ -1,17 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { FaCloudUploadAlt, FaDownload, FaFileExcel, FaTimes } from 'react-icons/fa'
-import { useTheme } from '../../shared/context/ThemeProvider'
+import { FaDownload, FaFileExcel, FaTimes, FaUpload } from 'react-icons/fa'
 import { useTranslation } from 'react-i18next'
 import { logExportEvent, logImportEvent } from '../../utils/api'
 
-const HeaderIcon = FaFileExcel
-const CloseIcon = FaTimes
-const DownloadIcon = FaDownload
-const UploadIcon = FaCloudUploadAlt
-
 export default function BrokersImportModal({ isRTL, onClose, onImport }) {
-  const { isLight } = useTheme()
   const { i18n } = useTranslation()
   const rtl = typeof isRTL === 'boolean' ? isRTL : i18n.language === 'ar'
 
@@ -20,9 +13,29 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
   const [importError, setImportError] = useState(null)
   const [importSummary, setImportSummary] = useState(null)
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0]
-    setExcelFile(file || null)
+  const labels = useMemo(() => {
+    return {
+      title: rtl ? 'استيراد وسطاء' : 'Import Brokers',
+      templateTitle: rtl ? 'تحميل نموذج Excel' : 'Download Excel Template',
+      templateDesc: rtl ? 'استخدم هذا النموذج لإضافة وسطاء جدد' : 'Use this template to add new brokers',
+      templateNote: rtl ? 'الرجاء عدم تغيير عناوين الأعمدة في النموذج لضمان الاستيراد الصحيح.' : 'Please do not change column headers in the template to ensure correct import.',
+      uploadTitle: rtl ? 'رفع ملف Excel' : 'Upload Excel File',
+      uploadDesc: rtl ? 'قم بسحب وإفلات الملف هنا أو اضغط للاختيار' : 'Drag and drop your file here or click to browse',
+      browse: rtl ? 'اختيار ملف' : 'Browse File',
+      noFile: rtl ? 'لم يتم اختيار ملف' : 'No file selected',
+      import: rtl ? 'استيراد البيانات' : 'Import Data',
+      importing: rtl ? 'جاري الاستيراد...' : 'Importing...',
+      supported: rtl ? 'الملفات المدعومة: .xlsx, .xls' : 'Supported files: .xlsx, .xls',
+      emptyFile: rtl ? 'الملف فارغ' : 'File is empty',
+      readError: rtl ? 'حدث خطأ أثناء استيراد الملف' : 'Error while importing file',
+      prepared: (n) => rtl ? `تم تجهيز ${n} وسيط للاستيراد` : `Prepared ${n} brokers for import`,
+      templateBtn: rtl ? 'تحميل' : 'Download',
+    }
+  }, [rtl])
+
+  const handleFileUpload = (file) => {
+    if (!file) return
+    setExcelFile(file)
     setImportError(null)
     setImportSummary(null)
   }
@@ -38,7 +51,7 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
       const worksheet = workbook.Sheets[sheetName]
       const rows = XLSX.utils.sheet_to_json(worksheet)
       if (!Array.isArray(rows) || rows.length === 0) {
-        setImportError(rtl ? 'الملف فارغ' : 'File is empty')
+        setImportError(labels.emptyFile)
         setImporting(false)
         return
       }
@@ -54,7 +67,7 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
         meta: { total: rows.length },
       })
     } catch (e) {
-      setImportError(rtl ? 'حدث خطأ أثناء استيراد الملف' : 'Error while importing file')
+      setImportError(labels.readError)
       logImportEvent({
         module: 'Brokers',
         fileName: excelFile?.name || 'brokers_import.xlsx',
@@ -92,102 +105,121 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className=" card w-full max-w-lg rounded-xl shadow-2xl border ">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-2">
-            {HeaderIcon && <HeaderIcon className="text-green-500" />}
-            <h2 className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
-              {rtl ? 'استيراد الوسطاء من ملف Excel' : 'Import Brokers from Excel'}
-            </h2>
+    <div className={`fixed inset-0 z-[2000] ${rtl ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">
+        {/* Header */}
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
+              <FaDownload className="w-4 h-4" />
+            </div>
+            <h3 className="text-lg font-bold">{labels.title}</h3>
           </div>
           <button
-            type="button"
             onClick={onClose}
-            className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 ${isLight ? 'text-black' : 'text-white'}`}
+            className="btn btn-sm btn-circle btn-ghost text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+            aria-label="Close"
+            type="button"
           >
-            {CloseIcon && <CloseIcon />}
+            <FaTimes size={20} />
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>
-              <p>{rtl ? 'قم بتحميل ملف الوسطاء بصيغة Excel.' : 'Upload your brokers Excel file.'}</p>
-              <p className={`mt-1 ${isLight ? 'text-black' : 'text-white'}`}>
-                {rtl
-                  ? 'تأكد من وجود الأعمدة الأساسية مثل الاسم، الوكالة، الهاتف، العمولة.'
-                  : 'Make sure columns like name, agency, phone and commission exist.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={generateTemplate}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white"
-            >
-              {DownloadIcon && <DownloadIcon />}
-              {rtl ? 'تحميل نموذج' : 'Download Template'}
-            </button>
-          </div>
-
-          <label className="block">
-            <span className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'} mb-2`}>
-              {rtl ? 'ملف Excel' : 'Excel file'}
-            </span>
-            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-4 py-6 text-center cursor-pointer hover:border-blue-500 dark:hover:border-blue-400">
-              <input
-                type="file"
-                accept=".xls,.xlsx"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <div className={`flex flex-col items-center gap-2 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
-                {UploadIcon && <UploadIcon className="text-2xl text-blue-500" />}
+        {/* Body */}
+        <div className="px-6 py-6 overflow-y-auto custom-scrollbar">
+          {/* Template Download Section */}
+          <div className="mb-6 p-4 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-900/40 transition-colors duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FaFileExcel className="w-5 h-5 text-green-600" />
                 <div>
-                  {excelFile
-                    ? excelFile.name
-                    : rtl
-                      ? 'اسحب الملف هنا أو اضغط للاختيار'
-                      : 'Drag and drop or click to choose file'}
+                  <h4 className="text-sm font-semibold">{labels.templateTitle}</h4>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">{labels.templateDesc}</p>
                 </div>
               </div>
+              <button
+                onClick={generateTemplate}
+                className="btn btn-sm bg-green-600 hover:bg-green-700 text-white border-none flex items-center gap-2"
+                type="button"
+              >
+                <FaDownload className="w-3 h-3" />
+                {labels.templateBtn}
+              </button>
             </div>
-          </label>
+            <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">{labels.templateNote}</div>
+          </div>
 
+          {/* Upload Section */}
+          <div
+            className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 flex flex-col items-center justify-center text-center transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-white/5"
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              const f = e.dataTransfer?.files?.[0]
+              if (f) handleFileUpload(f)
+            }}
+          >
+            <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-4 text-blue-600 dark:text-blue-400">
+              <FaUpload size={24} />
+            </div>
+            <h4 className="font-semibold mb-1">{labels.uploadTitle}</h4>
+            <p className="text-xs mb-4 max-w-xs text-gray-500 dark:text-gray-400">{labels.uploadDesc}</p>
+
+            <input
+              id="brokers-excel-input"
+              type="file"
+              accept=".xlsx, .xls"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) handleFileUpload(file)
+              }}
+              className="hidden"
+            />
+
+            <button
+              type="button"
+              onClick={() => document.getElementById('brokers-excel-input')?.click()}
+              className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none"
+            >
+              {labels.browse}
+            </button>
+
+            {excelFile ? (
+              <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                {rtl ? 'تم اختيار: ' + excelFile.name : 'Selected: ' + excelFile.name}
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">{labels.noFile}</div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="mt-5 flex flex-col sm:flex-row gap-3 sm:items-center">
+            <button
+              onClick={handleImport}
+              disabled={!excelFile || importing}
+              className={`btn btn-sm ${importing ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white border-none flex items-center gap-2`}
+              type="button"
+            >
+              <FaDownload className="w-4 h-4" />
+              {importing ? labels.importing : labels.import}
+            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{labels.supported}</span>
+          </div>
+
+          {/* Feedback */}
           {importError && (
-            <div className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-md px-3 py-2">
+            <div className="mt-4 px-4 py-3 rounded-lg bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/50 dark:text-red-200 dark:border-red-800">
               {importError}
             </div>
           )}
-
           {importSummary && (
-            <div className="text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 rounded-md px-3 py-2">
-              {rtl
-                ? `تم تجهيز ${importSummary.total} وسيط للاستيراد`
-                : `Prepared ${importSummary.total} brokers for import`}
+            <div className="mt-4 px-4 py-3 rounded-lg bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/50 dark:text-green-200 dark:border-green-800">
+              {labels.prepared(importSummary.total)}
             </div>
           )}
-        </div>
-
-        <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-md text-xs font-medium text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            {rtl ? 'إلغاء' : 'Cancel'}
-          </button>
-          <button
-            type="button"
-            disabled={!excelFile || importing}
-            onClick={handleImport}
-            className="px-4 py-1.5 rounded-md text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
-          >
-            {importing && (
-              <span className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            )}
-            {rtl ? 'استيراد' : 'Import'}
-          </button>
         </div>
       </div>
     </div>

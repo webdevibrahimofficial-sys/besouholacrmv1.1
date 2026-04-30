@@ -39,16 +39,17 @@ const pickLatestPayment = (allocations) => {
   return withPayment[0].payment
 }
 
-function ModalShell({ open, title, onClose, children, widthClass = 'max-w-lg' }) {
+function ModalShell({ open, title, onClose, children, widthClass = 'max-w-lg', textColorClass = '' }) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[20000]">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <div className={`card w-full ${widthClass} bg-[var(--content-bg)] rounded-2xl shadow-2xl border border-[var(--panel-border)] overflow-hidden`}>
           <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--panel-border)]">
             <div className="min-w-0">
-              <div className="text-base font-semibold text-theme-text dark:text-gray-100 truncate">{title}</div>
+              <div className={`text-base font-semibold truncate ${textColorClass}`}>{title}</div>
             </div>
             <button
               type="button"
@@ -78,7 +79,8 @@ export default function ContractCollectionsInstallments() {
   const isRealEstate = companyTypeLower.includes('real')
 
   const title = useMemo(() => (isArabic ? 'الأقساط' : 'Installments'), [isArabic])
-  const mutedTextClass = isLight ? 'text-gray-600' : 'text-gray-400'
+  const textColorClass = isLight ? 'text-black' : 'text-white'
+  const mutedTextClass = textColorClass
 
   const [q, setQ] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('')
@@ -428,7 +430,7 @@ export default function ContractCollectionsInstallments() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 text-theme-text dark:text-gray-100" dir={isRTL ? 'rtl' : 'ltr'}>
+    <div className={`p-4 md:p-6 space-y-6 ${textColorClass}`} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Header (System UX) */}
       <div className="rounded-xl p-4 md:p-6 relative">
         <div className="flex flex-wrap lg:flex-row lg:items-center justify-between gap-4">
@@ -461,7 +463,7 @@ export default function ContractCollectionsInstallments() {
       {/* Filter (System UX) */}
       <div className="glass-panel p-4 rounded-xl">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-sm font-semibold flex items-center gap-2 text-theme-text">
+          <h2 className={`text-sm font-semibold flex items-center gap-2 ${textColorClass}`}>
             <Filter className="text-blue-500" size={16} /> {isArabic ? 'تصفية' : 'Filter'}
           </h2>
 
@@ -478,7 +480,7 @@ export default function ContractCollectionsInstallments() {
             <button
               type="button"
               onClick={resetFilters}
-              className="px-3 py-1.5 text-sm text-theme-text hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors inline-flex items-center gap-2"
+              className={`px-3 py-1.5 text-sm ${textColorClass} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors inline-flex items-center gap-2`}
             >
               <X className="w-4 h-4" />
               {isArabic ? 'إعادة تعيين' : 'Reset'}
@@ -486,32 +488,32 @@ export default function ContractCollectionsInstallments() {
           </div>
         </div>
 
-        <div className="space-y-1 mb-3">
-          <label className={`text-xs font-medium ${mutedTextClass} flex items-center gap-1`}>
-            <Search className="text-blue-500" size={12} /> {isArabic ? 'بحث' : 'Search'}
-          </label>
-          <div className="relative">
-            <Search className={`w-4 h-4 absolute top-1/2 -translate-y-1/2 ${isRTL ? 'right-3' : 'left-3'} text-gray-400`} />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={isArabic ? 'بحث (عميل / عقد / Unit Code)...' : 'Search (customer / contract / unit code)...'}
-              className={`input w-full bg-[var(--content-bg)] ${isRTL ? 'pr-10' : 'pl-10'}`}
-            />
-            {q ? (
-              <button
-                type="button"
-                onClick={() => setQ('')}
-                className={`absolute top-1/2 -translate-y-1/2 ${isRTL ? 'left-2' : 'right-2'} p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5`}
-                title={isArabic ? 'مسح' : 'Clear'}
-              >
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            ) : null}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass} flex items-center gap-1`}>
+              <Search className="text-blue-500" size={12} /> {isArabic ? 'بحث' : 'Search'}
+            </label>
+            <div className="relative">
+              <Search className={`w-4 h-4 absolute top-1/2 -translate-y-1/2 ${isRTL ? 'right-3' : 'left-3'} text-gray-400`} />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={isArabic ? 'بحث (عميل / عقد / Unit Code)...' : 'Search (customer / contract / unit code)...'}
+                className={`input w-full bg-[var(--content-bg)] ${isRTL ? 'pr-10' : 'pl-10'}`}
+              />
+              {q ? (
+                <button
+                  type="button"
+                  onClick={() => setQ('')}
+                  className={`absolute top-1/2 -translate-y-1/2 ${isRTL ? 'left-2' : 'right-2'} p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5`}
+                  title={isArabic ? 'مسح' : 'Clear'}
+                >
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'طريقة الدفع' : 'Payment Method'}</label>
             <select
@@ -524,16 +526,6 @@ export default function ContractCollectionsInstallments() {
               <option value="check">{isArabic ? 'شيك' : 'Check'}</option>
               <option value="bank_transfer">{isArabic ? 'تحويل بنكي' : 'Bank Transfer'}</option>
             </select>
-          </div>
-
-          <div>
-            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم الشيك/المرجع' : 'Check/Reference No.'}</label>
-            <input
-              value={referenceNumber}
-              onChange={(e) => setReferenceNumber(e.target.value)}
-              className="input w-full bg-[var(--content-bg)]"
-              placeholder="..."
-            />
           </div>
 
           <div>
@@ -553,11 +545,7 @@ export default function ContractCollectionsInstallments() {
 
           <div>
             <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="input w-full bg-[var(--content-bg)]"
-            >
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="input w-full bg-[var(--content-bg)]">
               <option value="">{isArabic ? 'الكل' : 'All'}</option>
               {['pending', 'paid', 'partial', 'unpaid', 'rejected', 'overdue'].map((s) => (
                 <option key={s} value={s}>
@@ -570,6 +558,15 @@ export default function ContractCollectionsInstallments() {
 
         {showAllFilters && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
+            <div>
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم الشيك/المرجع' : 'Check/Reference No.'}</label>
+              <input
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                className="input w-full bg-[var(--content-bg)]"
+                placeholder="..."
+              />
+            </div>
             <div>
               <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Due Date (From)' : 'Due Date (From)'}</label>
               <input
@@ -851,6 +848,7 @@ export default function ContractCollectionsInstallments() {
 
       <ModalShell
         open={editOpen}
+        textColorClass={textColorClass}
         title={isArabic ? 'تعديل تاريخ القسط' : 'Edit Installment Due Date'}
         onClose={() => setEditOpen(false)}
       >
@@ -894,7 +892,13 @@ export default function ContractCollectionsInstallments() {
         </div>
       </ModalShell>
 
-      <ModalShell open={payOpen} title={isArabic ? 'Pay' : 'Pay Installment'} onClose={() => setPayOpen(false)} widthClass="max-w-xl">
+      <ModalShell
+        open={payOpen}
+        textColorClass={textColorClass}
+        title={isArabic ? 'Pay' : 'Pay Installment'}
+        onClose={() => setPayOpen(false)}
+        widthClass="max-w-xl"
+      >
         <div className="space-y-3">
           <div className="rounded-xl border border-[var(--panel-border)] p-3 text-sm">
             <div className="flex items-center justify-between gap-2">
@@ -994,6 +998,7 @@ export default function ContractCollectionsInstallments() {
 
       <ModalShell
         open={actionOpen}
+        textColorClass={textColorClass}
         title={
           actionType === 'reject'
             ? (isArabic ? 'رفض الدفعة' : 'Reject Payment')

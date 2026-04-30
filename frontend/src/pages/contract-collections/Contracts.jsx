@@ -7,6 +7,7 @@ import SearchableSelect from '@components/SearchableSelect'
 import { ChevronDown, ChevronUp, Eye, Filter, Paperclip, Printer, Search, Trash2, Upload, X } from 'lucide-react'
 import { FaChevronLeft, FaChevronRight, FaFileImport } from 'react-icons/fa'
 import CcContractsImportModal from '@components/CcContractsImportModal'
+import DateRangePicker from '../../shared/components/DateRangePicker'
 
 const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
 
@@ -22,23 +23,24 @@ const formatMoney = (v) => {
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
-function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl' }) {
+function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl', textColorClass = '', closeTitle = 'Close' }) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[20000]">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <div className={`card w-full ${widthClass} bg-[var(--content-bg)] rounded-2xl shadow-2xl border border-[var(--panel-border)] overflow-hidden`}>
           <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--panel-border)]">
             <div className="min-w-0">
-              <div className="text-base font-semibold text-theme-text dark:text-gray-100 truncate">{title}</div>
+              <div className={`text-base font-semibold truncate ${textColorClass}`}>{title}</div>
             </div>
             <button
               type="button"
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
               aria-label="Close"
-              title="Close"
+              title={closeTitle}
             >
               <X className="w-5 h-5" />
             </button>
@@ -61,7 +63,8 @@ export default function ContractCollectionsContracts() {
   const isRealEstate = companyTypeLower.includes('real')
 
   const title = useMemo(() => (isArabic ? 'العقود' : 'Contracts'), [isArabic])
-  const mutedTextClass = isLight ? 'text-gray-600' : 'text-gray-400'
+  const textColorClass = isLight ? 'text-black' : 'text-white'
+  const mutedTextClass = textColorClass
 
   const [q, setQ] = useState('')
   const [contractNumber, setContractNumber] = useState('')
@@ -76,6 +79,10 @@ export default function ContractCollectionsContracts() {
 
   const [projects, setProjects] = useState([])
   const [salesOwners, setSalesOwners] = useState([])
+  const [customersOptions, setCustomersOptions] = useState([])
+  const [contractNumberOptions, setContractNumberOptions] = useState([])
+  const [unitCodeOptions, setUnitCodeOptions] = useState([])
+  const [filtersLookupLoading, setFiltersLookupLoading] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
@@ -86,8 +93,8 @@ export default function ContractCollectionsContracts() {
   const statusOptions = useMemo(
     () => [
       { value: '', label: isArabic ? 'الكل' : 'All' },
-      { value: 'active', label: 'active' },
-      { value: 'cancelled', label: 'cancelled' },
+      { value: 'active', label: isArabic ? 'نشط' : 'Active' },
+      { value: 'cancelled', label: isArabic ? 'ملغي' : 'Cancelled' },
     ],
     [isArabic]
   )
@@ -101,7 +108,8 @@ export default function ContractCollectionsContracts() {
 
   const loadLookups = useCallback(async () => {
     try {
-      const [projRes, usersRes] = await Promise.all([api.get('/api/projects?all=1'), api.get('/api/users')])
+      const usersReq = api.get('/api/users?all=1').catch(() => api.get('/api/users'))
+      const [projRes, usersRes] = await Promise.all([api.get('/api/projects?all=1'), usersReq])
       const proj = Array.isArray(projRes?.data?.data) ? projRes.data.data : (Array.isArray(projRes?.data) ? projRes.data : [])
       const users = Array.isArray(usersRes?.data?.data) ? usersRes.data.data : (Array.isArray(usersRes?.data) ? usersRes.data : [])
       setProjects(
@@ -119,6 +127,62 @@ export default function ContractCollectionsContracts() {
       setSalesOwners([])
     }
   }, [])
+
+  const loadFiltersLookups = useCallback(async () => {
+    if (filtersLookupLoading) return
+    setFiltersLookupLoading(true)
+    try {
+      const [contractsRes, customersRes] = await Promise.all([
+        api.get('/api/cc/contracts?page=1&per_page=500'),
+        api.get('/api/cc/customers?page=1&per_page=500'),
+      ])
+
+      const contractsData = contractsRes?.data || {}
+      const contracts = Array.isArray(contractsData?.data) ? contractsData.data : []
+
+      const contractNumbers = Array.from(
+        new Set(
+          contracts
+            .map((c) => String(c?.contract_number || '').trim())
+            .filter(Boolean)
+        )
+      )
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+        .map((x) => ({ value: x, label: x }))
+
+      const unitCodes = Array.from(
+        new Set(
+          contracts
+            .map((c) => String(c?.property?.unit_code || '').trim())
+            .filter(Boolean)
+        )
+      )
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+        .map((x) => ({ value: x, label: x }))
+
+      const customersData = customersRes?.data || {}
+      const customers = Array.isArray(customersData?.data) ? customersData.data : []
+
+      const customerOpts = (Array.isArray(customers) ? customers : [])
+        .map((c) => {
+          const id = c?.id
+          const name = safeStr(c?.name || '')
+          if (!id) return null
+          return { value: String(id), label: `${formatCustomerId(id)} • ${name || safeStr(id)}` }
+        })
+        .filter(Boolean)
+
+      setContractNumberOptions(contractNumbers)
+      setUnitCodeOptions(unitCodes)
+      setCustomersOptions(customerOpts)
+    } catch {
+      setContractNumberOptions([])
+      setUnitCodeOptions([])
+      setCustomersOptions([])
+    } finally {
+      setFiltersLookupLoading(false)
+    }
+  }, [filtersLookupLoading])
 
   const load = useCallback(
     async (page = 1, perPageOverride) => {
@@ -165,6 +229,12 @@ export default function ContractCollectionsContracts() {
   }, [isRealEstate, loadLookups, load])
 
   useEffect(() => {
+    if (!isRealEstate) return
+    if (!showAllFilters) return
+    loadFiltersLookups()
+  }, [isRealEstate, showAllFilters, loadFiltersLookups])
+
+  useEffect(() => {
     const t = setTimeout(() => load(1), 350)
     return () => clearTimeout(t)
   }, [q, contractNumber, customerId, unitCode, projectId, salesOwnerId, status, contractDateFrom, contractDateTo, load])
@@ -208,7 +278,7 @@ export default function ContractCollectionsContracts() {
       const property_id = parseId(row?.property_id)
       if (!customer_id || !property_id) {
         failed += 1
-        errors.push(isArabic ? `صف ${rowNo}: Customer ID و Property ID مطلوبين` : `Row ${rowNo}: Customer ID and Property ID are required`)
+        errors.push(isArabic ? `صف ${rowNo}: كود العميل وكود العقار مطلوبين` : `Row ${rowNo}: Customer ID and Property ID are required`)
         continue
       }
 
@@ -302,7 +372,7 @@ export default function ContractCollectionsContracts() {
 
   const deleteAttachment = async (contractId, attachmentId) => {
     if (!contractId || !attachmentId) return
-    const ok = window.confirm('Delete attachment?')
+    const ok = window.confirm(isArabic ? 'حذف المرفق؟' : 'Delete attachment?')
     if (!ok) return
     try {
       await api.delete(`/api/cc/contracts/${encodeURIComponent(contractId)}/attachments/${encodeURIComponent(attachmentId)}`)
@@ -316,16 +386,14 @@ export default function ContractCollectionsContracts() {
       <div className="p-6">
         <div className="glass-panel rounded-2xl p-6">
           <h2 className="text-lg font-semibold">{isArabic ? 'غير متاح' : 'Not available'}</h2>
-          <p className="text-sm text-[var(--muted-text)] mt-2">
-            {isArabic ? 'هذا الموديول متاح فقط لشركات Real Estate.' : 'This module is available only for Real Estate tenants.'}
-          </p>
+      
         </div>
       </div>
     )
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className={`p-6 space-y-4 ${textColorClass}`}>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{title}</h1>
         <button
@@ -341,7 +409,7 @@ export default function ContractCollectionsContracts() {
       {/* Filters (before list) */}
       <div className="glass-panel p-4 rounded-xl">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-sm font-semibold flex items-center gap-2 text-theme-text">
+          <h2 className={`text-sm font-semibold flex items-center gap-2 ${textColorClass}`}>
             <Filter className="text-blue-500" size={16} /> {isArabic ? 'تصفية' : 'Filter'}
           </h2>
           <div className="flex items-center gap-2">
@@ -356,7 +424,7 @@ export default function ContractCollectionsContracts() {
             <button
               type="button"
               onClick={resetFilters}
-              className="px-3 py-1.5 text-sm text-theme-text hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+              className={`px-3 py-1.5 text-sm ${textColorClass} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
             >
               {isArabic ? 'إعادة تعيين' : 'Reset'}
             </button>
@@ -397,7 +465,7 @@ export default function ContractCollectionsContracts() {
               onChange={(v) => setProjectId(v)}
               placeholder={isArabic ? 'اختر المشروع' : 'Select Project'}
               className="w-full"
-              isRTL={isArabic}
+              isRTL={isRTL}
               multiple={false}
             />
           </div>
@@ -410,54 +478,78 @@ export default function ContractCollectionsContracts() {
               onChange={(v) => setSalesOwnerId(v)}
               placeholder={isArabic ? 'اختر الموظف' : 'Select User'}
               className="w-full"
-              isRTL={isArabic}
+              isRTL={isRTL}
               multiple={false}
             />
           </div>
 
-          {showAllFilters ? (
-            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
-              <SearchableSelect
-                options={statusOptions}
-                value={status}
-                onChange={(v) => setStatus(v)}
-                placeholder={isArabic ? 'الكل' : 'All'}
-                className="w-full"
-                isRTL={isArabic}
-                multiple={false}
-              />
-            </div>
-          ) : (
-            <div className="hidden lg:block" />
-          )}
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الحالة' : 'Status'}</label>
+            <SearchableSelect
+              options={statusOptions}
+              value={status}
+              onChange={(v) => setStatus(v)}
+              placeholder={isArabic ? 'الكل' : 'All'}
+              className="w-full"
+              isRTL={isRTL}
+              multiple={false}
+            />
+          </div>
         </div>
 
         {showAllFilters && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
             <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
               <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم العقد' : 'Contract No.'}</label>
-              <input value={contractNumber} onChange={(e) => setContractNumber(e.target.value)} className="input w-full bg-[var(--content-bg)]" placeholder="CN-..." />
+              <SearchableSelect
+                options={contractNumberOptions}
+                value={contractNumber}
+                onChange={(v) => setContractNumber(String(v || ''))}
+                placeholder={filtersLookupLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : (isArabic ? 'اختر رقم العقد' : 'Select Contract No.')}
+                className="w-full"
+                isRTL={isRTL}
+                multiple={false}
+              />
             </div>
 
             <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم العميل' : 'Customer ID'}</label>
-              <input value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="input w-full bg-[var(--content-bg)]" placeholder="123" />
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'العميل' : 'Customer'}</label>
+              <SearchableSelect
+                options={customersOptions}
+                value={customerId}
+                onChange={(v) => setCustomerId(String(v || ''))}
+                placeholder={filtersLookupLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : (isArabic ? 'اختر العميل' : 'Select Customer')}
+                className="w-full"
+                isRTL={isRTL}
+                multiple={false}
+              />
             </div>
 
             <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
               <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'كود الوحدة' : 'Unit Code'}</label>
-              <input value={unitCode} onChange={(e) => setUnitCode(e.target.value)} className="input w-full bg-[var(--content-bg)]" placeholder="U-..." />
+              <SearchableSelect
+                options={unitCodeOptions}
+                value={unitCode}
+                onChange={(v) => setUnitCode(String(v || ''))}
+                placeholder={filtersLookupLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : (isArabic ? 'اختر كود الوحدة' : 'Select Unit Code')}
+                className="w-full"
+                isRTL={isRTL}
+                multiple={false}
+              />
             </div>
 
             <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ العقد (من)' : 'Contract Date (From)'}</label>
-              <input type="date" value={contractDateFrom} onChange={(e) => setContractDateFrom(e.target.value)} className="input w-full bg-[var(--content-bg)]" />
-            </div>
-
-            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ العقد (إلى)' : 'Contract Date (To)'}</label>
-              <input type="date" value={contractDateTo} onChange={(e) => setContractDateTo(e.target.value)} className="input w-full bg-[var(--content-bg)]" />
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ العقد' : 'Contract Date'}</label>
+              <DateRangePicker
+                from={contractDateFrom}
+                to={contractDateTo}
+                isRTL={isRTL}
+                className="input w-full bg-[var(--content-bg)]"
+                onChange={({ from, to }) => {
+                  setContractDateFrom(from || '')
+                  setContractDateTo(to || '')
+                }}
+              />
             </div>
           </div>
         )}
@@ -465,19 +557,19 @@ export default function ContractCollectionsContracts() {
 
       {/* List */}
       <div className="glass-panel rounded-2xl p-4">
-        <div className={`text-xs ${mutedTextClass} mb-3`}>Total: {pageMeta.total}</div>
+        <div className={`text-xs ${mutedTextClass} mb-3`}>{isArabic ? 'الإجمالي:' : 'Total:'} {pageMeta.total}</div>
 
         <div className="overflow-auto rounded-xl border border-[var(--panel-border)]">
           <table className="min-w-full text-sm">
             <thead className="bg-black/5 dark:bg-white/5">
               <tr>
                 <th className="text-left px-3 py-2">{isArabic ? 'رقم العقد' : 'Contract No.'}</th>
-                <th className="text-left px-3 py-2">Customer ID</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'كود العميل' : 'Customer ID'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'العميل' : 'Customer'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'تاريخ العقد' : 'Contract Date'}</th>
-                <th className="text-left px-3 py-2">Unit Code</th>
-                <th className="text-left px-3 py-2">Project</th>
-                <th className="text-left px-3 py-2">Sales</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'كود الوحدة' : 'Unit Code'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'المشروع' : 'Project'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'سيلز' : 'Sales'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'السعر' : 'Total Price'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'إجراءات' : 'Actions'}</th>
               </tr>
@@ -509,7 +601,7 @@ export default function ContractCollectionsContracts() {
                     <td className="px-3 py-2">{safeStr(row.customer?.sales_owner?.name)}</td>
                     <td className="px-3 py-2">{formatMoney(row.total_price)}</td>
                     <td className="px-3 py-2">
-                      <button type="button" className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5" title="Preview" onClick={() => openPreview(row)}>
+                      <button type="button" className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5" title={isArabic ? 'معاينة' : 'Preview'} onClick={() => openPreview(row)}>
                         <Eye className="w-4 h-4" />
                       </button>
                     </td>
@@ -522,7 +614,7 @@ export default function ContractCollectionsContracts() {
 
         <div className="hidden">
           <div className={`text-xs ${mutedTextClass}`}>
-            Page {pageMeta.current_page} / {pageMeta.last_page}
+            {isArabic ? 'الصفحة' : 'Page'} {pageMeta.current_page} / {pageMeta.last_page}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -552,7 +644,7 @@ export default function ContractCollectionsContracts() {
                 const total = Number(pageMeta.total || 0)
                 const from = total ? (cur - 1) * perPage + 1 : 0
                 const to = total ? Math.min(cur * perPage, total) : 0
-                return isArabic ? `Ø¹Ø±Ø¶ ${from}-${to} Ù…Ù† ${total}` : `Showing ${from}-${to} of ${total}`
+                return isArabic ? `عرض ${from}-${to} من ${total}` : `Showing ${from}-${to} of ${total}`
               })()}
             </div>
             <div className="flex items-center gap-2">
@@ -561,24 +653,24 @@ export default function ContractCollectionsContracts() {
                   className="btn btn-sm btn-ghost"
                   onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
                   disabled={loading || Number(pageMeta.current_page || 1) <= 1}
-                  title={isArabic ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
+                  title={isArabic ? 'السابق' : 'Prev'}
                 >
                   <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
                 </button>
                 <span className="text-sm whitespace-nowrap">
-                  {isArabic ? `Ø§Ù„ØµÙØ­Ø© ${pageMeta.current_page} Ù…Ù† ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
+                  {isArabic ? `الصفحة ${pageMeta.current_page} من ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
                 </span>
                 <button
                   className="btn btn-sm btn-ghost"
                   onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
                   disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
-                  title={isArabic ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
+                  title={isArabic ? 'التالي' : 'Next'}
                 >
                   <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
                 </button>
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}</span>
+                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'لكل صفحة:' : 'Per page:'}</span>
                 <select
                   className="input w-16 text-sm py-0 px-2 h-8"
                   value={perPage}
@@ -599,7 +691,13 @@ export default function ContractCollectionsContracts() {
         )}
       </div>
 
-      <ModalShell open={previewOpen} title={isArabic ? 'معاينة العقد' : 'Contract Preview'} onClose={() => setPreviewOpen(false)}>
+      <ModalShell
+        open={previewOpen}
+        title={isArabic ? 'معاينة العقد' : 'Contract Preview'}
+        onClose={() => setPreviewOpen(false)}
+        textColorClass={textColorClass}
+        closeTitle={isArabic ? 'إغلاق' : 'Close'}
+      >
         {previewLoading ? (
           <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
         ) : !previewData?.contract ? (
@@ -613,7 +711,7 @@ export default function ContractCollectionsContracts() {
                 onClick={() => openContractPrint(previewData.contract?.id)}
               >
                 <Printer className="w-4 h-4" />
-                {isArabic ? 'Print' : 'Print'}
+                {isArabic ? 'طباعة' : 'Print'}
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -627,7 +725,7 @@ export default function ContractCollectionsContracts() {
                 <div className={`text-xs ${mutedTextClass}`}>{formatCustomerId(previewData.contract.customer_id)}</div>
               </div>
               <div className="rounded-xl border border-[var(--panel-border)] p-3">
-                <div className={`text-xs ${mutedTextClass}`}>Unit Code</div>
+                <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'كود الوحدة' : 'Unit Code'}</div>
                 <div className="font-semibold">{safeStr(previewData.contract.property?.unit_code)}</div>
               </div>
             </div>
@@ -657,11 +755,11 @@ export default function ContractCollectionsContracts() {
               <div className="flex items-center justify-between gap-2">
                 <div className="font-semibold inline-flex items-center gap-2">
                   <Paperclip className="w-4 h-4" />
-                  Attachments
+                  {isArabic ? 'المرفقات' : 'Attachments'}
                 </div>
                 <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 ${attachmentsUploading ? 'opacity-60 pointer-events-none' : ''}`}>
                   <Upload className="w-4 h-4" />
-                  {attachmentsUploading ? 'Uploading...' : 'Upload'}
+                  {attachmentsUploading ? (isArabic ? 'جاري الرفع...' : 'Uploading...') : (isArabic ? 'رفع' : 'Upload')}
                   <input
                     type="file"
                     className="hidden"
@@ -673,17 +771,17 @@ export default function ContractCollectionsContracts() {
               </div>
 
               {attachmentsLoading ? (
-                <div className={`text-sm ${mutedTextClass}`}>Loading...</div>
+                <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
               ) : attachments.length === 0 ? (
-                <div className={`text-sm ${mutedTextClass}`}>No attachments</div>
+                <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد مرفقات' : 'No attachments'}</div>
               ) : (
                 <div className="overflow-auto rounded-xl border border-[var(--panel-border)]">
                   <table className="min-w-full text-sm">
                     <thead className="bg-black/5 dark:bg-white/5">
                       <tr>
-                        <th className="text-left px-3 py-2">File</th>
-                        <th className="text-left px-3 py-2">Type</th>
-                        <th className="text-left px-3 py-2">Actions</th>
+                        <th className="text-left px-3 py-2">{isArabic ? 'الملف' : 'File'}</th>
+                        <th className="text-left px-3 py-2">{isArabic ? 'النوع' : 'Type'}</th>
+                        <th className="text-left px-3 py-2">{isArabic ? 'إجراءات' : 'Actions'}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -706,7 +804,7 @@ export default function ContractCollectionsContracts() {
                             <button
                               type="button"
                               className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-red-500"
-                              title="Delete"
+                              title={isArabic ? 'حذف' : 'Delete'}
                               onClick={() => deleteAttachment(previewData.contract?.id, a.id)}
                             >
                               <Trash2 className="w-4 h-4" />

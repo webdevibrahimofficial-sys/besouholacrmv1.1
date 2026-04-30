@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Eye, FilePlus2, Save, Trash2, Upload, X } from 'lucide-react'
-import i18n from '../../../i18n'
 import { api } from '@utils/api'
 import { createContractTemplate, deleteContractTemplate, getContractTemplates, updateContractTemplate } from '@services/contractTemplateService'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -23,9 +22,62 @@ const emptyDraft = () => ({
   pdf_original_name: '',
 })
 
+const stripWordTipsFromHtml = (html) => {
+  const raw = String(html || '')
+  if (!raw) return raw
+
+  const shouldStrip = /Word\s*:|نصائح\s*عند\s*نقل\s*المحتوى/i.test(raw)
+  if (!shouldStrip) return raw
+
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(raw, 'text/html')
+    const body = doc?.body
+    if (!body) return raw
+
+    const matchesTips = (text) => {
+      const t = String(text || '')
+      if (!t.trim()) return false
+      return (
+        /Word\s*:/i.test(t) ||
+        /نصائح\s*عند\s*نقل\s*المحتوى/i.test(t) ||
+        t.includes('قم بنسخ') ||
+        t.includes('ولصقه') ||
+        t.includes('تأكد من كتابة البيانات') ||
+        t.includes('بين القوسين') ||
+        t.includes('يفضل مراجعة العقد') ||
+        t.includes('محام') ||
+        t.includes('لضمان التوافق') ||
+        t.includes('القوانين المحلية')
+      )
+    }
+
+    const all = Array.from(body.querySelectorAll('*'))
+    for (const el of all) {
+      const text = el.textContent || ''
+      if (!matchesTips(text)) continue
+
+      const prev = el.previousElementSibling
+      if (prev && prev.tagName === 'HR') {
+        try {
+          prev.remove()
+        } catch {}
+      }
+
+      try {
+        el.remove()
+      } catch {}
+    }
+
+    return body.innerHTML
+  } catch {
+    return raw
+  }
+}
+
 export default function ContractsSettings() {
-  const { t } = useTranslation()
-  const isRTL = useMemo(() => i18n.language === 'ar', [])
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.dir(i18n.language || 'en') === 'rtl'
 
   const shouldIgnoreNextEditorUpdateRef = useRef(false)
 
@@ -59,33 +111,48 @@ export default function ContractsSettings() {
 
   const loadAll = async () => {
     setLoading(true)
-    try {
-      const [tpls, projRes, companyRes, smtpRes] = await Promise.all([
-        getContractTemplates(),
-        api.get('/api/projects?all=1'),
-        api.get('/api/company-info'),
-        api.get('/api/smtp-settings'),
-      ])
-      setTemplates(Array.isArray(tpls) ? tpls : [])
-      setProjects(Array.isArray(projRes?.data?.data) ? projRes.data.data : (Array.isArray(projRes?.data) ? projRes.data : []))
+    const [tplsRes, projRes, companyRes, smtpRes] = await Promise.allSettled([
+      getContractTemplates(),
+      api.get('/api/projects?all=1'),
+      api.get('/api/company-info'),
+      api.get('/api/smtp-settings'),
+    ])
 
-      const tenant = companyRes?.data?.tenant || companyRes?.data?.data?.tenant || {}
+    if (tplsRes.status === 'fulfilled') {
+      setTemplates(Array.isArray(tplsRes.value) ? tplsRes.value : [])
+    } else {
+      setTemplates([])
+    }
+
+    if (projRes.status === 'fulfilled') {
+      const data = projRes.value?.data
+      setProjects(Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []))
+    } else {
+      setProjects([])
+    }
+
+    if (companyRes.status === 'fulfilled') {
+      const tenant = companyRes.value?.data?.tenant || companyRes.value?.data?.data?.tenant || {}
       const profile = tenant?.profile || {}
-      const fromEmail = smtpRes?.data?.from_email || ''
-      setTenantInfo({
+      setTenantInfo((prev) => ({
+        ...prev,
         name: tenant?.name || '',
         logoUrl: profile?.logo_url || '',
         phone: profile?.phone || '',
-        email: fromEmail || '',
         taxId: profile?.tax_id || '',
-      })
-    } catch {
-      setTemplates([])
-      setProjects([])
-      setTenantInfo({ name: '', logoUrl: '', phone: '', email: '', taxId: '' })
-    } finally {
-      setLoading(false)
+      }))
+    } else {
+      setTenantInfo((prev) => ({ ...prev, name: '', logoUrl: '', phone: '', taxId: '' }))
     }
+
+    if (smtpRes.status === 'fulfilled') {
+      const fromEmail = smtpRes.value?.data?.from_email || ''
+      setTenantInfo((prev) => ({ ...prev, email: fromEmail || '' }))
+    } else {
+      setTenantInfo((prev) => ({ ...prev, email: '' }))
+    }
+
+    setLoading(false)
   }
 
   useEffect(() => {
@@ -120,7 +187,7 @@ export default function ContractsSettings() {
         }, 0)
       }
     }
-  }, [activeTemplate])
+  }, [activeTemplate, editor])
 
   useEffect(() => {
     if (!pdfFile) {
@@ -150,7 +217,9 @@ export default function ContractsSettings() {
       TableHeader,
       TableCell,
     ],
-    content: draft.body || '',
+    // Do not bind editor content to React state here; it causes re-initialization/cursor jumps on each keystroke.
+    // We sync content explicitly when switching templates or starting a new template.
+    content: '',
     editorProps: {
       attributes: {
         class:
@@ -169,11 +238,8 @@ export default function ContractsSettings() {
     },
   })
 
-  useEffect(() => {
-    if (!editor) return
-    // Keep editor direction synced
-    editor.view.dom.setAttribute('dir', isRTL ? 'rtl' : 'ltr')
-  }, [editor, isRTL])
+  // Note: do not touch `editor.view.dom` here — the view may not be mounted yet and TipTap will throw.
+  // Direction is controlled via `editorProps.attributes.dir` and the wrapper around `<EditorContent />`.
 
   const insertPlaceholder = (token) => {
     if (!token) return
@@ -235,12 +301,14 @@ export default function ContractsSettings() {
         if (pdfFile) fd.append('pdf', pdfFile)
         res = draft.id ? await updateContractTemplate(draft.id, fd) : await createContractTemplate(fd)
       } else {
+        const rawHtml = editor ? editor.getHTML() : (draft.body || '')
+        const cleanedHtml = stripWordTipsFromHtml(rawHtml)
         const payload = {
           name,
           project_id: projectId,
           status,
           content_type: 'html',
-          body: editor ? editor.getHTML() : (draft.body || ''),
+          body: cleanedHtml,
           pdf_path: null,
         }
         res = draft.id ? await updateContractTemplate(draft.id, payload) : await createContractTemplate(payload)
@@ -266,8 +334,8 @@ export default function ContractsSettings() {
   }
 
   const previewHtml = () => {
-    if (editor) return editor.getHTML() || ''
-    return draft.body || ''
+    if (editor) return stripWordTipsFromHtml(editor.getHTML() || '')
+    return stripWordTipsFromHtml(draft.body || '')
   }
 
   const pdfPreviewUrl = pdfObjectUrl || draft.pdf_url || ''
@@ -296,12 +364,6 @@ export default function ContractsSettings() {
 
   const Footer = () => (
     <div className="px-10 py-5 border-t border-gray-200 text-xs text-gray-700">
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
-        <div><span className="text-gray-500">Phone:</span> {tenantInfo.phone || '-'}</div>
-        <div><span className="text-gray-500">Email:</span> {tenantInfo.email || '-'}</div>
-        <div><span className="text-gray-500">Tax No.:</span> {tenantInfo.taxId || '-'}</div>
-      </div>
-
       <div className="mt-5 grid grid-cols-2 gap-6 text-[11px]">
         <div>
           <div className="font-semibold mb-2">Seller</div>
@@ -340,6 +402,7 @@ export default function ContractsSettings() {
       <div
         className="w-full max-w-[900px] rounded-2xl border border-[var(--panel-border)] overflow-hidden bg-white text-black shadow"
         style={{ fontFamily: '"Times New Roman", Times, serif' }}
+        dir={isRTL ? 'rtl' : 'ltr'}
       >
         <Header />
         <div className="px-10 py-8">{children}</div>
@@ -684,7 +747,7 @@ export default function ContractsSettings() {
             </div>
           ) : (
             <ContractPage>
-              <div onPaste={onBodyPaste}>
+              <div onPaste={onBodyPaste} dir={isRTL ? 'rtl' : 'ltr'}>
                 <EditorContent editor={editor} />
               </div>
             </ContractPage>
@@ -757,8 +820,8 @@ export default function ContractsSettings() {
 
       {/* Preview modal */}
       {previewOpen && (
-        <div className="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4" onMouseDown={() => setPreviewOpen(false)}>
-          <div className="w-full max-w-4xl rounded-2xl bg-gray-950 border border-[var(--panel-border)] overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[10000] bg-black/50 flex items-center justify-center p-4" onMouseDown={() => setPreviewOpen(false)}>
+          <div className="w-full max-w-4xl rounded-2xl card border border-[var(--panel-border)] overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
             <div className="p-4 border-b border-[var(--panel-border)] flex items-center justify-between">
               <div className="font-semibold">{t('Preview')}</div>
               <button className="px-3 py-1.5 rounded-lg hover:bg-white/10" onClick={() => setPreviewOpen(false)}>{t('Close')}</button>

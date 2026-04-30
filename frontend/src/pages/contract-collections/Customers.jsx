@@ -124,16 +124,17 @@ function openPrintWindow({ title, blocks, dir = 'ltr' }) {
   win.document.close()
 }
 
-function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl' }) {
+function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl', textColorClass = '' }) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[20000]">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <div className={`card w-full ${widthClass} bg-[var(--content-bg)] rounded-2xl shadow-2xl border border-[var(--panel-border)] overflow-hidden`}>
           <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--panel-border)]">
             <div className="min-w-0">
-              <div className="text-base font-semibold text-theme-text dark:text-gray-100 truncate">{title}</div>
+              <div className={`text-base font-semibold truncate ${textColorClass}`}>{title}</div>
             </div>
             <button
               type="button"
@@ -179,15 +180,19 @@ export default function ContractCollectionsCustomers() {
   const isRealEstate = companyTypeLower.includes('real')
 
   const title = useMemo(() => (isArabic ? 'إدارة العملاء' : 'Customers Management'), [isArabic])
-  const mutedTextClass = isLight ? 'text-gray-600' : 'text-gray-400'
+  const textColorClass = isLight ? 'text-black' : 'text-white'
+  const mutedTextClass = textColorClass
 
   const [q, setQ] = useState('')
   const [projectId, setProjectId] = useState('')
   const [salesOwnerId, setSalesOwnerId] = useState('')
+  const [propertyId, setPropertyId] = useState('')
+  const [source, setSource] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [projects, setProjects] = useState([])
   const [units, setUnits] = useState([])
   const [salesOwners, setSalesOwners] = useState([])
+  const [sources, setSources] = useState([])
 
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
@@ -260,6 +265,8 @@ export default function ContractCollectionsCustomers() {
       if (q.trim()) params.set('q', q.trim())
       if (projectId) params.set('project_id', String(projectId))
       if (salesOwnerId) params.set('sales_owner_id', String(salesOwnerId))
+      if (propertyId) params.set('property_id', String(propertyId))
+      if (source) params.set('source', String(source))
 
       const res = await api.get(`/api/cc/customers?${params.toString()}`)
       const data = res?.data || {}
@@ -277,7 +284,7 @@ export default function ContractCollectionsCustomers() {
     } finally {
       setLoading(false)
     }
-  }, [q, projectId, salesOwnerId, perPage])
+  }, [q, projectId, salesOwnerId, propertyId, source, perPage])
 
   const loadDetails = useCallback(async (customerId) => {
     try {
@@ -293,10 +300,15 @@ export default function ContractCollectionsCustomers() {
 
   const loadFilterData = useCallback(async () => {
     try {
-      const [projRes, usersRes, propsRes] = await Promise.all([api.get('/api/projects'), api.get('/api/users'), api.get('/api/properties')])
+      const projectsReq = api.get('/api/projects?all=1').catch(() => api.get('/api/projects'))
+      const usersReq = api.get('/api/users?all=1').catch(() => api.get('/api/users'))
+      const propsReq = api.get('/api/properties?all=1').catch(() => api.get('/api/properties'))
+      const sourcesReq = api.get('/api/sources?all=1').catch(() => api.get('/api/sources'))
+      const [projRes, usersRes, propsRes, sourcesRes] = await Promise.all([projectsReq, usersReq, propsReq, sourcesReq])
       const projData = Array.isArray(projRes?.data) ? projRes.data : projRes?.data?.data || []
       const userData = Array.isArray(usersRes?.data) ? usersRes.data : usersRes?.data?.data || []
       const propsData = Array.isArray(propsRes?.data) ? propsRes.data : propsRes?.data?.data || []
+      const sourcesData = Array.isArray(sourcesRes?.data) ? sourcesRes.data : sourcesRes?.data?.data || []
 
       const projOptions = (Array.isArray(projData) ? projData : [])
         .map((p) => ({ value: String(p.id), label: String(p.name || p.title || `#${p.id}`) }))
@@ -316,10 +328,16 @@ export default function ContractCollectionsCustomers() {
         }))
         .filter((x) => x.value && x.label)
       setUnits(unitOptions)
+
+      const sourceOptions = (Array.isArray(sourcesData) ? sourcesData : [])
+        .map((s) => ({ value: String(s?.name || ''), label: String(s?.name || '') }))
+        .filter((x) => x.value && x.label)
+      setSources(sourceOptions)
     } catch {
       setProjects([])
       setSalesOwners([])
       setUnits([])
+      setSources([])
     }
   }, [])
 
@@ -353,7 +371,7 @@ export default function ContractCollectionsCustomers() {
   useEffect(() => {
     const t = setTimeout(() => load(1), 350)
     return () => clearTimeout(t)
-  }, [q, projectId, salesOwnerId, load])
+  }, [q, projectId, salesOwnerId, propertyId, source, load])
 
   useEffect(() => {
     if (!previewOpen || !activeCustomer?.id) return
@@ -412,7 +430,21 @@ export default function ContractCollectionsCustomers() {
     setQ('')
     setProjectId('')
     setSalesOwnerId('')
+    setPropertyId('')
+    setSource('')
+    setShowAllFilters(false)
   }
+
+  const filteredFilterUnits = useMemo(() => {
+    if (!projectId) return units
+    return (Array.isArray(units) ? units : []).filter((u) => String(u?.project_id || '') === String(projectId))
+  }, [units, projectId])
+
+  useEffect(() => {
+    if (!propertyId) return
+    const exists = (Array.isArray(filteredFilterUnits) ? filteredFilterUnits : []).some((u) => String(u?.value) === String(propertyId))
+    if (!exists) setPropertyId('')
+  }, [filteredFilterUnits, propertyId])
 
   const filteredUnitOptions = useMemo(() => {
     const pid = String(createForm.project_id || '').trim()
@@ -861,7 +893,7 @@ export default function ContractCollectionsCustomers() {
     return (
       <div className="p-6">
         <div className="glass-panel rounded-2xl p-6">
-          <h2 className="text-lg font-semibold text-theme-text dark:text-gray-100">{isArabic ? 'غير متاح' : 'Not available'}</h2>
+          <h2 className={`text-lg font-semibold ${textColorClass}`}>{isArabic ? 'غير متاح' : 'Not available'}</h2>
           <p className={`text-sm mt-2 ${mutedTextClass}`}>
             {isArabic ? 'هذا الموديول متاح فقط لشركات Real Estate.' : 'This module is available only for Real Estate tenants.'}
           </p>
@@ -871,7 +903,7 @@ export default function ContractCollectionsCustomers() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 text-theme-text dark:text-gray-100" dir={isRTL ? 'rtl' : 'ltr'}>
+    <div className={`p-4 md:p-6 space-y-6 ${textColorClass}`} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Header (System UX) */}
       <div className="rounded-xl p-4 md:p-6 relative">
         <div className="flex flex-wrap lg:flex-row lg:items-center justify-between gap-4">
@@ -912,7 +944,7 @@ export default function ContractCollectionsCustomers() {
       {/* Filter (System UX) */}
       <div className="glass-panel p-4 rounded-xl">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-sm font-semibold flex items-center gap-2 text-theme-text">
+          <h2 className={`text-sm font-semibold flex items-center gap-2 ${textColorClass}`}>
             <Filter className="text-blue-500" size={16} /> {isArabic ? 'تصفية' : 'Filter'}
           </h2>
           <div className="flex items-center gap-2">
@@ -927,7 +959,7 @@ export default function ContractCollectionsCustomers() {
             <button
               type="button"
               onClick={resetFilters}
-              className="px-3 py-1.5 text-sm text-theme-text hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+              className={`px-3 py-1.5 text-sm ${textColorClass} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
             >
               {isArabic ? 'إعادة تعيين' : 'Reset'}
             </button>
@@ -986,15 +1018,56 @@ export default function ContractCollectionsCustomers() {
             />
           </div>
 
-          {showAllFilters ? (
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الوحدة' : 'Unit'}</label>
+            <SearchableSelect
+              options={filteredFilterUnits}
+              value={propertyId}
+              onChange={(v) => setPropertyId(String(v || ''))}
+              placeholder={isArabic ? 'اختر الوحدة' : 'Select Unit'}
+              className="w-full"
+              isRTL={isArabic}
+              multiple={false}
+              showAllOption={true}
+            />
+          </div>
+        </div>
+
+        {showAllFilters && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
             <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
               <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المصدر' : 'Source'}</label>
-              <input value="" readOnly placeholder={isArabic ? 'قريبًا' : 'Coming soon'} className="input w-full opacity-70 cursor-not-allowed" />
+              <SearchableSelect
+                options={sources}
+                value={source}
+                onChange={(v) => setSource(String(v || ''))}
+                placeholder={isArabic ? 'اختر المصدر' : 'Select Source'}
+                className="w-full"
+                isRTL={isArabic}
+                multiple={false}
+                showAllOption={true}
+              />
             </div>
-          ) : (
-            <div className="hidden lg:block" />
-          )}
-        </div>
+
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'لكل صفحة' : 'Per page'}</label>
+              <select
+                className="input w-full bg-[var(--content-bg)]"
+                value={perPage}
+                onChange={(e) => {
+                  const next = Number(e.target.value)
+                  setPerPage(next)
+                  load(1, next)
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -1217,6 +1290,7 @@ export default function ContractCollectionsCustomers() {
         {/* Preview modal */}
         <ModalShell
           open={previewOpen}
+          textColorClass={textColorClass}
           title={activeCustomer ? `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}` : isArabic ? 'عرض العميل' : 'Customer Preview'}
           onClose={() => {
             setPreviewOpen(false)
@@ -1670,6 +1744,7 @@ export default function ContractCollectionsCustomers() {
         {/* Convert to Contract */}
         <ModalShell
           open={convertOpen}
+          textColorClass={textColorClass}
           title={isArabic ? 'تحويل إلى عقد' : 'Convert to Contract'}
           onClose={() => {
             if (convertLoading) return
@@ -1812,6 +1887,7 @@ export default function ContractCollectionsCustomers() {
         {/* Create */}
         <ModalShell
           open={createOpen}
+          textColorClass={textColorClass}
           title={isArabic ? 'إضافة عميل' : 'Add Customer'}
           onClose={() => {
             if (createLoading) return
@@ -1923,7 +1999,7 @@ export default function ContractCollectionsCustomers() {
                 type="button"
                 onClick={() => setCreateOpen(false)}
                 disabled={createLoading}
-                className="btn btn-sm bg-[var(--muted-bg)] hover:bg-black/5 dark:hover:bg-white/5 border border-[var(--panel-border)] text-theme-text"
+                className={`btn btn-sm bg-[var(--muted-bg)] hover:bg-black/5 dark:hover:bg-white/5 border border-[var(--panel-border)] ${textColorClass}`}
               >
                 {isArabic ? 'إلغاء' : 'Cancel'}
               </button>

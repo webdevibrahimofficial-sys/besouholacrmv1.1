@@ -3164,7 +3164,7 @@ if (!s) {
 
       {/* Main Table */}
       <div className={`glass-panel rounded-2xl overflow-hidden`}>
-        <div className="relative z-[60] flex flex-col md:flex-row justify-between items-center p-4 gap-4 border-b border-theme-border dark:border-gray-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-md">
+        <div className="relative z-[60] flex flex-col md:flex-row justify-between items-center p-4 gap-4 border-b border-theme-border dark:border-gray-700 bg-transparent backdrop-blur-md">
           {selectedLeads.length > 0 ? (
             <div className="flex items-center gap-3 flex-wrap w-full">
               <div className={`flex items-center px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/20 border border-blue-100  text-sm font-semibold ${isLight ? 'text-blue-700' : 'text-blue-300'}`}>

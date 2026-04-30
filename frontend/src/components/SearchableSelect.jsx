@@ -152,22 +152,23 @@ export default function SearchableSelect({ options, value, onChange, placeholder
   }
   
   const clearValue = () => multiple ? onChange([]) : onChange('')
-  const allOptionValues = multiple
+  const allOptionValues = multiple && showAllOption
     ? Array.from(new Set((options || []).map(getOptionValue).filter(v => v !== undefined && v !== null && v !== '')))
     : []
   const allSelected =
     multiple &&
+    showAllOption &&
     Array.isArray(value) &&
     allOptionValues.length > 0 &&
     allOptionValues.every(v => value.some(selectedValue => normalizeComparableValue(selectedValue) === normalizeComparableValue(v)))
 
   const isEmpty = multiple
-    ? !Array.isArray(value) || value.length === 0 || allSelected
+    ? !Array.isArray(value) || value.length === 0 || (showAllOption && allSelected)
     : !value
 
   const getDisplayValue = () => {
     if (multiple) {
-      if (allSelected) return (isRTL ? 'الكل' : 'All')
+      if (showAllOption && allSelected) return (isRTL ? 'الكل' : 'All')
       if (Array.isArray(value) && value.length > 0) {
         return value.map(v => {
           const opt = (options || []).find(o => normalizeComparableValue(typeof o === 'object' && o !== null && 'value' in o ? o.value : o) === normalizeComparableValue(v))

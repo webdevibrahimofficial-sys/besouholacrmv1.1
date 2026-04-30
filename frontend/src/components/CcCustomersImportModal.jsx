@@ -166,7 +166,8 @@ const CcCustomersImportModal = ({ onClose, onImport, isRTL }) => {
 
   return (
     <div className={`fixed inset-0 z-[2000] ${isRTL ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
-      <div className="absolute inset-0 bg-black/50" onClick={() => (!closeDisabled ? onClose() : null)} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0" onClick={() => (!closeDisabled ? onClose() : null)} />
       <div
         className="relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200"
         style={{

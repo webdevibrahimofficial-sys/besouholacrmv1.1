@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Property;
+use App\Models\Project;
 use App\Models\Entity;
 use App\Models\FieldValue;
 use App\Models\CrmSetting;
@@ -227,7 +228,7 @@ class PropertyController extends Controller
             }
 
             $data['created_by_id'] = Auth::id();
-            $tenantId = Auth::user()->tenant_id ?? null;
+            $tenantId = Auth::user()->tenant_id ?? ($property->tenant_id ?? null);
             $dir = $tenantId ? ('properties/'.$tenantId) : 'properties';
             $mainExisting = $request->input('main_image_existing');
             if ($request->hasFile('main_image')) {
@@ -340,6 +341,33 @@ class PropertyController extends Controller
 
             if (empty($data['tenant_id']) && Auth::check() && Auth::user()->tenant_id) {
                 $data['tenant_id'] = Auth::user()->tenant_id;
+            }
+
+            // Keep legacy "project" (name) field, but also set project_id when the column exists.
+            if (Schema::hasColumn((new Property)->getTable(), 'project_id')) {
+                $reqProjectId = $request->input('project_id', $request->input('projectId'));
+                if (!empty($reqProjectId)) {
+                    $data['project_id'] = (int) $reqProjectId;
+                }
+
+                if (empty($data['project_id']) && !empty($data['project']) && !empty($data['tenant_id'])) {
+                    $projectName = preg_replace('/\s+/u', ' ', trim((string) $data['project']));
+                    $pid = Project::where('tenant_id', $data['tenant_id'])
+                        ->whereRaw('LOWER(name) = ?', [strtolower($projectName)])
+                        ->value('id');
+                    if (!empty($pid)) {
+                        $data['project_id'] = (int) $pid;
+                    }
+                }
+
+                if (!empty($data['project_id']) && empty($data['project']) && !empty($data['tenant_id'])) {
+                    $pname = Project::where('tenant_id', $data['tenant_id'])
+                        ->where('id', $data['project_id'])
+                        ->value('name');
+                    if (!empty($pname)) {
+                        $data['project'] = $pname;
+                    }
+                }
             }
 
             $crmSetting = CrmSetting::first();
@@ -550,6 +578,35 @@ class PropertyController extends Controller
             if (isset($data['cil_attachments']) && is_array($data['cil_attachments'])) $cilExisting = array_merge($cilExisting, $data['cil_attachments']);
             if (!empty($cilExisting) || !empty($cil)) {
                 $data['cil_attachments'] = array_values(array_filter(array_merge($cilExisting, $cil)));
+            }
+
+            // Keep legacy "project" (name) field, but also set project_id when the column exists.
+            if (Schema::hasColumn((new Property)->getTable(), 'project_id')) {
+                $effectiveTenantId = $tenantId ?: ($property->tenant_id ?? null);
+
+                $reqProjectId = $request->input('project_id', $request->input('projectId'));
+                if (!empty($reqProjectId)) {
+                    $data['project_id'] = (int) $reqProjectId;
+                }
+
+                if (empty($data['project_id']) && !empty($data['project']) && !empty($effectiveTenantId)) {
+                    $projectName = preg_replace('/\s+/u', ' ', trim((string) $data['project']));
+                    $pid = Project::where('tenant_id', $effectiveTenantId)
+                        ->whereRaw('LOWER(name) = ?', [strtolower($projectName)])
+                        ->value('id');
+                    if (!empty($pid)) {
+                        $data['project_id'] = (int) $pid;
+                    }
+                }
+
+                if (!empty($data['project_id']) && empty($data['project']) && !empty($effectiveTenantId)) {
+                    $pname = Project::where('tenant_id', $effectiveTenantId)
+                        ->where('id', $data['project_id'])
+                        ->value('name');
+                    if (!empty($pname)) {
+                        $data['project'] = $pname;
+                    }
+                }
             }
 
             // Inventory status side-effects

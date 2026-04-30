@@ -4,15 +4,32 @@ namespace App\Http\Controllers;
 
 use App\Models\ContractTemplate;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class ContractTemplateController extends Controller
 {
-    public function index()
+    protected function ensureContractTemplatesReady()
     {
-        $user = Auth::user();
+        if (!Schema::hasTable('contract_templates')) {
+            return response()->json([
+                'message' => 'Contract templates are not initialized on the server (missing contract_templates table). Please run migrations.',
+            ], 503);
+        }
+
+        return null;
+    }
+
+    public function index(Request $request)
+    {
+        if ($resp = $this->ensureContractTemplatesReady()) {
+            return $resp;
+        }
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
         $templates = ContractTemplate::with(['project:id,name'])
             ->where('tenant_id', $user->tenant_id)
             ->latest()
@@ -21,9 +38,15 @@ class ContractTemplateController extends Controller
         return response()->json($templates);
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $user = Auth::user();
+        if ($resp = $this->ensureContractTemplatesReady()) {
+            return $resp;
+        }
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
         $tpl = ContractTemplate::with(['project:id,name'])
             ->where('tenant_id', $user->tenant_id)
             ->findOrFail($id);
@@ -33,7 +56,13 @@ class ContractTemplateController extends Controller
 
     public function store(Request $request)
     {
-        $user = Auth::user();
+        if ($resp = $this->ensureContractTemplatesReady()) {
+            return $resp;
+        }
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -73,7 +102,13 @@ class ContractTemplateController extends Controller
 
     public function update(Request $request, $id)
     {
-        $user = Auth::user();
+        if ($resp = $this->ensureContractTemplatesReady()) {
+            return $resp;
+        }
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
         $tpl = ContractTemplate::where('tenant_id', $user->tenant_id)->findOrFail($id);
 
         $validated = $request->validate([
@@ -125,9 +160,15 @@ class ContractTemplateController extends Controller
         return response()->json($tpl);
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        $user = Auth::user();
+        if ($resp = $this->ensureContractTemplatesReady()) {
+            return $resp;
+        }
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
         $tpl = ContractTemplate::where('tenant_id', $user->tenant_id)->findOrFail($id);
         $tpl->delete();
 

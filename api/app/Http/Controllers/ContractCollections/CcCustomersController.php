@@ -22,6 +22,8 @@ class CcCustomersController extends BaseCcController
         $q = trim((string) $request->query('q', ''));
         $projectId = $request->query('project_id');
         $salesOwnerId = $request->query('sales_owner_id');
+        $propertyId = $request->query('property_id');
+        $source = trim((string) $request->query('source', ''));
 
         $query = CcCustomer::query()->where('tenant_id', $tenantId);
 
@@ -37,6 +39,14 @@ class CcCustomersController extends BaseCcController
         }
         if ($salesOwnerId) {
             $query->where('sales_owner_id', (int) $salesOwnerId);
+        }
+        if ($propertyId) {
+            $query->whereHas('units', function ($sub) use ($propertyId) {
+                $sub->where('property_id', (int) $propertyId);
+            });
+        }
+        if ($source !== '') {
+            $query->where('source', $source);
         }
 
         $perPage = (int) $request->query('per_page', 25);
