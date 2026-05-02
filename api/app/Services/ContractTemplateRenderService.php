@@ -42,7 +42,19 @@ class ContractTemplateRenderService
         $email = (string) ($smtp?->from_email ?? '');
 
         $projectId = (int) ($contract->customer?->project_id ?? 0);
-        $template = $this->pickTemplate($tenantId, $projectId);
+
+        $meta = is_array($contract->meta_data) ? $contract->meta_data : [];
+        $linkedTemplateId = (int) Arr::get($meta, 'contract_template_id', 0);
+        $template = null;
+        if ($linkedTemplateId > 0) {
+            $template = ContractTemplate::query()
+                ->where('tenant_id', $tenantId)
+                ->where('id', $linkedTemplateId)
+                ->where('status', 'Active')
+                ->where('content_type', 'html')
+                ->first();
+        }
+        $template = $template ?: $this->pickTemplate($tenantId, $projectId);
 
         $rawBody = (string) ($template?->body ?? '');
         if (trim($rawBody) === '') {

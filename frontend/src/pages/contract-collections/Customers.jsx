@@ -122,6 +122,67 @@ const formatAuditLines = ({ props, actionKey, logName, isArabic }) => {
   const action = safeStr(actionKey)
   const payloadRaw = props?.payload ?? props?.new_values ?? props?.old_values ?? props
   const payload = cleanAuditValue(tryParseJson(payloadRaw))
+  const auditFieldLabel = (key) => {
+    const k = String(key || '').toLowerCase().trim()
+    if (k === 'items') return isArabic ? 'الوحدات' : 'Units'
+    if (k === 'properties' || k === 'property') return isArabic ? 'الوحدات/العقارات' : 'Properties'
+    return humanizeToken(key)
+  }
+  const auditValueText = (value, key) => {
+    if (value === null || value === undefined) return ''
+    if (typeof value === 'number') return formatMoney(value)
+    if (typeof value === 'boolean') return value ? 'true' : 'false'
+    if (typeof value === 'string') return safeStr(value)
+
+    const keyNorm = String(key || '').toLowerCase().trim()
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) return isArabic ? 'لا يوجد' : 'None'
+      // Show concise, human-friendly identifiers for unit/property arrays.
+      if (keyNorm === 'items' || keyNorm === 'properties' || keyNorm === 'property') {
+        const mapped = value.map((item) => {
+          if (!item || typeof item !== 'object') return safeStr(item)
+          const unitCode = safeStr(item.unit_code || item.unitCode || item.code || item.name)
+          const propId = safeStr(item.property_id || item.propertyId || item.id)
+          const projectName = safeStr(item.project_name || item.projectName)
+          const lead = unitCode || (propId ? `#${propId}` : '')
+          const suffix = projectName ? ` (${projectName})` : ''
+          return `${lead}${suffix}`.trim()
+        }).filter(Boolean)
+        return mapped.join(' | ')
+      }
+      return value.map((v) => auditValueText(v, key)).filter(Boolean).join(', ')
+    }
+
+    if (typeof value === 'object') {
+      if (keyNorm === 'items' || keyNorm === 'properties' || keyNorm === 'property') {
+        // If backend sends object map of items, show the map keys as units/properties.
+        const entries = Object.entries(value)
+        if (!entries.length) return isArabic ? 'لا يوجد' : 'None'
+        return entries
+          .map(([k, v]) => {
+            const label = safeStr(k)
+            if (v && typeof v === 'object') {
+              const unitCode = safeStr(v.unit_code || v.unitCode || v.code || v.name)
+              const projectName = safeStr(v.project_name || v.projectName)
+              const id = safeStr(v.property_id || v.propertyId || v.id)
+              const best = unitCode || (id ? `#${id}` : label)
+              return projectName ? `${best} (${projectName})` : best
+            }
+            return label
+          })
+          .join(' | ')
+      }
+      // Fallback to readable JSON instead of "[object Object]".
+      try {
+        return JSON.stringify(value)
+      } catch {
+        return safeStr(value)
+      }
+    }
+
+    return safeStr(value)
+  }
 
   // Prefer showing "before → after" if present
   const before = props?.old_values ?? props?.before ?? null
@@ -177,7 +238,7 @@ const formatAuditLines = ({ props, actionKey, logName, isArabic }) => {
 
   if (payload && typeof payload === 'object') {
     const entries = Object.entries(payload).slice(0, 6)
-    const lines = entries.map(([k, v]) => `${humanizeToken(k)}: ${typeof v === 'number' ? formatMoney(v) : safeStr(v)}`)
+    const lines = entries.map(([k, v]) => `${auditFieldLabel(k)}: ${auditValueText(v, k)}`)
     return lines.length ? lines : [auditActionLabel({ actionKey, logName, isArabic })]
   }
 
@@ -482,6 +543,7 @@ export default function ContractCollectionsCustomers() {
           value: String(p.id),
           label: String(p.unit_code || p.name || p.title || `#${p.id}`),
           project_id: p.project_id != null ? String(p.project_id) : '',
+          status: String(p.status || p.property_status || p.state || '').trim(),
         }))
         .filter((x) => x.value && x.label)
       setUnits(unitOptions)
@@ -606,7 +668,11 @@ export default function ContractCollectionsCustomers() {
   const filteredUnitOptions = useMemo(() => {
     const pid = String(createForm.project_id || '').trim()
     if (!pid) return []
-    return (Array.isArray(units) ? units : []).filter((u) => String(u?.project_id || '') === pid)
+    return (Array.isArray(units) ? units : []).filter((u) => {
+      if (String(u?.project_id || '') !== pid) return false
+      const st = String(u?.status || '').trim().toLowerCase()
+      return st === 'available'
+    })
   }, [units, createForm.project_id])
 
   const getUnitLabelForRow = (row) => {
@@ -854,21 +920,94 @@ export default function ContractCollectionsCustomers() {
     } catch {}
   }
 
+  const buildWindowSnapshot = () => {
+    const prop = selectedUnitProp
+    const plan = selectedPlan
+    const planMeta = plan?.meta_data || {}
+    const activeTabLabelMap = {
+      details: isArabic ? 'تفاصيل' : 'Details',
+      comments: isArabic ? 'تعليقات' : 'Comments',
+      attachments: isArabic ? 'مرفقات' : 'Attachments',
+      audit: isArabic ? 'سجل التعديلات' : 'Audit Log',
+    }
+
+    const unitsList = Array.isArray(activeCustomer?.units) ? activeCustomer.units : []
+    const contractedUnits = unitsList.filter((u) => {
+      const st = String(u?.status || '').trim().toLowerCase()
+      return st === 'contracted' || st === 'sold'
+    })
+
+    const snapshotCustomer =
+      activeTab === 'details'
+        ? { ...(activeCustomer || {}), units: contractedUnits }
+        : (activeCustomer || {})
+
+    const base = {
+      customer_id: activeCustomer?.id ?? null,
+      customer_name: safeStr(activeCustomer?.name),
+      customer_phone: safeStr(activeCustomer?.phone),
+      project: safeStr(activeCustomer?.project?.name || activeCustomer?.project_id),
+      customer: snapshotCustomer,
+      selected_unit_id: selectedUnitId || null,
+      selected_unit_code: titleFromProperty(prop),
+      selected_unit_price: safeStr(prop?.price),
+      selected_plan: plan
+        ? {
+            id: plan.id ?? null,
+            reservation_amount: plan.reservation_amount ?? null,
+            down_payment: plan.down_payment ?? null,
+            delivery_payment: plan.delivery_payment ?? null,
+            installment_type: normalizeInstallmentType(plan.installment_type),
+            installment_count: plan.installment_count ?? null,
+            installment_value: plan.installment_value ?? null,
+            years: planMeta?.years ?? null,
+          }
+        : null,
+      totals: activeTotals,
+      active_tab: activeTab,
+      active_tab_label: activeTabLabelMap[activeTab] || activeTab,
+      exported_at: new Date().toISOString(),
+    }
+
+    if (activeTab === 'comments') {
+      return { ...base, comments }
+    }
+    if (activeTab === 'attachments') {
+      return { ...base, attachments: contractAttachments }
+    }
+    if (activeTab === 'audit') {
+      return {
+        ...base,
+        audit_filters: { query: auditQ, type: auditType, user: auditUser, from: auditFrom, to: auditTo },
+        audit_items: auditRows,
+      }
+    }
+    return { ...base }
+  }
+
   const exportCustomerSnapshot = () => {
     if (!activeCustomer?.id) return
-    const fileName = `cc_customer_${activeCustomer.id}.json`
-    downloadJson(fileName, {
-      customer: activeCustomer,
-      totals: activeTotals,
-      selected_unit_id: selectedUnitId,
-      exported_at: new Date().toISOString(),
-    })
+    const fileName = `cc_customer_${activeCustomer.id}_${activeTab || 'details'}.json`
+    downloadJson(fileName, buildWindowSnapshot())
   }
 
   const printCustomerView = () => {
     if (!activeCustomer?.id) return
-    const prop = selectedUnitProp
-    const plan = selectedPlan
+    const unitsList = Array.isArray(activeCustomer?.units) ? activeCustomer.units : []
+    const contractedUnits = unitsList.filter((u) => {
+      const st = String(u?.status || '').trim().toLowerCase()
+      return st === 'contracted' || st === 'sold'
+    })
+
+    const pickedUnit = (() => {
+      const selected = selectedUnit
+      const st = String(selected?.status || '').trim().toLowerCase()
+      if (selected && (st === 'contracted' || st === 'sold')) return selected
+      return contractedUnits[0] || selected || null
+    })()
+
+    const prop = pickedUnit?.property || selectedUnitProp
+    const plan = pickedUnit?.active_payment_plan || pickedUnit?.activePaymentPlan || selectedPlan
     const planMeta = plan?.meta_data || {}
 
     const blocks = [
@@ -897,6 +1036,51 @@ export default function ContractCollectionsCustomers() {
         ].filter((r) => String(r.value ?? '').trim() !== ''),
       },
     ]
+
+    if (activeTab === 'comments') {
+      const commentRows = (comments || []).map((c, idx) => ({
+        label: `#${idx + 1}`,
+        value: `${safeStr(c?.comment || c?.text || c?.body)}${c?.created_at || c?.createdAt ? ` — ${safeStr(c?.created_at || c?.createdAt)}` : ''}`,
+      }))
+      openPrintWindow({
+        title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+        blocks: [
+          { title: isArabic ? 'تعليقات' : 'Comments', rows: commentRows.length ? commentRows : [{ label: '-', value: isArabic ? 'لا توجد تعليقات' : 'No comments' }] },
+        ],
+        dir: isRTL ? 'rtl' : 'ltr',
+      })
+      return
+    }
+
+    if (activeTab === 'attachments') {
+      const attachmentRows = (contractAttachments || []).map((att, idx) => ({
+        label: `#${idx + 1}`,
+        value: `${safeStr(att?.original_name || att?.name || att?.file_name || att?.file)}${att?.created_at ? ` — ${safeStr(att.created_at)}` : ''}`,
+      }))
+      openPrintWindow({
+        title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+        blocks: [
+          { title: isArabic ? 'المرفقات' : 'Attachments', rows: attachmentRows.length ? attachmentRows : [{ label: '-', value: isArabic ? 'لا توجد مرفقات' : 'No attachments' }] },
+        ],
+        dir: isRTL ? 'rtl' : 'ltr',
+      })
+      return
+    }
+
+    if (activeTab === 'audit') {
+      const auditPrintRows = (auditRows || []).map((row, idx) => ({
+        label: `#${idx + 1}`,
+        value: `${safeStr(row?.label)}${row?.at ? ` — ${safeStr(row.at)}` : ''}${row?.userName ? ` — ${safeStr(row.userName)}` : ''}`,
+      }))
+      openPrintWindow({
+        title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+        blocks: [
+          { title: isArabic ? 'سجل التعديلات' : 'Audit Log', rows: auditPrintRows.length ? auditPrintRows : [{ label: '-', value: isArabic ? 'لا توجد سجلات' : 'No audit entries' }] },
+        ],
+        dir: isRTL ? 'rtl' : 'ltr',
+      })
+      return
+    }
 
     openPrintWindow({
       title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
@@ -2238,11 +2422,14 @@ export default function ContractCollectionsCustomers() {
 
               <div className="space-y-1">
                 <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المصدر' : 'Source'}</label>
-                <input
+                <SearchableSelect
+                  options={sources}
                   value={createForm.source}
-                  onChange={(e) => setCreateField('source', e.target.value)}
-                  className="input w-full bg-[var(--content-bg)]"
-                  placeholder={isArabic ? 'مثال: Cold-Call' : 'e.g. Cold-Call'}
+                  onChange={(v) => setCreateField('source', v)}
+                  placeholder={isArabic ? 'اختر المصدر' : 'Select Source'}
+                  className="w-full"
+                  isRTL={isArabic}
+                  multiple={false}
                 />
               </div>
 

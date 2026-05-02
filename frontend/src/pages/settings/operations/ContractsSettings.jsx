@@ -74,6 +74,70 @@ const stripWordTipsFromHtml = (html) => {
   }
 }
 
+const normalizeTablesForEditor = (html) => {
+  const raw = String(html || '')
+  if (!raw) return raw
+
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(raw, 'text/html')
+    const body = doc?.body
+    if (!body) return raw
+
+    const tables = Array.from(body.querySelectorAll('table'))
+    for (const table of tables) {
+      const rows = Array.from(table.querySelectorAll('tr'))
+      if (rows.length === 0) {
+        table.remove()
+        continue
+      }
+
+      const maxCols = rows.reduce((max, row) => {
+        const cells = Array.from(row.children).filter((el) => el?.tagName === 'TD' || el?.tagName === 'TH')
+        const cols = cells.length
+        return Math.max(max, cols)
+      }, 0)
+
+      if (!maxCols) {
+        table.remove()
+        continue
+      }
+
+      rows.forEach((row) => {
+        const cells = Array.from(row.children).filter((el) => el?.tagName === 'TD' || el?.tagName === 'TH')
+        if (!cells.length) {
+          row.remove()
+          return
+        }
+
+        // Flatten row/col spans to keep a stable rectangular table map for ProseMirror.
+        cells.forEach((cell) => {
+          const colSpan = Number(cell.getAttribute('colspan') || 1)
+          const rowSpan = Number(cell.getAttribute('rowspan') || 1)
+          if (colSpan !== 1) cell.setAttribute('colspan', '1')
+          if (rowSpan !== 1) cell.setAttribute('rowspan', '1')
+        })
+
+        while (cells.length < maxCols) {
+          const td = doc.createElement('td')
+          td.innerHTML = '&nbsp;'
+          row.appendChild(td)
+          cells.push(td)
+        }
+
+        while (cells.length > maxCols) {
+          const extra = cells.pop()
+          try { extra?.remove() } catch {}
+        }
+      })
+    }
+
+    return body.innerHTML
+  } catch {
+    return raw
+  }
+}
+
 export default function ContractsSettings() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.dir(i18n.language || 'en') === 'rtl'
@@ -157,11 +221,15 @@ export default function ContractsSettings() {
       : null
 
     const normalizeProjects = (payload) => {
-      const list =
-        Array.isArray(payload) ? payload
-          : Array.isArray(payload?.data) ? payload.data
-            : Array.isArray(payload?.data?.data) ? payload.data.data
-              : []
+      // Avoid nested ternaries here (we've seen production builds throw TDZ/minify-related errors in this block).
+      let list = []
+      if (Array.isArray(payload)) {
+        list = payload
+      } else if (Array.isArray(payload?.data)) {
+        list = payload.data
+      } else if (Array.isArray(payload?.data?.data)) {
+        list = payload.data.data
+      }
       const tenantId = Number(resolvedTenantId || 0)
       if (!tenantId) return list
       // If projects include tenant_id, filter by it. Otherwise keep as-is.
@@ -200,29 +268,6 @@ export default function ContractsSettings() {
   useEffect(() => {
     loadAll()
   }, [])
-
-  useEffect(() => {
-    if (!activeTemplate) return
-    const nextDraft = {
-      id: activeTemplate.id,
-      name: activeTemplate.name || '',
-      project_id: activeTemplate.project_id ?? '',
-      status: activeTemplate.status || 'Active',
-      content_type: activeTemplate.content_type || (activeTemplate.pdf_url ? 'pdf' : 'html'),
-      body: activeTemplate.body || '',
-      pdf_url: activeTemplate.pdf_url || '',
-      pdf_original_name: activeTemplate.pdf_original_name || '',
-    }
-    setDraft(nextDraft)
-    setPdfFile(null)
-    setDirty(false)
-    setLastSavedAt(null)
-    setEditorView('edit')
-
-    if (nextDraft.content_type === 'html') {
-      safeSetEditorContent(nextDraft.body || '')
-    }
-  }, [activeTemplate, editor])
 
   useEffect(() => {
     if (!pdfFile) {
@@ -292,7 +337,7 @@ export default function ContractsSettings() {
       if (isMounted) {
         try {
           shouldIgnoreNextEditorUpdateRef.current = true
-          editor.commands.setContent(html, false)
+          editor.commands.setContent(normalizeTablesForEditor(html), false)
         } catch {
         } finally {
           setTimeout(() => {
@@ -308,6 +353,29 @@ export default function ContractsSettings() {
 
     run(0)
   }
+
+  useEffect(() => {
+    if (!activeTemplate) return
+    const nextDraft = {
+      id: activeTemplate.id,
+      name: activeTemplate.name || '',
+      project_id: activeTemplate.project_id ?? '',
+      status: activeTemplate.status || 'Active',
+      content_type: activeTemplate.content_type || (activeTemplate.pdf_url ? 'pdf' : 'html'),
+      body: activeTemplate.body || '',
+      pdf_url: activeTemplate.pdf_url || '',
+      pdf_original_name: activeTemplate.pdf_original_name || '',
+    }
+    setDraft(nextDraft)
+    setPdfFile(null)
+    setDirty(false)
+    setLastSavedAt(null)
+    setEditorView('edit')
+
+    if (nextDraft.content_type === 'html') {
+      safeSetEditorContent(nextDraft.body || '')
+    }
+  }, [activeTemplate, editor])
 
   const insertPlaceholder = (token) => {
     if (!token) return
@@ -362,7 +430,8 @@ export default function ContractsSettings() {
         res = draft.id ? await updateContractTemplate(draft.id, fd) : await createContractTemplate(fd)
       } else {
         const rawHtml = editor ? editor.getHTML() : (draft.body || '')
-        const cleanedHtml = stripWordTipsFromHtml(rawHtml)
+        const normalizedHtml = normalizeTablesForEditor(rawHtml)
+        const cleanedHtml = stripWordTipsFromHtml(normalizedHtml)
         const payload = {
           name,
           project_id: projectId,
@@ -379,6 +448,15 @@ export default function ContractsSettings() {
       setPdfFile(null)
       setDirty(false)
       setLastSavedAt(new Date())
+    } catch (error) {
+      console.error('Failed to save contract template', error)
+      const status = Number(error?.response?.status || 0)
+      const serverMessage = String(error?.response?.data?.message || '').trim()
+      if (status === 503 && serverMessage) {
+        window.alert(serverMessage)
+      } else {
+        window.alert(serverMessage || t('Failed to save template. Please try again.'))
+      }
     } finally {
       setSaving(false)
     }
@@ -389,14 +467,23 @@ export default function ContractsSettings() {
     const ok = window.confirm(t('Delete this template?'))
     if (!ok) return
 
-    await deleteContractTemplate(tpl.id)
-    await loadAll()
-    if (activeId === tpl.id) startNewTemplate()
+    try {
+      await deleteContractTemplate(tpl.id)
+      await loadAll()
+      if (activeId === tpl.id) startNewTemplate()
+    } catch (error) {
+      console.error('Failed to delete contract template', error)
+      const serverMessage = String(error?.response?.data?.message || '').trim()
+      window.alert(serverMessage || t('Failed to delete template. Please try again.'))
+    }
   }
 
   const previewHtml = () => {
-    if (editor) return stripWordTipsFromHtml(editor.getHTML() || '')
-    return stripWordTipsFromHtml(draft.body || '')
+    if (editor) {
+      const normalizedHtml = normalizeTablesForEditor(editor.getHTML() || '')
+      return stripWordTipsFromHtml(normalizedHtml)
+    }
+    return stripWordTipsFromHtml(normalizeTablesForEditor(draft.body || ''))
   }
 
   const fetchServerPreview = async () => {

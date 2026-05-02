@@ -24,6 +24,19 @@ class ContractTemplateController extends Controller
         return null;
     }
 
+    protected function filterTemplateColumns(array $data): array
+    {
+        // Be backward-compatible with deployments that haven't run the latest migrations yet.
+        // Only keep keys that actually exist as columns to avoid SQL errors.
+        try {
+            $columns = Schema::getColumnListing('contract_templates');
+        } catch (\Throwable $e) {
+            return $data;
+        }
+        $colSet = array_flip($columns);
+        return array_intersect_key($data, $colSet);
+    }
+
     public function index(Request $request)
     {
         if ($resp = $this->ensureContractTemplatesReady()) {
@@ -97,6 +110,13 @@ class ContractTemplateController extends Controller
             $validated['content_type'] = 'pdf';
         }
 
+        $validated = $this->filterTemplateColumns($validated);
+        if (($validated['content_type'] ?? null) === 'pdf' && !Schema::hasColumn('contract_templates', 'pdf_path')) {
+            return response()->json([
+                'message' => 'PDF templates are not supported on this server yet. Please run latest migrations/deploy.',
+            ], 503);
+        }
+
         $tpl = ContractTemplate::create($validated);
         $tpl->load(['project:id,name']);
 
@@ -155,6 +175,13 @@ class ContractTemplateController extends Controller
                 $validated['pdf_path'] = null;
                 $validated['pdf_original_name'] = null;
             }
+        }
+
+        $validated = $this->filterTemplateColumns($validated);
+        if (($validated['content_type'] ?? null) === 'pdf' && !Schema::hasColumn('contract_templates', 'pdf_path')) {
+            return response()->json([
+                'message' => 'PDF templates are not supported on this server yet. Please run latest migrations/deploy.',
+            ], 503);
         }
 
         $tpl->update($validated);

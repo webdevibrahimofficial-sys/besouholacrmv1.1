@@ -209,6 +209,9 @@ Route::middleware([ResolveTenant::class])
         Route::get('contracts', [CcContractsController::class, 'index']);
         Route::post('contracts', [CcContractsController::class, 'store']);
         Route::get('contracts/{id}', [CcContractsController::class, 'show']);
+        Route::put('contracts/{id}/template', [CcContractsController::class, 'setTemplate']);
+        Route::post('contracts/{id}/payment-plan', [CcContractsController::class, 'updatePaymentPlan']);
+        Route::delete('contracts/{id}', [CcContractsController::class, 'destroy']);
         Route::get('contracts/{id}/print', [CcPrintController::class, 'printContract']);
         Route::get('contracts/{id}/attachments', [CcContractAttachmentsController::class, 'index']);
         Route::post('contracts/{id}/attachments', [CcContractAttachmentsController::class, 'store']);

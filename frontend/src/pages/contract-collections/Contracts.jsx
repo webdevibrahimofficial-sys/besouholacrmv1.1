@@ -4,7 +4,7 @@ import { useAppState } from '@shared/context/AppStateProvider'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
-import { ChevronDown, ChevronUp, Eye, Filter, Paperclip, Printer, Search, Trash2, Upload, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, FilePlus2, Filter, Paperclip, Printer, Search, Trash2, Upload, X } from 'lucide-react'
 import { FaChevronLeft, FaChevronRight, FaFileImport } from 'react-icons/fa'
 import CcContractsImportModal from '@components/CcContractsImportModal'
 import DateRangePicker from '../../shared/components/DateRangePicker'
@@ -21,6 +21,14 @@ const formatMoney = (v) => {
   const n = Number(v)
   if (!Number.isFinite(n)) return '0'
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
+
+const normalizeInstallmentType = (raw) => {
+  const v = String(raw ?? '').trim().toLowerCase()
+  if (!v) return ''
+  if (v === 'half_yearly' || v === 'halfyearly') return 'half-yearly'
+  if (v === 'annual' || v === 'annually') return 'yearly'
+  return v
 }
 
 function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl', textColorClass = '', closeTitle = 'Close' }) {
@@ -83,6 +91,7 @@ export default function ContractCollectionsContracts() {
   const [contractNumberOptions, setContractNumberOptions] = useState([])
   const [unitCodeOptions, setUnitCodeOptions] = useState([])
   const [filtersLookupLoading, setFiltersLookupLoading] = useState(false)
+  const [propertiesIndex, setPropertiesIndex] = useState({})
 
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
@@ -105,13 +114,32 @@ export default function ContractCollectionsContracts() {
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
   const [attachments, setAttachments] = useState([])
+  const [editPlanOpen, setEditPlanOpen] = useState(false)
+  const [savingPlan, setSavingPlan] = useState(false)
+  const [planForm, setPlanForm] = useState({
+    reservation_amount: '',
+    down_payment: '',
+    delivery_payment: '',
+    installment_type: 'monthly',
+    installment_count: '',
+    installment_value: '',
+    first_due_date: '',
+  })
+  const [rowActionLoadingId, setRowActionLoadingId] = useState(null)
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+  const [templatePickerLoading, setTemplatePickerLoading] = useState(false)
+  const [templatePickerContract, setTemplatePickerContract] = useState(null)
+  const [templatePickerOptions, setTemplatePickerOptions] = useState([])
+  const [templatePickerValue, setTemplatePickerValue] = useState('')
 
   const loadLookups = useCallback(async () => {
     try {
       const usersReq = api.get('/api/users?all=1').catch(() => api.get('/api/users'))
-      const [projRes, usersRes] = await Promise.all([api.get('/api/projects?all=1'), usersReq])
+      const propsReq = api.get('/api/properties?all=1').catch(() => api.get('/api/properties'))
+      const [projRes, usersRes, propsRes] = await Promise.all([api.get('/api/projects?all=1'), usersReq, propsReq])
       const proj = Array.isArray(projRes?.data?.data) ? projRes.data.data : (Array.isArray(projRes?.data) ? projRes.data : [])
       const users = Array.isArray(usersRes?.data?.data) ? usersRes.data.data : (Array.isArray(usersRes?.data) ? usersRes.data : [])
+      const props = Array.isArray(propsRes?.data?.data) ? propsRes.data.data : (Array.isArray(propsRes?.data) ? propsRes.data : [])
       setProjects(
         (Array.isArray(proj) ? proj : [])
           .map((p) => ({ value: String(p.id), label: String(p.name || p.title || `#${p.id}`) }))
@@ -122,9 +150,18 @@ export default function ContractCollectionsContracts() {
           .map((u) => ({ value: String(u.id), label: String(u.name || u.email || `#${u.id}`) }))
           .filter((x) => x.value && x.label)
       )
+
+      const idx = {}
+      ;(Array.isArray(props) ? props : []).forEach((p) => {
+        const id = p?.id
+        if (!id) return
+        idx[String(id)] = p
+      })
+      setPropertiesIndex(idx)
     } catch {
       setProjects([])
       setSalesOwners([])
+      setPropertiesIndex({})
     }
   }, [])
 
@@ -339,6 +376,7 @@ export default function ContractCollectionsContracts() {
     if (!contractId) return
     const rtl = isRTL ? '1' : '0'
     try {
+      // Fetch via authenticated client then open as a blob URL (avoid popup blockers + auth issues).
       const res = await api.get(`/api/cc/contracts/${encodeURIComponent(contractId)}/print?autoprint=1&rtl=${rtl}`, {
         responseType: 'blob',
         headers: { Accept: 'text/html' },
@@ -347,6 +385,65 @@ export default function ContractCollectionsContracts() {
       window.open(blobUrl, '_blank')
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
     } catch {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'تعذر فتح الطباعة حالياً' : 'Unable to open print preview right now' } }))
+    }
+  }
+
+  const exportContractSnapshot = () => {
+    if (!previewData?.contract?.id) return
+    try {
+      const blob = new Blob([JSON.stringify({
+        contract: previewData.contract,
+        totals: previewData.totals,
+        attachments,
+        exported_at: new Date().toISOString(),
+      }, null, 2)], { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `cc_contract_${previewData.contract.id}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+    }
+  }
+
+  const openEditPlan = () => {
+    const snapshot = previewData?.contract?.payment_plan_snapshot || {}
+    setPlanForm({
+      reservation_amount: snapshot?.reservation_amount ?? '',
+      down_payment: snapshot?.down_payment ?? '',
+      delivery_payment: snapshot?.delivery_payment ?? '',
+      installment_type: normalizeInstallmentType(snapshot?.installment_type) || 'monthly',
+      installment_count: snapshot?.installment_count ?? '',
+      installment_value: snapshot?.installment_value ?? '',
+      first_due_date: safeStr(previewData?.contract?.first_due_date || '').slice(0, 10),
+    })
+    setEditPlanOpen(true)
+  }
+
+  const savePaymentPlan = async () => {
+    if (!previewData?.contract?.id) return
+    setSavingPlan(true)
+    try {
+      await api.post(`/api/cc/contracts/${encodeURIComponent(previewData.contract.id)}/payment-plan`, {
+        reservation_amount: Number(planForm.reservation_amount || 0),
+        down_payment: Number(planForm.down_payment || 0),
+        delivery_payment: Number(planForm.delivery_payment || 0),
+        installment_type: planForm.installment_type || 'monthly',
+        installment_count: Number(planForm.installment_count || 0),
+        installment_value: Number(planForm.installment_value || 0),
+        first_due_date: planForm.first_due_date || null,
+      })
+      setEditPlanOpen(false)
+      await openPreview(previewData.contract)
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم تحديث خطة الدفع' : 'Payment plan updated' } }))
+    } catch {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'تعذر تحديث خطة الدفع' : 'Failed to update payment plan' } }))
+    } finally {
+      setSavingPlan(false)
     }
   }
 
@@ -381,6 +478,78 @@ export default function ContractCollectionsContracts() {
     }
   }
 
+  const addContractFromTemplate = async (row) => {
+    if (!row?.id) return
+    setTemplatePickerContract(row)
+    setTemplatePickerOpen(true)
+    setTemplatePickerLoading(true)
+    setTemplatePickerValue('')
+
+    try {
+      const res = await api.get('/api/contract-templates')
+      const list = Array.isArray(res?.data?.data) ? res.data.data : (Array.isArray(res?.data) ? res.data : [])
+      setTemplatePickerOptions(Array.isArray(list) ? list : [])
+    } catch (e) {
+      setTemplatePickerOptions([])
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'تعذر تحميل القوالب' : 'Unable to load templates' } }))
+    } finally {
+      setTemplatePickerLoading(false)
+    }
+  }
+
+  const confirmTemplatePicker = async () => {
+    const row = templatePickerContract
+    const templateId = Number(templatePickerValue || 0)
+    if (!row?.id || !Number.isFinite(templateId) || templateId <= 0) return
+
+    setRowActionLoadingId(row.id)
+    try {
+      await api.put(`/api/cc/contracts/${encodeURIComponent(row.id)}/template`, { template_id: templateId })
+      setTemplatePickerOpen(false)
+      setTemplatePickerContract(null)
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم ربط القالب' : 'Template linked' } }))
+      await openContractPrint(row.id)
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        (typeof e?.message === 'string' ? e.message : '') ||
+        (isArabic ? 'تعذر ربط القالب' : 'Unable to link template')
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: msg } }))
+    } finally {
+      setRowActionLoadingId(null)
+    }
+  }
+
+  const deleteOrCancelContract = async (row) => {
+    if (!row?.id) return
+    const ok = window.confirm(isArabic ? 'حذف العقد؟' : 'Delete contract?')
+    if (!ok) return
+
+    setRowActionLoadingId(row.id)
+    try {
+      await api.delete(`/api/cc/contracts/${encodeURIComponent(row.id)}`, { params: { action: 'delete' } })
+      await load(pageMeta.current_page || 1)
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم حذف العقد' : 'Contract deleted' } }))
+    } catch (e) {
+      const statusCode = Number(e?.response?.status || 0)
+      if (statusCode === 422) {
+        const fallback = window.confirm(
+          isArabic
+            ? 'لا يمكن حذف العقد لوجود مدفوعات. هل تريد إلغاء العقد بدلاً من حذفه؟'
+            : 'Contract has payments and cannot be deleted. Cancel it instead?'
+        )
+        if (!fallback) return
+        await api.delete(`/api/cc/contracts/${encodeURIComponent(row.id)}`, { params: { action: 'cancel' } })
+        await load(pageMeta.current_page || 1)
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم إلغاء العقد' : 'Contract cancelled' } }))
+      } else {
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'تعذر تنفيذ العملية' : 'Unable to complete action' } }))
+      }
+    } finally {
+      setRowActionLoadingId(null)
+    }
+  }
+
   if (!isRealEstate) {
     return (
       <div className="p-6">
@@ -394,6 +563,102 @@ export default function ContractCollectionsContracts() {
 
   return (
     <div className={`p-6 space-y-4 ${textColorClass}`}>
+      <ModalShell
+        open={templatePickerOpen}
+        title={isArabic ? 'اختيار قالب العقد' : 'Select Contract Template'}
+        onClose={() => {
+          if (rowActionLoadingId) return
+          setTemplatePickerOpen(false)
+          setTemplatePickerContract(null)
+        }}
+        widthClass="max-w-2xl"
+        textColorClass={textColorClass}
+        closeTitle={isArabic ? 'إغلاق' : 'Close'}
+      >
+        {(() => {
+          const row = templatePickerContract || {}
+          const projId = String(row?.customer?.project?.id ?? row?.customer?.project_id ?? '').trim()
+          const filtered = (Array.isArray(templatePickerOptions) ? templatePickerOptions : [])
+            .filter((t) => String(t?.status || '').toLowerCase() === 'active')
+            .filter((t) => String(t?.content_type || 'html').toLowerCase() === 'html')
+            .filter((t) => {
+              const tProj = t?.project_id == null ? '' : String(t.project_id)
+              if (!projId) return tProj === '' // no project on contract → only global
+              return tProj === '' || tProj === projId
+            })
+
+          const selectOptions = [
+            { value: '', label: isArabic ? 'اختر قالب...' : 'Select template...' },
+            ...filtered.map((t) => ({
+              value: String(t.id),
+              label: `${safeStr(t.name)}${t?.project?.name ? ` — ${safeStr(t.project.name)}` : isArabic ? ' — كل المشاريع' : ' — All Projects'}`,
+            })),
+          ]
+
+          return (
+            <div className="space-y-4">
+              <div className={`text-sm ${mutedTextClass}`}>
+                {isArabic ? 'سيتم حفظ القالب على العقد ثم فتح الطباعة.' : 'This will save the template on the contract and then open print.'}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-[var(--panel-border)] p-3">
+                  <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'رقم العقد' : 'Contract No.'}</div>
+                  <div className="font-semibold">{safeStr(row.contract_number || row.id)}</div>
+                </div>
+                <div className="rounded-xl border border-[var(--panel-border)] p-3">
+                  <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'المشروع' : 'Project'}</div>
+                  <div className="font-semibold">{safeStr(row?.customer?.project?.name || (projId ? `#${projId}` : '')) || '-'}</div>
+                </div>
+              </div>
+
+              {templatePickerLoading ? (
+                <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري تحميل القوالب...' : 'Loading templates...'}</div>
+              ) : (
+                <div>
+                  <div className={`text-sm font-semibold mb-2 ${textColorClass}`}>{isArabic ? 'القالب' : 'Template'}</div>
+                  <SearchableSelect
+                    value={templatePickerValue}
+                    onChange={setTemplatePickerValue}
+                    options={selectOptions}
+                    placeholder={isArabic ? 'اختر قالب' : 'Select template'}
+                    className="w-full"
+                  />
+                  {!filtered.length ? (
+                    <div className={`text-xs mt-2 ${mutedTextClass}`}>
+                      {isArabic ? 'لا توجد قوالب HTML نشطة لهذا المشروع أو كقالب عام.' : 'No active HTML templates available for this project or global.'}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5"
+                  onClick={() => {
+                    if (rowActionLoadingId) return
+                    setTemplatePickerOpen(false)
+                    setTemplatePickerContract(null)
+                  }}
+                  disabled={Boolean(rowActionLoadingId)}
+                >
+                  {isArabic ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm disabled:opacity-50"
+                  onClick={confirmTemplatePicker}
+                  disabled={templatePickerLoading || !templatePickerValue || Boolean(rowActionLoadingId)}
+                >
+                  {isArabic ? 'حفظ و طباعة' : 'Save & Print'}
+                </button>
+              </div>
+            </div>
+          )
+        })()}
+      </ModalShell>
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{title}</h1>
         <button
@@ -568,6 +833,7 @@ export default function ContractCollectionsContracts() {
                 <th className="text-left px-3 py-2">{isArabic ? 'العميل' : 'Customer'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'تاريخ العقد' : 'Contract Date'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'كود الوحدة' : 'Unit Code'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'رقم الوحدة' : 'Unit No.'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'المشروع' : 'Project'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'سيلز' : 'Sales'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'السعر' : 'Total Price'}</th>
@@ -577,18 +843,22 @@ export default function ContractCollectionsContracts() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className={`px-3 py-4 ${mutedTextClass}`}>
+                  <td colSpan={10} className={`px-3 py-4 ${mutedTextClass}`}>
                     {isArabic ? 'جاري التحميل...' : 'Loading...'}
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className={`px-3 py-4 ${mutedTextClass}`}>
+                  <td colSpan={10} className={`px-3 py-4 ${mutedTextClass}`}>
                     {isArabic ? 'لا توجد عقود' : 'No contracts found'}
                   </td>
                 </tr>
               ) : (
-                items.map((row) => (
+                items.map((row) => {
+                  const propId = String(row?.property_id ?? row?.property?.id ?? '').trim()
+                  const prop = row?.property || (propId ? propertiesIndex[propId] : null) || {}
+                  const unitNo = safeStr(prop?.unit_no || prop?.unit_number || prop?.unitNumber || prop?.unitNo || prop?.unit || prop?.number)
+                  return (
                   <tr key={row.id} className="border-t border-[var(--panel-border)] hover:bg-black/5 dark:hover:bg-white/5">
                     <td className="px-3 py-2 font-medium">{safeStr(row.contract_number || row.id)}</td>
                     <td className="px-3 py-2">{formatCustomerId(row.customer_id)}</td>
@@ -596,17 +866,45 @@ export default function ContractCollectionsContracts() {
                     <td className="px-3 py-2" dir="ltr">
                       {safeStr(row.contract_date || '')}
                     </td>
-                    <td className="px-3 py-2">{safeStr(row.property?.unit_code)}</td>
+                    <td className="px-3 py-2">{safeStr(prop?.unit_code)}</td>
+                    <td className="px-3 py-2">{unitNo || '-'}</td>
                     <td className="px-3 py-2">{safeStr(row.customer?.project?.name)}</td>
                     <td className="px-3 py-2">{safeStr(row.customer?.sales_owner?.name)}</td>
                     <td className="px-3 py-2">{formatMoney(row.total_price)}</td>
                     <td className="px-3 py-2">
-                      <button type="button" className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5" title={isArabic ? 'معاينة' : 'Preview'} onClick={() => openPreview(row)}>
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+                          title={isArabic ? 'معاينة' : 'Preview'}
+                          onClick={() => openPreview(row)}
+                          disabled={rowActionLoadingId === row.id}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-blue-600 dark:text-blue-400 disabled:opacity-50"
+                          title={isArabic ? 'إنشاء/طباعة من القالب' : 'Add Contract (Template)'}
+                          onClick={() => addContractFromTemplate(row)}
+                          disabled={rowActionLoadingId === row.id}
+                        >
+                          <FilePlus2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-red-500 disabled:opacity-50"
+                          title={isArabic ? 'حذف أو إلغاء العقد' : 'Delete/Cancel Contract'}
+                          onClick={() => deleteOrCancelContract(row)}
+                          disabled={rowActionLoadingId === row.id}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -707,6 +1005,22 @@ export default function ContractCollectionsContracts() {
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
+                className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
+                onClick={openEditPlan}
+                disabled={!previewData?.contract?.id}
+              >
+                {isArabic ? 'تعديل خطة الدفع' : 'Edit Payment Plan'}
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
+                onClick={exportContractSnapshot}
+                disabled={!previewData?.contract?.id}
+              >
+                {isArabic ? 'تصدير العقد' : 'Export Contract'}
+              </button>
+              <button
+                type="button"
                 className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm inline-flex items-center gap-2"
                 onClick={() => openContractPrint(previewData.contract?.id)}
               >
@@ -726,7 +1040,19 @@ export default function ContractCollectionsContracts() {
               </div>
               <div className="rounded-xl border border-[var(--panel-border)] p-3">
                 <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'كود الوحدة' : 'Unit Code'}</div>
-                <div className="font-semibold">{safeStr(previewData.contract.property?.unit_code)}</div>
+                {(() => {
+                  const propId = String(previewData?.contract?.property_id ?? previewData?.contract?.property?.id ?? '').trim()
+                  const prop = previewData?.contract?.property || (propId ? propertiesIndex[propId] : null) || {}
+                  const unitNo = safeStr(prop?.unit_no || prop?.unit_number || prop?.unitNumber || prop?.unitNo || prop?.unit || prop?.number)
+                  return (
+                    <>
+                      <div className="font-semibold">{safeStr(prop?.unit_code)}</div>
+                      <div className={`text-xs ${mutedTextClass} mt-1`}>
+                        {isArabic ? 'رقم الوحدة' : 'Unit No.'}: {unitNo || '-'}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
@@ -801,14 +1127,25 @@ export default function ContractCollectionsContracts() {
                           </td>
                           <td className="px-3 py-2">{safeStr(a.mime || a.file_type || '')}</td>
                           <td className="px-3 py-2">
-                            <button
-                              type="button"
-                              className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-red-500"
-                              title={isArabic ? 'حذف' : 'Delete'}
-                              onClick={() => deleteAttachment(previewData.contract?.id, a.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <a
+                                href={a.url || '#'}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${a.url ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 pointer-events-none'}`}
+                                title={isArabic ? 'فتح' : 'Open'}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </a>
+                              <button
+                                type="button"
+                                className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-red-500"
+                                title={isArabic ? 'حذف' : 'Delete'}
+                                onClick={() => deleteAttachment(previewData.contract?.id, a.id)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -819,6 +1156,70 @@ export default function ContractCollectionsContracts() {
             </div>
           </div>
         )}
+      </ModalShell>
+
+      <ModalShell
+        open={editPlanOpen}
+        title={isArabic ? 'تعديل خطة الدفع' : 'Edit Payment Plan'}
+        onClose={() => { if (!savingPlan) setEditPlanOpen(false) }}
+        textColorClass={textColorClass}
+        closeTitle={isArabic ? 'إغلاق' : 'Close'}
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'الحجز' : 'Reservation'}</label>
+              <input className="input w-full" value={planForm.reservation_amount} onChange={(e) => setPlanForm((p) => ({ ...p, reservation_amount: e.target.value }))} />
+            </div>
+            <div>
+              <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'الدفعة المقدمة' : 'Down Payment'}</label>
+              <input className="input w-full" value={planForm.down_payment} onChange={(e) => setPlanForm((p) => ({ ...p, down_payment: e.target.value }))} />
+            </div>
+            <div>
+              <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'دفعة الاستلام' : 'Delivery Payment'}</label>
+              <input className="input w-full" value={planForm.delivery_payment} onChange={(e) => setPlanForm((p) => ({ ...p, delivery_payment: e.target.value }))} />
+            </div>
+            <div>
+              <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'نوع القسط' : 'Installment Type'}</label>
+              <select className="input w-full" value={planForm.installment_type} onChange={(e) => setPlanForm((p) => ({ ...p, installment_type: e.target.value }))}>
+                <option value="monthly">{isArabic ? 'شهري' : 'Monthly'}</option>
+                <option value="quarterly">{isArabic ? 'ربع سنوي' : 'Quarterly'}</option>
+                <option value="half-yearly">{isArabic ? 'نصف سنوي' : 'Half-yearly'}</option>
+                <option value="yearly">{isArabic ? 'سنوي' : 'Yearly'}</option>
+              </select>
+            </div>
+            <div>
+              <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'عدد الأقساط' : 'Installment Count'}</label>
+              <input className="input w-full" value={planForm.installment_count} onChange={(e) => setPlanForm((p) => ({ ...p, installment_count: e.target.value }))} />
+            </div>
+            <div>
+              <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'قيمة القسط' : 'Installment Value'}</label>
+              <input className="input w-full" value={planForm.installment_value} onChange={(e) => setPlanForm((p) => ({ ...p, installment_value: e.target.value }))} />
+            </div>
+            <div>
+              <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'أول تاريخ استحقاق' : 'First Due Date'}</label>
+              <input type="date" className="input w-full" value={planForm.first_due_date} onChange={(e) => setPlanForm((p) => ({ ...p, first_due_date: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm"
+              onClick={() => setEditPlanOpen(false)}
+              disabled={savingPlan}
+            >
+              {isArabic ? 'إلغاء' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm disabled:opacity-60"
+              onClick={savePaymentPlan}
+              disabled={savingPlan}
+            >
+              {savingPlan ? (isArabic ? 'جاري الحفظ...' : 'Saving...') : (isArabic ? 'حفظ' : 'Save')}
+            </button>
+          </div>
+        </div>
       </ModalShell>
 
       {importOpen && (

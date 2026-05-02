@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -7,6 +7,7 @@ import SearchableSelect from '@components/SearchableSelect'
 import { Ban, ChevronDown, ChevronUp, CreditCard, FileText, Filter, Pencil, RotateCcw, Search, X, XCircle } from 'lucide-react'
 import { FaChevronLeft, FaChevronRight, FaFileImport } from 'react-icons/fa'
 import CcInstallmentsImportModal from '@components/CcInstallmentsImportModal'
+import DateRangePicker from '@shared/components/DateRangePicker'
 
 const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
 
@@ -20,6 +21,19 @@ const formatMoney = (v) => {
   const n = Number(v)
   if (!Number.isFinite(n)) return '0'
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
+
+const formatDateOnly = (value) => {
+  const s = safeStr(value).trim()
+  if (!s) return ''
+  // Most API dates are ISO strings, we only want the date portion for readability.
+  if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  try {
+    const d = new Date(s)
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  } catch {
+  }
+  return s
 }
 
 const pickLatestPayment = (allocations) => {
@@ -130,6 +144,11 @@ export default function ContractCollectionsInstallments() {
   const [actionReason, setActionReason] = useState('')
 
   const [importOpen, setImportOpen] = useState(false)
+
+  const receiptIframeRef = useRef(null)
+  const [receiptOpen, setReceiptOpen] = useState(false)
+  const [receiptLoading, setReceiptLoading] = useState(false)
+  const [receiptUrl, setReceiptUrl] = useState('')
 
   const loadLookups = useCallback(async () => {
     try {
@@ -353,9 +372,6 @@ export default function ContractCollectionsInstallments() {
       setPayOpen(false)
       setPayRow(null)
       await load(pageMeta.current_page || 1)
-
-      const paymentId = res?.data?.payment?.id
-      if (paymentId) openReceipt(paymentId)
     } catch {
     } finally {
       setPaySaving(false)
@@ -399,21 +415,47 @@ export default function ContractCollectionsInstallments() {
     }
   }
 
+  const closeReceipt = () => {
+    setReceiptOpen(false)
+    if (receiptUrl) {
+      try {
+        URL.revokeObjectURL(receiptUrl)
+      } catch {}
+    }
+    setReceiptUrl('')
+  }
+
   const openReceipt = async (paymentId) => {
     if (!paymentId) return
+    setReceiptLoading(true)
 
-    // Use authenticated API client (cookies/headers) then open as a blob URL.
-    // This avoids 404/401 issues when opening a protected route in a new tab without auth headers.
+    // Use authenticated API client (cookies/headers) then preview as a blob URL.
     try {
-      const res = await api.get(`/api/cc/receipts/${encodeURIComponent(paymentId)}/print?autoprint=1`, {
+      if (receiptUrl) {
+        try {
+          URL.revokeObjectURL(receiptUrl)
+        } catch {}
+      }
+      const res = await api.get(`/api/cc/receipts/${encodeURIComponent(paymentId)}/print`, {
         responseType: 'blob',
         headers: { Accept: 'text/html' },
       })
       const blobUrl = URL.createObjectURL(res.data)
-      window.open(blobUrl, '_blank')
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+      setReceiptUrl(blobUrl)
+      setReceiptOpen(true)
     } catch {
+      setReceiptUrl('')
+      setReceiptOpen(false)
+    } finally {
+      setReceiptLoading(false)
     }
+  }
+
+  const printReceipt = () => {
+    try {
+      const w = receiptIframeRef.current?.contentWindow
+      if (w) w.print()
+    } catch {}
   }
 
   if (!isRealEstate) {
@@ -557,7 +599,7 @@ export default function ContractCollectionsInstallments() {
         </div>
 
         {showAllFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
             <div>
               <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم الشيك/المرجع' : 'Check/Reference No.'}</label>
               <input
@@ -568,38 +610,28 @@ export default function ContractCollectionsInstallments() {
               />
             </div>
             <div>
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Due Date (From)' : 'Due Date (From)'}</label>
-              <input
-                type="date"
-                value={dueFrom}
-                onChange={(e) => setDueFrom(e.target.value)}
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ الاستحقاق' : 'Due Date'}</label>
+              <DateRangePicker
+                from={dueFrom}
+                to={dueTo}
+                onChange={({ from, to }) => {
+                  setDueFrom(from)
+                  setDueTo(to)
+                }}
+                isRTL={isRTL}
                 className="input w-full bg-[var(--content-bg)]"
               />
             </div>
             <div>
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Due Date (To)' : 'Due Date (To)'}</label>
-              <input
-                type="date"
-                value={dueTo}
-                onChange={(e) => setDueTo(e.target.value)}
-                className="input w-full bg-[var(--content-bg)]"
-              />
-            </div>
-            <div>
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Payment Date (From)' : 'Payment Date (From)'}</label>
-              <input
-                type="date"
-                value={payFrom}
-                onChange={(e) => setPayFrom(e.target.value)}
-                className="input w-full bg-[var(--content-bg)]"
-              />
-            </div>
-            <div>
-              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'Payment Date (To)' : 'Payment Date (To)'}</label>
-              <input
-                type="date"
-                value={payTo}
-                onChange={(e) => setPayTo(e.target.value)}
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ الدفع' : 'Payment Date'}</label>
+              <DateRangePicker
+                from={payFrom}
+                to={payTo}
+                onChange={({ from, to }) => {
+                  setPayFrom(from)
+                  setPayTo(to)
+                }}
+                isRTL={isRTL}
                 className="input w-full bg-[var(--content-bg)]"
               />
             </div>
@@ -653,7 +685,7 @@ export default function ContractCollectionsInstallments() {
                 <th className="text-left px-3 py-2">{isArabic ? 'الهاتف' : 'Phone'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'Unit' : 'Unit'}</th>
                 <th className="text-left px-3 py-2">Project</th>
-                <th className="text-left px-3 py-2">{isArabic ? 'المبلغ' : 'Amount'}</th>
+                <th className="text-left px-3 py-2">{isArabic ? 'مبلغ القسط المستحق' : 'Due Installment Amount'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'Due Date' : 'Due Date'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'Status' : 'Status'}</th>
                 <th className="text-left px-3 py-2">{isArabic ? 'Check No.' : 'Check No.'}</th>
@@ -707,22 +739,22 @@ export default function ContractCollectionsInstallments() {
                       </td>
                       <td className="px-3 py-2">{safeStr(property?.unit_code)}</td>
                       <td className="px-3 py-2">{safeStr(customer?.project?.name)}</td>
-                      <td className="px-3 py-2">
-                        <div>{formatMoney(row.amount)}</div>
-                        <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'مدفوع' : 'Paid'}: {formatMoney(paid)}</div>
-                        <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'متبقي' : 'Unpaid'}: {formatMoney(outstanding)}</div>
+                      <td className="px-3 py-2 tabular-nums">
+                        <div className="font-semibold">{formatMoney(row.amount)}</div>
+                        <div className={`text-xs ${mutedTextClass} opacity-80`}>{isArabic ? 'مدفوع' : 'Paid'}: {formatMoney(paid)}</div>
+                        <div className={`text-xs ${mutedTextClass} opacity-80`}>{isArabic ? 'متبقي' : 'Unpaid'}: {formatMoney(outstanding)}</div>
                       </td>
                       <td className="px-3 py-2" dir="ltr">
-                        {safeStr(originalDue)}
+                        {formatDateOnly(originalDue)}
                       </td>
                       <td className="px-3 py-2">{safeStr(row.status)}</td>
                       <td className="px-3 py-2">{safeStr(latestPayment?.reference_number)}</td>
                       <td className="px-3 py-2" dir="ltr">
-                        {safeStr(latestPayment?.payment_date)}
+                        {formatDateOnly(latestPayment?.payment_date)}
                       </td>
                       <td className="px-3 py-2">{safeStr(latestPayment?.payment_method)}</td>
                       <td className="px-3 py-2" dir="ltr">
-                        {safeStr(newDue)}
+                        {formatDateOnly(newDue)}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
@@ -900,6 +932,27 @@ export default function ContractCollectionsInstallments() {
         widthClass="max-w-xl"
       >
         <div className="space-y-3">
+          {(() => {
+            const latest = pickLatestPayment(payRow?.allocations)
+            const paymentId = latest?.id
+            return (
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className={`px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2 ${
+                    paymentId ? '' : 'opacity-40 cursor-not-allowed'
+                  }`}
+                  onClick={() => paymentId && openReceipt(paymentId)}
+                  disabled={!paymentId}
+                  title={isArabic ? 'طباعة الإيصال' : 'Print receipt'}
+                >
+                  <FileText className="w-4 h-4" />
+                  {isArabic ? 'طباعة' : 'Print'}
+                </button>
+              </div>
+            )
+          })()}
+
           <div className="rounded-xl border border-[var(--panel-border)] p-3 text-sm">
             <div className="flex items-center justify-between gap-2">
               <div className={`text-xs ${mutedTextClass}`}>Installment</div>
@@ -907,7 +960,7 @@ export default function ContractCollectionsInstallments() {
             </div>
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div>
-                <div className={`text-xs ${mutedTextClass}`}>Amount</div>
+                <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'مبلغ القسط المستحق' : 'Due Installment Amount'}</div>
                 <div>{formatMoney(payRow?.amount)}</div>
               </div>
               <div>
@@ -997,6 +1050,44 @@ export default function ContractCollectionsInstallments() {
       </ModalShell>
 
       <ModalShell
+        open={receiptOpen}
+        textColorClass={textColorClass}
+        title={isArabic ? 'الإيصال' : 'Receipt'}
+        onClose={closeReceipt}
+        widthClass="max-w-5xl"
+      >
+        <div className="space-y-3">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className={`px-4 py-2 rounded-xl bg-blue-600 text-white text-sm disabled:opacity-50 ${
+                receiptUrl ? '' : 'opacity-40 cursor-not-allowed'
+              }`}
+              onClick={printReceipt}
+              disabled={!receiptUrl}
+            >
+              {isArabic ? 'طباعة' : 'Print'}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-[var(--panel-border)] overflow-hidden bg-white">
+            {receiptLoading ? (
+              <div className={`p-6 text-sm ${textColorClass}`}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</div>
+            ) : !receiptUrl ? (
+              <div className={`p-6 text-sm ${textColorClass}`}>{isArabic ? 'لا يوجد إيصال' : 'No receipt available'}</div>
+            ) : (
+              <iframe
+                ref={receiptIframeRef}
+                src={receiptUrl}
+                title="Receipt"
+                className="w-full h-[70vh] bg-white"
+              />
+            )}
+          </div>
+        </div>
+      </ModalShell>
+
+      <ModalShell
         open={actionOpen}
         textColorClass={textColorClass}
         title={
@@ -1016,7 +1107,7 @@ export default function ContractCollectionsInstallments() {
             </div>
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div>
-                <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'المبلغ' : 'Amount'}</div>
+                <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'مبلغ القسط المستحق' : 'Due Installment Amount'}</div>
                 <div>{formatMoney(actionRow?.amount)}</div>
               </div>
               <div>

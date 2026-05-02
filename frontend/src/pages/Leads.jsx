@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useQuery, keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -233,7 +233,7 @@ export const Leads = () => {
   const [whatsappIntentsFilter, setWhatsappIntentsFilter] = useState([])
   const [actionTypeFilter, setActionTypeFilter] = useState([])
   const [duplicateStatusFilter, setDuplicateStatusFilter] = useState([])
-  const [sortBy, setSortBy] = useState('smart')
+  const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
   const [selectedLeads, setSelectedLeads] = useState([])
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
@@ -448,6 +448,88 @@ if (!s) {
     const normalized = arr.map(normalizeStageFilterValue).filter(Boolean)
     setStageFilter(normalized)
   }
+
+  // Sorting rule (display + API): initial buckets by Creation Date desc,
+  // all other stages by Next Action Date asc (closest follow-up first).
+  const deriveStageSortRule = useCallback((stageValues) => {
+    const list = Array.isArray(stageValues) ? stageValues : []
+    const normalized = list.map((s) => String(s || '').toLowerCase().trim()).filter(Boolean)
+
+    // "Total Leads" is when no specific stage filter is applied.
+    const isTotal = normalized.length === 0
+    const isCreationSortedStage = isTotal || normalized.some((s) => (
+      s === 'new lead' ||
+      s === 'duplicate' ||
+      s === 'pending' ||
+      s === 'cold calls'
+    ))
+
+    return isCreationSortedStage
+      ? { sortBy: 'createdAt', sortOrder: 'desc' }
+      : { sortBy: 'nextActionDate', sortOrder: 'asc' }
+  }, [])
+
+  const parseComparableDate = (value) => {
+    if (!value) return null
+    const s = String(value).trim()
+    if (!s) return null
+    const d = new Date(s)
+    const t = d.getTime()
+    return Number.isNaN(t) ? null : t
+  }
+
+  const getLeadCreationTs = (lead) => (
+    parseComparableDate(lead?.createdAt) ?? parseComparableDate(lead?.created_at) ?? parseComparableDate(lead?.creationDate) ?? null
+  )
+
+  const getLeadNextActionTs = (lead) => {
+    const action = lead?.latest_action || null
+    const dateRaw = action?.date || lead?.next_action_date || lead?.nextActionDate || lead?.next_action_at || ''
+    const timeRaw = action?.time || lead?.next_action_time || lead?.nextActionTime || ''
+    const datePart = String(dateRaw || '').includes('T') ? String(dateRaw).split('T')[0] : String(dateRaw || '').trim()
+    const timePart = String(timeRaw || '').trim()
+    const composed = datePart ? `${datePart}${timePart ? ` ${String(timePart).slice(0, 8)}` : ''}` : ''
+    return parseComparableDate(composed) ?? parseComparableDate(dateRaw) ?? null
+  }
+
+  const applyStageSortRule = useCallback((rows, stageValues) => {
+    const list = Array.isArray(rows) ? [...rows] : []
+    if (list.length <= 1) return list
+
+    const rule = deriveStageSortRule(stageValues)
+    if (rule.sortBy === 'createdAt') {
+      list.sort((a, b) => {
+        const at = getLeadCreationTs(a) ?? -Infinity
+        const bt = getLeadCreationTs(b) ?? -Infinity
+        return bt - at
+      })
+      return list
+    }
+
+    // nextActionDate asc (closest first), nulls last; tiebreaker by createdAt desc.
+    list.sort((a, b) => {
+      const at = getLeadNextActionTs(a)
+      const bt = getLeadNextActionTs(b)
+      const aHas = at != null
+      const bHas = bt != null
+      if (aHas && bHas && at !== bt) return at - bt
+      if (aHas && !bHas) return -1
+      if (!aHas && bHas) return 1
+      const ac = getLeadCreationTs(a) ?? -Infinity
+      const bc = getLeadCreationTs(b) ?? -Infinity
+      return bc - ac
+    })
+    return list
+  }, [deriveStageSortRule])
+
+  // Auto-apply the rule when stage filter changes (keeps UI consistent with the pipeline behavior).
+  useEffect(() => {
+    const { sortBy: desiredBy, sortOrder: desiredOrder } = deriveStageSortRule(stageFilter)
+    if (sortBy !== desiredBy) setSortBy(desiredBy)
+    if (sortOrder !== desiredOrder) setSortOrder(desiredOrder)
+    // Reset pagination so the user sees the top of the newly sorted results.
+    setCurrentPage(1)
+  }, [stageFilter, deriveStageSortRule]) 
    
   const tableHeaderBgClass = 'bg-theme-sidebar dark:bg-gray-900/95'
   const buttonBase = 'text-sm font-semibold rounded-lg transition-all duration-200 ease-out'
@@ -656,8 +738,8 @@ if (!s) {
       assigned_date_to: filters.assignedToDate,
       closed_from: filters.closedFrom,
       closed_to: filters.closedTo,
-      sort_by: filters.sortBy === 'smart' ? '' : filters.sortBy,
-      sort_order: filters.sortBy === 'smart' ? '' : filters.sortOrder,
+      sort_by: filters.sortBy,
+      sort_order: filters.sortOrder,
       view_type: isMyLeads ? 'my_leads' : 'all_leads'
     };
     
@@ -821,11 +903,12 @@ if (!s) {
         customFields: lead.custom_field_values || []
       }});
 
-      setLeads(mappedLeads);
-      setFilteredLeads(mappedLeads); // With server-side pagination, the current list IS the filtered list
+      const sortedLeads = applyStageSortRule(mappedLeads, stageFilter);
+      setLeads(sortedLeads);
+      setFilteredLeads(sortedLeads); // With server-side pagination, the current list IS the filtered list
       setIsDataLoaded(true);
     }
-  }, [leadsQueryData, usersList]);
+  }, [leadsQueryData, usersList, applyStageSortRule, stageFilter]);
 
   // Filter Options Calculation
   const availableManagers = useMemo(() => {
@@ -2280,8 +2363,8 @@ if (!s) {
       assigned_date_to: assignDateTo,
       closed_from: closedDateFrom,
       closed_to: closedDateTo,
-      sort_by: sortBy === 'smart' ? '' : sortBy,
-      sort_order: sortBy === 'smart' ? '' : sortOrder,
+      sort_by: sortBy,
+      sort_order: sortOrder,
       view_type: isMyLeads ? 'my_leads' : 'all_leads'
     };
 
@@ -2437,11 +2520,9 @@ if (!s) {
           return v || '-';
         }
         case 'stage': {
-          const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
-          // Front-End Display Logic only:
-          // When Sales Person filter is active, show the real stage (not the manager virtual "Pending").
-          let displayStage = salesFilterActive ? (lead?.stage || lead?.status) : (lead?.display_stage || lead?.stage);
+          let displayStage = lead?.display_stage || lead?.stage;
           const leadStatus = String(lead?.status || '').toLowerCase();
+          const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
           const isNewLead = ['new', 'new lead'].includes(String(lead?.stage || '').toLowerCase());
           const isUnassigned = !dbAssignedTo;
           if (!salesFilterActive && leadStatus === 'pending' && !isOwner) {
@@ -2632,7 +2713,7 @@ if (!s) {
                 setEmailFilter('')
                 setActionTypeFilter([])
                 setDuplicateStatusFilter([])
-                setSortBy('smart')
+                setSortBy('createdAt')
                 setSortOrder('desc')
                 setCurrentPage(1)
               }}
@@ -3820,15 +3901,13 @@ if (!s) {
 
                       case 'stage':
                         // Use virtual stage from backend if available, otherwise fallback to standard logic
-                        const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
-                        // Front-End Display Logic only:
-                        // When Sales Person filter is active, show the real stage (not the manager virtual "Pending").
-                        let displayStage = salesFilterActive ? (lead.stage || lead.status) : (lead.display_stage || lead.stage);
+                        let displayStage = lead.display_stage || lead.stage;
                         
                         const dbAssignedTo = lead.assigned_to || (typeof lead.assignedTo === 'object' ? lead.assignedTo?.id : lead.assignedTo);
                         const currentUserId = user?.id;
                         const isOwner = dbAssignedTo == currentUserId;
                         const leadStatus = String(lead.status || '').toLowerCase();
+                        const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
 
                         // Hard rule: if lead is Pending and viewer is NOT the owner -> show Pending
                         // (even if backend sent display_stage)
