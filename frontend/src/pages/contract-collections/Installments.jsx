@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { useTheme } from '@shared/context/ThemeProvider'
+import { formatCrmDate } from '@shared/utils/crmDateTime'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { Ban, ChevronDown, ChevronUp, CreditCard, FileText, Filter, Pencil, RotateCcw, Search, X, XCircle } from 'lucide-react'
@@ -36,10 +37,36 @@ const formatDateOnly = (value) => {
   return s
 }
 
+const normalizePaymentFromAllocation = (allocation) => {
+  if (!allocation || typeof allocation !== 'object') return null
+
+  // Preferred: backend eager-loaded relation.
+  const direct = allocation?.payment || allocation?.cc_payment || allocation?.payment_details || null
+  if (direct && typeof direct === 'object') return direct
+
+  // Fallback: sometimes APIs flatten payment fields into the allocation.
+  const paymentId =
+    allocation?.payment_id ??
+    allocation?.paymentId ??
+    allocation?.cc_payment_id ??
+    allocation?.ccPaymentId ??
+    null
+
+  if (!paymentId) return null
+
+  return {
+    id: paymentId,
+    payment_date: allocation?.payment_date ?? allocation?.paid_at ?? allocation?.created_at ?? null,
+    payment_method: allocation?.payment_method ?? allocation?.method ?? null,
+    reference_number: allocation?.reference_number ?? allocation?.reference ?? allocation?.check_number ?? null,
+    status: allocation?.payment_status ?? allocation?.status ?? null,
+  }
+}
+
 const pickLatestPayment = (allocations) => {
   const list = Array.isArray(allocations) ? allocations : []
   const withPayment = list
-    .map((a) => ({ allocation: a, payment: a?.payment || null }))
+    .map((a) => ({ allocation: a, payment: normalizePaymentFromAllocation(a) }))
     .filter((x) => x.payment)
 
   if (withPayment.length === 0) return null
@@ -84,7 +111,7 @@ function ModalShell({ open, title, onClose, children, widthClass = 'max-w-lg', t
 
 export default function ContractCollectionsInstallments() {
   const { i18n } = useTranslation()
-  const { company } = useAppState()
+  const { company, crmSettings } = useAppState()
   const { isLight } = useTheme()
 
   const isArabic = i18n.language === 'ar'
@@ -95,6 +122,15 @@ export default function ContractCollectionsInstallments() {
   const title = useMemo(() => (isArabic ? 'الأقساط' : 'Installments'), [isArabic])
   const textColorClass = isLight ? 'text-black' : 'text-white'
   const mutedTextClass = textColorClass
+
+  const formatDisplayDate = useCallback(
+    (value) => {
+      const raw = safeStr(value).trim()
+      if (!raw) return ''
+      return formatCrmDate(raw, { crmSettings, language: i18n.language })
+    },
+    [crmSettings, i18n.language]
+  )
 
   const [q, setQ] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('')
@@ -714,7 +750,7 @@ export default function ContractCollectionsInstallments() {
                   const customer = contract?.customer || {}
                   const property = contract?.property || {}
                   const latestPayment = pickLatestPayment(row?.allocations)
-                  const paymentId = latestPayment?.id
+                  const paymentId = latestPayment?.id ?? latestPayment?.payment_id ?? latestPayment?.paymentId ?? null
                   const meta = typeof row?.meta_data === 'object' && row.meta_data ? row.meta_data : {}
                   const originalDue = meta?.rescheduled_from || row?.due_date
                   const newDue = meta?.rescheduled_from ? row?.due_date : ''
@@ -722,7 +758,7 @@ export default function ContractCollectionsInstallments() {
                   const amount = Number(row?.amount || 0)
                   const outstanding = Math.max(0, amount - paid)
                   const canPay = outstanding > 0.00001 && String(row?.status || '').toLowerCase() !== 'paid'
-                  const paymentStatus = String(latestPayment?.status || '').toLowerCase()
+                  const paymentStatus = String(latestPayment?.payment_status ?? latestPayment?.status ?? '').toLowerCase()
                   const canReversePayment = !!paymentId && (paymentStatus === '' || paymentStatus === 'posted')
                   const canMarkUnpaid = paid <= 0.00001 && String(row?.status || '').toLowerCase() !== 'paid'
 
@@ -745,16 +781,16 @@ export default function ContractCollectionsInstallments() {
                         <div className={`text-xs ${mutedTextClass} opacity-80`}>{isArabic ? 'متبقي' : 'Unpaid'}: {formatMoney(outstanding)}</div>
                       </td>
                       <td className="px-3 py-2" dir="ltr">
-                        {formatDateOnly(originalDue)}
+                        {formatDisplayDate(originalDue)}
                       </td>
                       <td className="px-3 py-2">{safeStr(row.status)}</td>
                       <td className="px-3 py-2">{safeStr(latestPayment?.reference_number)}</td>
                       <td className="px-3 py-2" dir="ltr">
-                        {formatDateOnly(latestPayment?.payment_date)}
+                        {formatDisplayDate(latestPayment?.payment_date)}
                       </td>
                       <td className="px-3 py-2">{safeStr(latestPayment?.payment_method)}</td>
                       <td className="px-3 py-2" dir="ltr">
-                        {formatDateOnly(newDue)}
+                        {formatDisplayDate(newDue)}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
@@ -829,7 +865,7 @@ export default function ContractCollectionsInstallments() {
                 const total = Number(pageMeta.total || 0)
                 const from = total ? (cur - 1) * perPage + 1 : 0
                 const to = total ? Math.min(cur * perPage, total) : 0
-                return isArabic ? `Ø¹Ø±Ø¶ ${from}-${to} Ù…Ù† ${total}` : `Showing ${from}-${to} of ${total}`
+                return isArabic ? `عرض ${from}-${to} من ${total}` : `Showing ${from}-${to} of ${total}`
               })()}
             </div>
 
@@ -839,25 +875,25 @@ export default function ContractCollectionsInstallments() {
                   className="btn btn-sm btn-ghost"
                   onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
                   disabled={loading || Number(pageMeta.current_page || 1) <= 1}
-                  title={isArabic ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
+                  title={isArabic ? 'السابق' : 'Prev'}
                 >
                   <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
                 </button>
                 <span className="text-sm whitespace-nowrap">
-                  {isArabic ? `Ø§Ù„ØµÙØ­Ø© ${pageMeta.current_page} Ù…Ù† ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
+                  {isArabic ? `الصفحة ${pageMeta.current_page} من ${pageMeta.last_page}` : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
                 </span>
                 <button
                   className="btn btn-sm btn-ghost"
                   onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
                   disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
-                  title={isArabic ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
+                  title={isArabic ? 'التالي' : 'Next'}
                 >
                   <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
                 </button>
               </div>
 
               <div className="flex items-center gap-1">
-                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}</span>
+                <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'لكل صفحة:' : 'Per page:'}</span>
                 <select
                   className="input w-16 text-sm py-0 px-2 h-8"
                   value={perPage}
@@ -934,7 +970,7 @@ export default function ContractCollectionsInstallments() {
         <div className="space-y-3">
           {(() => {
             const latest = pickLatestPayment(payRow?.allocations)
-            const paymentId = latest?.id
+            const paymentId = latest?.id ?? latest?.payment_id ?? latest?.paymentId ?? null
             return (
               <div className="flex items-center justify-end gap-2">
                 <button

@@ -2851,7 +2851,7 @@ if (!s) {
 
                       return {
                         value: normalizedValue || nameEn,
-                        label: isRtl ? (s.name_ar || labelEn) : labelEn,
+                        label: isRtl ? (s.name_ar || s.nameAr || labelEn) : labelEn,
                         icon: s.icon
                       };
                     });
@@ -2930,7 +2930,7 @@ if (!s) {
                 <SearchableSelect
                   value={oldStageFilter}
                   onChange={setOldStageFilter}
-                  options={stagesList.map(s => ({ value: s.name, label: isRtl ? (s.name_ar || s.name) : s.name, icon: s.icon }))}
+                  options={stagesList.map(s => ({ value: s.name, label: isRtl ? (s.name_ar || s.nameAr || s.name) : s.name, icon: s.icon }))}
                   placeholder={t('All')}
                   isRTL={isRtl}
                 />

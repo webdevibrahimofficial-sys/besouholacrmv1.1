@@ -74,6 +74,221 @@ const stripWordTipsFromHtml = (html) => {
   }
 }
 
+function RibbonButton({ active, disabled, onClick, title, children, className = '' }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={[
+        'h-9 min-w-9 px-2 rounded-lg border border-transparent',
+        'inline-flex items-center justify-center gap-2 text-sm',
+        disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-black/5 dark:hover:bg-white/10',
+        active ? 'bg-black/5 dark:bg-white/10 border-[var(--panel-border)]' : '',
+        className,
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  )
+}
+
+function RibbonGroup({ title, children }) {
+  return (
+    <div className="flex flex-col gap-1 px-3 py-2 border-r border-[var(--panel-border)] last:border-r-0">
+      <div className="flex flex-wrap items-center gap-1">{children}</div>
+      <div className="text-[11px] opacity-70">{title}</div>
+    </div>
+  )
+}
+
+function WordLikeRibbon({ editor, t, insertPlaceholder }) {
+  const [tab, setTab] = useState('home') // home|insert|view
+
+  const toggleUnderline = () => {
+    if (!editor) return
+    if (typeof editor?.commands?.toggleUnderline !== 'function') return
+    editor.chain().focus().toggleUnderline().run()
+  }
+
+  const content = (
+    <div className="border border-[var(--panel-border)] rounded-2xl overflow-hidden bg-[var(--content-bg)]">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--panel-border)] bg-black/5 dark:bg-white/5">
+        {[
+          { key: 'home', label: t('Home') },
+          { key: 'insert', label: t('Insert') },
+          { key: 'view', label: t('View') },
+        ].map((x) => (
+          <button
+            key={x.key}
+            type="button"
+            onClick={() => setTab(x.key)}
+            className={[
+              'px-3 py-1.5 rounded-lg text-sm font-medium',
+              tab === x.key ? 'bg-white/70 dark:bg-black/30 border border-[var(--panel-border)]' : 'hover:bg-white/50 dark:hover:bg-black/20',
+            ].join(' ')}
+          >
+            {x.label}
+          </button>
+        ))}
+        <div className="flex-1" />
+      </div>
+
+      <div className="flex flex-wrap items-stretch gap-0">
+        {tab === 'home' && (
+          <>
+            <RibbonGroup title={t('Font')}>
+              <RibbonButton
+                title={t('Bold')}
+                active={!!editor?.isActive('bold')}
+                disabled={!editor || !editor.can().chain().focus().toggleBold().run()}
+                onClick={() => editor?.chain().focus().toggleBold().run()}
+                className="font-bold"
+              >
+                B
+              </RibbonButton>
+              <RibbonButton
+                title={t('Italic')}
+                active={!!editor?.isActive('italic')}
+                disabled={!editor || !editor.can().chain().focus().toggleItalic().run()}
+                onClick={() => editor?.chain().focus().toggleItalic().run()}
+                className="italic"
+              >
+                I
+              </RibbonButton>
+              <RibbonButton title={t('Underline')} active={!!editor?.isActive('underline')} disabled={!editor} onClick={toggleUnderline} className="underline">
+                U
+              </RibbonButton>
+              <RibbonButton
+                title={t('Strike')}
+                active={!!editor?.isActive('strike')}
+                disabled={!editor || !editor.can().chain().focus().toggleStrike().run()}
+                onClick={() => editor?.chain().focus().toggleStrike().run()}
+                className="line-through"
+              >
+                S
+              </RibbonButton>
+
+              <label className="h-9 px-2 rounded-lg inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/10">
+                <span className="text-xs opacity-80">{t('Color')}</span>
+                <input
+                  type="color"
+                  className="h-6 w-6 bg-transparent border-0 p-0"
+                  onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
+                  title={t('Text Color')}
+                />
+              </label>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Paragraph')}>
+              <RibbonButton
+                title={t('Bullet List')}
+                active={!!editor?.isActive('bulletList')}
+                disabled={!editor}
+                onClick={() => editor?.chain().focus().toggleBulletList().run()}
+              >
+                • {t('List')}
+              </RibbonButton>
+              <RibbonButton
+                title={t('Ordered List')}
+                active={!!editor?.isActive('orderedList')}
+                disabled={!editor}
+                onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+              >
+                1. {t('List')}
+              </RibbonButton>
+              <RibbonButton title={t('Align Left')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('left').run()}>
+                L
+              </RibbonButton>
+              <RibbonButton title={t('Align Center')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('center').run()}>
+                C
+              </RibbonButton>
+              <RibbonButton title={t('Align Right')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('right').run()}>
+                R
+              </RibbonButton>
+              <RibbonButton title={t('Justify')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('justify').run()}>
+                J
+              </RibbonButton>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Styles')}>
+              <RibbonButton title={t('Normal')} active={!!editor?.isActive('paragraph')} disabled={!editor} onClick={() => editor?.chain().focus().setParagraph().run()}>
+                {t('Normal')}
+              </RibbonButton>
+              <RibbonButton title="H1" active={!!editor?.isActive('heading', { level: 1 })} disabled={!editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>
+                {t('Heading 1')}
+              </RibbonButton>
+              <RibbonButton title="H2" active={!!editor?.isActive('heading', { level: 2 })} disabled={!editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
+                {t('Heading 2')}
+              </RibbonButton>
+              <RibbonButton title="H3" active={!!editor?.isActive('heading', { level: 3 })} disabled={!editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}>
+                {t('Heading 3')}
+              </RibbonButton>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Editing')}>
+              <RibbonButton title={t('Clear format')} disabled={!editor} onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}>
+                {t('Clear format')}
+              </RibbonButton>
+            </RibbonGroup>
+          </>
+        )}
+
+        {tab === 'insert' && (
+          <>
+            <RibbonGroup title={t('Table')}>
+              <RibbonButton
+                title={t('Insert Table')}
+                disabled={!editor}
+                onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+              >
+                {t('Insert Table')}
+              </RibbonButton>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Fields')}>
+              <select
+                className="h-9 px-3 rounded-lg bg-white/70 dark:bg-black/30 border border-[var(--panel-border)] text-sm min-w-[240px]"
+                defaultValue=""
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v) insertPlaceholder(v)
+                  e.target.value = ''
+                }}
+                title={t('Insert Field')}
+              >
+                <option value="">{t('+ Insert Field')}</option>
+                <option value="{{contract_number}}">{t('Contract No.')}</option>
+                <option value="{{contract_date}}">{t('Contract Date')}</option>
+                <option value="{{customer_name}}">{t('Customer Name')}</option>
+                <option value="{{customer_phone}}">{t('Customer Phone')}</option>
+                <option value="{{unit_code}}">{t('Unit Code')}</option>
+                <option value="{{project_name}}">{t('Project')}</option>
+                <option value="{{total_price}}">{t('Total Price')}</option>
+                <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
+                <option value="{{installments_table}}">{t('Installments Table')}</option>
+              </select>
+            </RibbonGroup>
+          </>
+        )}
+
+        {tab === 'view' && (
+          <>
+            <RibbonGroup title={t('View')}>
+              <div className="text-sm opacity-80">
+                {t('Use the buttons below to switch between Edit and Live Preview.')}
+              </div>
+            </RibbonGroup>
+          </>
+        )}
+      </div>
+    </div>
+  )
+
+  return content
+}
+
 const normalizeTablesForEditor = (html) => {
   const raw = String(html || '')
   if (!raw) return raw
@@ -570,41 +785,6 @@ export default function ContractsSettings() {
     </div>
   )
 
-  const Footer = () => (
-    <div className="px-10 py-5 border-t border-gray-200 text-xs text-gray-700">
-      <div className="mt-5 grid grid-cols-2 gap-6 text-[11px]">
-        <div>
-          <div className="font-semibold mb-2">Seller</div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500">Signature</span>
-            <span className="flex-1 border-b border-gray-300 h-4" />
-          </div>
-        </div>
-        <div>
-          <div className="font-semibold mb-2">Buyer</div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500">Signature</span>
-            <span className="flex-1 border-b border-gray-300 h-4" />
-          </div>
-        </div>
-        <div>
-          <div className="font-semibold mb-2">Witness 1</div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500">Signature</span>
-            <span className="flex-1 border-b border-gray-300 h-4" />
-          </div>
-        </div>
-        <div>
-          <div className="font-semibold mb-2">Witness 2</div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500">Signature</span>
-            <span className="flex-1 border-b border-gray-300 h-4" />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
   const ContractPage = ({ children }) => (
     <div className="w-full flex justify-center">
       <div
@@ -614,7 +794,6 @@ export default function ContractsSettings() {
       >
         <Header />
         <div className="px-10 py-8">{children}</div>
-        <Footer />
       </div>
     </div>
   )
@@ -742,7 +921,11 @@ export default function ContractsSettings() {
           </div>
 
            {draft.content_type !== 'pdf' && (
-             <div className="flex flex-wrap items-center gap-2 border border-[var(--panel-border)] rounded-xl p-2">
+             <WordLikeRibbon editor={editor} t={t} insertPlaceholder={insertPlaceholder} />
+           )}
+
+           {false && (
+             <>
                <button
                  type="button"
                  onClick={() => editor?.chain().focus().toggleBold().run()}
@@ -898,7 +1081,7 @@ export default function ContractsSettings() {
                >
                  {t('Clear format')}
                </button>
-             </div>
+             </>
            )}
 
           {draft.content_type === 'pdf' ? (

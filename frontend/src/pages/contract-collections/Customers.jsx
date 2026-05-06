@@ -5,6 +5,7 @@ import { FaChevronLeft, FaChevronRight, FaFileImport, FaPlus } from 'react-icons
 import { api } from '@utils/api'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { useTheme } from '@shared/context/ThemeProvider'
+import { formatUiDateTime } from '@shared/utils/crmDateTime'
 import SearchableSelect from '@components/SearchableSelect'
 import CcCustomersImportModal from '@components/CcCustomersImportModal'
 
@@ -384,7 +385,7 @@ function TabButton({ active, onClick, children }) {
 
 export default function ContractCollectionsCustomers() {
   const { i18n } = useTranslation()
-  const { company, user } = useAppState()
+  const { company, user, crmSettings } = useAppState()
   const { isLight } = useTheme()
 
   const isArabic = i18n.language === 'ar'
@@ -395,6 +396,7 @@ export default function ContractCollectionsCustomers() {
   const title = useMemo(() => (isArabic ? 'إدارة العملاء' : 'Customers Management'), [isArabic])
   const textColorClass = isLight ? 'text-black' : 'text-white'
   const mutedTextClass = textColorClass
+  const formatDateTime = useCallback((value) => formatUiDateTime(value, { crmSettings, language: i18n.language }), [crmSettings, i18n.language])
 
   const [q, setQ] = useState('')
   const [projectId, setProjectId] = useState('')
@@ -419,6 +421,10 @@ export default function ContractCollectionsCustomers() {
   const [selectedUnitId, setSelectedUnitId] = useState(null)
   const [selectedContractId, setSelectedContractId] = useState(null)
   const [contractAttachments, setContractAttachments] = useState([])
+  const [attachmentPreviewOpen, setAttachmentPreviewOpen] = useState(false)
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState('')
+  const [attachmentPreviewName, setAttachmentPreviewName] = useState('')
+  const [attachmentPreviewMime, setAttachmentPreviewMime] = useState('')
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
 
   // Comments
@@ -616,6 +622,24 @@ export default function ContractCollectionsCustomers() {
       setAttachmentsLoading(false)
     }
   }, [])
+
+  const getStorageUrl = (filePath) => {
+    if (!filePath) return ''
+    const rawBase = String(api?.defaults?.baseURL || '').replace(/\/+$/, '')
+    const base = rawBase.replace(/\/api\/?$/, '')
+    return `${base}/storage/${String(filePath).replace(/^\/+/, '')}`
+  }
+
+  const openAttachmentPreview = (att) => {
+    const url = getStorageUrl(att?.file_path || att?.filePath)
+    if (!url) return
+    const name = safeStr(att?.meta_data?.original_name || '') || (att?.file_path ? String(att.file_path).split('/').pop() : `#${att?.id}`)
+    const mime = safeStr(att?.meta_data?.mime || att?.mime || att?.file_type || att?.fileType || '')
+    setAttachmentPreviewUrl(url)
+    setAttachmentPreviewName(name)
+    setAttachmentPreviewMime(mime)
+    setAttachmentPreviewOpen(true)
+  }
 
   useEffect(() => {
     if (!previewOpen || !activeCustomer?.id) return
@@ -986,29 +1010,144 @@ export default function ContractCollectionsCustomers() {
   }
 
   const exportCustomerSnapshot = () => {
+    // Export as PDF (Customer + selected unit + payment plan)
     if (!activeCustomer?.id) return
-    const fileName = `cc_customer_${activeCustomer.id}_${activeTab || 'details'}.json`
-    downloadJson(fileName, buildWindowSnapshot())
+
+    const prop = selectedUnitProp
+    const plan = selectedPlan
+    const planMeta = plan?.meta_data || {}
+
+    if (!prop || !plan) {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'رجاءً اختر وحدة وخطة دفع أولاً' : 'Please select a unit and payment plan first' } }))
+      return
+    }
+
+    ;(async () => {
+      try {
+        const jsPDF = (await import('jspdf')).default
+        const autoTable = await import('jspdf-autotable')
+
+        const doc = new jsPDF('p', 'pt', 'a4')
+
+        const unitTitle = titleFromProperty(prop) || safeStr(prop?.unit_code || prop?.name || prop?.title)
+        const fileSafeUnit = String(unitTitle || 'unit').replace(/[^\w\-]+/g, '_')
+        const fileName = `customer_${activeCustomer.id}_${fileSafeUnit}.pdf`
+
+        // Title (keep English due to Arabic font support limitations in default jsPDF)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(14)
+        doc.text('Customer Summary', 40, 40)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(10)
+        doc.text(`${safeStr(activeCustomer?.name)}`, 40, 60)
+
+        const detailsRows = [
+          ['Customer ID', safeStr(activeCustomer?.code || activeCustomer?.customer_code || activeCustomer?.id)],
+          ['Phone', safeStr(activeCustomer?.phone)],
+          ['Email', safeStr(activeCustomer?.email)],
+          ['Project', safeStr(activeCustomer?.project?.name || activeCustomer?.project_id)],
+          ['Unit', safeStr(unitTitle)],
+          ['Unit Price', formatMoney(prop?.price ?? prop?.total_price ?? prop?.totalPrice)],
+        ].filter((r) => String(r[1] ?? '').trim() !== '')
+
+        autoTable.default(doc, {
+          startY: 80,
+          head: [['Customer Info', '']],
+          body: detailsRows,
+          styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+          columnStyles: { 0: { cellWidth: 140 }, 1: { cellWidth: 360 } },
+          theme: 'grid',
+        })
+
+        const planRows = [
+          ['Reservation Amount', formatMoney(plan?.reservation_amount)],
+          ['Down Payment', formatMoney(plan?.down_payment)],
+          ['Delivery Payment', formatMoney(plan?.delivery_payment)],
+          ['Installment Type', safeStr(normalizeInstallmentType(plan?.installment_type))],
+          ['Installment Count', safeStr(plan?.installment_count)],
+          ['Installment Value', formatMoney(plan?.installment_value)],
+          ['Years', safeStr(planMeta?.years ?? '')],
+          ['Maintenance', planMeta?.maintenance != null ? formatMoney(planMeta.maintenance) : safeStr(planMeta?.maintenance ?? '')],
+          ['Additional Payments', planMeta?.additional_payments != null ? formatMoney(planMeta.additional_payments) : safeStr(planMeta?.additional_payments ?? '')],
+        ].filter((r) => String(r[1] ?? '').trim() !== '')
+
+        autoTable.default(doc, {
+          startY: (doc.lastAutoTable?.finalY || 80) + 16,
+          head: [['Payment Plan', '']],
+          body: planRows,
+          styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 },
+          headStyles: { fillColor: [39, 174, 96], textColor: 255 },
+          columnStyles: { 0: { cellWidth: 140 }, 1: { cellWidth: 360 } },
+          theme: 'grid',
+        })
+
+        doc.save(fileName)
+      } catch (e) {
+        console.error('Export customer PDF failed:', e)
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'تعذر تصدير ملف PDF' : 'Failed to export PDF' } }))
+      }
+    })()
+  }
+
+  const printCustomerSummary = () => {
+    if (!activeCustomer?.id) return
+    const prop = selectedUnitProp
+    const plan = selectedPlan
+    const planMeta = plan?.meta_data || {}
+
+    if (!prop || !plan) {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'رجاءً اختر وحدة وخطة دفع أولاً' : 'Please select a unit and payment plan first' } }))
+      return
+    }
+
+    const blocks = [
+      {
+        title: isArabic ? 'التفاصيل' : 'Details',
+        rows: [
+          { label: isArabic ? 'اسم العميل' : 'Client Name', value: safeStr(activeCustomer.name) },
+          { label: isArabic ? 'الموبايل' : 'Phone', value: safeStr(activeCustomer.phone) },
+          { label: isArabic ? 'المشروع' : 'Project', value: safeStr(activeCustomer.project?.name || activeCustomer.project_id) },
+          { label: isArabic ? 'الوحدة' : 'Unit', value: titleFromProperty(prop) },
+          { label: isArabic ? 'تاريخ الصفقة' : 'Deal Date', value: formatDateTime(activeCustomer.contracts?.[0]?.contract_date) },
+        ],
+      },
+      {
+        title: isArabic ? 'خطة الدفع' : 'Payment Plan',
+        rows: [
+          { label: isArabic ? 'الحجز' : 'Reservation Amount', value: formatMoney(plan?.reservation_amount) },
+          { label: isArabic ? 'المقدم' : 'Down Payment', value: formatMoney(plan?.down_payment) },
+          { label: isArabic ? 'التسليم' : 'Delivery Payment', value: formatMoney(plan?.delivery_payment) },
+          { label: isArabic ? 'نوع القسط' : 'Installment Type', value: safeStr(normalizeInstallmentType(plan?.installment_type)) },
+          { label: isArabic ? 'عدد الأقساط' : 'Installment Count', value: safeStr(plan?.installment_count) },
+          { label: isArabic ? 'قيمة القسط' : 'Installment Value', value: formatMoney(plan?.installment_value) },
+          { label: isArabic ? 'سنوات' : 'Years', value: safeStr(planMeta?.years ?? '') },
+          { label: isArabic ? 'مصاريف صيانة' : 'Maintenance', value: planMeta?.maintenance != null ? formatMoney(planMeta.maintenance) : safeStr(planMeta?.maintenance ?? '') },
+          { label: isArabic ? 'مدفوعات إضافية' : 'Additional Payments', value: planMeta?.additional_payments != null ? formatMoney(planMeta.additional_payments) : safeStr(planMeta?.additional_payments ?? '') },
+        ].filter((r) => String(r.value ?? '').trim() !== ''),
+      },
+    ]
+
+    openPrintWindow({
+      title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+      blocks,
+      dir: isRTL ? 'rtl' : 'ltr',
+    })
   }
 
   const printCustomerView = () => {
     if (!activeCustomer?.id) return
-    const unitsList = Array.isArray(activeCustomer?.units) ? activeCustomer.units : []
-    const contractedUnits = unitsList.filter((u) => {
-      const st = String(u?.status || '').trim().toLowerCase()
-      return st === 'contracted' || st === 'sold'
-    })
 
-    const pickedUnit = (() => {
-      const selected = selectedUnit
-      const st = String(selected?.status || '').trim().toLowerCase()
-      if (selected && (st === 'contracted' || st === 'sold')) return selected
-      return contractedUnits[0] || selected || null
-    })()
-
-    const prop = pickedUnit?.property || selectedUnitProp
-    const plan = pickedUnit?.active_payment_plan || pickedUnit?.activePaymentPlan || selectedPlan
+    // Always print customer summary using the currently selected unit + its payment plan.
+    const prop = selectedUnitProp
+    const plan = selectedPlan
     const planMeta = plan?.meta_data || {}
+
+    if (!prop || !plan) {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'رجاءً اختر وحدة وخطة دفع أولاً' : 'Please select a unit and payment plan first' } }))
+      return
+    }
 
     const blocks = [
       {
@@ -1018,7 +1157,7 @@ export default function ContractCollectionsCustomers() {
           { label: isArabic ? 'الموبايل' : 'Phone', value: safeStr(activeCustomer.phone) },
           { label: isArabic ? 'المشروع' : 'Project', value: safeStr(activeCustomer.project?.name || activeCustomer.project_id) },
           { label: isArabic ? 'الوحدة' : 'Unit', value: titleFromProperty(prop) },
-          { label: isArabic ? 'تاريخ الصفقة' : 'Deal Date', value: safeStr(activeCustomer.contracts?.[0]?.contract_date || '') },
+          { label: isArabic ? 'تاريخ الصفقة' : 'Deal Date', value: formatDateTime(activeCustomer.contracts?.[0]?.contract_date) },
         ],
       },
       {
@@ -1040,7 +1179,7 @@ export default function ContractCollectionsCustomers() {
     if (activeTab === 'comments') {
       const commentRows = (comments || []).map((c, idx) => ({
         label: `#${idx + 1}`,
-        value: `${safeStr(c?.comment || c?.text || c?.body)}${c?.created_at || c?.createdAt ? ` — ${safeStr(c?.created_at || c?.createdAt)}` : ''}`,
+        value: `${safeStr(c?.comment || c?.text || c?.body)}${c?.created_at || c?.createdAt ? ` — ${formatDateTime(c?.created_at || c?.createdAt)}` : ''}`,
       }))
       openPrintWindow({
         title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
@@ -1055,7 +1194,7 @@ export default function ContractCollectionsCustomers() {
     if (activeTab === 'attachments') {
       const attachmentRows = (contractAttachments || []).map((att, idx) => ({
         label: `#${idx + 1}`,
-        value: `${safeStr(att?.original_name || att?.name || att?.file_name || att?.file)}${att?.created_at ? ` — ${safeStr(att.created_at)}` : ''}`,
+        value: `${safeStr(att?.original_name || att?.name || att?.file_name || att?.file)}${att?.created_at ? ` — ${formatDateTime(att.created_at)}` : ''}`,
       }))
       openPrintWindow({
         title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
@@ -1070,7 +1209,7 @@ export default function ContractCollectionsCustomers() {
     if (activeTab === 'audit') {
       const auditPrintRows = (auditRows || []).map((row, idx) => ({
         label: `#${idx + 1}`,
-        value: `${safeStr(row?.label)}${row?.at ? ` — ${safeStr(row.at)}` : ''}${row?.userName ? ` — ${safeStr(row.userName)}` : ''}`,
+        value: `${safeStr(row?.label)}${row?.at ? ` — ${formatDateTime(row.at)}` : ''}${row?.userName ? ` — ${safeStr(row.userName)}` : ''}`,
       }))
       openPrintWindow({
         title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
@@ -1647,7 +1786,7 @@ export default function ContractCollectionsCustomers() {
                     const total = Number(pageMeta.total || 0)
                     const from = total ? (cur - 1) * perPage + 1 : 0
                     const to = total ? Math.min(cur * perPage, total) : 0
-                    return isArabic ? `Ø¹Ø±Ø¶ ${from}-${to} Ù…Ù† ${total}` : `Showing ${from}-${to} of ${total}`
+                    return isArabic ? `عرض ${from}-${to} من ${total}` : `Showing ${from}-${to} of ${total}`
                   })()}
                 </div>
                 <div className="flex items-center gap-2">
@@ -1656,26 +1795,26 @@ export default function ContractCollectionsCustomers() {
                       className="btn btn-sm btn-ghost"
                       onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
                       disabled={loading || Number(pageMeta.current_page || 1) <= 1}
-                      title={isArabic ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
+                      title={isArabic ? 'السابق' : 'Prev'}
                     >
                       <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
                     </button>
                     <span className="text-sm whitespace-nowrap">
                       {isArabic
-                        ? `Ø§Ù„ØµÙØ­Ø© ${pageMeta.current_page} Ù…Ù† ${pageMeta.last_page}`
+                        ? `الصفحة ${pageMeta.current_page} من ${pageMeta.last_page}`
                         : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
                     </span>
                     <button
                       className="btn btn-sm btn-ghost"
                       onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
                       disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
-                      title={isArabic ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
+                      title={isArabic ? 'التالي' : 'Next'}
                     >
                       <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
                     </button>
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}</span>
+                    <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'لكل صفحة:' : 'Per page:'}</span>
                     <select
                       className="input w-16 text-sm py-0 px-2 h-8"
                       value={perPage}
@@ -1762,7 +1901,7 @@ export default function ContractCollectionsCustomers() {
                       <div className={mutedTextClass}>{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</div>
                       <div className="truncate">{safeStr(activeCustomer.sales_owner?.name || activeCustomer.salesOwner?.name || activeCustomer.sales_owner_id)}</div>
                       <div className={mutedTextClass}>{isArabic ? 'تاريخ الصفقة' : 'Deal Date'}</div>
-                      <div className="truncate" dir="ltr">{safeStr(activeCustomer.contracts?.[0]?.contract_date || '')}</div>
+                      <div className="truncate" dir="ltr">{formatDateTime(activeCustomer.contracts?.[0]?.contract_date)}</div>
                     </div>
                   </div>
 
@@ -1886,7 +2025,7 @@ export default function ContractCollectionsCustomers() {
                           <div key={c.id} className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
                             <div className={`text-xs ${mutedTextClass} flex items-center justify-between gap-2`}>
                               <span className="truncate">{safeStr(c.creator?.name || '')}</span>
-                              <span dir="ltr">{safeStr(c.created_at || '')}</span>
+                              <span dir="ltr">{formatDateTime(c.created_at)}</span>
                             </div>
                             <div className="text-sm mt-1 whitespace-pre-wrap">{safeStr(c.comment)}</div>
                           </div>
@@ -1988,7 +2127,7 @@ export default function ContractCollectionsCustomers() {
                               return (
                                 <Fragment key={row.id}>
                                   <tr key={row.id} className="border-t border-[var(--panel-border)] align-top">
-                                    <td className="px-3 py-2 whitespace-nowrap" dir="ltr">{safeStr(row.created_at)}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap" dir="ltr">{formatDateTime(row.created_at)}</td>
                                     <td className="px-3 py-2">{safeStr(row.causerName)}</td>
                                     <td className="px-3 py-2">
                                       <div className="flex flex-col gap-1">
@@ -2094,22 +2233,21 @@ export default function ContractCollectionsCustomers() {
                       {contractAttachments.map((att) => {
                         const originalName = safeStr(att?.meta_data?.original_name || '')
                         const name = originalName || (att?.file_path ? String(att.file_path).split('/').pop() : `#${att.id}`)
-                        const href = att?.file_path ? `/storage/${att.file_path}` : '#'
+                        const href = getStorageUrl(att?.file_path || att?.filePath)
                         return (
-                          <a
+                          <button
                             key={att.id}
                             className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 p-3 hover:bg-black/5 dark:hover:bg-white/5"
-                            href={href}
-                            target="_blank"
-                            rel="noreferrer"
+                            type="button"
+                            onClick={() => openAttachmentPreview(att)}
                             title={name}
                           >
                             <span className="flex items-center gap-2 min-w-0">
                               <FileText className="w-4 h-4 shrink-0" />
                               <span className="truncate text-sm">{name}</span>
                             </span>
-                            <span className={`text-xs ${mutedTextClass}`} dir="ltr">{safeStr(att?.created_at || '')}</span>
-                          </a>
+                            <span className={`text-xs ${mutedTextClass}`} dir="ltr">{formatDateTime(att?.created_at)}</span>
+                          </button>
                         )
                       })}
                     </div>
@@ -2212,7 +2350,7 @@ export default function ContractCollectionsCustomers() {
 
                 <button
                   type="button"
-                  onClick={printCustomerView}
+                  onClick={printCustomerSummary}
                   className="w-full px-3 py-2 rounded-xl text-sm border border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-between gap-2"
                 >
                   <span className="inline-flex items-center gap-2">
@@ -2230,6 +2368,53 @@ export default function ContractCollectionsCustomers() {
             </div>
           </div>
           )}
+        </ModalShell>
+
+        <ModalShell
+          open={attachmentPreviewOpen}
+          textColorClass={textColorClass}
+          title={attachmentPreviewName || (isArabic ? 'معاينة مرفق' : 'Attachment Preview')}
+          onClose={() => setAttachmentPreviewOpen(false)}
+          widthClass="max-w-5xl"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center justify-end gap-2">
+              <a
+                href={attachmentPreviewUrl || '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                {isArabic ? 'فتح في تبويب جديد' : 'Open in new tab'}
+              </a>
+            </div>
+
+            {attachmentPreviewUrl ? (
+              (() => {
+                const mime = String(attachmentPreviewMime || '').toLowerCase()
+                if (mime.startsWith('image/')) {
+                  return (
+                    <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-3">
+                      <img src={attachmentPreviewUrl} alt={attachmentPreviewName} className="max-h-[70vh] w-full object-contain" />
+                    </div>
+                  )
+                }
+
+                // Default to iframe (PDF / other previewable types)
+                return (
+                  <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] overflow-hidden">
+                    <iframe
+                      title={attachmentPreviewName || 'Attachment'}
+                      src={attachmentPreviewUrl}
+                      className="w-full h-[70vh]"
+                    />
+                  </div>
+                )
+              })()
+            ) : (
+              <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا يوجد مرفق' : 'No attachment selected'}</div>
+            )}
+          </div>
         </ModalShell>
 
         {/* Convert to Contract */}

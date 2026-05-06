@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { FaPhone, FaEnvelope, FaCalendarAlt, FaClock, FaComments, FaHandshake, FaFileAlt, FaTimes, FaChevronDown, FaToggleOn, FaToggleOff, FaTrash, FaPlus } from 'react-icons/fa';
@@ -21,6 +21,15 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   const isRTL = i18n.dir() === 'rtl';
   const isArabic = isRTL;
+  const stageLabel = (stage) => {
+    if (!stage) return '';
+    const ar = stage?.name_ar || stage?.nameAr || stage?.title_ar || stage?.titleAr;
+    const en = stage?.name || stage?.name_en || stage?.nameEn || stage?.title || stage?.display_name || stage?.displayName;
+    return isArabic ? (ar || en || '') : (en || ar || '');
+  };
+  const companyTypeLower = String(company?.company_type || '').toLowerCase();
+  const isRealEstateTenant = companyTypeLower.includes('real');
+  const defaultReservationType = isRealEstateTenant ? 'project' : 'general';
 
   const [stages, setStages] = useState([]);
   const [units, setUnits] = useState([]);
@@ -113,10 +122,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     proposalValidityDays: '',
     proposalAttachmentUrl: '',
     proposalAttachment: null,
-    reservationType: 'project',
+    reservationType: defaultReservationType,
     reservationCategory: '',
     reservationItem: '',
-    reservationGeneralItems: [{ category: '', item: '', quantity: 1, price: 0 }],
+    reservationGeneralItems: [{ category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }],
     reservationNotes: '',
     reservationProject: '',
     reservationUnit: '',
@@ -137,6 +146,14 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     if (!isOpen) return;
     setActionData(buildInitialActionData());
   }, [isOpen, lead?.id, initialType, initialDate]);
+
+  // Reservation type is automatic based on tenant (Real Estate => project, otherwise general).
+  useEffect(() => {
+    if (!isOpen) return;
+    if (actionData.nextAction !== 'reservation') return;
+    if (actionData.reservationType === defaultReservationType) return;
+    setActionData((prev) => ({ ...prev, reservationType: defaultReservationType }));
+  }, [isOpen, actionData.nextAction, actionData.reservationType, defaultReservationType]);
 
   const pad2 = (n) => String(n).padStart(2, '0');
   const toLocalDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -617,7 +634,20 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   useEffect(() => {
     if (actionData.nextAction === 'reservation' && actionData.reservationType === 'general') {
       const total = actionData.reservationGeneralItems.reduce((sum, item) => {
-        return sum + (Number(item.quantity || 0) * Number(item.price || 0));
+        const quantity = Number(item.quantity || 0);
+        const price = Number(item.price || 0);
+        const subTotal = quantity * price;
+
+        const discountType = (item.discount_type || 'value');
+        const rawDiscount = Number(item.discount_value || 0);
+        const discountValue = Number.isFinite(rawDiscount) ? rawDiscount : 0;
+
+        const discountAmount = discountType === 'percent'
+          ? (subTotal * clamp(discountValue, 0, 100)) / 100
+          : clamp(discountValue, 0, subTotal);
+
+        const lineTotal = Math.max(0, subTotal - discountAmount);
+        return sum + lineTotal;
       }, 0);
 
       setActionData(prev => {
@@ -759,6 +789,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     { value: 'project', label: isArabic ? 'مشروع' : 'Project' },
     { value: 'general', label: isArabic ? 'عام' : 'General' }
   ];
+  const reservationTypeLabel = useMemo(() => {
+    const opt = reservationTypes.find((x) => x.value === defaultReservationType);
+    return opt ? opt.label : (defaultReservationType === 'general' ? (isArabic ? 'عام' : 'General') : (isArabic ? 'مشروع' : 'Project'));
+  }, [defaultReservationType, isArabic]);
 
   const meetingStatuses = [
     { value: 'done', label: isArabic ? 'تم الاجتماع' : 'Meeting Done', color: 'bg-green-500' },
@@ -778,7 +812,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const handleAddGeneralRow = () => {
     setActionData(prev => ({
       ...prev,
-      reservationGeneralItems: [...prev.reservationGeneralItems, { category: '', item: '', quantity: 1, price: 0 }]
+      reservationGeneralItems: [...prev.reservationGeneralItems, { category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }]
     }));
   };
 
@@ -806,6 +840,23 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
       return { ...prev, reservationGeneralItems: newItems };
     });
+  };
+
+  const getGeneralRowTotals = (row) => {
+    const quantity = Number(row?.quantity || 0);
+    const price = Number(row?.price || 0);
+    const subTotal = (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(price) ? price : 0);
+
+    const discountType = row?.discount_type || 'value';
+    const rawDiscount = Number(row?.discount_value || 0);
+    const discountValue = Number.isFinite(rawDiscount) ? rawDiscount : 0;
+
+    const discountAmount = discountType === 'percent'
+      ? (subTotal * clamp(discountValue, 0, 100)) / 100
+      : clamp(discountValue, 0, subTotal);
+
+    const total = Math.max(0, subTotal - discountAmount);
+    return { subTotal, discountAmount, total };
   };
 
   const handleUnitChange = (e) => {
@@ -1287,7 +1338,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                       <option value="">{isArabic ? 'اختر المرحلة' : 'Select Stage'}</option>
                       {stages.map(stage => (
                         <option key={stage.id} value={stage.id}>
-                          {stage.name}
+                          {stageLabel(stage)}
                         </option>
                       ))}
                     </select>
@@ -1442,6 +1493,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                     name="meetingType"
                     value={actionData.meetingType}
                     onChange={handleInputChange}
+                    disabled
                     className={`${isLight ? `w-full px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900` : `w-full px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white`}`}
                   >
                     {meetingTypes.map(type => (
@@ -1509,11 +1561,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                     name="reservationType"
                     value={actionData.reservationType}
                     onChange={handleInputChange}
+                    disabled
                     className={`${isLight ? `w-full appearance-none px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900` : `w-full appearance-none px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white`}`}
                   >
-                    {reservationTypes.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
+                    <option value={defaultReservationType}>{reservationTypeLabel}</option>
                   </select>
                   <FaChevronDown className={`absolute ${isRTL ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 ${isLight ? 'text-slate-500' : 'text-gray-300'} pointer-events-none`} />
                 </div>
@@ -1636,6 +1687,37 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                             value={row.price}
                             onChange={(e) => handleGeneralRowChange(index, 'price', e.target.value)}
                             className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                          />
+                        </div>
+                        <div className="w-52">
+                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'Ø®ØµÙ…' : 'Discount'}</label>
+                          <div className="flex gap-2">
+                            <select
+                              value={row.discount_type || 'value'}
+                              onChange={(e) => handleGeneralRowChange(index, 'discount_type', e.target.value)}
+                              className={`${isLight ? 'w-28 appearance-none px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-28 appearance-none px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                              aria-label={isArabic ? 'Ø§Ù„Ù†ÙˆØ¹' : 'Discount type'}
+                            >
+                              <option value="value">{isArabic ? 'Ù‚ÙŠÙ…Ø©' : 'Value'}</option>
+                              <option value="percent">{isArabic ? 'Ù†Ø³Ø¨Ø©' : '%'}</option>
+                            </select>
+                            <input
+                              type="number"
+                              min="0"
+                              value={row.discount_value ?? ''}
+                              onChange={(e) => handleGeneralRowChange(index, 'discount_value', e.target.value)}
+                              className={`${isLight ? 'flex-1 px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                              placeholder={row.discount_type === 'percent' ? '0-100' : '0'}
+                            />
+                          </div>
+                        </div>
+                        <div className="w-32">
+                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ' : 'Total'}</label>
+                          <input
+                            type="number"
+                            value={getGeneralRowTotals(row).total}
+                            readOnly
+                            className={`${isLight ? 'w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
                           />
                         </div>
                         {actionData.reservationGeneralItems.length > 1 && (

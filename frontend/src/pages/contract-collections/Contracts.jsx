@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { useTheme } from '@shared/context/ThemeProvider'
+import { formatUiDateTime } from '@shared/utils/crmDateTime'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { ChevronDown, ChevronUp, Eye, FilePlus2, Filter, Paperclip, Printer, Search, Trash2, Upload, X } from 'lucide-react'
@@ -62,7 +63,7 @@ function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl', 
 
 export default function ContractCollectionsContracts() {
   const { i18n } = useTranslation()
-  const { company } = useAppState()
+  const { company, crmSettings } = useAppState()
   const { isLight } = useTheme()
 
   const isArabic = i18n.language === 'ar'
@@ -73,6 +74,7 @@ export default function ContractCollectionsContracts() {
   const title = useMemo(() => (isArabic ? 'العقود' : 'Contracts'), [isArabic])
   const textColorClass = isLight ? 'text-black' : 'text-white'
   const mutedTextClass = textColorClass
+  const formatDateTime = useCallback((value) => formatUiDateTime(value, { crmSettings, language: i18n.language }), [crmSettings, i18n.language])
 
   const [q, setQ] = useState('')
   const [contractNumber, setContractNumber] = useState('')
@@ -114,8 +116,11 @@ export default function ContractCollectionsContracts() {
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
   const [attachments, setAttachments] = useState([])
+  const [attachmentPreviewOpen, setAttachmentPreviewOpen] = useState(false)
+  const [attachmentPreview, setAttachmentPreview] = useState({ url: '', mime: '', name: '' })
   const [editPlanOpen, setEditPlanOpen] = useState(false)
   const [savingPlan, setSavingPlan] = useState(false)
+  const planCalcLastEditedRef = useRef('count')
   const [planForm, setPlanForm] = useState({
     reservation_amount: '',
     down_payment: '',
@@ -345,6 +350,20 @@ export default function ContractCollectionsContracts() {
     return { added, failed, errors }
   }
 
+  const getAttachmentUrl = useCallback((att) => {
+    const explicit = safeStr(att?.url || att?.download_url || att?.preview_url || '')
+    if (explicit) return explicit
+
+    const filePath = safeStr(att?.file_path || att?.path || '')
+    if (!filePath) return ''
+
+    const base = String(api?.defaults?.baseURL || '').replace(/\/+$/, '')
+    const root = base.replace(/\/api\/?$/i, '') || (typeof window !== 'undefined' ? window.location.origin : '')
+    if (!root) return ''
+
+    return `${root}/storage/${filePath.replace(/^\/+/, '')}`
+  }, [])
+
   const openPreview = async (row) => {
     if (!row?.id) return
     setPreviewOpen(true)
@@ -359,7 +378,8 @@ export default function ContractCollectionsContracts() {
       setAttachmentsLoading(true)
       try {
         const attRes = await api.get(`/api/cc/contracts/${encodeURIComponent(row.id)}/attachments`)
-        setAttachments(Array.isArray(attRes?.data?.data) ? attRes.data.data : [])
+        const list = Array.isArray(attRes?.data?.data) ? attRes.data.data : []
+        setAttachments((Array.isArray(list) ? list : []).map((a) => ({ ...a, url: getAttachmentUrl(a) || a?.url })))
       } catch {
         setAttachments([])
       } finally {
@@ -409,6 +429,57 @@ export default function ContractCollectionsContracts() {
     } catch {
     }
   }
+
+  const toNum0 = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  // Auto-calculate installment value/count in "Edit Payment Plan" as user types.
+  useEffect(() => {
+    if (!editPlanOpen) return
+
+    const contract = previewData?.contract
+    const totalPrice = toNum0(contract?.total_price ?? contract?.property?.total_price ?? previewData?.totals?.total_price)
+    if (!totalPrice) return
+
+    const reservation = toNum0(planForm.reservation_amount)
+    const down = toNum0(planForm.down_payment)
+    const delivery = toNum0(planForm.delivery_payment)
+    const remaining = Math.max(0, totalPrice - reservation - down - delivery)
+
+    const count = toNum0(planForm.installment_count)
+    const value = toNum0(planForm.installment_value)
+
+    const last = planCalcLastEditedRef.current
+    if (last === 'value') {
+      if (value > 0) {
+        const nextCount = Math.max(1, Math.round(remaining / value))
+        if (String(nextCount) !== String(planForm.installment_count || '')) {
+          setPlanForm((p) => ({ ...p, installment_count: String(nextCount) }))
+        }
+      }
+      return
+    }
+
+    if (count > 0) {
+      const nextValue = Math.round((remaining / count) * 100) / 100
+      if (String(nextValue) !== String(planForm.installment_value || '')) {
+        setPlanForm((p) => ({ ...p, installment_value: String(nextValue) }))
+      }
+    }
+  }, [
+    editPlanOpen,
+    previewData?.contract?.id,
+    previewData?.totals?.total_price,
+    previewData?.contract?.total_price,
+    previewData?.contract?.property?.total_price,
+    planForm.reservation_amount,
+    planForm.down_payment,
+    planForm.delivery_payment,
+    planForm.installment_count,
+    planForm.installment_value,
+  ])
 
   const openEditPlan = () => {
     const snapshot = previewData?.contract?.payment_plan_snapshot || {}
@@ -460,12 +531,24 @@ export default function ContractCollectionsContracts() {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       const attRes = await api.get(`/api/cc/contracts/${encodeURIComponent(contractId)}/attachments`)
-      setAttachments(Array.isArray(attRes?.data?.data) ? attRes.data.data : [])
+      const next = Array.isArray(attRes?.data?.data) ? attRes.data.data : []
+      setAttachments((Array.isArray(next) ? next : []).map((a) => ({ ...a, url: getAttachmentUrl(a) || a?.url })))
     } catch {
     } finally {
       setAttachmentsUploading(false)
     }
   }
+
+  const openAttachmentPreview = useCallback((att) => {
+    const url = safeStr(getAttachmentUrl(att) || att?.url || '')
+    if (!url) return
+    setAttachmentPreview({
+      url,
+      mime: safeStr(att?.mime || att?.file_type || att?.meta_data?.mime || ''),
+      name: safeStr(att?.original_name || att?.meta_data?.original_name || att?.file_path || att?.file_name || att?.name || ''),
+    })
+    setAttachmentPreviewOpen(true)
+  }, [getAttachmentUrl])
 
   const deleteAttachment = async (contractId, attachmentId) => {
     if (!contractId || !attachmentId) return
@@ -864,7 +947,7 @@ export default function ContractCollectionsContracts() {
                     <td className="px-3 py-2">{formatCustomerId(row.customer_id)}</td>
                     <td className="px-3 py-2">{safeStr(row.customer?.name)}</td>
                     <td className="px-3 py-2" dir="ltr">
-                      {safeStr(row.contract_date || '')}
+                      {formatDateTime(row.contract_date)}
                     </td>
                     <td className="px-3 py-2">{safeStr(prop?.unit_code)}</td>
                     <td className="px-3 py-2">{unitNo || '-'}</td>
@@ -1060,7 +1143,7 @@ export default function ContractCollectionsContracts() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
                 <div>
                   <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'تاريخ العقد' : 'Contract Date'}</div>
-                  <div dir="ltr">{safeStr(previewData.contract.contract_date || '')}</div>
+                  <div dir="ltr">{formatDateTime(previewData.contract.contract_date)}</div>
                 </div>
                 <div>
                   <div className={`text-xs ${mutedTextClass}`}>{isArabic ? 'السعر' : 'Total Price'}</div>
@@ -1114,26 +1197,29 @@ export default function ContractCollectionsContracts() {
                       {attachments.map((a) => (
                         <tr key={a.id} className="border-t border-[var(--panel-border)]">
                           <td className="px-3 py-2">
-                            <a className="text-blue-600 hover:underline" href={a.url || '#'} target="_blank" rel="noreferrer">
-                              {safeStr(a.original_name || a.file_path || `#${a.id}`)}
+                            <a className="text-blue-600 hover:underline" href={getAttachmentUrl(a) || '#'} target="_blank" rel="noreferrer">
+                              {safeStr(a.original_name || a?.meta_data?.original_name || a.file_path || `#${a.id}`)}
                             </a>
-                            {String(a?.mime || a?.file_type || '').startsWith('image/') && a.url ? (
+                            {String(a?.mime || a?.file_type || a?.meta_data?.mime || '').startsWith('image/') && getAttachmentUrl(a) ? (
                               <div className="mt-2">
-                                <a href={a.url} target="_blank" rel="noreferrer" className="inline-block">
-                                  <img src={a.url} alt="attachment" className="h-12 w-auto rounded border border-[var(--panel-border)]" />
+                                <a href={getAttachmentUrl(a)} target="_blank" rel="noreferrer" className="inline-block">
+                                  <img src={getAttachmentUrl(a)} alt="attachment" className="h-12 w-auto rounded border border-[var(--panel-border)]" />
                                 </a>
                               </div>
                             ) : null}
                           </td>
-                          <td className="px-3 py-2">{safeStr(a.mime || a.file_type || '')}</td>
+                          <td className="px-3 py-2">{safeStr(a.mime || a.file_type || a?.meta_data?.mime || '')}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-1">
                               <a
-                                href={a.url || '#'}
-                                target="_blank"
-                                rel="noreferrer"
-                                className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${a.url ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 pointer-events-none'}`}
-                                title={isArabic ? 'فتح' : 'Open'}
+                                href={getAttachmentUrl(a) || '#'}
+                                onClick={(e) => {
+                                  if (!getAttachmentUrl(a)) return
+                                  e.preventDefault()
+                                  openAttachmentPreview({ ...a, url: getAttachmentUrl(a) })
+                                }}
+                                className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${getAttachmentUrl(a) ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 pointer-events-none'}`}
+                                title={isArabic ? 'معاينة' : 'Preview'}
                               >
                                 <Eye className="w-4 h-4" />
                               </a>
@@ -1156,6 +1242,49 @@ export default function ContractCollectionsContracts() {
             </div>
           </div>
         )}
+      </ModalShell>
+
+      <ModalShell
+        open={attachmentPreviewOpen}
+        title={attachmentPreview?.name ? (isArabic ? `معاينة: ${attachmentPreview.name}` : `Preview: ${attachmentPreview.name}`) : (isArabic ? 'معاينة المرفق' : 'Attachment Preview')}
+        onClose={() => setAttachmentPreviewOpen(false)}
+        textColorClass={textColorClass}
+        closeTitle={isArabic ? 'إغلاق' : 'Close'}
+      >
+        <div className="space-y-3">
+          <div className="flex items-center justify-end gap-2">
+            <a
+              href={attachmentPreview?.url || '#'}
+              target="_blank"
+              rel="noreferrer"
+              className={`px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm ${attachmentPreview?.url ? '' : 'pointer-events-none opacity-50'}`}
+            >
+              {isArabic ? 'فتح في تبويب جديد' : 'Open in new tab'}
+            </a>
+          </div>
+
+          {String(attachmentPreview?.mime || '').startsWith('image/') && attachmentPreview?.url ? (
+            <div className="flex justify-center">
+              <img
+                src={attachmentPreview.url}
+                alt={attachmentPreview.name || 'attachment'}
+                className="max-h-[70vh] w-auto rounded-xl border border-[var(--panel-border)]"
+              />
+            </div>
+          ) : String(attachmentPreview?.mime || '').includes('pdf') && attachmentPreview?.url ? (
+            <iframe
+              title="attachment-preview"
+              src={attachmentPreview.url}
+              className="w-full h-[70vh] rounded-xl border border-[var(--panel-border)]"
+            />
+          ) : attachmentPreview?.url ? (
+            <div className={`text-sm ${mutedTextClass}`}>
+              {isArabic ? 'لا يمكن عرض هذا النوع داخل الصفحة. استخدم زر \"فتح في تبويب جديد\".' : 'This file type cannot be previewed inline. Use “Open in new tab”.'}
+            </div>
+          ) : (
+            <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا يوجد رابط للملف' : 'No file URL available'}</div>
+          )}
+        </div>
       </ModalShell>
 
       <ModalShell
@@ -1190,11 +1319,25 @@ export default function ContractCollectionsContracts() {
             </div>
             <div>
               <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'عدد الأقساط' : 'Installment Count'}</label>
-              <input className="input w-full" value={planForm.installment_count} onChange={(e) => setPlanForm((p) => ({ ...p, installment_count: e.target.value }))} />
+              <input
+                className="input w-full"
+                value={planForm.installment_count}
+                onChange={(e) => {
+                  planCalcLastEditedRef.current = 'count'
+                  setPlanForm((p) => ({ ...p, installment_count: e.target.value }))
+                }}
+              />
             </div>
             <div>
               <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'قيمة القسط' : 'Installment Value'}</label>
-              <input className="input w-full" value={planForm.installment_value} onChange={(e) => setPlanForm((p) => ({ ...p, installment_value: e.target.value }))} />
+              <input
+                className="input w-full"
+                value={planForm.installment_value}
+                onChange={(e) => {
+                  planCalcLastEditedRef.current = 'value'
+                  setPlanForm((p) => ({ ...p, installment_value: e.target.value }))
+                }}
+              />
             </div>
             <div>
               <label className={`text-xs ${mutedTextClass}`}>{isArabic ? 'أول تاريخ استحقاق' : 'First Due Date'}</label>
