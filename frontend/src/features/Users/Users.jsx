@@ -47,6 +47,7 @@ const UserActions = ({
   canDelete,
   canManageRotation,
   isRotationAssigned,
+  isDelayRotation,
   onEdit,
   onPreview,
   onChangePassword,
@@ -55,6 +56,7 @@ const UserActions = ({
   onAssignRotation,
   onDelayRotation,
   onUnassignRotation,
+  onRemoveDelayRotation,
 }) => {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
@@ -144,6 +146,12 @@ const UserActions = ({
                {canManageRotation && (
                  <button onClick={() => { onDelayRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
                     <Clock className="w-4 h-4 block shrink-0 text-orange-500"/> Delay Rotation
+                    {isDelayRotation ? <Check className="w-4 h-4 ms-auto text-green-500" /> : null}
+                 </button>
+               )}
+               {canManageRotation && isDelayRotation && (
+                 <button onClick={() => { onRemoveDelayRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-red-600 dark:text-red-400">
+                    <X className="w-4 h-4 block shrink-0 text-red-500"/> Remove Delay Rotation
                  </button>
                )}
                {canManageRotation && canDelete && <div className="h-px bg-gray-100 dark:bg-gray-700 my-1"></div>}
@@ -247,28 +255,39 @@ export default function UserManagementUsers() {
   const [isLoading, setIsLoading] = useState(true);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [assignedRotationUserIds, setAssignedRotationUserIds] = useState(() => new Set());
+  const [delayedRotationUserIds, setDelayedRotationUserIds] = useState(() => new Set());
 
-  const fetchAssignedRotationUsers = useCallback(async () => {
+  const buildRotationUserSet = useCallback((rules) => {
+    const next = new Set();
+    const list = Array.isArray(rules) ? rules : [];
+    for (const r of list) {
+      if (r?.is_active && r?.user_id != null) next.add(Number(r.user_id));
+    }
+    return next;
+  }, []);
+
+  const fetchRotationRuleUsers = useCallback(async () => {
     try {
-      const rulesRes = await api.get('/api/rotation-rules', { params: { type: 'assign' } });
-      const rules = Array.isArray(rulesRes?.data?.rules) ? rulesRes.data.rules : [];
-      const next = new Set();
-      for (const r of rules) {
-        if (r?.is_active && r?.user_id != null) next.add(Number(r.user_id));
-      }
-      setAssignedRotationUserIds(next);
+      const [assignRes, delayRes] = await Promise.all([
+        api.get('/api/rotation-rules', { params: { type: 'assign' } }),
+        api.get('/api/rotation-rules', { params: { type: 'delay' } }),
+      ]);
+      setAssignedRotationUserIds(buildRotationUserSet(assignRes?.data?.rules));
+      setDelayedRotationUserIds(buildRotationUserSet(delayRes?.data?.rules));
     } catch {
       setAssignedRotationUserIds(new Set());
+      setDelayedRotationUserIds(new Set());
     }
-  }, []);
+  }, [buildRotationUserSet]);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [usersRes, deptsRes, rulesRes] = await Promise.all([
+      const [usersRes, deptsRes, assignRulesRes, delayRulesRes] = await Promise.all([
         api.get('/api/users'),
         api.get('/api/departments'),
         api.get('/api/rotation-rules', { params: { type: 'assign' } }),
+        api.get('/api/rotation-rules', { params: { type: 'delay' } }),
       ]);
       const rawUsers = Array.isArray(usersRes.data)
         ? usersRes.data
@@ -310,12 +329,8 @@ export default function UserManagementUsers() {
       setUsers(normalizedUsers);
       setDepartments(deptsRes.data);
 
-      const rules = Array.isArray(rulesRes?.data?.rules) ? rulesRes.data.rules : [];
-      const next = new Set();
-      for (const r of rules) {
-        if (r?.is_active && r?.user_id != null) next.add(Number(r.user_id));
-      }
-      setAssignedRotationUserIds(next);
+      setAssignedRotationUserIds(buildRotationUserSet(assignRulesRes?.data?.rules));
+      setDelayedRotationUserIds(buildRotationUserSet(delayRulesRes?.data?.rules));
     } catch (err) {
       console.error('Failed to fetch data', err);
       window.dispatchEvent(new CustomEvent('app:toast', { 
@@ -324,7 +339,7 @@ export default function UserManagementUsers() {
     } finally {
       setIsLoading(false);
     }
-  }, [isArabic]);
+  }, [buildRotationUserSet, isArabic]);
 
   useEffect(() => {
     fetchData();
@@ -663,13 +678,34 @@ export default function UserManagementUsers() {
       : `Unassign rotation for ${target.name || ''}?`);
     if (!ok) return;
     try {
-      await api.post('/api/rotation-rules/unassign', { user_id: Number(id) });
-      await fetchAssignedRotationUsers();
+      await api.post('/api/rotation-rules/unassign', { user_id: Number(id), type: 'assign' });
+      await fetchRotationRuleUsers();
       window.dispatchEvent(new CustomEvent('app:toast', {
         detail: { type: 'success', message: isArabic ? 'تم إلغاء التعيين بنجاح' : 'Rotation unassigned' },
       }));
     } catch (e) {
       const message = e?.response?.data?.message || (isArabic ? 'فشل إلغاء التعيين' : 'Failed to unassign rotation');
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'error', message },
+      }));
+    }
+  }
+
+  const removeDelayRotation = async (id) => {
+    if (!canRunMultiAction) return;
+    const target = users.find(u => Number(u.id) === Number(id)) || { id };
+    const ok = window.confirm(isArabic
+      ? `Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø¥Ù„ØºØ§Ø¡ Delay Rotation Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù… ${target.name || ''}ØŸ`
+      : `Remove delay rotation for ${target.name || ''}?`);
+    if (!ok) return;
+    try {
+      await api.post('/api/rotation-rules/unassign', { user_id: Number(id), type: 'delay' });
+      await fetchRotationRuleUsers();
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'success', message: isArabic ? 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ£Ø®ÙŠØ± Ø¨Ù†Ø¬Ø§Ø­' : 'Delay rotation removed' },
+      }));
+    } catch (e) {
+      const message = e?.response?.data?.message || (isArabic ? 'ÙØ´Ù„ Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ£Ø®ÙŠØ±' : 'Failed to remove delay rotation');
       window.dispatchEvent(new CustomEvent('app:toast', {
         detail: { type: 'error', message },
       }));
@@ -1202,6 +1238,7 @@ export default function UserManagementUsers() {
                           canDelete={canDeleteUsers}
                           canManageRotation={canRunMultiAction}
                           isRotationAssigned={assignedRotationUserIds.has(Number(u.id))}
+                          isDelayRotation={delayedRotationUserIds.has(Number(u.id))}
                           onPreview={() => handlePreviewUser(u)}
                           onEdit={() => handleEditUser(u)}
                           onChangePassword={() => changePassword(u.id)}
@@ -1210,6 +1247,7 @@ export default function UserManagementUsers() {
                           onAssignRotation={() => assignRotation(u.id)}
                           onDelayRotation={() => delayRotation(u.id)}
                           onUnassignRotation={() => unassignRotation(u.id)}
+                          onRemoveDelayRotation={() => removeDelayRotation(u.id)}
                         />
                       </td>
                     </tr>
@@ -1303,6 +1341,7 @@ export default function UserManagementUsers() {
                           canDelete={canDeleteUsers}
                           canManageRotation={canRunMultiAction}
                           isRotationAssigned={assignedRotationUserIds.has(Number(u.id))}
+                          isDelayRotation={delayedRotationUserIds.has(Number(u.id))}
                           onPreview={() => handlePreviewUser(u)}
                           onEdit={() => handleEditUser(u)}
                           onChangePassword={() => changePassword(u.id)}
@@ -1311,6 +1350,7 @@ export default function UserManagementUsers() {
                           onAssignRotation={() => assignRotation(u.id)}
                           onDelayRotation={() => delayRotation(u.id)}
                           onUnassignRotation={() => unassignRotation(u.id)}
+                          onRemoveDelayRotation={() => removeDelayRotation(u.id)}
                         />
                     </div>
                  </div>
@@ -1389,7 +1429,7 @@ export default function UserManagementUsers() {
             onClose={() => setRotationRuleOpen(false)}
             user={rotationRuleUser}
             type={rotationRuleType}
-            onSaved={fetchAssignedRotationUsers}
+            onSaved={fetchRotationRuleUsers}
           />
 
         {canAddUsers && showCreateModal && createPortal(

@@ -185,6 +185,7 @@ export default function ContractCollectionsInstallments() {
   const [receiptOpen, setReceiptOpen] = useState(false)
   const [receiptLoading, setReceiptLoading] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState('')
+  const [receiptError, setReceiptError] = useState('')
 
   const loadLookups = useCallback(async () => {
     try {
@@ -445,7 +446,14 @@ export default function ContractCollectionsInstallments() {
       setActionPaymentId(null)
       setActionReason('')
       await load(pageMeta.current_page || 1)
-    } catch {
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        (typeof e?.message === 'string' ? e.message : '') ||
+        (isArabic ? 'حدث خطأ' : 'Something went wrong')
+      try {
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: msg } }))
+      } catch {}
     } finally {
       setActionSaving(false)
     }
@@ -453,6 +461,7 @@ export default function ContractCollectionsInstallments() {
 
   const closeReceipt = () => {
     setReceiptOpen(false)
+    setReceiptError('')
     if (receiptUrl) {
       try {
         URL.revokeObjectURL(receiptUrl)
@@ -461,9 +470,45 @@ export default function ContractCollectionsInstallments() {
     setReceiptUrl('')
   }
 
+  const openReceiptByInstallment = async (installmentId) => {
+    if (!installmentId) return
+    setReceiptError('')
+    setReceiptLoading(true)
+    setReceiptOpen(true)
+
+    // Use authenticated API client (cookies/headers) then preview as a blob URL.
+    try {
+      if (receiptUrl) {
+        try {
+          URL.revokeObjectURL(receiptUrl)
+        } catch {}
+      }
+      const res = await api.get(`/api/cc/receipts/installments/${encodeURIComponent(installmentId)}/print`, {
+        responseType: 'blob',
+        headers: { Accept: 'text/html' },
+      })
+      const blobUrl = URL.createObjectURL(res.data)
+      setReceiptUrl(blobUrl)
+    } catch (e) {
+      setReceiptUrl('')
+      const msg =
+        e?.response?.data?.message ||
+        (typeof e?.message === 'string' ? e.message : '') ||
+        (isArabic ? 'تعذر تحميل الإيصال' : 'Unable to load receipt')
+      setReceiptError(msg)
+      try {
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: msg } }))
+      } catch {}
+    } finally {
+      setReceiptLoading(false)
+    }
+  }
+
   const openReceipt = async (paymentId) => {
     if (!paymentId) return
+    setReceiptError('')
     setReceiptLoading(true)
+    setReceiptOpen(true)
 
     // Use authenticated API client (cookies/headers) then preview as a blob URL.
     try {
@@ -478,10 +523,16 @@ export default function ContractCollectionsInstallments() {
       })
       const blobUrl = URL.createObjectURL(res.data)
       setReceiptUrl(blobUrl)
-      setReceiptOpen(true)
-    } catch {
+    } catch (e) {
       setReceiptUrl('')
-      setReceiptOpen(false)
+      const msg =
+        e?.response?.data?.message ||
+        (typeof e?.message === 'string' ? e.message : '') ||
+        (isArabic ? 'تعذر تحميل الإيصال' : 'Unable to load receipt')
+      setReceiptError(msg)
+      try {
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: msg } }))
+      } catch {}
     } finally {
       setReceiptLoading(false)
     }
@@ -539,17 +590,17 @@ export default function ContractCollectionsInstallments() {
       </div>
 
       {/* Filter (System UX) */}
-      <div className="glass-panel p-4 rounded-xl">
-        <div className="flex justify-between items-center mb-3">
+      <div className="glass-panel p-4 rounded-xl relative">
+        <div className="flex justify-between items-center mb-3 relative z-10 pointer-events-auto">
           <h2 className={`text-sm font-semibold flex items-center gap-2 ${textColorClass}`}>
             <Filter className="text-blue-500" size={16} /> {isArabic ? 'تصفية' : 'Filter'}
           </h2>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 relative z-10 pointer-events-auto">
             <button
               type="button"
               onClick={() => setShowAllFilters((v) => !v)}
-              className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex items-center gap-2"
+              className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex items-center gap-2 relative z-10 pointer-events-auto"
             >
               <span>{isArabic ? 'عرض الكل' : 'Show All'}</span>
               {showAllFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -558,7 +609,7 @@ export default function ContractCollectionsInstallments() {
             <button
               type="button"
               onClick={resetFilters}
-              className={`px-3 py-1.5 text-sm ${textColorClass} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors inline-flex items-center gap-2`}
+              className={`px-3 py-1.5 text-sm ${textColorClass} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors inline-flex items-center gap-2 relative z-10 pointer-events-auto`}
             >
               <X className="w-4 h-4" />
               {isArabic ? 'إعادة تعيين' : 'Reset'}
@@ -758,8 +809,7 @@ export default function ContractCollectionsInstallments() {
                   const amount = Number(row?.amount || 0)
                   const outstanding = Math.max(0, amount - paid)
                   const canPay = outstanding > 0.00001 && String(row?.status || '').toLowerCase() !== 'paid'
-                  const paymentStatus = String(latestPayment?.payment_status ?? latestPayment?.status ?? '').toLowerCase()
-                  const canReversePayment = !!paymentId && (paymentStatus === '' || paymentStatus === 'posted')
+                  const canReversePayment = !!paymentId
                   const canMarkUnpaid = paid <= 0.00001 && String(row?.status || '').toLowerCase() !== 'paid'
 
                   return (
@@ -840,10 +890,13 @@ export default function ContractCollectionsInstallments() {
                           </button>
                           <button
                             type="button"
-                            className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${paymentId ? '' : 'opacity-40 cursor-not-allowed'}`}
+                            className={`p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 ${paymentId || paid > 0.00001 ? '' : 'opacity-40 cursor-not-allowed'}`}
                             title={isArabic ? 'إيصال' : 'Receipt'}
-                            onClick={() => paymentId && openReceipt(paymentId)}
-                            disabled={!paymentId}
+                            onClick={() => {
+                              if (paymentId) return openReceipt(paymentId)
+                              if (paid > 0.00001) return openReceiptByInstallment(row?.id)
+                            }}
+                            disabled={!paymentId && !(paid > 0.00001)}
                           >
                             <FileText className="w-4 h-4" />
                           </button>
@@ -1110,7 +1163,9 @@ export default function ContractCollectionsInstallments() {
             {receiptLoading ? (
               <div className={`p-6 text-sm ${textColorClass}`}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</div>
             ) : !receiptUrl ? (
-              <div className={`p-6 text-sm ${textColorClass}`}>{isArabic ? 'لا يوجد إيصال' : 'No receipt available'}</div>
+              <div className={`p-6 text-sm ${textColorClass}`}>
+                {receiptError ? receiptError : (isArabic ? 'لا يوجد إيصال' : 'No receipt available')}
+              </div>
             ) : (
               <iframe
                 ref={receiptIframeRef}

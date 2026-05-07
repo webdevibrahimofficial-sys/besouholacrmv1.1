@@ -289,8 +289,19 @@ const deriveCcPlanFromProperty = (property) => {
 }
 
 function openPrintWindow({ title, blocks, dir = 'ltr' }) {
-  const win = window.open('', '_blank', 'noopener,noreferrer')
-  if (!win) return
+  const win = window.open('', '_blank', 'noopener')
+  if (!win) {
+    try {
+      const isAr = document?.documentElement?.dir === 'rtl' || document?.documentElement?.lang === 'ar'
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isAr ? 'تم حظر النافذة المنبثقة. اسمح بالنوافذ المنبثقة ثم جرّب الطباعة مرة أخرى.' : 'Popup blocked. Please allow popups then try Print again.',
+        },
+      }))
+    } catch {}
+    return
+  }
   const htmlBlocks = (Array.isArray(blocks) ? blocks : [])
     .map(
       (b) => `
@@ -332,10 +343,20 @@ function openPrintWindow({ title, blocks, dir = 'ltr' }) {
       <body>
         <h1>${title || ''}</h1>
         <div class="grid">${htmlBlocks}</div>
-        <script>setTimeout(() => window.print(), 250);</script>
       </body>
     </html>`)
   win.document.close()
+
+  // Some browsers block auto-print from injected scripts; triggering from the opener is more reliable.
+  try {
+    win.focus()
+  } catch {}
+  setTimeout(() => {
+    try {
+      win.focus()
+      win.print()
+    } catch {}
+  }, 350)
 }
 
 function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl', textColorClass = '' }) {

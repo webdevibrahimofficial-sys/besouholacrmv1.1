@@ -1,14 +1,42 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, CheckCircle2, Copy, Eye, FilePlus2, RefreshCcw, Save, Trash2, Upload, X } from 'lucide-react'
+import {
+  AlertCircle,
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  CheckCircle2,
+  ChevronDown,
+  Copy,
+  Eye,
+  FilePlus2,
+  IndentDecrease,
+  IndentIncrease,
+  Italic,
+  List,
+  ListOrdered,
+  Paintbrush,
+  RefreshCcw,
+  Save,
+  Scissors,
+  Search,
+  Trash2,
+  Underline,
+  Upload,
+  X,
+} from 'lucide-react'
 import { api } from '@utils/api'
 import { createContractTemplate, deleteContractTemplate, getContractTemplates, updateContractTemplate } from '@services/contractTemplateService'
 import { EditorContent, useEditor } from '@tiptap/react'
+import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import TextAlign from '@tiptap/extension-text-align'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import { TextStyle } from '@tiptap/extension-text-style'
 import { Color } from '@tiptap/extension-color'
+import UnderlineExtension from '@tiptap/extension-underline'
 
 const emptyDraft = () => ({
   id: null,
@@ -25,7 +53,7 @@ const stripWordTipsFromHtml = (html) => {
   const raw = String(html || '')
   if (!raw) return raw
 
-  const shouldStrip = /Word\s*:|نصائح\s*عند\s*نقل\s*المحتوى/i.test(raw)
+  const shouldStrip = /Word\s*:|Ù†ØµØ§Ø¦Ø­\s*Ø¹Ù†Ø¯\s*Ù†Ù‚Ù„\s*Ø§Ù„Ù…Ø­ØªÙˆÙ‰/i.test(raw)
   if (!shouldStrip) return raw
 
   try {
@@ -39,15 +67,15 @@ const stripWordTipsFromHtml = (html) => {
       if (!t.trim()) return false
       return (
         /Word\s*:/i.test(t) ||
-        /نصائح\s*عند\s*نقل\s*المحتوى/i.test(t) ||
-        t.includes('قم بنسخ') ||
-        t.includes('ولصقه') ||
-        t.includes('تأكد من كتابة البيانات') ||
-        t.includes('بين القوسين') ||
-        t.includes('يفضل مراجعة العقد') ||
-        t.includes('محام') ||
-        t.includes('لضمان التوافق') ||
-        t.includes('القوانين المحلية')
+        /Ù†ØµØ§Ø¦Ø­\s*Ø¹Ù†Ø¯\s*Ù†Ù‚Ù„\s*Ø§Ù„Ù…Ø­ØªÙˆÙ‰/i.test(t) ||
+        t.includes('Ù‚Ù… Ø¨Ù†Ø³Ø®') ||
+        t.includes('ÙˆÙ„ØµÙ‚Ù‡') ||
+        t.includes('ØªØ£ÙƒØ¯ Ù…Ù† ÙƒØªØ§Ø¨Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª') ||
+        t.includes('Ø¨ÙŠÙ† Ø§Ù„Ù‚ÙˆØ³ÙŠÙ†') ||
+        t.includes('ÙŠÙØ¶Ù„ Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø¹Ù‚Ø¯') ||
+        t.includes('Ù…Ø­Ø§Ù…') ||
+        t.includes('Ù„Ø¶Ù…Ø§Ù† Ø§Ù„ØªÙˆØ§ÙÙ‚') ||
+        t.includes('Ø§Ù„Ù‚ÙˆØ§Ù†ÙŠÙ† Ø§Ù„Ù…Ø­Ù„ÙŠØ©')
       )
     }
 
@@ -94,199 +122,592 @@ function RibbonButton({ active, disabled, onClick, title, children, className = 
   )
 }
 
-function RibbonGroup({ title, children }) {
+function RibbonGroup({ title, children, className = '' }) {
   return (
-    <div className="flex flex-col gap-1 px-3 py-2 border-r border-[var(--panel-border)] last:border-r-0">
+    <div className={['flex items-center gap-2 px-3 py-2 border-r border-[var(--panel-border)] last:border-r-0', className].join(' ')}>
       <div className="flex flex-wrap items-center gap-1">{children}</div>
-      <div className="text-[11px] opacity-70">{title}</div>
+      {title ? <div className="sr-only">{title}</div> : null}
     </div>
   )
 }
 
-function WordLikeRibbon({ editor, t, insertPlaceholder }) {
-  const [tab, setTab] = useState('home') // home|insert|view
+const TextStyleWordExtras = Extension.create({
+  name: 'textStyleWordExtras',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['textStyle'],
+        attributes: {
+          fontFamily: {
+            default: null,
+            parseHTML: (element) => {
+              const ff = element?.style?.fontFamily || ''
+              const cleaned = String(ff).replace(/['"]/g, '').trim()
+              return cleaned || null
+            },
+            renderHTML: (attributes) => {
+              if (!attributes.fontFamily) return {}
+              return { style: `font-family: ${attributes.fontFamily}` }
+            },
+          },
+          fontSize: {
+            default: null,
+            parseHTML: (element) => {
+              const fs = element?.style?.fontSize || ''
+              const cleaned = String(fs).trim()
+              return cleaned || null
+            },
+            renderHTML: (attributes) => {
+              if (!attributes.fontSize) return {}
+              return { style: `font-size: ${attributes.fontSize}` }
+            },
+          },
+        },
+      },
+    ]
+  },
+})
 
-  const toggleUnderline = () => {
-    if (!editor) return
-    if (typeof editor?.commands?.toggleUnderline !== 'function') return
-    editor.chain().focus().toggleUnderline().run()
+function WordLikeRibbon({ editor, t, insertPlaceholder }) {
+  const [fontFamily, setFontFamily] = useState('Times New Roman')
+  const [fontSize, setFontSize] = useState('10pt')
+  const [stylesOpen, setStylesOpen] = useState(false)
+  const [headingOpen, setHeadingOpen] = useState(false)
+  const [selectOpen, setSelectOpen] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [replaceQuery, setReplaceQuery] = useState('')
+  const [formatPainterOn, setFormatPainterOn] = useState(false)
+  const painterSnapshotRef = useRef(null)
+
+  const stylesRef = useRef(null)
+  const headingRef = useRef(null)
+  const selectRef = useRef(null)
+
+  const can = (fn) => {
+    if (!editor) return false
+    try {
+      return !!fn()
+    } catch {
+      return false
+    }
   }
 
-  const content = (
-    <div className="border border-[var(--panel-border)] rounded-2xl overflow-hidden bg-[var(--content-bg)]">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--panel-border)] bg-black/5 dark:bg-white/5">
-        {[
-          { key: 'home', label: t('Home') },
-          { key: 'insert', label: t('Insert') },
-          { key: 'view', label: t('View') },
-        ].map((x) => (
-          <button
-            key={x.key}
-            type="button"
-            onClick={() => setTab(x.key)}
-            className={[
-              'px-3 py-1.5 rounded-lg text-sm font-medium',
-              tab === x.key ? 'bg-white/70 dark:bg-black/30 border border-[var(--panel-border)]' : 'hover:bg-white/50 dark:hover:bg-black/20',
-            ].join(' ')}
+  const applyTextStyle = (attrs) => {
+    if (!editor) return
+    editor.chain().focus().setMark('textStyle', attrs).run()
+  }
+
+  const onChangeFontFamily = (next) => {
+    setFontFamily(next)
+    applyTextStyle({ fontFamily: next })
+  }
+
+  const onChangeFontSize = (next) => {
+    const v = String(next || '').trim()
+    if (!v) return
+    const normalized = /^\d+$/.test(v) ? `${v}pt` : v
+    setFontSize(normalized)
+    applyTextStyle({ fontSize: normalized })
+  }
+
+  const currentStyle = useMemo(() => {
+    if (!editor) return { kind: 'paragraph', label: 'Normal' }
+    if (editor.isActive('heading', { level: 1 })) return { kind: 'heading', level: 1, label: 'Heading 1' }
+    if (editor.isActive('heading', { level: 2 })) return { kind: 'heading', level: 2, label: 'Heading 2' }
+    if (editor.isActive('heading', { level: 3 })) return { kind: 'heading', level: 3, label: 'Heading 3' }
+    return { kind: 'paragraph', label: 'Normal' }
+  }, [editor, editor?.state])
+
+  useEffect(() => {
+    const onDown = (e) => {
+      const tEl = e?.target
+      if (!tEl) return
+
+      const isInside = (ref) => {
+        const el = ref?.current
+        return el && (el === tEl || el.contains(tEl))
+      }
+
+      if (stylesOpen && !isInside(stylesRef)) setStylesOpen(false)
+      if (headingOpen && !isInside(headingRef)) setHeadingOpen(false)
+      if (selectOpen && !isInside(selectRef)) setSelectOpen(false)
+    }
+
+    window.addEventListener('mousedown', onDown, true)
+    return () => window.removeEventListener('mousedown', onDown, true)
+  }, [stylesOpen, headingOpen, selectOpen])
+
+  const doFindNext = () => {
+    const q = String(findQuery || '').trim()
+    if (!q) return
+    try {
+      editor?.chain().focus().run()
+    } catch {}
+    try {
+      // window.find selects inside the contentEditable and scrolls to it.
+      window.find(q, false, false, true)
+    } catch {}
+  }
+
+  const doReplaceOne = () => {
+    const q = String(findQuery || '').trim()
+    if (!q) return
+    try {
+      editor?.chain().focus().run()
+    } catch {}
+
+    // If nothing selected, find first.
+    try {
+      if (editor?.state?.selection?.empty) doFindNext()
+    } catch {}
+
+    try {
+      if (!editor) return
+      editor.chain().focus().insertContent(String(replaceQuery ?? '')).run()
+      doFindNext()
+    } catch {}
+  }
+
+  const doReplaceAll = () => {
+    const q = String(findQuery || '').trim()
+    if (!q) return
+    try {
+      editor?.chain().focus().run()
+    } catch {}
+
+    let guard = 0
+    while (guard < 500) {
+      guard += 1
+      let found = false
+      try {
+        found = !!window.find(q, false, false, true)
+      } catch {
+        found = false
+      }
+      if (!found) break
+      try {
+        editor?.chain().focus().insertContent(String(replaceQuery ?? '')).run()
+      } catch {
+        break
+      }
+    }
+  }
+
+  const focusEditor = () => {
+    try {
+      editor?.chain().focus().run()
+    } catch {}
+  }
+
+  const doCopy = () => {
+    focusEditor()
+    try {
+      document.execCommand?.('copy')
+    } catch {}
+  }
+
+  const doCut = () => {
+    focusEditor()
+    try {
+      document.execCommand?.('cut')
+    } catch {}
+  }
+
+  const doPaste = async () => {
+    focusEditor()
+    // Prefer clipboard API (works in modern browsers when allowed).
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) {
+        editor?.chain().focus().insertContent(text).run()
+        return
+      }
+    } catch {}
+
+    // Fallback (may be blocked by browser permissions).
+    try {
+      document.execCommand?.('paste')
+    } catch {}
+  }
+
+  const toggleFormatPainter = () => {
+    if (!editor) return
+
+    const nextOn = !formatPainterOn
+    setFormatPainterOn(nextOn)
+
+    if (!nextOn) {
+      painterSnapshotRef.current = null
+      return
+    }
+
+    const textStyleAttrs = editor.getAttributes('textStyle') || {}
+    painterSnapshotRef.current = {
+      bold: editor.isActive('bold'),
+      italic: editor.isActive('italic'),
+      underline: editor.isActive('underline'),
+      color: editor.getAttributes('textStyle')?.color || editor.getAttributes('textStyle')?.color,
+      fontFamily: textStyleAttrs.fontFamily || null,
+      fontSize: textStyleAttrs.fontSize || null,
+    }
+  }
+
+  useEffect(() => {
+    if (!editor) return
+    if (!formatPainterOn) return
+
+    const applyPainter = () => {
+      const snap = painterSnapshotRef.current
+      if (!snap) return
+      const empty = editor.state?.selection?.empty
+      if (empty) return
+
+      try {
+        const chain = editor.chain().focus()
+
+        if (snap.bold) chain.setBold?.()
+        else chain.unsetBold?.()
+
+        if (snap.italic) chain.setItalic?.()
+        else chain.unsetItalic?.()
+
+        if (snap.underline) chain.setUnderline?.()
+        else chain.unsetUnderline?.()
+
+        const styleAttrs = {}
+        if (snap.fontFamily) styleAttrs.fontFamily = snap.fontFamily
+        if (snap.fontSize) styleAttrs.fontSize = snap.fontSize
+        if (Object.keys(styleAttrs).length) chain.setMark('textStyle', styleAttrs)
+
+        // Color extension uses setColor/unsetColor.
+        if (snap.color) chain.setColor?.(snap.color)
+
+        chain.run()
+      } catch {}
+
+      // One-shot behavior like Word.
+      setFormatPainterOn(false)
+      painterSnapshotRef.current = null
+    }
+
+    editor.on('selectionUpdate', applyPainter)
+    return () => {
+      try {
+        editor.off('selectionUpdate', applyPainter)
+      } catch {}
+    }
+  }, [editor, formatPainterOn])
+
+  return (
+    <div className="border border-[var(--panel-border)] rounded-2xl overflow-hidden bg-white text-black shadow-sm">
+      <div className="flex items-center gap-0 px-2 py-2">
+        <RibbonGroup title={t('Clipboard')}>
+          <RibbonButton title={t('Format Painter')} disabled={!editor} onClick={toggleFormatPainter} active={formatPainterOn} className="px-2">
+            <Paintbrush className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Paste')} disabled={!editor} onClick={doPaste} className="px-2">
+            <Copy className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Cut')} disabled={!editor} onClick={doCut} className="px-2">
+            <Scissors className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Copy')} disabled={!editor} onClick={doCopy} className="px-2">
+            <Copy className="h-4 w-4" />
+          </RibbonButton>
+        </RibbonGroup>
+
+        <RibbonGroup title={t('Font')} className="gap-3">
+          <select
+            className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm min-w-[170px]"
+            value={fontFamily}
+            onChange={(e) => onChangeFontFamily(e.target.value)}
+            title={t('Font Family')}
           >
-            {x.label}
-          </button>
-        ))}
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Arial">Arial</option>
+            <option value="Calibri">Calibri</option>
+            <option value="Tahoma">Tahoma</option>
+            <option value="Verdana">Verdana</option>
+          </select>
+          <select
+            className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm w-[88px]"
+            value={fontSize}
+            onChange={(e) => onChangeFontSize(e.target.value)}
+            title={t('Font Size')}
+          >
+            {['8pt', '9pt', '10pt', '11pt', '12pt', '14pt', '16pt', '18pt', '20pt', '24pt', '28pt', '32pt'].map((s) => (
+              <option key={s} value={s}>
+                {s.replace('pt', '')}
+              </option>
+            ))}
+          </select>
+
+          <RibbonButton
+            title={t('Bold')}
+            active={!!editor?.isActive('bold')}
+            disabled={!editor || !can(() => editor.can().chain().focus().toggleBold().run())}
+            onClick={() => editor?.chain().focus().toggleBold().run()}
+          >
+            <Bold className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton
+            title={t('Italic')}
+            active={!!editor?.isActive('italic')}
+            disabled={!editor || !can(() => editor.can().chain().focus().toggleItalic().run())}
+            onClick={() => editor?.chain().focus().toggleItalic().run()}
+          >
+            <Italic className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton
+            title={t('Underline')}
+            active={!!editor?.isActive('underline')}
+            disabled={!editor || !can(() => editor.can().chain().focus().toggleUnderline().run())}
+            onClick={() => editor?.chain().focus().toggleUnderline().run()}
+          >
+            <Underline className="h-4 w-4" />
+          </RibbonButton>
+
+          <label className="h-9 px-2 rounded-lg inline-flex items-center gap-2 hover:bg-black/5">
+            <span className="text-xs opacity-80">{t('A')}</span>
+            <input
+              type="color"
+              className="h-6 w-6 bg-transparent border-0 p-0"
+              onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
+              title={t('Text Color')}
+            />
+          </label>
+        </RibbonGroup>
+
+        <RibbonGroup title={t('Paragraph')} className="gap-3">
+          <RibbonButton title={t('Bullets')} active={!!editor?.isActive('bulletList')} disabled={!editor} onClick={() => editor?.chain().focus().toggleBulletList().run()}>
+            <List className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Numbering')} active={!!editor?.isActive('orderedList')} disabled={!editor} onClick={() => editor?.chain().focus().toggleOrderedList().run()}>
+            <ListOrdered className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Decrease Indent')} disabled={!editor} onClick={() => editor?.chain().focus().liftListItem('listItem').run()}>
+            <IndentDecrease className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Increase Indent')} disabled={!editor} onClick={() => editor?.chain().focus().sinkListItem('listItem').run()}>
+            <IndentIncrease className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Align Left')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('left').run()}>
+            <AlignLeft className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Align Center')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('center').run()}>
+            <AlignCenter className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Align Right')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('right').run()}>
+            <AlignRight className="h-4 w-4" />
+          </RibbonButton>
+          <RibbonButton title={t('Justify')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('justify').run()}>
+            <AlignJustify className="h-4 w-4" />
+          </RibbonButton>
+        </RibbonGroup>
+
+        <RibbonGroup title={t('Styles')} className="gap-3">
+          <div className="relative" ref={stylesRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setStylesOpen((v) => !v)
+                setHeadingOpen(false)
+              }}
+              className="h-12 px-6 rounded-xl border border-[var(--panel-border)] bg-white hover:bg-black/5 inline-flex items-center gap-2"
+              title={t('Styles')}
+            >
+              {currentStyle?.kind === 'paragraph' ? 'Normal' : 'Normal'}
+              <ChevronDown className="h-5 w-5 opacity-80" />
+            </button>
+
+            {stylesOpen && (
+              <div className="absolute left-0 top-[calc(100%+8px)] z-[30000] w-[220px] rounded-xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
+                {[
+                  { key: 'normal', label: 'Normal', run: () => editor?.chain().focus().setParagraph().run() },
+                ].map((x) => (
+                  <button
+                    key={x.key}
+                    type="button"
+                    className="w-full text-left px-4 py-2.5 hover:bg-black/5 text-sm"
+                    onClick={() => {
+                      x.run?.()
+                      setStylesOpen(false)
+                    }}
+                  >
+                    {x.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="relative" ref={headingRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setHeadingOpen((v) => !v)
+                setStylesOpen(false)
+              }}
+              className="h-12 px-6 rounded-xl border border-[var(--panel-border)] bg-white hover:bg-black/5 text-2xl font-bold inline-flex items-center gap-2"
+              title={t('Headings')}
+            >
+              {currentStyle?.kind === 'heading' ? `Heading ${currentStyle.level}` : 'Heading 1'}
+              <ChevronDown className="h-5 w-5 opacity-80" />
+            </button>
+
+            {headingOpen && (
+              <div className="absolute left-0 top-[calc(100%+8px)] z-[30000] w-[260px] rounded-xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
+                {[
+                  { level: 1, label: 'Heading 1' },
+                  { level: 2, label: 'Heading 2' },
+                  { level: 3, label: 'Heading 3' },
+                ].map((x) => (
+                  <button
+                    key={x.level}
+                    type="button"
+                    className="w-full text-left px-4 py-2.5 hover:bg-black/5"
+                    onClick={() => {
+                      editor?.chain().focus().toggleHeading({ level: x.level }).run()
+                      setHeadingOpen(false)
+                    }}
+                  >
+                    <div className="text-sm font-semibold">{x.label}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </RibbonGroup>
+
         <div className="flex-1" />
+
+        <RibbonGroup title={t('Editing')} className="border-r-0">
+          <RibbonButton
+            title={t('Find and Replace')}
+            disabled={!editor}
+            onClick={() => {
+              if (!editor) return
+              setFindOpen(true)
+              setSelectOpen(false)
+            }}
+            className="px-2"
+          >
+            <Search className="h-4 w-4" />
+          </RibbonButton>
+
+          <div className="relative" ref={selectRef}>
+            <RibbonButton
+              title={t('Select')}
+              disabled={!editor}
+              onClick={() => {
+                if (!editor) return
+                setSelectOpen((v) => !v)
+              }}
+              className="px-2"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </RibbonButton>
+
+            {selectOpen && (
+              <div className="absolute right-0 top-[calc(100%+8px)] z-[30000] w-[180px] rounded-xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full text-left px-4 py-2.5 hover:bg-black/5 text-sm"
+                  onClick={() => {
+                    editor?.chain().focus().selectAll().run()
+                    setSelectOpen(false)
+                  }}
+                >
+                  {t('Select All')}
+                </button>
+              </div>
+            )}
+          </div>
+        </RibbonGroup>
       </div>
 
-      <div className="flex flex-wrap items-stretch gap-0">
-        {tab === 'home' && (
-          <>
-            <RibbonGroup title={t('Font')}>
-              <RibbonButton
-                title={t('Bold')}
-                active={!!editor?.isActive('bold')}
-                disabled={!editor || !editor.can().chain().focus().toggleBold().run()}
-                onClick={() => editor?.chain().focus().toggleBold().run()}
-                className="font-bold"
-              >
-                B
-              </RibbonButton>
-              <RibbonButton
-                title={t('Italic')}
-                active={!!editor?.isActive('italic')}
-                disabled={!editor || !editor.can().chain().focus().toggleItalic().run()}
-                onClick={() => editor?.chain().focus().toggleItalic().run()}
-                className="italic"
-              >
-                I
-              </RibbonButton>
-              <RibbonButton title={t('Underline')} active={!!editor?.isActive('underline')} disabled={!editor} onClick={toggleUnderline} className="underline">
-                U
-              </RibbonButton>
-              <RibbonButton
-                title={t('Strike')}
-                active={!!editor?.isActive('strike')}
-                disabled={!editor || !editor.can().chain().focus().toggleStrike().run()}
-                onClick={() => editor?.chain().focus().toggleStrike().run()}
-                className="line-through"
-              >
-                S
-              </RibbonButton>
-
-              <label className="h-9 px-2 rounded-lg inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/10">
-                <span className="text-xs opacity-80">{t('Color')}</span>
-                <input
-                  type="color"
-                  className="h-6 w-6 bg-transparent border-0 p-0"
-                  onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
-                  title={t('Text Color')}
-                />
-              </label>
-            </RibbonGroup>
-
-            <RibbonGroup title={t('Paragraph')}>
-              <RibbonButton
-                title={t('Bullet List')}
-                active={!!editor?.isActive('bulletList')}
-                disabled={!editor}
-                onClick={() => editor?.chain().focus().toggleBulletList().run()}
-              >
-                • {t('List')}
-              </RibbonButton>
-              <RibbonButton
-                title={t('Ordered List')}
-                active={!!editor?.isActive('orderedList')}
-                disabled={!editor}
-                onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-              >
-                1. {t('List')}
-              </RibbonButton>
-              <RibbonButton title={t('Align Left')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('left').run()}>
-                L
-              </RibbonButton>
-              <RibbonButton title={t('Align Center')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('center').run()}>
-                C
-              </RibbonButton>
-              <RibbonButton title={t('Align Right')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('right').run()}>
-                R
-              </RibbonButton>
-              <RibbonButton title={t('Justify')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('justify').run()}>
-                J
-              </RibbonButton>
-            </RibbonGroup>
-
-            <RibbonGroup title={t('Styles')}>
-              <RibbonButton title={t('Normal')} active={!!editor?.isActive('paragraph')} disabled={!editor} onClick={() => editor?.chain().focus().setParagraph().run()}>
-                {t('Normal')}
-              </RibbonButton>
-              <RibbonButton title="H1" active={!!editor?.isActive('heading', { level: 1 })} disabled={!editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>
-                {t('Heading 1')}
-              </RibbonButton>
-              <RibbonButton title="H2" active={!!editor?.isActive('heading', { level: 2 })} disabled={!editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
-                {t('Heading 2')}
-              </RibbonButton>
-              <RibbonButton title="H3" active={!!editor?.isActive('heading', { level: 3 })} disabled={!editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}>
-                {t('Heading 3')}
-              </RibbonButton>
-            </RibbonGroup>
-
-            <RibbonGroup title={t('Editing')}>
-              <RibbonButton title={t('Clear format')} disabled={!editor} onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}>
-                {t('Clear format')}
-              </RibbonButton>
-            </RibbonGroup>
-          </>
-        )}
-
-        {tab === 'insert' && (
-          <>
-            <RibbonGroup title={t('Table')}>
-              <RibbonButton
-                title={t('Insert Table')}
-                disabled={!editor}
-                onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
-              >
-                {t('Insert Table')}
-              </RibbonButton>
-            </RibbonGroup>
-
-            <RibbonGroup title={t('Fields')}>
-              <select
-                className="h-9 px-3 rounded-lg bg-white/70 dark:bg-black/30 border border-[var(--panel-border)] text-sm min-w-[240px]"
-                defaultValue=""
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (v) insertPlaceholder(v)
-                  e.target.value = ''
-                }}
-                title={t('Insert Field')}
-              >
-                <option value="">{t('+ Insert Field')}</option>
-                <option value="{{contract_number}}">{t('Contract No.')}</option>
-                <option value="{{contract_date}}">{t('Contract Date')}</option>
-                <option value="{{customer_name}}">{t('Customer Name')}</option>
-                <option value="{{customer_phone}}">{t('Customer Phone')}</option>
-                <option value="{{unit_code}}">{t('Unit Code')}</option>
-                <option value="{{project_name}}">{t('Project')}</option>
-                <option value="{{total_price}}">{t('Total Price')}</option>
-                <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
-                <option value="{{installments_table}}">{t('Installments Table')}</option>
-              </select>
-            </RibbonGroup>
-          </>
-        )}
-
-        {tab === 'view' && (
-          <>
-            <RibbonGroup title={t('View')}>
-              <div className="text-sm opacity-80">
-                {t('Use the buttons below to switch between Edit and Live Preview.')}
+      {findOpen && (
+        <div className="fixed inset-0 z-[40000]">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setFindOpen(false)}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-2xl border border-[var(--panel-border)] bg-white shadow-2xl overflow-hidden">
+              <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--panel-border)]">
+                <div className="text-base font-semibold">{t('Find and Replace')}</div>
+                <button type="button" className="p-2 rounded-lg hover:bg-black/5" onClick={() => setFindOpen(false)} title="Close">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </RibbonGroup>
-          </>
-        )}
+              <div className="p-4 space-y-3">
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold opacity-70">{t('Find')}</div>
+                  <input
+                    className="w-full h-10 px-3 rounded-xl border border-[var(--panel-border)] outline-none"
+                    value={findQuery}
+                    onChange={(e) => setFindQuery(e.target.value)}
+                    placeholder={t('Find')}
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold opacity-70">{t('Replace')}</div>
+                  <input
+                    className="w-full h-10 px-3 rounded-xl border border-[var(--panel-border)] outline-none"
+                    value={replaceQuery}
+                    onChange={(e) => setReplaceQuery(e.target.value)}
+                    placeholder={t('Replace')}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 justify-end pt-2">
+                  <button type="button" className="px-4 py-2 rounded-xl border border-[var(--panel-border)] hover:bg-black/5" onClick={doFindNext}>
+                    {t('Find Next')}
+                  </button>
+                  <button type="button" className="px-4 py-2 rounded-xl border border-[var(--panel-border)] hover:bg-black/5" onClick={doReplaceOne}>
+                    {t('Replace')}
+                  </button>
+                  <button type="button" className="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700" onClick={doReplaceAll}>
+                    {t('Replace All')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="border-t border-[var(--panel-border)] bg-white px-2 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm min-w-[240px]"
+            defaultValue=""
+            onChange={(e) => {
+              const v = e.target.value
+              if (v) insertPlaceholder(v)
+              e.target.value = ''
+            }}
+            title={t('Insert Field')}
+          >
+            <option value="">{t('+ Insert Field')}</option>
+            <option value="{{contract_number}}">{t('Contract No.')}</option>
+            <option value="{{contract_date}}">{t('Contract Date')}</option>
+            <option value="{{customer_name}}">{t('Customer Name')}</option>
+            <option value="{{customer_phone}}">{t('Customer Phone')}</option>
+            <option value="{{unit_code}}">{t('Unit Code')}</option>
+            <option value="{{project_name}}">{t('Project')}</option>
+            <option value="{{total_price}}">{t('Total Price')}</option>
+            <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
+            <option value="{{installments_table}}">{t('Installments Table')}</option>
+          </select>
+          <RibbonButton title={t('Insert Table')} disabled={!editor} onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
+            {t('Insert Table')}
+          </RibbonButton>
+        </div>
       </div>
     </div>
   )
-
-  return content
 }
 
 const normalizeTablesForEditor = (html) => {
@@ -504,6 +925,8 @@ export default function ContractsSettings() {
     extensions: [
       StarterKit,
       TextStyle,
+      TextStyleWordExtras,
+      UnderlineExtension,
       Color,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Table.configure({ resizable: true }),
@@ -532,7 +955,7 @@ export default function ContractsSettings() {
     },
   })
 
-  // Note: do not touch `editor.view.dom` here — the view may not be mounted yet and TipTap will throw.
+  // Note: do not touch `editor.view.dom` here â€” the view may not be mounted yet and TipTap will throw.
   // Direction is controlled via `editorProps.attributes.dir` and the wrapper around `<EditorContent />`.
 
   const safeSetEditorContent = (html) => {
@@ -1004,7 +1427,7 @@ export default function ContractsSettings() {
                  className={`px-2 py-1 rounded hover:bg-gray-100/10 ${editor?.isActive('bulletList') ? 'bg-white/10' : ''}`}
                  title={t('Bullet List')}
                >
-                 {t('• List')}
+                 {t('â€¢ List')}
                </button>
                <button
                  type="button"
@@ -1361,3 +1784,5 @@ export default function ContractsSettings() {
     </div>
   )
 }
+
+

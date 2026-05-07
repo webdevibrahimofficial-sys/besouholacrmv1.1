@@ -7,6 +7,8 @@ import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { ChevronDown, ChevronUp, Eye, FilePlus2, Filter, Paperclip, Printer, Search, Trash2, Upload, X } from 'lucide-react'
 import { FaChevronLeft, FaChevronRight, FaFileImport } from 'react-icons/fa'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 import CcContractsImportModal from '@components/CcContractsImportModal'
 import DateRangePicker from '../../shared/components/DateRangePicker'
 
@@ -103,7 +105,6 @@ export default function ContractCollectionsContracts() {
 
   const statusOptions = useMemo(
     () => [
-      { value: '', label: isArabic ? 'الكل' : 'All' },
       { value: 'active', label: isArabic ? 'نشط' : 'Active' },
       { value: 'cancelled', label: isArabic ? 'ملغي' : 'Cancelled' },
     ],
@@ -113,9 +114,15 @@ export default function ContractCollectionsContracts() {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewData, setPreviewData] = useState(null)
+  const [previewTemplate, setPreviewTemplate] = useState(null)
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
   const [attachments, setAttachments] = useState([])
+  const [contractDocOpen, setContractDocOpen] = useState(false)
+  const [contractDocLoading, setContractDocLoading] = useState(false)
+  const [contractDocUrl, setContractDocUrl] = useState('')
+  const contractDocIframeRef = useRef(null)
+  const [exportingContract, setExportingContract] = useState(false)
   const [attachmentPreviewOpen, setAttachmentPreviewOpen] = useState(false)
   const [attachmentPreview, setAttachmentPreview] = useState({ url: '', mime: '', name: '' })
   const [editPlanOpen, setEditPlanOpen] = useState(false)
@@ -371,9 +378,11 @@ export default function ContractCollectionsContracts() {
     setPreviewData(null)
     setAttachments([])
     setAttachmentsLoading(false)
+    setPrintHtml('')
     try {
       const res = await api.get(`/api/cc/contracts/${encodeURIComponent(row.id)}`)
       setPreviewData(res?.data || null)
+      loadContractPrintHtml(row.id)
 
       setAttachmentsLoading(true)
       try {
@@ -392,6 +401,39 @@ export default function ContractCollectionsContracts() {
     }
   }
 
+  const [printHtml, setPrintHtml] = useState('')
+  const [printHtmlLoading, setPrintHtmlLoading] = useState(false)
+
+  const loadContractPrintHtml = useCallback(async (contractId) => {
+    if (!contractId) return ''
+    const rtl = isRTL ? '1' : '0'
+    setPrintHtml('')
+    setPrintHtmlLoading(true)
+    try {
+      const res = await api.get(`/api/cc/contracts/${encodeURIComponent(contractId)}/print?autoprint=0&embed=1&rtl=${rtl}`, {
+        responseType: 'text',
+        headers: { Accept: 'text/html' },
+      })
+      const data = res?.data
+      if (typeof data === 'string') {
+        setPrintHtml(data)
+        return data
+      } else if (data && typeof data === 'object' && typeof data.text === 'function') {
+        const txt = await data.text()
+        setPrintHtml(txt)
+        return txt
+      } else {
+        setPrintHtml('')
+        return ''
+      }
+    } catch {
+      setPrintHtml('')
+      return ''
+    } finally {
+      setPrintHtmlLoading(false)
+    }
+  }, [isRTL])
+
   const openContractPrint = async (contractId) => {
     if (!contractId) return
     const rtl = isRTL ? '1' : '0'
@@ -409,24 +451,95 @@ export default function ContractCollectionsContracts() {
     }
   }
 
-  const exportContractSnapshot = () => {
+  const exportContractPdf = async () => {
     if (!previewData?.contract?.id) return
+
+    const contract = previewData.contract
+    const contractId = contract.id
+    let iframe = null
     try {
-      const blob = new Blob([JSON.stringify({
-        contract: previewData.contract,
-        totals: previewData.totals,
-        attachments,
-        exported_at: new Date().toISOString(),
-      }, null, 2)], { type: 'application/json;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `cc_contract_${previewData.contract.id}.json`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      const html = printHtml || (await loadContractPrintHtml(contractId))
+      if (!html) {
+        window.dispatchEvent(new CustomEvent('app:toast', {
+          detail: { type: 'error', message: isArabic ? 'تعذر تجهيز القالب للتصدير' : 'Unable to prepare template for export' },
+        }))
+        return
+      }
+
+      iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.left = '-99999px'
+      iframe.style.top = '0'
+      iframe.style.width = '1024px'
+      iframe.style.height = '768px'
+      iframe.style.background = '#fff'
+      iframe.setAttribute('aria-hidden', 'true')
+      iframe.srcdoc = html
+      document.body.appendChild(iframe)
+
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('timeout')), 15_000)
+        iframe.onload = () => {
+          clearTimeout(t)
+          resolve()
+        }
+      })
+
+      const doc = iframe.contentDocument
+      const win = iframe.contentWindow
+      const target = doc?.querySelector?.('.page') || doc?.body
+      if (!target) throw new Error('missing_target')
+
+      // Make sure layout is stable before capturing.
+      try {
+        win?.scrollTo?.(0, 0)
+      } catch {}
+
+      const canvas = await html2canvas(target, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        windowWidth: target.scrollWidth || 1024,
+        windowHeight: target.scrollHeight || 768,
+      })
+
+      const pdf = new jsPDF('p', 'pt', 'a4')
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+
+      const ratio = canvas.width / pageWidth
+      const pageHeightPx = Math.floor(pageHeight * ratio)
+
+      let offsetY = 0
+      let pageIndex = 0
+      while (offsetY < canvas.height) {
+        const sliceHeight = Math.min(pageHeightPx, canvas.height - offsetY)
+        const pageCanvas = document.createElement('canvas')
+        pageCanvas.width = canvas.width
+        pageCanvas.height = sliceHeight
+        const ctx = pageCanvas.getContext('2d')
+        ctx.drawImage(canvas, 0, offsetY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight)
+        const imgData = pageCanvas.toDataURL('image/png')
+
+        if (pageIndex > 0) pdf.addPage()
+        const imgHeightPts = sliceHeight / ratio
+        pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, imgHeightPts)
+
+        offsetY += sliceHeight
+        pageIndex += 1
+      }
+
+      const fileBase = safeStr(contract?.contract_number || contractId || 'contract')
+      pdf.save(`${fileBase}.pdf`)
     } catch {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'error', message: isArabic ? 'تعذر تصدير ملف PDF' : 'Failed to export PDF' },
+      }))
+    } finally {
+      try {
+        if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe)
+      } catch {}
     }
   }
 
@@ -591,7 +704,7 @@ export default function ContractCollectionsContracts() {
       setTemplatePickerOpen(false)
       setTemplatePickerContract(null)
       window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: isArabic ? 'تم ربط القالب' : 'Template linked' } }))
-      await openContractPrint(row.id)
+      await openPreview({ id: row.id })
     } catch (e) {
       const msg =
         e?.response?.data?.message ||
@@ -681,7 +794,7 @@ export default function ContractCollectionsContracts() {
           return (
             <div className="space-y-4">
               <div className={`text-sm ${mutedTextClass}`}>
-                {isArabic ? 'سيتم حفظ القالب على العقد ثم فتح الطباعة.' : 'This will save the template on the contract and then open print.'}
+                {isArabic ? 'سيتم حفظ القالب على العقد.' : 'This will save the template on the contract.'}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -734,7 +847,7 @@ export default function ContractCollectionsContracts() {
                   onClick={confirmTemplatePicker}
                   disabled={templatePickerLoading || !templatePickerValue || Boolean(rowActionLoadingId)}
                 >
-                  {isArabic ? 'حفظ و طباعة' : 'Save & Print'}
+                  {isArabic ? 'حفظ' : 'Save'}
                 </button>
               </div>
             </div>
@@ -1097,7 +1210,7 @@ export default function ContractCollectionsContracts() {
               <button
                 type="button"
                 className="px-4 py-2 rounded-xl border border-[var(--panel-border)] text-sm inline-flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/5"
-                onClick={exportContractSnapshot}
+                onClick={exportContractPdf}
                 disabled={!previewData?.contract?.id}
               >
                 {isArabic ? 'تصدير العقد' : 'Export Contract'}
@@ -1238,6 +1351,33 @@ export default function ContractCollectionsContracts() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-[var(--panel-border)] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold">{isArabic ? 'معاينة القالب' : 'Template Preview'}</div>
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
+                  onClick={() => loadContractPrintHtml(previewData.contract?.id)}
+                  disabled={printHtmlLoading || !previewData?.contract?.id}
+                >
+                  {printHtmlLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : (isArabic ? 'تحديث' : 'Refresh')}
+                </button>
+              </div>
+
+              {printHtmlLoading ? (
+                <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
+              ) : !printHtml ? (
+                <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا يوجد قالب مرتبط / غير متاح للعرض.' : 'No template linked / unavailable for preview.'}</div>
+              ) : (
+                <iframe
+                  title={isArabic ? 'معاينة العقد' : 'Contract Template Preview'}
+                  className="w-full h-[70vh] rounded-xl border border-[var(--panel-border)] bg-white"
+                  sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox"
+                  srcDoc={printHtml}
+                />
               )}
             </div>
           </div>
