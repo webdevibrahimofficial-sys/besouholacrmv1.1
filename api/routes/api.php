@@ -229,6 +229,7 @@ Route::middleware([ResolveTenant::class])
         Route::post('leads/{leadId}/convert-to-customer', [CcLeadConversionController::class, 'convertToCustomer']);
 
         Route::get('receipts/{paymentId}/print', [CcPrintController::class, 'printReceipt']);
+        Route::get('receipts/installments/{installmentId}/print', [CcPrintController::class, 'printInstallmentReceipt']);
     });
 
     // Meta Integration

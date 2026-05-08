@@ -130,10 +130,16 @@ class RotationRuleController extends Controller
 
         $validated = $request->validate([
             'user_id' => 'required|integer',
+            'type' => 'nullable|string|in:assign,delay',
         ]);
 
+        $type = (string) ($validated['type'] ?? 'assign');
+        if ($type === '') {
+            $type = 'assign';
+        }
+
         $updated = RotationRule::where('tenant_id', $auth->tenant_id)
-            ->where('type', 'assign')
+            ->where('type', $type)
             ->where('user_id', (int) $validated['user_id'])
             ->update(['is_active' => false]);
 

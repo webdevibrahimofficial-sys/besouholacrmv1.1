@@ -15,6 +15,15 @@ use Illuminate\Support\Facades\View;
 
 class ContractTemplateRenderService
 {
+    protected function pickFirstNonEmpty(array $values): string
+    {
+        foreach ($values as $v) {
+            $s = trim((string) ($v ?? ''));
+            if ($s !== '') return $s;
+        }
+        return '';
+    }
+
     public function pickTemplate(int $tenantId, int $projectId = 0): ?ContractTemplate
     {
         return ContractTemplate::query()
@@ -37,9 +46,24 @@ class ContractTemplateRenderService
 
         $tenantName = (string) ($tenant?->name ?? 'Tenant');
         $logoUrl = (string) ($profile['logo_url'] ?? '');
-        $phone = (string) ($profile['phone'] ?? '');
-        $taxId = (string) ($profile['tax_id'] ?? '');
-        $email = (string) ($smtp?->from_email ?? '');
+        $phone = $this->pickFirstNonEmpty([
+            $profile['phone'] ?? null,
+            $profile['phone_number'] ?? null,
+            $profile['mobile'] ?? null,
+            $tenant?->phone ?? null,
+        ]);
+        $taxId = $this->pickFirstNonEmpty([
+            $profile['tax_id'] ?? null,
+            $profile['taxId'] ?? null,
+            $profile['tax_number'] ?? null,
+            $profile['vat'] ?? null,
+            $tenant?->tax_id ?? null,
+        ]);
+        $email = $this->pickFirstNonEmpty([
+            $smtp?->from_email ?? null,
+            $profile['email'] ?? null,
+            $tenant?->email ?? null,
+        ]);
 
         $projectId = (int) ($contract->customer?->project_id ?? 0);
 
@@ -107,9 +131,24 @@ class ContractTemplateRenderService
 
         $tenantName = (string) ($tenant?->name ?? 'Tenant');
         $logoUrl = (string) ($profile['logo_url'] ?? '');
-        $phone = (string) ($profile['phone'] ?? '');
-        $taxId = (string) ($profile['tax_id'] ?? '');
-        $email = (string) ($smtp?->from_email ?? '');
+        $phone = $this->pickFirstNonEmpty([
+            $profile['phone'] ?? null,
+            $profile['phone_number'] ?? null,
+            $profile['mobile'] ?? null,
+            $tenant?->phone ?? null,
+        ]);
+        $taxId = $this->pickFirstNonEmpty([
+            $profile['tax_id'] ?? null,
+            $profile['taxId'] ?? null,
+            $profile['tax_number'] ?? null,
+            $profile['vat'] ?? null,
+            $tenant?->tax_id ?? null,
+        ]);
+        $email = $this->pickFirstNonEmpty([
+            $smtp?->from_email ?? null,
+            $profile['email'] ?? null,
+            $tenant?->email ?? null,
+        ]);
 
         $contract = $contract ?: $this->buildSampleContract($tenantId, $projectId);
 

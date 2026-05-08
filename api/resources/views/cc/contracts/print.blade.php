@@ -10,6 +10,7 @@
   $bodyHtml = (string) ($bodyHtml ?? '');
   $dir = (string) ($dir ?? 'ltr');
   $autoprint = (bool) ($autoprint ?? false);
+  $embed = (bool) ($embed ?? false);
 @endphp
 
 <!doctype html>
@@ -69,10 +70,12 @@
   </head>
   <body>
     <div class="page" dir="{{ $dir }}">
-      <div class="actions">
-        <button class="btn" onclick="window.close()">Close</button>
-        <button class="btn primary" onclick="window.print()">Print / Save PDF</button>
-      </div>
+      @if(!$embed)
+        <div class="actions">
+          <button class="btn" onclick="window.close()">Close</button>
+          <button class="btn primary" onclick="window.print()">Print / Save PDF</button>
+        </div>
+      @endif
 
       <div class="card">
         <div class="hdr">

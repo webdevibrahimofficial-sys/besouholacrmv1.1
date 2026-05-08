@@ -2,12 +2,11 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class ContractTemplate extends Model
 {
-    use HasFactory;
+    protected $table = 'contract_templates';
 
     protected $fillable = [
         'tenant_id',
@@ -20,23 +19,13 @@ class ContractTemplate extends Model
         'status',
     ];
 
-    protected $appends = [
-        'pdf_url',
+    protected $casts = [
+        'tenant_id' => 'integer',
+        'project_id' => 'integer',
     ];
-
-    public function tenant()
-    {
-        return $this->belongsTo(Tenant::class);
-    }
 
     public function project()
     {
         return $this->belongsTo(Project::class, 'project_id');
-    }
-
-    public function getPdfUrlAttribute()
-    {
-        if (!$this->pdf_path) return null;
-        return asset('storage/' . ltrim((string) $this->pdf_path, '/'));
     }
 }

@@ -1091,14 +1091,14 @@ class LeadController extends Controller
                     $q->where(function($sq) {
                         $sq->whereIn('stage', ['pending', 'in-progress'])
                            ->orWhereIn('status', ['pending', 'in-progress']);
-                    })->orWhere(function($sq) use ($currentUserId, $isAllLeadsView, $isManager) {
+                    })->whereRaw('COALESCE(assigned_to, 0) > 0')->orWhere(function($sq) use ($currentUserId, $isAllLeadsView, $isManager) {
                         $sq->where(function($s) {
                             $s->whereIn('stage', ['new', 'New Lead'])
                               ->orWhere(function($sub) {
                                   $sub->whereNull('stage')->where('status', 'new');
                               });
                         })
-                        ->whereNotNull('assigned_to')
+                        ->whereRaw('COALESCE(assigned_to, 0) > 0')
                         ->where(function($a) use ($currentUserId, $isAllLeadsView, $isManager) {
                             $a->where('assigned_to', '!=', $currentUserId)
                               ->orWhere(function($sub) use ($currentUserId, $isAllLeadsView, $isManager) {
@@ -1108,8 +1108,8 @@ class LeadController extends Controller
                         });
                     })->orWhere(function($sq) use ($currentUserId, $isAllLeadsView, $isManager) {
                         // Also treat assigned Cold Calls as Pending (computed stage) for managers / non-owners.
-                        $sq->whereIn(DB::raw('lower(stage)'), ['coldcalls', 'cold calls', 'cold-call'])
-                           ->whereNotNull('assigned_to')
+                        $sq->whereIn(DB::raw('lower(stage)'), ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'])
+                           ->whereRaw('COALESCE(assigned_to, 0) > 0')
                            ->where(function($a) use ($currentUserId, $isAllLeadsView, $isManager) {
                                $a->where('assigned_to', '!=', $currentUserId)
                                  ->orWhere(function($sub) use ($currentUserId, $isAllLeadsView, $isManager) {
@@ -1345,12 +1345,13 @@ class LeadController extends Controller
                 count(case when (
                     CASE
                         WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
+                             AND COALESCE(assigned_to, 0) > 0
                         THEN 'pending'
                         WHEN ? = 1 AND assigned_to = ? AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null))
                         THEN 'pending'
-                        WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND assigned_to IS NOT NULL AND assigned_to != ?
+                        WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != ?
                         THEN 'pending'
-                        WHEN (lower(stage) in ('coldcalls','cold calls','cold-call')) AND assigned_to IS NOT NULL AND (assigned_to != ? OR ? = 1)
+                        WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != ? OR ? = 1)
                         THEN 'pending'
                         ELSE stage
                     END
@@ -1561,7 +1562,7 @@ class LeadController extends Controller
                     CASE 
                         /* Case 0: Assigned lead is Pending (status) for non-owner viewers */
                         WHEN (lower(status) = 'pending' or lower(status) = 'in-progress')
-                             AND assigned_to IS NOT NULL
+                             AND COALESCE(assigned_to, 0) > 0
                              AND assigned_to != $currentUserId
                         THEN 'pending'
     
@@ -1573,13 +1574,13 @@ class LeadController extends Controller
                         
                         /* Case 2: Standard Logic - New lead assigned to someone else appears as Pending */
                         WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null))
-                             AND assigned_to IS NOT NULL 
+                             AND COALESCE(assigned_to, 0) > 0 
                              AND assigned_to != $currentUserId
                         THEN 'pending'
     
                         /* Case 3: Assigned Cold Calls appear as Pending (computed) */
-                        WHEN (lower(stage) in ('coldcalls','cold calls','cold-call'))
-                             AND assigned_to IS NOT NULL
+                        WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call'))
+                             AND COALESCE(assigned_to, 0) > 0
                              AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1)
                         THEN 'pending'
                         
@@ -1772,13 +1773,14 @@ class LeadController extends Controller
             // while Total Leads and byStage will still exclude them per business rule.
             $query = $this->buildFilteredLeadsQuery($request, $user, true);
 
-            // Bump version to avoid stale cached values when stats logic changes.
-            $cacheKey = 'leads_stats:v7:' . md5(json_encode([
+            // Keep stats near-real-time so cards stay aligned with table results.
+            $cacheKey = 'leads_stats:v8:' . md5(json_encode([
                 'user_id' => $user->id,
                 'filters' => $request->all()
             ]));
 
-            $data = Cache::remember($cacheKey, 5, function () use ($query, $user, $request) {
+            // Short TTL avoids stale card counts after rapid lead reassignment/stage changes.
+            $data = Cache::remember($cacheKey, 30, function () use ($query, $user, $request) {
                 $scopeUser = $user;
                 if ($request->filled('manager_id') && is_numeric($request->manager_id)) {
                     $managerId = (int) $request->manager_id;
@@ -1814,7 +1816,7 @@ class LeadController extends Controller
                         count(case when (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and (stage is null or stage = '')))
                         then 1 end) as new_count,
                         0 as pending_count,
-                        count(case when lower(stage) in ('coldcalls', 'cold calls', 'cold-call')
+                        count(case when lower(stage) in ('coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call')
                         then 1 end) as cold_call_count
                     ")->first();
                 } else {
@@ -1830,17 +1832,18 @@ class LeadController extends Controller
                         count(case when (
                             CASE
                                 WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
+                                     AND COALESCE(assigned_to, 0) > 0
                                 THEN 'pending'
                                 WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null))
                                 THEN 'pending'
-                                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND assigned_to IS NOT NULL AND assigned_to != $currentUserId
+                                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId
                                 THEN 'pending'
-                                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call')) AND assigned_to IS NOT NULL AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1)
+                                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1)
                                 THEN 'pending'
                                 ELSE stage
                             END
                         ) = 'pending' then 1 end) as pending_count,
-                        count(case when lower(stage) in ('coldcalls', 'cold calls', 'cold-call')
+                        count(case when lower(stage) in ('coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call')
                             AND assigned_to IS NULL
                             AND (lower(status) is null or (lower(status) != 'pending' and lower(status) != 'in-progress'))
                         then 1 end) as cold_call_count
@@ -1865,12 +1868,12 @@ class LeadController extends Controller
                           CASE 
                               WHEN lower(COALESCE(priority,'')) = 'hot' THEN 'hot'
                               WHEN (lower(status) = 'pending' or lower(status) = 'in-progress')
-                                   AND assigned_to IS NOT NULL
+                                   AND COALESCE(assigned_to, 0) > 0
                                    AND assigned_to != $currentUserId
                               THEN 'pending'
                               WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) THEN 'pending'
-                              WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND assigned_to IS NOT NULL AND assigned_to != $currentUserId THEN 'pending'
-                              WHEN (lower(stage) in ('coldcalls','cold calls','cold-call')) AND assigned_to IS NOT NULL AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) THEN 'pending'
+                              WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId THEN 'pending'
+                              WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) THEN 'pending'
                               ELSE stage
                           END as display_stage
                       "), DB::raw('count(*) as count'))
@@ -1898,7 +1901,9 @@ class LeadController extends Controller
                     ($normalizedByStage['cold calls'] ?? 0)
                     + ($normalizedByStage['coldcalls'] ?? 0)
                     + ($normalizedByStage['cold call'] ?? 0)
-                    + ($normalizedByStage['cold-call'] ?? 0);
+                    + ($normalizedByStage['cold-call'] ?? 0)
+                    + ($normalizedByStage['cold_call'] ?? 0)
+                    + ($normalizedByStage['cold_calls'] ?? 0);
                 $hotCount = $normalizedByStage['hot'] ?? 0;
 
                 // Closed Deals count (exclude duplicates) - matches pipeline report predicate.
@@ -2113,10 +2118,12 @@ class LeadController extends Controller
         // Keep stage bucketing consistent with /api/leads/stats (virtual "pending" stage rules).
         $displayStageSql = "
             CASE 
-                WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress') THEN 'pending'
+                WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
+                     AND COALESCE(assigned_to, 0) > 0
+                THEN 'pending'
                 WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) THEN 'pending'
-                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND assigned_to IS NOT NULL AND assigned_to != $currentUserId THEN 'pending'
-                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call')) AND assigned_to IS NOT NULL AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) THEN 'pending'
+                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId THEN 'pending'
+                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) THEN 'pending'
                 ELSE stage
             END
         ";
@@ -4618,10 +4625,12 @@ class LeadController extends Controller
                     $isNewRequested = true;
                 } elseif ($sLower === 'pending' || $sLower === 'in-progress' || $sLower === 'assigned') {
                     $isPendingRequested = true;
-                } elseif ($sLower === 'coldcall' || $sLower === 'cold_call' || $sLower === 'cold calls' || $sLower === 'cold_calls') {
+                } elseif ($sLower === 'coldcall' || $sLower === 'cold_call' || $sLower === 'cold calls' || $sLower === 'cold_calls' || $sLower === 'cold call') {
                      $otherStages[] = 'cold calls';
                      $otherStages[] = 'cold-call';
                      $otherStages[] = 'cold_calls';
+                     $otherStages[] = 'cold_call';
+                     $otherStages[] = 'cold call';
                      $otherStages[] = 'coldcalls';
                 } else {
                     $otherStages[] = $s;
@@ -4630,7 +4639,8 @@ class LeadController extends Controller
             // Remove duplicates
             $otherStages = array_unique($otherStages);
 
-            $coldStageValues = ['coldcalls', 'cold calls', 'cold-call', 'cold_call'];
+            $coldStageValues = ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'];
+            $normalizedStageExpr = DB::raw("lower(trim(coalesce(stage, '')))");
             $requiresColdCallsFilter = count(array_intersect(array_map('strtolower', $otherStages), $coldStageValues)) > 0;
 
             $hasCondition = false;
@@ -4671,7 +4681,7 @@ class LeadController extends Controller
                         
                         $sub->where(function($k) use ($descendantIds, $user) {
                             $k->whereIn('assigned_to', $descendantIds)
-                              ->whereNotNull('assigned_to') // Ensure it is assigned
+                              ->whereRaw('COALESCE(assigned_to, 0) > 0') // Ensure it is assigned
                               ->whereIn('stage', ['new', 'new lead']);
                         })
                         ->orWhereIn('stage', ['pending', 'in-progress'])
@@ -4682,7 +4692,7 @@ class LeadController extends Controller
                             // Any lead assigned to someone else (not me) is Pending for me
                             // EXCLUDE unassigned (they are New Lead)
                             $k->where('assigned_to', '!=', $user->id)
-                              ->whereNotNull('assigned_to')
+                              ->whereRaw('COALESCE(assigned_to, 0) > 0')
                               ->whereIn('stage', ['new', 'new lead']);
                         })
                         ->orWhereIn('stage', ['pending', 'in-progress'])
@@ -4697,8 +4707,13 @@ class LeadController extends Controller
             if (!empty($otherStages)) {
                 if ($isSalesPerson) {
                      // Sales Person: Only assigned to self
-                     $condition = function($sub) use ($otherStages, $user) {
-                         $sub->whereIn('stage', $otherStages)
+                    $condition = function($sub) use ($otherStages, $user, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
+                         $sub->where(function ($stageMatch) use ($otherStages, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
+                             $stageMatch->whereIn('stage', $otherStages);
+                             if ($requiresColdCallsFilter) {
+                                 $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
+                             }
+                         })
                               ->where('assigned_to', $user->id);
                      };
                      $hasCondition ? $q->orWhere($condition) : $q->where($condition);
@@ -4708,16 +4723,22 @@ class LeadController extends Controller
                     $descendantIds = $user->descendants()->pluck('id')->toArray();
                     $descendantIds[] = $user->id;
                     
-                    $condition = function($sub) use ($otherStages, $descendantIds, $user, $requiresColdCallsFilter, $coldStageValues) {
-                        $sub->whereIn('stage', $otherStages)
+                    $condition = function($sub) use ($otherStages, $descendantIds, $user, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
+                        $sub->where(function ($stageMatch) use ($otherStages, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
+                            $stageMatch->whereIn('stage', $otherStages);
+                            if ($requiresColdCallsFilter) {
+                                $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
+                            }
+                        })
                             ->where(function ($mask) use ($user) {
                                 $mask->whereRaw("lower(coalesce(status,'')) not in ('pending','in-progress')")
+                                     ->orWhereRaw('COALESCE(assigned_to, 0) <= 0')
                                      ->orWhere('assigned_to', $user->id);
                             });
 
                         if ($requiresColdCallsFilter) {
                             $sub->where(function ($cold) use ($coldStageValues) {
-                                $cold->whereNotIn(DB::raw('lower(stage)'), $coldStageValues)
+                                $cold->whereNotIn(DB::raw("lower(trim(coalesce(stage, '')))"), $coldStageValues)
                                      ->orWhereNull('assigned_to');
                             });
                         }
@@ -4729,16 +4750,22 @@ class LeadController extends Controller
                     };
                      $hasCondition ? $q->orWhere($condition) : $q->where($condition);
                  } else {
-                     $condition = function($sub) use ($otherStages, $user, $requiresColdCallsFilter, $coldStageValues) {
-                         $sub->whereIn('stage', $otherStages)
+                     $condition = function($sub) use ($otherStages, $user, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
+                         $sub->where(function ($stageMatch) use ($otherStages, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
+                             $stageMatch->whereIn('stage', $otherStages);
+                             if ($requiresColdCallsFilter) {
+                                 $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
+                             }
+                         })
                              ->where(function ($mask) use ($user) {
                                  $mask->whereRaw("lower(coalesce(status,'')) not in ('pending','in-progress')")
+                                      ->orWhereRaw('COALESCE(assigned_to, 0) <= 0')
                                       ->orWhere('assigned_to', $user->id);
                              });
 
                         if ($requiresColdCallsFilter) {
                             $sub->where(function ($cold) use ($coldStageValues) {
-                                $cold->whereNotIn(DB::raw('lower(stage)'), $coldStageValues)
+                                $cold->whereNotIn(DB::raw("lower(trim(coalesce(stage, '')))"), $coldStageValues)
                                      ->orWhereNull('assigned_to');
                             });
                         }

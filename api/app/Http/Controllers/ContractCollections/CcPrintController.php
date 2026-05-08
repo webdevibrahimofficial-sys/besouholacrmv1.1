@@ -4,6 +4,7 @@ namespace App\Http\Controllers\ContractCollections;
 
 use App\Models\CcContract;
 use App\Models\CcPayment;
+use App\Models\CcPaymentAllocation;
 use App\Models\SmtpSetting;
 use App\Models\Tenant;
 use App\Services\ContractTemplateRenderService;
@@ -35,6 +36,7 @@ class CcPrintController extends BaseCcController
         }
 
         $autoprint = filter_var($request->query('autoprint', false), FILTER_VALIDATE_BOOLEAN);
+        $embed = filter_var($request->query('embed', false), FILTER_VALIDATE_BOOLEAN);
         $payload = $this->renderer->buildPrintPayload($tenantId, $contract);
 
         return response()
@@ -45,6 +47,7 @@ class CcPrintController extends BaseCcController
                 'bodyHtml' => (string) ($payload['body_html'] ?? ''),
                 'dir' => $isRtl ? 'rtl' : 'ltr',
                 'autoprint' => $autoprint,
+                'embed' => $embed,
             ])
             ->header('Content-Type', 'text/html; charset=UTF-8');
     }
@@ -177,6 +180,30 @@ class CcPrintController extends BaseCcController
             . '</body></html>';
 
         return response($html)->header('Content-Type', 'text/html; charset=UTF-8');
+    }
+
+    public function printInstallmentReceipt(Request $request, int $installmentId)
+    {
+        $this->requireCcPermission($request, 'viewInstallments');
+
+        $tenantId = $this->tenantId($request);
+
+        $paymentId = (int) CcPaymentAllocation::query()
+            ->from('cc_payment_allocations as a')
+            ->join('cc_payments as p', function ($join) use ($tenantId) {
+                $join->on('p.id', '=', 'a.payment_id')->where('p.tenant_id', '=', $tenantId);
+            })
+            ->where('a.tenant_id', $tenantId)
+            ->where('a.installment_id', $installmentId)
+            ->orderByDesc('p.payment_date')
+            ->orderByDesc('p.id')
+            ->value('a.payment_id');
+
+        if (!$paymentId) {
+            abort(404, 'No receipt available');
+        }
+
+        return $this->printReceipt($request, $paymentId);
     }
 
     // Receipt printing remains implemented here (separate document type).

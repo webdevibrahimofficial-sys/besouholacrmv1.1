@@ -449,6 +449,27 @@ if (!s) {
     setStageFilter(normalized)
   }
 
+  // Expand canonical stage filters into backend variants so the table matches the stats logic.
+  // Example: "cold calls" stats include values like "cold-call", "coldcalls", "cold_call", etc.
+  const expandStageFilterForApi = (stageValues) => {
+    const list = Array.isArray(stageValues) ? stageValues : (stageValues ? [stageValues] : [])
+    const normalized = list.map(normalizeStageFilterValue).filter(Boolean)
+    if (normalized.length === 0) return []
+
+    const expanded = []
+    for (const s of normalized) {
+      if (s === 'cold calls') {
+        expanded.push('cold calls', 'cold-call', 'coldcalls', 'cold call', 'cold_call', 'cold_calls')
+      } else if (s === 'new lead') {
+        expanded.push('new lead', 'new', 'fresh', 'New Lead')
+      } else {
+        expanded.push(s)
+      }
+    }
+    // Dedupe while preserving order
+    return [...new Set(expanded)]
+  }
+
   // Sorting rule (display + API): initial buckets by Creation Date desc,
   // all other stages by Next Action Date asc (closest follow-up first).
   const deriveStageSortRule = useCallback((stageValues) => {
@@ -716,13 +737,20 @@ if (!s) {
   const fetchLeadsApi = async ({ queryKey }) => {
     const [_key, filters] = queryKey;
     const isMyLeads = location.pathname === '/leads/my-leads';
+    const stageForApi = expandStageFilterForApi(filters.stage);
+    const normalizedStageForUi = Array.isArray(filters.stage)
+      ? filters.stage.map(normalizeStageFilterValue).filter(Boolean)
+      : (filters.stage ? [normalizeStageFilterValue(filters.stage)].filter(Boolean) : []);
+    const isColdCallsStageView = normalizedStageForUi.includes('cold calls');
     const params = {
       page: filters.page,
       per_page: filters.perPage,
       search: filters.search,
-      stage: filters.stage.length > 0 ? filters.stage : null,
+      stage: stageForApi.length > 0 ? stageForApi : null,
       old_stage: filters.oldStage.length > 0 ? filters.oldStage : null,
-      source: filters.source.length > 0 ? filters.source : null,
+      // When the user is viewing "Cold Calls" stage, the table should be driven by stage (not source),
+      // even if a source filter is currently selected.
+      source: !isColdCallsStageView && filters.source.length > 0 ? filters.source : null,
       priority: filters.priority.length > 0 ? filters.priority : null,
       campaign: filters.campaign.length > 0 ? filters.campaign : null,
       country: filters.country.length > 0 ? filters.country : null,
@@ -3904,6 +3932,8 @@ if (!s) {
                         let displayStage = lead.display_stage || lead.stage;
                         
                         const dbAssignedTo = lead.assigned_to || (typeof lead.assignedTo === 'object' ? lead.assignedTo?.id : lead.assignedTo);
+                        const assignedNum = Number(dbAssignedTo);
+                        const isActuallyAssigned = Number.isFinite(assignedNum) ? assignedNum > 0 : Boolean(String(dbAssignedTo || '').trim());
                         const currentUserId = user?.id;
                         const isOwner = dbAssignedTo == currentUserId;
                         const leadStatus = String(lead.status || '').toLowerCase();
@@ -3911,14 +3941,14 @@ if (!s) {
 
                         // Hard rule: if lead is Pending and viewer is NOT the owner -> show Pending
                         // (even if backend sent display_stage)
-                        if (!salesFilterActive && leadStatus === 'pending' && !isOwner) {
+                        if (!salesFilterActive && leadStatus === 'pending' && isActuallyAssigned && !isOwner) {
                           displayStage = 'Pending';
                         }
 
                         // Backward compatibility: some flows mark assigned New Lead as stage=New Lead without status=pending.
                         // In that case, non-owner should still see Pending.
                         const isNewLead = ['new', 'new lead'].includes(String(lead.stage || '').toLowerCase());
-                        const isUnassigned = !dbAssignedTo;
+                        const isUnassigned = !isActuallyAssigned;
                         if (!salesFilterActive && !isOwner && isNewLead && !isUnassigned) {
                           displayStage = 'Pending';
                         }
