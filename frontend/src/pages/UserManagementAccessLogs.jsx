@@ -205,7 +205,7 @@ export default function UserManagementAccessLogs() {
             <div className="flex flex-wrap lg:flex-row lg:items-center justify-between gap-4">
             <div className="w-full lg:w-auto flex items-center justify-between lg:justify-start gap-3">
                 <div className="relative flex flex-col items-start gap-1">
-                <h1 className={`text-xl md:text-2xl font-bold text-start ${isLight ? 'text-black' : 'text-white'} dark:text-white flex items-center gap-2`}>
+                <h1 className={`text-xl md:text-2xl font-bold text-start ${isLight ? 'text-black' : 'text-white'}  flex items-center gap-2`}>
                     {isArabic ? 'سجل الوصول' : 'Access Logs'}
                     <span className="text-sm font-normal text-[var(--muted-text)] bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
                     {filtered.length}

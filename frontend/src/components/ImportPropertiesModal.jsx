@@ -263,7 +263,7 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
             <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
               <FaDownload className="w-4 h-4" />
             </div>
-            <h3 className="text-lg font-bold  dark:text-white">
+            <h3 className={`text-lg font-bold  ${isLight ? 'text-black' : 'text-white'}`}>
               {isRTL ? 'استيراد العقارات' : 'Import Properties'}
             </h3>
           </div>
@@ -283,10 +283,10 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
               <div className="flex items-center gap-3">
                 <FaFileExcel className="w-5 h-5 text-green-600" />
                 <div>
-                  <h4 className="text-sm font-semibold  dark:text-white">
+                  <h4 className={`text-sm font-semibold  ${isLight ? 'text-black' : 'text-white'}`}>
                     {t('template.downloadExcel', 'Download Excel Template')}
                   </h4>
-                  <p className="text-xs  dark:text-gray-400">
+                  <p className={`text-xs  ${isLight ? 'text-black' : 'text-white'}`}>
                     {t('template.downloadDescription', 'Use this template to import data correctly')}
                   </p>
                 </div>
@@ -299,10 +299,10 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
                 {t('template.downloadButton', 'Download')}
               </button>
             </div>
-            <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            <div className={`mt-3 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
               <strong>{t('template.requiredFields', 'Required Fields')}:</strong> Project, Total Price, Title/Unit Number
             </div>
-            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <div className={`mt-2 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
               <strong>{isRTL ? 'حقول اختيارية' : 'Optional Fields'}:</strong> Building, Internal Area, External Area, Meter Price
             </div>
           </div>
@@ -320,7 +320,7 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
             }}
           >
             <FaCloudUploadAlt className="w-10 h-10 text-blue-600 dark:text-blue-400" />
-            <p className="text-sm  dark:text-gray-300 text-center">
+            <p className={`text-sm  ${isLight ? 'text-black' : 'text-white'} text-center`}>
               {t('import.dropzone', 'Drag and drop Excel file here')}
             </p>
             <input
@@ -347,11 +347,11 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
             </button>
 
             {excelFile ? (
-              <div className="mt-2 text-xs dark:text-gray-400">
+              <div className={`mt-2 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
                 {t('import.selectedFile', { file: excelFile.name, defaultValue: `Selected: ${excelFile.name}` })}
               </div>
             ) : (
-              <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+              <div className={`mt-2 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
                 {t('import.noFileSelected', 'No file selected')}
               </div>
             )}
@@ -367,7 +367,7 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
               <FaDownload className="w-4 h-4" />
               {importing ? t('import.importing', 'Importing...') : t('import.importButton', 'Import Properties')}
             </button>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
+            <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>
               {t('import.supportedFiles', 'Supported files: .xlsx, .xls')}
             </span>
           </div>
@@ -389,7 +389,7 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
             </div>
           )}
 
-          <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          <div className={`mt-3 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
             {t('import.supportedFields', 'Supported fields: Project, Unit Number, Total Price, Building, Internal Area, External Area, Meter Price, ...')}
           </div>
         </div>

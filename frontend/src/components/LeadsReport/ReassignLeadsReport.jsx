@@ -555,31 +555,31 @@ const ReassignLeadsReport = ({ users = [] }) => {
               {reportData.transactions.length > 0 ? (
                 reportData.transactions.map((tx) => (
 	                  <tr key={tx.id} className={`transition-colors ${isLight ? 'hover:bg-blue-50/70' : 'hover:bg-white/5 dark:hover:bg-white/5'}`}>
-                    <td className="px-6 py-4 text-gray-500 dark:text-gray-400">
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.date}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.by_user?.name || 'System'}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.from_user?.manager?.name || '-'}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.to_user?.manager?.name || '-'}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.from_user?.name || <span className="text-gray-400 italic">Unassigned</span>}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.to_user?.name || <span className="text-gray-400 italic">Unassigned</span>}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.stage_after}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} `}>
                       {tx.stage_before}
                     </td>
-                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-300 font-bold`}>
+                    <td className={`px-6 py-4 ${isLight ? 'text-black' : 'text-white'}  font-bold`}>
                       {tx.quantity}
                     </td>
                   </tr>
@@ -611,7 +611,7 @@ const ReassignLeadsReport = ({ users = [] }) => {
 	                className={`px-2 py-1 border rounded-md backdrop-blur-sm text-xs ${
                     isLight
                       ? 'text-slate-700 border-blue-200/90 bg-white'
-                      : 'text-white border-theme-border dark:border-gray-600 dark:bg-transparent dark:text-white'
+                      : 'text-white border-theme-border dark:border-gray-600 dark:bg-transparent '
                   }`}
               >
                 <option value={10}>10</option>
@@ -637,7 +637,7 @@ const ReassignLeadsReport = ({ users = [] }) => {
 	                className={`ml-2 px-3 py-1.5 border rounded-lg backdrop-blur-sm text-xs w-full sm:w-64 lg:w-28 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 ${
                     isLight
                       ? 'text-slate-700 border-blue-200/90 bg-white placeholder:text-slate-400'
-                      : 'text-white border-theme-border dark:border-gray-600 dark:bg-transparent dark:text-white dark:placeholder-gray-500'
+                      : 'text-white border-theme-border dark:border-gray-600 dark:bg-transparent  dark:placeholder-gray-500'
                   }`}
               />
             </div>
@@ -649,7 +649,7 @@ const ReassignLeadsReport = ({ users = [] }) => {
 	                className={`block px-3 py-2 leading-tight border rounded-l-lg disabled:opacity-50 backdrop-blur-sm ${
                     isLight
                       ? 'text-slate-700 border-blue-200/90 bg-white hover:bg-blue-50 hover:text-blue-700'
-                      : 'text-white border-theme-border dark:bg-transparent dark:border-gray-700 dark:text-white dark:hover:bg-gray-700 dark:hover:text-white'
+                      : 'text-white border-theme-border dark:bg-transparent dark:border-gray-700  dark:hover:bg-gray-700 dark:hover:text-white'
                   }`}
               >
                 <span className="sr-only">{t('Previous')}</span>
@@ -664,7 +664,7 @@ const ReassignLeadsReport = ({ users = [] }) => {
 	                className={`block px-3 py-2 leading-tight border rounded-r-lg disabled:opacity-50 backdrop-blur-sm ${
                     isLight
                       ? 'text-slate-700 border-blue-200/90 bg-white hover:bg-blue-50 hover:text-blue-700'
-                      : 'text-white border-theme-border dark:bg-transparent dark:border-gray-700 dark:text-white dark:hover:bg-gray-700 dark:hover:text-white'
+                      : 'text-white border-theme-border dark:bg-transparent dark:border-gray-700  dark:hover:bg-gray-700 dark:hover:text-white'
                   }`}
               >
                 <span className="sr-only">{t('Next')}</span>

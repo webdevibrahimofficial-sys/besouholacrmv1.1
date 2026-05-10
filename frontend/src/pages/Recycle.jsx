@@ -1223,7 +1223,7 @@ export const Recycle = () => {
       <div className={`flex justify-between items-center gap-4 mb-6
  ${isRtl ? 'text-right' : 'text-left'}`}>
         <div className={`relative inline-flex items-center ${isRtl ? 'flex-row-reverse text-right' : ''} gap-2`}>
-          <h1 className={`page-title text-2xl md:text-3xl font-bold text-black dark:text-white flex items-center gap-2 ${isRtl ? 'w-full text-right' : 'text-left'}`} style={{ textAlign: isRtl ? 'right' : 'left', color: theme === 'dark' ? '#ffffff' : '#000000' }}>
+          <h1 className={`page-title text-2xl md:text-3xl font-bold ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2 ${isRtl ? 'w-full text-right' : 'text-left'}`} style={{ textAlign: isRtl ? 'right' : 'left', color: theme === 'dark' ? '#ffffff' : '#000000' }}>
             {t('Recycle Bin')}
           </h1>
           <span
@@ -1237,7 +1237,7 @@ export const Recycle = () => {
       {/* Leads Table Filters & Controls */}
       <div className={`glass-panel rounded-2xl p-3 mb-6 filters-compact`}>
         <div className="flex justify-between items-center mb-3">
-          <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'} dark:text-white flex items-center gap-2`}>
+          <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}  flex items-center gap-2`}>
             <FaFilter size={16} className="text-blue-500 dark:text-blue-400" /> {t('Filters')}
           </h2>
           <div className="flex items-center gap-2">
@@ -1287,7 +1287,7 @@ export const Recycle = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Search */}
             <div className="space-y-1">
-              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <FaSearch size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Search')}
               </label>
@@ -1296,7 +1296,7 @@ export const Recycle = () => {
                 placeholder={t('Search leads...')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg  dark:bg-gray-700  ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg  dark:bg-gray-700  ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
               />
             </div>
 
@@ -1304,7 +1304,7 @@ export const Recycle = () => {
 
             {/* Source Filter */}
             <div className="space-y-1">
-              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 4l-4 4 4 4" />
                 </svg>
@@ -1324,7 +1324,7 @@ export const Recycle = () => {
 
             {/* Priority Filter */}
             <div className="space-y-1">
-              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -1349,7 +1349,7 @@ export const Recycle = () => {
 
             {/* Project Filter */}
             <div className="space-y-1">
-              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
@@ -1376,7 +1376,7 @@ export const Recycle = () => {
 
               {/* Stage Filter (using sidebar stages for options) */}
               <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
                   </svg>
@@ -1397,7 +1397,7 @@ export const Recycle = () => {
               {/* Manager Filter */}
               {!['sales person', 'team leader'].includes(userRole) && (
               <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
@@ -1419,7 +1419,7 @@ export const Recycle = () => {
               {/* Sales Person Filter */}
               {userRole !== 'sales person' && (
               <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
@@ -1440,7 +1440,7 @@ export const Recycle = () => {
 
               {/* Created By Filter */}
               <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20h18" />
                   </svg>
@@ -1460,7 +1460,7 @@ export const Recycle = () => {
 
               {/* Old Stage Filter */}
               <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c1.657 0 3 1.343 3 3v1h1a2 2 0 012 2v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5a2 2 0 012-2h1v-1c0-1.657 1.343-3 3-3z" />
                   </svg>
@@ -1480,7 +1480,7 @@ export const Recycle = () => {
 
               {/* Campaign Filter */}
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className={`flex items-center gap-1 text-xs font-medium  ${isLight ? 'text-black' : 'text-white'}`}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m0 0a2 2 0 104 0m-4 0h4" />
                   </svg>
@@ -1498,7 +1498,7 @@ export const Recycle = () => {
 
               {/* Country Filter */}
               <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -1519,7 +1519,7 @@ export const Recycle = () => {
 
               {/* Expected Revenue Filter (Text/Number Input) */}
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className="flex items-center gap-1 text-xs font-medium  ">
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .343-3 .768V11a.5.5 0 00.5.5h5a.5.5 0 00.5-.5V8.768C15 8.343 13.657 8 12 8z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11.5v6.5m-3-6.5h6m-3 0V5m0 0h3m-3 0H9" />
@@ -1531,13 +1531,13 @@ export const Recycle = () => {
                   placeholder={t('Enter minimum value...')}
                   value={expectedRevenueFilter}
                   onChange={(e) => setExpectedRevenueFilter(e.target.value)}
-                  className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg  dark:bg-gray-700  ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                  className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg  dark:bg-gray-700  ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                 />
               </div>
 
               {/* Email Filter (Text Input) */}
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className="flex items-center gap-1 text-xs font-medium  ">
                   <FaEnvelope size={12} className="text-blue-500 dark:text-blue-400" />
                   {t('Email')}
                 </label>
@@ -1546,13 +1546,13 @@ export const Recycle = () => {
                   placeholder={t('Search email...')}
                   value={emailFilter}
                   onChange={(e) => setEmailFilter(e.target.value)}
-                  className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg  dark:bg-gray-700  ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                  className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg  dark:bg-gray-700  ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                 />
               </div>
 
               {/* Action Type Filter */}
               <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                   </svg>
@@ -1577,7 +1577,7 @@ export const Recycle = () => {
               {/* Duplicate Status Filter */}
               {isDuplicateAllowed && (
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className="flex items-center gap-1 text-xs font-medium  ">
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v4a1 1 0 001 1h4a1 1 0 001-1V7m0 10v4a1 1 0 001 1h4a1 1 0 001-1v-4m-6-4H6a2 2 0 00-2 2v4a2 2 0 002 2h4m-6-4h4m-4 0v-4" />
                   </svg>
@@ -1599,7 +1599,7 @@ export const Recycle = () => {
 
               {/* Assign Date Filter */}
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className="flex items-center gap-1 text-xs font-medium  ">
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                   </svg>
@@ -1613,7 +1613,7 @@ export const Recycle = () => {
                     title={isRtl ? 'من' : 'From'}
                     aria-label={`${t('Assign Date')} ${isRtl ? 'من' : 'From'}`}
                     onChange={(e) => setAssignDateFrom(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                   />
                   <input
                     type="date"
@@ -1622,14 +1622,14 @@ export const Recycle = () => {
                     title={isRtl ? 'إلى' : 'To'}
                     aria-label={`${t('Assign Date')} ${isRtl ? 'إلى' : 'To'}`}
                     onChange={(e) => setAssignDateTo(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                   />
                 </div>
               </div>
 
               {/* Action Date Filter */}
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className="flex items-center gap-1 text-xs font-medium  ">
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                   </svg>
@@ -1643,7 +1643,7 @@ export const Recycle = () => {
                     title={isRtl ? 'من' : 'From'}
                     aria-label={`${t('Last Action Date')} ${isRtl ? 'من' : 'From'}`}
                     onChange={(e) => setLastActionFrom(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                   />
                   <input
                     type="date"
@@ -1652,44 +1652,28 @@ export const Recycle = () => {
                     title={isRtl ? 'إلى' : 'To'}
                     aria-label={`${t('Last Action Date')} ${isRtl ? 'إلى' : 'To'}`}
                     onChange={(e) => setLastActionTo(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                   />
                 </div>
               </div>
 
               {/* Creation Date Filter */}
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className={`flex items-center gap-1 text-xs font-medium  ${isLight ? 'text-black' : 'text-white'}`}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                   </svg>
                   {t('Creation Date')}
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="date"
-                    value={creationDateFrom}
-                    max={creationDateTo || undefined}
-                    title={isRtl ? 'من' : 'From'}
-                    aria-label={`${t('Creation Date')} ${isRtl ? 'من' : 'From'}`}
-                    onChange={(e) => setCreationDateFrom(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
-                  />
-                  <input
-                    type="date"
-                    value={creationDateTo}
-                    min={creationDateFrom || undefined}
-                    title={isRtl ? 'إلى' : 'To'}
-                    aria-label={`${t('Creation Date')} ${isRtl ? 'إلى' : 'To'}`}
-                    onChange={(e) => setCreationDateTo(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
-                  />
+                  <input type="date" value={creationDateFrom} max={creationDateTo || undefined} title={isRtl ? 'من' : 'From'} aria-label={`${t('Creation Date')} ${isRtl ? 'من' : 'From'}`} onChange={(e) => setCreationDateFrom(e.target.value)} className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`} />
+                  <input type="date" value={creationDateTo} min={creationDateFrom || undefined} title={isRtl ? 'إلى' : 'To'} aria-label={`${t('Creation Date')} ${isRtl ? 'إلى' : 'To'}`} onChange={(e) => setCreationDateTo(e.target.value)} className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`} />
                 </div>
               </div>
 
               {/* Closed Date Filter */}
               <div className="space-y-1">
-                <label className="flex items-center gap-1 text-xs font-medium  dark:text-white">
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                   </svg>
@@ -1703,7 +1687,7 @@ export const Recycle = () => {
                     title={isRtl ? 'من' : 'From'}
                     aria-label={`${t('Closed Date')} ${isRtl ? 'من' : 'From'}`}
                     onChange={(e) => setClosedDateFrom(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                   />
                   <input
                     type="date"
@@ -1712,7 +1696,7 @@ export const Recycle = () => {
                     title={isRtl ? 'إلى' : 'To'}
                     aria-label={`${t('Closed Date')} ${isRtl ? 'إلى' : 'To'}`}
                     onChange={(e) => setClosedDateTo(e.target.value)}
-                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'}  text-sm font-medium placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                   />
                 </div>
               </div>
@@ -1725,7 +1709,7 @@ export const Recycle = () => {
       </div>
 
       <div className={`flex items-center justify-between mb-3`}>
-        <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'} dark:text-white`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Deleted Leads')}</h2>
+        <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Deleted Leads')}</h2>
         <ColumnToggle
           columns={allColumns}
           visibleColumns={visibleColumns}
@@ -1777,11 +1761,11 @@ export const Recycle = () => {
           )}
         </div>
         <div ref={scrollXRef} className="overflow-x-auto relative backdrop-blur-lg" style={{ '--table-header-bg': theme === 'dark' ? 'transparent' : undefined, '--scroll-bg': theme === 'dark' ? '#0f172a' : '#f9fafb' }}>
-          <table className={`w-max min-w-full divide-y divide-theme-border dark:divide-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:text-white`} style={{ tableLayout: 'auto' }}>
+          <table className={`w-max min-w-full divide-y divide-theme-border dark:divide-gray-700 ${isLight ? 'text-black' : 'text-white'} `} style={{ tableLayout: 'auto' }}>
             <thead className={` ${tableHeaderBgClass} backdrop-blur-md sticky top-0 z-30 shadow-md`} style={{ backgroundColor: 'var(--table-header-bg)' }}>
               <tr>
                 {/* Checkbox Column */}
-                <th scope="col" className={`w-10 px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'} dark:text-white`} style={{ backgroundColor: 'var(--table-header-bg)' }}>
+                <th scope="col" className={`w-10 px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'} `} style={{ backgroundColor: 'var(--table-header-bg)' }}>
                   <input
                     type="checkbox"
                     checked={selectedLeads.length === paginatedLeads.length && paginatedLeads.length > 0}
@@ -1795,7 +1779,7 @@ export const Recycle = () => {
                   <th
                     key="lead"
                     scope="col"
-                    className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'} dark:text-white w-40 cursor-pointer`}
+                    className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'}  w-40 cursor-pointer`}
                     style={{ backgroundColor: 'var(--table-header-bg)' }}
                     onClick={() => {
                       if (sortBy === 'lead') {
@@ -1819,7 +1803,7 @@ export const Recycle = () => {
                   <th
                     key="contact"
                     scope="col"
-                    className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'} dark:text-white w-48`}
+                    className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'}  w-48`}
                     style={{ backgroundColor: 'var(--table-header-bg)' }}
                   >
                     <div className="flex items-center gap-1">{allColumns.contact}</div>
@@ -1830,7 +1814,7 @@ export const Recycle = () => {
                   <th
                     key="actions"
                     scope="col"
-                    className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'} dark:text-white sticky ${i18n.language === 'ar' ? 'right-0' : 'left-0'} z-30`}
+                    className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'}  sticky ${i18n.language === 'ar' ? 'right-0' : 'left-0'} z-30`}
                     style={{ minWidth: '160px', backgroundColor: 'var(--table-header-bg)' }}
                   >
                     {t('Actions')}
@@ -1842,7 +1826,7 @@ export const Recycle = () => {
                     <th
                       key={key}
                       scope="col"
-                      className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'} dark:text-white ${['lead','contact'].includes(key) ? '' : ''} ${['source','stage','priority','expectedRevenue'].includes(key) ? 'cursor-pointer' : 'cursor-default'}`}
+                      className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isLight ? 'text-black' : 'text-white'}  ${['lead','contact'].includes(key) ? '' : ''} ${['source','stage','priority','expectedRevenue'].includes(key) ? 'cursor-pointer' : 'cursor-default'}`}
                       style={{ backgroundColor: 'var(--table-header-bg)' }}
                       onClick={['source','stage','priority','expectedRevenue'].includes(key) ? () => {
                         if (sortBy === key) {
@@ -1889,7 +1873,7 @@ export const Recycle = () => {
 
                   {/* Lead Info */}
                   {visibleColumns.lead && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                       <div className="font-semibold text-base">{lead.name}</div>
                       <div className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{lead.company}</div>
                     </td>
@@ -1897,9 +1881,9 @@ export const Recycle = () => {
 
                 {/* Contact Info */}
                 {visibleColumns.contact && (
-                  <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
-                    <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{lead.email}</div>
-                    <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} dark:text-white`} dir="ltr">
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
+                    <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} `}>{lead.email}</div>
+                    <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} `} dir="ltr">
                       {formatPhoneForDisplay(lead.phone || lead.mobile || '', {
                         showFull: !maskMobileNumber,
                         defaultCountryCode:
@@ -2004,35 +1988,35 @@ export const Recycle = () => {
 
                   {/* Source */}
                   {visibleColumns.source && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                       <span className="text-base">{getSourceIcon(lead.source)}</span> {lead.source}
                     </td>
                   )}
 
                   {/* Project/Item */}
                   {visibleColumns.project && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                       {lead.project || (lead.item_id && projectsList.find(p => p.id == lead.item_id)?.name) || '-'}
                     </td>
                   )}
 
                   {/* Sales Person */}
                   {visibleColumns.salesPerson && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                       {lead.assignedTo || '-'}
                     </td>
                   )}
 
                   {/* Last Comment */}
                   {visibleColumns.lastComment && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white max-w-xs overflow-hidden text-ellipsis`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'}  max-w-xs overflow-hidden text-ellipsis`}>
                       {lead.notes || '-'}
                     </td>
                   )}
 
                   {/* Stage */}
                   {visibleColumns.stage && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                       <span className={`inline-flex px-2 py-0.5 text-xs font-semibold leading-5 rounded-full ${getStatusColor(lead.stage)}`}>
                         {t(lead.stage || 'N/A')}
                       </span>
@@ -2041,14 +2025,14 @@ export const Recycle = () => {
 
                   {/* Expected Revenue */}
                   {visibleColumns.expectedRevenue && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                       {lead.estimatedValue ? `${lead.estimatedValue.toLocaleString()} ${t('SAR')}` : '-'}
                     </td>
                   )}
 
                   {/* Priority */}
                   {visibleColumns.priority && (
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
                       <span className={`inline-flex px-2 py-0.5 text-xs font-semibold leading-5 rounded-full ${getPriorityColor(lead.priority)}`}>
                         {t(lead.priority || 'N/A')}
                       </span>
@@ -2064,11 +2048,11 @@ export const Recycle = () => {
           </table>
           
           {paginatedLeads.length === 0 && (
-            <div className={`text-center py-10 ${isLight ? 'text-black' : 'text-white'} dark:text-gray-400`}>
+            <div className={`text-center py-10 ${isLight ? 'text-black' : 'text-white'} `}>
               <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <h3 className={`mt-2 text-sm font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{t('No Leads Found')}</h3>
+              <h3 className={`mt-2 text-sm font-medium ${isLight ? 'text-black' : 'text-white'} `}>{t('No Leads Found')}</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('Try adjusting your filters or adding new leads.')}</p>
             </div>
           )}
@@ -2080,15 +2064,15 @@ export const Recycle = () => {
         {/* Row 1: Show Entries & Page Navigation */}
         <div className="flex  lg:flex-row justify-between items-center gap-3">
           {/* Show Entries */}
-          <div className={`flex flex-wrap items-center gap-2 w-full lg:w-auto text-sm font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+          <div className={`flex flex-wrap items-center gap-2 w-full lg:w-auto text-sm font-medium ${isLight ? 'text-black' : 'text-white'} `}>
             <span style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Show')}</span>
-            <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1) }} className={`px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md bg-white dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white text-xs`}>
+            <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1) }} className={`px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md bg-white dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'}  text-xs`}>
               <option value={10}>10</option>
               <option value={20}>20</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
-            <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} dark:text-white`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('entries')}</span>
+            <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('entries')}</span>
             <label htmlFor="page-search" className="sr-only">{t('Search Page')}</label>
             <input
               id="page-search"
@@ -2105,7 +2089,7 @@ export const Recycle = () => {
                   }
                 }
               }}
-              className={`ml-2 px-3 py-1.5 border border-theme-border dark:border-gray-600 rounded-lg  dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white text-xs w-full sm:w-64 lg:w-28 placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400`}
+              className={`ml-2 px-3 py-1.5 border border-theme-border dark:border-gray-600 rounded-lg  dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'}  text-xs w-full sm:w-64 lg:w-28 placeholder:text-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400`}
               style={{ color: theme === 'dark' ? '#ffffff' : undefined }}
             />
           </div>
@@ -2117,18 +2101,18 @@ export const Recycle = () => {
               disabled={currentPage === 1}
               className={`block px-3 py-2 ${isLight ? 'text-black' : 'text-white'} focus:${isLight ? 'text-black' : 'text-white'} leading-tight border border-theme-border rounded-l-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-transparent dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white disabled:opacity-50 backdrop-blur-sm`}
             >
-              <span className={`sr-only ${isLight ? 'text-black' : 'text-white'} dark:text-white focus:text-white`}>{t('Previous')}</span>
+              <span className={`sr-only ${isLight ? 'text-black' : 'text-white'}  focus:text-white`}>{t('Previous')}</span>
               <svg className="w-5 h-5" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd"></path></svg>
             </button>
-            <span className={`text-sm font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
-              {t('Page')} <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{currentPage}</span> {t('of')} <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{Math.ceil(filteredLeads.length / itemsPerPage)}</span>
+            <span className={`text-sm font-medium ${isLight ? 'text-black' : 'text-white'} `}>
+              {t('Page')} <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'} `}>{currentPage}</span> {t('of')} <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'} `}>{Math.ceil(filteredLeads.length / itemsPerPage)}</span>
             </span>
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredLeads.length / itemsPerPage)))}
               disabled={currentPage === Math.ceil(filteredLeads.length / itemsPerPage)}
-              className={`block px-3 py-2 leading-tight ${isLight ? 'text-black' : 'text-white'} border border-theme-border rounded-r-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-transparent dark:border-gray-700 dark:text-white dark:hover:bg-gray-700 dark:hover:text-white disabled:opacity-50 backdrop-blur-sm`}
+              className={`block px-3 py-2 leading-tight ${isLight ? 'text-black' : 'text-white'} border border-theme-border rounded-r-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-transparent dark:border-gray-700 dark:hover:bg-gray-700 dark:hover:text-white disabled:opacity-50 backdrop-blur-sm`}
             >
-              <span className={`sr-only ${isLight ? 'text-black' : 'text-white'} dark:text-white focus:text-white`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Next')}</span>
+              <span className={`sr-only ${isLight ? 'text-black' : 'text-white'}  focus:text-white`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Next')}</span>
               <svg className="w-5 h-5" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"></path></svg>
             </button>
           </div>
@@ -2137,7 +2121,7 @@ export const Recycle = () => {
         {/* Row 2: Export Controls */}
         <div className="flex justify-center items-center">
           <div className="flex items-center flex-wrap gap-2 w-full lg:w-auto border p-2 rounded-lg border-theme-border dark:border-gray-600  dark:bg-gray-700 justify-center">
-            <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} dark:text-white`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Export Pages')}</span>
+            <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Export Pages')}</span>
             <input
               type="number"
               min="1"
@@ -2145,10 +2129,10 @@ export const Recycle = () => {
               placeholder="From"
               value={exportFrom}
               onChange={(e) => setExportFrom(e.target.value)}
-              className={`w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white text-xs focus:border-blue-500`}
+              className={`w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'}  text-xs focus:border-blue-500`}
               style={{ color: theme === 'dark' ? '#ffffff' : undefined }}
             />
-            <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} dark:text-white`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('to')}</span>
+            <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('to')}</span>
             <input
               type="number"
               min="1"
@@ -2156,7 +2140,7 @@ export const Recycle = () => {
               placeholder="To"
               value={exportTo}
               onChange={(e) => setExportTo(e.target.value)}
-              className={`w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md  dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'} dark:text-white text-xs focus:border-blue-500`}
+              className={`w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md  dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'}  text-xs focus:border-blue-500`}
               style={{ color: theme === 'dark' ? '#ffffff' : undefined }}
             />
             <button

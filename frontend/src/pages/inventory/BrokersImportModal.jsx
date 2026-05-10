@@ -107,7 +107,7 @@ export default function BrokersImportModal({ isRTL, onClose, onImport }) {
   return (
     <div className={`fixed inset-0 z-[2000] ${rtl ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">
+      <div className="relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200 card border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">
         {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
           <div className="flex items-center gap-3">
