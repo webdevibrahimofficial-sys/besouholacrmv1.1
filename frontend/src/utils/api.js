@@ -6,9 +6,9 @@ const resolveTenantSlugFromHost = () => {
   if (typeof window === 'undefined') return null
   const host = String(window.location.hostname || '').toLowerCase()
   const parts = host.split('.')
-  if (parts.length <= 2) return null
+  if (parts.length <= 2 && parts[1] !== 'localhost') return null
   const candidate = parts[0]
-  if (!candidate || candidate === 'www' || candidate === 'api') return null
+  if (!candidate || candidate === 'www' || candidate === 'api' || candidate === 'localhost') return null
   return candidate
 }
 

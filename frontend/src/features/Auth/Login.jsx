@@ -202,8 +202,7 @@ export default function Login() {
                              res?.subscription_plan === 'super_admin';
 
         if (isSuperAdmin) {
-          // Let AppStateProvider hydrate `user` from `/api/company-info`,
-          // then the effect above will route to `/system/dashboard`.
+          navigate('/system/dashboard', { replace: true });
           setLoading(false);
           return;
         } else {

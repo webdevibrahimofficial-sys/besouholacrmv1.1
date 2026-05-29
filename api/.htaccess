@@ -2,3 +2,31 @@
     RewriteEngine On
     RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
+
+# ============ SECURITY: Protect Sensitive Files ============
+
+# Block access to environment configuration files
+<FilesMatch "\.env|\.env\.*|\.git|\.gitignore|composer\.json|composer\.lock|package\.json">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to sensitive directories
+<DirectoryMatch "^/(config|database|storage|bootstrap|tests|node_modules)">
+    Order allow,deny
+    Deny from all
+</DirectoryMatch>
+
+# Block direct access to PHP files in root (only allow public/ access)
+<FilesMatch "\.php$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow .php access only in public directory
+<Directory "*/public">
+    <FilesMatch "\.php$">
+        Order allow,deny
+        Allow from all
+    </FilesMatch>
+</Directory>

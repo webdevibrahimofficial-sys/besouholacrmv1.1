@@ -109,7 +109,7 @@ Route::get('/public-files/{path}', [PublicFileController::class , 'show'])
     ->name('public.files.show');
 
 // Super Admin Routes (Accessible on main domain)
-Route::prefix('super-admin')->middleware(['auth:sanctum'])->group(function () {
+Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])->group(function () {
     Route::get('tenants', [SuperAdminController::class , 'tenants']);
     Route::post('tenants', [SuperAdminController::class , 'storeTenant']);
     Route::put('tenants/{tenant}', [SuperAdminController::class , 'update']);
@@ -147,7 +147,6 @@ Route::post('/p/{slug}/lead', [\App\Http\Controllers\LandingPageController::clas
 
 Route::middleware([ResolveTenant::class])
     ->group(function () {
-
         // Authentication
         Route::post('/auth/login', [AuthController::class , 'login']);
         Route::post('/auth/2fa/verify', [AuthController::class , 'verifyTwoFactor']);
@@ -166,9 +165,9 @@ Route::middleware([ResolveTenant::class])
 
 // Protected Routes (Accessible via any domain, Tenant context resolved via Auth)
  Route::middleware([
+     ResolveTenant::class ,
      'auth:sanctum',
      \App\Http\Middleware\TrackUserPresence::class,
-     ResolveTenant::class ,
      InitializeTenancy::class ,
      SetTenantTimezone::class ,
      EnsureTenantSubscriptionActive::class,

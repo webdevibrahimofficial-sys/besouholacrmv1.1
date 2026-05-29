@@ -1,67 +1,87 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { palette, fonts } from '../../theme.js'
 
-const ThemeContext = createContext({ theme: 'dark', setTheme: () => {} })
+const ThemeContext = createContext({ theme: 'light', setTheme: () => {}, resolvedTheme: 'light' })
+
+// ─── helper: قراءة الثيم المحفوظ من localStorage ─────────────────────────────
+function readSavedTheme() {
+  try {
+    const prefsRaw = localStorage.getItem('systemPrefs')
+    if (prefsRaw) {
+      const prefs = JSON.parse(prefsRaw)
+      if (prefs?.theme === 'light' || prefs?.theme === 'dark' || prefs?.theme === 'auto') {
+        return prefs.theme
+      }
+    }
+    const saved = localStorage.getItem('theme')
+    if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved
+  } catch {}
+  return 'light'
+}
+
+// ─── helper: تطبيق الوضع الفعلي على <html> ────────────────────────────────────
+function applyMode(mode) {
+  const root = document.documentElement
+  if (mode === 'dark') {
+    root.classList.add('dark')
+    root.classList.remove('light')
+  } else {
+    root.classList.remove('dark')
+    root.classList.add('light')
+  }
+}
+
+// ─── helper: حساب الوضع الفعلي من إعداد "auto" ────────────────────────────────
+// يستخدم prefers-color-scheme أولاً، ثم يعود للنظام القائم على الساعة كـ fallback
+function resolveAutoMode() {
+  try {
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'
+  } catch {}
+  return 'light'
+}
 
 export const ThemeProvider = ({ children }) => {
-  const [theme, setThemeState] = useState(() => {
-    try {
-      // Prefer theme from system preferences
-      const prefsRaw = localStorage.getItem('systemPrefs')
-      if (prefsRaw) {
-        const prefs = JSON.parse(prefsRaw)
-        if (prefs && (prefs.theme === 'light' || prefs.theme === 'dark' || prefs.theme === 'auto')) {
-          return prefs.theme
-        }
-      }
-      const saved = localStorage.getItem('theme')
-      return (saved === 'light' || saved === 'auto') ? saved : 'light'
-    } catch {
-      return 'light'
-    }
+  const [theme, setThemeState] = useState(() => readSavedTheme())
+  const [resolvedTheme, setResolvedTheme] = useState(() => {
+    const saved = readSavedTheme()
+    if (saved === 'auto') return resolveAutoMode()
+    return saved === 'dark' ? 'dark' : 'light'
   })
 
-  const [resolvedTheme, setResolvedTheme] = useState('dark')
-
+  // ─── الدالة العامة لتغيير الثيم (الوحيدة المُصرَّح بها) ───────────────────
   const setTheme = (val) => {
-    setThemeState(val.toLowerCase())
+    const normalized = String(val).toLowerCase()
+    if (normalized !== 'light' && normalized !== 'dark' && normalized !== 'auto') return
+    setThemeState(normalized)
   }
 
+  // ─── تطبيق الثيم على DOM وحفظه في localStorage ──────────────────────────────
   useEffect(() => {
-    const updateTheme = () => {
-      let mode = theme
-      
-      if (theme === 'auto') {
-        const hour = new Date().getHours()
-        // Light Mode: 5:00 AM to 4:59 PM (16:59)
-        if (hour >= 5 && hour < 17) {
-          mode = 'light'
-        } else {
-          mode = 'dark'
-        }
-      }
-
+    const compute = () => {
+      const mode = theme === 'auto' ? resolveAutoMode() : theme
       setResolvedTheme(mode)
-      const root = document.documentElement
-      if (mode === 'dark') {
-        root.classList.add('dark')
-        root.classList.remove('light')
-      } else {
-        root.classList.remove('dark')
-        root.classList.add('light')
+      applyMode(mode)
+    }
+
+    compute()
+
+    // في وضع auto: استمع لتغيير تفضيل النظام بدلاً من الـ interval
+    let mediaQuery = null
+    let interval = null
+
+    if (theme === 'auto') {
+      try {
+        mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+        mediaQuery.addEventListener('change', compute)
+      } catch {
+        // fallback للمتصفحات القديمة
+        interval = setInterval(compute, 60000)
       }
     }
 
-    updateTheme()
-
-    let interval
-    if (theme === 'auto') {
-      interval = setInterval(updateTheme, 60000) // Check every minute
-    }
-
+    // حفظ الثيم في localStorage بشكل موحّد في مكان واحد
     try {
       localStorage.setItem('theme', theme)
-      // Keep system preferences in sync with theme changes
       const prefsRaw = localStorage.getItem('systemPrefs')
       const prefs = prefsRaw ? JSON.parse(prefsRaw) : {}
       prefs.theme = theme
@@ -69,39 +89,49 @@ export const ThemeProvider = ({ children }) => {
     } catch {}
 
     return () => {
+      if (mediaQuery) mediaQuery.removeEventListener('change', compute)
       if (interval) clearInterval(interval)
     }
   }, [theme])
 
-  // On mount, apply density and direction from system preferences
+  // ─── تطبيق density وdirection عند التحميل الأول ─────────────────────────────
   useEffect(() => {
     try {
       const prefsRaw = localStorage.getItem('systemPrefs')
-      if (prefsRaw) {
-        const prefs = JSON.parse(prefsRaw)
-        const root = document.documentElement
-        if (prefs && prefs.density) {
-          root.classList.remove('density-compact', 'density-comfortable', 'density-default')
-          const cls = `density-${prefs.density}`
-          root.classList.add(cls)
-        }
-        if (prefs && prefs.direction) {
-          document.dir = prefs.direction === 'rtl' ? 'rtl' : 'ltr'
-        }
+      if (!prefsRaw) return
+      const prefs = JSON.parse(prefsRaw)
+      const root = document.documentElement
+      if (prefs?.density) {
+        root.classList.remove('density-compact', 'density-comfortable', 'density-default')
+        root.classList.add(`density-${prefs.density}`)
+      }
+      if (prefs?.direction) {
+        document.dir = prefs.direction === 'rtl' ? 'rtl' : 'ltr'
       }
     } catch {}
   }, [])
 
+  // ─── مزامنة theme_mode من بيانات المستخدم عند تغيير الـ user ─────────────────
+  // (يُستدعى من AppStateProvider بعد login عبر syncThemeFromUser)
+  const syncThemeFromUser = (userThemeMode) => {
+    if (!userThemeMode) return
+    const normalized = String(userThemeMode).toLowerCase()
+    if (normalized === 'light' || normalized === 'dark' || normalized === 'auto') {
+      setThemeState(normalized)
+    }
+  }
+
   return (
-    <ThemeContext.Provider value={{ 
-      theme, 
-      setTheme, 
+    <ThemeContext.Provider value={{
+      theme,
+      setTheme,
       resolvedTheme,
-      palette, 
+      syncThemeFromUser,
+      palette,
       fonts,
       isLight: resolvedTheme === 'light',
       isDark: resolvedTheme === 'dark',
-      isDarkMode: resolvedTheme === 'dark'
+      isDarkMode: resolvedTheme === 'dark',
     }}>
       {children}
     </ThemeContext.Provider>

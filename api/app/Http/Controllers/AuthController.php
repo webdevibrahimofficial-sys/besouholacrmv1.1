@@ -54,24 +54,8 @@ class AuthController extends Controller
 
         $authOk = app(\App\Contracts\AuthenticatorInterface::class)->verifyCredentials($user, (string) $request->password);
         if (!$authOk) {
-            // Automatic Fix for Legacy/Imported Passwords (MD5 or Plain Text)
-            // This handles cases where users were imported from older systems
-            if ($user) {
-                $plainMatch = $user->password === $request->password;
-                $md5Match = md5($request->password) === $user->password;
-                
-                if ($plainMatch || $md5Match) {
-                    \Illuminate\Support\Facades\Log::info("Migrating legacy password for user {$user->id} ({$user->email})");
-                    $user->password = Hash::make($request->password);
-                    $user->save();
-                    $authOk = true;
-                }
-            }
-            
-            if (!$authOk) {
-                \Illuminate\Support\Facades\Log::warning('Login failed: Invalid credentials for ' . $request->email);
-                return response()->json(['message' => 'Invalid credentials'], 401);
-            }
+            \Illuminate\Support\Facades\Log::warning('Login failed: Invalid credentials for ' . $request->email);
+            return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
         // 2.a Block inactive users
@@ -307,23 +291,8 @@ class AuthController extends Controller
 
         $authOk = app(\App\Contracts\AuthenticatorInterface::class)->verifyCredentials($user, (string) $request->password);
         if (!$authOk) {
-            // Automatic Fix for Legacy/Imported Passwords (MD5 or Plain Text)
-            if ($user) {
-                $plainMatch = $user->password === $request->password;
-                $md5Match = md5($request->password) === $user->password;
-                
-                if ($plainMatch || $md5Match) {
-                    \Illuminate\Support\Facades\Log::info("Migrating legacy password for user {$user->id} ({$user->email}) in LoginRedirect");
-                    $user->password = Hash::make($request->password);
-                    $user->save();
-                    $authOk = true;
-                }
-            }
-
-            if (!$authOk) {
-                \Illuminate\Support\Facades\Log::warning('LoginRedirect failed: Invalid credentials for ' . $request->email);
-                return response()->json(['message' => 'Invalid credentials'], 401);
-            }
+            \Illuminate\Support\Facades\Log::warning('LoginRedirect failed: Invalid credentials for ' . $request->email);
+            return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
         if (strcasecmp($user->status ?? '', 'Inactive') === 0) {

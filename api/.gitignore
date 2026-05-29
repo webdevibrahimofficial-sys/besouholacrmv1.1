@@ -1,8 +1,11 @@
 *.log
 .DS_Store
 .env
+.env.local
 .env.backup
 .env.production
+.env.*.php
+.env.*.example
 *.zip
 *.7z
 error*.txt
@@ -30,3 +33,8 @@ migration*.txt
 Homestead.json
 Homestead.yaml
 Thumbs.db
+backend.zip
+columns.json
+developers.json
+.scribe
+

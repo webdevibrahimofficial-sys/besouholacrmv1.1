@@ -109,7 +109,7 @@ export function AppStateProvider({ children }) {
       return result
     }
 
-    if (result?.redirected && !result?.isSuperAdmin) {
+    if (result?.redirected) {
       return result
     }
     

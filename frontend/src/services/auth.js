@@ -25,9 +25,10 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
     };
   }
 
-  const token = res?.data?.data?.token || res?.data?.token;
-  const redirectUrl = res?.data?.redirect_url;
-  const user = res?.data?.user;
+  const responseData = res?.data?.data || res?.data || {};
+  const token = responseData?.token;
+  const redirectUrl = responseData?.redirect_url;
+  const user = responseData?.user;
   if (token) {
     if (typeof window !== 'undefined') {
       if (rememberMe) {
@@ -59,8 +60,23 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
                        user?.email?.toLowerCase() === 'admin@besouhoula.com';
 
   if (isSuperAdmin) {
-    // Return early to let the caller handle redirection after state update
-    return { token, redirected: true, user, isSuperAdmin: true };
+    if (typeof window !== 'undefined' && token) {
+      const tok = encodeURIComponent(token);
+      const encodedNext = encodeURIComponent('/system/dashboard');
+      const parts = window.location.hostname.split('.');
+      if (parts[0] === 'www') parts.shift();
+      const centralHost = parts.includes('localhost')
+        ? 'localhost'
+        : (parts.length > 2 ? parts.slice(-2).join('.') : window.location.hostname);
+      const targetBase = `${window.location.protocol}//${centralHost}${window.location.port ? `:${window.location.port}` : ''}`;
+      if (window.location.origin === targetBase) {
+        window.location.href = `${targetBase}/#/system/dashboard`;
+      } else {
+        window.location.href = `${targetBase}/#/auth/callback?token=${tok}&next=${encodedNext}`;
+      }
+    }
+
+    return { token, redirected: true, user, isSuperAdmin: true, subscription_plan: 'super_admin' };
   }
 
   if (!isSubdomain && redirectUrl) {
@@ -86,14 +102,20 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
 
       if (shouldHardRedirect) {
         window.location.href = `${redirectUrl}/#/auth/callback?token=${tok}&next=${encodedNext}`;
-        return { token, redirected: true, user };
+        return { token, redirected: true, user, tenant: responseData?.tenant, subscription_plan: responseData?.subscription_plan };
       }
 
       window.location.hash = `#${nextPath}`;
-      return { token, redirected: true, user };
+      return { token, redirected: true, user, tenant: responseData?.tenant, subscription_plan: responseData?.subscription_plan };
     }
   }
-  return { token, redirected: false, user };
+  return {
+    token,
+    redirected: false,
+    user,
+    tenant: responseData?.tenant,
+    subscription_plan: responseData?.subscription_plan,
+  };
 }
 
 export const logout = async () => {

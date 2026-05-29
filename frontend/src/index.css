@@ -39,24 +39,65 @@ body {
   --stage-purple-swatch: #8b5cf6; /* violet-500 */
   --sidebar-desktop-width: 280px; /* عرض السايدبار على سطح المكتب */
   
-  /* Theme Colors Variables */
-  --theme-text: #111827;
-  --content-text: #111827;
-  --muted-text: #475569;
-  --panel-border: #e5e7eb;
-  --card-bg: #FFFFFF;
+  /* ═══════════════════════════════════════════════════════════════
+     Unified Color Variables (Single Source of Truth)
+     ═══════════════════════════════════════════════════════════════ */
+  
+  /* Primary Colors */
+  --color-primary: #2563eb;    /* blue-600 */
+  --color-danger: #dc2626;     /* red-600 */
+  --color-success: #16a34a;    /* green-600 */
+  --color-warning: #f59e0b;    /* amber-500 */
+  
+  /* Text Colors (Light Mode) */
+  --color-text-primary: rgba(17, 24, 39, 0.96);    /* gray-900 */
+  --color-text-secondary: rgba(31, 41, 55, 0.92);  /* gray-800 */
+  --color-text-muted: rgba(75, 85, 99, 0.85);      /* gray-600 */
+  
+  /* Background Colors (Light Mode) */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f9fafb;
+  --color-bg-tertiary: #f3f4f6;
+  --color-bg-app: #f8fafc;
+  
+  /* Border & Divider Colors */
+  --color-border: #e5e7eb;
+  --color-border-dark: #d1d5db;
+  
+  /* Legacy compatibility (maps to new variables) */
+  --theme-text: var(--color-text-primary);
+  --content-text: var(--color-text-primary);
+  --muted-text: var(--color-text-muted);
+  --panel-border: var(--color-border);
+  --card-bg: var(--color-bg-primary);
   --hover-bg: #F1F3F5;
-  --app-bg: #f8fafc;
+  --app-bg: var(--color-bg-app);
 }
 
 .dark {
-  --theme-text: #F3F4F6;
-  --content-text: #F3F4F6;
-  --muted-text: #9CA3AF;
-  --panel-border: #374151;
-  --card-bg: #1F2937;
+  /* Text Colors (Dark Mode) */
+  --color-text-primary: rgba(243, 244, 246, 0.98);    /* gray-100 */
+  --color-text-secondary: rgba(229, 231, 235, 0.92);  /* gray-200 */
+  --color-text-muted: rgba(156, 163, 175, 0.85);      /* gray-400 */
+  
+  /* Background Colors (Dark Mode) */
+  --color-bg-primary: #111827;
+  --color-bg-secondary: #1f2937;
+  --color-bg-tertiary: #374151;
+  --color-bg-app: #0f172a;
+  
+  /* Border & Divider Colors (Dark Mode) */
+  --color-border: #374151;
+  --color-border-dark: #4b5563;
+  
+  /* Legacy compatibility (maps to new variables) */
+  --theme-text: var(--color-text-primary);
+  --content-text: var(--color-text-primary);
+  --muted-text: var(--color-text-muted);
+  --panel-border: var(--color-border);
+  --card-bg: var(--color-bg-secondary);
   --hover-bg: #374151;
-  --app-bg: #111827;
+  --app-bg: var(--color-bg-app);
 }
 
 /* Ensure consistent rendering across browsers */
@@ -2011,11 +2052,6 @@ body {
   }
 }
 
-:root {
-  --light-text: #1f2937; /* previous default text color */
-  --light-muted: #4b5563; /* previous muted text */
-  --light-card: #f3f4f6; /* previous card bg */
-}
 
 /* Base styles */
 body {
@@ -2287,61 +2323,11 @@ body {
   border-left: 0;
 }
 
-/* Unified Theme Variables and Utilities */
-/* Theme variables for light and dark modes */
-:root {
-  --text-primary: rgba(17, 24, 39, 0.96); /* gray-900 */
-  --text-secondary: rgba(31, 41, 55, 0.92); /* gray-800 */
-  --text-muted: rgba(75, 85, 99, 0.85); /* gray-600 */
-  --border-color: rgba(0, 0, 0, 0.08);
-
-  /* Content theme variables */
-  --content-bg: #ffffff;
-  --content-text: var(--text-primary);
-  --muted-text: var(--text-muted);
-  --dropdown-bg: rgba(255, 255, 255, 0.96);
-
-  /* Buttons */
-  --btn-primary-bg: #2563eb; /* blue-600 */
-  --btn-primary-hover: #1d4ed8; /* blue-700 */
-  --btn-primary-text: #ffffff;
-
-  --btn-danger-bg: #dc2626; /* red-600 */
-  --btn-danger-hover: #b91c1c; /* red-700 */
-  --btn-danger-text: #ffffff;
-
-  --btn-ghost-bg: rgba(0, 0, 0, 0.04);
-  --btn-ghost-hover: rgba(0, 0, 0, 0.08);
-}
-.dark {
-  --text-primary: rgba(243, 244, 246, 0.98); /* gray-100 */
-  --text-secondary: rgba(229, 231, 235, 0.92); /* gray-200 */
-  --text-muted: rgba(156, 163, 175, 0.85); /* gray-400 */
-  --border-color: rgba(255, 255, 255, 0.12);
-
-  /* Content theme variables */
-  --content-bg: #111827;
-  --content-text: var(--text-primary);
-  --muted-text: var(--text-muted);
-  --dropdown-bg: rgba(17, 24, 39, 0.35);
-
-  /* Buttons */
-  --btn-primary-bg: #3b82f6; /* blue-500 */
-  --btn-primary-hover: #60a5fa; /* blue-400 */
-  --btn-primary-text: #ffffff;
-
-  --btn-danger-bg: #ef4444; /* red-500 */
-  --btn-danger-hover: #f87171; /* red-400 */
-  --btn-danger-text: #ffffff;
-
-  --btn-ghost-bg: rgba(255, 255, 255, 0.06);
-  --btn-ghost-hover: rgba(255, 255, 255, 0.10);
-}
 
 /* Typography utilities */
-.text-primary { color: var(--text-primary); }
-.text-secondary { color: var(--text-secondary); }
-.text-muted { color: var(--text-muted); }
+.text-primary { color: var(--color-text-primary); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-muted { color: var(--color-text-muted); }
 
 /* Button utilities: keep base .btn from earlier definitions */
 

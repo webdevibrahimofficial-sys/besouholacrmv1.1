@@ -18,6 +18,9 @@ class ResolveTenant
      */
     public function handle(Request $request, Closure $next): Response
     {
+        app()->forgetInstance('tenant');
+        app()->forgetInstance('current_tenant_id');
+
         // قائمة بالراوتات التي لا تتطلب وجود Tenant (مثل تسجيل الدخول، إنشاء مستأجر جديد، الخ)
         $excludedRoutes = [
             'api/crm/login-redirect',
@@ -42,8 +45,12 @@ class ResolveTenant
                 return null;
             }
 
+            if ($host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP)) {
+                return null;
+            }
+
             $parts = explode('.', $host);
-            if (count($parts) <= 2) {
+            if (count($parts) <= 2 && ($parts[1] ?? null) !== 'localhost') {
                 return null;
             }
 
@@ -53,7 +60,7 @@ class ResolveTenant
             }
 
             // Ignore infrastructure subdomains that are not tenants (e.g. api.besouholacrm.net).
-            if (in_array($candidate, ['www', 'api'], true)) {
+            if (in_array($candidate, ['www', 'api', 'localhost'], true)) {
                 return null;
             }
 
@@ -65,28 +72,23 @@ class ResolveTenant
         $slug = $request->route('tenant');
 
         if (!$slug) {
-            // Fallback 1: Check if tenant is already bound by InitializeTenancy (e.g. via X-Tenant header)
-            if (app()->bound('tenant')) {
-                $slug = app('tenant')->slug;
-            }
-            
-            // Fallback 2: Check X-Tenant or X-Tenant-Id header explicitly
+            // Fallback 1: Check X-Tenant or X-Tenant-Id header explicitly
             if (!$slug && ($request->hasHeader('X-Tenant') || $request->hasHeader('X-Tenant-Id'))) {
                 $slug = $request->header('X-Tenant') ?: $request->header('X-Tenant-Id');
             }
 
-            // Fallback 3: parse Origin host (browser requests to api.* keep tenant in Origin, not Host)
+            // Fallback 2: parse Origin host (browser requests to api.* keep tenant in Origin, not Host)
             if (!$slug && $request->headers->has('Origin')) {
                 $originHost = parse_url((string) $request->header('Origin'), PHP_URL_HOST);
                 $slug = $parseTenantSlugFromHost($originHost);
             }
 
-            // Fallback 4: use authenticated user's tenant (works when API host is api.*)
+            // Fallback 3: use authenticated user's tenant (works when API host is api.*)
             if (!$slug && $request->user() && !$request->user()->is_super_admin && $request->user()->tenant_id) {
                 $slug = Tenant::whereKey($request->user()->tenant_id)->value('slug');
             }
 
-            // Fallback 5: parse request host (for actual tenant subdomains)
+            // Fallback 4: parse request host (for actual tenant subdomains)
             if (!$slug) {
                 $slug = $parseTenantSlugFromHost($request->getHost());
             }

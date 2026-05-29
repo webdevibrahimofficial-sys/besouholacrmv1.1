@@ -19,11 +19,7 @@ class InitializeTenancy
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $tenant = Tenant::current();
-
-        if ($tenant) {
-            app()->instance('tenant', $tenant);
-        }
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
 
         if (Auth::check()) {
             $user = Auth::user();

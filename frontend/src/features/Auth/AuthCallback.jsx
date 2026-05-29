@@ -13,6 +13,7 @@ export default function AuthCallback() {
       const next = params.get('next') || '/dashboard'
       if (token) {
         window.localStorage.setItem('token', token)
+        window.sessionStorage.removeItem('token')
         try {
           const host = window.location.hostname
           const parts = host.split('.')
@@ -26,7 +27,7 @@ export default function AuthCallback() {
         } catch {}
         if (typeof window !== 'undefined') {
           const path = next.startsWith('/') ? next : `/${next}`
-          window.location.href = `/#${path}`
+          window.location.replace(`${window.location.origin}/#${path}`)
         } else {
           navigate(next, { replace: true })
         }
