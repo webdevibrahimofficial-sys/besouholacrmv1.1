@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import * as XLSX from 'xlsx'
 import { useTheme } from '../shared/context/ThemeProvider'
@@ -8,11 +9,20 @@ import { FaDownload, FaTimes, FaFileExcel, FaUser, FaPaperclip, FaCloudUploadAlt
 export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
+  const isLight = !isDark
   const { t, i18n } = useTranslation()
   const [excelFile, setExcelFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState(null)
   const [importSummary, setImportSummary] = useState(null)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.body.classList.add('modal-import-properties-open')
+    return () => {
+      document.body.classList.remove('modal-import-properties-open')
+    }
+  }, [])
 
   const normalizeKey = (key) => String(key ?? '').toLowerCase().trim().replace(/[\s_\-]+/g, '')
   const pick = (row, candidates) => {
@@ -248,10 +258,12 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
     setImporting(false)
   }
 
-  return (
-    <div className={`fixed inset-0 z-[2000] ${isRTL ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div className={`fixed inset-0 z-[99999] ${isRTL ? 'rtl' : 'ltr'} flex items-center justify-center p-4`}>
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-<div 
+      <div 
         className="relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200"
         style={{
           backgroundColor: isDark ? '#172554' : 'white',
@@ -394,6 +406,7 @@ export default function ImportPropertiesModal({ onClose, isRTL, onImported }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

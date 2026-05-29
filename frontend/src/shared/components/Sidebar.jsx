@@ -2198,11 +2198,23 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               setCustomersOpen(false)
               onClose()
             }}
-            className={() => `${baseLink} group/settings w-full justify-between ${isSettingsActive ? 'active-parent' : ''} ${isLight ? 'bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-600' : 'bg-indigo-50 border border-indigo-200 dark:border-gray-700'}`}
+            className={() =>
+              `${baseLink} group/settings w-full justify-between ${isSettingsActive ? 'active-parent' : ''} ${
+                isLight
+                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-600'
+                  : 'bg-indigo-900/35 hover:bg-indigo-900/50 text-gray-100 border border-indigo-800/60'
+              }`
+            }
           >
             <span className="nova-icon-label">
-              <span className={`${iconContainer} ${iconTone} ${isLight ? '!text-white group-hover/settings:!text-white' : ''}`}>{getIcon('Settings')}</span>
-              <span className={`link-label ${isLight ? 'text-white group-hover/settings:text-white' : 'text-slate-900 group-hover/settings:text-slate-900 dark:group-hover/settings:text-white'}`}>
+              <span className={`${iconContainer} ${iconTone} ${isLight ? '!text-white group-hover/settings:!text-white' : '!text-gray-100 group-hover/settings:!text-white'}`}>{getIcon('Settings')}</span>
+              <span
+                className={`link-label ${
+                  isLight
+                    ? 'text-white group-hover/settings:text-white'
+                    : 'text-gray-100 group-hover/settings:text-white'
+                }`}
+              >
                 {t('Settings')}
               </span>
             </span>
@@ -2222,12 +2234,18 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
           <NavLink
             to="/contact"
             onClick={onClose}
-            className={({ isActive }) => `${baseLink} group/contact ${isActive ? activeLink : ''} ${isLight ? 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600' : 'bg-emerald-50 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800'} ${uiCollapsed ? '!px-0 justify-center' : ''}`}
+            className={({ isActive }) =>
+              `${baseLink} group/contact ${isActive ? activeLink : ''} ${
+                isLight
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600'
+                  : 'bg-emerald-900/20 hover:bg-emerald-900/35 text-gray-100 border border-emerald-800/60'
+              } ${uiCollapsed ? '!px-0 justify-center' : ''}`
+            }
             title={uiCollapsed ? t('Contact us') : ''}
           >
             <span className="nova-icon-label justify-center">
-              <span className={`${iconContainer} ${iconTone} ${isLight ? '!text-white group-hover/contact:!text-white' : ''}`}>{getIcon('Contact us')}</span>
-              <span className={`link-label ${isLight ? 'text-white group-hover/contact:text-white' : 'text-slate-900 dark:text-gray-100 group-hover/contact:text-slate-900 dark:group-hover/contact:text-white'}`}>
+              <span className={`${iconContainer} ${iconTone} ${isLight ? '!text-white group-hover/contact:!text-white' : '!text-gray-100 group-hover/contact:!text-white'}`}>{getIcon('Contact us')}</span>
+              <span className={`link-label ${isLight ? 'text-white group-hover/contact:text-white' : 'text-gray-100 group-hover/contact:text-white'}`}>
                 {t('Contact us')}
               </span>
             </span>

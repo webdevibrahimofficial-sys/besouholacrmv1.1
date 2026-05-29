@@ -282,10 +282,18 @@ html:not(.dark) .action-btn.icon-green { color: #16a34a; }
   border-color: var(--nova-sidebar-border) !important;
   color: var(--nova-sidebar-text) !important;
 }
-#app-sidebar.nova-sidebar .link-label { color: var(--nova-sidebar-text) !important; }
+/* Scope sidebar default label color to the main nav only.
+   This prevents overriding special CTA buttons (e.g. Settings/Contact) near the bottom. */
+#app-sidebar.nova-sidebar nav .link-label { color: var(--nova-sidebar-text) !important; }
 #app-sidebar.nova-sidebar .group:hover { background: rgba(37,99,235,0.12) !important; }
 #app-sidebar.nova-sidebar .border-l-4,
 #app-sidebar.nova-sidebar .active-link-indicator { border-color: var(--nova-accent) !important; }
+
+/* When Import modal is open, keep focus on the modal by hiding the topbar */
+body.modal-import-properties-open .nova-topbar {
+  visibility: hidden;
+  pointer-events: none;
+}
 
 /* Distribute sidebar height across items on large screens */
 @media (min-width: 1024px) {
