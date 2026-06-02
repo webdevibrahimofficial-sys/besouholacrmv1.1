@@ -9,9 +9,11 @@ use App\Models\MetaConnection;
 use App\Models\MetaBusiness;
 use App\Models\MetaAdAccount;
 use App\Models\MetaPage;
+use App\Models\TenantMetaApp;
 use App\Models\Integration;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\TenantMetaCredentialsResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -20,10 +22,12 @@ use Illuminate\Support\Str;
 class MetaAuthController extends Controller
 {
     protected $metaAuthService;
+    protected $credentialsResolver;
 
-    public function __construct(MetaAuthService $metaAuthService)
+    public function __construct(MetaAuthService $metaAuthService, TenantMetaCredentialsResolver $credentialsResolver)
     {
         $this->metaAuthService = $metaAuthService;
+        $this->credentialsResolver = $credentialsResolver;
     }
 
     public function redirect(Request $request)
@@ -39,7 +43,15 @@ class MetaAuthController extends Controller
             'user_id' => $user->id,
         ], now()->addMinutes(10));
 
-        $url = $this->metaAuthService->getRedirectUrl($state);
+        try {
+            $this->credentialsResolver->resolveForTenant($user->tenant_id);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'error' => 'Tenant Meta App is not configured. Please configure tenant app settings first.',
+            ], 422);
+        }
+
+        $url = $this->metaAuthService->getRedirectUrl($user->tenant_id, $state);
         return response()->json(['url' => $url]);
     }
 
@@ -61,13 +73,15 @@ class MetaAuthController extends Controller
                 }
 
                 $user = User::find($ctx['user_id']);
-                if (!$user || (int) $user->tenant_id !== (int) $ctx['tenant_id']) {
+                if (!$user || (string) $user->tenant_id !== (string) $ctx['tenant_id']) {
                     return response()->json(['error' => 'Unauthorized'], 401);
                 }
 
-                $tenantId = (int) $ctx['tenant_id'];
+                $tenantId = $ctx['tenant_id'];
             }
             
+            $this->credentialsResolver->resolveForTenant($tenantId);
+            app()->instance('current_tenant_id', $tenantId);
             $connection = $this->metaAuthService->handleCallback($tenantId);
             
             // Ensure Integration record exists and is active
@@ -129,9 +143,94 @@ class MetaAuthController extends Controller
     
     public function updateSettings(Request $request)
     {
-        // This might need to be repurposed for toggling active status of assets
-        // For now, we'll leave it as a placeholder or remove it if not used by frontend
-        return response()->json(['message' => 'Settings update not implemented for multi-account yet']);
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        $integration = Integration::updateOrCreate(
+            ['tenant_id' => $tenantId, 'provider' => 'meta'],
+            ['status' => 'active']
+        );
+
+        $validated = $request->validate([
+            'settings' => 'required|array',
+        ]);
+
+        $settings = is_array($integration->settings) ? $integration->settings : [];
+        $integration->settings = array_merge($settings, $validated['settings']);
+        $integration->save();
+
+        return response()->json(['message' => 'Settings updated successfully']);
+    }
+
+    public function appSettings(Request $request)
+    {
+        $this->ensureMetaSettingsAccess($request->user());
+        $tenantId = $request->user()->tenant_id;
+        $record = TenantMetaApp::where('tenant_id', $tenantId)->first();
+
+        $webhookBase = rtrim(config('app.url'), '/');
+        $webhookPath = $record?->webhook_key
+            ? "/api/meta/webhook/{$record->webhook_key}"
+            : null;
+
+        return response()->json([
+            'app_id' => $record?->app_id,
+            'app_secret_masked' => $record?->masked_app_secret,
+            'verify_token_set' => !empty($record?->verify_token),
+            'webhook_key' => $record?->webhook_key,
+            'webhook_url' => $webhookPath ? ($webhookBase . $webhookPath) : null,
+            'is_active' => (bool) ($record?->is_active ?? false),
+            'source' => $record?->is_active ? 'tenant' : 'none',
+        ]);
+    }
+
+    public function updateAppSettings(Request $request)
+    {
+        $this->ensureMetaSettingsAccess($request->user());
+        $tenantId = $request->user()->tenant_id;
+        $payload = $request->validate([
+            'app_id' => 'required|string|max:255',
+            'app_secret' => 'nullable|string|max:2048',
+            'verify_token' => 'nullable|string|max:1024',
+            'is_active' => 'sometimes|boolean',
+        ]);
+
+        $existing = TenantMetaApp::where('tenant_id', $tenantId)->first();
+        if (!$existing) {
+            $existing = new TenantMetaApp();
+            $existing->tenant_id = $tenantId;
+            $existing->webhook_key = $this->credentialsResolver->generateWebhookKey();
+        }
+
+        $existing->app_id = $payload['app_id'];
+        if (!empty($payload['app_secret'])) {
+            $existing->app_secret = $payload['app_secret'];
+        }
+        if (!empty($payload['verify_token'])) {
+            $existing->verify_token = $payload['verify_token'];
+        } elseif (!$existing->verify_token) {
+            $existing->verify_token = Str::random(40);
+        }
+        if (array_key_exists('is_active', $payload)) {
+            $existing->is_active = (bool) $payload['is_active'];
+        }
+        $existing->save();
+
+        return response()->json([
+            'message' => 'Tenant Meta app settings saved.',
+        ]);
+    }
+
+    protected function ensureMetaSettingsAccess(User $user): void
+    {
+        if ($user->is_super_admin) {
+            return;
+        }
+
+        if ($user->hasRole('Admin') || $user->hasRole('Tenant Admin')) {
+            return;
+        }
+
+        abort(403, 'Only tenant admins can manage Meta App settings.');
     }
 
     public function toggleAsset(Request $request)

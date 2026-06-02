@@ -8,13 +8,14 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('meta:webhook-sign {path? : File path to raw JSON payload (defaults to STDIN)} {--algo=sha256 : sha256 or sha1}', function () {
+Artisan::command('meta:webhook-sign {tenant_id : Tenant id} {path? : File path to raw JSON payload (defaults to STDIN)} {--algo=sha256 : sha256 or sha1}', function () {
     $algo = strtolower((string) $this->option('algo'));
     if (!in_array($algo, ['sha256', 'sha1'], true)) {
         $this->error('Invalid --algo. Use sha256 or sha1.');
         return 2;
     }
 
+    $tenantId = (string) $this->argument('tenant_id');
     $path = $this->argument('path');
     if ($path) {
         if (!is_string($path) || !file_exists($path)) {
@@ -31,21 +32,13 @@ Artisan::command('meta:webhook-sign {path? : File path to raw JSON payload (defa
         return 2;
     }
 
-    $appSecret = env('META_APP_SECRET')
-        ?: config('services.meta.app_secret')
-        ?: config('services.facebook.client_secret');
-
-    if (!$appSecret) {
-        try {
-            $appSecret = \App\Models\SystemSetting::where('key', 'meta_app_secret')->value('value');
-        } catch (\Throwable $e) {
-            // Ignore DB failures and fall through to error.
-        }
-    }
+    $appSecret = \App\Models\TenantMetaApp::where('tenant_id', $tenantId)
+        ->where('is_active', true)
+        ->value('app_secret');
 
     $appSecret = is_string($appSecret) ? trim($appSecret) : $appSecret;
     if (!$appSecret) {
-        $this->error('META app secret not configured (META_APP_SECRET / services.meta.app_secret / meta_app_secret system setting).');
+        $this->error("Meta app secret is missing for tenant {$tenantId}.");
         return 2;
     }
 

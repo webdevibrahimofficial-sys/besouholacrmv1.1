@@ -112,6 +112,8 @@ export default function MetaSettings({ onClose }) {
   // State
   const [activeTab, setActiveTab] = useState('overview')
   const [settings, setSettings] = useState({})
+  const [appSettings, setAppSettings] = useState({ app_id: '', app_secret: '', verify_token: '', webhook_url: null })
+  const [savingAppSettings, setSavingAppSettings] = useState(false)
   
   // Multi-account State
   const [connections, setConnections] = useState([])
@@ -137,6 +139,7 @@ export default function MetaSettings({ onClose }) {
   
   // Validation
   const [validationErrors, setValidationErrors] = useState({})
+  const [appValidationErrors, setAppValidationErrors] = useState({})
 
   // Auto-save State
   const [saveStatus, setSaveStatus] = useState('idle') // idle, pending, saving, saved, error
@@ -209,7 +212,10 @@ export default function MetaSettings({ onClose }) {
   const loadData = async () => {
     setLoading(true)
     try {
-      const data = await metaService.loadSettings()
+      const [data, appData] = await Promise.all([
+        metaService.loadSettings(),
+        metaService.loadAppSettings().catch(() => ({}))
+      ])
       
       setConnections(data.connections || [])
       setBusinesses(data.businesses || [])
@@ -225,6 +231,15 @@ export default function MetaSettings({ onClose }) {
       if (saved.fieldMap && typeof saved.fieldMap === 'object') {
         setFieldMap(prev => ({ ...prev, ...saved.fieldMap }))
       }
+      setAppSettings(prev => ({
+        ...prev,
+        app_id: appData.app_id || '',
+        app_secret: '',
+        verify_token: '',
+        webhook_url: appData.webhook_url || null,
+        app_secret_masked: appData.app_secret_masked || null,
+        verify_token_set: !!appData.verify_token_set
+      }))
       
       // Load global settings (Pixel, etc. might still be relevant globally or per account)
       // For now, assume global settings are in data.settings (if any) or separate
@@ -239,6 +254,41 @@ export default function MetaSettings({ onClose }) {
       showToast('error', 'Failed to load settings')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSaveAppSettings = async () => {
+    const appId = String(appSettings.app_id || '').trim()
+    if (!appId) {
+      setAppValidationErrors(prev => ({ ...prev, app_id: 'App ID is required' }))
+      showToast('error', 'App ID is required')
+      return
+    }
+    if (!/^\d+$/.test(appId)) {
+      setAppValidationErrors(prev => ({ ...prev, app_id: 'App ID must be numbers only' }))
+      showToast('error', 'App ID must be numbers only')
+      return
+    }
+    // Secret must be set at least once (either masked already exists, or user entered a new one)
+    if (!appSettings.app_secret_masked && !String(appSettings.app_secret || '').trim()) {
+      setAppValidationErrors(prev => ({ ...prev, app_secret: 'App Secret is required' }))
+      showToast('error', 'App Secret is required')
+      return
+    }
+
+    setSavingAppSettings(true)
+    try {
+      await metaService.saveAppSettings({
+        app_id: appId,
+        app_secret: appSettings.app_secret || undefined,
+        verify_token: appSettings.verify_token || undefined,
+      })
+      showToast('success', 'Tenant Meta App settings saved')
+      await loadData()
+    } catch (error) {
+      showToast('error', 'Failed to save tenant app settings')
+    } finally {
+      setSavingAppSettings(false)
     }
   }
 
@@ -276,6 +326,12 @@ export default function MetaSettings({ onClose }) {
     try {
       e?.preventDefault?.()
       e?.stopPropagation?.()
+      const appId = String(appSettings.app_id || '').trim()
+      const canConnect = /^\d+$/.test(appId) && (!!appSettings.app_secret_masked || !!String(appSettings.app_secret || '').trim())
+      if (!canConnect) {
+        showToast('error', 'Configure Tenant Meta App ID and Secret first')
+        return
+      }
       await metaService.connectMeta()
     } catch (error) {
       showToast('error', 'Failed to start Meta connection. Please login again and retry.')
@@ -373,6 +429,8 @@ export default function MetaSettings({ onClose }) {
 
   const renderOverview = () => {
     const sameId = (left, right) => String(left ?? '') === String(right ?? '')
+    const appId = String(appSettings.app_id || '').trim()
+    const canConnect = /^\d+$/.test(appId) && (!!appSettings.app_secret_masked || !!String(appSettings.app_secret || '').trim())
 
     return (
     <div className="space-y-6">
@@ -385,11 +443,72 @@ export default function MetaSettings({ onClose }) {
         <button
           type="button"
           onClick={handleConnect}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#1877F2] hover:bg-[#166fe5] focus:outline-none"
+          disabled={!canConnect}
+          title={!canConnect ? 'Save Tenant Meta App settings (App ID + Secret) first' : ''}
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#1877F2] hover:bg-[#166fe5] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Facebook className="w-4 h-4 mr-2" />
           Add New Account
         </button>
+      </div>
+
+      <div className="bg-transparent rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 sm:p-5">
+        <h4 className="text-sm font-semibold text-theme mb-3">Tenant Meta App</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <InputField
+            label="App ID"
+            value={appSettings.app_id}
+            onChange={(v) => {
+              const next = v?.trim?.() ?? v
+              setAppSettings(prev => ({ ...prev, app_id: next }))
+              if (next && !/^\d+$/.test(String(next))) {
+                setAppValidationErrors(prev => ({ ...prev, app_id: 'App ID must be numbers only' }))
+              } else {
+                setAppValidationErrors(prev => {
+                  const n = { ...prev }
+                  delete n.app_id
+                  return n
+                })
+              }
+            }}
+            placeholder="e.g. 123456789012345"
+            error={appValidationErrors.app_id}
+          />
+          <InputField
+            label="App Secret (leave empty to keep current)"
+            value={appSettings.app_secret}
+            onChange={(v) => {
+              setAppSettings(prev => ({ ...prev, app_secret: v }))
+              setAppValidationErrors(prev => {
+                const n = { ...prev }
+                delete n.app_secret
+                return n
+              })
+            }}
+            placeholder={appSettings.app_secret_masked || 'Meta App Secret'}
+            type="password"
+            error={appValidationErrors.app_secret}
+          />
+          <InputField
+            label="Verify Token (optional)"
+            value={appSettings.verify_token}
+            onChange={(v) => setAppSettings(prev => ({ ...prev, verify_token: v }))}
+            placeholder={appSettings.verify_token_set ? 'Already configured' : 'Webhook verify token'}
+          />
+          <div className="text-xs text-theme/70 self-end pb-2">
+            {appSettings.webhook_url ? `Webhook URL: ${appSettings.webhook_url}` : 'Save settings to generate webhook URL'}
+          </div>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSaveAppSettings}
+            disabled={savingAppSettings}
+            className="inline-flex items-center px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+          >
+            {savingAppSettings ? 'Saving...' : 'Save App Settings'}
+          </button>
+        </div>
       </div>
 
       {/* Connections List */}
@@ -773,13 +892,13 @@ export default function MetaSettings({ onClose }) {
               </h2>
               <button
                 onClick={onClose}
-                className="sm:hidden shrink-0 p-2 text-theme hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
+                className="sm:hidden shrink-0 p-2 text-gray-900 dark:text-gray-100 hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
                 aria-label="Close"
               >
-                <XCircle className="w-6 h-6" />
+                <XCircle className="w-6 h-6 text-gray-900 dark:text-gray-100" />
               </button>
             </div>
-            <p className="text-xs text-theme mt-2">v2.4.0 • Graph API v18.0</p>
+            <p className="text-xs text-theme mt-2">v2.5.0 • Graph API v19.0</p>
           </div>
           
           <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
@@ -836,9 +955,9 @@ export default function MetaSettings({ onClose }) {
                </div>
                <button
                  onClick={onClose}
-                 className="hidden sm:inline-flex shrink-0 p-2 text-theme hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
+                 className="hidden sm:inline-flex shrink-0 p-2 text-gray-900 dark:text-gray-100 hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
                >
-                 <XCircle className="w-6 h-6" />
+                 <XCircle className="w-6 h-6 text-gray-900 dark:text-gray-100" />
                </button>
              </div>
           </div>

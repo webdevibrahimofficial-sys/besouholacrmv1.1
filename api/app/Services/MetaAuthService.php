@@ -8,35 +8,47 @@ use App\Models\MetaConnection;
 use App\Models\MetaBusiness;
 use App\Models\MetaAdAccount;
 use App\Models\MetaPage;
+use App\Services\TenantMetaCredentialsResolver;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\FacebookProvider;
 
 class MetaAuthService
 {
-    protected $clientId;
-    protected $clientSecret;
     protected $redirectUri;
     protected $apiVersion = 'v19.0';
     protected $apiClient;
+    protected $credentialsResolver;
 
-    public function __construct(MetaApiClientInterface $apiClient)
+    public function __construct(MetaApiClientInterface $apiClient, TenantMetaCredentialsResolver $credentialsResolver)
     {
         $this->apiClient = $apiClient;
-
-        $this->clientId = \App\Models\SystemSetting::where('key', 'meta_app_id')->value('value') 
-            ?? config('services.facebook.client_id');
-        $this->clientSecret = \App\Models\SystemSetting::where('key', 'meta_app_secret')->value('value') 
-            ?? config('services.facebook.client_secret');
+        $this->credentialsResolver = $credentialsResolver;
         $this->redirectUri = config('services.facebook.redirect');
-
-        // Update config for Socialite
-        config(['services.facebook.client_id' => $this->clientId]);
-        config(['services.facebook.client_secret' => $this->clientSecret]);
     }
 
-    public function getRedirectUrl(?string $state = null)
+    protected function resolveCredentials($tenantId): array
+    {
+        return $this->credentialsResolver->resolveForTenant($tenantId);
+    }
+
+    protected function socialiteDriver($tenantId): FacebookProvider
+    {
+        $credentials = $this->resolveCredentials($tenantId);
+
+        /** @var FacebookProvider $driver */
+        $driver = Socialite::buildProvider(FacebookProvider::class, [
+            'client_id' => $credentials['app_id'],
+            'client_secret' => $credentials['app_secret'],
+            'redirect' => $this->redirectUri,
+        ]);
+
+        return $driver;
+    }
+
+    public function getRedirectUrl($tenantId = null, ?string $state = null)
     {
         // Mock Mode Check for Redirect URL
         if (config('services.meta.mock_mode')) {
@@ -48,8 +60,7 @@ class MetaAuthService
             return route('meta.callback', $params);
         }
 
-        /** @var \Laravel\Socialite\Two\FacebookProvider $driver */
-        $driver = Socialite::driver('facebook');
+        $driver = $this->socialiteDriver($tenantId);
 
         $driver = $driver
             ->stateless()
@@ -73,7 +84,7 @@ class MetaAuthService
             $userName = is_object($socialUser) ? $socialUser->name : ($socialUser['name'] ?? 'Mock User');
             $userEmail = is_object($socialUser) ? $socialUser->email : ($socialUser['email'] ?? 'mock@example.com');
 
-            $longLivedTokenData = $this->exchangeForLongLivedToken($token);
+            $longLivedTokenData = $this->exchangeForLongLivedToken($token, $tenantId);
             $longLivedToken = $longLivedTokenData['access_token'] ?? $token;
             $expiresIn = $longLivedTokenData['expires_in'] ?? null;
             $expiresAt = $expiresIn ? now()->addSeconds($expiresIn) : null;
@@ -228,8 +239,7 @@ class MetaAuthService
              return $this->handleSocialUser($tenantId, $mockUser);
         }
 
-        /** @var \Laravel\Socialite\Two\AbstractProvider $driver */
-        $driver = Socialite::driver('facebook');
+        $driver = $this->socialiteDriver($tenantId);
         $user = $driver->stateless()->user();
         return $this->handleSocialUser($tenantId, $user);
     }
@@ -249,7 +259,7 @@ class MetaAuthService
     {
         try {
             // Refresh logic: Exchange current long-lived token for a new one
-            $newTokenData = $this->exchangeForLongLivedToken($connection->user_access_token);
+            $newTokenData = $this->exchangeForLongLivedToken($connection->user_access_token, $connection->tenant_id);
             
             if (empty($newTokenData) || !isset($newTokenData['access_token'])) {
                 Log::warning("Failed to refresh token for connection {$connection->id}");
@@ -274,14 +284,18 @@ class MetaAuthService
         }
     }
 
-    public function exchangeForLongLivedToken($shortLivedToken)
+    public function exchangeForLongLivedToken($shortLivedToken, $tenantId = null)
     {
         // Use apiClient instead of direct Http call to support mock mode
+        if (!$tenantId) {
+            $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
+        }
+        $credentials = $this->resolveCredentials($tenantId);
         try {
             return $this->apiClient->get('/oauth/access_token', [
                 'grant_type' => 'fb_exchange_token',
-                'client_id' => $this->clientId,
-                'client_secret' => $this->clientSecret,
+                'client_id' => $credentials['app_id'],
+                'client_secret' => $credentials['app_secret'],
                 'fb_exchange_token' => $shortLivedToken,
             ]);
         } catch (\Exception $e) {

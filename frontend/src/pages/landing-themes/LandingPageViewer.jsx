@@ -81,7 +81,7 @@ export default function LandingPageViewer() {
     const cleanups = []
 
     // 1. Meta Pixel (Standard)
-    if (payload.pixelId) {
+    if (payload.pixelId && payload.isPixelEnabled !== false) {
         const pixelScript = `
         !function(f,b,e,v,n,t,s)
         {if(f.fbq)return;n=f.fbq=function(){n.callMethod?

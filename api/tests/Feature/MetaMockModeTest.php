@@ -11,6 +11,7 @@ use App\Models\MetaBusiness;
 use App\Models\MetaAdAccount;
 use App\Models\MetaConnection;
 use App\Models\Campaign;
+use App\Models\TenantMetaApp;
 use App\Services\MetaAuthService;
 use App\Services\MetaCampaignService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,6 +34,15 @@ class MetaMockModeTest extends TestCase
         $this->user = User::factory()->create([
             'tenant_id' => $this->tenant->id,
             'email' => 'admin@test.com',
+        ]);
+
+        TenantMetaApp::create([
+            'tenant_id' => $this->tenant->id,
+            'app_id' => 'tenant-app-id',
+            'app_secret' => 'tenant-app-secret',
+            'verify_token' => 'tenant-verify-token',
+            'webhook_key' => 'tenant-webhook-key',
+            'is_active' => true,
         ]);
         
         // Enable Mock Mode
@@ -193,7 +203,7 @@ class MetaMockModeTest extends TestCase
 
         // Send POST request to REAL webhook endpoint WITHOUT signature
         // This validates that mock mode bypasses signature verification
-        $response = $this->postJson('/api/meta/webhook', $payload);
+        $response = $this->postJson('/api/meta/webhook/tenant-webhook-key', $payload);
 
         $response->assertStatus(200);
         $response->assertJson(['ok' => true]);

@@ -4,17 +4,22 @@ namespace App\Services;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Services\TenantMetaCredentialsResolver;
 
 class MetaWebhookService
 {
-    public function handleWebhook(Request $request)
+    public function __construct(protected TenantMetaCredentialsResolver $credentialsResolver)
+    {
+    }
+
+    public function handleWebhook(Request $request, $tenantId = null)
     {
         // Skip signature verification in Mock Mode
         if (!config('services.meta.mock_mode')) {
             // Verify signature
             $signature = $request->header('X-Hub-Signature-256') ?? $request->header('X-Hub-Signature');
-            $appSecret = \App\Models\SystemSetting::where('key', 'meta_app_secret')->value('value') 
-                ?? config('services.facebook.client_secret');
+            $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+            $appSecret = $credentials['app_secret'] ?? null;
 
             if (!$appSecret) {
                 Log::error('Meta webhook rejected: missing app secret');
@@ -46,10 +51,10 @@ class MetaWebhookService
                         
                         if ($leadGenId && $pageId) {
                             // Find tenant by page_id
-                            $tenantId = $this->findTenantIdByPageId($pageId);
+                            $resolvedTenantId = $tenantId ?: $this->findTenantIdByPageId($pageId);
                             
-                            if ($tenantId) {
-                                \App\Jobs\ProcessMetaLead::dispatch($tenantId, $leadGenId, $pageId);
+                            if ($resolvedTenantId) {
+                                \App\Jobs\ProcessMetaLead::dispatch($resolvedTenantId, $leadGenId, $pageId);
                             } else {
                                 Log::warning("No tenant found for page_id: {$pageId}");
                             }

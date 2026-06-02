@@ -83,6 +83,8 @@ Route::post('/crm/login-redirect', [AuthController::class , 'loginRedirect'])
     ->withoutMiddleware([\Illuminate\Routing\Middleware\ThrottleRequests::class]);
 Route::get('/meta/webhook', [MetaWebhookController::class , 'verify']);
 Route::post('/meta/webhook', [MetaWebhookController::class , 'receive']);
+Route::get('/meta/webhook/{tenantWebhookKey}', [MetaWebhookController::class , 'verify']);
+Route::post('/meta/webhook/{tenantWebhookKey}', [MetaWebhookController::class , 'receive']);
 Route::post('/meta/mock/webhook/{page_id}', [\App\Http\Controllers\MetaMockController::class, 'triggerMockLead']);
 Route::post('/internal/mock/google-ads/campaigns/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockCampaigns']);
 Route::post('/internal/mock/google-ads/leads/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockLeads']);
@@ -236,6 +238,8 @@ Route::middleware([ResolveTenant::class])
     Route::post('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback']);
     Route::get('/auth/meta/status', [\App\Http\Controllers\MetaAuthController::class, 'status']);
     Route::post('/auth/meta/settings', [\App\Http\Controllers\MetaAuthController::class, 'updateSettings']);
+    Route::get('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'appSettings']);
+    Route::put('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'updateAppSettings']);
     Route::post('/auth/meta/disconnect', [\App\Http\Controllers\MetaAuthController::class, 'disconnect']);
     Route::post('/auth/meta/sync', [\App\Http\Controllers\MetaAuthController::class, 'sync']);
     Route::post('/auth/meta/asset/toggle', [\App\Http\Controllers\MetaAuthController::class, 'toggleAsset']);

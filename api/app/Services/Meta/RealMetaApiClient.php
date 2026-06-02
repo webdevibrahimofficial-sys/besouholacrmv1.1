@@ -3,6 +3,7 @@
 namespace App\Services\Meta;
 
 use App\Contracts\MetaApiClientInterface;
+use App\Services\TenantMetaCredentialsResolver;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Http\Client\Response;
@@ -10,13 +11,18 @@ use Illuminate\Http\Client\Response;
 class RealMetaApiClient implements MetaApiClientInterface
 {
     protected $baseUrl = 'https://graph.facebook.com/v19.0';
-    protected $appSecret;
+    protected $credentialsResolver;
 
-    public function __construct()
+    public function __construct(?TenantMetaCredentialsResolver $credentialsResolver = null)
     {
-        // Try to get app secret from settings if available
-        $this->appSecret = \App\Models\SystemSetting::where('key', 'meta_app_secret')->value('value') 
-            ?? config('services.facebook.client_secret');
+        $this->credentialsResolver = $credentialsResolver ?? app(TenantMetaCredentialsResolver::class);
+    }
+
+    protected function resolveAppSecret(): ?string
+    {
+        $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
+        $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+        return $credentials['app_secret'] ?? null;
     }
 
     public function get(string $endpoint, array $params = []): array
@@ -24,8 +30,9 @@ class RealMetaApiClient implements MetaApiClientInterface
         $url = $this->buildUrl($endpoint);
         
         // Add appsecret_proof if access_token is present
-        if (isset($params['access_token']) && $this->appSecret) {
-            $params['appsecret_proof'] = hash_hmac('sha256', $params['access_token'], $this->appSecret);
+        $appSecret = $this->resolveAppSecret();
+        if (isset($params['access_token']) && $appSecret) {
+            $params['appsecret_proof'] = hash_hmac('sha256', $params['access_token'], $appSecret);
         }
 
         /** @var Response $response */
@@ -45,8 +52,9 @@ class RealMetaApiClient implements MetaApiClientInterface
         $url = $this->buildUrl($endpoint);
 
         // Add appsecret_proof if access_token is present
-        if (isset($data['access_token']) && $this->appSecret) {
-            $data['appsecret_proof'] = hash_hmac('sha256', $data['access_token'], $this->appSecret);
+        $appSecret = $this->resolveAppSecret();
+        if (isset($data['access_token']) && $appSecret) {
+            $data['appsecret_proof'] = hash_hmac('sha256', $data['access_token'], $appSecret);
         }
         
         /** @var Response $response */

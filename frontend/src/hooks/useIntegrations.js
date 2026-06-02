@@ -12,15 +12,22 @@ export function useIntegrations() {
   // Connection States
   const [googleConnected, setGoogleConnected] = useState(false)
   const [metaConnected, setMetaConnected] = useState(false)
+  const [metaConfigured, setMetaConfigured] = useState(false)
   const [tenantConfig, setTenantConfig] = useState(null)
 
   // Initialize status from local storage or services
   useEffect(() => {
     // Check Meta Status
     metaService.loadSettings().then(metaSettings => {
-        const isMetaConnected = !!(metaSettings.businessManagerId || metaSettings.pixelId || metaSettings.pageId)
-        setMetaConnected(isMetaConnected)
-    })
+      const connections = Array.isArray(metaSettings?.connections) ? metaSettings.connections : []
+      setMetaConnected(connections.length > 0)
+    }).catch(() => setMetaConnected(false))
+
+    metaService.loadAppSettings().then(app => {
+      const appId = String(app?.app_id || '').trim()
+      const hasSecret = !!app?.app_secret_masked
+      setMetaConfigured(!!appId && /^\d+$/.test(appId) && hasSecret)
+    }).catch(() => setMetaConfigured(false))
 
     // Check Google Status
     googleAdsService.loadSettings().then(googleSettings => {
@@ -45,7 +52,9 @@ export function useIntegrations() {
       bg: 'bg-blue-600', 
       description: 'Connect Facebook & Instagram for Lead Ads, Pixel, and Messaging',
       connected: metaConnected,
-      status: metaConnected ? t('Connected') : t('Disconnected')
+      status: metaConnected ? t('Connected') : (metaConfigured ? t('Ready to connect') : t('Meta App not configured')),
+      requiresSetup: !metaConfigured && !metaConnected,
+      disabledReason: !metaConfigured && !metaConnected ? t('To connect Meta, add your Meta App ID (numbers) and App Secret first') : null,
     },
     { 
       id: 'google-ads', 
@@ -95,6 +104,11 @@ export function useIntegrations() {
 
     const supported = ['meta', 'google-ads']
     if (supported.includes(integrationId)) {
+      // If Meta isn't configured yet, send user to settings instead of failing
+      if (integrationId === 'meta' && !metaConfigured && !metaConnected) {
+        setActiveIntegration('meta')
+        return
+      }
       setActiveIntegration(integrationId)
     } else {
       alert(t('Integration logic for this provider is not yet implemented.'))
@@ -115,8 +129,16 @@ export function useIntegrations() {
   const closeSettings = () => {
     setActiveIntegration(null)
     // Refresh connection status
-    const metaSettings = metaService.loadSettings()
-    setMetaConnected(!!(metaSettings.businessManagerId || metaSettings.pixelId || metaSettings.pageId))
+    metaService.loadSettings().then(metaSettings => {
+      const connections = Array.isArray(metaSettings?.connections) ? metaSettings.connections : []
+      setMetaConnected(connections.length > 0)
+    }).catch(() => setMetaConnected(false))
+
+    metaService.loadAppSettings().then(app => {
+      const appId = String(app?.app_id || '').trim()
+      const hasSecret = !!app?.app_secret_masked
+      setMetaConfigured(!!appId && /^\d+$/.test(appId) && hasSecret)
+    }).catch(() => setMetaConfigured(false))
   }
 
   // OAuth Logic (Moved from original file)

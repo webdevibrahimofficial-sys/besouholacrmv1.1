@@ -3,23 +3,32 @@
 namespace App\Http\Controllers;
 
 use App\Services\MetaWebhookService;
+use App\Services\TenantMetaCredentialsResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class MetaWebhookController extends Controller
 {
     protected $webhookService;
+    protected $credentialsResolver;
 
-    public function __construct(MetaWebhookService $webhookService)
+    public function __construct(MetaWebhookService $webhookService, TenantMetaCredentialsResolver $credentialsResolver)
     {
         $this->webhookService = $webhookService;
+        $this->credentialsResolver = $credentialsResolver;
     }
 
-    public function verify(Request $request)
+    public function verify(Request $request, ?string $tenantWebhookKey = null)
     {
-        $verifyToken = \App\Models\SystemSetting::where('key', 'meta_verify_token')->value('value') 
-            ?? config('services.facebook.verify_token') 
-            ?? env('META_VERIFY_TOKEN');
+        if (!$tenantWebhookKey) {
+            return response()->json(['error' => 'Tenant webhook key is required.'], 410);
+        }
+
+        $credentials = $this->credentialsResolver->resolveByWebhookKey($tenantWebhookKey);
+        if (!$credentials) {
+            return response()->json(['error' => 'Unknown webhook key'], 404);
+        }
+        $verifyToken = $credentials['verify_token'] ?? null;
         
         $mode = $request->query('hub_mode')
             ?? $request->query('hub.mode')
@@ -41,6 +50,7 @@ class MetaWebhookController extends Controller
             'token_matches' => $tokenMatches,
             'challenge_present' => $challenge !== null && $challenge !== '',
             'query_keys' => array_keys($request->query()),
+            'tenant_webhook_key_present' => $tenantWebhookKey !== null,
         ]);
 
         if ($mode === 'subscribe' && $tokenMatches) {
@@ -53,18 +63,30 @@ class MetaWebhookController extends Controller
         return response()->json(['error' => 'Verification failed'], 403);
     }
 
-    public function receive(Request $request)
+    public function receive(Request $request, ?string $tenantWebhookKey = null)
     {
         try {
+            if (!$tenantWebhookKey) {
+                return response()->json(['ok' => false, 'error' => 'Tenant webhook key is required.'], 410);
+            }
             $payload = $request->all();
+            $tenantId = null;
+            if ($tenantWebhookKey) {
+                $credentials = $this->credentialsResolver->resolveByWebhookKey($tenantWebhookKey);
+                if (!$credentials) {
+                    return response()->json(['ok' => false, 'error' => 'Unknown webhook key'], 404);
+                }
+                $tenantId = $credentials['tenant_id'] ?? null;
+            }
             $entryCount = is_array($payload['entry'] ?? null) ? count($payload['entry']) : 0;
             Log::info('Meta Webhook Receive', [
                 'object' => $payload['object'] ?? null,
                 'entry_count' => $entryCount,
                 'top_level_keys' => is_array($payload) ? array_keys($payload) : [],
+                'tenant_id' => $tenantId,
             ]);
 
-            $this->webhookService->handleWebhook($request);
+            $this->webhookService->handleWebhook($request, $tenantId);
             return response()->json(['ok' => true], 200);
         } catch (\Throwable $e) {
             Log::error('Meta Webhook Receive Error', [

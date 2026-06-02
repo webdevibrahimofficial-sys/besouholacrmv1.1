@@ -46,6 +46,12 @@ return [
         'verify_token' => env('FACEBOOK_VERIFY_TOKEN', env('META_VERIFY_TOKEN')),
     ],
 
+    'meta' => [
+        'use_tenant_apps' => env('META_USE_TENANT_APPS', true),
+        'mock_mode' => env('META_MOCK_MODE', false),
+        'mock_on_local' => env('META_MOCK_ON_LOCAL', false),
+    ],
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
