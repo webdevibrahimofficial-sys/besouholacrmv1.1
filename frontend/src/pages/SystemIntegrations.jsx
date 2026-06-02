@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../utils/api'
 import { toast } from 'react-hot-toast'
@@ -20,15 +20,10 @@ export default function SystemIntegrations() {
     google_developer_token: '',
   })
 
-  // Webhook URL is derived from window location or hardcoded base URL
-  const webhookUrl = `${import.meta.env.VITE_API_BASE || 'https://api.yourdomain.com'}/api/meta/webhook`
+  // Meta webhook is now tenant-specific and generated inside each tenant's Meta settings.
   const googleWebhookUrl = `${import.meta.env.VITE_API_BASE || 'https://api.yourdomain.com'}/api/google/webhook`
 
-  useEffect(() => {
-    fetchSettings()
-  }, [])
-
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
       const res = await api.get('/api/super-admin/settings')
       // Map response key-value to state
@@ -47,7 +42,11 @@ export default function SystemIntegrations() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
+
+  useEffect(() => {
+    fetchSettings()
+  }, [fetchSettings])
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -256,19 +255,9 @@ export default function SystemIntegrations() {
                       <label className="block text-xs font-semibold text-[var(--muted-text)] uppercase tracking-wider mb-2">
                         {t('Webhook URL')}
                       </label>
-                      <div className="flex gap-2 items-center">
-                        <code className="flex-1 font-mono text-sm text-theme bg-white dark:bg-gray-800 px-3 py-2 rounded border border-gray-200 dark:border-gray-600 break-all">
-                          {webhookUrl}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(webhookUrl)}
-                          className="p-2 text-[var(--muted-text)] hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                          title={t('Copy to clipboard')}
-                        >
-                          <FaCopy className="w-5 h-5" />
-                        </button>
-                      </div>
+                      <p className="text-sm text-[var(--muted-text)]">
+                        {t('Meta webhook URLs are now generated per tenant from the tenant Meta settings screen after saving the tenant app configuration.')}
+                      </p>
                     </div>
                   </div>
                 </div>

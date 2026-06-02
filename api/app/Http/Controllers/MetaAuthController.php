@@ -21,8 +21,8 @@ use Illuminate\Support\Str;
 
 class MetaAuthController extends Controller
 {
-    protected $metaAuthService;
-    protected $credentialsResolver;
+    protected MetaAuthService $metaAuthService;
+    protected TenantMetaCredentialsResolver $credentialsResolver;
 
     public function __construct(MetaAuthService $metaAuthService, TenantMetaCredentialsResolver $credentialsResolver)
     {
@@ -250,36 +250,33 @@ class MetaAuthController extends Controller
         } else {
             $asset = MetaPage::where('tenant_id', $tenantId)->findOrFail($request->id);
             $asset->update(['is_active' => $request->is_active]);
-
-            // Handle Webhook Subscription for Page
-            if ($request->is_active) {
-                try {
-                    $response = \Illuminate\Support\Facades\Http::post("https://graph.facebook.com/v19.0/{$asset->page_id}/subscribed_apps", [
-                        'subscribed_fields' => ['leadgen'],
-                        'access_token' => $asset->page_token
-                    ]);
-
-                    if ($response->failed()) {
-                        Log::error("Failed to subscribe page {$asset->page_id} to webhook: " . $response->body());
-                    } else {
-                        Log::info("Subscribed page {$asset->page_id} to webhook successfully.");
-                    }
-                } catch (\Exception $e) {
-                    Log::error("Exception subscribing page {$asset->page_id}: " . $e->getMessage());
-                }
-            } else {
-                 // Unsubscribe when deactivating
-                 try {
-                    \Illuminate\Support\Facades\Http::delete("https://graph.facebook.com/v19.0/{$asset->page_id}/subscribed_apps", [
-                        'access_token' => $asset->page_token
-                    ]);
-                 } catch (\Exception $e) {
-                     Log::warning("Failed to unsubscribe page {$asset->page_id}: " . $e->getMessage());
-                 }
-            }
+            $this->syncPageWebhookSubscription($asset, (bool) $request->is_active);
         }
 
         return response()->json(['message' => 'Asset status updated successfully', 'asset' => $asset]);
+    }
+
+    protected function syncPageWebhookSubscription(MetaPage $page, bool $isActive): void
+    {
+        try {
+            if ($isActive) {
+                $this->metaAuthService->subscribePageToLeadgenWebhook($page->page_id, $page->page_token);
+                Log::info("Subscribed page {$page->page_id} to webhook successfully.");
+                return;
+            }
+
+            $this->metaAuthService->unsubscribePageFromLeadgenWebhook($page->page_id, $page->page_token);
+        } catch (\Throwable $e) {
+            $logMethod = $isActive ? 'error' : 'warning';
+            Log::$logMethod(
+                sprintf(
+                    'Failed to %s page %s webhook subscription: %s',
+                    $isActive ? 'subscribe' : 'unsubscribe',
+                    $page->page_id,
+                    $e->getMessage()
+                )
+            );
+        }
     }
 
     public function linkPage(Request $request)
@@ -362,7 +359,7 @@ class MetaAuthController extends Controller
         return response()->json(['message' => 'Meta disconnected successfully']);
     }
 
-    public function sync(Request $request, MetaCampaignService $campaignService)
+    public function sync(Request $request)
     {
         $user = $request->user();
         

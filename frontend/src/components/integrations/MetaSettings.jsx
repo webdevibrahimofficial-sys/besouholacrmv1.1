@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { metaService } from '../../services/metaService'
 import { 
   Activity, 
@@ -107,8 +106,6 @@ const Toggle = ({ label, checked, onChange, description }) => (
 // --- Main Component ---
 
 export default function MetaSettings({ onClose }) {
-  const { t } = useTranslation()
-  
   // State
   const [activeTab, setActiveTab] = useState('overview')
   const [settings, setSettings] = useState({})
@@ -151,65 +148,18 @@ export default function MetaSettings({ onClose }) {
   // Refs
   const isLoaded = useRef(false)
 
-  // Effects
-  
-  const handleCallback = async (code) => {
-    setLoading(true)
-    try {
-      await metaService.handleCallback(code)
-      showToast('success', 'Connected successfully')
-      // Remove code from URL
-      window.history.replaceState({}, document.title, window.location.pathname)
-      loadData()
-    } catch (error) {
-      showToast('error', 'Failed to connect Meta account')
-      // Still load data to show disconnected state
-      loadData()
-    }
+  function showToast(type, message) {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 3000)
   }
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const code = params.get('code')
-    if (code) {
-      handleCallback(code)
-    } else {
-      loadData()
-    }
-  }, [])
+  function log(message, type = 'info') {
+    setLogs(prev => [{ time: new Date().toLocaleTimeString(), message, type }, ...prev])
+  }
 
-  useEffect(() => {
-    if (loading || !isLoaded.current) return
-
-    setSaveStatus('pending')
-
-    const timer = setTimeout(async () => {
-      setSaveStatus('saving')
-      try {
-        const merged = { ...settings, events, enableCapi, autoSync, fieldMap }
-        await metaService.saveSettings(merged)
-        setSaveStatus('saved')
-        setTimeout(() => setSaveStatus('idle'), 2000)
-      } catch (error) {
-        setSaveStatus('error')
-        showToast('error', 'Failed to auto-save settings')
-      }
-    }, 1000)
-
-    return () => clearTimeout(timer)
-  }, [settings, events, enableCapi, autoSync, fieldMap])
-
-  useEffect(() => {
-    if (!loading) {
-      // Set loaded flag after initial load completes to enable auto-save
-      const timer = setTimeout(() => { isLoaded.current = true }, 500)
-      return () => clearTimeout(timer)
-    }
-  }, [loading])
-
-  // --- Helpers ---
-
-  const loadData = async () => {
+  // Effects
+  
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const [data, appData] = await Promise.all([
@@ -249,13 +199,65 @@ export default function MetaSettings({ onClose }) {
       // The updated MetaAuthController::status doesn't return a global settings object anymore, 
       // but we can assume default empty or fetch from a different endpoint if needed.
       // For now, we'll keep the existing state for events/capi/etc. initialized with defaults.
-      
-    } catch (error) {
+
+    } catch {
       showToast('error', 'Failed to load settings')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  const handleCallback = useCallback(async (code) => {
+    setLoading(true)
+    try {
+      await metaService.handleCallback(code)
+      showToast('success', 'Connected successfully')
+      window.history.replaceState({}, document.title, window.location.pathname)
+      await loadData()
+    } catch {
+      showToast('error', 'Failed to connect Meta account')
+      await loadData()
+    }
+  }, [loadData])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    if (code) {
+      handleCallback(code)
+      return
+    }
+
+    loadData()
+  }, [handleCallback, loadData])
+
+  useEffect(() => {
+    if (loading || !isLoaded.current) return
+
+    setSaveStatus('pending')
+
+    const timer = setTimeout(async () => {
+      setSaveStatus('saving')
+      try {
+        const merged = { ...settings, events, enableCapi, autoSync, fieldMap }
+        await metaService.saveSettings(merged)
+        setSaveStatus('saved')
+        setTimeout(() => setSaveStatus('idle'), 2000)
+      } catch {
+        setSaveStatus('error')
+        showToast('error', 'Failed to auto-save settings')
+      }
+    }, 1000)
+
+    return () => clearTimeout(timer)
+  }, [autoSync, enableCapi, events, fieldMap, loading, settings])
+
+  useEffect(() => {
+    if (loading) return
+
+    const timer = setTimeout(() => { isLoaded.current = true }, 500)
+    return () => clearTimeout(timer)
+  }, [loading])
 
   const handleSaveAppSettings = async () => {
     const appId = String(appSettings.app_id || '').trim()
@@ -285,20 +287,11 @@ export default function MetaSettings({ onClose }) {
       })
       showToast('success', 'Tenant Meta App settings saved')
       await loadData()
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to save tenant app settings')
     } finally {
       setSavingAppSettings(false)
     }
-  }
-
-  const showToast = (type, message) => {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 3000)
-  }
-
-  const log = (message, type = 'info') => {
-    setLogs(prev => [{ time: new Date().toLocaleTimeString(), message, type }, ...prev])
   }
 
   const validateNumeric = (key, value) => {
@@ -333,7 +326,7 @@ export default function MetaSettings({ onClose }) {
         return
       }
       await metaService.connectMeta()
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to start Meta connection. Please login again and retry.')
     }
   }
@@ -350,7 +343,7 @@ export default function MetaSettings({ onClose }) {
       setShowDisconnectConfirm(false)
       showToast('success', 'Disconnected successfully')
       loadData()
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to disconnect')
     }
   }
@@ -399,7 +392,7 @@ export default function MetaSettings({ onClose }) {
       await metaService.toggleAsset(type, id, !currentStatus)
       showToast('success', `Asset ${!currentStatus ? 'activated' : 'deactivated'} successfully`)
       loadData()
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to update asset status')
     }
   }
@@ -409,7 +402,7 @@ export default function MetaSettings({ onClose }) {
       await metaService.linkPage(pageId, adAccountId)
       showToast('success', 'Page linked successfully')
       loadData()
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to link page')
     }
   }
@@ -420,7 +413,7 @@ export default function MetaSettings({ onClose }) {
       await metaService.deleteAsset(type, id)
       showToast('success', 'Asset deleted successfully')
       loadData()
-    } catch (error) {
+    } catch {
       showToast('error', 'Failed to delete asset')
     }
   }

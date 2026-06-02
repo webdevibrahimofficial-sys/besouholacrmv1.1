@@ -2,7 +2,18 @@
 import { api } from '@utils/api'
 
 const serverURL = import.meta.env.VITE_SERVER_URL || 'http://crm.test:8000'
-const defaultCallback = `${serverURL}/api/meta/webhook`
+
+const buildWebhookVerificationUrl = (token, webhookUrl) => {
+  const fallbackUrl = `${serverURL}/api/meta/webhook`
+  const targetUrl = webhookUrl || fallbackUrl
+  const url = new URL(targetUrl, window.location.origin)
+
+  url.searchParams.set('hub.mode', 'subscribe')
+  url.searchParams.set('hub.verify_token', token || '')
+  url.searchParams.set('hub.challenge', 'TEST')
+
+  return url.toString()
+}
 
 export const metaService = {
   // Local Storage Management (Keep for fallback/cache if needed, but primary is API)
@@ -10,7 +21,7 @@ export const metaService = {
     try {
       const res = await api.get('/api/auth/meta/status')
       return res.data
-    } catch (_) {
+    } catch {
       return {}
     }
   },
@@ -46,13 +57,13 @@ export const metaService = {
   disconnectConnection: async (connectionId) => {
     try {
       await api.post('/api/auth/meta/disconnect', { connection_id: connectionId })
-    } catch (_) {}
+    } catch {}
   },
 
   resetSettings: async () => {
     try {
       await api.post('/api/auth/meta/disconnect')
-    } catch (_) {}
+    } catch {}
   },
 
   // Auth Helpers
@@ -128,12 +139,11 @@ export const metaService = {
     return res.data
   },
 
-  verifyWebhook: async (token) => {
-    const url = `/api/meta/webhook?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(token || '')}&hub.challenge=TEST`
+  verifyWebhook: async (token, webhookUrl) => {
+    const url = buildWebhookVerificationUrl(token, webhookUrl)
     const r = await api.get(url)
-    // Backend returns challenge string if successful, or error json
     return { ok: r.status === 200, text: r.data }
   },
-  
-  defaultCallback
+
+  defaultCallback: null
 }

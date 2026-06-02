@@ -354,4 +354,28 @@ class MetaAuthService
         $json = $response->json();
         return is_array($json) ? $json : ['ok' => true];
     }
+
+    public function unsubscribePageFromLeadgenWebhook(string $pageId, string $pageToken): array
+    {
+        if (config('services.meta.mock_mode')) {
+            return ['ok' => true, 'mock' => true];
+        }
+
+        $url = "https://graph.facebook.com/{$this->apiVersion}/{$pageId}/subscribed_apps";
+
+        $response = Http::asForm()->delete($url, [
+            'access_token' => $pageToken,
+        ]);
+
+        if (!($response instanceof Response)) {
+            throw new \RuntimeException('Meta unsubscribe failed: invalid response');
+        }
+
+        if ($response->failed()) {
+            throw new \RuntimeException('Meta unsubscribe failed: ' . $response->body());
+        }
+
+        $json = $response->json();
+        return is_array($json) ? $json : ['ok' => true];
+    }
 }
