@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -6,8 +6,10 @@ import 'jspdf-autotable'
 import { api, logExportEvent } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { useTheme } from '../shared/context/ThemeProvider'
-import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEdit, FaTrash, FaFileExport, FaFileExcel, FaFilePdf, FaTimes, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
+import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEdit, FaTrash, FaFileExport, FaFileExcel, FaFilePdf, FaTimes, FaChevronLeft, FaChevronRight, FaRegCalendarAlt } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
+import DateRangePicker from '../shared/components/DateRangePicker'
+import './CampaignsDateRange.css'
 
 // Alias for compatibility
 const ChevronDown = FaChevronDown
@@ -227,26 +229,26 @@ export default function Campaigns() {
     const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1
     return Math.max(1, days)
   }
-  const getPlannedSpend = (c) => {
+  const getPlannedSpend = useCallback((c) => {
     const total = Number(c.totalBudget) || 0
     if (c.budgetType === 'daily') {
       const d = getDays(c.startDate, c.endDate)
       return d > 0 ? total * d : total
     }
     return total
-  }
-  const getCostPerDay = (c) => {
+  }, [])
+  const getCostPerDay = useCallback((c) => {
     const total = Number(c.totalBudget) || 0
     if (c.budgetType === 'daily') return total
     const d = getDays(c.startDate, c.endDate)
     return d > 0 ? (total / d) : 0
-  }
-  const getCampaignLeadsStats = (campaignName) => {
+  }, [])
+  const getCampaignLeadsStats = useCallback((campaignName) => {
     const leads = leadsData.filter(l => normalize(l.campaign) === normalize(campaignName))
     const totalLeads = leads.length
     const closed = leads.filter(l => normalize(l.stage) === 'closed').length
     return { totalLeads, closed }
-  }
+  }, [leadsData])
 
   // Filtering
   const filteredCampaigns = useMemo(() => {
@@ -319,14 +321,14 @@ export default function Campaigns() {
       if (cpdMax != null && cpd > cpdMax) return false
       return true
     })
-  }, [campaigns, filters, leadsData])
+  }, [campaigns, filters, getCampaignLeadsStats, getCostPerDay, getPlannedSpend])
 
   // Pagination
   const totalPages = Math.ceil(filteredCampaigns.length / itemsPerPage)
   const paginatedCampaigns = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage
     return filteredCampaigns.slice(start, start + itemsPerPage)
-  }, [filteredCampaigns, currentPage])
+  }, [filteredCampaigns, currentPage, itemsPerPage])
 
   function clearFilters() {
     setFilters({ 
@@ -424,7 +426,7 @@ export default function Campaigns() {
         setForm({ name: '', provider: 'manual', source: '', budgetType: 'daily', totalBudget: '', currency: 'EGP', startDate: '', endDate: '', landingPage: '', notes: '', status: 'Active' })
         setMessage(null)
       }, 1000)
-    } catch (err) {
+    } catch {
       setMessage({ type: 'error', text: isArabic ? 'حدث خطأ أثناء الحفظ' : 'Error while saving' })
     } finally {
       setSaving(false)
@@ -529,20 +531,20 @@ export default function Campaigns() {
                 setMessage(null)
               }}
             >
-              <FaPlus /> <span className="text-white">{isArabic ? 'إضافة حملة' : 'Create Campaign'}</span>
+              <FaPlus  className='text-white'/> <span className="text-white">{isArabic ? 'إضافة حملة' : 'Create Campaign'}</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Filter Section */}
-      <div className=" p-4 sm:p-6 bg-transparent rounded-2xl border border-white/10" style={{ backgroundColor: 'transparent' }}>
-        <div className="flex justify-between items-center mb-3">
+      <div className="campaign-filter-panel p-4 sm:p-6 rounded-3xl">
+        <div className="campaign-filter-toolbar mb-4">
           <h2 className="text-sm font-semibold flex items-center gap-2">
             <FaFilter className="text-blue-500" /> {isArabic ? 'تصفية' : 'Filter'}
           </h2>  
-            <div className="flex items-center gap-2">
-              <label className={`flex items-center gap-2 px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'}  rounded-lg border border-white/10 cursor-pointer select-none`}>
+            <div className="campaign-filter-actions">
+              <label className={`campaign-filter-check ${isLight ? 'text-black' : 'text-white'}`}>
                 <input
                   type="checkbox"
                   className={`checkbox checkbox-sm rounded border-gray-500 ${isLight ? 'text-black' : 'text-white'} `}
@@ -551,17 +553,17 @@ export default function Campaigns() {
                 />
                 <span className="text-xs">{isArabic ? 'إظهار Origin' : 'Show Origin'}</span>
               </label>
-              <button onClick={() => setShowAllFilters(prev => !prev)} className={`flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors`}>
+              <button onClick={() => setShowAllFilters(prev => !prev)} className="campaign-filter-toggle">
                 {showAllFilters ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'عرض الكل' : 'Show All')} 
                 <FaChevronDown size={14} className={`transform transition-transform ${showAllFilters ? 'rotate-180' : ''}`} />
               </button>
-            <button onClick={clearFilters} className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+            <button onClick={clearFilters} className="campaign-filter-reset">
               {isArabic ? 'إعادة تعيين' : 'Reset'}
             </button>
             </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
@@ -577,37 +579,37 @@ export default function Campaigns() {
 
           {/* Source */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'المصدر' : 'Source'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Source'}</label>
             <SearchableSelect
               value={filters.source}
               onChange={(val) => setFilters(prev => ({ ...prev, source: val }))}
-              options={sources.map(s => ({ value: s.name, label: s.name }))}
+              options={sources.map(source => ({ value: source.name || source.title || source.value, label: source.name || source.title || source.value }))}
               isRTL={isArabic}
-              placeholder={isArabic ? 'الكل' : 'All'}
+              placeholder={isArabic ? '????' : 'All'}
             />
           </div>
 
-          {/* Origin / Provider */}
+          {/* Origin */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">Origin</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Origin'}</label>
             <SearchableSelect
               value={filters.provider}
               onChange={(val) => setFilters(prev => ({ ...prev, provider: val }))}
               options={[
-                { value: 'manual', label: isArabic ? 'يدوي' : 'Manual' },
-                { value: 'meta', label: 'Meta' },
-                { value: 'google', label: 'Google' },
-                { value: 'tiktok', label: 'TikTok' },
-                { value: 'linkedin', label: 'LinkedIn' },
+                { value: 'manual', label: providerLabel('manual') },
+                { value: 'meta', label: providerLabel('meta') },
+                { value: 'google', label: providerLabel('google') },
+                { value: 'tiktok', label: providerLabel('tiktok') },
+                { value: 'linkedin', label: providerLabel('linkedin') },
               ]}
               isRTL={isArabic}
-              placeholder={isArabic ? 'الكل' : 'All'}
+              placeholder={isArabic ? '????' : 'All'}
             />
           </div>
 
           {/* Status */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'الحالة' : 'Status'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Status'}</label>
             <SearchableSelect
               value={filters.status}
               onChange={(val) => setFilters(prev => ({ ...prev, status: val }))}
@@ -618,60 +620,79 @@ export default function Campaigns() {
                 { value: 'Ended', label: 'Ended' }
               ]}
               isRTL={isArabic}
-              placeholder={isArabic ? 'الكل' : 'All'}
+              placeholder={isArabic ? '????' : 'All'}
             />
           </div>
 
+        </div>
+        <div className={`campaign-filter-advanced mt-4 grid grid-cols-1 md:grid-cols-4 gap-4 transition-all duration-300 overflow-hidden ${showAllFilters ? 'max-h-[1200px] opacity-100 pt-4' : 'max-h-0 opacity-0 pt-0'}`}>
           {/* Budget Type */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'نوع الميزانية' : 'Budget Type'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??? ?????????' : 'Budget Type'}</label>
             <SearchableSelect
               value={filters.budgetType}
               onChange={(val) => setFilters(prev => ({ ...prev, budgetType: val }))}
               options={[
-                // {
-                { value: 'daily', label: isArabic ? 'يومي' : 'Daily' },
-                { value: 'lifetime', label: isArabic ? 'إجمالي' : 'Lifetime' }
+                { value: 'daily', label: isArabic ? '????' : 'Daily' },
+                { value: 'lifetime', label: isArabic ? '??????' : 'Lifetime' }
               ]}
               isRTL={isArabic}
-              placeholder={isArabic ? 'الكل' : 'All'}
+              placeholder={isArabic ? '????' : 'All'}
             />
           </div>
-        </div>
-        <div className={`mt-3 grid grid-cols-1 md:grid-cols-4 gap-3 transition-all duration-300 overflow-hidden ${showAllFilters ? 'max-h-[1000px] opacity-100 pt-2' : 'max-h-0 opacity-0'}`}>
           {/* Created By */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'بواسطة' : 'Created By'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Created By'}</label>
             <SearchableSelect
               value={filters.createdBy}
               onChange={(val) => setFilters(prev => ({ ...prev, createdBy: val }))}
               options={usersList.map(u => ({ value: u.name, label: u.name }))}
               isRTL={isArabic}
-              placeholder={isArabic ? 'الكل' : 'All'}
+              placeholder={isArabic ? '????' : 'All'}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className={`campaign-range-label ${isArabic ? 'flex-row-reverse justify-end' : ''}`}>
+              <FaRegCalendarAlt className="campaign-range-label__icon" />
+              <span>{isArabic ? '????? ???????' : 'Start Date'}</span>
+            </label>
+            <DateRangePicker
+              from={filters.startDateFrom}
+              to={filters.startDateTo}
+              isRTL={isArabic}
+              onChange={({ from, to }) => setFilters(prev => ({ ...prev, startDateFrom: from, startDateTo: to }))}
+              placeholderText={isArabic ? '?? - ???' : 'From - To'}
+              wrapperClassName="w-full"
+              className={`campaign-range-input ${isArabic ? 'text-right' : 'text-left'}`}
+              calendarClassName="campaign-range-calendar"
+              popperClassName="campaign-range-popper"
+              monthsShown={1}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className={`campaign-range-label ${isArabic ? 'flex-row-reverse justify-end' : ''}`}>
+              <FaRegCalendarAlt className="campaign-range-label__icon" />
+              <span>{isArabic ? '????? ????????' : 'End Date'}</span>
+            </label>
+            <DateRangePicker
+              from={filters.endDateFrom}
+              to={filters.endDateTo}
+              isRTL={isArabic}
+              onChange={({ from, to }) => setFilters(prev => ({ ...prev, endDateFrom: from, endDateTo: to }))}
+              placeholderText={isArabic ? '?? - ???' : 'From - To'}
+              wrapperClassName="w-full"
+              className={`campaign-range-input ${isArabic ? 'text-right' : 'text-left'}`}
+              calendarClassName="campaign-range-calendar"
+              popperClassName="campaign-range-popper"
+              monthsShown={1}
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'تاريخ البداية من' : 'Start Date From'}</label>
-            <input type="date" className="input w-full text-sm" value={filters.startDateFrom} onChange={e => setFilters(p => ({ ...p, startDateFrom: e.target.value }))} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'تاريخ البداية إلى' : 'Start Date To'}</label>
-            <input type="date" className="input w-full text-sm" value={filters.startDateTo} onChange={e => setFilters(p => ({ ...p, startDateTo: e.target.value }))} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'تاريخ الانتهاء من' : 'End Date From'}</label>
-            <input type="date" className="input w-full text-sm" value={filters.endDateFrom} onChange={e => setFilters(p => ({ ...p, endDateFrom: e.target.value }))} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'تاريخ الانتهاء إلى' : 'End Date To'}</label>
-            <input type="date" className="input w-full text-sm" value={filters.endDateTo} onChange={e => setFilters(p => ({ ...p, endDateTo: e.target.value }))} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'الميزانية من' : 'Budget Min'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '????????? ??' : 'Budget Min'}</label>
             <input type="number" className="input w-full text-sm" value={filters.budgetMin} onChange={e => setFilters(p => ({ ...p, budgetMin: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'الميزانية إلى' : 'Budget Max'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '????????? ???' : 'Budget Max'}</label>
             <input type="number" className="input w-full text-sm" value={filters.budgetMax} onChange={e => setFilters(p => ({ ...p, budgetMax: e.target.value }))} />
           </div>
           <div className="space-y-1">
@@ -691,19 +712,19 @@ export default function Campaigns() {
             <input type="number" className="input w-full text-sm" value={filters.cpaMax} onChange={e => setFilters(p => ({ ...p, cpaMax: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'معدل التحويل من' : 'Conv. Rate Min (%)'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '???? ??????? ??' : 'Conv. Rate Min (%)'}</label>
             <input type="number" className="input w-full text-sm" value={filters.convMin} onChange={e => setFilters(p => ({ ...p, convMin: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'معدل التحويل إلى' : 'Conv. Rate Max (%)'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '???? ??????? ???' : 'Conv. Rate Max (%)'}</label>
             <input type="number" className="input w-full text-sm" value={filters.convMax} onChange={e => setFilters(p => ({ ...p, convMax: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'التكلفة اليومية من' : 'Cost/Day Min'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????? ??????? ??' : 'Cost/Day Min'}</label>
             <input type="number" className="input w-full text-sm" value={filters.cpdMin} onChange={e => setFilters(p => ({ ...p, cpdMin: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'التكلفة اليومية إلى' : 'Cost/Day Max'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????? ??????? ???' : 'Cost/Day Max'}</label>
             <input type="number" className="input w-full text-sm" value={filters.cpdMax} onChange={e => setFilters(p => ({ ...p, cpdMax: e.target.value }))} />
           </div>
         </div>
@@ -1207,3 +1228,4 @@ export default function Campaigns() {
     </div>
   )
 }
+

@@ -979,10 +979,10 @@ const TenantSetup = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('country', 'Country')} <span className="text-red-500">*</span>
+                  {t('country', 'Country')}
                 </label>
                 <select
-                  {...register('country', { required: true })}
+                  {...register('country')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">{t('select_country', 'Select Country')}</option>
@@ -990,44 +990,41 @@ const TenantSetup = () => {
                     <option key={country} value={country}>{country}</option>
                   ))}
                 </select>
-                {errors.country && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
+                
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('city', 'City')} <span className="text-red-500">*</span>
+                  {t('city', 'City')}
                 </label>
                 <input
                   type="text"
-                  {...register('city', { required: true })}
+                  {...register('city')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 />
-                {errors.city && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('address_line_1', 'Address Line 1')} <span className="text-red-500">*</span>
+                  {t('address_line_1', 'Address Line 1')}
                 </label>
                 <input
                   type="text"
-                  {...register('address_line_1', { required: true })}
+                  {...register('address_line_1')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                   placeholder={t('enter_address', 'Enter street address')}
                 />
-                {errors.address_line_1 && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('state_province', 'State / Province')} <span className="text-red-500">*</span>
+                  {t('state_province', 'State / Province')}
                 </label>
                 <input
                   type="text"
-                  {...register('state', { required: true })}
+                  {...register('state')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 />
-                {errors.state && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
             </div>
 
@@ -1617,10 +1614,10 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('country', 'Country')} <span className="text-red-500">*</span>
+                  {t('country', 'Country')}
                 </label>
                 <select
-                  {...register('country', { required: true })}
+                  {...register('country')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">{t('select_country', 'Select Country')}</option>
@@ -1628,44 +1625,41 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
                     <option key={country} value={country}>{country}</option>
                   ))}
                 </select>
-                {errors.country && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
+                
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('city', 'City')} <span className="text-red-500">*</span>
+                  {t('city', 'City')}
                 </label>
                 <input
                   type="text"
-                  {...register('city', { required: true })}
+                  {...register('city')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 />
-                {errors.city && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('address_line_1', 'Address Line 1')} <span className="text-red-500">*</span>
+                  {t('address_line_1', 'Address Line 1')}
                 </label>
                 <input
                   type="text"
-                  {...register('address_line_1', { required: true })}
+                  {...register('address_line_1')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                   placeholder={t('enter_address', 'Enter street address')}
                 />
-                {errors.address_line_1 && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('state_province', 'State / Province')} <span className="text-red-500">*</span>
+                  {t('state_province', 'State / Province')}
                 </label>
                 <input
                   type="text"
-                  {...register('state', { required: true })}
+                  {...register('state')}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 />
-                {errors.state && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
             </div>
 

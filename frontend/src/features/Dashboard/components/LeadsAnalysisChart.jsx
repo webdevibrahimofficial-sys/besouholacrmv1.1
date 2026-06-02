@@ -8,7 +8,7 @@ import { PieChart } from '@shared/components/PieChart'
 
 
 
-export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, legendLabel = 'No. of Leads' }) => {
+export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, legendLabel = 'No. of Leads', exportMode = false }) => {
   const { t, i18n } = useTranslation()
   const lang = i18n.language || 'en'
   const { theme, resolvedTheme } = useTheme()
@@ -18,7 +18,9 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   const yAxisLabel = lang === 'ar' ? 'عدد العملاء المحتملين' : 'No. of Leads'
   const [chartData, setChartData] = useState([])
   const [maxValue, setMaxValue] = useState(0)
-  const containerHeightPx = 192 // h-48 ~= 12rem ~= 192px
+  const containerHeightPx = exportMode ? 420 : 192
+  const chartHeightClass = exportMode ? 'h-[420px]' : 'h-40 sm:h-48'
+  const pieSize = exportMode ? 260 : 192
 
   // Advanced search states
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
@@ -292,7 +294,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     }
 
     return (
-      <div className="w-full h-40 sm:h-48 px-2">
+      <div className={`w-full ${chartHeightClass} px-2`}>
         <Bar data={dataObj} options={options} />
       </div>
     )
@@ -328,7 +330,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     }
 
     return (
-      <div className="w-full h-40 sm:h-48 px-2">
+      <div className={`w-full ${chartHeightClass} px-2`}>
         <Bar data={dataObj} options={options} />
       </div>
     )
@@ -369,7 +371,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     }
 
     return (
-      <div className="w-full h-40 sm:h-48 px-2">
+      <div className={`w-full ${chartHeightClass} px-2`}>
         <Line data={dataObj} options={options} />
       </div>
     )
@@ -396,14 +398,14 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     }))
 
     return (
-      <div className="flex items-center justify-center h-48">
+      <div className={`flex items-center justify-center ${exportMode ? 'min-h-[420px]' : 'h-48'}`}>
         <PieChart
           segments={segments}
           centerValue={total}
           centerLabel={t('Total Leads')}
-          size={192}
+          size={pieSize}
         />
-        <div className="ml-6 space-y-2">
+        <div className={`${exportMode ? 'ml-8' : 'ml-6'} space-y-2`}>
           {segments.map((seg, index) => (
             <div key={index} className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: seg.color }} />

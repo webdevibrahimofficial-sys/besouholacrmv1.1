@@ -42,7 +42,7 @@ const CountryCodeSelect = ({ value, onChange, isLight, inputTone, isRTL, disable
         }}
         onBlur={() => setTimeout(() => setIsOpen(false), 200)}
         className={`w-full rounded-md border px-2 py-2 text-center text-sm ${inputTone} disabled:opacity-60 disabled:cursor-not-allowed`}
-        placeholder="+20"
+        placeholder="+Code"
         dir="ltr"
       />
       <FaChevronDown 

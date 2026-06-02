@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
 
 class TenantRegistrationController extends Controller
 {
-    protected $tenantService;
+    protected TenantService $tenantService;
 
     public function __construct(TenantService $tenantService)
     {
@@ -34,10 +34,10 @@ class TenantRegistrationController extends Controller
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
             'is_lifetime' => 'nullable|boolean',
-            'country' => 'required|string|max:255',
-            'address_line_1' => 'required|string|max:255',
-            'city' => 'required|string|max:255',
-            'state' => 'required|string|max:255',
+            'country' => 'nullable|string|max:255',
+            'address_line_1' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:255',
+            'state' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {

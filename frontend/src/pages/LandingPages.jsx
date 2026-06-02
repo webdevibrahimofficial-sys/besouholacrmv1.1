@@ -5,7 +5,7 @@ import { useAppState } from '../shared/context/AppStateProvider'
 import { useTheme } from '../shared/context/ThemeProvider'
 import SearchableSelect from '../components/SearchableSelect'
 import AddLandingPage from './AddLandingPage'
-import { FaLayerGroup, FaPlus, FaTimes, FaGlobe, FaCopy, FaEdit, FaTrash, FaUsers, FaMousePointer, FaChartLine, FaFilter, FaSearch } from 'react-icons/fa'
+import { FaLayerGroup,FaPlus,  FaUsers, FaMousePointer, FaChartLine, FaFilter, FaSearch } from 'react-icons/fa'
 import { Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 
 function Sparkline({ data = [], color = 'emerald', width = 120, height = 36, padding = 6 }) {
@@ -91,7 +91,7 @@ export default function LandingPages() {
   const [isAddModalOpen, setAddModalOpen] = useState(false)
 
   const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   const [sources, setSources] = useState([])
   const [campaigns, setCampaigns] = useState([])
@@ -268,9 +268,7 @@ export default function LandingPages() {
               className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-blue-700 text-white border-none flex items-center justify-center gap-2" 
               onClick={() => setAddModalOpen(true)}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
+              <FaPlus  className='text-white'/> 
               <span className="text-white">{isRTL ? 'إنشاء صفحة هبوط' : 'Create Landing Page'}</span>
             </button>
           )}

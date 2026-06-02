@@ -9,10 +9,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Hash;
 
 class SuperAdminController extends Controller
 {
-    protected $tenantService;
+    protected TenantService $tenantService;
 
     public function __construct(TenantService $tenantService)
     {
@@ -207,6 +208,7 @@ class SuperAdminController extends Controller
                         return $query->where('tenant_id', $tenant->id);
                     }),
             ],
+            'admin_password' => 'nullable|string|min:8',
         ]);
 
         $isLifetime = $request->boolean('is_lifetime', false);
@@ -242,6 +244,11 @@ class SuperAdminController extends Controller
 
             if ($request->filled('admin_email')) {
                 $owner->email = $request->admin_email;
+                $dirty = true;
+            }
+
+            if ($request->filled('admin_password')) {
+                $owner->password = Hash::make($request->admin_password);
                 $dirty = true;
             }
 

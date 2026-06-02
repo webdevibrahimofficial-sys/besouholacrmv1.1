@@ -31,7 +31,7 @@ export const AddNewLead = () => {
   const [type, setType] = useState('');
   const [tags, setTags] = useState('');
   const [expectedRevenue, setExpectedRevenue] = useState('');
-  const [mobileNumbers, setMobileNumbers] = useState([{ code: '+20', number: '' }]);
+  const [mobileNumbers, setMobileNumbers] = useState([{ code: '', number: '' }]);
   
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
@@ -223,7 +223,7 @@ export const AddNewLead = () => {
         type: '',
         tags: '',
         expectedRevenue: '',
-        mobileNumbers: [{ code: mobileNumbers[0]?.code || '+20', number: '' }],
+        mobileNumbers: [{ code: mobileNumbers[0]?.code || '', number: '' }],
         email: '',
         assignedTo: isSalesPerson ? (currentUser?.name || '') : '',
         stage: '',
@@ -249,8 +249,8 @@ export const AddNewLead = () => {
           ? {
               ...l,
               mobileNumbers: [
-                ...(l.mobileNumbers || [{ code: '+20', number: '' }]),
-                { code: l.mobileNumbers?.[0]?.code || '+20', number: '' },
+                ...(l.mobileNumbers || [{ code: '', number: '' }]),
+                { code: l.mobileNumbers?.[0]?.code || '', number: '' },
               ],
 }
           : l
@@ -262,7 +262,7 @@ export const AddNewLead = () => {
     setExtraLeads((prev) =>
       prev.map((l, i) => {
         if (i !== idx) return l;
-        const arr = l.mobileNumbers || [{ code: '+20', number: '' }];
+        const arr = l.mobileNumbers || [{ code: '', number: '' }];
         const updated = arr.map((n, j) => (j === nIdx ? { ...n, [field]: value } : n));
         return { ...l, mobileNumbers: updated };
       })
@@ -280,7 +280,7 @@ export const AddNewLead = () => {
   };
 
   const addMobileNumber = () => {
-    setMobileNumbers(prev => [...prev, { code: prev[0]?.code || '+20', number: '' }]);
+    setMobileNumbers(prev => [...prev, { code: prev[0]?.code || '', number: '' }]);
   };
 
   const removeMobileNumber = (idx) => {
@@ -291,7 +291,7 @@ export const AddNewLead = () => {
     setExtraLeads((prev) =>
       prev.map((l, i) => {
         if (i !== idx) return l;
-        const arr = l.mobileNumbers || [{ code: '+20', number: '' }];
+        const arr = l.mobileNumbers || [{ code: '', number: '' }];
         const updated = arr.filter((_, j) => j !== nIdx);
         return { ...l, mobileNumbers: updated };
       })
@@ -302,7 +302,7 @@ export const AddNewLead = () => {
     setMobileNumbers(prev => {
       const next = prev.map((n, i) => (i === idx ? { ...n, [field]: value } : n));
       // validate current index
-      const current = next[idx] || { code: '+20', number: '' };
+      const current = next[idx] || { code: '', number: '' };
       const check = validatePhone(current.code, current.number);
       setPhoneErrors(prevErrs => {
         const arr = [...prevErrs];
@@ -380,17 +380,21 @@ export const AddNewLead = () => {
       const buildPrimaryPhone = (numbers) => {
         const first = (Array.isArray(numbers) ? numbers : []).find((m) => String(m?.number || '').trim());
         if (!first) return { phone: '', phoneCountry: '' };
-        const code = String(first.code || '').trim() || '+20';
+        const code = String(first.code || '').trim();
         const number = String(first.number || '').trim();
         // Keep formatting simple; backend normalizes.
-        return { phone: `${code} ${number}`, phoneCountry: code };
+        return { phone: code ? `${code} ${number}` : number, phoneCountry: code };
       };
 
       const buildOtherPhonesNote = (numbers) => {
         const arr = Array.isArray(numbers) ? numbers : [];
         const formatted = arr
           .filter((m) => String(m?.number || '').trim())
-          .map((m) => `${String(m?.code || '').trim() || '+20'} ${String(m?.number || '').trim()}`);
+          .map((m) => {
+            const code = String(m?.code || '').trim();
+            const number = String(m?.number || '').trim();
+            return code ? `${code} ${number}` : number;
+          });
         if (formatted.length <= 1) return '';
         const tail = formatted.slice(1).join(' / ');
         return tail ? `Other phones: ${tail}` : '';
@@ -956,7 +960,7 @@ export const AddNewLead = () => {
                         <div>
                           <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Mobile')} <span className="text-red-500">*</span></label>
                           <div className="flex items-center gap-3">
-                            <CountryCodeSelect value={l.mobileNumbers?.[0]?.code || '+20'} onChange={(val) => updateExtraLeadNumber(i, 0, 'code', val)} isLight={isLight} inputTone={inputTone} isRTL={isRTL} />
+                            <CountryCodeSelect value={l.mobileNumbers?.[0]?.code || ''} onChange={(val) => updateExtraLeadNumber(i, 0, 'code', val)} isLight={isLight} inputTone={inputTone} isRTL={isRTL} />
                             <input type="tel" value={l.mobileNumbers?.[0]?.number || ''} onChange={(e) => updateExtraLeadNumber(i, 0, 'number', e.target.value)} className={`flex-1 rounded-md border px-3 py-2 ${inputTone}`} />
                             <button type="button" onClick={() => addExtraLeadNumber(i)} className={`inline-flex items-center justify-center px-3 py-2 rounded-md border ${isLight ? 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100' : 'bg-gray-800 border-gray-700 text-blue-300 hover:bg-gray-700'}`} aria-label={t('Add another number')} title={t('Add another number')}>
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

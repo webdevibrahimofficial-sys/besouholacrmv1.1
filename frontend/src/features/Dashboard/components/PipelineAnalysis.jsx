@@ -382,7 +382,7 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
   return (
     <div className="w-full">
       {/* Toolbar (simplified like Leads Analysis) */}
-      <div className="flex flex-wrap items-center gap-2 mb-3 justify-end">
+      <div className="flex flex-wrap items-center gap-2 mb-3 justify-end" data-export-ignore="true">
         <span className={`${isLight ? 'text-blue-700 font-semibold' : 'dark:text-gray-300'} text-sm`}>
           {chartType === 'bar'
             ? (lang === 'ar' ? 'رسم بياني عمودي' : 'Bar Chart')
@@ -426,7 +426,7 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
 
         {/* Advanced Search Panel */}
         {showAdvancedSearch && (
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700" data-export-ignore="true">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <FaSlidersH className="text-indigo-600 dark:text-indigo-400" />

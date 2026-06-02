@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { api as axios } from '../../utils/api';
@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { useAppState } from '@shared/context/AppStateProvider';
 // أضف Sparkles لهذا السطر في أعلى الملف
-import { Users, Sparkles, DollarSign, Briefcase, Activity,Copy,Clock,Phone,CalendarClock,TrendingUp,Timer,Flame,CheckCircle,XCircle,Target,BarChart2,FileText,PhoneOff,Calendar,Bookmark, RefreshCw, Pin, Handshake, Contact, PhoneCall, PhoneForwarded, PhoneIncoming, PhoneMissed, PhoneOutgoing } from 'lucide-react';
+import { Users, Sparkles,  Briefcase, Copy,Clock,Phone,CalendarClock,TrendingUp,Timer,Flame,CheckCircle,XCircle,Target,BarChart2,FileText,PhoneOff,Calendar,Bookmark, RefreshCw, Pin, Handshake, Contact, PhoneCall, PhoneForwarded, PhoneIncoming, PhoneMissed, PhoneOutgoing } from 'lucide-react';
 import { RiBarChart2Line, RiLineChartLine, RiPieChartLine } from 'react-icons/ri';
 import { SearchableSelect } from '@shared/components';
 import DatePicker from "react-datepicker";
@@ -20,6 +20,18 @@ import { LeadsAnalysisChart } from './components/LeadsAnalysisChart';
 import { PipelineAnalysis } from './components/PipelineAnalysis';
 import TopPerformersWidget from './components/TopPerformersWidget';
 import ActiveUsersChart from './components/ActiveUsersChart';
+import exportDashboardChartsToPdf from './utils/exportDashboardChartsToPdf';
+
+const ExportButtonContent = ({ label = 'Export' }) => (
+  <>
+    <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path fill="currentColor" d="M6 3.75A2.25 2.25 0 0 1 8.25 1.5h5.19c.6 0 1.17.24 1.59.66l2.31 2.31c.42.42.66.99.66 1.59v3.69a.75.75 0 0 1-1.5 0V6.75h-2.25A2.25 2.25 0 0 1 12 4.5V2.25H8.25A.75.75 0 0 0 7.5 3v18c0 .41.34.75.75.75h6a.75.75 0 0 1 0 1.5h-6A2.25 2.25 0 0 1 6 21V3.75Z"/>
+      <path fill="currentColor" d="M13.5 2.56V4.5c0 .41.34.75.75.75h1.94L13.5 2.56Z"/>
+      <path fill="currentColor" d="M17.03 12.22a.75.75 0 0 1 1.06 0l3.38 3.38a.75.75 0 0 1 0 1.06l-3.38 3.38a.75.75 0 1 1-1.06-1.06l2.1-2.1H12.75a.75.75 0 0 1 0-1.5h6.38l-2.1-2.1a.75.75 0 0 1 0-1.06Z"/>
+    </svg>
+    <span>{label}</span>
+  </>
+)
 const ICON_MAP = {
   Users: <Users className="w-5 h-5" />,
   Sparkles: <Sparkles className="w-5 h-5" />,
@@ -167,7 +179,7 @@ const COLOR_STYLES = {
 export const Dashboard = () => {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
-  const { theme, resolvedTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
   const { user, canAccess, crmSettings } = useAppState();
   const roleLower = String(user?.role || '').toLowerCase();
@@ -182,19 +194,7 @@ export const Dashboard = () => {
     emailLower === 'admin@besouhoula.com';
   const isAdmin = roleLower === 'admin';
   const isTeamLeader = roleLower.includes('team leader');
-  const isSalesManager = roleLower.includes('sales manager');
-  const isBranchManager = roleLower.includes('branch manager');
-  const isSalesAdmin = roleLower.includes('sales admin');
-  const isSalesDirector = roleLower.includes('sales director') || roleLower.includes('director');
-  const isOperationsManager = roleLower.includes('operations manager') || roleLower.includes('operation manager');
   const isTenantAdmin = roleLower === 'tenant admin' || roleLower === 'tenant-admin';
-  
-  // Use consistent logic with Leads.jsx for viewing duplicates
-  const allowedDuplicateRoles = [
-    'admin',
-    'tenant admin',
-    'tenant-admin',
-  ];
   
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {};
   const leadModulePerms = Array.isArray(modulePermissions.Leads) ? modulePermissions.Leads : [];
@@ -241,7 +241,6 @@ export const Dashboard = () => {
       setSelectedEmployee(String(user?.id || ''));
     }
   }, [showSalesLimited, user]);
-  const isManagerOrAbove = isSuperAdmin || isAdmin || isTeamLeader || isSalesManager || isBranchManager || isSalesAdmin;
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedManager, setSelectedManager] = useState('')
@@ -255,16 +254,13 @@ export const Dashboard = () => {
   const [leadsAnalysisOpenMobile, setLeadsAnalysisOpenMobile] = useState(true);
   const [pipelineAnalysisOpenMobile, setPipelineAnalysisOpenMobile] = useState(true);
   const [delayLeadsOpenMobile, setDelayLeadsOpenMobile] = useState(true);
-  const [bestOpenMobile, setBestOpenMobile] = useState(true);
   const [commentsOpenMobile, setCommentsOpenMobile] = useState(true);
   const [recentCallsOpenMobile, setRecentCallsOpenMobile] = useState(true);
   const [selectedStageFilter, setSelectedStageFilter] = useState('');
-  const [bestAgentFilter, setBestAgentFilter] = useState('all');
-  const [selectedMeasure, setSelectedMeasure] = useState('Count');
-  const [activeFilter, setActiveFilter] = useState('active');
-  const [yearFilter, setYearFilter] = useState('2025');
+  const activeFilter = 'active';
+  const yearFilter = '2025';
   const [stageDefs, setStageDefs] = useState([]);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const refreshTrigger = 0;
   const [managerOptions, setManagerOptions] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [employeeOptions, setEmployeeOptions] = useState([]);
@@ -293,13 +289,6 @@ export const Dashboard = () => {
     }
     return res;
   }, [isTeamLeader, user, allUsers]);
-  const subordinateSalespersons = useMemo(() => {
-    return subordinateSalespersonIds.map(id => byId.get(String(id))).filter(Boolean);
-  }, [subordinateSalespersonIds, byId]);
-
-
-
-  const [bestAgents, setBestAgents] = useState([]);
   const [activeUsersData, setActiveUsersData] = useState([]);
 
   useEffect(() => {
@@ -336,27 +325,6 @@ export const Dashboard = () => {
     return () => { cancelled = true; };
   }, [dateFrom, dateTo, selectedManager, refreshTrigger]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchBest = async () => {
-      try {
-        const { data } = await axios.get('/api/dashboard-data/top-agents', { params: { range: bestAgentFilter } });
-        if (!cancelled && Array.isArray(data)) setBestAgents(data);
-      } catch {
-        const fallback = [
-          { id: 1, name: 'Top Agent', avatar: '', score: 100, isCrowned: true },
-          { id: 2, name: 'Second Agent', avatar: '', score: 80, isCrowned: false },
-          { id: 3, name: 'Third Agent', avatar: '', score: 60, isCrowned: false },
-        ];
-        if (!cancelled) setBestAgents(fallback);
-      }
-    };
-    fetchBest();
-    return () => { cancelled = true; };
-  }, [bestAgentFilter]);
-  const currentBestAgents = bestAgents || [];
-  const topBestAgent = currentBestAgents[0];
-
   // Load pipeline stages with colors/icons from Settings
   const defaultIconForName = (name) => {
     const key = (name || '').toLowerCase();
@@ -389,89 +357,7 @@ export const Dashboard = () => {
     if (key.includes('qual')) return 'purple';
     return 'blue';
   };
-  
-  // New states for Leads Analysis
   const [leadsChartType, setLeadsChartType] = useState('bar');
-  const [leadsDataType, setLeadsDataType] = useState('monthly');
-  const [leadsStatusFilter, setLeadsStatusFilter] = useState('all');
-  const [leadsSourceFilter, setLeadsSourceFilter] = useState('all');
-
-  const chartData = {
-    Count: [
-      { label: 'April 2025', value: 25, color: 'bg-blue-500' },
-      { label: 'May 2025', value: 28, color: 'bg-blue-500' },
-      { label: 'June 2025', value: 15, color: 'bg-blue-500' },
-      { label: 'July 2025', value: 20, color: 'bg-blue-500' },
-      { label: 'August 2025', value: 42, color: 'bg-blue-500' },
-      { label: 'September 2025', value: 90, color: 'bg-blue-500' }
-    ],
-    'Days to Assign': [
-      { label: 'April 2025', value: 3.2, color: 'bg-green-500' },
-      { label: 'May 2025', value: 2.8, color: 'bg-green-500' },
-      { label: 'June 2025', value: 4.1, color: 'bg-green-500' },
-      { label: 'July 2025', value: 3.7, color: 'bg-green-500' },
-      { label: 'August 2025', value: 2.5, color: 'bg-green-500' },
-      { label: 'September 2025', value: 1.8, color: 'bg-green-500' }
-    ],
-    'Expected Revenue': [
-      { label: 'April 2025', value: 125000, color: 'bg-purple-500' },
-      { label: 'May 2025', value: 145000, color: 'bg-purple-500' },
-      { label: 'June 2025', value: 98000, color: 'bg-purple-500' },
-      { label: 'July 2025', value: 112000, color: 'bg-purple-500' },
-      { label: 'August 2025', value: 189000, color: 'bg-purple-500' },
-      { label: 'September 2025', value: 234000, color: 'bg-purple-500' }
-    ]
-  };
-
-  const getCurrentChartData = () => {
-    return chartData[selectedMeasure] || chartData.Count;
-  };
-
-  const getChartMax = () => {
-    const currentData = getCurrentChartData();
-    return Math.max(...currentData.map(d => d.value));
-  };
-
-  // يعرض بيانات الرسم مع تعديل سنة الملصقات حسب المرشح الحالي
-  const getDisplayChartData = () => {
-    if (analysisData && analysisData.monthly) {
-        return analysisData.monthly.map(d => {
-          let val = 0;
-          if (selectedMeasure === 'Expected Revenue') {
-             val = d.revenue || 0;
-          } else {
-             val = d.value || 0;
-          }
-          
-          return {
-            label: `${d.label} ${d.month.split('-')[0]}`,
-            value: Number(val),
-            color: selectedMeasure === 'Expected Revenue' ? 'bg-purple-500' : 'bg-blue-500'
-          };
-        });
-    }
-
-    const current = getCurrentChartData();
-    return current.map(d => ({
-      ...d,
-      label: d.label.replace(/\b\d{4}\b/, yearFilter)
-    }));
-  };
-
-  const formatValue = (value, measure) => {
-    if (measure === 'Expected Revenue') {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-      }).format(value);
-    }
-    if (measure === 'Days to Assign' || measure === 'Days to Close') {
-      return `${value.toFixed(1)} days`;
-    }
-    return value.toLocaleString();
-  };
 
   useEffect(() => {
     const handleResizeQN = () => setIsMobileQuick(window.innerWidth < 640);
@@ -542,11 +428,13 @@ export const Dashboard = () => {
 
   useEffect(() => {
     let cancelled = false;
+    let hasCachedStages = false;
     
     // Optimistic load from cache
     try {
        const saved = JSON.parse(localStorage.getItem('crmStages') || '[]');
        if (Array.isArray(saved) && saved.length > 0) {
+           hasCachedStages = true;
            setStageDefs(saved);
            setStagesLoading(false); // Found in cache, so not "loading" visually
        }
@@ -554,7 +442,7 @@ export const Dashboard = () => {
 
     const fromDb = async () => {
       try {
-        if (!stageDefs.length) setStagesLoading(true);
+        if (!hasCachedStages) setStagesLoading(true);
         const { data } = await axios.get('/api/stages', { params: { _t: Date.now() } });
         const validColors = new Set(['blue', 'green', 'yellow', 'red', 'purple', 'orange']);
         const normalized = Array.isArray(data)
@@ -585,7 +473,7 @@ export const Dashboard = () => {
           setStageDefs(normalized);
           localStorage.setItem('crmStages', JSON.stringify(normalized));
         }
-      } catch (e) {
+      } catch {
         try {
           const saved = JSON.parse(localStorage.getItem('crmStages') || '[]');
           const normalized = Array.isArray(saved)
@@ -665,13 +553,21 @@ export const Dashboard = () => {
 
   // Fetch Leads Analysis Data
   const [analysisData, setAnalysisData] = useState(null);
-  const [analysisLoading, setAnalysisLoading] = useState(true);
+  const pipelineAnalysisChartRef = useRef(null);
+  const leadsAnalysisExportRef = useRef(null);
+  const [isExportingDashboardPdf, setIsExportingDashboardPdf] = useState(false);
+  const [dashboardExportState, setDashboardExportState] = useState({
+    active: false,
+    chartKey: null,
+    pageData: [],
+    pageIndex: 0,
+    totalPages: 0,
+  });
   
   useEffect(() => {
     let cancelled = false;
     const fetchAnalysis = async () => {
       try {
-        setAnalysisLoading(true);
         const params = {
           created_from: dateFrom,
           created_to: dateTo,
@@ -685,13 +581,71 @@ export const Dashboard = () => {
         }
       } catch (e) {
         console.error("Failed to fetch leads analysis", e);
-      } finally {
-        if (!cancelled) setAnalysisLoading(false);
       }
     };
     fetchAnalysis();
     return () => { cancelled = true; };
   }, [dateFrom, dateTo, selectedEmployee, selectedManager, refreshTrigger]);
+
+  const handleExportDashboardPdf = async (chartKey = 'all') => {
+    if (isExportingDashboardPdf) return;
+    try {
+      setIsExportingDashboardPdf(true);
+      const dateRangeLabel = dateFrom && dateTo
+        ? `${dateFrom} → ${dateTo}`
+        : dateFrom
+          ? `${dateFrom} → ${i18n.language === 'ar' ? 'الآن' : 'Now'}`
+          : dateTo
+            ? `${i18n.language === 'ar' ? 'حتى' : 'Until'} ${dateTo}`
+            : (i18n.language === 'ar' ? 'كل الفترات' : 'All Dates');
+
+      const chartsToExport = [
+        ...(chartKey === 'all' || chartKey === 'leads-analysis' ? [{
+          key: 'leads-analysis',
+          title: t('Leads Analysis'),
+          ref: leadsAnalysisExportRef,
+          monthlyData: Array.isArray(analysisData?.monthly) ? analysisData.monthly : [],
+          preparePage: async ({ pageData, pageIndex, totalPages }) => {
+            setDashboardExportState({
+              active: true,
+              chartKey: 'leads-analysis',
+              pageData: pageData || [],
+              pageIndex,
+              totalPages,
+            });
+          },
+          cleanup: async () => {
+            setDashboardExportState({
+              active: false,
+              chartKey: null,
+              pageData: [],
+              pageIndex: 0,
+              totalPages: 0,
+            });
+          },
+        }] : []),
+        ...(chartKey === 'all' || chartKey === 'pipeline-analysis' ? [{
+          key: 'pipeline-analysis',
+          title: t('Pipeline Analysis'),
+          ref: pipelineAnalysisChartRef,
+        }] : []),
+      ];
+
+      await exportDashboardChartsToPdf({
+        title: i18n.language === 'ar' ? 'تقرير رسوم الداشبورد' : 'Dashboard Charts Report',
+        dateRange: dateRangeLabel,
+        userName: user?.name || user?.email || 'Unknown',
+        fileName: `${chartKey === 'pipeline-analysis' ? 'pipeline-analysis' : chartKey === 'leads-analysis' ? 'leads-analysis' : 'dashboard-charts'}-${new Date().toISOString().slice(0, 10)}.pdf`,
+        maxMonthsPerPage: 12,
+        charts: chartsToExport,
+      });
+    } catch (error) {
+      console.error('Failed to export dashboard charts PDF', error);
+      alert(i18n.language === 'ar' ? 'فشل تصدير تقرير PDF' : 'Failed to export PDF report');
+    } finally {
+      setIsExportingDashboardPdf(false);
+    }
+  };
 
   // Use API data
   const leadsStats = leadsStatsData;
@@ -709,112 +663,6 @@ export const Dashboard = () => {
     params.set('assigned_to', String((selectedEmployee || '').trim()));
     return `/leads?${params.toString()}`;
   };
-
-  const quickNumbersBase = [
-    {
-      title: i18n.language === 'ar' ? 'أجمالى العملاء' : 'All Leads',
-      value: leadsStats.total.toLocaleString(),
-      icon: <Users className="w-6 h-6" />,
-      color: 'text-blue-800',
-      bgColor: 'bg-gradient-to-br from-blue-100 via-blue-200 to-blue-300 dark:from-blue-800 dark:via-blue-700 dark:to-blue-600',
-      borderColor: 'border-blue-400 dark:border-blue-500',
-      iconBg: 'bg-blue-600 dark:bg-blue-500',
-      glowColor: 'shadow-blue-300/50 dark:shadow-blue-500/25',
-      accentColor: 'from-blue-200 to-blue-300',
-      subtitle: `${t('of all system leads')}`
-    },
-    {
-      title: 'Duplicate Leads',
-      key: 'duplicate',
-      value: leadsStats.duplicate.toLocaleString(),
-      icon: <Copy className="w-6 h-6" />,
-      color: 'text-red-800',
-      bgColor: 'bg-gradient-to-br from-red-100 via-red-200 to-red-300 dark:from-red-800 dark:via-red-700 dark:to-red-600',
-      borderColor: 'border-red-400 dark:border-red-500',
-      iconBg: 'bg-red-600 dark:bg-red-500',
-      glowColor: 'shadow-red-300/50 dark:shadow-red-500/25',
-      accentColor: 'from-red-200 to-red-300',
-      subtitle: `${leadsStats.total > 0 ? ((leadsStats.duplicate / leadsStats.total) * 100).toFixed(1) : 0}% ${t('of all system leads')}`
-    },
-    {
-      title: 'New Leads',
-      value: leadsStats.new.toLocaleString(),
-      icon: <Sparkles className="w-6 h-6" />,
-      color: 'text-green-800',
-      bgColor: 'bg-gradient-to-br from-green-100 via-green-200 to-green-300 dark:from-green-800 dark:via-green-700 dark:to-green-600',
-      borderColor: 'border-green-400 dark:border-green-500',
-      iconBg: 'bg-green-600 dark:bg-green-500',
-      glowColor: 'shadow-green-300/50 dark:shadow-green-500/25',
-      accentColor: 'from-green-200 to-green-300',
-      subtitle: `${leadsStats.total > 0 ? ((leadsStats.new / leadsStats.total) * 100).toFixed(1) : 0}% ${t('of all system leads')}`
-    },
-    ...(crmSettings?.showColdCallsStage !== false ? [{
-      title: 'Cold Calls',
-      value: leadsStats.coldCall.toLocaleString(),
-      icon: <Phone className="w-6 h-6" />,
-      color: 'text-orange-800',
-      bgColor: 'bg-gradient-to-br from-orange-100 via-orange-200 to-orange-300 dark:from-orange-800 dark:via-orange-700 dark:to-orange-600',
-      borderColor: 'border-orange-400 dark:border-orange-500',
-      iconBg: 'bg-orange-600 dark:bg-orange-500',
-      glowColor: 'shadow-orange-300/50 dark:shadow-orange-500/25',
-      accentColor: 'from-orange-200 to-orange-300',
-      subtitle: `${leadsStats.total > 0 ? ((leadsStats.coldCall / leadsStats.total) * 100).toFixed(1) : 0}% ${t('of all system leads')}`
-    }] : []),
-    {
-      title: i18n.language === 'ar' ? 'معلقة' : 'Pending Leads',
-      key: 'pending',
-      value: leadsStats.pending.toLocaleString(),
-      icon: <Clock className="w-6 h-6" />,
-      color: 'text-yellow-500',
-      subtitle: `${leadsStats.total > 0 ? ((leadsStats.pending / leadsStats.total) * 100).toFixed(1) : 0}% ${t('of all system leads')}`
-    }
-  ];
-  const quickNumbersFixed = quickNumbersBase.filter(card => {
-    // Hide duplicate if not allowed OR if sales person
-    if (card.key === 'duplicate' && !isDuplicateAllowed) return false;
-    // Hide pending if sales person
-    if (card.key === 'pending' && isSalesPerson) return false;
-    return true;
-  });
-
-  // Dynamic cards from System Settings (Pipeline Stages)
-  const fixedStageNames = new Set(['new','duplicate','pending','cold-calls','coldcalls','total']);
-  const extraStageCards = (stageDefs || []).filter(s => {
-    const norm = String(s?.name || '').toLowerCase().trim().replace(/[\s_]+/g, '-');
-    return !!norm && !fixedStageNames.has(norm);
-  }).map(s => {
-    const findCount = (name) => {
-        if (!name) return 0;
-        if (leadsStats.byStage[name]) return leadsStats.byStage[name];
-        const target = String(name).toLowerCase().trim();
-        for (const [k, v] of Object.entries(leadsStats.byStage)) {
-             if (String(k).toLowerCase().trim() === target) return v;
-        }
-        return 0;
-    }
-    const count = findCount(s.name);
-    const share = leadsStats.total > 0 ? ((count / leadsStats.total) * 100).toFixed(1) : 0;
-    const isAr = i18n.language.startsWith('ar');
-    const displayName = (isAr && s.name_ar) ? s.name_ar : s.name;
-    return {
-      title: displayName,
-      value: count.toLocaleString(),
-      icon: resolveIcon(s.icon, s.name),
-      color: 'text-blue-800',
-      subtitle: `${share}% ${t('of all system leads')}`,
-    };
-  });
-
-  const quickNumbers = [...quickNumbersFixed, ...extraStageCards];
-
-  const pieChartData = [
-    { name: 'New', value: 400, color: '#3b82f6' },
-    { name: 'Contacted', value: 300, color: '#10b981' },
-    { name: 'Qualified', value: 200, color: '#f97316' },
-    { name: 'Proposal', value: 150, color: '#8b5cf6' },
-    { name: 'Won', value: 100, color: '#ef4444' },
-    { name: 'Lost', value: 50, color: '#6b7280' },
-  ];
 
   return (
     <>
@@ -1096,7 +944,6 @@ export const Dashboard = () => {
               const duplicateCount = leadsStats.duplicate;
               const pendingCount = leadsStats.pending;
               const coldCallCount = leadsStats.coldCall;
-              const followUpCount = findCount('follow-up');
               const totalLeadsCount = leadsStats.total;
 
               const totalCard = (
@@ -1134,7 +981,6 @@ export const Dashboard = () => {
                   percent: totalLeadsCount > 0 ? Math.round((newCount / totalLeadsCount) * 100) : 0,
                   icon: <Sparkles className="w-5 h-5" />,
                   color: 'green',
-                  borderClass: 'border-green-400 dark:border-green-500',
                 },
                 {
                   key: '__fixed_duplicate__',
@@ -1143,7 +989,6 @@ export const Dashboard = () => {
                   percent: totalLeadsCount > 0 ? Math.round((duplicateCount / totalLeadsCount) * 100) : 0,
                   icon: <Copy className="w-5 h-5" />,
                   color: 'red',
-                  borderClass: 'border-red-400 dark:border-red-500',
                 },
                 {
                   key: '__fixed_pending__',
@@ -1152,7 +997,6 @@ export const Dashboard = () => {
                   percent: totalLeadsCount > 0 ? Math.round((pendingCount / totalLeadsCount) * 100) : 0,
                   icon: <Clock className="w-5 h-5" />,
                   color: 'yellow',
-                  borderClass: 'border-yellow-400 dark:border-yellow-500',
                 },
                 ...(crmSettings?.showColdCallsStage !== false ? [{
                   key: '__fixed_coldcalls__',
@@ -1161,9 +1005,8 @@ export const Dashboard = () => {
                   percent: totalLeadsCount > 0 ? Math.round((coldCallCount / totalLeadsCount) * 100) : 0,
                   icon: <Phone className="w-5 h-5" />,
                   color: 'orange',
-                  borderClass: 'border-orange-400 dark:border-orange-500',
                 }] : []),
-              ].map(({ key, title, count, percent, icon, color, borderClass }) => {
+              ].map(({ key, title, count, percent, icon, color }) => {
                 const style = COLOR_STYLES[color];
                 const stageKey = key === '__fixed_new__' ? 'new lead'
                   : key === '__fixed_duplicate__' ? 'duplicate'
@@ -1225,7 +1068,6 @@ export const Dashboard = () => {
                 const displayName = (isAr && s.name_ar) ? s.name_ar : s.name;
                 
                 let style = COLOR_STYLES[s.color];
-                let isCustom = false;
                 let customContainer = {};
                 let customIcon = {};
                 let customBadge = {};
@@ -1236,7 +1078,6 @@ export const Dashboard = () => {
                 if (!style) {
                     style = COLOR_STYLES['blue']; // Fallback for structure
                     if (isHexColor(s.color)) {
-                        isCustom = true;
                         const c = s.color;
                         customContainer = {
                              borderColor: c,
@@ -1447,6 +1288,16 @@ export const Dashboard = () => {
             <div className="col-span-1 p-4 glass-panel rounded-lg shadow-md">
               <div className="section-header flex items-center w-full justify-between gap-2 mb-3">
                 <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Leads Analysis')}</h3>
+                <button
+                  type="button"
+                  onClick={() => handleExportDashboardPdf('leads-analysis')}
+                  disabled={isExportingDashboardPdf}
+                  className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                  data-export-ignore="true"
+                  title="Export PDF"
+                >
+                  <ExportButtonContent label={isExportingDashboardPdf ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
+                </button>
                 <button onClick={() => setLeadsAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                     <path d="M6 9l6 6 6-6" />
@@ -1548,13 +1399,23 @@ export const Dashboard = () => {
               <div className="p-4 glass-panel h-full overflow-auto rounded-lg shadow-md">
                 <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
                   <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Pipeline Analysis')}</h3>
+                  <button
+                    type="button"
+                    onClick={() => handleExportDashboardPdf('pipeline-analysis')}
+                    disabled={isExportingDashboardPdf}
+                    className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                    data-export-ignore="true"
+                    title="Export PDF"
+                  >
+                    <ExportButtonContent label={isExportingDashboardPdf ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
+                  </button>
                   <button onClick={() => setPipelineAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                       <path d="M6 9l6 6 6-6" />
                     </svg>
                   </button>
                 </div>
-                <div className={`${pipelineAnalysisOpenMobile ? 'block' : 'hidden'} md:block`}>
+                <div className={`${pipelineAnalysisOpenMobile ? 'block' : 'hidden'} md:block`} ref={pipelineAnalysisChartRef}>
                   <PipelineAnalysis selectedEmployee={effectiveEmployeeName} selectedManager={selectedManager} dateFrom={dateFrom} dateTo={dateTo} />
                 </div>
               </div>
@@ -1565,9 +1426,38 @@ export const Dashboard = () => {
           
           {/* Leads Trend Analysis Section removed per request */}
           
+          <div
+            aria-hidden="true"
+            className="fixed top-0 left-[-20000px] pointer-events-none"
+            style={{ width: 1600, opacity: 1 }}
+          >
+            {dashboardExportState.active && dashboardExportState.chartKey === 'leads-analysis' ? (
+              <div
+                ref={leadsAnalysisExportRef}
+                dir={i18n.dir()}
+                className={`rounded-2xl border p-6 shadow-xl ${isLight ? 'bg-white border-gray-200 text-gray-900' : 'bg-slate-900 border-gray-700 text-white'}`}
+                style={{ width: 1600 }}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-2xl font-bold text-primary">{t('Leads Analysis')}</h3>
+                  <span className={`text-sm font-medium ${isLight ? 'text-gray-500' : 'text-gray-300'}`}>
+                    {dashboardExportState.totalPages > 1 ? `${dashboardExportState.pageIndex + 1}/${dashboardExportState.totalPages}` : ''}
+                  </span>
+                </div>
+                <LeadsAnalysisChart
+                  data={dashboardExportState.pageData}
+                  chartType={leadsChartType}
+                  filters={{ dataType: 'monthly', status: activeFilter, year: yearFilter, employee: selectedEmployee || selectedManager, dateFrom, dateTo }}
+                  exportMode
+                />
+              </div>
+            ) : null}
+          </div>
           
     </>
   )
 }
 
 export default Dashboard;
+
+

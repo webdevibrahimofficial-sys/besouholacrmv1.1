@@ -405,12 +405,26 @@ class ActivityLogController extends Controller
 
         $data = $rows->map(function ($action) {
             $details = $action->details ?? [];
+            $lead = $action->lead;
+            $phoneNumber = $details['phone']
+                ?? $details['phone_number']
+                ?? $details['mobile']
+                ?? ($lead->phone ?? null)
+                ?? ($lead->mobile ?? null);
+            $phoneCountry = $details['phone_country']
+                ?? $details['phoneCountry']
+                ?? ($lead->phone_country ?? null)
+                ?? ($lead->phoneCountry ?? null)
+                ?? ($lead->meta_data['phone_country'] ?? null)
+                ?? ($lead->meta_data['phoneCountry'] ?? null);
+
             return [
                 'id' => $action->id,
                 'employeeName' => $action->user ? $action->user->name : 'System',
-                'leadName' => $action->lead ? $action->lead->name : ('Lead #' . $action->lead_id),
+                'leadName' => $lead ? $lead->name : ('Lead #' . $action->lead_id),
                 'leadId' => $action->lead_id,
-                'phoneNumber' => $details['phone'] ?? ($action->lead->mobile ?? null),
+                'phoneNumber' => $phoneNumber,
+                'phoneCountry' => $phoneCountry,
                 'callType' => $details['call_type'] ?? ($details['type'] ?? 'call'),
                 'duration' => $details['duration'] ?? '00:00',
                 'notes' => $details['notes'] ?? ($action->description ?? ''),

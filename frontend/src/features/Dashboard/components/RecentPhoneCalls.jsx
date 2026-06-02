@@ -1,16 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { useTranslation } from 'react-i18next';
 import { api as axios } from '@utils/api';
 import EnhancedLeadDetailsModal from '@shared/components/EnhancedLeadDetailsModal';
+import { useAppState } from '@shared/context/AppStateProvider';
+import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay';
+import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone';
 
 const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageFilter, managerId }) => {
   const { t, i18n } = useTranslation();
   const { theme, resolvedTheme } = useTheme();
+  const { crmSettings } = useAppState();
   const isLight = resolvedTheme === 'light';
-  const isDark = resolvedTheme === 'dark';
   const [selectedLead, setSelectedLead] = useState(null);
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
+  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode]);
+  const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings]);
   const SCROLLBAR_CSS = `
     .scrollbar-thin-blue { scrollbar-width: thin; scrollbar-color: #2563eb transparent; }
     .scrollbar-thin-blue::-webkit-scrollbar { width: 8px; }
@@ -88,6 +93,18 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
   const displayCalls = withDates.filter(c => (
     matchesStage(c) && (!employee || c.employeeName === employee) && inDateRange(c.createdAt)
   ))
+
+  const getCallDefaultCountryCode = (call) => String(call?.phoneCountry || '').trim() || defaultDialCode
+  const displayPhone = (call) => formatPhoneForDisplay(call?.phoneNumber || '', {
+    showFull: !maskMobileNumber,
+    defaultCountryCode: getCallDefaultCountryCode(call),
+  })
+  const getPhoneHref = (call) => {
+    const digits = getPhoneDigits(call?.phoneNumber || '', {
+      defaultCountryCode: getCallDefaultCountryCode(call),
+    })
+    return digits ? `tel:+${digits}` : ''
+  }
 
   const getCallTypeIcon = (callType) => {
     switch (callType) {
@@ -185,9 +202,19 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
                 <span className={`text-xs font-semibold ${isLight ? 'text-gray-700' : 'dark:text-gray-200'}`}>
                   {t('Phone')}:
                 </span>
-                <span className={`text-sm ${isLight ? 'text-gray-900' : 'dark:text-white'}`}>
-                  {call.phoneNumber}
-                </span>
+                {getPhoneHref(call) ? (
+                  <a
+                    href={getPhoneHref(call)}
+                    dir="ltr"
+                    className={`text-sm underline underline-offset-2 ${isLight ? 'text-blue-700 hover:text-blue-900' : 'text-blue-300 hover:text-blue-200'}`}
+                  >
+                    {displayPhone(call)}
+                  </a>
+                ) : (
+                  <span className={`text-sm ${isLight ? 'text-gray-900' : 'dark:text-white'}`} dir="ltr">
+                    {displayPhone(call)}
+                  </span>
+                )}
               </div>
               
               {call.duration !== '00:00' && (
@@ -212,7 +239,14 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
               <button 
                 className="px-3 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors"
                 onClick={() => {
-                  setSelectedLead({ id: call.leadId, fullName: call.leadName, mobile: call.phoneNumber });
+                  setSelectedLead({
+                    id: call.leadId,
+                    fullName: call.leadName,
+                    mobile: call.phoneNumber,
+                    phone: call.phoneNumber,
+                    phone_country: call.phoneCountry,
+                    phoneCountry: call.phoneCountry,
+                  });
                   setIsLeadModalOpen(true);
                 }}
               >
