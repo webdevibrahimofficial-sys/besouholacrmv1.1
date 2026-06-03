@@ -29,6 +29,7 @@ migration*.txt
 /storage/framework/cache/*
 /storage/framework/sessions/*
 /storage/framework/views/*
+/storage/app/firebase/
 /vendor
 Homestead.json
 Homestead.yaml
@@ -37,4 +38,3 @@ backend.zip
 columns.json
 developers.json
 .scribe
-

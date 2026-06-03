@@ -11,8 +11,11 @@ use App\Services\Google\MockGoogleAdsApiClient;
 use App\Contracts\GoogleAdsServiceInterface;
 use App\Services\Google\RealGoogleAdsService;
 use App\Services\Google\MockGoogleAdsService;
+use App\Listeners\SendFcmNotificationForDatabaseChannel;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -80,6 +83,8 @@ class AppServiceProvider extends ServiceProvider
             \Illuminate\Support\Facades\URL::forceScheme('https');
             $this->app['request']->server->set('HTTPS', 'on');
         }
+
+        Event::listen(NotificationSent::class, SendFcmNotificationForDatabaseChannel::class);
 
         RateLimiter::for('api', function (Request $request) {
             $userId = $request->user()?->id;

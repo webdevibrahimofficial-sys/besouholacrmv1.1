@@ -161,4 +161,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(NotificationSetting::class);
     }
+
+    public function deviceTokens(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(DeviceToken::class);
+    }
 }

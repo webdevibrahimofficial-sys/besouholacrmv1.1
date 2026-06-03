@@ -34,6 +34,7 @@ use App\Http\Controllers\TenantConfigController;
 use App\Http\Controllers\CrmSettingsController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\ShareLinkController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ContractCollections\CcCustomersController;
@@ -189,6 +190,9 @@ Route::middleware([ResolveTenant::class])
     // Notifications
     Route::post('/push/subscribe', [NotificationController::class , 'subscribe']);
     Route::post('/trigger-notification', [NotificationController::class , 'trigger']);
+    Route::post('/device-tokens', [DeviceTokenController::class, 'store']);
+    Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy']);
+    Route::post('/device-tokens/test-notification', [DeviceTokenController::class, 'testNotification']);
 
     Route::post('/oauth/google/exchange', [OauthController::class , 'exchange']);
     Route::post('/oauth/google/revoke', [OauthController::class , 'revoke']);
