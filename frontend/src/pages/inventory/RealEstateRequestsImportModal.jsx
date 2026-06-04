@@ -16,11 +16,6 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
   const [importError, setImportError] = useState(null)
   const [importSummary, setImportSummary] = useState(null)
 
-  // keep for possible future style tweaks; avoids unused var lint warnings in stricter configs
-  void isDark
-
-  if (!isOpen) return null
-
   const labels = useMemo(() => {
     return {
       title: isRTL ? 'استيراد طلبات الريال إستيت' : 'Import Real Estate Requests',
@@ -40,6 +35,8 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
       templateBtn: isRTL ? 'تحميل' : 'Download',
     }
   }, [isRTL])
+
+  if (!isOpen) return null
 
   const handleFileUpload = (file) => {
     if (!file) return
@@ -113,12 +110,18 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
 
   return (
     <div className={`fixed inset-0 z-[2000] ${isRTL ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className={`absolute inset-0 ${isDark ? 'bg-black/75 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-sm'}`} onClick={onClose} />
       <div
-        className="relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"
+        className={`relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] overflow-hidden transition-colors duration-200 ${
+          isDark
+            ? 'bg-[#0f172a] border-[#1d4ed8] shadow-[0_25px_80px_rgba(0,0,0,0.65)] text-white'
+            : 'bg-white border-gray-200 text-gray-900'
+        }`}
       >
         {/* Header */}
-        <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
+        <div className={`flex-shrink-0 flex items-center justify-between px-6 py-4 border-b transition-colors duration-200 ${
+          isDark ? 'border-[#1e3a8a] bg-[#0f172a]' : 'border-gray-200 bg-white'
+        }`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
               <FaDownload className="w-4 h-4" />
@@ -127,7 +130,7 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
           </div>
           <button
             onClick={onClose}
-            className="btn btn-sm btn-circle btn-ghost text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+            className={`btn btn-sm btn-circle btn-ghost ${isDark ? 'text-white hover:bg-red-900/30' : 'text-red-500 hover:bg-red-50'}`}
             aria-label="Close"
             type="button"
           >
@@ -136,9 +139,11 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
         </div>
 
         {/* Body */}
-        <div className="px-6 py-6 overflow-y-auto custom-scrollbar">
+        <div className={`px-6 py-6 overflow-y-auto custom-scrollbar ${isDark ? 'bg-[#0f172a]' : 'bg-white'}`}>
           {/* Template Download Section */}
-          <div className="mb-6 p-4 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-900/40 transition-colors duration-200">
+          <div className={`mb-6 p-5 rounded-2xl border transition-colors duration-200 ${
+            isDark ? 'bg-[#14213d] border-[#60a5fa]/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]' : 'bg-white border-blue-200'
+          }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <FaFileExcel className="w-5 h-5 text-green-600" />
@@ -161,7 +166,9 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
 
           {/* Upload Section */}
           <div
-            className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 flex flex-col items-center justify-center text-center transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-white/5"
+            className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-colors duration-200 ${
+              isDark ? 'border-[#60a5fa] bg-[#14213d] hover:bg-[#1b2b4d]' : 'border-blue-300 bg-white hover:bg-blue-50/40'
+            }`}
             onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
             onDrop={(e) => {
               e.preventDefault()
@@ -205,13 +212,19 @@ export default function RealEstateRequestsImportModal({ isOpen, onClose, onImpor
           </div>
 
           {/* Actions */}
-          <div className="mt-5 flex flex-col sm:flex-row gap-3 sm:items-center">
-            <button
-              onClick={handleImport}
-              disabled={!excelFile || importing}
-              className={`btn btn-sm ${importing ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white border-none flex items-center gap-2`}
-              type="button"
-            >
+        <div className="mt-5 flex flex-col sm:flex-row gap-3 sm:items-center">
+          <button
+            onClick={handleImport}
+            disabled={!excelFile || importing}
+            className={`btn btn-sm text-white border-none flex items-center gap-2 ${
+              !excelFile || importing
+                ? isDark
+                  ? 'bg-blue-900/60 text-blue-100/70 cursor-not-allowed'
+                  : 'bg-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+            type="button"
+          >
               <FaDownload className="w-4 h-4" />
               {importing ? labels.importing : labels.import}
             </button>

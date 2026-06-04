@@ -584,7 +584,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       ...action,
       id: action.id,
       details: details,
-      type: action.action_type || action.type || 'call',
+      type: action.action_type || action.type || details.actionType || details.action_type || details.channel || details.selectedQuickOption || 'call',
       title: action.title || details.title || getTypeLabel(action.action_type || action.type),
       description: action.description || details.description || '',
       date: details.date || action.date || (action.created_at ? action.created_at.split('T')[0] : ''),
@@ -1380,11 +1380,38 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     }
   };
 
+  const resolveActionType = (action) => {
+    const details = action?.details || {};
+    return String(
+      action?.type ||
+      action?.action_type ||
+      details?.actionType ||
+      details?.action_type ||
+      details?.channel ||
+      details?.selectedQuickOption ||
+      action?.next_action_type ||
+      details?.next_action_type ||
+      details?.nextAction ||
+      details?.type ||
+      ''
+    ).toLowerCase().trim();
+  };
+
   const getTypeColor = (type) => {
     switch (String(type).toLowerCase()) {
       case 'call': return 'text-blue-400 border-blue-400';
       case 'email': return 'text-yellow-400 border-yellow-400';
       case 'meeting': return 'text-purple-400 border-purple-400';
+      case 'whatsapp': return 'text-green-400 border-green-400';
+      case 'sms': return 'text-amber-400 border-amber-400';
+      case 'comment': return 'text-indigo-300 border-indigo-400';
+      case 'google_meet': return 'text-cyan-400 border-cyan-400';
+      case 'follow_up': return 'text-sky-400 border-sky-400';
+      case 'proposal': return 'text-fuchsia-400 border-fuchsia-400';
+      case 'reservation': return 'text-indigo-400 border-indigo-400';
+      case 'closing_deals': return 'text-emerald-400 border-emerald-400';
+      case 'rent': return 'text-teal-400 border-teal-400';
+      case 'cancel': return 'text-rose-400 border-rose-400';
       case 'task': return 'text-orange-400 border-orange-400';
       case 'note': return 'text-slate-300 border-slate-400';
       default: return 'text-gray-400 border-gray-400';
@@ -1393,12 +1420,22 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
   const getTypeLabel = (type) => {
     switch (String(type).toLowerCase()) {
-      case 'call': return isArabic ? 'مكالمة' : 'Call';
-      case 'email': return isArabic ? 'بريد' : 'Email';
-      case 'meeting': return isArabic ? 'اجتماع' : 'Meeting';
-      case 'task': return isArabic ? 'مهمة' : 'Task';
-      case 'note': return isArabic ? 'ملاحظة' : 'Note';
-      default: return isArabic ? 'غير محدد' : 'Unknown';
+      case 'call': return isArabic ? '??????' : 'Call';
+      case 'email': return isArabic ? '????' : 'Email';
+      case 'meeting': return isArabic ? '??????' : 'Meeting';
+      case 'whatsapp': return isArabic ? '??????' : 'WhatsApp';
+      case 'sms': return isArabic ? '????? ????' : 'SMS';
+      case 'comment': return isArabic ? '?????' : 'Comment';
+      case 'google_meet': return isArabic ? '???? ???' : 'Google Meet';
+      case 'follow_up': return isArabic ? '??????' : 'Follow Up';
+      case 'proposal': return isArabic ? '??? ???' : 'Proposal';
+      case 'reservation': return isArabic ? '???' : 'Reservation';
+      case 'closing_deals': return isArabic ? '????? ????' : 'Close Deal';
+      case 'rent': return isArabic ? '?????' : 'Rent';
+      case 'cancel': return isArabic ? '?????' : 'Cancel';
+      case 'task': return isArabic ? '????' : 'Task';
+      case 'note': return isArabic ? '??????' : 'Note';
+      default: return isArabic ? '??? ????' : 'Unknown';
     }
   };
 
@@ -2399,7 +2436,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                               </div>
                               <div className="flex items-center gap-1">
                                 <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'نوع الإجراء:' : 'Action Type:'}</span>
-                                <span className={`px-2 py-1 rounded border text-xs ${getTypeColor(action.type)}`}>{getTypeLabel(action.type)}</span>
+                                <span className={`px-2 py-1 rounded border text-xs ${getTypeColor(resolveActionType(action))}`}>{getTypeLabel(resolveActionType(action))}</span>
                               </div>
                               {/* Meeting Status Display */}
                               {action.type === 'meeting' && action.details?.meeting_status && (

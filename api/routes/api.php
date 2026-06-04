@@ -357,6 +357,10 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('/users/{user}/avatar', [\App\Http\Controllers\UserController::class, 'avatar']); // New Avatar Endpoint
     Route::apiResource('developers', \App\Http\Controllers\DeveloperController::class);
     Route::apiResource('brokers', \App\Http\Controllers\BrokerController::class);
+    Route::post('brokers/{broker}/attachments', [\App\Http\Controllers\BrokerController::class, 'attachmentsStore']);
+    Route::get('brokers/{broker}/visits', [\App\Http\Controllers\BrokerController::class, 'visits']);
+    Route::post('brokers/{broker}/check-in', [\App\Http\Controllers\BrokerController::class, 'checkIn']);
+    Route::post('brokers/{broker}/check-out', [\App\Http\Controllers\BrokerController::class, 'checkOut']);
     Route::get('roles', [RoleController::class , 'index']);
     Route::post('stages/reorder', [\App\Http\Controllers\StageController::class, 'reorder']);
     Route::apiResource('stages', \App\Http\Controllers\StageController::class);

@@ -1523,17 +1523,30 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
         finalModules = [...new Set(mappedModules)];
       }
 
+      const isLifetimeValue = !!data.is_lifetime;
+
       const payload = {
-        ...data,
-        modules: data.plan === 'custom' ? finalModules : [],
+        name: data.company_name,
+        slug: data.slug,
         subscription_plan: data.plan || tenant.subscription_plan,
+        company_type: data.company_type,
+        status: data.status,
+        country: data.country,
+        city: data.city,
+        state: data.state,
+        address_line_1: data.address_line_1,
+        admin_name: data.admin_name,
+        admin_email: data.admin_email,
+        users_limit: data.users_limit,
+        start_date: data.start_date || undefined,
+        end_date: isLifetimeValue ? undefined : (data.end_date || undefined),
+        is_lifetime: isLifetimeValue,
+        modules: data.plan === 'custom' ? finalModules : [],
       };
-      
-      delete payload.plan;
-      
-      // Remove empty password fields if not changing
-      if (!payload.password) delete payload.password;
-      if (!payload.password_confirmation) delete payload.password_confirmation;
+
+      if (data.password) {
+        payload.admin_password = data.password;
+      }
 
       await onSave(payload);
     } finally {

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../shared/context/ThemeProvider'
@@ -14,17 +15,22 @@ import DateRangePicker from '../shared/components/DateRangePicker'
 import { PieChart } from '../shared/components/PieChart'
 import { motion, AnimatePresence } from 'framer-motion'
 
-const ActionStageTooltip = ({ data, isRTL }) => {
+const ActionStageTooltip = ({ data, isRTL, position }) => {
   if (!data || data.length === 0) return null;
   
   const total = data.reduce((sum, item) => sum + item.count, 0);
-  
-  return (
+
+  const tooltipNode = (
     <motion.div 
       initial={{ opacity: 0, y: 10, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-[100] min-w-[200px] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-4 backdrop-blur-xl"
+      className="fixed z-[10000] min-w-[200px] max-w-[360px] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-4 backdrop-blur-xl pointer-events-none"
+      style={{
+        left: position?.x ?? 0,
+        top: position?.y ?? 0,
+        transform: 'translate(-50%, calc(-100% - 12px))',
+      }}
     >
       <div className="relative">
         <p className="text-xs font-bold mb-3 border-b border-slate-100 dark:border-slate-700 pb-2 text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -61,10 +67,12 @@ const ActionStageTooltip = ({ data, isRTL }) => {
           })}
         </div>
         {/* Tooltip Arrow */}
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-4 h-4 bg-white dark:bg-slate-800 border-r border-b border-slate-100 dark:border-slate-700 rotate-45"></div>
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white dark:bg-slate-800 border-r border-b border-slate-100 dark:border-slate-700 rotate-45"></div>
       </div>
     </motion.div>
   );
+
+  return createPortal(tooltipNode, document.body)
 };
 
 export default function SalesActivitiesReport() {
@@ -76,15 +84,22 @@ export default function SalesActivitiesReport() {
   const isLight = theme === 'light'
   const isRTL = i18n.language === 'ar'
 
-  const actionDefs = [
-      { name: isRTL ? 'متابعة' : 'Follow Up', color: '#0ea5e9' },
-      { name: isRTL ? 'اجتماع' : 'Meeting', color: '#8b5cf6' },
-      { name: isRTL ? 'عرض سعر' : 'Proposal', color: '#06b6d4' },
-      { name: isRTL ? 'حجز' : 'Reservation', color: '#db2777' },
-      { name: isRTL ? 'إغلاق صفقات' : 'Closing Deals', color: '#22c55e' },
-      { name: isRTL ? 'إيجار' : 'Rent', color: '#f97316' },
-      { name: isRTL ? 'إلغاء' : 'Cancel', color: '#ef4444' }
-  ];
+  const normalizeStageKey = (value) => String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_')
+
+  const defaultStageColor = (value) => {
+    const key = normalizeStageKey(value)
+    if (key.includes('follow_up')) return '#0ea5e9'
+    if (key.includes('meeting')) return '#8b5cf6'
+    if (key.includes('proposal')) return '#06b6d4'
+    if (key.includes('reservation')) return '#db2777'
+    if (key.includes('closing_deals') || key.includes('close_deal')) return '#22c55e'
+    if (key.includes('rent')) return '#f97316'
+    if (key.includes('cancel')) return '#ef4444'
+    return '#6366f1'
+  }
 
   // State for filters
   const [salesPersonFilter, setSalesPersonFilter] = useState([])
@@ -112,12 +127,38 @@ export default function SalesActivitiesReport() {
   const [company, setCompany] = useState(null)
   const [loadingFilters, setLoadingFilters] = useState(false)
   const [actions, setActions] = useState([])
-  const [kpiData, setKpiData] = useState({
-    totalCalls: 0,
-    totalAction: 0,
-    totalRevenue: 0,
-    achievementFromTarget: 0
-  })
+
+  const storedStages = useMemo(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('crmStages') || '[]')
+      return Array.isArray(raw) ? raw : []
+    } catch {
+      return []
+    }
+  }, [])
+
+  const stageColorMap = useMemo(() => {
+    const map = new Map()
+
+    const addStageColor = (stageLike) => {
+      if (!stageLike) return
+      const color = stageLike.color || defaultStageColor(stageLike.name || stageLike.type || stageLike.nameAr || stageLike.name_ar)
+      const keys = [
+        stageLike.id,
+        stageLike.type,
+        stageLike.name,
+        stageLike.nameAr,
+        stageLike.name_ar,
+      ]
+      keys.filter(Boolean).forEach((key) => {
+        map.set(normalizeStageKey(key), color)
+      })
+    }
+
+    storedStages.forEach(addStageColor)
+    stagesList.forEach(addStageColor)
+    return map
+  }, [storedStages, stagesList])
 
   const isSuperManagerRole = (role) => {
     const r = String(role || '').toLowerCase()
@@ -155,6 +196,80 @@ export default function SalesActivitiesReport() {
       action.type ||
       ''
     )
+  }
+
+  const getLeadOwnerName = (action) => {
+    const lead = action?.lead || {}
+    return (
+      (lead.assigned_agent && lead.assigned_agent.name) ||
+      (lead.assignedAgent && lead.assignedAgent.name) ||
+      lead.sales_person ||
+      lead.salesperson ||
+      ''
+    )
+  }
+
+  const getRevenueAmount = (action) => {
+    const details = action?.details || {}
+    const valueRaw =
+      details.closingRevenue ??
+      details.revenue ??
+      action?.revenue ??
+      0
+
+    const value = typeof valueRaw === 'number'
+      ? valueRaw
+      : parseFloat(valueRaw || '0') || 0
+
+    return value > 0 ? value : 0
+  }
+
+  const getActionChannel = (action) => {
+    let details = action?.details || {}
+    if (typeof details === 'string') {
+      try {
+        details = JSON.parse(details)
+      } catch {
+        details = {}
+      }
+    }
+
+    return String(
+      details.channel ||
+      details.actionType ||
+      details.action_type ||
+      details.selectedQuickOption ||
+      action?.channel ||
+      action?.action_type ||
+      action?.type ||
+      ''
+    ).toLowerCase().trim()
+  }
+
+  const getActionSchedule = (action) => {
+    const details = action?.details || {}
+    const date = String(details.date || '').trim()
+    const time = String(details.time || '').trim() || '00:00'
+    if (!date) return null
+
+    const normalizedTime = String(time).slice(0, 5).padEnd(5, '0')
+    const parsed = new Date(`${date}T${normalizedTime}:00`)
+    if (Number.isNaN(parsed.getTime())) return null
+    return parsed
+  }
+
+  const isEligibleDelayedAction = (action) => {
+    const details = action?.details || {}
+    const status = String(details.status || '').toLowerCase()
+    const actionType = String(action?.action_type || action?.type || '').toLowerCase()
+    const nextActionType = String(action?.next_action_type || '').toLowerCase()
+    const eligibleStatuses = ['scheduled', 'pending', 'in_progress', 'in-progress', 'in progress']
+
+    if (!eligibleStatuses.includes(status)) return false
+    if (['closing_deals', 'cancel'].includes(actionType)) return false
+    if (['closing_deals', 'cancel'].includes(nextActionType)) return false
+
+    return Boolean(getActionSchedule(action))
   }
 
   useEffect(() => {
@@ -203,47 +318,6 @@ export default function SalesActivitiesReport() {
 
     fetchActions()
   }, [])
-
-  useEffect(() => {
-    let totalCalls = 0
-    let totalAction = 0
-    let totalRevenue = 0
-
-    actions.forEach(action => {
-      const details = action.details || {}
-      totalAction += 1
-
-      const channel = (details.channel || action.channel || '').toLowerCase()
-      const actionType = (action.action_type || action.type || '').toLowerCase()
-      if (channel.includes('call') || actionType.includes('call')) {
-        totalCalls += 1
-      }
-
-      const lead = action.lead || {}
-      const valueRaw =
-        details.closingRevenue ??
-        details.revenue ??
-        action.revenue ??
-        (lead && lead.estimated_value) ??
-        0
-      const value =
-        typeof valueRaw === 'number'
-          ? valueRaw
-          : parseFloat(valueRaw || '0') || 0
-      totalRevenue += value
-    })
-
-    const target = 0
-    const achievementFromTarget =
-      target > 0 ? Math.round((totalRevenue / target) * 100) : 0
-
-    setKpiData({
-      totalCalls,
-      totalAction,
-      totalRevenue,
-      achievementFromTarget
-    })
-  }, [actions])
 
   useEffect(() => {
     const fetchProjectsOrItems = async () => {
@@ -327,9 +401,9 @@ export default function SalesActivitiesReport() {
     return stagesList.map(s => ({
       value: s.name,
       label: i18n.language === 'ar' ? (s.nameAr || s.name) : s.name,
-      color: actionDefs.find(a => a.name === s.name)?.color || '#6366f1',
+      color: stageColorMap.get(normalizeStageKey(s.name || s.type || s.id)) || s.color || defaultStageColor(s.name),
     }))
-  }, [stagesList, i18n.language])
+  }, [stagesList, i18n.language, stageColorMap])
 
   const sourceOptions = useMemo(() => {
     if (!sourcesList.length) return []
@@ -424,8 +498,7 @@ export default function SalesActivitiesReport() {
     })
   }, [actions, usersList, salesPersonFilter, managerFilter, stageFilter, sourceFilter, projectFilter])
 
-  const [revenueMap, setRevenueMap] = useState({})
-  const [revenueByUserId, setRevenueByUserId] = useState({})
+  const [totalRevenueByUserId, setTotalRevenueByUserId] = useState({})
   const [targetMap, setTargetMap] = useState({})
 
   useEffect(() => {
@@ -442,33 +515,25 @@ export default function SalesActivitiesReport() {
   }, [usersList])
 
   useEffect(() => {
-    const fetchRevenueSummary = async () => {
+    const fetchTotalRevenueSummary = async () => {
       try {
-        const params = {}
-        if (lastActionDateFrom) params.date_from = lastActionDateFrom
-        if (lastActionDateTo) params.date_to = lastActionDateTo
-        const res = await api.get('/api/revenues/summary', { params })
+        const res = await api.get('/api/revenues/summary')
         const arr = Array.isArray(res.data?.data) ? res.data.data : []
         const byId = {}
         arr.forEach(r => { byId[r.user_id] = Number(r.total || 0) })
-        setRevenueByUserId(byId)
-        const nameMap = {}
-        usersList.forEach(u => {
-          const total = byId[u.id] ?? 0
-          const name = u.name || u.full_name || u.fullName || ''
-          if (name) nameMap[name] = total
-        })
-        setRevenueMap(nameMap)
+        setTotalRevenueByUserId(byId)
       } catch (e) {
-        setRevenueMap({})
+        setTotalRevenueByUserId({})
       }
     }
-    fetchRevenueSummary()
-  }, [usersList, lastActionDateFrom, lastActionDateTo])
+    fetchTotalRevenueSummary()
+  }, [])
 
   const filteredData = useMemo(() => {
     const rowsMap = new Map()
     const leadsBySales = new Map()
+    const revenueBySalesCurrent = new Map()
+    const delayedLeadsBySales = new Map()
 
     // 1. Initialize rows for all eligible users (to show even those with 0 actions but potential revenue)
     let eligibleUsers = usersList
@@ -497,13 +562,9 @@ export default function SalesActivitiesReport() {
     eligibleUsers.forEach(u => {
       const name = u.name || u.full_name || u.fullName
       if (name && !rowsMap.has(name)) {
-        // Calculate inherited/total target and team revenue
+        // Calculate inherited/total target
         const inheritedTarget = Number(u.inherited_monthly_target || 0)
         const totalTarget = Number(u.total_monthly_target || 0)
-        
-        // Calculate team revenue (sum of descendants' revenue)
-        const descendants = getDescendants(u.id, usersList)
-        const teamRevenue = descendants.reduce((sum, d) => sum + (revenueByUserId[d.id] || 0), 0)
 
         rowsMap.set(name, {
           id: name,
@@ -518,7 +579,6 @@ export default function SalesActivitiesReport() {
           action_by_stage: [], // New breakdown field
           inheritedTarget,
           totalTarget,
-          teamRevenue,
           totalRevenue: 0,
           totalAchievement: 0
         })
@@ -547,8 +607,12 @@ export default function SalesActivitiesReport() {
         if (stageName) {
             let stageEntry = row.action_by_stage.find(s => s.stage === stageName)
             if (!stageEntry) {
-                const actionDef = actionDefs.find(a => a.name === stageName)
-                stageEntry = { stage: stageName, count: 0, color: actionDef?.color || '#ccc' }
+                const stageColor =
+                  stageColorMap.get(normalizeStageKey(stageName)) ||
+                  stageColorMap.get(normalizeStageKey(action.next_action_type)) ||
+                  stageColorMap.get(normalizeStageKey(action.action_type)) ||
+                  defaultStageColor(stageName)
+                stageEntry = { stage: stageName, count: 0, color: stageColor }
                 row.action_by_stage.push(stageEntry)
             }
             stageEntry.count += 1
@@ -557,11 +621,7 @@ export default function SalesActivitiesReport() {
 
       // Attribute Lead to Owner
       const ownerName = 
-        (lead.assigned_agent && lead.assigned_agent.name) || 
-        (lead.assignedAgent && lead.assignedAgent.name) || 
-        lead.sales_person || 
-        lead.salesperson || 
-        ''
+        getLeadOwnerName(action)
         
       const leadId = action.lead_id || lead.id
       if (ownerName && leadId) {
@@ -569,6 +629,42 @@ export default function SalesActivitiesReport() {
           leadsBySales.set(ownerName, new Set())
         }
         leadsBySales.get(ownerName).add(leadId)
+      }
+
+      const revenueAmount = getRevenueAmount(action)
+      if (ownerName && revenueAmount > 0) {
+        revenueBySalesCurrent.set(
+          ownerName,
+          (revenueBySalesCurrent.get(ownerName) || 0) + revenueAmount
+        )
+      }
+    })
+
+    const latestEligibleActionByLead = new Map()
+    const now = Date.now()
+
+    filteredActions.forEach(action => {
+      if (!isEligibleDelayedAction(action)) return
+
+      const lead = action.lead || {}
+      const leadId = action.lead_id || lead.id
+      const ownerName = getLeadOwnerName(action)
+      const scheduledAt = getActionSchedule(action)
+
+      if (!leadId || !ownerName || !scheduledAt) return
+
+      const previous = latestEligibleActionByLead.get(leadId)
+      if (!previous || scheduledAt.getTime() > previous.scheduledAt.getTime()) {
+        latestEligibleActionByLead.set(leadId, { ownerName, scheduledAt })
+      }
+    })
+
+    latestEligibleActionByLead.forEach(({ ownerName, scheduledAt }) => {
+      if (now >= scheduledAt.getTime() + 60 * 1000) {
+        delayedLeadsBySales.set(
+          ownerName,
+          (delayedLeadsBySales.get(ownerName) || 0) + 1
+        )
       }
     })
 
@@ -578,20 +674,25 @@ export default function SalesActivitiesReport() {
       // Update Total Leads (Leads Owned)
       const set = leadsBySales.get(salespersonName)
       row.totalLeads = set ? set.size : 0
+      row.delayed = delayedLeadsBySales.get(salespersonName) || 0
 
-      // Update Revenue (from Revenue Table -> Owner)
-      if (revenueMap[salespersonName] !== undefined) {
-        row.revenue = revenueMap[salespersonName]
-      }
+      // Revenue = current filtered period/actions only
+      row.revenue = revenueBySalesCurrent.get(salespersonName) || 0
 
       // Update Target
       if (targetMap[salespersonName] !== undefined) {
         row.target = targetMap[salespersonName]
       }
 
-      // Update Total Revenue and Achievement
-      row.totalRevenue = row.revenue + row.teamRevenue
-      row.totalAchievement = row.totalTarget > 0 ? Math.round((row.totalRevenue / row.totalTarget) * 100) : 0
+      // Total Revenue = cumulative historical revenue
+      const matchedUser = usersList.find(u => {
+        const name = u.name || u.full_name || u.fullName || ''
+        return name === salespersonName
+      })
+      row.totalRevenue = matchedUser ? (totalRevenueByUserId[matchedUser.id] || 0) : 0
+
+      // Total Achievement = Revenue / Target for current filtered period
+      row.totalAchievement = row.target > 0 ? Math.round((row.revenue / row.target) * 100) : 0
       
       // Update actionByStage string for exports
       row.actionByStage = row.action_by_stage
@@ -601,7 +702,7 @@ export default function SalesActivitiesReport() {
     })
 
     return Array.from(rowsMap.values())
-  }, [filteredActions, usersList, managerFilter, salesPersonFilter, revenueMap, targetMap, revenueByUserId])
+  }, [filteredActions, usersList, managerFilter, salesPersonFilter, targetMap, totalRevenueByUserId])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -620,24 +721,27 @@ export default function SalesActivitiesReport() {
       return acc
     }, {})
 
-    return Object.keys(stageCounts).map(stage => {
-      const actionDef = actionDefs.find(s => s.name === stage)
-      return {
-        name: stage,
-        value: stageCounts[stage],
-        color: actionDef ? actionDef.color : '#cccccc'
-      }
-    })
-  }, [filteredActions])
+    return Object.keys(stageCounts).map(stage => ({
+      name: stage,
+      value: stageCounts[stage],
+      color: stageColorMap.get(normalizeStageKey(stage)) || defaultStageColor(stage)
+    }))
+  }, [filteredActions, stageColorMap])
 
   const channelCounts = useMemo(() => {
     const counts = { whatsapp: 0, email: 0, meet: 0 }
     filteredActions.forEach(action => {
-      const details = action.details || {}
-      const channel = String(details.channel || action.channel || '').toLowerCase()
-      if (channel.includes('whatsapp')) counts.whatsapp += 1
-      else if (channel.includes('email')) counts.email += 1
-      else if (channel.includes('meet')) counts.meet += 1
+      const channel = getActionChannel(action)
+      if (channel === 'whatsapp' || channel.includes('whatsapp')) counts.whatsapp += 1
+      else if (channel === 'email' || channel.includes('email')) counts.email += 1
+      else if (
+        channel === 'google_meet' ||
+        channel === 'google meet' ||
+        channel.includes('google_meet') ||
+        channel.includes('google meet')
+      ) {
+        counts.meet += 1
+      }
     })
     return counts
   }, [filteredActions])
@@ -654,8 +758,37 @@ export default function SalesActivitiesReport() {
     { label: isRTL ? 'غوغل ميت' : 'Google Meet', value: channelCounts.meet, color: '#10b981' },
   ]), [channelCounts, isRTL])
 
+  const kpiData = useMemo(() => {
+    let totalCalls = 0
+    let totalAction = 0
+
+    filteredActions.forEach(action => {
+      totalAction += 1
+
+      const channel = getActionChannel(action)
+      const actionType = String(action.action_type || action.type || '').toLowerCase()
+      if (channel.includes('call') || actionType.includes('call')) {
+        totalCalls += 1
+      }
+    })
+
+    const totalRevenue = filteredData.reduce((sum, row) => sum + Number(row.revenue || 0), 0)
+    const totalTarget = filteredData.reduce((sum, row) => sum + Number(row.target || 0), 0)
+    const achievementFromTarget = totalTarget > 0
+      ? Math.round((totalRevenue / totalTarget) * 100)
+      : 0
+
+    return {
+      totalCalls,
+      totalAction,
+      totalRevenue,
+      achievementFromTarget,
+    }
+  }, [filteredActions, filteredData])
+
   const [expandedRows, setExpandedRows] = useState({});
   const [hoveredActionRow, setHoveredActionRow] = useState(null);
+  const [actionTooltipPosition, setActionTooltipPosition] = useState({ x: 0, y: 0 });
 
   const toggleRow = (id) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
@@ -1135,10 +1268,19 @@ export default function SalesActivitiesReport() {
                     <td className={`hidden md:table-cell px-4 py-3 text-center ${isLight ? 'text-black' : 'text-white'} `}>{row.actions}</td>
                     <td className={`hidden md:table-cell px-4 py-3 text-center ${isLight ? 'text-black' : 'text-white'} `}>{row.calls}</td>
                     <td className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-start">
-                      <div className="relative inline-block">
+                      <div
+                        className="relative inline-block"
+                        onMouseEnter={(event) => {
+                          const rect = event.currentTarget.getBoundingClientRect()
+                          setActionTooltipPosition({
+                            x: rect.left + rect.width / 2,
+                            y: rect.top,
+                          })
+                          setHoveredActionRow(row.id)
+                        }}
+                        onMouseLeave={() => setHoveredActionRow(null)}
+                      >
                         <button 
-                          onMouseEnter={() => setHoveredActionRow(row.id)}
-                          onMouseLeave={() => setHoveredActionRow(null)}
                           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 dark:bg-slate-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-slate-100 dark:border-slate-700 transition-all duration-200 group"
                         >
                           <PieChartIcon size={14} className="text-blue-500 group-hover:scale-110 transition-transform" />
@@ -1149,7 +1291,7 @@ export default function SalesActivitiesReport() {
                         
                         <AnimatePresence>
                           {hoveredActionRow === row.id && (
-                            <ActionStageTooltip data={row.action_by_stage} isRTL={isRTL} />
+                            <ActionStageTooltip data={row.action_by_stage} isRTL={isRTL} position={actionTooltipPosition} />
                           )}
                         </AnimatePresence>
                       </div>

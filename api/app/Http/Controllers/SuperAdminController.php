@@ -182,6 +182,14 @@ class SuperAdminController extends Controller
         $ownerId = optional($owner)->id;
 
         $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'slug' => [
+                'nullable',
+                'string',
+                'max:64',
+                'regex:/^[a-z0-9\-]+$/',
+                Rule::unique('tenants', 'slug')->ignore($tenant->id),
+            ],
             'subscription_plan' => 'nullable|string|in:core,basic,professional,enterprise,custom',
             'company_type' => 'nullable|string|in:General,Real Estate',
             'status' => 'nullable|string|in:active,pending,expired,cancelled',

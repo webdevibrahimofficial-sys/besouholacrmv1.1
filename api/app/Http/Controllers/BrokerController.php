@@ -5,23 +5,94 @@ namespace App\Http\Controllers;
 use App\Models\Broker;
 use App\Models\Entity;
 use App\Models\FieldValue;
+use App\Models\Visit;
 use App\Traits\InventoryDeleteAuthorization;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class BrokerController extends Controller
 {
     use InventoryDeleteAuthorization;
 
-    private function isSalesPersonUser($user): bool
+    private function rawUtcToIso(?string $raw): ?string
+    {
+        if (!$raw) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($raw, 'UTC')->toISOString();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function normalizeToUtcDbString(string|Carbon|null $value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value)->copy()->utc()->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function formatVisit(Visit $visit): array
+    {
+        $durationMinutes = null;
+        try {
+            if ($visit->getRawOriginal('check_in_at') && $visit->getRawOriginal('check_out_at')) {
+                $durationMinutes = Carbon::parse($visit->getRawOriginal('check_in_at'), 'UTC')
+                    ->diffInMinutes(Carbon::parse($visit->getRawOriginal('check_out_at'), 'UTC'));
+            }
+        } catch (\Throwable $e) {
+            $durationMinutes = null;
+        }
+
+        return [
+            'id' => $visit->id,
+            'type' => $visit->type,
+            'leadId' => $visit->lead_id,
+            'brokerId' => $visit->broker_id,
+            'brokerName' => $visit->broker_name,
+            'taskId' => $visit->task_id,
+            'customerId' => $visit->customer_id,
+            'customerName' => $visit->customer_name,
+            'salesPerson' => $visit->sales_person_name,
+            'salesPersonId' => $visit->sales_person_id,
+            'checkInDate' => $this->rawUtcToIso($visit->getRawOriginal('check_in_at')),
+            'checkOutDate' => $this->rawUtcToIso($visit->getRawOriginal('check_out_at')),
+            'durationMinutes' => $durationMinutes,
+            'location' => [
+                'lat' => $visit->check_in_lat,
+                'lng' => $visit->check_in_lng,
+                'address' => $visit->check_in_address,
+            ],
+            'checkOutLocation' => [
+                'lat' => $visit->check_out_lat,
+                'lng' => $visit->check_out_lng,
+                'address' => $visit->check_out_address,
+            ],
+            'status' => $visit->status,
+        ];
+    }
+
+    private function isSalesPersonUser(?object $user): bool
     {
         $role = strtolower(trim((string) ($user->role ?? '')));
         if ($role === '') return false;
         return str_contains($role, 'sales person') || str_contains($role, 'salesperson') || str_contains($role, 'sales_person');
     }
 
-    private function normalizeAssignedSalesPersonIds($raw): array
+    private function normalizeAssignedSalesPersonIds(array|string|int|null $raw): array
     {
         if ($raw === null) return [];
         $vals = is_array($raw) ? $raw : [$raw];
@@ -161,7 +232,7 @@ class BrokerController extends Controller
         }
     }
 
-    public function show($id)
+    public function show(int $id)
     {
         return $this->queryForUser(request())->where('id', $id)->firstOrFail();
     }
@@ -238,7 +309,79 @@ class BrokerController extends Controller
         return response()->json($broker->load('customFieldValues.field'));
     }
 
-    public function destroy(Request $request, $id)
+    private function currentTenantId(): int|string|null
+    {
+        if (app()->bound('current_tenant_id')) {
+            return app('current_tenant_id');
+        }
+        if (Auth::check()) {
+            return Auth::user()?->tenant_id;
+        }
+        return null;
+    }
+
+    public function attachmentsStore(Request $request, int $id)
+    {
+        $broker = $this->queryForUser($request)->where('id', $id)->firstOrFail();
+
+        $request->validate([
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'file|max:10240',
+        ]);
+
+        $allFiles = $request->allFiles();
+        $files = $allFiles['attachments'] ?? [];
+        if (!is_array($files)) {
+            $files = $files ? [$files] : [];
+        }
+
+        $tenantId = $this->currentTenantId() ?: ($broker->tenant_id ?? 'na');
+        $baseDir = "tenants/{$tenantId}/brokers/{$broker->id}/attachments";
+
+        $meta = is_array($broker->meta_data) ? $broker->meta_data : [];
+        $attachments = $meta['attachments'] ?? [];
+        if (!is_array($attachments)) {
+            $attachments = [];
+        }
+
+        foreach ($files as $file) {
+            if (!$file instanceof UploadedFile) {
+                continue;
+            }
+            if (!$file) {
+                continue;
+            }
+            $attachmentId = (string) Str::uuid();
+            $originalName = $file->getClientOriginalName();
+            $ext = $file->getClientOriginalExtension();
+            $safeName = pathinfo($originalName, PATHINFO_FILENAME);
+            $safeName = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $safeName);
+            $finalName = $safeName . '_' . $attachmentId . ($ext ? '.' . $ext : '');
+
+            $path = $file->storeAs($baseDir, $finalName, 'public');
+
+            $attachments[] = [
+                'id' => $attachmentId,
+                'name' => $originalName,
+                'type' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+                'path' => $path,
+                'url' => asset('storage/' . ltrim($path, '/')),
+                'uploaded_at' => now()->toISOString(),
+                'uploaded_by' => $request->user()?->name ?? null,
+            ];
+        }
+
+        $meta['attachments'] = array_values($attachments);
+        $broker->meta_data = $meta;
+        $broker->save();
+
+        return response()->json([
+            'attachments' => array_values($meta['attachments'] ?? []),
+        ]);
+    }
+
+    public function destroy(Request $request, int $id)
     {
         if ($resp = $this->authorizeInventoryDelete($request, 'realestate')) {
             return $resp;
@@ -246,5 +389,98 @@ class BrokerController extends Controller
         $broker = $this->queryForUser($request)->where('id', $id)->firstOrFail();
         $broker->delete();
         return response()->json(['message' => 'Broker deleted']);
+    }
+
+    public function visits(Request $request, int $id)
+    {
+        $broker = $this->queryForUser($request)->where('id', $id)->firstOrFail();
+
+        $visits = Visit::query()
+            ->where('broker_id', $broker->id)
+            ->orderByDesc('check_in_at')
+            ->get();
+
+        return response()->json([
+            'data' => $visits->map(fn (Visit $visit) => $this->formatVisit($visit))->values(),
+        ]);
+    }
+
+    public function checkIn(Request $request, int $id)
+    {
+        $user = $request->user();
+        if (!$user) {
+            abort(401, 'Unauthorized');
+        }
+
+        $broker = $this->queryForUser($request)->where('id', $id)->firstOrFail();
+
+        $validator = Validator::make($request->all(), [
+            'check_in_date' => 'required|date',
+            'lat' => 'nullable|numeric',
+            'lng' => 'nullable|numeric',
+            'address' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $visit = Visit::create([
+            'tenant_id' => $user->tenant_id,
+            'broker_id' => $broker->id,
+            'broker_name' => $broker->name,
+            'type' => 'broker',
+            'sales_person_id' => $user->id,
+            'sales_person_name' => $user->name,
+            'check_in_at' => $this->normalizeToUtcDbString($request->input('check_in_date')),
+            'check_in_lat' => $request->input('lat'),
+            'check_in_lng' => $request->input('lng'),
+            'check_in_address' => $request->input('address'),
+            'status' => 'pending',
+            'created_by' => $user->id,
+        ]);
+
+        return response()->json(['data' => $this->formatVisit($visit)], 201);
+    }
+
+    public function checkOut(Request $request, int $id)
+    {
+        $user = $request->user();
+        if (!$user) {
+            abort(401, 'Unauthorized');
+        }
+
+        $broker = $this->queryForUser($request)->where('id', $id)->firstOrFail();
+
+        $validator = Validator::make($request->all(), [
+            'check_out_date' => 'required|date',
+            'lat' => 'nullable|numeric',
+            'lng' => 'nullable|numeric',
+            'address' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $visit = Visit::query()
+            ->where('broker_id', $broker->id)
+            ->where('status', 'pending')
+            ->orderByDesc('check_in_at')
+            ->first();
+
+        if (!$visit) {
+            return response()->json(['message' => 'No pending broker visit found'], 404);
+        }
+
+        $visit->check_out_at = $this->normalizeToUtcDbString($request->input('check_out_date'));
+        $visit->check_out_lat = $request->input('lat');
+        $visit->check_out_lng = $request->input('lng');
+        $visit->check_out_address = $request->input('address');
+        $visit->status = 'accepted';
+        $visit->updated_by = $user->id;
+        $visit->save();
+
+        return response()->json(['data' => $this->formatVisit($visit)]);
     }
 }

@@ -4,7 +4,7 @@ import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '@shared/context/AppStateProvider'
 import * as XLSX from 'xlsx'
 import { api, logExportEvent, logImportEvent } from '../utils/api'
-import { FaDownload,FaTimes,FaFileExcel,FaUser, FaPaperclip } from 'react-icons/fa'
+import { FaDownload,FaTimes,FaFileExcel } from 'react-icons/fa'
 
 const ImportLeadsModal = ({
   isOpen,
@@ -195,12 +195,18 @@ const ImportLeadsModal = ({
 
   return (
     <div className={`fixed inset-0 z-[2000] ${i18n.language === 'ar' ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className={`absolute inset-0 ${isDark ? 'bg-black/75 backdrop-blur-sm' : 'bg-black/50'}`} onClick={onClose} />
 <div 
-        className="relative card max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-200"
+        className={`relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] overflow-hidden transition-colors duration-200 ${
+          isDark
+            ? 'bg-[#0f172a] border-[#1d4ed8] shadow-[0_25px_80px_rgba(0,0,0,0.65)]'
+            : 'bg-white border-gray-200'
+        }`}
       
       >        {/* Header */}
-        <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-[#1e3a8a]">
+        <div className={`flex-shrink-0 flex items-center justify-between px-6 py-4 border-b ${
+          isDark ? 'border-[#1e3a8a] bg-[#0f172a]' : 'border-gray-200 bg-white'
+        }`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
               <FaDownload className="w-4 h-4" />
@@ -209,16 +215,18 @@ const ImportLeadsModal = ({
           </div>
           <button
             onClick={onClose}
-            className="btn btn-sm btn-circle btn-ghost text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+            className={`btn btn-sm btn-circle btn-ghost ${isDark ? 'text-white hover:bg-red-900/30' : 'text-red-500 hover:bg-red-50'}`}
           >
             <FaTimes size={20} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="px-6 py-6 overflow-y-auto custom-scrollbar">
+        <div className={`px-6 py-6 overflow-y-auto custom-scrollbar ${isDark ? 'bg-[#0f172a]' : 'bg-white'}`}>
           {/* Template Download Section */}
-          <div className="mb-6 p-4   rounded-xl border border-blue-200 dark:border-[#1e3a8a]">
+          <div className={`mb-6 p-4 rounded-xl border ${
+            isDark ? 'bg-[#14213d] border-[#60a5fa]/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]' : 'bg-white border-blue-200'
+          }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <FaFileExcel className="w-5 h-5 text-green-600" />
@@ -248,7 +256,11 @@ const ImportLeadsModal = ({
 
           {/* Dropzone */}
           <div
-            className="group relative flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-dashed border-blue-300 dark:border-[#3b82f6]  dark:bg-[#1e3a8a]/20  dark:hover:bg-[#1e3a8a]/40 transition-colors duration-300"
+            className={`group relative flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-dashed transition-colors duration-300 ${
+              isDark
+                ? 'border-[#60a5fa] bg-[#14213d] hover:bg-[#1b2b4d]'
+                : 'border-blue-300 bg-white hover:bg-blue-50/40'
+            }`}
             onDragOver={(e) => e.preventDefault()}
             onDrop={async (e) => {
               e.preventDefault()
@@ -299,7 +311,13 @@ const ImportLeadsModal = ({
             <button
               onClick={onImport}
               disabled={!excelFile || importing}
-              className={`btn btn-sm ${importing ? ' cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white border-none flex items-center gap-2`}
+              className={`btn btn-sm text-white border-none flex items-center gap-2 ${
+                !excelFile || importing
+                  ? isDark
+                    ? 'bg-blue-900/60 text-blue-100/70 cursor-not-allowed'
+                    : 'bg-blue-300 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
               <FaDownload className="w-4 h-4" />
               {importing ? t('import.importing') : t('import.importButton')}

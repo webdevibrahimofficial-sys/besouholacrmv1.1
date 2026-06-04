@@ -236,7 +236,9 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user();
-        $tenant = app()->bound('tenant') ? app('tenant') : null;
+        $tenant = $user->is_super_admin
+            ? (app()->bound('tenant') ? app('tenant') : null)
+            : ($user->tenant_id ? Tenant::find($user->tenant_id) : null);
 
         if (!$tenant && !$user->is_super_admin) {
             return response()->json(['message' => 'Workspace domain required'], 403);
@@ -423,8 +425,12 @@ class AuthController extends Controller
             'website_url' => 'nullable|string|url',
         ]);
 
-        $tenant = app()->bound('tenant') ? app('tenant') : null;
-        if (!$tenant || $request->user()->tenant_id !== $tenant->id) {
+        $user = $request->user();
+        $tenant = $user->is_super_admin
+            ? (app()->bound('tenant') ? app('tenant') : null)
+            : ($user->tenant_id ? Tenant::find($user->tenant_id) : null);
+
+        if (!$tenant || (!$user->is_super_admin && (int) $user->tenant_id !== (int) $tenant->id)) {
             return response()->json(['message' => 'Invalid tenant context'], 403);
         }
 

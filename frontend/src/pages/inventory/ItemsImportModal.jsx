@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { useTranslation } from 'react-i18next'
 import { logExportEvent, logImportEvent } from '../../utils/api'
-import { FaFileExcel, FaTimes, FaUpload, FaDownload, FaCloudUploadAlt } from 'react-icons/fa'
+import { FaFileExcel, FaTimes, FaDownload } from 'react-icons/fa'
 
 export default function ItemsImportModal({ isOpen, onClose, onImport }) {
   const { theme } = useTheme()
@@ -15,6 +15,26 @@ export default function ItemsImportModal({ isOpen, onClose, onImport }) {
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState(null)
   const [importSummary, setImportSummary] = useState(null)
+
+  const copy = useMemo(() => ({
+    title: isRTL ? 'استيراد الأصناف من ملف Excel' : 'Import Items from Excel',
+    downloadTitle: isRTL ? 'تحميل ملف Excel' : 'Download Excel Template',
+    downloadDescription: isRTL ? 'قم بتحميل القالب واملأ البيانات المطلوبة' : 'Download the template and fill in the required data',
+    downloadButton: isRTL ? 'تحميل نموذج' : 'Download Template',
+    requiredFields: isRTL ? 'الحقول المطلوبة:' : 'Required fields:',
+    requiredFieldsValue: isRTL ? 'الاسم، التصنيف، السعر، الحالة' : 'Name, Category, Price, Status',
+    fileLabel: isRTL ? 'ملف Excel' : 'Excel file',
+    dropzone: isRTL ? 'اسحب الملف هنا أو اضغط لاختيار الملف' : 'Drag and drop or click to choose file',
+    browseButton: isRTL ? 'اختيار ملف' : 'Choose File',
+    noFileSelected: isRTL ? 'لم يتم اختيار ملف بعد' : 'No file selected',
+    selectedFile: isRTL ? `الملف المختار:` : 'Selected file:',
+    cancel: isRTL ? 'إلغاء' : 'Cancel',
+    import: isRTL ? 'استيراد' : 'Import',
+    importing: isRTL ? 'جارٍ الاستيراد...' : 'Importing...',
+    emptyFile: isRTL ? 'الملف فارغ' : 'File is empty',
+    importError: isRTL ? 'حدث خطأ أثناء استيراد الملف' : 'Error while importing file',
+    importPrepared: (count) => isRTL ? `تم تجهيز ${count} صنف للاستيراد` : `Prepared ${count} items for import`,
+  }), [isRTL])
 
   if (!isOpen) return null
 
@@ -82,8 +102,7 @@ export default function ItemsImportModal({ isOpen, onClose, onImport }) {
       .filter((x) => String(x?.name || '').trim().length > 0)
   }
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0]
+  const handleFileChange = (file) => {
     setExcelFile(file || null)
     setImportError(null)
     setImportSummary(null)
@@ -159,101 +178,154 @@ export default function ItemsImportModal({ isOpen, onClose, onImport }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className={`w-full max-w-lg rounded-xl shadow-2xl border ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-2">
-            <FaFileExcel className="text-green-500" />
-            <h2 className="text-sm font-semibold">
-              {isRTL ? 'استيراد الأصناف من ملف Excel' : 'Import Items from Excel'}
-            </h2>
+    <div className={`fixed inset-0 z-[2000] ${isRTL ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
+      <div className={`absolute inset-0 ${isDark ? 'bg-black/75 backdrop-blur-sm' : 'bg-black/50'}`} onClick={onClose} />
+
+      <div className={`relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] overflow-hidden transition-colors duration-200 ${
+        isDark
+          ? 'bg-[#0f172a] border-[#1d4ed8] shadow-[0_25px_80px_rgba(0,0,0,0.65)]'
+          : 'bg-white border-gray-200'
+      }`}>
+        <div className={`flex-shrink-0 flex items-center justify-between px-6 py-5 border-b ${
+          isDark ? 'border-[#1e3a8a] bg-[#0f172a]' : 'border-gray-200 bg-white'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
+              <FaDownload className="w-4 h-4" />
+            </div>
+            <h3 className={`text-lg sm:text-xl font-bold ${isDark ? 'text-white' : 'text-black'}`}>{copy.title}</h3>
           </div>
+
           <button
-            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+            className={`btn btn-sm btn-circle btn-ghost ${isDark ? 'text-white hover:bg-red-900/30' : 'text-red-500 hover:bg-red-50'}`}
           >
-            <FaTimes />
+            <FaTimes size={20} />
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-gray-600 dark:text-gray-300">
-              <p>{isRTL ? 'قم بتحميل ملف الأصناف بصيغة Excel.' : 'Upload your items Excel file.'}</p>
-              <p className="mt-1">
-                {isRTL
-                  ? 'تأكد من وجود الأعمدة الأساسية مثل الاسم، العائلة، التصنيف، السعر.'
-                  : 'Make sure columns like name, family, category and price exist.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={generateTemplate}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white"
-            >
-              <FaDownload />
-              {isRTL ? 'تحميل نموذج' : 'Download Template'}
-            </button>
-          </div>
-
-          <label className="block">
-            <span className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-2">
-              {isRTL ? 'ملف Excel' : 'Excel file'}
-            </span>
-            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-4 py-6 text-center cursor-pointer hover:border-blue-500 dark:hover:border-blue-400">
-              <input
-                type="file"
-                accept=".xls,.xlsx"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <div className="flex flex-col items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-                <FaCloudUploadAlt className="text-2xl text-blue-500" />
-                <div>
-                  {excelFile
-                    ? excelFile.name
-                    : isRTL
-                      ? 'اسحب الملف هنا أو اضغط للاختيار'
-                      : 'Drag and drop or click to choose file'}
+        <div className={`px-6 py-6 overflow-y-auto custom-scrollbar ${isDark ? 'bg-[#0f172a]' : 'bg-white'}`}>
+          <div className={`mb-6 p-5 rounded-2xl border ${
+            isDark ? 'bg-[#14213d] border-[#60a5fa]/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]' : 'bg-white border-blue-200'
+          }`}>
+            <div className="flex flex-row items-center justify-between gap-6">
+              <div className="flex items-start gap-3">
+                <FaFileExcel className="w-5 h-5 text-green-600 mt-0.5" />
+                <div className="flex-1">
+                  <h4 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-black'}`}>
+                    {copy.downloadTitle}
+                  </h4>
+                  <p className={`mt-1 text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    {copy.downloadDescription}
+                  </p>
+                  <div className={`mt-3 text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    <strong>{copy.requiredFields}</strong> {copy.requiredFieldsValue}
+                  </div>
                 </div>
               </div>
+
+              <div className="shrink-0">
+                <button
+                  onClick={generateTemplate}
+                  className="btn btn-sm bg-green-600 hover:bg-green-700 text-white border-none flex items-center justify-center gap-2 min-w-[220px]"
+                >
+                  <FaDownload className="w-3 h-3" />
+                  {copy.downloadButton}
+                </button>
+              </div>
             </div>
-          </label>
+          </div>
+
+          <div className="space-y-2">
+            <label className={`block text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-800'}`}>
+              {copy.fileLabel}
+            </label>
+
+            <div
+              className={`group relative flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-dashed transition-colors duration-300 cursor-pointer min-h-[250px] ${
+                isDark
+                  ? 'border-[#60a5fa] bg-[#14213d] hover:bg-[#1b2b4d]'
+                  : 'border-blue-300 bg-white hover:bg-blue-50/40'
+              }`}
+              onClick={() => document.getElementById('items-excel-file-input')?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault()
+                const file = e.dataTransfer.files?.[0]
+                if (file && (/\.xlsx$|\.xls$/i).test(file.name)) {
+                  handleFileChange(file)
+                }
+              }}
+            >
+              <svg className="w-12 h-12 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0l-3 3m3-3l3 3m7 4v12m0 0l-3-3m3 3l3-3" />
+              </svg>
+
+              <p className={`text-center text-base sm:text-lg ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                {copy.dropzone}
+              </p>
+
+              <input
+                id="items-excel-file-input"
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+              />
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  document.getElementById('items-excel-file-input')?.click()
+                }}
+                className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none min-w-[110px]"
+              >
+                {copy.browseButton}
+              </button>
+
+              <div className={`mt-2 text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                {excelFile ? `${copy.selectedFile} ${excelFile.name}` : copy.noFileSelected}
+              </div>
+            </div>
+          </div>
 
           {importError && (
-            <div className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-md px-3 py-2">
+            <div className="mt-4 px-4 py-3 rounded-lg bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/50 dark:text-red-200 dark:border-red-800">
               {importError}
             </div>
           )}
 
           {importSummary && (
-            <div className="text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 rounded-md px-3 py-2">
-              {isRTL
-                ? `تم تجهيز ${importSummary.total} صنف للاستيراد`
-                : `Prepared ${importSummary.total} items for import`}
+            <div className="mt-4 px-4 py-3 rounded-lg bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/50 dark:text-green-200 dark:border-green-800">
+              {copy.importPrepared(importSummary.total)}
             </div>
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-end gap-2">
+        <div className={`flex-shrink-0 px-6 py-5 border-t flex items-center justify-end gap-3 ${
+          isDark ? 'border-[#1e3a8a] bg-[#0b1220]' : 'border-gray-200 bg-white'
+        }`}>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-md text-xs font-medium text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className={`btn btn-ghost ${isDark ? 'text-gray-200 hover:bg-white/5' : 'text-gray-600 hover:bg-gray-100'}`}
           >
-            {isRTL ? 'إلغاء' : 'Cancel'}
+            {copy.cancel}
           </button>
           <button
             type="button"
-            disabled={!excelFile || importing}
             onClick={handleImport}
-            className="px-4 py-1.5 rounded-md text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            disabled={!excelFile || importing}
+            className={`btn text-white border-none min-w-[140px] ${
+              !excelFile || importing
+                ? isDark
+                  ? 'bg-blue-900/60 text-blue-100/70 cursor-not-allowed'
+                  : 'bg-blue-300 disabled:text-white disabled:cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
-            {importing && (
-              <span className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            )}
-            {isRTL ? 'استيراد' : 'Import'}
+            {importing ? copy.importing : copy.import}
           </button>
         </div>
       </div>

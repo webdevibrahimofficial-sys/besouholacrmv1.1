@@ -12,11 +12,13 @@ class Visit extends Model
     protected $fillable = [
         'tenant_id',
         'lead_id',
+        'broker_id',
         'customer_id',
         'task_id',
         'type',
         'sales_person_id',
         'sales_person_name',
+        'broker_name',
         'customer_name',
         'check_in_at',
         'check_out_at',
@@ -48,6 +50,11 @@ class Visit extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    public function broker()
+    {
+        return $this->belongsTo(Broker::class);
+    }
+
     public function task()
     {
         return $this->belongsTo(Task::class);
@@ -58,4 +65,3 @@ class Visit extends Model
         return $this->belongsTo(User::class, 'sales_person_id');
     }
 }
-

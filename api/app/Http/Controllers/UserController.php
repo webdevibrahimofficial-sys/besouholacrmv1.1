@@ -117,6 +117,7 @@ class UserController extends Controller
 
         $users->each(function (User $user) {
             $user->append(['avatar_url']);
+            $user->setAttribute('is_primary_admin', $this->isPrimaryAdmin($user));
         });
 
         return $users;
@@ -369,6 +370,8 @@ class UserController extends Controller
             $user->total_yearly_target = $calculatedUser->total_yearly_target;
         }
 
+        $user->setAttribute('is_primary_admin', $this->isPrimaryAdmin($user));
+
         return $user;
     }
 
@@ -403,9 +406,7 @@ class UserController extends Controller
         ]);
 
         if (array_key_exists('password', $validated) && $this->isPrimaryAdmin($user)) {
-            return response()->json([
-                'message' => 'Password for primary admin user cannot be changed.',
-            ], 403);
+            unset($validated['password']);
         }
         
         $previousStatus = $user->status;

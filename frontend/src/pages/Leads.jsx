@@ -671,7 +671,7 @@ if (!s) {
   const stageCounts = useMemo(() => {
     if (!statsData) return { total: 0 };
     
-    const counts = { total: Number(statsData.total || 0) };
+    const counts = {};
     
     // Map static stages using their backend keys or byStage
     sidebarStages.forEach(s => {
@@ -693,6 +693,11 @@ if (!s) {
         counts[s.key] = normalizedStatsByStage[normalizedStageKey] ?? 0;
       }
     });
+
+    // Total Leads = sum of all pipeline cards except Duplicate (must match visible cards).
+    counts.total = sidebarStages
+      .filter((s) => s.backendKey !== 'duplicate')
+      .reduce((sum, s) => sum + Number(counts[s.key] || 0), 0);
     
     return counts;
   }, [statsData, sidebarStages, normalizedStatsByStage, stageAliasMap])

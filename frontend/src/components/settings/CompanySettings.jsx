@@ -5,13 +5,25 @@ import { useAppState } from '../../shared/context/AppStateProvider'
 import { api } from '@utils/api'
 import { Calendar, TrendingUp, Info, MapPin, Target, Upload, Building, Activity, Globe, FileText, CreditCard, Clock, Lock, Phone, Hash } from 'lucide-react'
 
+const normalizeCompanyType = (...values) => {
+  for (const value of values) {
+    const normalized = String(value ?? '').trim()
+    if (!normalized) continue
+    const lower = normalized.toLowerCase().replace(/[_-]+/g, ' ')
+    if (lower.includes('real') && lower.includes('estate')) return 'Real Estate'
+    if (lower.includes('general')) return 'General'
+    return normalized
+  }
+  return ''
+}
+
 export default function CompanySettings() {
   const { t, i18n } = useTranslation()
   const isArabic = i18n.language === 'ar'
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
-  const { theme } = useTheme()
-  const { fetchCompanyInfo, crmSettings } = useAppState()
+  useTheme()
+  const { fetchCompanyInfo, crmSettings, company } = useAppState()
   const [activeTab, setActiveTab] = useState('general')
   const [companyTargets, setCompanyTargets] = useState({
     monthly: 0,
@@ -118,14 +130,19 @@ export default function CompanySettings() {
   useEffect(() => {
     const fetchCompany = async () => {
       try {
-        const res = await api.get('/api/company-info')
-        const tenant = res.data.tenant || {}
+        const payload = await fetchCompanyInfo()
+        const tenant = payload?.tenant || payload?.company || company || {}
         const profile = tenant.profile || {}
 
         const newValues = {
           name: tenant.name || '',
           description: profile.description || '',
-          type: tenant.company_type || '',
+          type: normalizeCompanyType(
+            tenant.company_type,
+            tenant.companyType,
+            payload?.company?.company_type,
+            payload?.company?.companyType
+          ),
           slug: tenant.slug || '',
           subscriptionPlan: tenant.subscription_plan || '',
           startDate: tenant.start_date || '',
@@ -171,7 +188,7 @@ export default function CompanySettings() {
       }
     }
     fetchCompany()
-  }, [])
+  }, [fetchCompanyInfo, company])
 
   const onLogoChange = (e) => {
     const file = e.target.files?.[0]
@@ -231,7 +248,7 @@ export default function CompanySettings() {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
 
-      const tenant = res.data.tenant
+      const tenant = res.data?.tenant || res.data?.data?.tenant || company || {}
       const profile = tenant.profile || {}
 
       const currentValues = {

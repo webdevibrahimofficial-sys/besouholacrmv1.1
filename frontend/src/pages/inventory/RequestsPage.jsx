@@ -6,6 +6,7 @@ import { api } from '../../utils/api'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { 
   FaFileImport, 
+  FaFileExport,
   FaPlus, 
   FaShoppingCart, 
   FaEye, 
@@ -31,8 +32,22 @@ import SearchableSelect from '../../components/SearchableSelect'
 import DateRangePicker from '../../shared/components/DateRangePicker'
 import RequestPreviewModal from '../../components/RequestPreviewModal'
 import RequestsImportModal from './RequestsImportModal'
-import { useDynamicFields } from '../../hooks/useDynamicFields'
 import { useAppState } from '../../shared/context/AppStateProvider'
+
+const CURRENCY_SYMBOLS = {
+  EGP: 'E£',
+  USD: '$',
+  SAR: 'SAR',
+  AED: 'AED',
+}
+
+const getCurrencySymbol = (currencyCode) => {
+  const normalized = String(currencyCode || '').trim().toUpperCase()
+  return CURRENCY_SYMBOLS[normalized] || normalized || '$'
+}
+
+const getUniqueTextList = (values = []) =>
+  [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))]
 
 export default function RequestsPage() {
   const { t, i18n } = useTranslation()
@@ -40,9 +55,8 @@ export default function RequestsPage() {
   const isLight = theme === 'light'
   const isRTL = String(i18n.language || '').startsWith('ar')
 
-  const { fields: dynamicFields } = useDynamicFields('requests')
   const { user, crmSettings } = useAppState()
-  const currencySymbol = crmSettings?.defaultCurrency || crmSettings?.default_currency || '$'
+  const currencySymbol = getCurrencySymbol(crmSettings?.defaultCurrency || crmSettings?.default_currency || '$')
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitInventoryPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Inventory')
@@ -60,7 +74,6 @@ export default function RequestsPage() {
 
   // State
   const [items, setItems] = useState([])
-  const [tenantUsers, setTenantUsers] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showImportModal, setShowImportModal] = useState(false)
@@ -105,16 +118,19 @@ export default function RequestsPage() {
   // Filters
   const [q, setQ] = useState('') // Main search query
   const [filters, setFilters] = useState({
+    item: '',
+    category: '',
+    categoryType: '',
+    status: '',
     dateFrom: '',
     dateTo: '',
     datePeriod: '',
-    customer: '',
     createdBy: '',
     salesPerson: '',
     minTotal: '',
     maxTotal: '',
-    minItems: '',
-    maxItems: ''
+    minQuantity: '',
+    maxQuantity: ''
   })
   const [showAllFilters, setShowAllFilters] = useState(false)
 
@@ -128,6 +144,8 @@ export default function RequestsPage() {
 
   // Selection
   const [selectedItems, setSelectedItems] = useState([])
+
+  const formatAmount = (value) => `${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencySymbol}`
 
   // Helper for success messages
   const showSuccess = (msg) => {
@@ -151,34 +169,92 @@ export default function RequestsPage() {
       const requestsData = requestsRes.data
       const usersData = usersRes.data.data || usersRes.data || []
       const itemsDbData = itemsRes.data.data || itemsRes.data || []
-
-      setTenantUsers(usersData)
+      const itemByName = new Map(
+        itemsDbData
+          .filter(item => String(item?.name || '').trim() !== '')
+          .map(item => [String(item.name).trim().toLowerCase(), item])
+      )
+      const userNameById = new Map(
+        usersData.map(tenantUser => [String(tenantUser?.id), tenantUser?.name || tenantUser?.full_name || tenantUser?.email || `User #${tenantUser?.id}`])
+      )
 
       const mappedItems = (requestsData.data || []).map(item => {
         let requestItems = []
         
         if (item.meta_data?.items && Array.isArray(item.meta_data.items)) {
             requestItems = item.meta_data.items.map(reqItem => {
-                const matched = itemsDbData.find(i => i.name === reqItem.name)
+                const matched = itemByName.get(String(reqItem?.name || '').trim().toLowerCase())
                 const finalCategory = matched?.category || reqItem.category || '-'
+                const quantity = Number(reqItem?.quantity || 1)
+                const price = Number(reqItem?.price ?? matched?.price ?? 0)
+                const addonSource = Array.isArray(reqItem?.addons) && reqItem.addons.length > 0
+                  ? reqItem.addons
+                  : (Array.isArray(matched?.addons) ? matched.addons : [])
+
                 return {
                     ...reqItem,
+                    quantity,
+                    price,
                     type: matched?.type || reqItem.type || '-',
-                    category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory
+                    itemType: matched?.item_type || matched?.itemType || reqItem.itemType || '-',
+                    category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
+                    addons: addonSource.map(addon => ({
+                      name: addon?.name || '',
+                      quantity: Number(addon?.quantity || 0),
+                      price: Number(addon?.price || 0),
+                    }))
                 }
             })
         } else if (item.product) {
-            const matchedItem = itemsDbData.find(i => i.name === item.product)
+            const matchedItem = itemByName.get(String(item.product || '').trim().toLowerCase())
             const finalCategory = matchedItem?.category || '-'
             requestItems = [{ 
                 id: 1, 
                 name: item.product, 
                 type: matchedItem?.type || '-',
+                itemType: matchedItem?.item_type || matchedItem?.itemType || '-',
                 category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
                 quantity: item.quantity || 0, 
-                price: item.meta_data?.price || 0 
+                price: item.meta_data?.price || 0,
+                addons: Array.isArray(matchedItem?.addons)
+                  ? matchedItem.addons.map(addon => ({
+                      name: addon?.name || '',
+                      quantity: Number(addon?.quantity || 0),
+                      price: Number(addon?.price || 0),
+                    }))
+                  : [],
             }]
         }
+
+        const itemNames = getUniqueTextList(requestItems.map(requestItem => requestItem.name))
+        const categoryNames = getUniqueTextList(requestItems.map(requestItem => requestItem.category))
+        const categoryTypes = getUniqueTextList(requestItems.map(requestItem => requestItem.type))
+        const itemTypes = getUniqueTextList(requestItems.map(requestItem => requestItem.itemType))
+        const totalQuantity = requestItems.reduce((sum, requestItem) => sum + Number(requestItem.quantity || 0), 0)
+        const baseItemsPrice = requestItems.reduce((sum, requestItem) => sum + (Number(requestItem.quantity || 0) * Number(requestItem.price || 0)), 0)
+
+        const expandedAddons = requestItems.flatMap(requestItem =>
+          (Array.isArray(requestItem.addons) ? requestItem.addons : [])
+            .filter(addon => String(addon?.name || '').trim() !== '')
+            .map(addon => {
+              const addonUnitQuantity = Number(addon.quantity || 0)
+              const addonPrice = Number(addon.price || 0)
+              const addonTotalQuantity = addonUnitQuantity * Number(requestItem.quantity || 0)
+              return {
+                name: String(addon.name || '').trim(),
+                quantity: addonTotalQuantity,
+                price: addonPrice,
+                totalPrice: addonTotalQuantity * addonPrice,
+              }
+            })
+        )
+
+        const addonNames = getUniqueTextList(expandedAddons.map(addon => addon.name))
+        const addonsTotalQuantity = expandedAddons.reduce((sum, addon) => sum + Number(addon.quantity || 0), 0)
+        const addonsTotalPrice = expandedAddons.reduce((sum, addon) => sum + Number(addon.totalPrice || 0), 0)
+        const computedTotalPrice = baseItemsPrice + addonsTotalPrice
+        const resolvedSalesPerson = userNameById.get(String(item.assigned_to)) || item.assigned_to_name || item.meta_data?.assigned_to_name || item.assigned_to || '-'
+        const resolvedCreatedBy = item.meta_data?.created_by_name || item.created_by_name || userNameById.get(String(item.meta_data?.created_by_id)) || '-'
 
         return {
             ...item,
@@ -186,10 +262,25 @@ export default function RequestsPage() {
             customerName: item.customer_name,
             customerPhone: item.meta_data?.customer_phone || '',
             items: requestItems,
-            total: item.meta_data?.total || 0,
+            itemNames,
+            itemNamesDisplay: itemNames.join(', ') || '-',
+            categoryNames,
+            categoryNamesDisplay: categoryNames.join(', ') || '-',
+            categoryTypes,
+            categoryTypesDisplay: categoryTypes.join(', ') || '-',
+            itemTypes,
+            itemTypesDisplay: itemTypes.join(', ') || '-',
+            quantityTotal: totalQuantity,
+            itemsPriceTotal: baseItemsPrice,
+            addonsNames: addonNames,
+            addonsNamesDisplay: addonNames.join(', ') || '-',
+            addonsTotalQuantity,
+            addonsTotalPrice,
+            total: computedTotalPrice || Number(item.meta_data?.total || 0),
             notes: item.description,
-            salesPerson: item.assigned_to,
-            createdBy: item.meta_data?.created_by_name || item.created_by_name || '',
+            salesPerson: resolvedSalesPerson,
+            createdBy: resolvedCreatedBy,
+            orderBy: resolvedCreatedBy,
             createdAt: item.created_at || new Date().toISOString()
         }
       })
@@ -206,6 +297,10 @@ export default function RequestsPage() {
   useEffect(() => {
     load()
   }, [])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [q, filters])
 
   const handleFormChange = (e) => {
     const { name, value } = e.target
@@ -252,8 +347,23 @@ export default function RequestsPage() {
   }
 
   // Filtering Logic
-  const customerOptions = useMemo(() => {
-    const unique = [...new Set(items.map(i => i.customerName).filter(Boolean))]
+  const itemOptions = useMemo(() => {
+    const unique = getUniqueTextList(items.flatMap(requestItem => requestItem.itemNames || []))
+    return unique.map(name => ({ value: name, label: name }))
+  }, [items])
+
+  const categoryOptions = useMemo(() => {
+    const unique = getUniqueTextList(items.flatMap(requestItem => requestItem.categoryNames || []))
+    return unique.map(name => ({ value: name, label: name }))
+  }, [items])
+
+  const categoryTypeOptions = useMemo(() => {
+    const unique = getUniqueTextList(items.flatMap(requestItem => requestItem.categoryTypes || []))
+    return unique.map(name => ({ value: name, label: name }))
+  }, [items])
+
+  const statusOptions = useMemo(() => {
+    const unique = getUniqueTextList(items.map(requestItem => requestItem.status))
     return unique.map(name => ({ value: name, label: name }))
   }, [items])
 
@@ -263,8 +373,9 @@ export default function RequestsPage() {
   }, [items])
 
   const salesPersonOptions = useMemo(() => {
-    return tenantUsers.map(u => ({ value: u.name, label: u.name }))
-  }, [tenantUsers])
+    const unique = getUniqueTextList(items.map(requestItem => requestItem.salesPerson))
+    return unique.map(name => ({ value: name, label: name }))
+  }, [items])
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -272,9 +383,14 @@ export default function RequestsPage() {
       if (q) {
         const query = q.toLowerCase()
         const match =
-          item.id?.toLowerCase().includes(query) ||
-          item.customerCode?.toLowerCase().includes(query) ||
-          item.customerName?.toLowerCase().includes(query)
+          String(item.id || '').toLowerCase().includes(query) ||
+          String(item.customerCode || '').toLowerCase().includes(query) ||
+          String(item.customerName || '').toLowerCase().includes(query) ||
+          String(item.itemNamesDisplay || '').toLowerCase().includes(query) ||
+          String(item.categoryNamesDisplay || '').toLowerCase().includes(query) ||
+          String(item.categoryTypesDisplay || '').toLowerCase().includes(query) ||
+          String(item.salesPerson || '').toLowerCase().includes(query) ||
+          String(item.orderBy || '').toLowerCase().includes(query)
         if (!match) return false
       }
 
@@ -288,16 +404,17 @@ export default function RequestsPage() {
         if (new Date(item.createdAt) >= endDate) return false
       }
 
-      if (filters.customer && item.customerName !== filters.customer) return false
+      if (filters.item && !(item.itemNames || []).includes(filters.item)) return false
+      if (filters.category && !(item.categoryNames || []).includes(filters.category)) return false
+      if (filters.categoryType && !(item.categoryTypes || []).includes(filters.categoryType)) return false
       if (filters.createdBy && item.createdBy !== filters.createdBy) return false
       if (filters.salesPerson && item.salesPerson !== filters.salesPerson) return false
+      if (filters.status && item.status !== filters.status) return false
       if (filters.minTotal && Number(item.total) < Number(filters.minTotal)) return false
       if (filters.maxTotal && Number(item.total) > Number(filters.maxTotal)) return false
 
-      // Items Count Filter
-      const itemsCount = Array.isArray(item.items) ? item.items.length : 0
-      if (filters.minItems && itemsCount < Number(filters.minItems)) return false
-      if (filters.maxItems && itemsCount > Number(filters.maxItems)) return false
+      if (filters.minQuantity && Number(item.quantityTotal || 0) < Number(filters.minQuantity)) return false
+      if (filters.maxQuantity && Number(item.quantityTotal || 0) > Number(filters.maxQuantity)) return false
 
       return true
     })
@@ -422,7 +539,7 @@ export default function RequestsPage() {
                 : (Array.isArray(leadRes?.data) ? (leadRes.data[0] || null) : null)
               leadEmail = String(leadFirst?.email || '').trim()
               leadAssignedTo = leadFirst?.assigned_to || (typeof leadFirst?.assignedTo === 'object' ? leadFirst.assignedTo?.id : null)
-            } catch (e) {
+            } catch {
             }
 
             // Create new customer
@@ -536,47 +653,82 @@ export default function RequestsPage() {
     }
   }
 
+  const handleExportSelected = () => {
+    const selectedRequests = items.filter(item => selectedItems.includes(item.id))
+    if (selectedRequests.length === 0) {
+      alert(isRTL ? 'اختر طلبًا واحدًا على الأقل للتصدير' : 'Select at least one request to export')
+      return
+    }
+
+    const header = [
+      isRTL ? 'رقم الطلب' : 'Order ID',
+      isRTL ? 'اسم العميل' : 'Customer Name',
+      isRTL ? 'العناصر' : 'Items',
+      isRTL ? 'الكمية' : 'Quantity',
+      isRTL ? 'اسم الفئة' : 'Category Name',
+      isRTL ? 'نوع الفئة' : 'Category Type',
+      isRTL ? 'السعر' : 'Price',
+      isRTL ? 'أسماء الإضافات' : 'Add-ons Name',
+      isRTL ? 'كمية الإضافات' : 'Add-ons Quantity',
+      isRTL ? 'سعر الإضافات' : 'Add-ons Price',
+      isRTL ? 'الإجمالي' : 'Total Price',
+      isRTL ? 'مندوب المبيعات' : 'Sales Person',
+      isRTL ? 'بواسطة' : 'Order By',
+      isRTL ? 'التاريخ' : 'Order Date',
+      isRTL ? 'الحالة' : 'Status',
+      isRTL ? 'ملاحظات' : 'Notes',
+    ]
+
+    const rows = selectedRequests.map(item => ([
+      item.id,
+      item.customerName || '',
+      item.itemNamesDisplay || '',
+      item.quantityTotal || 0,
+      item.categoryNamesDisplay || '',
+      item.categoryTypesDisplay || '',
+      Number(item.itemsPriceTotal || 0).toFixed(2),
+      item.addonsNamesDisplay || '',
+      item.addonsTotalQuantity || 0,
+      Number(item.addonsTotalPrice || 0).toFixed(2),
+      Number(item.total || 0).toFixed(2),
+      item.salesPerson || '',
+      item.orderBy || '',
+      new Date(item.createdAt).toLocaleDateString(),
+      item.status || '',
+      item.notes || '',
+    ]))
+
+    const csv = [header, ...rows]
+      .map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `order-requests-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   const clearFilters = () => {
     setQ('')
     setFilters({
+      item: '',
+      category: '',
+      categoryType: '',
+      status: '',
       dateFrom: '',
       dateTo: '',
       datePeriod: '',
-      customer: '',
       createdBy: '',
+      salesPerson: '',
       minTotal: '',
       maxTotal: '',
-      minItems: '',
-      maxItems: ''
+      minQuantity: '',
+      maxQuantity: ''
     })
-  }
-
-  const handleDatePeriodChange = (period) => {
-    const now = new Date()
-    let from = ''
-    let to = ''
-
-    if (period === 'today') {
-      from = now.toISOString().split('T')[0]
-      to = now.toISOString().split('T')[0]
-    } else if (period === 'week') {
-      const first = new Date(now.setDate(now.getDate() - now.getDay()))
-      const last = new Date(now.setDate(now.getDate() - now.getDay() + 6))
-      from = first.toISOString().split('T')[0]
-      to = last.toISOString().split('T')[0]
-    } else if (period === 'month') {
-      const first = new Date(now.getFullYear(), now.getMonth(), 1)
-      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      from = first.toISOString().split('T')[0]
-      to = last.toISOString().split('T')[0]
-    }
-
-    setFilters(prev => ({
-      ...prev,
-      datePeriod: period,
-      dateFrom: from,
-      dateTo: to
-    }))
+    setShowAllFilters(false)
   }
 
   return (
@@ -625,6 +777,10 @@ export default function RequestsPage() {
         <div className="mb-3 p-3 rounded border border-green-300 bg-green-50 text-green-700">{successMessage}</div>
       )}
 
+      {error && (
+        <div className="mb-3 p-3 rounded border border-red-300 bg-red-50 text-red-700">{error}</div>
+      )}
+
       {/* Filter Section - Identical structure to SalesQuotations */}
       <div className="glass-panel p-4 rounded-xl mb-6">
         <div className="flex justify-between items-center mb-3">
@@ -647,145 +803,161 @@ export default function RequestsPage() {
             </button>
           </div>
         </div>
-
         {/* Primary Filters Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-          {/* 1. SEARCH */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <Search className="text-blue-500" size={10} /> {isRTL ? 'بحث عام' : 'Search All Data'}
+              <Search className="text-blue-500" size={10} /> {isRTL ? '??? ???' : 'Search'}
             </label>
             <input
               className="input w-full"
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder={isRTL ? 'بحث في الطلبات...' : 'Search requests...'}
+              placeholder={isRTL ? '???? ?? ???????...' : 'Search requests...'}
             />
           </div>
 
-          {/* 2. Lead Name */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <User className="text-blue-500" size={10} /> {isRTL ? 'العميل' : 'customer'}
+              <FaShoppingCart className="text-blue-500" size={10} /> {isRTL ? '??????' : 'Item'}
             </label>
             <SearchableSelect
-              options={customerOptions}
-              value={filters.customer}
-              onChange={(val) => setFilters(prev => ({ ...prev, customer: val }))}
-              placeholder={isRTL ? 'اختر العميل...' : 'Select Lead...'}
+              options={itemOptions}
+              value={filters.item}
+              onChange={(val) => setFilters(prev => ({ ...prev, item: val }))}
+              placeholder={isRTL ? '???? ??????...' : 'Select Item...'}
               isRTL={isRTL}
             />
           </div>
 
-          {/* 3. Items Count Range */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <FaShoppingCart className="text-blue-500" size={10} /> {isRTL ? 'عدد العناصر' : 'No. of Items'}
+              <Filter className="text-blue-500" size={10} /> {isRTL ? '??? ?????' : 'Category Name'}
             </label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                className="input w-full text-xs"
-                placeholder={isRTL ? 'من' : 'Min'}
-                value={filters.minItems}
-                onChange={e => setFilters(prev => ({ ...prev, minItems: e.target.value }))}
-              />
-              <input
-                type="number"
-                className="input w-full text-xs"
-                placeholder={isRTL ? 'إلى' : 'Max'}
-                value={filters.maxItems}
-                onChange={e => setFilters(prev => ({ ...prev, maxItems: e.target.value }))}
-              />
-            </div>
+            <SearchableSelect
+              options={categoryOptions}
+              value={filters.category}
+              onChange={(val) => setFilters(prev => ({ ...prev, category: val }))}
+              placeholder={isRTL ? '???? ?????...' : 'Select Category...'}
+              isRTL={isRTL}
+            />
           </div>
 
-          {/* 4. Total Range */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <DollarSign className="text-blue-500" size={10} /> {isRTL ? 'المبلغ الإجمالي' : 'Total Amount'}
+              <Filter className="text-blue-500" size={10} /> {isRTL ? '??? ?????' : 'Category Type'}
             </label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                className="input w-full text-xs"
-                placeholder={isRTL ? 'من' : 'Min'}
-                value={filters.minTotal}
-                onChange={e => setFilters(prev => ({ ...prev, minTotal: e.target.value }))}
-              />
-              <input
-                type="number"
-                className="input w-full text-xs"
-                placeholder={isRTL ? 'إلى' : 'Max'}
-                value={filters.maxTotal}
-                onChange={e => setFilters(prev => ({ ...prev, maxTotal: e.target.value }))}
-              />
-            </div>
+            <SearchableSelect
+              options={categoryTypeOptions}
+              value={filters.categoryType}
+              onChange={(val) => setFilters(prev => ({ ...prev, categoryType: val }))}
+              placeholder={isRTL ? '???? ?????...' : 'Select Type...'}
+              isRTL={isRTL}
+            />
           </div>
         </div>
 
         {showAllFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 pt-4 border-t border-[var(--card-border)]">
-            {/* 5. Created By */}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                <User className="text-blue-500" size={10} /> {isRTL ? 'بواسطة' : 'Created By'}
-              </label>
-              <SearchableSelect
-                options={createdByOptions}
-                value={filters.createdBy}
-                onChange={(val) => setFilters(prev => ({ ...prev, createdBy: val }))}
-                placeholder={isRTL ? 'اختر...' : 'Select...'}
-                isRTL={isRTL}
-              />
+          <div className="space-y-4 mt-4 pt-4 border-t border-[var(--card-border)]">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
+                  <User className="text-blue-500" size={10} /> {isRTL ? '????? ????????' : 'Sales Person'}
+                </label>
+                <SearchableSelect
+                  options={salesPersonOptions}
+                  value={filters.salesPerson}
+                  onChange={(val) => setFilters(prev => ({ ...prev, salesPerson: val }))}
+                  placeholder={isRTL ? '????...' : 'Select...'}
+                  isRTL={isRTL}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
+                  <User className="text-blue-500" size={10} /> {isRTL ? '???? ??????' : 'Created By'}
+                </label>
+                <SearchableSelect
+                  options={createdByOptions}
+                  value={filters.createdBy}
+                  onChange={(val) => setFilters(prev => ({ ...prev, createdBy: val }))}
+                  placeholder={isRTL ? '????...' : 'Select...'}
+                  isRTL={isRTL}
+                />
+              </div>
+
+              <div className="space-y-1 lg:col-span-2">
+                <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
+                  <Calendar className="text-blue-500" size={10} /> {isRTL ? '????? ?????' : 'Order Date'}
+                </label>
+                <DateRangePicker
+                  from={filters.dateFrom}
+                  to={filters.dateTo}
+                  onChange={({ from, to }) => setFilters(prev => ({ ...prev, dateFrom: from, dateTo: to }))}
+                  isRTL={isRTL}
+                  className="input w-full"
+                  wrapperClassName="w-full"
+                />
+              </div>
             </div>
 
-            {/* 6. Sales Person */}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                <User className="text-blue-500" size={10} /> {isRTL ? 'مندوب المبيعات' : 'Sales Person'}
-              </label>
-              <SearchableSelect
-                options={salesPersonOptions}
-                value={filters.salesPerson}
-                onChange={(val) => setFilters(prev => ({ ...prev, salesPerson: val }))}
-                placeholder={isRTL ? 'اختر...' : 'Select...'}
-                isRTL={isRTL}
-              />
-            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
+                  <FaShoppingCart className="text-blue-500" size={10} /> {isRTL ? '?????? ??????' : 'No. of Quantity'}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    className="input w-full text-xs"
+                    placeholder={isRTL ? '??' : 'Min'}
+                    value={filters.minQuantity}
+                    onChange={e => setFilters(prev => ({ ...prev, minQuantity: e.target.value }))}
+                  />
+                  <input
+                    type="number"
+                    className="input w-full text-xs"
+                    placeholder={isRTL ? '???' : 'Max'}
+                    value={filters.maxQuantity}
+                    onChange={e => setFilters(prev => ({ ...prev, maxQuantity: e.target.value }))}
+                  />
+                </div>
+              </div>
 
-            {/* 7. Date Range */}
-            <div className="space-y-1 md:col-span-2 lg:col-span-2">
-              <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                <Calendar className="text-blue-500" size={10} /> {isRTL ? 'نطاق التاريخ' : 'Date Range'}
-              </label>
-              <DateRangePicker
-                from={filters.dateFrom}
-                to={filters.dateTo}
-                onChange={({ from, to }) => setFilters(prev => ({ ...prev, dateFrom: from, dateTo: to }))}
-                isRTL={isRTL}
-                className="input w-full"
-                wrapperClassName="w-full"
-              />
-            </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
+                  <DollarSign className="text-blue-500" size={10} /> {isRTL ? '?????? ????????' : 'Total Amount'}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    className="input w-full text-xs"
+                    placeholder={isRTL ? '??' : 'From'}
+                    value={filters.minTotal}
+                    onChange={e => setFilters(prev => ({ ...prev, minTotal: e.target.value }))}
+                  />
+                  <input
+                    type="number"
+                    className="input w-full text-xs"
+                    placeholder={isRTL ? '???' : 'To'}
+                    value={filters.maxTotal}
+                    onChange={e => setFilters(prev => ({ ...prev, maxTotal: e.target.value }))}
+                  />
+                </div>
+              </div>
 
-            {/* 8. Period Buttons */}
-            <div className="col-span-1 md:col-span-2 lg:col-span-4 flex gap-2 mt-2">
-              {['today', 'week', 'month'].map(period => (
-                <button
-                  key={period}
-                  onClick={() => handleDatePeriodChange(period)}
-                  className={`px-3 py-1 text-xs rounded-full border ${filters.datePeriod === period
-                    ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700'
-                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700'
-                    }`}
-                >
-                  {isRTL
-                    ? (period === 'today' ? 'اليوم' : period === 'week' ? 'هذا الأسبوع' : 'هذا الشهر')
-                    : (period.charAt(0).toUpperCase() + period.slice(1))
-                  }
-                </button>
-              ))}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
+                  <Filter className="text-blue-500" size={10} /> {isRTL ? '??????' : 'Status'}
+                </label>
+                <SearchableSelect
+                  options={statusOptions}
+                  value={filters.status}
+                  onChange={(val) => setFilters(prev => ({ ...prev, status: val }))}
+                  placeholder={isRTL ? '???? ??????...' : 'Select Status...'}
+                  isRTL={isRTL}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -793,9 +965,20 @@ export default function RequestsPage() {
 
       {/* Table Section - Identical structure to SalesQuotations */}
       <div className="hidden md:block card p-0 overflow-hidden border border-[var(--card-border)]">
+        {selectedItems.length > 0 && (
+          <div className="flex justify-end px-4 py-3 border-b border-[var(--card-border)] bg-[var(--body-background)]">
+            <button
+              onClick={handleExportSelected}
+              className="btn btn-sm bg-indigo-600 hover:bg-indigo-700 !text-white border-none flex items-center justify-center gap-2"
+            >
+              <FaFileExport />
+              {isRTL ? '????? ??????' : 'Export Selected'}
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className={`bg-gray-700/50 ${isLight ? 'text-black' : 'text-white'}  text-[var(--muted-text)] font-medium border-b border-[var(--card-border)]`}>
+            <thead className={`bg-gray-700/50 ${isLight ? 'text-black' : 'text-white'} text-[var(--muted-text)] font-medium border-b border-[var(--card-border)]`}>
               <tr>
                 <th className="p-4 w-10">
                   <input
@@ -805,50 +988,34 @@ export default function RequestsPage() {
                     onChange={handleSelectAll}
                   />
                 </th>
-                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('id')}>
-                  <div className="flex items-center gap-1">
-                    {isRTL ? 'رقم الطلب' : 'Request ID'}
-                    {sortBy === 'id' && <ChevronDown size={14} className={sortOrder === 'asc' ? 'rotate-180' : ''} />}
-                  </div>
-                </th>
-                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('customerName')}>
-                  <div className="flex items-center gap-1">
-                    {isRTL ? 'العميل' : 'Customer'}
-                    {sortBy === 'customerName' && <ChevronDown size={14} className={sortOrder === 'asc' ? 'rotate-180' : ''} />}
-                  </div>
-                </th>
-                {/* Dynamic Headers */}
-                {dynamicFields.map(field => (
-                  <th key={field.key} className="p-4" style={{ minWidth: '120px' }}>
-                    {isRTL ? field.label_ar : field.label_en}
-                  </th>
-                ))}
-                <th className="p-4 text-center">{isRTL ? 'الحالة' : 'Status'}</th>
-                <th className="p-4 text-center">{isRTL ? 'العناصر' : 'Items'}</th>
-                <th className="p-4 text-end cursor-pointer hover:text-blue-600" onClick={() => handleSort('total')}>
-                  <div className="flex items-center justify-end gap-1">
-                    {isRTL ? 'الإجمالي' : 'Total'}
-                    {sortBy === 'total' && <ChevronDown size={14} className={sortOrder === 'asc' ? 'rotate-180' : ''} />}
-                  </div>
-                </th>
-                <th className="p-4">{isRTL ? 'الملاحظات' : 'Notes'}</th>
-                <th className="p-4">{isRTL ? 'بواسطة' : 'Created By'}</th>
-                <th className="p-4">{isRTL ? 'التاريخ' : 'Date'}</th>
-                <th className="p-4 whitespace-nowrap min-w-[280px]">
-                  {isRTL ? 'إجراءات' : 'Actions'}
-                </th>
+                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('id')}>{isRTL ? '??? ?????' : 'Order ID'}</th>
+                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('customerName')}>{isRTL ? '??? ??????' : 'Customer Name'}</th>
+                <th className="p-4 min-w-[180px]">{isRTL ? '???????' : 'Items'}</th>
+                <th className="p-4 text-center">{isRTL ? '??????' : 'Quantity'}</th>
+                <th className="p-4 min-w-[160px]">{isRTL ? '??? ?????' : 'Category Name'}</th>
+                <th className="p-4 min-w-[140px]">{isRTL ? '??? ?????' : 'Category Type'}</th>
+                <th className="p-4 text-end">{isRTL ? '?????' : 'Price'}</th>
+                <th className="p-4 min-w-[160px]">{isRTL ? '????? ????????' : 'Add-ons Name'}</th>
+                <th className="p-4 text-center">{isRTL ? '???? ????????' : 'Add-ons Qty'}</th>
+                <th className="p-4 text-end">{isRTL ? '??? ????????' : 'Add-ons Price'}</th>
+                <th className="p-4 text-end cursor-pointer hover:text-blue-600" onClick={() => handleSort('total')}>{isRTL ? '????? ????????' : 'Total Price'}</th>
+                <th className="p-4 min-w-[140px]">{isRTL ? '????? ????????' : 'Sales Person'}</th>
+                <th className="p-4 min-w-[140px]">{isRTL ? '???? ??????' : 'Order By'}</th>
+                <th className="p-4 whitespace-nowrap">{isRTL ? '????? ?????' : 'Order Date'}</th>
+                <th className="p-4 text-center">{isRTL ? '??????' : 'Status'}</th>
+                <th className="p-4 whitespace-nowrap min-w-[280px]">{isRTL ? '???????' : 'Actions'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--card-border)]">
               {loading ? (
                 <tr>
-                  <td colSpan={11 + dynamicFields.length} className="p-8 text-center text-[var(--muted-text)]">
+                  <td colSpan={17} className="p-8 text-center text-[var(--muted-text)]">
                     {isRTL ? 'جاري التحميل...' : 'Loading...'}
                   </td>
                 </tr>
               ) : paginatedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={11 + dynamicFields.length} className="p-8 text-center text-[var(--muted-text)]">
+                  <td colSpan={17} className="p-8 text-center text-[var(--muted-text)]">
                     {isRTL ? 'لا توجد طلبات مطابقة' : 'No matching requests found'}
                   </td>
                 </tr>
@@ -869,12 +1036,44 @@ export default function RequestsPage() {
                     <td className="p-4 font-medium">
                       {item.customerName}
                     </td>
-                    {/* Dynamic Cells */}
-                    {dynamicFields.map(field => (
-                      <td key={field.key} className="p-4 text-sm text-gray-700 dark:text-gray-300">
-                        {item.custom_fields?.[field.key] || '-'}
-                      </td>
-                    ))}
+                    <td className="p-4 font-medium">
+                      <div className="max-w-[180px] truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</div>
+                    </td>
+                    <td className="p-4 text-center font-medium">
+                      {item.quantityTotal || 0}
+                    </td>
+                    <td className="p-4">
+                      <div className="max-w-[160px] truncate" title={item.categoryNamesDisplay}>{item.categoryNamesDisplay}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="max-w-[140px] truncate" title={item.categoryTypesDisplay}>{item.categoryTypesDisplay}</div>
+                    </td>
+                    <td className="p-4 text-end font-mono font-medium">
+                      {formatAmount(item.itemsPriceTotal)}
+                    </td>
+                    <td className="p-4">
+                      <div className="max-w-[160px] truncate" title={item.addonsNamesDisplay}>{item.addonsNamesDisplay}</div>
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className="bg-gray-100 dark:bg-gray-800 text-[var(--muted-text)] px-2 py-1 rounded text-xs">
+                        {item.addonsTotalQuantity || 0}
+                      </span>
+                    </td>
+                    <td className="p-4 text-end font-mono font-medium">
+                      {formatAmount(item.addonsTotalPrice)}
+                    </td>
+                    <td className="p-4 text-end font-mono font-semibold">
+                      {formatAmount(item.total)}
+                    </td>
+                    <td className="p-4 text-sm">
+                      {item.salesPerson || '-'}
+                    </td>
+                    <td className="p-4 text-sm">
+                      {item.orderBy || '-'}
+                    </td>
+                    <td className="p-4 text-sm text-[var(--muted-text)] whitespace-nowrap">
+                      {new Date(item.createdAt).toLocaleDateString()}
+                    </td>
                     <td className="p-4 text-center">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium border bg-transparent ${item.status === 'Approved' ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400' :
                         item.status === 'Converted' ? 'border-purple-300 text-purple-700 dark:border-purple-700 dark:text-purple-400' :
@@ -883,26 +1082,6 @@ export default function RequestsPage() {
                         }`}>
                         {item.status}
                       </span>
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className="bg-gray-100 dark:bg-gray-800 text-[var(--muted-text)] px-2 py-1 rounded text-xs">
-                        {Array.isArray(item.items) ? item.items.length : 0}
-                      </span>
-                    </td>
-                    <td className="p-4 text-end font-mono font-medium">
-                      {Number(item.total).toLocaleString()} {currencySymbol}
-                    </td>
-                    <td className="p-4 text-sm text-[var(--muted-text)] max-w-[200px] truncate" title={item.notes}>
-                      {item.notes || '-'}
-                    </td>
-                    <td className="p-4 text-sm">
-                      <div className="flex flex-col">
-                        <span className="font-medium">{item.salesPerson}</span>
-                        <span className="text-xs text-[var(--muted-text)]">{item.createdBy}</span>
-                      </div>
-                    </td>
-                    <td className="p-4 text-sm text-[var(--muted-text)]">
-                      {new Date(item.createdAt).toLocaleDateString()}
                     </td>
                     <td className="p-4">
                       <div className="flex items-center justify-end gap-2 relative">
@@ -1075,20 +1254,40 @@ export default function RequestsPage() {
 
                 {/* Details Grid */}
                 <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-300">
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'الإجمالي' : 'Total'}</span>
-                    <span className="font-mono font-medium">{Number(item.total).toLocaleString()} {currencySymbol}</span>
+                  <div className="flex flex-col col-span-2">
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '???????' : 'Items'}</span>
+                    <span className="font-medium truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'العناصر' : 'Items'}</span>
-                    <span>{Array.isArray(item.items) ? item.items.length : 0}</span>
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '????????' : 'Total Price'}</span>
+                    <span className="font-mono font-medium">{formatAmount(item.total)}</span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'التاريخ' : 'Date'}</span>
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??????' : 'Quantity'}</span>
+                    <span>{item.quantityTotal || 0}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '?????' : 'Category'}</span>
+                    <span className="truncate" title={item.categoryNamesDisplay}>{item.categoryNamesDisplay}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??? ?????' : 'Category Type'}</span>
+                    <span className="truncate" title={item.categoryTypesDisplay}>{item.categoryTypesDisplay}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??? ????????' : 'Add-ons Price'}</span>
+                    <span className="font-mono">{formatAmount(item.addonsTotalPrice)}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '???????' : 'Date'}</span>
                     <span>{new Date(item.createdAt).toLocaleDateString()}</span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'بواسطة' : 'By'}</span>
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??????' : 'Order By'}</span>
+                    <span>{item.orderBy}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '????? ????????' : 'Sales Person'}</span>
                     <span>{item.salesPerson}</span>
                   </div>
                 </div>
@@ -1200,7 +1399,7 @@ export default function RequestsPage() {
             />
             <div className="absolute inset-0 flex items-start justify-center p-4 md:p-6">
               <div className="card w-full max-w-xl mt-10 max-h-[85vh] overflow-y-auto">
-                <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 ">
                   <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
                     {isRTL ? 'إضافة طلب جديد' : 'Add New Request'}
                   </h2>
@@ -1213,6 +1412,14 @@ export default function RequestsPage() {
                   </button>
                 </div>
                 <form onSubmit={handleSubmitForm} className="p-4 space-y-4">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {isRTL
+                        ? 'املأ الحقول التالية لإضافة طلب جديد. الحقول الأساسية مثل اسم العميل أو المنتج والكمية والسعر مطلوبة.'
+                        : 'Fill in the form below to add a new request. Required fields include customer name or product, quantity, and price.'
+                      }
+                    </p>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
@@ -1222,7 +1429,8 @@ export default function RequestsPage() {
                         name="customer_name"
                         value={formData.customer_name}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                        placeholder={isRTL ? 'اكتب اسم العميل هنا' : 'Enter customer name'}
                       />
                     </div>
                     <div className="space-y-1">
@@ -1233,7 +1441,8 @@ export default function RequestsPage() {
                         name="customer_phone"
                         value={formData.customer_phone}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                        placeholder={isRTL ? '0100xxxxxxx' : 'e.g. +2010xxxxxxx'}
                       />
                     </div>
                     <div className="space-y-1">
@@ -1244,7 +1453,8 @@ export default function RequestsPage() {
                         name="product"
                         value={formData.product}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                        placeholder={isRTL ? 'اكتب اسم المنتج أو البند' : 'Enter product or item'}
                       />
                     </div>
                     <div className="space-y-1">
@@ -1256,8 +1466,9 @@ export default function RequestsPage() {
                         name="quantity"
                         value={formData.quantity}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
                         min="1"
+                        placeholder={isRTL ? '1' : '1'}
                       />
                     </div>
                     <div className="space-y-1">
@@ -1269,8 +1480,9 @@ export default function RequestsPage() {
                         name="price"
                         value={formData.price}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
                         min="0"
+                        placeholder={isRTL ? '0.00' : '0.00'}
                       />
                     </div>
                     <div className="space-y-1">
@@ -1281,7 +1493,7 @@ export default function RequestsPage() {
                         name="priority"
                         value={formData.priority}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
                       >
                         <option value="Low">{isRTL ? 'منخفضة' : 'Low'}</option>
                         <option value="Medium">{isRTL ? 'متوسطة' : 'Medium'}</option>
@@ -1296,7 +1508,7 @@ export default function RequestsPage() {
                         name="type"
                         value={formData.type}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
                       >
                         <option value="Inquiry">{isRTL ? 'استعلام' : 'Inquiry'}</option>
                         <option value="Booking">{isRTL ? 'حجز' : 'Booking'}</option>
@@ -1311,7 +1523,8 @@ export default function RequestsPage() {
                         name="payment_plan"
                         value={formData.payment_plan}
                         onChange={handleFormChange}
-                        className="input w-full"
+                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                        placeholder={isRTL ? 'مثال: دفعة أولى، شهري' : 'e.g. Upfront, Monthly'}
                       />
                     </div>
                   </div>
@@ -1323,7 +1536,8 @@ export default function RequestsPage() {
                       name="description"
                       value={formData.description}
                       onChange={handleFormChange}
-                      className="textarea w-full h-20"
+                      className="textarea w-full h-20 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      placeholder={isRTL ? 'اكتب أي ملاحظات إضافية هنا' : 'Enter any additional notes here'}
                     />
                   </div>
                   <div className="flex justify-end gap-3 pt-2 border-t border-gray-100 dark:border-gray-700 mt-2">

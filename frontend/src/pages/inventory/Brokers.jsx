@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDynamicFields } from '../../hooks/useDynamicFields'
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { useAppState } from '../../shared/context/AppStateProvider'
-import { FaFileImport, FaPlus, FaFile, FaChevronRight, FaChevronLeft, FaFilePdf, FaFileCsv, FaChevronDown, FaFileExport, FaPaperclip, FaTimes, FaMapMarkerAlt, FaTags } from 'react-icons/fa'
-import { Filter, Search, Users, Edit2, Trash2, Building2, Phone, Mail, Percent, X, ChevronDown } from 'lucide-react'
+import { FaFileImport, FaPlus, FaChevronRight, FaChevronLeft, FaFilePdf, FaFileCsv, FaChevronDown, FaFileExport, FaPaperclip, FaTimes, FaMapMarkerAlt, FaEye } from 'react-icons/fa'
+import BrokerPreviewModal from '../../components/brokers/BrokerPreviewModal'
+import { Filter, Search, Users, Edit2, Trash2, Building2, Phone, Mail, X, ChevronDown } from 'lucide-react'
 import SearchableSelect from '../../components/SearchableSelect'
 import DynamicFieldRenderer from '../../components/DynamicFieldRenderer'
 import BrokersImportModal from '../../components/BrokersImportModal'
@@ -62,9 +63,10 @@ export default function Brokers() {
   const [salesUsers, setSalesUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [previewBroker, setPreviewBroker] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [showAllFilters, setShowAllFilters] = useState(false);
+  const [showAllFilters] = useState(false);
   const [filters, setFilters] = useState({
     search: '',
     status: '',
@@ -104,7 +106,7 @@ export default function Brokers() {
   };
 
   // Load Data
-  const fetchBrokers = async () => {
+  const fetchBrokers = useCallback(async () => {
     try {
       setIsLoading(true);
       const [brokersRes, usersRes] = await Promise.all([
@@ -183,11 +185,11 @@ export default function Brokers() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isArabic]);
 
   useEffect(() => {
     fetchBrokers();
-  }, []);
+  }, [fetchBrokers]);
 
   // Form Handlers
   const handleSubmit = async (e) => {
@@ -626,8 +628,8 @@ export default function Brokers() {
                 </div>
                 <div>
                   <h3 className="font-bold text-lg leading-tight mb-1">{broker.name}</h3>
-                  <div className="flex flex-wrap gap-2 text-xs">
-                     <span className={`px-2 py-0.5 rounded-full border bg-transparent ${broker.brokerType === 'company' ? 'border-purple-300 text-purple-700 dark:border-purple-700 dark:text-purple-300' : 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300'}`}>
+                  <div className=" gap-2 text-xs">
+                     <span className={`px-2 py-0.5 rounded-full m-1 border bg-transparent ${broker.brokerType === 'company' ? 'border-purple-300 text-purple-700 dark:border-purple-700 dark:text-purple-300' : 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300'}`}>
                        {broker.brokerType === 'company' ? (isArabic ? 'شركة' : 'Company') : (isArabic ? 'فرد' : 'Individual')}
                      </span>
                      <span className={`px-2 py-0.5 rounded-full border bg-transparent ${broker.status === 'Active' ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400' : 'border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300'}`}>
@@ -639,6 +641,9 @@ export default function Brokers() {
               
               {(canManageBrokers || canDeleteInventory) && (
                 <div className="flex gap-1">
+                  <button onClick={() => setPreviewBroker(broker)} className="w-8 h-8 rounded-full hover:bg-white dark:hover:bg-gray-700 flex items-center justify-center text-sky-600 shadow-sm transition-colors" title={isArabic ? 'معاينة' : 'Preview'}>
+                    <FaEye size={14} />
+                  </button>
                   <button onClick={() => handleEdit(broker)} className="w-8 h-8 rounded-full hover:bg-white dark:hover:bg-gray-700 flex items-center justify-center text-blue-600 shadow-sm transition-colors" title={isArabic ? 'تعديل' : 'Edit'}>
                     <Edit2 size={14} />
                   </button>
@@ -751,9 +756,7 @@ export default function Brokers() {
               </div>
 
               {/* Sales Assignment */}
-              {true && (
-                <>
-                  <div className="h-px bg-[var(--panel-border)]/50" />
+              <div className="h-px bg-[var(--panel-border)]/50" />
                   <div>
                     <h4 className="text-xs font-semibold text-[var(--muted-text)] uppercase tracking-wider mb-2">{isArabic ? 'معين إلى' : 'Assigned To'}</h4>
                     {Array.isArray(broker.salesPersons) && broker.salesPersons.length > 0 ? (
@@ -768,8 +771,6 @@ export default function Brokers() {
                       <div className="text-xs text-gray-400 italic">{isArabic ? 'ØºÙŠØ± Ù…Ø¹ÙŠÙ†' : 'Unassigned'}</div>
                     )}
                   </div>
-                </>
-              )}
 
               {/* Dynamic Fields */}
               {dynamicFields.length > 0 && Object.keys(broker.custom_fields || {}).length > 0 && (
@@ -850,6 +851,17 @@ export default function Brokers() {
           onClose={() => setShowImportModal(false)} 
           isRTL={isArabic} 
           onImport={handleImport}
+        />
+      )}
+
+      {previewBroker && (
+        <BrokerPreviewModal
+          isOpen={!!previewBroker}
+          onClose={() => setPreviewBroker(null)}
+          broker={previewBroker}
+          onCheckInSuccess={() => { fetchBrokers(); setPreviewBroker(null); }}
+          onEdit={(brokerToEdit) => { handleEdit(brokerToEdit); setPreviewBroker(null); }}
+          onBrokerUpdated={() => { fetchBrokers(); }}
         />
       )}
 

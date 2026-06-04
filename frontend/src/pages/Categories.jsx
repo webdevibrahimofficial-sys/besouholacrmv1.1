@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as XLSX from 'xlsx'
 import 'jspdf-autotable'
@@ -7,6 +7,28 @@ import { useAppState } from '../shared/context/AppStateProvider'
 import { FaFileImport, FaPlus, FaFileExport, FaFileCsv, FaFilePdf, FaFilter, FaSearch, FaEdit, FaTrash, FaChevronLeft, FaChevronRight, FaTimes } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import CategoriesImportModal from './inventory/CategoriesImportModal'
+
+const normalizeTenantCompanyType = (...values) => {
+  const normalized = values
+    .map(value => String(value || '').trim().toLowerCase())
+    .find(Boolean)
+
+  if (!normalized) return ''
+  if (normalized.includes('general')) return 'general'
+  if (normalized.includes('real')) return 'realestate'
+
+  return normalized.replace(/[\s_]+/g, '')
+}
+
+const normalizeUserRole = (user) => {
+  const directRole = String(user?.role || '').trim()
+  if (directRole) return directRole.toLowerCase()
+
+  const roleFromArray = Array.isArray(user?.roles) ? String(user.roles[0]?.name || '').trim() : ''
+  if (roleFromArray) return roleFromArray.toLowerCase()
+
+  return String(user?.job_title || '').trim().toLowerCase()
+}
 
 export default function Categories() {
   const { i18n } = useTranslation()
@@ -26,7 +48,7 @@ export default function Categories() {
     clearFilters: isArabic ? 'إعادة تعيين' : 'Reset',
     name: isArabic ? 'اسم التصنيف' : 'Category Name',
     code: isArabic ? 'الكود' : 'Code',
-    appliesTo: isArabic ? 'ينطبق على' : 'Applies To',
+    appliesTo: isArabic ? 'نوع التصنيف' : 'Category Type',
     status: isArabic ? 'الحالة' : 'Status',
     offeringsCount: isArabic ? 'عدد العروض' : 'Offerings Count',
     description: isArabic ? 'الوصف' : 'Description',
@@ -73,21 +95,25 @@ export default function Categories() {
   const hasExplicitInventoryPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Inventory')
   const inventoryModulePerms = hasExplicitInventoryPerms && Array.isArray(modulePermissions.Inventory) ? modulePermissions.Inventory : []
   const effectiveInventoryPerms = hasExplicitInventoryPerms ? inventoryModulePerms : []
-  const roleLower = String(user?.role || '').toLowerCase()
-  const tenantTypeNorm = String(company?.company_type || company?.type || '')
-    .toLowerCase()
-    .replace(/[\s_]+/g, '')
-    .trim()
+  const roleLower = normalizeUserRole(user)
+  const tenantTypeNorm = normalizeTenantCompanyType(
+    company?.company_type,
+    company?.type,
+    company?.companyType,
+    company?.tenant_type
+  )
   const isGeneralTenant = tenantTypeNorm === 'general'
   const allowAllTenantTypes = !tenantTypeNorm
   const isTenantAdmin =
     roleLower === 'admin' ||
     roleLower === 'tenant admin' ||
-    roleLower === 'tenant-admin'
+    roleLower === 'tenant-admin' ||
+    roleLower === 'super admin' ||
+    roleLower === 'superadmin'
   const canManageCategories =
     (allowAllTenantTypes || isGeneralTenant) && (
       effectiveInventoryPerms.includes('addCategory') ||
-      effectiveInventoryPerms.includes('addProducts') ||
+      effectiveInventoryPerms.includes('addItems') ||
       user?.is_super_admin ||
       isTenantAdmin
     )
@@ -111,6 +137,7 @@ export default function Categories() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [activeTab, setActiveTab] = useState('basic')
+  const exportMenuRef = useRef(null)
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1)
@@ -148,6 +175,19 @@ export default function Categories() {
   useEffect(() => {
     fetchCategories()
   }, [])
+
+  useEffect(() => {
+    if (!showExportMenu) return
+
+    const handleClickOutside = (event) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+        setShowExportMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showExportMenu])
 
   function onChange(e) {
     const { name, value } = e.target
@@ -308,7 +348,7 @@ export default function Categories() {
         const doc = new jsPDF()
         doc.text("Categories List", 14, 10)
         autoTable(doc, {
-        head: [['ID', 'Name', 'Code', 'Applies To', 'Status', 'Description']],
+        head: [['ID', 'Name', 'Code', 'Category Type', 'Status', 'Description']],
         body: filtered.map(c => [c.id, c.name, c.code, c.appliesTo, c.status, c.description]),
         startY: 20
         })
@@ -347,7 +387,7 @@ export default function Categories() {
               </button>
             )}
             {canExportCategory && (
-            <div className="relative  dropdown-container w-full lg:w-auto">
+            <div ref={exportMenuRef} className="relative dropdown-container w-full lg:w-auto">
               <button 
                 className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 text-white border-none flex items-center justify-center gap-2"
                 onClick={() => setShowExportMenu(!showExportMenu)}

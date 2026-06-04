@@ -24,11 +24,19 @@ class SuperAdminTest extends TestCase
         parent::setUp();
 
         // Create Tenant A and User A
-        $this->tenantA = Tenant::create(['name' => 'Tenant A', 'domain' => 'a.localhost']);
+        $this->tenantA = Tenant::factory()->create([
+            'name' => 'Tenant A',
+            'domain' => 'a.localhost',
+            'slug' => 'tenant-a',
+        ]);
         $this->userA = User::factory()->create(['tenant_id' => $this->tenantA->id]);
 
         // Create Tenant B and User B
-        $this->tenantB = Tenant::create(['name' => 'Tenant B', 'domain' => 'b.localhost']);
+        $this->tenantB = Tenant::factory()->create([
+            'name' => 'Tenant B',
+            'domain' => 'b.localhost',
+            'slug' => 'tenant-b',
+        ]);
         $this->userB = User::factory()->create(['tenant_id' => $this->tenantB->id]);
 
         // Create Super Admin (belongs to Tenant A, but has is_super_admin flag)
@@ -86,5 +94,21 @@ class SuperAdminTest extends TestCase
         // Verify can find User B
         $fetchedUserB = User::find($this->userB->id);
         $this->assertNotNull($fetchedUserB, 'Super Admin should be able to find User B directly');
+    }
+
+    public function test_super_admin_can_update_tenant_by_id()
+    {
+        Sanctum::actingAs($this->superAdmin);
+
+        $response = $this->putJson("/api/super-admin/tenants/{$this->tenantA->id}", [
+            'subscription_plan' => 'enterprise',
+            'is_lifetime' => true,
+        ]);
+
+        $response->assertStatus(200);
+
+        $this->tenantA->refresh();
+        $this->assertSame('enterprise', $this->tenantA->subscription_plan);
+        $this->assertTrue($this->tenantA->meta_data['subscription']['is_lifetime'] ?? false);
     }
 }

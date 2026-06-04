@@ -1398,7 +1398,7 @@ class LeadController extends Controller
 
             $query->orderBy('id')->select($columns);
 
-            $query->chunkById(2000, function ($leadsChunk) use (&$seen, $maxLeads, $usersById, $unassignedLabel, &$totals, &$bySales, &$monthly) {
+            $query->chunkById(2000, function ($leadsChunk) use (&$seen, $maxLeads, $usersById, $unassignedLabel, &$totals, &$bySales, &$monthly, $currentUserId, $virtualPendingFlag) {
                 foreach ($leadsChunk as $lead) {
                     if ($seen >= $maxLeads) {
                         return false;
@@ -1417,6 +1417,29 @@ class LeadController extends Controller
 
                     $stage = strtolower(trim((string) ($lead->stage ?? '')));
                     $status = strtolower(trim((string) ($lead->status ?? '')));
+                    $assignedTo = (int) ($lead->assigned_to ?? 0);
+
+                    $isNewStage = $stage === 'new' || $stage === 'new lead' || ($status === 'new' && $stage === '');
+                    $isColdStage = in_array($stage, ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'], true)
+                        || str_contains($stage, 'cold')
+                        || str_contains($stage, '????');
+                    $isExplicitPendingStage = in_array($stage, ['pending', 'in-progress'], true)
+                        || in_array($status, ['pending', 'in-progress'], true);
+
+                    $isPendingNew = false;
+                    $isPendingCold = false;
+
+                    if ($assignedTo > 0) {
+                        if ($isExplicitPendingStage) {
+                            $isPendingNew = true;
+                        } elseif ($virtualPendingFlag == 1 && $assignedTo === $currentUserId && $isNewStage) {
+                            $isPendingNew = true;
+                        } elseif ($isNewStage && $assignedTo !== $currentUserId) {
+                            $isPendingNew = true;
+                        } elseif ($isColdStage && ($assignedTo !== $currentUserId || $virtualPendingFlag == 1)) {
+                            $isPendingCold = true;
+                        }
+                    }
 
                     $totals['totalLeads'] += 1;
                     if (str_contains($stage, 'meeting') || str_contains($stage, 'اجتماع')) {
@@ -1457,11 +1480,10 @@ class LeadController extends Controller
                     }
 
                     $bySales[$salespersonName]['total'] += 1;
-
-                    if ($stage === 'new' || $stage === 'new lead' || $stage === 'جديد') {
+                    if ($isPendingNew) {
                         $bySales[$salespersonName]['pendingNew'] += 1;
                     }
-                    if (str_contains($stage, 'cold') || str_contains($stage, 'بارد')) {
+                    if ($isPendingCold) {
                         $bySales[$salespersonName]['pendingCold'] += 1;
                     }
                     if (str_contains($stage, 'follow') || str_contains($stage, 'متابعة')) {
@@ -1774,7 +1796,7 @@ class LeadController extends Controller
             $query = $this->buildFilteredLeadsQuery($request, $user, true);
 
             // Keep stats near-real-time so cards stay aligned with table results.
-            $cacheKey = 'leads_stats:v8:' . md5(json_encode([
+            $cacheKey = 'leads_stats:v10:' . md5(json_encode([
                 'user_id' => $user->id,
                 'filters' => $request->all()
             ]));
@@ -1855,7 +1877,6 @@ class LeadController extends Controller
                 if ($hasSalesPersonFilter) {
                     $byStage = (clone $nonDupQuery)->select(DB::raw("
                           CASE
-                              WHEN lower(COALESCE(priority,'')) = 'hot' THEN 'hot'
                               WHEN stage IS NULL OR stage = '' THEN status
                               ELSE stage
                           END as display_stage
@@ -1866,7 +1887,6 @@ class LeadController extends Controller
                 } else {
                     $byStage = (clone $nonDupQuery)->select(DB::raw("
                           CASE 
-                              WHEN lower(COALESCE(priority,'')) = 'hot' THEN 'hot'
                               WHEN (lower(status) = 'pending' or lower(status) = 'in-progress')
                                    AND COALESCE(assigned_to, 0) > 0
                                    AND assigned_to != $currentUserId
@@ -1887,11 +1907,16 @@ class LeadController extends Controller
                     $normalizedByStage[strtolower(trim((string) $stageKey))] = (int) $stageCount;
                 }
 
-                // Total Leads should exclude duplicates. The most reliable source is byStage (built from non-dup query).
-                // This avoids counting duplicate rows in "total" while still reporting duplicates separately.
+                // Total Leads = sum of pipeline stage buckets (duplicates already excluded via $nonDupQuery).
                 $totalFromByStage = 0;
                 try {
-                    $totalFromByStage = array_sum(array_map('intval', (array) $byStage->toArray()));
+                    foreach ($byStage as $stageKey => $stageCount) {
+                        $key = strtolower(trim((string) $stageKey));
+                        if ($key === '') {
+                            continue;
+                        }
+                        $totalFromByStage += (int) $stageCount;
+                    }
                 } catch (\Throwable $e) {
                     $totalFromByStage = (int) ($counts->total ?? 0);
                 }
@@ -1904,7 +1929,10 @@ class LeadController extends Controller
                     + ($normalizedByStage['cold-call'] ?? 0)
                     + ($normalizedByStage['cold_call'] ?? 0)
                     + ($normalizedByStage['cold_calls'] ?? 0);
-                $hotCount = $normalizedByStage['hot'] ?? 0;
+                // Hot is a priority flag, not a pipeline stage.
+                $hotCount = (int) (clone $nonDupQuery)
+                    ->whereRaw("lower(COALESCE(priority,'')) = 'hot'")
+                    ->count();
 
                 // Closed Deals count (exclude duplicates) - matches pipeline report predicate.
                 $closedDealsCount = (int) (clone $nonDupQuery)->whereRaw("

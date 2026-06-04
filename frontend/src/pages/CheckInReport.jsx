@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Calendar, MapPin, CheckCircle, XCircle 
 } from 'lucide-react'
-import { Filter, User, Users, Tag, Briefcase, Trophy, FileText, ChevronLeft, ChevronRight, Search, Loader, Eye, Check, X, ChevronDown } from 'lucide-react'
+import { Filter, User, Users, ChevronLeft, ChevronRight, Loader, Eye, Check, X, ChevronDown } from 'lucide-react'
 import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '../utils/api'
@@ -31,7 +31,7 @@ export default function CheckInReport() {
 
   const [data, setData] = useState([])
   const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [, setError] = useState(null)
 
   useEffect(() => {
     const fetchVisits = async () => {
@@ -58,8 +58,9 @@ export default function CheckInReport() {
   const [actionDateFrom, setActionDateFrom] = useState('')
   const [actionDateTo, setActionDateTo] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [selectedItems, setSelectedItems] = useState([])
-  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [brokerFilter, setBrokerFilter] = useState('')
+  const [_selectedItems] = useState([])
+  const [, setShowAllFilters] = useState(false)
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
@@ -157,6 +158,7 @@ export default function CheckInReport() {
       .filter(item => {
         if (salesPersonFilter && !item.salesPerson.toLowerCase().includes(salesPersonFilter.toLowerCase())) return false
         if (typeFilter && item.type !== typeFilter) return false
+        if (brokerFilter && !String(item.brokerName || '').toLowerCase().includes(brokerFilter.toLowerCase())) return false
 
         if (fromDate || toDate) {
           if (!item.checkInDate) return false
@@ -169,11 +171,11 @@ export default function CheckInReport() {
         return true
       })
       .sort((a, b) => new Date(b.checkInDate) - new Date(a.checkInDate))
-  }, [data, salesPersonFilter, actionDateFrom, actionDateTo, typeFilter])
+  }, [data, salesPersonFilter, actionDateFrom, actionDateTo, typeFilter, brokerFilter])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [salesPersonFilter, actionDateFrom, actionDateTo, typeFilter])
+  }, [salesPersonFilter, actionDateFrom, actionDateTo, typeFilter, brokerFilter])
 
   const totalRecords = filteredData.length
   const pageCount = Math.ceil(totalRecords / entriesPerPage)
@@ -184,6 +186,7 @@ export default function CheckInReport() {
 
   // KPI Calculations
   const totalCheckIns = filteredData.length
+  const totalBrokerVisits = filteredData.filter(i => i.type === 'broker').length
   const pendingCheckIns = filteredData.filter(i => i.status === 'pending').length
   const acceptedCheckIns = filteredData.filter(i => i.status === 'accepted').length
   const rejectedCheckIns = filteredData.filter(i => i.status === 'rejected').length
@@ -210,19 +213,14 @@ export default function CheckInReport() {
     }
   }
 
-  const toggleSelectAll = () => {
-    if (selectedItems.length === filteredData.length) {
-      setSelectedItems([])
-    } else {
-      setSelectedItems(filteredData.map(d => d.id))
-    }
-  }
-
-  const toggleSelectItem = (id) => {
-    if (selectedItems.includes(id)) {
-      setSelectedItems(prev => prev.filter(item => item !== id))
-    } else {
-      setSelectedItems(prev => [...prev, id])
+  const handleSubmit = async (id) => {
+    try {
+      await api.put(`/api/visits/${id}`, { status: 'submitted' })
+      setData(prev => prev.map(item => item.id === id ? { ...item, status: 'submitted' } : item))
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: t('Submitted') } }))
+    } catch (e) {
+      console.error(e)
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: t('Submit failed') } }))
     }
   }
 
@@ -260,6 +258,7 @@ export default function CheckInReport() {
                 setActionDateFrom('')
                 setActionDateTo('')
                 setTypeFilter('')
+                setBrokerFilter('')
                 setShowAllFilters(false)
               }}
               className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
@@ -321,10 +320,27 @@ export default function CheckInReport() {
                   <option value="">{t('All')}</option>
                   <option value="task">{t('Task')}</option>
                   <option value="lead">{t('Lead')}</option>
+                  <option value="broker">{isRTL ? 'وسيط' : 'Broker'}</option>
                 </select>
                 <div className={`absolute ${isRTL ? 'left-3' : 'right-3'} top-1/2 transform -translate-y-1/2 pointer-events-none ${isLight ? 'text-black' : 'text-white'}`}>
                   <ChevronDown size={14} />
                 </div>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Users size={12} className="text-blue-500 dark:text-blue-400" />
+                {isRTL ? 'Broker' : 'Broker'}
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={brokerFilter}
+                  onChange={(e) => setBrokerFilter(e.target.value)}
+                  placeholder={isRTL ? 'اسم الوسيط...' : 'Broker name...'}
+                  className={`w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${isLight ? 'text-black' : 'text-white'}`}
+                />
               </div>
             </div>
           </div>
@@ -332,7 +348,7 @@ export default function CheckInReport() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           {
             title: t('sales person '),
@@ -365,6 +381,14 @@ export default function CheckInReport() {
             icon: XCircle,
             color: 'text-red-600 dark:text-red-400',
             bgColor: 'bg-red-50 dark:bg-red-900/20',
+          },
+          {
+            title: isRTL ? 'Broker Visits' : 'Broker Visits',
+            value: totalBrokerVisits,
+            sub: isRTL ? '(Brokers)' : '(Brokers)',
+            icon: Users,
+            color: 'text-purple-600 dark:text-purple-400',
+            bgColor: 'bg-purple-50 dark:bg-purple-900/20',
           },
         ].map((card, idx) => {
           const Icon = card.icon
@@ -487,11 +511,19 @@ export default function CheckInReport() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 text-sm">
+                {item.type === 'broker' && (
+                  <div className="flex justify-between items-center">
+                    <span className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Broker' : 'Broker'}</span>
+                    <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{item.brokerName || '-'}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                     <span className={`${isLight ? 'text-black' : 'text-white'}`}>{t('Type')}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                         {item.type === 'task' ? (
                           t('Task')
+                        ) : item.type === 'broker' ? (
+                          isRTL ? 'Broker' : 'Broker'
                         ) : item.type === 'lead' ? (
                           <button 
                             onClick={() => handleLeadClick(item)}
@@ -500,7 +532,7 @@ export default function CheckInReport() {
                             {t('Lead')}
                           </button>
                         ) : (
-                          t('Lead')
+                          item.type || t('Lead')
                         )}
                     </span>
                 </div>
@@ -508,33 +540,59 @@ export default function CheckInReport() {
                 <div className="flex justify-between items-center">
                     <span className={`${isLight ? 'text-black' : 'text-white'}`}>{t('Location')}</span>
                     <button 
-                      onClick={() => window.open(`https://www.google.com/maps?q=${item.location.lat},${item.location.lng}`, '_blank')}
+                      onClick={() => item.location?.lat && item.location?.lng && window.open(`https://www.google.com/maps?q=${item.location.lat},${item.location.lng}`, '_blank')}
                       className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-blue-700 bg-blue-100/50 rounded-full hover:bg-blue-200/50 dark:bg-blue-900/30 dark:text-blue-300 transition-colors"
                     >
                       <Eye size={12} />
                       {t('Preview')}
                     </button>
                 </div>
+                <div className="flex justify-between items-center">
+                  <span className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Duration' : 'Duration'}</span>
+                  <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    {item.durationMinutes != null ? `${item.durationMinutes} min` : '-'}
+                  </span>
+                </div>
               </div>
 
-              {isAdminOrManager && item.salesPersonId !== user?.id && (item.status !== 'accepted' && item.status !== 'rejected') && (
-                <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
-                  <button
-                    onClick={() => handleAccept(item.id)}
-                    className="flex-1 inline-flex justify-center items-center gap-1 px-3 py-2 text-sm font-medium text-green-700 bg-green-100/50 rounded-lg hover:bg-green-200/50 dark:bg-green-900/30 dark:text-green-300 transition-colors"
-                  >
-                    <Check size={16} />
-                    {t('Accept')}
-                  </button>
-                  <button
-                    onClick={() => handleReject(item.id)}
-                    className="flex-1 inline-flex justify-center items-center gap-1 px-3 py-2 text-sm font-medium text-red-700 bg-red-100/50 rounded-lg hover:bg-red-200/50 dark:bg-red-900/30 dark:text-red-300 transition-colors"
-                  >
-                    <X size={16} />
-                    {t('Reject')}
-                  </button>
-                </div>
-              )}
+              {(() => {
+                const canSubmit = item.salesPersonId === user?.id && item.status === 'pending'
+                const canModerate = isAdminOrManager && item.salesPersonId !== user?.id && item.status !== 'accepted' && item.status !== 'rejected'
+                return (
+                  <>
+                    {canSubmit && (
+                      <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-end">
+                        <button
+                          onClick={() => handleSubmit(item.id)}
+                          className="w-full inline-flex justify-center items-center gap-1 px-3 py-2 text-sm font-medium text-blue-700 bg-blue-100/50 rounded-lg hover:bg-blue-200/50 dark:bg-blue-900/30 dark:text-blue-300 transition-colors"
+                        >
+                          <Check size={16} />
+                          {t('Submit')}
+                        </button>
+                      </div>
+                    )}
+
+                    {canModerate && (
+                      <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+                        <button
+                          onClick={() => handleAccept(item.id)}
+                          className="flex-1 inline-flex justify-center items-center gap-1 px-3 py-2 text-sm font-medium text-green-700 bg-green-100/50 rounded-lg hover:bg-green-200/50 dark:bg-green-900/30 dark:text-green-300 transition-colors"
+                        >
+                          <Check size={16} />
+                          {t('Accept')}
+                        </button>
+                        <button
+                          onClick={() => handleReject(item.id)}
+                          className="flex-1 inline-flex justify-center items-center gap-1 px-3 py-2 text-sm font-medium text-red-700 bg-red-100/50 rounded-lg hover:bg-red-200/50 dark:bg-red-900/30 dark:text-red-300 transition-colors"
+                        >
+                          <X size={16} />
+                          {t('Reject')}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           ))}
           {paginatedData.length === 0 && (
@@ -568,6 +626,12 @@ export default function CheckInReport() {
                   {t('Type')}
                 </th>
                 <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
+                  {isRTL ? 'Broker' : 'Broker'}
+                </th>
+                <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
+                  {isRTL ? 'Duration' : 'Duration'}
+                </th>
+                <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
                   {t('Status')}
                 </th>
                 <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
@@ -599,7 +663,7 @@ export default function CheckInReport() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <button 
-                      onClick={() => window.open(`https://www.google.com/maps?q=${item.location.lat},${item.location.lng}`, '_blank')}
+                      onClick={() => item.location?.lat && item.location?.lng && window.open(`https://www.google.com/maps?q=${item.location.lat},${item.location.lng}`, '_blank')}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100/50 rounded-full hover:bg-blue-200/50 dark:bg-blue-900/30 dark:text-blue-300 transition-colors"
                     >
                       <Eye size={14} />
@@ -609,6 +673,8 @@ export default function CheckInReport() {
                   <td className={`px-6 py-4 whitespace-nowrap text-center text-sm ${isLight ? 'text-black' : 'text-white'}`}>
                     {item.type === 'task' ? (
                       t('Task')
+                    ) : item.type === 'broker' ? (
+                      isRTL ? 'Broker' : 'Broker'
                     ) : item.type === 'lead' ? (
                       <button 
                         onClick={() => handleLeadClick(item)}
@@ -617,8 +683,14 @@ export default function CheckInReport() {
                         {t('Lead')}
                       </button>
                     ) : (
-                      t('Lead')
+                      item.type || t('Lead')
                     )}
+                  </td>
+                  <td className={`px-6 py-4 whitespace-nowrap text-center text-sm ${isLight ? 'text-black' : 'text-white'}`}>
+                    {item.type === 'broker' ? (item.brokerName || '-') : '-'}
+                  </td>
+                  <td className={`px-6 py-4 whitespace-nowrap text-center text-sm ${isLight ? 'text-black' : 'text-white'}`}>
+                    {item.durationMinutes != null ? `${item.durationMinutes} min` : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                      <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${
@@ -636,32 +708,43 @@ export default function CheckInReport() {
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <div className="flex items-center justify-center gap-2">
                       {(() => {
-                        const canModerate =
-                          isAdminOrManager &&
-                          item.salesPersonId !== user?.id &&
-                          item.status !== 'accepted' &&
-                          item.status !== 'rejected'
+                        const canSubmit = item.salesPersonId === user?.id && item.status === 'pending'
+                        const canModerate = isAdminOrManager && item.salesPersonId !== user?.id && item.status !== 'accepted' && item.status !== 'rejected'
 
-                        if (!canModerate) {
+                        if (!canSubmit && !canModerate) {
                           return <span className="text-xs text-[var(--muted-text)]">—</span>
                         }
 
                         return (
                           <>
-                            <button
-                              onClick={() => handleAccept(item.id)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100/50 rounded-md hover:bg-green-200/50 dark:bg-green-900/30 dark:text-green-300 transition-colors border border-green-200/50 dark:border-green-800/50"
-                            >
-                              <Check size={14} />
-                              {t('Accept')}
-                            </button>
-                            <button
-                              onClick={() => handleReject(item.id)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100/50 rounded-md hover:bg-red-200/50 dark:bg-red-900/30 dark:text-red-300 transition-colors border border-red-200/50 dark:border-red-800/50"
-                            >
-                              <X size={14} />
-                              {t('Reject')}
-                            </button>
+                            {canSubmit && (
+                              <button
+                                onClick={() => handleSubmit(item.id)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100/50 rounded-md hover:bg-blue-200/50 dark:bg-blue-900/30 dark:text-blue-300 transition-colors border border-blue-200/50 dark:border-blue-800/50"
+                              >
+                                <Check size={14} />
+                                {t('Submit')}
+                              </button>
+                            )}
+
+                            {canModerate && (
+                              <>
+                                <button
+                                  onClick={() => handleAccept(item.id)}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100/50 rounded-md hover:bg-green-200/50 dark:bg-green-900/30 dark:text-green-300 transition-colors border border-green-200/50 dark:border-green-800/50"
+                                >
+                                  <Check size={14} />
+                                  {t('Accept')}
+                                </button>
+                                <button
+                                  onClick={() => handleReject(item.id)}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100/50 rounded-md hover:bg-red-200/50 dark:bg-red-900/30 dark:text-red-300 transition-colors border border-red-200/50 dark:border-red-800/50"
+                                >
+                                  <X size={14} />
+                                  {t('Reject')}
+                                </button>
+                              </>
+                            )}
                           </>
                         )
                       })()}
@@ -671,7 +754,7 @@ export default function CheckInReport() {
               ))}
               {paginatedData.length === 0 && (
                 <tr>
-                  <td colSpan={7} className={`px-6 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                  <td colSpan={9} className={`px-6 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                     {isRTL ? 'لا توجد بيانات' : 'No check-ins found'}
                   </td>
                 </tr>

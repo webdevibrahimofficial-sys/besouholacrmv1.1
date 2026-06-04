@@ -34,9 +34,42 @@ const normalizeSelectValue = (value) => {
   return String(value);
 };
 
+const normalizeTenantCompanyType = (...values) => {
+  const normalized = values
+    .map(value => String(value || '').trim().toLowerCase())
+    .find(Boolean)
+
+  if (!normalized) return ''
+  if (normalized.includes('general')) return 'general'
+  if (normalized.includes('real')) return 'realestate'
+
+  return normalized.replace(/[\s_]+/g, '')
+}
+
 const isSalesPersonRole = (role) => {
   const r = normalizeRoleValue(role);
   return r === 'sales person' || r === 'salesperson';
+};
+
+const isAdminRole = (role) => {
+  const r = normalizeRoleValue(role);
+  return r === 'admin' || r === 'tenant admin' || r === 'super admin';
+};
+
+const buildSelectAllPermissions = (filterInventoryPermsByTenantType) => {
+  const perms = {};
+  Object.entries(PERMISSIONS).forEach(([group, list]) => {
+    const filtered =
+      group === 'Inventory' ? filterInventoryPermsByTenantType(list) : list;
+    if (filtered.length > 0) {
+      perms[group] = [...filtered];
+    }
+  });
+  perms.Reports = REPORT_MODULES.flatMap((module) => [
+    `${module}_show`,
+    `${module}_export`,
+  ]);
+  return perms;
 };
 
 export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
@@ -47,16 +80,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const isEdit = !!user;
 
   const currencySymbol = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'SAR'
-  const tenantTypeRaw =
-    crmSettings?.company_type ??
-    crmSettings?.companyType ??
-    company?.company_type ??
-    company?.type ??
-    ''
-  const tenantTypeNorm = String(tenantTypeRaw || '')
-    .toLowerCase()
-    .replace(/[\s_]+/g, '')
-    .trim()
+  const tenantTypeNorm = normalizeTenantCompanyType(
+    crmSettings?.company_type,
+    crmSettings?.companyType,
+    company?.company_type,
+    company?.type,
+    company?.companyType,
+    company?.tenant_type
+  )
   const isGeneralTenant = tenantTypeNorm === 'general'
   const isRealEstateTenant = tenantTypeNorm === 'realestate'
   const allowAllTenantTypes = !tenantTypeNorm
@@ -147,6 +178,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   }, [fetchData]);
 
   const isCustomRole = useMemo(() => form.role === 'Custom', [form.role]);
+  const isPrimaryAdmin = useMemo(
+    () => !!(user?.is_primary_admin || user?.is_super_admin),
+    [user]
+  );
 
   const isManager = useMemo(() => {
     const r = String(form.role || '').toLowerCase()
@@ -190,10 +225,21 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     if (!isEdit || !user) return;
 
     const modulePerms = user?.meta_data?.module_permissions || user?.module_permissions || {};
+    const role =
+      user?.role ||
+      (Array.isArray(user?.roles) && user.roles[0]?.name) ||
+      user?.job_title ||
+      '';
+
+    if (isAdminRole(role) && (user?.is_primary_admin || Object.keys(modulePerms).length === 0)) {
+      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType));
+      return;
+    }
+
     if (modulePerms && Object.keys(modulePerms).length > 0) {
       setCustomPerms(modulePerms);
     }
-  }, [isEdit, user]);
+  }, [isEdit, user, filterInventoryPermsByTenantType]);
 
   useEffect(() => {
     const modulePerms = isEdit ? (user?.meta_data?.module_permissions || user?.module_permissions || {}) : {};
@@ -290,10 +336,12 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Custom') {
       setCustomPerms({})
+    } else if (isAdminRole(form.role)) {
+      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType))
     } else {
       setCustomPerms({})
     }
-  }, [form.role])
+  }, [form.role, filterInventoryPermsByTenantType])
 
   const updateField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -453,8 +501,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     if (!form.fullName?.trim()) e.fullName = 'Full Name is required';
     if (!form.email?.trim()) e.email = 'Email is required';
     if (!form.role?.trim()) e.role = 'Role is required';
-    if (!isEdit && (form.password?.length || 0) < 8) e.password = 'Password must be at least 8 characters';
-    if (isEdit && form.password && form.password.length < 8) e.password = 'Password must be at least 8 characters';
+    if (!isPrimaryAdmin && !isEdit && (form.password?.length || 0) < 8) e.password = 'Password must be at least 8 characters';
+    if (!isPrimaryAdmin && isEdit && form.password && form.password.length < 8) e.password = 'Password must be at least 8 characters';
     
     if (form.phone && form.phone.trim()) {
       const phoneRegex = /^[+]?[(]?[0-9]{1,4}[)]?[-\s./0-9]*$/;
@@ -484,7 +532,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
       formData.append('name', (form.fullName || '').trim());
       if (form.email) formData.append('email', String(form.email).trim());
-      if (!isEdit || form.password) formData.append('password', form.password);
+      const passwordToSend = String(form.password || '').trim();
+      if (!isPrimaryAdmin && passwordToSend && (!isEdit || passwordToSend)) {
+        formData.append('password', passwordToSend);
+      }
       const usernameChanged = form.username !== initialForm.username;
       if (!isEdit || usernameChanged) {
         formData.append('username', String(form.username || '').trim());
@@ -748,6 +799,16 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 <h2 className="card-title text-lg">{isArabic ? 'الأمان' : 'Security'}</h2>
               </div>
               
+              {isPrimaryAdmin ? (
+                <div className="text-sm text-base-content/70 bg-base-200/50 p-3 rounded-lg flex items-start gap-2">
+                  <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                  <span>
+                    {isArabic
+                      ? 'لا يمكن تغيير كلمة مرور المسؤول الرئيسي من هنا. يمكنك تعديل الصلاحيات وباقي البيانات.'
+                      : 'The primary admin password cannot be changed here. You can update permissions and other details.'}
+                  </span>
+                </div>
+              ) : (
               <div className="max-w-md">
                 <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Password {!isEdit && <span className="text-[#FF6B6B]">*</span>}</span></label>
                 <div className="relative">
@@ -789,6 +850,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
                 {errors.password && <div className="flex items-center gap-1 mt-1.5 text-[#FF6B6B] text-xs"><AlertCircle size={12}/> {errors.password}</div>}
               </div>
+              )}
             </div>
 
             {/* Section: Profile Photo */}

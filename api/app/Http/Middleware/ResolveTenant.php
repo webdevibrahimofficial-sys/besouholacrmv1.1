@@ -39,6 +39,11 @@ class ResolveTenant
             return $next($request);
         }
 
+        // Super-admin routes use {tenant} as a numeric ID for route-model binding, not a slug.
+        if ($request->is('api/super-admin/*', 'super-admin/*')) {
+            return $next($request);
+        }
+
         $parseTenantSlugFromHost = function (?string $host): ?string {
             $host = strtolower(rtrim((string) $host, '.'));
             if ($host === '') {

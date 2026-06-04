@@ -14,7 +14,7 @@ import ReassignLeadsReport from '../components/LeadsReport/ReassignLeadsReport'
 import { LeadsAnalysisChart } from '../features/Dashboard/components/LeadsAnalysisChart'
 
 export default function LeadsPipelineReport() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
 
   const { isLight } = useTheme()
@@ -125,7 +125,12 @@ export default function LeadsPipelineReport() {
 
     let candidates = users.filter(u => {
       const role = String(u.role || '').toLowerCase()
-      return role.includes('sales person') || role.includes('salesperson')
+      return (
+        role.includes('sales person') ||
+        role.includes('salesperson') ||
+        role.includes('sales') ||
+        role.includes('account manager')
+      )
     })
 
     if (selectedManagerId) {
@@ -133,12 +138,32 @@ export default function LeadsPipelineReport() {
     }
 
     const uniqueSales = Array.from(new Map(candidates.map(s => [s.id, s])).values())
+      .filter(s => String(s?.name || '').trim() !== '')
+
+    const fallbackSales = uniqueSales.length
+      ? []
+      : (salesPersonStats || [])
+          .map(stat => String(stat?.name || '').trim())
+          .filter(name => name && name.toLowerCase() !== 'unassigned')
+          .map(name => ({ value: name, label: name }))
+
+    const resolvedOptions = uniqueSales.length
+      ? uniqueSales.map(s => ({ value: s.name, label: s.name || `#${s.id}` }))
+      : fallbackSales
+
+    const dedupedOptions = Array.from(
+      new Map(
+        resolvedOptions
+          .filter(option => String(option?.value || '').trim() !== '')
+          .map(option => [option.value, option])
+      ).values()
+    )
 
     return [
       { value: '', label: isRTL ? 'الكل' : 'All Sales Persons' },
-      ...uniqueSales.map(s => ({ value: s.name, label: s.name || `#${s.id}` }))
+      ...dedupedOptions
     ]
-  }, [users, managerFilter, isRTL])
+  }, [users, managerFilter, isRTL, salesPersonStats])
 
   const projectOrProductOptions = useMemo(() => {
     const type = String(tenantCompany?.company_type || '').toLowerCase()
@@ -457,7 +482,7 @@ export default function LeadsPipelineReport() {
               onClick={() => setShowAllFilters(prev => !prev)} 
               className={`flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors`}
             >
-              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'إظهار' : 'Show')}
+              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'إظهار الكل' : 'Show All')}
               <ChevronDown size={12} className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`} />
             </button>
             <button

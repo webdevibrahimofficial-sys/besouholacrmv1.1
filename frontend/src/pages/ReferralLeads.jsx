@@ -338,7 +338,7 @@ export const ReferralLeads = () => {
   const stageCounts = useMemo(() => {
     if (!statsData) return { total: 0 };
     
-    const counts = { total: statsData.total || 0 };
+    const counts = {};
     
     // Map static stages using their backend keys or byStage
     sidebarStages.forEach(s => {
@@ -350,6 +350,10 @@ export const ReferralLeads = () => {
         counts[s.key] = statsData.byStage?.[s.key] || 0;
       }
     });
+
+    counts.total = sidebarStages
+      .filter((s) => s.backendKey !== 'duplicate')
+      .reduce((sum, s) => sum + Number(counts[s.key] || 0), 0);
     
     return counts;
   }, [statsData, sidebarStages])
