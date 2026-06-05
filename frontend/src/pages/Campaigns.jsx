@@ -9,6 +9,7 @@ import { useTheme } from '../shared/context/ThemeProvider'
 import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEdit, FaTrash, FaFileExport, FaFileExcel, FaFilePdf, FaTimes, FaChevronLeft, FaChevronRight, FaRegCalendarAlt } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import DateRangePicker from '../shared/components/DateRangePicker'
+import { formatCrmDate, formatUiDateTime } from '../shared/utils/crmDateTime'
 import './CampaignsDateRange.css'
 
 // Alias for compatibility
@@ -19,7 +20,7 @@ const ChevronRight = FaChevronRight
 export default function Campaigns() {
   const { i18n } = useTranslation()
   const isArabic = (i18n?.language || '').toLowerCase().startsWith('ar')
-  const { user } = useAppState()
+  const { user, crmSettings } = useAppState()
   const { isLight } = useTheme()
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
@@ -249,6 +250,20 @@ export default function Campaigns() {
     const closed = leads.filter(l => normalize(l.stage) === 'closed').length
     return { totalLeads, closed }
   }, [leadsData])
+
+  const formatCampaignDate = useCallback((value) => {
+    if (!value) return '-'
+    const stringValue = String(value).trim()
+    if (!stringValue) return '-'
+
+    const hasExplicitTime =
+      stringValue.includes('T') ||
+      /\b\d{1,2}:\d{2}(:\d{2})?/.test(stringValue)
+
+    return hasExplicitTime
+      ? formatUiDateTime(stringValue, { crmSettings, language: i18n.language })
+      : formatCrmDate(stringValue, { crmSettings, language: i18n.language })
+  }, [crmSettings, i18n.language])
 
   // Filtering
   const filteredCampaigns = useMemo(() => {
@@ -825,11 +840,11 @@ export default function Campaigns() {
                   <div className="grid grid-cols-2 gap-y-3 gap-x-4 text-sm">
                     <div className="flex justify-between items-center">
                       <span className="text-[var(--muted-text)] text-xs">{isArabic ? 'تاريخ البداية' : 'Start Date'}</span>
-                      <span className="text-xs">{campaign.startDate || '-'}</span>
+                      <span className="text-xs font-medium" dir="ltr">{formatCampaignDate(campaign.startDate)}</span>
                     </div>
                      <div className="flex justify-between items-center">
                       <span className="text-[var(--muted-text)] text-xs">{isArabic ? 'تاريخ الانتهاء' : 'End Date'}</span>
-                      <span className="text-xs">{campaign.endDate || '-'}</span>
+                      <span className="text-xs font-medium" dir="ltr">{formatCampaignDate(campaign.endDate)}</span>
                     </div>
 
                     <div className="flex justify-between items-center col-span-2 border-t border-gray-100 dark:border-gray-800 pt-2 mt-1">
@@ -920,8 +935,8 @@ export default function Campaigns() {
                       {showOriginColumn && (
                         <td className="px-4 py-3 opacity-80">{providerLabel(campaign.provider)}</td>
                       )}
-                      <td className="px-4 py-3 text-xs">{campaign.startDate || '-'}</td>
-                      <td className="px-4 py-3 text-xs">{campaign.endDate || '-'}</td>
+                      <td className="px-4 py-3 text-xs font-medium" dir="ltr">{formatCampaignDate(campaign.startDate)}</td>
+                      <td className="px-4 py-3 text-xs font-medium" dir="ltr">{formatCampaignDate(campaign.endDate)}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col text-xs">
                           <span className="font-semibold">{(Number(campaign.totalBudget) || 0).toLocaleString()} {campaign.currency || 'EGP'}</span>

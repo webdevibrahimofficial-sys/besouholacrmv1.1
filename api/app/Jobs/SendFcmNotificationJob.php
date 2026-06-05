@@ -12,8 +12,6 @@ class SendFcmNotificationJob implements ShouldQueue
 {
     use Queueable;
 
-    public string $queue = 'fcm';
-
     public int $tries = 3;
 
     public function __construct(
@@ -23,6 +21,7 @@ class SendFcmNotificationJob implements ShouldQueue
         public string $body,
         public array $data = []
     ) {
+        $this->onQueue('fcm');
     }
 
     public function handle(FcmService $fcmService): void

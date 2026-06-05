@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Models\DeviceToken;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\FcmService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use Tests\TestCase;
 
 class DeviceTokenControllerTest extends TestCase
@@ -148,5 +150,44 @@ class DeviceTokenControllerTest extends TestCase
             'token' => 'FCM_OTHER_TOKEN',
             'user_id' => $otherUser->id,
         ]);
+    }
+
+    public function test_authenticated_user_can_send_test_notification(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $expectedResult = [
+            'ok' => true,
+            'total_tokens' => 1,
+            'successes' => 1,
+            'failures' => 0,
+            'invalid_tokens_removed' => 0,
+            'invalid_tokens' => [],
+        ];
+
+        $mock = Mockery::mock(FcmService::class);
+        $mock->shouldReceive('sendToUser')
+            ->once()
+            ->with($this->user, 'Test Title', 'Test Body', ['screen' => 'dashboard'])
+            ->andReturn($expectedResult);
+
+        $this->app->instance(FcmService::class, $mock);
+
+        $response = $this
+            ->withHeader('X-Tenant-Id', $this->tenant->slug)
+            ->postJson('/api/device-tokens/test-notification', [
+                'title' => 'Test Title',
+                'body' => 'Test Body',
+                'data' => [
+                    'screen' => 'dashboard',
+                ],
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJson([
+                'message' => 'Test notification processed',
+                'result' => $expectedResult,
+            ]);
     }
 }

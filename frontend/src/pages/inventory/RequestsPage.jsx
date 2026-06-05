@@ -159,16 +159,32 @@ export default function RequestsPage() {
       setLoading(true)
       setError('')
 
-      // Fetch both requests and users
-      const [requestsRes, usersRes, itemsRes] = await Promise.all([
+      // Requests and users are required. Items are enrichment only.
+      const [requestsRes, usersRes, itemsRes] = await Promise.allSettled([
         api.get('/api/inventory-requests'),
         api.get('/api/users'),
         api.get('/api/items?all=true')
       ])
 
-      const requestsData = requestsRes.data
-      const usersData = usersRes.data.data || usersRes.data || []
-      const itemsDbData = itemsRes.data.data || itemsRes.data || []
+      if (requestsRes.status !== 'fulfilled') {
+        throw requestsRes.reason
+      }
+
+      if (usersRes.status !== 'fulfilled') {
+        throw usersRes.reason
+      }
+
+      const requestsData = requestsRes.value.data
+      const usersData = usersRes.value.data.data || usersRes.value.data || []
+      const itemsDbData =
+        itemsRes.status === 'fulfilled'
+          ? (itemsRes.value.data.data || itemsRes.value.data || [])
+          : []
+
+      if (itemsRes.status !== 'fulfilled') {
+        console.warn('Optional items enrichment failed in requests page:', itemsRes.reason)
+      }
+
       const itemByName = new Map(
         itemsDbData
           .filter(item => String(item?.name || '').trim() !== '')

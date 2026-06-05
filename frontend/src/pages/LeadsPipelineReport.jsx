@@ -107,7 +107,7 @@ export default function LeadsPipelineReport() {
   }, [])
 
   const managerOptions = useMemo(() => {
-    if (!users.length) return [{ value: '', label: isRTL ? 'الكل' : 'All Managers' }]
+    if (!users.length) return [{ value: '', label: isRTL ? 'Ø§Ù„ÙƒÙ„' : 'All Managers' }]
     const managers = users.filter(u => {
       const role = String(u.role || '').toLowerCase()
       const isSalesPerson = role.includes('sales person') || role.includes('salesperson')
@@ -115,7 +115,7 @@ export default function LeadsPipelineReport() {
     })
     const uniqueManagers = Array.from(new Map(managers.map(m => [m.id, m])).values())
     return [
-      { value: '', label: isRTL ? 'الكل' : 'All Managers' },
+      { value: '', label: isRTL ? 'Ø§Ù„ÙƒÙ„' : 'All Managers' },
       ...uniqueManagers.map(m => ({ value: String(m.id), label: m.name || `#${m.id}` }))
     ]
   }, [users, isRTL])
@@ -160,7 +160,7 @@ export default function LeadsPipelineReport() {
     )
 
     return [
-      { value: '', label: isRTL ? 'الكل' : 'All Sales Persons' },
+      { value: '', label: isRTL ? 'Ø§Ù„ÙƒÙ„' : 'All Sales Persons' },
       ...dedupedOptions
     ]
   }, [users, managerFilter, isRTL, salesPersonStats])
@@ -169,8 +169,8 @@ export default function LeadsPipelineReport() {
     const type = String(tenantCompany?.company_type || '').toLowerCase()
 
     const baseLabel = type === 'real estate'
-      ? (isRTL ? 'الكل' : 'All Units')
-      : (isRTL ? 'الكل' : 'All Projects')
+      ? (isRTL ? 'Ø§Ù„ÙƒÙ„' : 'All Units')
+      : (isRTL ? 'Ø§Ù„ÙƒÙ„' : 'All Projects')
 
     const uniqueValues = Array.from(new Set((reportOptions.projects || []).filter(Boolean)))
 
@@ -286,73 +286,26 @@ export default function LeadsPipelineReport() {
     return salesPersonStats.slice(start, start + entriesPerPage)
   }, [salesPersonStats, currentPage, entriesPerPage])
 
-  const fetchLeadsForExport = async () => {
-    const perPage = 2000
-    const maxRows = 20000
-    let page = 1
-    let all = []
-    let lastPage = 1
-
-    const baseParams = {
-      per_page: perPage,
-      manager_id: managerFilter || undefined,
-      assigned_to: salesPersonFilter || undefined,
-      stage: stageFilter || undefined,
-      source: sourceFilter || undefined,
-      project: projectFilter || undefined,
-      assigned_date_from: assignDateFrom || undefined,
-      assigned_date_to: assignDateTo || undefined,
-      created_from: creationDateFrom || undefined,
-      created_to: creationDateTo || undefined,
-      closed_from: closeDealsDateFrom || undefined,
-      closed_to: closeDealsDateTo || undefined,
-    }
-
-    do {
-      const res = await api.get('/api/leads', { params: { ...baseParams, page } })
-      const data = res.data?.data || []
-      const meta = res.data?.meta
-      lastPage = meta?.last_page || lastPage
-
-      all = all.concat(data)
-      if (all.length >= maxRows) break
-      page += 1
-    } while (page <= lastPage)
-
-    if (lastActionDateFrom || lastActionDateTo) {
-      all = all.filter(l => {
-        const d = (l.updated_at || '').substring(0, 10)
-        if (!d) return false
-        if (lastActionDateFrom && d < lastActionDateFrom) return false
-        if (lastActionDateTo && d > lastActionDateTo) return false
-        return true
-      })
-    }
-
-    return all.slice(0, maxRows)
-  }
+  const exportSummaryRows = useMemo(() => {
+    return salesPersonStats.map((stat) => ({
+      [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: stat.name || (isRTL ? 'غير معين' : 'Unassigned'),
+      [isRTL ? 'إجمالي العملاء' : 'Total Leads']: stat.total ?? 0,
+      [isRTL ? 'معلق (جديد)' : 'Pending (New)']: stat.pendingNew ?? 0,
+      [isRTL ? 'معلق (بارد)' : 'Pending (Cold)']: stat.pendingCold ?? 0,
+      [isRTL ? 'متابعة' : 'Follow up']: stat.followUp ?? 0,
+      [isRTL ? 'عرض' : 'Proposal']: stat.proposal ?? 0,
+      [isRTL ? 'اجتماع' : 'Meeting']: stat.meeting ?? 0,
+      [isRTL ? 'حجز' : 'Reservation']: stat.reservation ?? 0,
+      [isRTL ? 'مغلق' : 'Closed']: stat.closed ?? 0,
+      [isRTL ? 'ملغى' : 'Canceled']: stat.canceled ?? 0,
+    }))
+  }, [salesPersonStats, isRTL])
 
   const handleExport = async () => {
     try {
-      const leadsToExport = await fetchLeadsForExport()
-      const rows = leadsToExport.map(l => ({
-        Name: l.name,
-        Salesperson: l.sales_person || l.salesperson || (isRTL ? 'غير معين' : 'Unassigned'),
-        Manager: l.manager || '',
-        Stage: l.stage || '',
-        Source: l.source || '',
-        Project: l.project || '',
-        AssignDate: l.assigned_at || '',
-        CreatedAt: l.created_at ? String(l.created_at).substring(0, 10) : '',
-        LastActionAt: l.updated_at ? String(l.updated_at).substring(0, 10) : '',
-        ClosedAt: l.closed_at || '',
-        Status: l.status || '',
-        Type: l.type || '',
-      }))
-
-      const ws = XLSX.utils.json_to_sheet(rows)
+      const ws = XLSX.utils.json_to_sheet(exportSummaryRows)
       const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Leads Pipeline')
+      XLSX.utils.book_append_sheet(wb, ws, 'Leads Overview')
       const fileName = 'leads_pipeline_report.xlsx'
       XLSX.writeFile(wb, fileName)
       logExportEvent({
@@ -370,40 +323,43 @@ export default function LeadsPipelineReport() {
     try {
       const jsPDF = (await import('jspdf')).default
       const autoTable = await import('jspdf-autotable')
-      const doc = new jsPDF()
+      const doc = new jsPDF({ orientation: 'landscape' })
       
       const tableColumn = [
-        isRTL ? 'الاسم' : "Name", 
-        isRTL ? 'مسؤول المبيعات' : "Salesperson", 
-        isRTL ? 'المرحلة' : "Stage", 
-        isRTL ? 'المشروع' : "Project", 
-        isRTL ? 'الحالة' : "Status", 
-        isRTL ? 'النوع' : "Type"
+        isRTL ? 'مسؤول المبيعات' : 'Sales Person',
+        isRTL ? 'إجمالي العملاء' : 'Total Leads',
+        isRTL ? 'معلق (جديد)' : 'Pending (New)',
+        isRTL ? 'معلق (بارد)' : 'Pending (Cold)',
+        isRTL ? 'متابعة' : 'Follow up',
+        isRTL ? 'عرض' : 'Proposal',
+        isRTL ? 'اجتماع' : 'Meeting',
+        isRTL ? 'حجز' : 'Reservation',
+        isRTL ? 'مغلق' : 'Closed',
+        isRTL ? 'ملغى' : 'Canceled'
       ]
-      const leadsToExport = await fetchLeadsForExport()
-      const tableRows = []
+      const tableRows = salesPersonStats.map((stat) => [
+        stat.name || (isRTL ? 'غير معين' : 'Unassigned'),
+        stat.total ?? 0,
+        stat.pendingNew ?? 0,
+        stat.pendingCold ?? 0,
+        stat.followUp ?? 0,
+        stat.proposal ?? 0,
+        stat.meeting ?? 0,
+        stat.reservation ?? 0,
+        stat.closed ?? 0,
+        stat.canceled ?? 0
+      ])
 
-      leadsToExport.slice(0, 1000).forEach(lead => {
-        const rowData = [
-          lead.name,
-          lead.sales_person || lead.salesperson || (isRTL ? 'غير معين' : 'Unassigned'),
-          lead.stage || '',
-          lead.project || '',
-          lead.status || '',
-          lead.type || ''
-        ]
-        tableRows.push(rowData)
-      })
-
-      doc.text(isRTL ? 'تقرير مسار العملاء' : "Leads Pipeline Report", 14, 15)
+      doc.text(isRTL ? 'تقرير نظرة عامة على العملاء' : 'Leads Overview Report', 14, 15)
       autoTable.default(doc, {
         head: [tableColumn],
         body: tableRows,
         startY: 20,
         styles: { font: 'helvetica', fontSize: 8 },
-        headStyles: { fillColor: [66, 139, 202] }
+        headStyles: { fillColor: [66, 139, 202] },
+        margin: { left: 10, right: 10 }
       })
-      doc.save("leads_pipeline_report.pdf")
+      doc.save('leads_pipeline_report.pdf')
       logExportEvent({
         module: 'Leads Pipeline Report',
         fileName: 'leads_pipeline_report.pdf',
@@ -411,7 +367,7 @@ export default function LeadsPipelineReport() {
       })
       setShowExportMenu(false)
     } catch (error) {
-      console.error("Export PDF Error:", error)
+      console.error('Export PDF Error:', error)
     }
   }
 
@@ -431,10 +387,10 @@ export default function LeadsPipelineReport() {
             <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
               <Layers size={32} />
             </div>
-            {isRTL ? 'التقارير، مسار العملاء...' : 'Leads Pipeline'}
+            {isRTL ? 'Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±ØŒ Ù…Ø³Ø§Ø± Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡...' : 'Leads Pipeline'}
             {reportLoading && (
               <span className={`text-xs font-medium opacity-70 ${isLight ? 'text-black' : 'text-white'}`}>
-                {isRTL ? 'جاري التحميل...' : 'Loading...'}
+                {isRTL ? 'Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...' : 'Loading...'}
               </span>
             )}
           </h1>
@@ -450,7 +406,7 @@ export default function LeadsPipelineReport() {
             }`}
             onClick={() => setActiveTab('pipeline')}
           >
-            {isRTL ? 'تقرير المسار' : 'Pipeline Report'}
+            {isRTL ? 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„Ù…Ø³Ø§Ø±' : 'Pipeline Report'}
           </button>
           {canViewReassignment && (
             <button
@@ -461,7 +417,7 @@ export default function LeadsPipelineReport() {
               }`}
               onClick={() => setActiveTab('reassignment')}
             >
-              {isRTL ? 'إعادة تعيين العملاء' : 'Reassign Leads'}
+              {isRTL ? 'Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'Reassign Leads'}
             </button>
           )}
         </div>
@@ -475,14 +431,14 @@ export default function LeadsPipelineReport() {
         <div className="flex justify-between items-center mb-3">
           <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} font-semibold`}>
             <Filter size={20} className="text-blue-500 dark:text-blue-400" />
-            <h3>{isRTL ? 'الفلاتر' : 'Filters'}</h3>
+            <h3>{isRTL ? 'Ø§Ù„ÙÙ„Ø§ØªØ±' : 'Filters'}</h3>
           </div>
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setShowAllFilters(prev => !prev)} 
               className={`flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors`}
             >
-              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'إظهار الكل' : 'Show All')}
+              {showAllFilters ? (isRTL ? 'Ø¥Ø®ÙØ§Ø¡' : 'Hide') : (isRTL ? 'Ø¥Ø¸Ù‡Ø§Ø± Ø§Ù„ÙƒÙ„' : 'Show All')}
               <ChevronDown size={12} className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`} />
             </button>
             <button
@@ -504,7 +460,7 @@ export default function LeadsPipelineReport() {
               }}
               className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
             >
-              {isRTL ? 'إعادة تعيين' : 'Reset'}
+              {isRTL ? 'Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ†' : 'Reset'}
             </button>
           </div>
         </div>
@@ -516,13 +472,13 @@ export default function LeadsPipelineReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <User size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'مسؤول المبيعات' : 'Sales Person'}
+                {isRTL ? 'Ù…Ø³Ø¤ÙˆÙ„ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª' : 'Sales Person'}
               </label>
               <SearchableSelect 
                 options={salesPersonOptions}
                 value={salesPersonFilter}
                 onChange={setSalesPersonFilter}
-                placeholder={isRTL ? 'اختر' : 'Sales Person'}
+                placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Sales Person'}
                 icon={<User size={16} />}
                 isRTL={isRTL}
               />
@@ -532,13 +488,13 @@ export default function LeadsPipelineReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Users size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'المدير' : 'Manager'}
+                {isRTL ? 'Ø§Ù„Ù…Ø¯ÙŠØ±' : 'Manager'}
               </label>
               <SearchableSelect 
                 options={managerOptions}
                 value={managerFilter}
                 onChange={setManagerFilter}
-                placeholder={isRTL ? 'اختر' : 'Manager'}
+                placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Manager'}
                 icon={<Users size={16} />}
                 isRTL={isRTL}
               />
@@ -548,16 +504,16 @@ export default function LeadsPipelineReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Layers size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'المرحلة' : 'Stage'}
+                {isRTL ? 'Ø§Ù„Ù…Ø±Ø­Ù„Ø©' : 'Stage'}
               </label>
               <SearchableSelect 
                 options={[
-                  { value: '', label: isRTL ? 'الكل' : 'All Stages' },
+                  { value: '', label: isRTL ? 'Ø§Ù„ÙƒÙ„' : 'All Stages' },
                   ...Array.from(new Set((reportOptions.stages || []).filter(Boolean))).map(s => ({ value: s, label: s }))
                 ]}
                 value={stageFilter}
                 onChange={setStageFilter}
-                placeholder={isRTL ? 'اختر' : 'Stage Pipeline'}
+                placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Stage Pipeline'}
                 icon={<Layers size={16} />}
                 isRTL={isRTL}
               />
@@ -567,16 +523,16 @@ export default function LeadsPipelineReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Tag size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'المصدر' : 'Source'}
+                {isRTL ? 'Ø§Ù„Ù…ØµØ¯Ø±' : 'Source'}
               </label>
               <SearchableSelect 
                 options={[
-                  { value: '', label: isRTL ? 'الكل' : 'All Sources' },
+                  { value: '', label: isRTL ? 'Ø§Ù„ÙƒÙ„' : 'All Sources' },
                   ...Array.from(new Set((reportOptions.sources || []).filter(Boolean))).map(s => ({ value: s, label: s }))
                 ]}
                 value={sourceFilter}
                 onChange={setSourceFilter}
-                placeholder={isRTL ? 'اختر' : 'Source'}
+                placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Source'}
                 icon={<Tag size={16} />}
                 isRTL={isRTL}
               />
@@ -590,13 +546,13 @@ export default function LeadsPipelineReport() {
               <div className="space-y-1">
                 <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                   <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                  {isRTL ? 'المشروع أو المنتج' : 'Project or Product'}
+                  {isRTL ? 'Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø£Ùˆ Ø§Ù„Ù…Ù†ØªØ¬' : 'Project or Product'}
                 </label>
                 <SearchableSelect 
                   options={projectOrProductOptions}
                   value={projectFilter}
                   onChange={setProjectFilter}
-                  placeholder={isRTL ? 'اختر' : 'Project or Product'}
+                  placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Project or Product'}
                   icon={<Briefcase size={16} />}
                   isRTL={isRTL}
                 />
@@ -606,7 +562,7 @@ export default function LeadsPipelineReport() {
               <div className="space-y-1">
                 <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                   <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                  {isRTL ? 'تاريخ التعيين' : 'Assign Date'}
+                  {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø§Ù„ØªØ¹ÙŠÙŠÙ†' : 'Assign Date'}
                 </label>
                 <DateRangePicker
                   from={assignDateFrom}
@@ -624,7 +580,7 @@ export default function LeadsPipelineReport() {
               <div className="space-y-1">
                 <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                   <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                  {isRTL ? 'تاريخ الإنشاء' : 'Creation Date'}
+                  {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡' : 'Creation Date'}
                 </label>
                 <DateRangePicker
                   from={creationDateFrom}
@@ -642,7 +598,7 @@ export default function LeadsPipelineReport() {
               <div className="space-y-1">
                 <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                   <Clock size={12} className="text-blue-500 dark:text-blue-400" />
-                  {isRTL ? 'تاريخ آخر إجراء' : 'Last Action Date'}
+                  {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø¢Ø®Ø± Ø¥Ø¬Ø±Ø§Ø¡' : 'Last Action Date'}
                 </label>
                 <DateRangePicker
                   from={lastActionDateFrom}
@@ -660,7 +616,7 @@ export default function LeadsPipelineReport() {
               <div className="space-y-1">
                 <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                   <CheckCircle size={12} className="text-blue-500 dark:text-blue-400" />
-                  {isRTL ? 'تاريخ إغلاق الصفقات' : 'Close Deals Date'}
+                  {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ØµÙÙ‚Ø§Øª' : 'Close Deals Date'}
                 </label>
                 <DateRangePicker
                   from={closeDealsDateFrom}
@@ -682,57 +638,57 @@ export default function LeadsPipelineReport() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-4">
         {[
           {
-            title: isRTL ? 'إجمالي الليدز' : 'Total Leads',
+            title: isRTL ? 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù„ÙŠØ¯Ø²' : 'Total Leads',
             value: (reportTotals.totalLeads || 0).toLocaleString(),
-            sub: isRTL ? '(الكل)' : '(Total)',
+            sub: isRTL ? '(Ø§Ù„ÙƒÙ„)' : '(Total)',
             icon: Users,
             color: 'text-blue-500 dark:text-blue-400',
             bgColor: 'bg-blue-50 dark:bg-blue-900/20',
           },
           {
-            title: isRTL ? 'بيندنج' : 'Pending',
+            title: isRTL ? 'Ø¨ÙŠÙ†Ø¯Ù†Ø¬' : 'Pending',
             value: reportTotals.pending || 0,
-            sub: isRTL ? '(معلق)' : '(Pending)',
+            sub: isRTL ? '(Ù…Ø¹Ù„Ù‚)' : '(Pending)',
             icon: Filter,
             color: 'text-indigo-600 dark:text-indigo-400',
             bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
           },
           {
-            title: isRTL ? 'الاجتماعات' : 'Meetings',
+            title: isRTL ? 'Ø§Ù„Ø§Ø¬ØªÙ…Ø§Ø¹Ø§Øª' : 'Meetings',
             value: reportTotals.meetings || 0,
-            sub: isRTL ? '(مجدولة)' : '(Scheduled)',
+            sub: isRTL ? '(Ù…Ø¬Ø¯ÙˆÙ„Ø©)' : '(Scheduled)',
             icon: Calendar,
             color: 'text-purple-600 dark:text-purple-400',
             bgColor: 'bg-purple-50 dark:bg-purple-900/20',
           },
           {
-            title: isRTL ? 'العروض' : 'Proposals',
+            title: isRTL ? 'Ø§Ù„Ø¹Ø±ÙˆØ¶' : 'Proposals',
             value: reportTotals.proposals || 0,
-            sub: isRTL ? '(مرسلة)' : '(Sent)',
+            sub: isRTL ? '(Ù…Ø±Ø³Ù„Ø©)' : '(Sent)',
             icon: FileText,
             color: 'text-cyan-600 dark:text-cyan-400',
             bgColor: 'bg-cyan-50 dark:bg-cyan-900/20',
           },
           {
-            title: isRTL ? 'الحجوزات' : 'Reservations',
+            title: isRTL ? 'Ø§Ù„Ø­Ø¬ÙˆØ²Ø§Øª' : 'Reservations',
             value: reportTotals.reservations || 0,
-            sub: isRTL ? '(حجز)' : '(Reservation)',
+            sub: isRTL ? '(Ø­Ø¬Ø²)' : '(Reservation)',
             icon: Tag,
             color: 'text-amber-600 dark:text-amber-400',
             bgColor: 'bg-amber-50 dark:bg-amber-900/20',
           },
           {
-            title: isRTL ? 'صفقات مغلقة' : 'Closed Deals',
+            title: isRTL ? 'ØµÙÙ‚Ø§Øª Ù…ØºÙ„Ù‚Ø©' : 'Closed Deals',
             value: reportTotals.closedDeals || 0,
-            sub: isRTL ? '(فوز)' : '(Won)',
+            sub: isRTL ? '(ÙÙˆØ²)' : '(Won)',
             icon: CheckCircle,
             color: 'text-emerald-600 dark:text-emerald-400',
             bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
           },
           {
-            title: isRTL ? 'إلغاء' : 'Cancelation',
+            title: isRTL ? 'Ø¥Ù„ØºØ§Ø¡' : 'Cancelation',
             value: (reportTotals.cancelation || 0).toLocaleString(),
-            sub: isRTL ? '(خسارة)' : '(Lost)',
+            sub: isRTL ? '(Ø®Ø³Ø§Ø±Ø©)' : '(Lost)',
             icon: XCircle,
             color: 'text-red-600 dark:text-red-400',
             bgColor: 'bg-red-50 dark:bg-red-900/20',
@@ -775,18 +731,18 @@ export default function LeadsPipelineReport() {
       {/* Leads Growth Chart */}
       <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 p-4 rounded-2xl shadow-sm mb-6">
         <h2 className={`text-lg font-semibold mb-4 ${isLight ? 'text-black' : 'text-white'}`}>
-          {isRTL ? 'نمو العملاء' : 'Leads Growth'}
+          {isRTL ? 'Ù†Ù…Ùˆ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'Leads Growth'}
         </h2>
         <div className="h-64 sm:h-80">
            {growthData.length > 0 ? (
              <LeadsAnalysisChart 
                data={growthData} 
                chartType="line" 
-               legendLabel={isRTL ? 'عدد العملاء' : 'No. of Leads'} 
+               legendLabel={isRTL ? 'Ø¹Ø¯Ø¯ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'No. of Leads'} 
              />
            ) : (
              <div className="flex items-center justify-center h-full text-gray-500">
-               {isRTL ? 'لا توجد بيانات متاحة للعرض' : 'No data available to display'}
+               {isRTL ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ù…ØªØ§Ø­Ø© Ù„Ù„Ø¹Ø±Ø¶' : 'No data available to display'}
              </div>
            )}
         </div>
@@ -795,14 +751,14 @@ export default function LeadsPipelineReport() {
       {/* Leads Overview List Table */}
       <div className=" bg-white/10 backdrop-blur-md rounded-2xl shadow-sm border border-theme-border dark:border-gray-700/50 overflow-hidden">
         <div className="p-6 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
-           <h3 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'قائمة نظرة عامة على العملاء' : 'Leads overview List:'}</h3>
+           <h3 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ù‚Ø§Ø¦Ù…Ø© Ù†Ø¸Ø±Ø© Ø¹Ø§Ù…Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'Leads overview List:'}</h3>
            {canExport && (
              <div className="relative" ref={exportMenuRef}>
                <button 
                  onClick={() => setShowExportMenu(!showExportMenu)} 
                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
                >
-                 <FaFileExport /> {isRTL ? 'تصدير' : 'Export'}
+                 <FaFileExport /> {isRTL ? 'ØªØµØ¯ÙŠØ±' : 'Export'}
                  <FaChevronDown className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`} size={12} />
                </button>
                
@@ -815,7 +771,7 @@ export default function LeadsPipelineReport() {
                      }}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                    >
-                     <FaFileExcel className="text-green-600" /> {isRTL ? 'تصدير كـ Excel' : 'Export to Excel'}
+                     <FaFileExcel className="text-green-600" /> {isRTL ? 'ØªØµØ¯ÙŠØ± ÙƒÙ€ Excel' : 'Export to Excel'}
                    </button>
                    <button 
                      onClick={() => {
@@ -824,7 +780,7 @@ export default function LeadsPipelineReport() {
                      }}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                    >
-                     <FaFilePdf className="text-red-600" /> {isRTL ? 'تصدير كـ PDF' : 'Export to PDF'}
+                     <FaFilePdf className="text-red-600" /> {isRTL ? 'ØªØµØ¯ÙŠØ± ÙƒÙ€ PDF' : 'Export to PDF'}
                    </button>
                  </div>
                )}
@@ -838,16 +794,16 @@ export default function LeadsPipelineReport() {
             <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
               <tr>
                 <th className="md:hidden px-6 py-4 border-b border-theme-border dark:border-gray-700/50"></th>
-                <th className="px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'إجمالي العملاء' : 'Total Leads'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'معلق (جديد)' : 'Pending (New)'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'معلق (بارد)' : 'Pending (Cold)'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'متابعة' : 'Follow up'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'عرض' : 'Proposal'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'اجتماع' : 'Meeting'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'حجز' : 'Reservation'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'مغلق' : 'Closed'}</th>
-                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'ملغى' : 'Canceled'}</th>
+                <th className="px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ù…Ø³Ø¤ÙˆÙ„ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª' : 'Sales Person'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'Total Leads'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ù…Ø¹Ù„Ù‚ (Ø¬Ø¯ÙŠØ¯)' : 'Pending (New)'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ù…Ø¹Ù„Ù‚ (Ø¨Ø§Ø±Ø¯)' : 'Pending (Cold)'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ù…ØªØ§Ø¨Ø¹Ø©' : 'Follow up'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ø¹Ø±Ø¶' : 'Proposal'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ø§Ø¬ØªÙ…Ø§Ø¹' : 'Meeting'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ø­Ø¬Ø²' : 'Reservation'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ù…ØºÙ„Ù‚' : 'Closed'}</th>
+                <th className="hidden md:table-cell px-6 py-4 font-medium border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'Ù…Ù„ØºÙ‰' : 'Canceled'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
@@ -857,7 +813,7 @@ export default function LeadsPipelineReport() {
                     colSpan={10}
                     className="px-6 py-6 text-center text-gray-500 dark:text-gray-400"
                   >
-                    {isRTL ? 'لا توجد بيانات' : 'No data'}
+                    {isRTL ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª' : 'No data'}
                   </td>
                 </tr>
               )}
@@ -867,7 +823,7 @@ export default function LeadsPipelineReport() {
                     colSpan={10}
                     className="px-6 py-6 text-center text-gray-500 dark:text-gray-400"
                   >
-                    {isRTL ? 'لا توجد نتائج' : 'No results'}
+                    {isRTL ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù†ØªØ§Ø¦Ø¬' : 'No results'}
                   </td>
                 </tr>
               )}
@@ -896,39 +852,39 @@ export default function LeadsPipelineReport() {
                       <td colSpan={2} className="px-6 py-4">
                         <div className="grid grid-cols-2 gap-4 text-sm">
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'إجمالي العملاء' : 'Total Leads'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'Total Leads'}</span>
                             <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{stat.total}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'معلق (جديد)' : 'Pending (New)'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ù…Ø¹Ù„Ù‚ (Ø¬Ø¯ÙŠØ¯)' : 'Pending (New)'}</span>
                             <span className="font-semibold text-blue-600 dark:text-blue-400">{stat.pendingNew}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'معلق (بارد)' : 'Pending (Cold)'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ù…Ø¹Ù„Ù‚ (Ø¨Ø§Ø±Ø¯)' : 'Pending (Cold)'}</span>
                             <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{stat.pendingCold}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'متابعة' : 'Follow up'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ù…ØªØ§Ø¨Ø¹Ø©' : 'Follow up'}</span>
                             <span className="font-semibold text-amber-600 dark:text-amber-400">{stat.followUp}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'عرض' : 'Proposal'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ø¹Ø±Ø¶' : 'Proposal'}</span>
                             <span className="font-semibold text-purple-600 dark:text-purple-400">{stat.proposal}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'اجتماع' : 'Meeting'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ø§Ø¬ØªÙ…Ø§Ø¹' : 'Meeting'}</span>
                             <span className="font-semibold text-indigo-600 dark:text-indigo-400">{stat.meeting}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'حجز' : 'Reservation'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ø­Ø¬Ø²' : 'Reservation'}</span>
                             <span className="font-semibold text-amber-600 dark:text-amber-400">{stat.reservation}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'مغلق' : 'Closed'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ù…ØºÙ„Ù‚' : 'Closed'}</span>
                             <span className="font-semibold text-green-600 dark:text-green-400">{stat.closed}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'ملغى' : 'Canceled'}</span>
+                            <span className="text-[var(--muted-text)] text-xs">{isRTL ? 'Ù…Ù„ØºÙ‰' : 'Canceled'}</span>
                             <span className="font-semibold text-red-600 dark:text-red-400">{stat.canceled}</span>
                           </div>
                         </div>
@@ -942,7 +898,7 @@ export default function LeadsPipelineReport() {
           <div className="px-6 py-3 bg-theme-bg/80 border-t border-theme-border dark:border-gray-700/60 flex items-center justify-between gap-3">
             <div className={`text-[11px] sm:text-xs ${isLight ? 'text-black' : 'text-white'}`}>
               {isRTL
-                ? `إظهار ${Math.min((currentPage - 1) * entriesPerPage + 1, salesPersonStats.length)}-${Math.min(currentPage * entriesPerPage, salesPersonStats.length)} من ${salesPersonStats.length}`
+                ? `Ø¥Ø¸Ù‡Ø§Ø± ${Math.min((currentPage - 1) * entriesPerPage + 1, salesPersonStats.length)}-${Math.min(currentPage * entriesPerPage, salesPersonStats.length)} Ù…Ù† ${salesPersonStats.length}`
                 : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, salesPersonStats.length)}-${Math.min(currentPage * entriesPerPage, salesPersonStats.length)} of ${salesPersonStats.length}`}
             </div>
             <div className="flex items-center gap-4">
@@ -951,7 +907,7 @@ export default function LeadsPipelineReport() {
                   className="btn btn-sm btn-ghost"
                   onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                   disabled={currentPage === 1}
-                  title={isRTL ? 'السابق' : 'Prev'}
+                  title={isRTL ? 'Ø§Ù„Ø³Ø§Ø¨Ù‚' : 'Prev'}
                 >
                   {isRTL ? (
                     <ChevronRight className="w-4 h-4" />
@@ -961,14 +917,14 @@ export default function LeadsPipelineReport() {
                 </button>
                 <span className={`text-sm whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
                   {isRTL
-                    ? `الصفحة ${currentPage} من ${pageCount}`
+                    ? `Ø§Ù„ØµÙØ­Ø© ${currentPage} Ù…Ù† ${pageCount}`
                     : `Page ${currentPage} of ${pageCount}`}
                 </span>
                 <button
                   className="btn btn-sm btn-ghost"
                   onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                   disabled={currentPage === pageCount}
-                  title={isRTL ? 'التالي' : 'Next'}
+                  title={isRTL ? 'Ø§Ù„ØªØ§Ù„ÙŠ' : 'Next'}
                 >
                   {isRTL ? (
                     <ChevronLeft className="w-4 h-4" />
@@ -979,7 +935,7 @@ export default function LeadsPipelineReport() {
               </div>
               <div className="flex flex-wrap items-center gap-1">
                 <span className={`text-[10px] sm:text-xs ${isLight ? 'text-black' : 'text-white'} whitespace-nowrap`}>
-                  {isRTL ? 'لكل صفحة:' : 'Per page:'}
+                  {isRTL ? 'Ù„ÙƒÙ„ ØµÙØ­Ø©:' : 'Per page:'}
                 </span>
                 <select
                   className={`input w-24 text-sm py-0 px-2 h-8 ${isLight ? 'text-black' : 'text-white'} bg-theme-bg dark:bg-gray-700 border-theme-border dark:border-gray-600`}
