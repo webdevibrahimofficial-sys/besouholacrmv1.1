@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Notifications\LeadAssigned;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Spatie\Multitenancy\Jobs\NotTenantAware;
 use Tests\TestCase;
 
 class FcmNotificationDispatchTest extends TestCase
@@ -26,6 +27,8 @@ class FcmNotificationDispatchTest extends TestCase
         );
 
         $this->assertSame('fcm', $job->queue);
+        $this->assertSame(config('queue.fcm_connection', 'redis'), $job->connection);
+        $this->assertInstanceOf(NotTenantAware::class, $job);
     }
 
     public function test_lead_assignment_notification_dispatches_fcm_job_to_fcm_queue(): void
@@ -60,6 +63,7 @@ class FcmNotificationDispatchTest extends TestCase
 
         Queue::assertPushed(SendFcmNotificationJob::class, function (SendFcmNotificationJob $job) use ($assignee, $tenant, $lead) {
             return $job->queue === 'fcm'
+                && $job->connection === config('queue.fcm_connection', 'redis')
                 && $job->userId === $assignee->id
                 && $job->tenantId === $tenant->id
                 && $job->title === 'Lead Assigned'

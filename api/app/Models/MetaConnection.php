@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptCast;
 use Illuminate\Database\Eloquent\Model;
 use App\Traits\BelongsToTenant;
 
@@ -19,6 +20,7 @@ class MetaConnection extends Model
     ];
 
     protected $casts = [
+        'user_access_token' => EncryptCast::class,
         'expires_at' => 'datetime',
     ];
 

@@ -6,6 +6,7 @@ use App\Jobs\SendFcmNotificationJob;
 use App\Models\User;
 use Illuminate\Notifications\Events\NotificationSent;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 class SendFcmNotificationForDatabaseChannel
@@ -32,13 +33,14 @@ class SendFcmNotificationForDatabaseChannel
         [$title, $body, $data] = $this->buildFcmPayload($event->notification, $payload);
 
         try {
-            dispatch((new SendFcmNotificationJob(
-                userId: $event->notifiable->id,
-                tenantId: $event->notifiable->tenant_id,
-                title: $title,
-                body: $body,
-                data: $data,
-            ))->onQueue('fcm'));
+            Queue::connection(config('queue.fcm_connection', 'redis'))
+                ->pushOn('fcm', new SendFcmNotificationJob(
+                    $event->notifiable->id,
+                    $event->notifiable->tenant_id,
+                    $title,
+                    $body,
+                    $data,
+                ));
         } catch (\Throwable $e) {
             Log::error('Failed to dispatch FCM notification job', [
                 'notification' => get_class($event->notification),

@@ -17,6 +17,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | FCM Queue Connection
+    |--------------------------------------------------------------------------
+    |
+    | Push notifications are processed by a dedicated worker. Keep this
+    | separate from the app's default queue connection so notification jobs
+    | always land on the expected transport / queue pair.
+    |
+    */
+
+    'fcm_connection' => env('FCM_QUEUE_CONNECTION', 'redis'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Queue Connections
     |--------------------------------------------------------------------------
     |

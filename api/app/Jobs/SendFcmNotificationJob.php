@@ -7,8 +7,9 @@ use App\Services\FcmService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use Spatie\Multitenancy\Jobs\NotTenantAware;
 
-class SendFcmNotificationJob implements ShouldQueue
+class SendFcmNotificationJob implements ShouldQueue, NotTenantAware
 {
     use Queueable;
 
@@ -21,17 +22,17 @@ class SendFcmNotificationJob implements ShouldQueue
         public string $body,
         public array $data = []
     ) {
+        $this->onConnection(config('queue.fcm_connection', 'redis'));
         $this->onQueue('fcm');
     }
 
     public function handle(FcmService $fcmService): void
     {
-        if ($this->tenantId) {
-            app()->instance('current_tenant_id', $this->tenantId);
-        }
-
         try {
-            $user = User::find($this->userId);
+            $user = User::withoutGlobalScopes()
+                ->whereKey($this->userId)
+                ->when($this->tenantId, fn ($query) => $query->where('tenant_id', $this->tenantId))
+                ->first();
 
             if (!$user) {
                 return;
@@ -42,8 +43,14 @@ class SendFcmNotificationJob implements ShouldQueue
             if (($result['ok'] ?? false) === false) {
                 throw new \RuntimeException('FCM delivery failed.');
             }
-        } finally {
-            app()->forgetInstance('current_tenant_id');
+        } catch (\Throwable $exception) {
+            Log::error('SendFcmNotificationJob handle failed', [
+                'user_id' => $this->userId,
+                'tenant_id' => $this->tenantId,
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
         }
     }
 

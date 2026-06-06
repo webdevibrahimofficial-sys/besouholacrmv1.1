@@ -62,7 +62,7 @@ Schedule::command('actions:check-rent-end')->daily();
 Schedule::command('inventory:expire-reservations')->everyFiveMinutes();
 Schedule::command('meta:sync-all')->hourly();
 Schedule::command('google:sync-all')->hourly();
-Schedule::command('meta:refresh-tokens')->daily();
+Schedule::command('meta:refresh-tokens --days=7')->dailyAt('02:00')->withoutOverlapping();
 Schedule::command('gmail:sync')->everyFiveMinutes();
 Schedule::command('erp:sync')->everyFiveMinutes();
 Schedule::command('cc:mark-overdue')->daily();

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SyncMetaAssets;
 use App\Contracts\MetaApiClientInterface;
 use App\Models\Integration;
 use App\Models\MetaConnection;
@@ -109,8 +110,8 @@ class MetaAuthService
                 ]
             );
 
-            // 3. Fetch and Store Assets
-            $this->syncAssets($connection);
+            // 3. Fetch and Store Assets asynchronously so OAuth callback is not blocked.
+            SyncMetaAssets::dispatch($tenantId, $connection->id);
 
             return $connection;
 

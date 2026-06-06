@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptCast;
 use Illuminate\Database\Eloquent\Model;
 use App\Traits\BelongsToTenant;
 
@@ -21,6 +22,7 @@ class MetaPage extends Model
     ];
 
     protected $casts = [
+        'page_token' => EncryptCast::class,
         'is_active' => 'boolean',
     ];
 

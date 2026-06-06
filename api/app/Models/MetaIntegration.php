@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptCast;
 use Illuminate\Database\Eloquent\Model;
 use App\Traits\BelongsToTenant;
 
@@ -22,7 +23,16 @@ class MetaIntegration extends Model
     ];
 
     protected $casts = [
+        'page_access_token' => EncryptCast::class,
+        'user_access_token' => EncryptCast::class,
+        'long_lived_token' => EncryptCast::class,
         'token_expires_at' => 'datetime',
         'settings' => 'array',
+    ];
+
+    protected $hidden = [
+        'page_access_token',
+        'user_access_token',
+        'long_lived_token',
     ];
 }

@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\MetaConnection;
+use App\Models\User;
+use App\Notifications\MetaTokenRefreshAttentionNotification;
 use App\Services\MetaAuthService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -14,7 +16,7 @@ class RefreshMetaTokens extends Command
      *
      * @var string
      */
-    protected $signature = 'meta:refresh-tokens';
+    protected $signature = 'meta:refresh-tokens {--days=7 : Refresh tokens that expire within this many days}';
 
     /**
      * The console command description.
@@ -28,9 +30,11 @@ class RefreshMetaTokens extends Command
      */
     public function handle(MetaAuthService $authService)
     {
-        // Refresh tokens that expire within the next 7 days
+        $days = max(1, (int) $this->option('days'));
+
+        // Refresh tokens that expire within the next N days
         $expiringSoon = MetaConnection::whereNotNull('expires_at')
-            ->where('expires_at', '<=', now()->addDays(7))
+            ->where('expires_at', '<=', now()->addDays($days))
             ->get();
 
         $this->info("Found " . $expiringSoon->count() . " tokens expiring soon.");
@@ -40,16 +44,60 @@ class RefreshMetaTokens extends Command
             try {
                 $result = $authService->refreshToken($connection);
                 if ($result) {
+                    $freshConnection = $connection->fresh();
+                    if ($this->stillNeedsAttention($freshConnection, $days)) {
+                        $reason = 'Token refresh completed but the expiry window is still too close.';
+                        $this->notifyTenantAdmins($freshConnection, $reason);
+                        $this->warn($reason);
+                        continue;
+                    }
+
                     $this->info("Token refreshed successfully.");
                 } else {
+                    $this->notifyTenantAdmins($connection, 'Automatic token refresh failed.');
                     $this->error("Failed to refresh token.");
                 }
             } catch (\Exception $e) {
                 Log::error("Command error refreshing token for connection {$connection->id}: " . $e->getMessage());
+                $this->notifyTenantAdmins($connection, $e->getMessage());
                 $this->error("Error: " . $e->getMessage());
             }
         }
         
         return 0;
+    }
+
+    protected function stillNeedsAttention(?MetaConnection $connection, int $days): bool
+    {
+        if (!$connection || !$connection->expires_at) {
+            return true;
+        }
+
+        return $connection->expires_at->lte(now()->addDays($days));
+    }
+
+    protected function notifyTenantAdmins(MetaConnection $connection, string $reason): void
+    {
+        $daysRemaining = $connection->expires_at
+            ? (int) now()->diffInDays($connection->expires_at, false)
+            : null;
+
+        $admins = User::where('tenant_id', $connection->tenant_id)
+            ->whereHas('roles', function ($query) {
+                $query->whereIn('name', ['Tenant Admin', 'Admin']);
+            })
+            ->get();
+
+        if ($admins->isEmpty()) {
+            $admins = User::where('tenant_id', $connection->tenant_id)->limit(1)->get();
+        }
+
+        foreach ($admins as $admin) {
+            try {
+                $admin->notify(new MetaTokenRefreshAttentionNotification($connection, $reason, $daysRemaining));
+            } catch (\Throwable $exception) {
+                Log::error("Failed to notify tenant admin {$admin->id} about Meta token refresh issue: " . $exception->getMessage());
+            }
+        }
     }
 }

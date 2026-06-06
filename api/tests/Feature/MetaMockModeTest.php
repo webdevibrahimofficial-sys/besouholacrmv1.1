@@ -17,6 +17,7 @@ use App\Services\MetaCampaignService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use App\Jobs\ProcessMetaLead;
+use App\Jobs\SyncMetaAssets;
 
 class MetaMockModeTest extends TestCase
 {
@@ -86,6 +87,26 @@ class MetaMockModeTest extends TestCase
             'tenant_id' => $this->tenant->id,
             'page_name' => 'Mock Page 1'
         ]);
+    }
+
+    public function test_meta_auth_dispatches_asset_sync_job()
+    {
+        Queue::fake();
+
+        $service = app(MetaAuthService::class);
+        $mockSocialUser = [
+            'id' => 'mock_user_id',
+            'token' => 'mock_token',
+            'name' => 'Mock User',
+            'email' => 'mock@example.com'
+        ];
+
+        $connection = $service->handleSocialUser($this->tenant->id, $mockSocialUser);
+
+        Queue::assertPushed(SyncMetaAssets::class, function (SyncMetaAssets $job) use ($connection) {
+            return (string) $job->tenantId === (string) $connection->tenant_id
+                && $job->connectionId === $connection->id;
+        });
     }
 
     public function test_meta_mock_webhook_flow()
