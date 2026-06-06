@@ -220,6 +220,22 @@ class MetaAuthController extends Controller
         ]);
     }
 
+    public function clearAppSettings(Request $request)
+    {
+        $this->ensureMetaSettingsAccess($request->user());
+        $tenantId = $request->user()->tenant_id;
+
+        TenantMetaApp::where('tenant_id', $tenantId)->delete();
+
+        Integration::where('tenant_id', $tenantId)
+            ->where('provider', 'meta')
+            ->update(['status' => 'inactive']);
+
+        return response()->json([
+            'message' => 'Tenant Meta app settings cleared.',
+        ]);
+    }
+
     protected function ensureMetaSettingsAccess(User $user): void
     {
         if ($user->is_super_admin) {

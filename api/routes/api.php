@@ -244,6 +244,7 @@ Route::middleware([ResolveTenant::class])
     Route::post('/auth/meta/settings', [\App\Http\Controllers\MetaAuthController::class, 'updateSettings']);
     Route::get('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'appSettings']);
     Route::put('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'updateAppSettings']);
+    Route::delete('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'clearAppSettings']);
     Route::post('/auth/meta/disconnect', [\App\Http\Controllers\MetaAuthController::class, 'disconnect']);
     Route::post('/auth/meta/sync', [\App\Http\Controllers\MetaAuthController::class, 'sync']);
     Route::post('/auth/meta/asset/toggle', [\App\Http\Controllers\MetaAuthController::class, 'toggleAsset']);
