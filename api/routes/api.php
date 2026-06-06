@@ -204,7 +204,15 @@ Route::middleware([ResolveTenant::class])
 
     // Contract & Collections (Real Estate)
     Route::prefix('cc')->group(function () {
-        Route::apiResource('customers', CcCustomersController::class)->except(['create', 'edit']);
+        Route::apiResource('customers', CcCustomersController::class, [
+            'names' => [
+                'index' => 'cc.customers.index',
+                'store' => 'cc.customers.store',
+                'show' => 'cc.customers.show',
+                'update' => 'cc.customers.update',
+                'destroy' => 'cc.customers.destroy',
+            ],
+        ])->except(['create', 'edit']);
         Route::get('customers/{customerId}/comments', [CcCustomerCommentsController::class, 'index']);
         Route::post('customers/{customerId}/comments', [CcCustomerCommentsController::class, 'store']);
         Route::post('customer-units', [CcCustomerUnitsController::class, 'store']);
