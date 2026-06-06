@@ -29,6 +29,19 @@ return [
     'fcm_connection' => env('FCM_QUEUE_CONNECTION', 'redis'),
 
     /*
+    |----------------------------------------------------------------------
+    | Meta Queue Connection
+    |----------------------------------------------------------------------
+    |
+    | Meta sync / webhook ingestion can generate bursty or retry-heavy jobs.
+    | Route them to a dedicated worker path so they never compete with the
+    | app's default backlog or push-notification delivery on the FCM queue.
+    |
+    */
+
+    'meta_connection' => env('META_QUEUE_CONNECTION', 'redis'),
+
+    /*
     |--------------------------------------------------------------------------
     | Queue Connections
     |--------------------------------------------------------------------------

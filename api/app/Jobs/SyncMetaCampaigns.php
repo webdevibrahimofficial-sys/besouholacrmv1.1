@@ -21,6 +21,8 @@ class SyncMetaCampaigns implements ShouldQueue
     public function __construct($tenantId)
     {
         $this->tenantId = $tenantId;
+        $this->onConnection(config('queue.meta_connection', 'redis'));
+        $this->onQueue('meta');
     }
 
     /**

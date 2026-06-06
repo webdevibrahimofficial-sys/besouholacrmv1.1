@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use App\Jobs\ProcessMetaLead;
 use App\Jobs\SyncMetaAssets;
+use App\Jobs\SyncMetaCampaigns;
 
 class MetaMockModeTest extends TestCase
 {
@@ -49,6 +50,7 @@ class MetaMockModeTest extends TestCase
         // Enable Mock Mode
         config(['services.meta.mock_mode' => true]);
         config(['services.meta.mock_failure_probability' => 0]); // Disable random failures for tests
+        config(['queue.meta_connection' => 'sync']);
     }
 
     public function test_meta_mock_auth_flow()
@@ -105,7 +107,68 @@ class MetaMockModeTest extends TestCase
 
         Queue::assertPushed(SyncMetaAssets::class, function (SyncMetaAssets $job) use ($connection) {
             return (string) $job->tenantId === (string) $connection->tenant_id
-                && $job->connectionId === $connection->id;
+                && $job->connectionId === $connection->id
+                && $job->queue === 'meta'
+                && $job->connection === config('queue.meta_connection', 'redis');
+        });
+    }
+
+    public function test_process_meta_lead_job_uses_meta_queue_routing()
+    {
+        $job = new ProcessMetaLead($this->tenant->id, 'mock_lead_direct', 'mock_page_1');
+
+        $this->assertSame('meta', $job->queue);
+        $this->assertSame(config('queue.meta_connection', 'redis'), $job->connection);
+    }
+
+    public function test_sync_meta_campaigns_job_uses_meta_queue_routing()
+    {
+        $job = new SyncMetaCampaigns($this->tenant->id);
+
+        $this->assertSame('meta', $job->queue);
+        $this->assertSame(config('queue.meta_connection', 'redis'), $job->connection);
+    }
+
+    public function test_real_webhook_endpoint_dispatches_process_meta_lead_to_meta_queue()
+    {
+        Queue::fake();
+
+        $service = app(MetaAuthService::class);
+        $mockSocialUser = [
+            'id' => 'mock_user_id',
+            'token' => 'mock_token',
+            'name' => 'Mock User',
+            'email' => 'mock@example.com'
+        ];
+        $connection = $service->handleSocialUser($this->tenant->id, $mockSocialUser);
+
+        $page = MetaPage::create([
+            'tenant_id' => $this->tenant->id,
+            'connection_id' => $connection->id,
+            'page_id' => 'mock_page_for_queue_test',
+            'page_name' => 'Mock Queue Test Page',
+            'page_token' => 'mock_page_token_queue_test',
+            'is_active' => true,
+        ]);
+
+        $mockService = app(\App\Services\Meta\MetaMockService::class);
+        $payload = $mockService->generateLeadWebhookPayload($page->page_id, 'mock_queue_lead_1');
+
+        $response = $this->postJson('/api/meta/webhook/tenant-webhook-key', $payload);
+
+        $response->assertStatus(200);
+        $response->assertJson(['ok' => true]);
+
+        Queue::assertPushed(ProcessMetaLead::class, function (ProcessMetaLead $job) use ($page) {
+            $tenantId = (fn () => $this->tenantId)->call($job);
+            $leadId = (fn () => $this->leadId)->call($job);
+            $pageId = (fn () => $this->pageId)->call($job);
+
+            return (string) $tenantId === (string) $this->tenant->id
+                && $leadId === 'mock_queue_lead_1'
+                && $pageId === $page->page_id
+                && $job->queue === 'meta'
+                && $job->connection === config('queue.meta_connection', 'redis');
         });
     }
 

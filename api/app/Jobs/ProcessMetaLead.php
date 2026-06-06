@@ -43,6 +43,8 @@ class ProcessMetaLead implements ShouldQueue, NotTenantAware
         $this->tenantId = $tenantId;
         $this->leadId = $leadId;
         $this->pageId = $pageId;
+        $this->onConnection(config('queue.meta_connection', 'redis'));
+        $this->onQueue('meta');
     }
 
     /**

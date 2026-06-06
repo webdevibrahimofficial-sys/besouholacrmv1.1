@@ -22,6 +22,8 @@ class SyncMetaAssets implements ShouldQueue, NotTenantAware
         public int|string $tenantId,
         public int $connectionId
     ) {
+        $this->onConnection(config('queue.meta_connection', 'redis'));
+        $this->onQueue('meta');
     }
 
     public function handle(MetaAuthService $metaAuthService): void
