@@ -147,6 +147,8 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])
 // Public Landing Page (Global Access)
 Route::get('/p/{slug}', [\App\Http\Controllers\LandingPageController::class, 'showPublic']);
 Route::post('/p/{slug}/lead', [\App\Http\Controllers\LandingPageController::class, 'storeLead']);
+Route::post('/intake/website/{apiKey}', [\App\Http\Controllers\WebsiteIntakeController::class, 'store'])
+    ->middleware('throttle:30,1');
 
 Route::middleware([ResolveTenant::class])
     ->group(function () {
@@ -201,6 +203,13 @@ Route::middleware([ResolveTenant::class])
     Route::post('/gemini/generate-icon', [GeminiController::class , 'generateIcon']);
 
     Route::post('/share-links', [ShareLinkController::class, 'store']);
+
+    Route::get('/website-connections', [\App\Http\Controllers\WebsiteConnectionController::class, 'index']);
+    Route::post('/website-connections', [\App\Http\Controllers\WebsiteConnectionController::class, 'store']);
+    Route::put('/website-connections/{websiteConnection}', [\App\Http\Controllers\WebsiteConnectionController::class, 'update']);
+    Route::delete('/website-connections/{websiteConnection}', [\App\Http\Controllers\WebsiteConnectionController::class, 'destroy']);
+    Route::post('/website-connections/{websiteConnection}/regenerate-key', [\App\Http\Controllers\WebsiteConnectionController::class, 'regenerateKey']);
+    Route::get('/website-connections/{websiteConnection}/stats', [\App\Http\Controllers\WebsiteConnectionController::class, 'stats']);
 
     // Contract & Collections (Real Estate)
     Route::prefix('cc')->group(function () {

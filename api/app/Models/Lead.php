@@ -140,6 +140,11 @@ class Lead extends Model
         return $this->belongsTo(Campaign::class, 'campaign_id');
     }
 
+    public function websiteConnection()
+    {
+        return $this->belongsTo(WebsiteConnection::class, 'website_connection_id');
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
