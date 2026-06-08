@@ -116,7 +116,7 @@ export default function WebsiteConnectionForm({
           ) : null}
           {originValidation.invalidOrigins.length > 0 ? (
             <div className="mt-2 text-sm text-red-600 dark:text-red-300">
-              Invalid origins: {originValidation.invalidOrigins.join(', ')}
+              {t('Invalid origins: {{origins}}', { origins: originValidation.invalidOrigins.join(', ') })}
             </div>
           ) : null}
         </div>

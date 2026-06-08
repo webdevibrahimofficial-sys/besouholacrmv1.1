@@ -10,7 +10,8 @@ import WebChatSettings from '../components/integrations/WebChatSettings'
 import WebsiteSettings from '../components/integrations/WebsiteSettings'
 
 export default function MetaIntegration() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const isArabic = String(i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('ar')
   const { 
     integrationsList, 
     activeIntegration, 
@@ -70,7 +71,7 @@ export default function MetaIntegration() {
 
   // Otherwise, show the main dashboard (The Manager)
   return (
-    <div className="space-y-6 bg-transparent text-[var(--content-text)]">
+    <div dir={isArabic ? 'rtl' : 'ltr'} className={`space-y-6 bg-transparent text-[var(--content-text)] ${isArabic ? 'text-right' : 'text-left'}`}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{t('Integrations')}</h1>
@@ -97,7 +98,7 @@ export default function MetaIntegration() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
           <div className="card glass-card p-4 md:col-span-3">
             <h3 className="text-base font-semibold mb-2">{t('Integration Tips')}</h3>
-            <ul className="text-sm space-y-2 list-disc pl-5">
+            <ul className={`text-sm space-y-2 list-disc ${isArabic ? 'pr-5' : 'pl-5'}`}>
               <li>{t('Meta requires a tenant-specific Meta App (App ID + Secret) before you can connect accounts.')}</li>
               <li>{t('After saving the Meta App, copy the Webhook URL into your Meta Developer Webhooks settings.')}</li>
               <li>{t('Then connect a Facebook account to sync businesses, ad accounts, pages, and Lead Ads.')}</li>

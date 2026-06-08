@@ -90,11 +90,12 @@ export default function WebsiteStatsPanel({ connection, stats, loading, onClose 
                   )}
                 </div>
               </div>
+            </div>
 
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <h4 className="text-sm font-semibold text-theme mb-3">{t('Daily Leads (30 days)')}</h4>
-                {Array.isArray(stats.daily_leads) && stats.daily_leads.length > 0 ? (
-                  <div className="space-y-2 text-sm">
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+              <h4 className="text-sm font-semibold text-theme mb-3">{t('Daily Leads (30 days)')}</h4>
+              {Array.isArray(stats.daily_leads) && stats.daily_leads.length > 0 ? (
+                <div className="space-y-2 text-sm">
                   {stats.daily_leads.map((row) => (
                     <div key={row.date} className="flex items-center justify-between">
                       <span className="text-[var(--muted-text)]">{row.date}</span>

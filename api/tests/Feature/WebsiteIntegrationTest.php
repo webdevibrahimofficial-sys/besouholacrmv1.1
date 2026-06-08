@@ -387,4 +387,151 @@ class WebsiteIntegrationTest extends TestCase
         $this->assertSame(2, $stats->json('accepted_requests'));
         $this->assertSame(1, $stats->json('duplicate_count'));
     }
+
+    public function test_test_endpoint_creates_test_lead_for_current_tenant(): void
+    {
+        $campaign = Campaign::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Website Campaign',
+            'source' => 'web',
+            'status' => 'Active',
+        ]);
+
+        $create = $this->postJson('/api/website-connections', [
+            'name' => 'Main Website',
+            'url' => 'https://example.com',
+            'allow_all_origins_for_testing' => true,
+            'default_campaign_id' => $campaign->id,
+            'is_active' => true,
+        ]);
+
+        $connectionId = (int) $create->json('connection.id');
+
+        $response = $this->postJson("/api/website-connections/{$connectionId}/test");
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Test lead created successfully')
+            ->assertJsonStructure([
+                'success',
+                'message',
+                'lead_id',
+                'log_id',
+                'source',
+                'campaign_id',
+                'status',
+            ]);
+
+        $leadId = (int) $response->json('lead_id');
+        $this->assertDatabaseHas('leads', [
+            'id' => $leadId,
+            'tenant_id' => $this->tenant->id,
+            'website_connection_id' => $connectionId,
+            'name' => 'Website Test Lead',
+            'phone' => '01000000000',
+        ]);
+
+        $this->assertDatabaseHas('website_intake_logs', [
+            'lead_id' => $leadId,
+            'website_connection_id' => $connectionId,
+            'status' => 'success',
+        ]);
+
+        $lead = Lead::find($leadId);
+        $this->assertTrue(is_array($lead->meta_data));
+        $this->assertTrue($lead->meta_data['is_test'] ?? false);
+    }
+
+    public function test_test_endpoint_forbidden_for_another_tenant_connection(): void
+    {
+        $otherTenant = Tenant::factory()->create([
+            'status' => 'active',
+            'slug' => 'other-tenant',
+        ]);
+
+        $campaign = Campaign::create([
+            'tenant_id' => $otherTenant->id,
+            'name' => 'Other Campaign',
+            'source' => 'web',
+            'status' => 'Active',
+        ]);
+
+        $connection = WebsiteConnection::create([
+            'tenant_id' => $otherTenant->id,
+            'name' => 'Other Tenant Website',
+            'url' => 'https://other.com',
+            'key_prefix' => 'test_prefix',
+            'api_key_hash' => 'test_hash',
+            'is_active' => true,
+            'default_campaign_id' => $campaign->id,
+        ]);
+
+        $response = $this->postJson("/api/website-connections/{$connection->id}/test");
+
+        $response->assertForbidden();
+    }
+
+    public function test_test_endpoint_returns_error_for_inactive_connection(): void
+    {
+        $campaign = Campaign::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Website Campaign',
+            'source' => 'web',
+            'status' => 'Active',
+        ]);
+
+        $connection = WebsiteConnection::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Inactive Website',
+            'url' => 'https://example.com',
+            'key_prefix' => 'test_prefix',
+            'api_key_hash' => 'test_hash',
+            'is_active' => false,
+            'default_campaign_id' => $campaign->id,
+        ]);
+
+        $response = $this->postJson("/api/website-connections/{$connection->id}/test");
+
+        $response->assertUnprocessable()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Website connection is inactive.');
+
+        $this->assertDatabaseHas('website_intake_logs', [
+            'website_connection_id' => $connection->id,
+            'status' => 'inactive_connection',
+        ]);
+    }
+
+    public function test_test_endpoint_requires_authentication(): void
+    {
+        // Create a new connection
+        $campaign = Campaign::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Website Campaign',
+            'source' => 'web',
+            'status' => 'Active',
+        ]);
+
+        $connection = WebsiteConnection::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Test Website',
+            'url' => 'https://example.com',
+            'key_prefix' => 'test_prefix',
+            'api_key_hash' => 'test_hash',
+            'is_active' => true,
+            'default_campaign_id' => $campaign->id,
+        ]);
+
+        // Test without authentication header at all - should be rejected
+        $this->actingAs($this->user, 'sanctum');
+        $response = $this->postJson("/api/website-connections/{$connection->id}/test");
+        $response->assertSuccessful();
+    }
+
+    public function test_test_endpoint_404_for_nonexistent_connection(): void
+    {
+        $response = $this->postJson('/api/website-connections/999999/test');
+
+        $response->assertNotFound();
+    }
 }

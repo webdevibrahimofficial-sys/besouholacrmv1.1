@@ -60,9 +60,9 @@ export function useIntegrations() {
       bg: 'bg-blue-600', 
       description: 'Connect Facebook & Instagram for Lead Ads, Pixel, and Messaging',
       connected: metaConnected,
-      status: metaConnected ? t('Connected') : (metaConfigured ? t('Ready to connect') : t('Meta App not configured')),
+      status: metaConnected ? 'Connected' : (metaConfigured ? 'Ready to connect' : 'Meta App not configured'),
       requiresSetup: !metaConfigured && !metaConnected,
-      disabledReason: !metaConfigured && !metaConnected ? t('To connect Meta, add your Meta App ID (numbers) and App Secret first') : null,
+      disabledReason: !metaConfigured && !metaConnected ? 'To connect Meta, add your Meta App ID (numbers) and App Secret first' : null,
     },
     { 
       id: 'website', 
@@ -71,8 +71,8 @@ export function useIntegrations() {
       bg: 'bg-cyan-600', 
       description: 'Generate secure website intake keys and collect website leads into the CRM',
       connected: websiteConnected,
-      status: websiteConnected ? t('Configured') : t('Not Configured'),
-      ctaLabel: t('Open Settings'),
+      status: websiteConnected ? 'Configured' : 'Not Configured',
+      ctaLabel: 'Open Settings',
     },
     { 
       id: 'google-ads', 
@@ -81,7 +81,7 @@ export function useIntegrations() {
       bg: 'bg-yellow-500', 
       description: 'Connect Google Ads to manage and track campaigns',
       connected: googleConnected,
-      status: googleConnected ? t('Connected') : t('Disconnected')
+      status: googleConnected ? 'Connected' : 'Disconnected'
     },
     { 
       id: 'tiktok', 
@@ -90,7 +90,7 @@ export function useIntegrations() {
       bg: 'bg-gray-900', 
       description: 'Connect TikTok Ads for performance tracking',
       connected: false,
-      status: t('Coming Soon')
+      status: 'Coming Soon'
     },
     { 
       id: 'telegram', 
@@ -99,7 +99,7 @@ export function useIntegrations() {
       bg: 'bg-blue-400', 
       description: 'Connect via Telegram API for instant messaging',
       connected: false,
-      status: t('Coming Soon')
+      status: 'Coming Soon'
     },
     { 
       id: 'webchat', 
@@ -108,7 +108,7 @@ export function useIntegrations() {
       bg: 'bg-purple-500', 
       description: 'Connect via WebChat API for website messaging',
       connected: false,
-      status: t('Coming Soon')
+      status: 'Coming Soon'
     },
   ]
 

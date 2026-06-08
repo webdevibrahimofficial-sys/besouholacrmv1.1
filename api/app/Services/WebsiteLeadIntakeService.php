@@ -382,4 +382,106 @@ class WebsiteLeadIntakeService
             ->get()
             ->all();
     }
+
+    /**
+     * Handle test connection request.
+     * This method creates a real test lead to verify the entire flow works.
+     *
+     * @param \App\Models\WebsiteConnection $connection
+     * @param \Illuminate\Http\Request $request
+     * @return array
+     */
+    public function handleTest(\App\Models\WebsiteConnection $connection, Request $request): array
+    {
+        if (!$connection->is_active) {
+            $this->logIntake((int) $connection->tenant_id, (int) $connection->id, 'inactive_connection', [], 'Website connection is inactive.', $request);
+            throw new HttpException(422, 'Website connection is inactive.');
+        }
+
+        $tenantId = (int) $connection->tenant_id;
+
+        // Build test payload
+        $payload = [
+            'name' => 'Website Test Lead',
+            'phone' => '01000000000',
+            'email' => 'test@example.com',
+            'message' => 'This is a test lead from Website Integration',
+            'meta' => [
+                'form_name' => 'crm_test_connection',
+                'page_url' => 'crm://website-integration/test',
+                'is_test' => true,
+                'submitted_from' => 'crm_test_connection',
+            ],
+        ];
+
+        $sourceName = $this->sourceResolver->resolveSourceNameForConnection($tenantId, $connection->default_source_id);
+        $rawPhone = trim((string) ($payload['phone'] ?? ''));
+        $phone = PhoneNormalizer::normalize($rawPhone);
+
+        $leadPayload = [
+            'tenant_id' => $tenantId,
+            'name' => trim((string) ($payload['name'] ?? '')),
+            'phone' => $phone,
+            'email' => filled($payload['email'] ?? null) ? trim((string) $payload['email']) : null,
+            'notes' => filled($payload['message'] ?? null) ? trim((string) $payload['message']) : null,
+            'source' => $sourceName,
+            'campaign_id' => $this->resolveCampaignId($tenantId, $connection->default_campaign_id),
+            'website_connection_id' => (int) $connection->id,
+            'stage' => 'New Lead',
+            'status' => null,
+            'created_by' => null,
+            'meta_data' => $this->buildMetaData($connection, $payload),
+        ];
+
+        // Add test flag to metadata
+        $leadPayload['meta_data']['is_test'] = true;
+        $leadPayload['meta_data']['submitted_from'] = 'crm_test_connection';
+
+        $result = null;
+        $boundTenant = app()->bound('current_tenant_id');
+        $previousTenantId = $boundTenant ? app('current_tenant_id') : null;
+
+        try {
+            app()->instance('current_tenant_id', $tenantId);
+
+            DB::beginTransaction();
+
+            [$lead, $result] = $this->createOrUpdateLead($tenantId, $leadPayload, $rawPhone);
+
+            $connection->forceFill([
+                'last_used_at' => now(),
+                'requests_count' => (int) $connection->requests_count + 1,
+            ])->save();
+
+            $logStatus = in_array($result, ['created_duplicate', 'updated_duplicate'], true) ? 'duplicate' : 'success';
+            $log = $this->logIntake($tenantId, (int) $connection->id, $logStatus, $payload, null, $request, (int) $lead->id);
+
+            DB::commit();
+
+            return [
+                'success' => true,
+                'message' => 'Test lead created successfully',
+                'lead_id' => $lead->id,
+                'log_id' => $log?->id,
+                'source' => $sourceName,
+                'campaign_id' => $connection->default_campaign_id,
+                'status' => $result,
+            ];
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            $this->logIntake($tenantId, (int) $connection->id, 'exception', $payload, $e->getMessage(), $request);
+
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'status' => 'exception',
+            ];
+        } finally {
+            if ($boundTenant) {
+                app()->instance('current_tenant_id', $previousTenantId);
+            } else {
+                app()->forgetInstance('current_tenant_id');
+            }
+        }
+    }
 }

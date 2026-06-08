@@ -77,6 +77,11 @@ export const websiteIntegrationService = {
     return res.data
   },
 
+  async testConnection(id) {
+    const res = await api.post(`/api/website-connections/${id}/test`)
+    return res.data
+  },
+
   async getLogs(params = {}) {
     const res = await api.get('/api/website-intake-logs', { params })
     return res.data

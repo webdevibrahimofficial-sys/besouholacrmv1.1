@@ -191,6 +191,31 @@ class WebsiteConnectionController extends Controller
         ]);
     }
 
+    public function test(Request $request, int $websiteConnection): JsonResponse
+    {
+        $connection = $this->resolveTenantConnection($request, $websiteConnection);
+
+        try {
+            $intakeService = app(\App\Services\WebsiteLeadIntakeService::class);
+            $result = $intakeService->handleTest($connection, $request);
+
+            if (!$result['success']) {
+                return response()->json($result, 422);
+            }
+
+            return response()->json($result, 201);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'status' => match ($e->getStatusCode()) {
+                    422 => 'inactive_connection',
+                    default => 'exception',
+                },
+            ], $e->getStatusCode());
+        }
+    }
+
     private function resolveTenantConnection(Request $request, int $websiteConnection): WebsiteConnection
     {
         $connection = WebsiteConnection::withoutGlobalScopes()->find($websiteConnection);

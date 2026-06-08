@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { CalendarDays, Filter, RefreshCcw } from 'lucide-react'
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -51,8 +52,9 @@ export default function WebsiteIntakeLogsPanel({
   onFilterChange,
   onRefresh,
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const rows = Array.isArray(logs?.data) ? logs.data : []
+  const isArabic = String(i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('ar')
 
   return (
     <div className="card rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -63,55 +65,85 @@ export default function WebsiteIntakeLogsPanel({
         </div>
         <button
           onClick={onRefresh}
-          className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-theme hover:bg-gray-50 dark:hover:bg-gray-800"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-theme hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
+          <RefreshCcw className="w-4 h-4" />
           {t('Refresh')}
         </button>
       </div>
 
-      <div className="p-5 border-b border-gray-200 dark:border-gray-700 grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-theme mb-1">{t('Connection')}</label>
-          <select
-            className="select w-full"
-            value={filters.connection_id || ''}
-            onChange={(e) => onFilterChange('connection_id', e.target.value)}
-          >
-            <option value="">{t('All connections')}</option>
-            {connections.map((connection) => (
-              <option key={connection.id} value={connection.id}>{connection.name}</option>
-            ))}
-          </select>
+      <div className="p-5 border-b border-gray-200 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-900/10">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex items-center justify-center">
+            <Filter className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-theme">{t('Filters')}</div>
+            <div className="text-xs text-[var(--muted-text)]">{t('Narrow down logs by connection, status, and date range.')}</div>
+          </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-theme mb-1">{t('Status')}</label>
-          <select
-            className="select w-full"
-            value={filters.status || ''}
-            onChange={(e) => onFilterChange('status', e.target.value)}
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option.value || 'all'} value={option.value}>{t(option.label)}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-theme mb-1">{t('Date From')}</label>
-          <input
-            type="date"
-            className="input w-full"
-            value={filters.date_from || ''}
-            onChange={(e) => onFilterChange('date_from', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-theme mb-1">{t('Date To')}</label>
-          <input
-            type="date"
-            className="input w-full"
-            value={filters.date_to || ''}
-            onChange={(e) => onFilterChange('date_to', e.target.value)}
-          />
+
+        <div className="grid grid-cols-1 xl:grid-cols-4 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-theme">{t('Connection')}</label>
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950/40 overflow-hidden">
+              <select
+                className="select w-full border-0 rounded-none bg-transparent min-h-[52px] px-4 text-base"
+                value={filters.connection_id || ''}
+                onChange={(e) => onFilterChange('connection_id', e.target.value)}
+              >
+                <option value="">{t('All connections')}</option>
+                {connections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>{connection.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-theme">{t('Status')}</label>
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950/40 overflow-hidden">
+              <select
+                className="select w-full border-0 rounded-none bg-transparent min-h-[52px] px-4 text-base"
+                value={filters.status || ''}
+                onChange={(e) => onFilterChange('status', e.target.value)}
+              >
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value || 'all'} value={option.value}>{t(option.label)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-theme">{t('Date From')}</label>
+            <div className="relative">
+              <CalendarDays className={`w-4 h-4 absolute top-1/2 -translate-y-1/2 text-[var(--muted-text)] pointer-events-none ${isArabic ? 'right-4' : 'left-4'}`} />
+              <input
+                type="date"
+                lang={isArabic ? 'ar' : 'en'}
+                dir={isArabic ? 'rtl' : 'ltr'}
+                className={`input w-full min-h-[52px] rounded-xl ${isArabic ? 'pr-12 pl-4 text-right' : 'pl-12 pr-4 text-left'}`}
+                value={filters.date_from || ''}
+                onChange={(e) => onFilterChange('date_from', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-theme">{t('Date To')}</label>
+            <div className="relative">
+              <CalendarDays className={`w-4 h-4 absolute top-1/2 -translate-y-1/2 text-[var(--muted-text)] pointer-events-none ${isArabic ? 'right-4' : 'left-4'}`} />
+              <input
+                type="date"
+                lang={isArabic ? 'ar' : 'en'}
+                dir={isArabic ? 'rtl' : 'ltr'}
+                className={`input w-full min-h-[52px] rounded-xl ${isArabic ? 'pr-12 pl-4 text-right' : 'pl-12 pr-4 text-left'}`}
+                value={filters.date_to || ''}
+                onChange={(e) => onFilterChange('date_to', e.target.value)}
+              />
+            </div>
+          </div>
         </div>
       </div>
 

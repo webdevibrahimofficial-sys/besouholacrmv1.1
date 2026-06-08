@@ -257,6 +257,33 @@ export default function WebsiteSettings({ onClose }) {
     }
   }
 
+  const handleTest = async (connection) => {
+    const confirmed = window.confirm(
+      t('This will create a real test lead in the CRM. Are you sure?')
+    )
+    if (!confirmed) return
+
+    try {
+      const result = await websiteIntegrationService.testConnection(connection.id)
+      if (result.success) {
+        toast.success(t('Test lead created successfully') + ` (ID: ${result.lead_id})`)
+        // Refresh stats and logs
+        if (mode === 'stats') {
+          setStats(null)
+          openStats(connection)
+        }
+        if (mode === 'list') {
+          const updated = await websiteIntegrationService.listConnections()
+          setConnections(updated)
+        }
+      } else {
+        toast.error(result.message || t('Test failed'))
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || t('Failed to test connection'))
+    }
+  }
+
   const handleCopy = async (value, successMessage = t('Copied to clipboard.')) => {
     try {
       await navigator.clipboard.writeText(value)
@@ -409,6 +436,7 @@ export default function WebsiteSettings({ onClose }) {
                   onDelete={handleDelete}
                   onSnippet={openSnippet}
                   onCopyMasked={(connection) => handleCopy(connection.key_prefix || '', 'Key prefix copied.')}
+                  onTestConnection={handleTest}
                 />
               ) : null}
 
