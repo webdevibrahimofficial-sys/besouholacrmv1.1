@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useQuery, keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -24,6 +24,7 @@ import * as LucideIcons from 'lucide-react'
 import { useDynamicFields } from '../hooks/useDynamicFields'
 import { countriesData } from '../data/countriesData'
 import { getLeadPermissionFlags } from '../services/leadPermissions'
+import { normalizeColumnOrder, getFavoriteColumnOrder } from '../utils/columnPreferences'
 import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
@@ -33,7 +34,7 @@ export const ReferralLeads = () => {
   const { theme: contextTheme, resolvedTheme } = useTheme()
   const theme = resolvedTheme || contextTheme
   const isLight = theme === 'light'
-  const { user, company, crmSettings } = useAppState()
+  const { user, company, crmSettings, saveUiPreference } = useAppState()
   const navigate = useNavigate()
   const location = useLocation()
   const { stages, statuses } = useStages()
@@ -893,10 +894,19 @@ export const ReferralLeads = () => {
 
   // State for column order
   const [columnOrder, setColumnOrder] = useState(Object.keys(allColumns))
+  const [favoriteColumnOrder, setFavoriteColumnOrder] = useState([])
 
   const handleColumnReorder = (newOrder) => {
     setColumnOrder(newOrder)
   }
+
+  useEffect(() => {
+    const savedFavorite = getFavoriteColumnOrder(user, 'referral_leads')
+    if (savedFavorite.length > 0) {
+      setFavoriteColumnOrder(savedFavorite)
+      setColumnOrder(normalizeColumnOrder(savedFavorite, Object.keys(displayColumns)))
+    }
+  }, [user, displayColumns])
 
   // Sync dynamic fields with visibleColumns and columnOrder
   useEffect(() => {
@@ -949,6 +959,27 @@ export const ReferralLeads = () => {
     const all = Object.keys(displayColumns).reduce((acc, k) => { acc[k] = true; return acc }, {})
     setVisibleColumns(all)
   }
+
+  const saveFavoriteOrder = useCallback(async () => {
+    const next = normalizeColumnOrder(columnOrder, Object.keys(displayColumns))
+    setFavoriteColumnOrder(next)
+    try {
+      await saveUiPreference?.('referral_leads', next)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'success', message: isRtl ? 'تم حفظ الترتيب المفضل' : 'Favorite order saved' }
+      }))
+    } catch (error) {
+      console.error('Failed to save referral leads favorite order', error)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'error', message: isRtl ? 'فشل حفظ الترتيب المفضل' : 'Failed to save favorite order' }
+      }))
+    }
+  }, [columnOrder, displayColumns, isRtl, saveUiPreference])
+
+  const restoreFavoriteOrder = useCallback(() => {
+    if (!favoriteColumnOrder.length) return
+    setColumnOrder(normalizeColumnOrder(favoriteColumnOrder, Object.keys(displayColumns)))
+  }, [displayColumns, favoriteColumnOrder])
 
   useEffect(() => {
     const update = () => setIsMobile(window.innerWidth < 640)
@@ -1769,16 +1800,6 @@ export const ReferralLeads = () => {
           </h2>
 
         </div>
-        <ColumnToggle
-          columns={displayColumns}
-          visibleColumns={visibleColumns}
-          onColumnToggle={handleColumnToggle}
-          onResetColumns={resetVisibleColumns}
-          align={'right'}
-          compact
-          order={columnOrder}
-          onReorder={handleColumnReorder}
-        />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4 items-stretch">
@@ -1800,6 +1821,22 @@ export const ReferralLeads = () => {
             <span className="font-bold">{new Intl.NumberFormat(i18n.language.startsWith('ar') ? 'ar-EG' : 'en-US').format(stageCounts[s.key] || 0)}</span>
           </button>
         ))}
+      </div>
+
+      <div className="flex justify-end mb-3">
+        <ColumnToggle
+          columns={displayColumns}
+          visibleColumns={visibleColumns}
+          onColumnToggle={handleColumnToggle}
+          onResetColumns={resetVisibleColumns}
+          align={'right'}
+          compact
+          order={columnOrder}
+          onReorder={handleColumnReorder}
+          favoriteOrder={favoriteColumnOrder}
+          onSaveFavoriteOrder={saveFavoriteOrder}
+          onRestoreFavoriteOrder={restoreFavoriteOrder}
+        />
       </div>
 
       {/* Main Table */}

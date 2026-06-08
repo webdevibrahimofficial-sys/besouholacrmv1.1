@@ -20,6 +20,11 @@ export default function ItemsPage() {
     SAR: 'SAR',
     AED: 'AED',
   })[String(currencyCode || '').toUpperCase()] || String(currencyCode || 'USD').toUpperCase()
+  const numberFormatter = useMemo(() => new Intl.NumberFormat('en-US'), [])
+  const moneyFormatter = useMemo(
+    () => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    []
+  )
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitInventoryPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Inventory')
@@ -155,7 +160,8 @@ export default function ItemsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
 
-  const formatAmount = (value) => `${Number(value || 0).toFixed(2)} ${currencySymbol}`
+  const formatAmount = (value) => `${moneyFormatter.format(Number(value || 0))} ${currencySymbol}`
+  const formatNumber = (value) => numberFormatter.format(Number(value || 0))
   const getAddonTooltipData = (item) => Array.isArray(item.addons) ? item.addons.filter(addon => String(addon.name || '').trim() !== '') : []
   const showAddonsTooltip = (event, item) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -1084,7 +1090,7 @@ export default function ItemsPage() {
                         <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{item.type || '-'}</td>
                         <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{item.itemType || '-'}</td>
                         <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(item.price)}</td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{item.stock ?? 0}</td>
+                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.stock ?? 0)}</td>
                         <td className="px-4 py-3 text-start">
                           <div className="inline-flex items-center">
                             <span
@@ -1092,7 +1098,7 @@ export default function ItemsPage() {
                               onMouseEnter={(event) => showAddonsTooltip(event, item)}
                               onMouseLeave={hideAddonsTooltip}
                             >
-                              {item.addonsTotalQuantity || 0}
+                              {formatNumber(item.addonsTotalQuantity || 0)}
                             </span>
                           </div>
                         </td>
@@ -1160,11 +1166,11 @@ export default function ItemsPage() {
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.quantity}</span>
-                        <span>{item.stock}</span>
+                        <span>{formatNumber(item.stock ?? 0)}</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.itemType}</span>
-                        <span>{item.itemType || '-'}</span>
+                      <span>{item.itemType || '-'}</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.addonsPrice}</span>
@@ -1200,8 +1206,8 @@ export default function ItemsPage() {
           <div className="mt-2 flex flex-wrap items-center justify-between rounded-xl p-2 border border-gray-100 dark:border-gray-700  gap-4">
             <div className="text-xs text-theme">
               {isArabic
-                ? `عرض ${(currentPage - 1) * itemsPerPage + 1} إلى ${Math.min(currentPage * itemsPerPage, filtered.length)} من ${filtered.length} صنف`
-                : `Showing ${(currentPage - 1) * itemsPerPage + 1} to ${Math.min(currentPage * itemsPerPage, filtered.length)} of ${filtered.length} items`
+                ? `عرض ${formatNumber((currentPage - 1) * itemsPerPage + 1)} إلى ${formatNumber(Math.min(currentPage * itemsPerPage, filtered.length))} من ${formatNumber(filtered.length)} صنف`
+                : `Showing ${formatNumber((currentPage - 1) * itemsPerPage + 1)} to ${formatNumber(Math.min(currentPage * itemsPerPage, filtered.length))} of ${formatNumber(filtered.length)} items`
               }
             </div>
 
@@ -1254,7 +1260,7 @@ export default function ItemsPage() {
                   <div key={`${activeAddonsTooltip.item.id}-addon-${index}`} className="rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs">
                     <div className="truncate font-medium text-white">{addon.name}</div>
                     <div className="mt-1 flex items-center justify-between gap-4 text-slate-300">
-                      <span>{labels.quantity}: {Number(addon.quantity || 0)}</span>
+                      <span>{labels.quantity}: {formatNumber(addon.quantity || 0)}</span>
                       <span>{labels.price}: {formatAmount(addon.price)}</span>
                     </div>
                   </div>

@@ -478,6 +478,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('/v1/leads/{lead}/email-messages', [\App\Http\Controllers\EmailMessageController::class , 'leadMessages']);
     Route::post('/v1/email/send', [\App\Http\Controllers\EmailMessageController::class , 'send']);
     Route::post('/profile', [App\Http\Controllers\ProfileController::class , 'update']);
+    Route::post('/profile/preferences', [App\Http\Controllers\ProfileController::class , 'preferences']);
     Route::get('/profile/sessions', [App\Http\Controllers\ProfileController::class , 'sessions']);
     Route::delete('/profile/sessions/{id}', [App\Http\Controllers\ProfileController::class , 'revokeSession']);
     Route::get('/user-management/activity-logs', [ActivityLogController::class , 'tenantLogs']);

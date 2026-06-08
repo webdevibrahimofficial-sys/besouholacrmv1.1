@@ -2622,11 +2622,21 @@ svg.lucide {
   margin: 0.75rem 0;
 }
 
+.contracts-gridlines-on .tiptap-editor table {
+  border-collapse: collapse;
+}
+
 .tiptap-editor th,
 .tiptap-editor td {
   border: 1px solid rgba(0, 0, 0, 0.15);
   padding: 0.4rem 0.5rem;
   vertical-align: top;
+}
+
+.contracts-gridlines-on .tiptap-editor th,
+.contracts-gridlines-on .tiptap-editor td {
+  border-color: rgba(37, 99, 235, 0.42);
+  border-style: dashed;
 }
 
 .tiptap-editor th {
@@ -2639,6 +2649,36 @@ svg.lucide {
   padding-left: 0.75rem;
   margin: 0.75rem 0;
   color: rgba(0, 0, 0, 0.75);
+}
+
+.tiptap-editor .page-number-token {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border: 1px dashed rgba(37, 99, 235, 0.45);
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: rgb(29, 78, 216);
+  font-size: 0.95em;
+  white-space: nowrap;
+}
+
+.tiptap-editor .contract-header-footer-block {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 0.9rem;
+  background: rgba(248, 250, 252, 0.95);
+}
+
+.tiptap-editor .contract-header-footer-title {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.tiptap-editor .contract-header-footer-text {
+  font-size: 0.9rem;
+  color: rgba(51, 65, 85, 0.82);
 }
 
 [dir='rtl'] .tiptap-editor blockquote {

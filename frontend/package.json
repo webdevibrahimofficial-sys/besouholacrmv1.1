@@ -17,6 +17,8 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.2",
     "@tiptap/extension-color": "^3.22.5",
+    "@tiptap/extension-image": "^3.22.5",
+    "@tiptap/extension-link": "^3.22.5",
     "@tiptap/extension-table": "^3.22.5",
     "@tiptap/extension-table-cell": "^3.22.5",
     "@tiptap/extension-table-header": "^3.22.5",

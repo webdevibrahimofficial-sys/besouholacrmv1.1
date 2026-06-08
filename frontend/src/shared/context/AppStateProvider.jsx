@@ -103,6 +103,18 @@ export function AppStateProvider({ children }) {
     }
   }, [])
 
+  const saveUiPreference = useCallback(async (page, favoriteOrder) => {
+    if (!page) return null
+    const response = await api.post('/api/profile/preferences', {
+      page,
+      favorite_order: Array.isArray(favoriteOrder) ? favoriteOrder : [],
+    })
+    try {
+      await fetchCompanyInfo()
+    } catch {}
+    return response?.data || null
+  }, [fetchCompanyInfo])
+
   const login = useCallback(async (email, password, subdomain, rememberMe = false) => {
     const result = await svcLogin(email, password, subdomain, rememberMe)
     if (result?.requires_2fa) {
@@ -271,8 +283,9 @@ export function AppStateProvider({ children }) {
     crmSettings,
     setCrmSettings,
     inventoryBadges,
-    refreshInventoryBadges,
-  }), [user, company, subscription, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges])
+      refreshInventoryBadges,
+      saveUiPreference,
+    }), [user, company, subscription, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges, saveUiPreference])
 
 useEffect(() => {
   const getCookie = (name) => {

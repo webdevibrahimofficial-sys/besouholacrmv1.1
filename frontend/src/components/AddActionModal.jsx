@@ -21,6 +21,22 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   const isRTL = i18n.dir() === 'rtl';
   const isArabic = isRTL;
+  const numberFormatter = useMemo(() => new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 20,
+  }), []);
+  const numericFieldProps = {
+    dir: 'ltr',
+    lang: 'en',
+    inputMode: 'decimal',
+    style: { direction: 'ltr', unicodeBidi: 'plaintext' },
+  };
+  const formatDisplayNumber = (value) => {
+    const n = Number(String(value ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(n)) return '';
+    return numberFormatter.format(n);
+  };
+  const parseDisplayNumber = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.-]/g, '');
   const stageLabel = (stage) => {
     if (!stage) return '';
     const ar = stage?.name_ar || stage?.nameAr || stage?.title_ar || stage?.titleAr;
@@ -1533,15 +1549,15 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'قيمة العرض' : 'Proposal Amount'}</label>
-                <input name="proposalAmount" type="number" value={actionData.proposalAmount} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                <input name="proposalAmount" type="number" value={actionData.proposalAmount} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'الخصم %' : 'Discount %'}</label>
-                <input name="proposalDiscount" type="number" value={actionData.proposalDiscount} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                <input name="proposalDiscount" type="number" value={actionData.proposalDiscount} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'مدة الصلاحية (أيام)' : 'Validity Days'}</label>
-                <input name="proposalValidityDays" type="number" value={actionData.proposalValidityDays} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                <input name="proposalValidityDays" type="number" value={actionData.proposalValidityDays} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'مرفق' : 'Attachment'}</label>
@@ -1618,7 +1634,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'قيمة الحجز' : 'Reservation Amount'}</label>
-                    <input name="reservationAmount" type="number" value={actionData.reservationAmount} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                    <input name="reservationAmount" type="text" value={formatDisplayNumber(actionData.reservationAmount)} readOnly {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
                   </div>
                 </div>
               ) : (
@@ -1673,50 +1689,55 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                         <div className="w-24">
                           <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الكمية' : 'Qty'}</label>
                           <input
-                            type="number"
+                            type="text"
                             min="1"
                             value={row.quantity}
-                            onChange={(e) => handleGeneralRowChange(index, 'quantity', e.target.value)}
+                            onChange={(e) => handleGeneralRowChange(index, 'quantity', parseDisplayNumber(e.target.value))}
+                            {...numericFieldProps}
+                            inputMode="numeric"
                             className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
                           />
                         </div>
                         <div className="w-32">
                           <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'السعر' : 'Price'}</label>
                           <input
-                            type="number"
-                            value={row.price}
-                            onChange={(e) => handleGeneralRowChange(index, 'price', e.target.value)}
+                            type="text"
+                            value={formatDisplayNumber(row.price)}
+                            onChange={(e) => handleGeneralRowChange(index, 'price', parseDisplayNumber(e.target.value))}
+                            {...numericFieldProps}
                             className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
                           />
                         </div>
                         <div className="w-52">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'Ø®ØµÙ…' : 'Discount'}</label>
+                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'خصم' : 'Discount'}</label>
                           <div className="flex gap-2">
                             <select
                               value={row.discount_type || 'value'}
                               onChange={(e) => handleGeneralRowChange(index, 'discount_type', e.target.value)}
                               className={`${isLight ? 'w-28 appearance-none px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-28 appearance-none px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
-                              aria-label={isArabic ? 'Ø§Ù„Ù†ÙˆØ¹' : 'Discount type'}
+                              aria-label={isArabic ? 'النوع' : 'Discount type'}
                             >
-                              <option value="value">{isArabic ? 'Ù‚ÙŠÙ…Ø©' : 'Value'}</option>
-                              <option value="percent">{isArabic ? 'Ù†Ø³Ø¨Ø©' : '%'}</option>
+                              <option value="value">{isArabic ? 'قيمة' : 'Value'}</option>
+                              <option value="percent">{isArabic ? 'نسبة' : '%'}</option>
                             </select>
                             <input
-                              type="number"
+                              type="text"
                               min="0"
-                              value={row.discount_value ?? ''}
-                              onChange={(e) => handleGeneralRowChange(index, 'discount_value', e.target.value)}
+                              value={formatDisplayNumber(row.discount_value ?? '')}
+                              onChange={(e) => handleGeneralRowChange(index, 'discount_value', parseDisplayNumber(e.target.value))}
+                              {...numericFieldProps}
                               className={`${isLight ? 'flex-1 px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
                               placeholder={row.discount_type === 'percent' ? '0-100' : '0'}
                             />
                           </div>
                         </div>
                         <div className="w-32">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ' : 'Total'}</label>
+                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإجمالي' : 'Total'}</label>
                           <input
-                            type="number"
-                            value={getGeneralRowTotals(row).total}
+                            type="text"
+                            value={formatDisplayNumber(getGeneralRowTotals(row).total)}
                             readOnly
+                            {...numericFieldProps}
                             className={`${isLight ? 'w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
                           />
                         </div>
@@ -1746,9 +1767,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                       <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'إجمالي السعر' : 'Total Price'}</label>
                       <input
                         name="reservationAmount"
-                        type="number"
-                        value={actionData.reservationAmount}
+                        type="text"
+                        value={formatDisplayNumber(actionData.reservationAmount)}
                         readOnly
+                        {...numericFieldProps}
                         className={`${isLight ? 'w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
                       />
                     </div>
@@ -1767,7 +1789,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'الإيرادات' : 'Revenue'}</label>
-                <input name="closingRevenue" type="number" value={actionData.closingRevenue} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                <input name="closingRevenue" type="number" value={actionData.closingRevenue} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
             </div>
           )}
@@ -1794,7 +1816,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'قيمة الإيجار' : 'Rent Amount'}</label>
-                <input name="rentAmount" type="number" value={actionData.rentAmount} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                <input name="rentAmount" type="number" value={actionData.rentAmount} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'بداية الإيجار' : 'Rent Start'}</label>

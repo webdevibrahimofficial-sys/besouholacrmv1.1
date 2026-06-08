@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FaColumns, FaUndoAlt, FaGripVertical } from 'react-icons/fa';
+import { FaColumns, FaUndoAlt, FaGripVertical, FaStar, FaRegStar } from 'react-icons/fa';
 import { Reorder } from 'framer-motion';
 
-const ColumnToggle = ({ columns, visibleColumns, onColumnToggle, onResetColumns, align = 'right', compact = false, order, onReorder }) => {
+const ColumnToggle = ({ columns, visibleColumns, onColumnToggle, onResetColumns, align = 'right', compact = false, order, onReorder, favoriteOrder, onSaveFavoriteOrder, onRestoreFavoriteOrder }) => {
   const { t, i18n } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -78,11 +78,11 @@ const ColumnToggle = ({ columns, visibleColumns, onColumnToggle, onResetColumns,
           className={`rounded-lg shadow-xl bg-white dark:bg-slate-800/90 dark:backdrop-blur-md text-gray-900 dark:text-white ring-1 ring-gray-200 dark:ring-slate-700/50 z-[50] pointer-events-auto max-[480px]:w-[calc(100vw-24px)] max-[480px]:mx-3`}
         >
           <div className="p-3 space-y-3" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="text-sm font-semibold shrink-0">
                 {t('Show/Hide Columns')}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
                 <button
                   type="button"
                   onClick={() => {
@@ -90,7 +90,7 @@ const ColumnToggle = ({ columns, visibleColumns, onColumnToggle, onResetColumns,
                       if (!visibleColumns[key]) onColumnToggle(key);
                     });
                   }}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-800/40 text-blue-700 dark:text-blue-200"
+                  className="inline-flex min-w-0 items-center gap-1 px-2 py-1 rounded-md text-xs whitespace-nowrap bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-800/40 text-blue-700 dark:text-blue-200"
                   title={t('Select All')}
                 >
                   <span className="inline-block w-3 h-3 rounded-sm bg-blue-600 opacity-80"></span>
@@ -100,11 +100,33 @@ const ColumnToggle = ({ columns, visibleColumns, onColumnToggle, onResetColumns,
                   <button
                     type="button"
                     onClick={onResetColumns}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs bg-gray-100 dark:bg-slate-700/50 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-white"
+                    className="inline-flex min-w-0 items-center gap-1 px-2 py-1 rounded-md text-xs whitespace-nowrap bg-gray-100 dark:bg-slate-700/50 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-white"
                     title={t('Reset')}
                   >
                     <FaUndoAlt className="h-3 w-3" />
                     {t('Reset')}
+                  </button>
+                )}
+                {onSaveFavoriteOrder && (
+                  <button
+                    type="button"
+                    onClick={onSaveFavoriteOrder}
+                    className="inline-flex min-w-0 items-center gap-1 px-2 py-1 rounded-md text-xs whitespace-nowrap bg-amber-100 dark:bg-amber-900/30 hover:bg-amber-200 dark:hover:bg-amber-800/40 text-amber-700 dark:text-amber-200"
+                    title={t('Save Favorite', isRtl ? 'حفظ المفضل' : 'Save Favorite')}
+                  >
+                    <FaStar className="h-3 w-3" />
+                    {t('Save Favorite', isRtl ? 'حفظ المفضل' : 'Save Favorite')}
+                  </button>
+                )}
+                {onRestoreFavoriteOrder && Array.isArray(favoriteOrder) && favoriteOrder.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={onRestoreFavoriteOrder}
+                    className="inline-flex min-w-0 items-center gap-1 px-2 py-1 rounded-md text-xs whitespace-nowrap bg-emerald-100 dark:bg-emerald-900/30 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 text-emerald-700 dark:text-emerald-200"
+                    title={t('Favorite', isRtl ? 'المفضل' : 'Favorite')}
+                  >
+                    <FaRegStar className="h-3 w-3" />
+                    {t('Favorite', isRtl ? 'المفضل' : 'Favorite')}
                   </button>
                 )}
               </div>

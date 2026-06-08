@@ -75,6 +75,33 @@ class ProfileController extends Controller
         ]);
     }
 
+    public function preferences(Request $request)
+    {
+        $validated = $request->validate([
+            'page' => ['required', 'string', 'max:100'],
+            'favorite_order' => ['required', 'array'],
+            'favorite_order.*' => ['string', 'max:100'],
+        ]);
+
+        $user = $request->user();
+        $meta = is_array($user->meta_data) ? $user->meta_data : [];
+        $uiPreferences = is_array($meta['ui_preferences'] ?? null) ? $meta['ui_preferences'] : [];
+
+        $uiPreferences[$validated['page']] = [
+            'favorite_order' => array_values(array_filter($validated['favorite_order'])),
+            'updated_at' => now()->toISOString(),
+        ];
+
+        $meta['ui_preferences'] = $uiPreferences;
+        $user->meta_data = $meta;
+        $user->save();
+
+        return response()->json([
+            'message' => 'Preferences saved successfully',
+            'user' => $user->load(['roles', 'team', 'department', 'managedDepartment']),
+        ]);
+    }
+
     /**
      * Get active sessions (devices).
      */

@@ -12,31 +12,41 @@ import {
   Copy,
   Eye,
   FilePlus2,
+  FileText,
+  FolderKanban,
+  ImagePlus,
   IndentDecrease,
   IndentIncrease,
   Italic,
+  Link2,
   List,
   ListOrdered,
   Paintbrush,
   RefreshCcw,
+  Redo2,
+  Table as TableIcon,
   Save,
   Scissors,
   Search,
+  Sparkles,
   Trash2,
   Underline,
+  Undo2,
   Upload,
   X,
 } from 'lucide-react'
 import { api } from '@utils/api'
 import { createContractTemplate, deleteContractTemplate, getContractTemplates, updateContractTemplate } from '@services/contractTemplateService'
 import { EditorContent, useEditor } from '@tiptap/react'
-import { Extension } from '@tiptap/core'
+import { Extension, Node } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import TextAlign from '@tiptap/extension-text-align'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import { TextStyle } from '@tiptap/extension-text-style'
 import { Color } from '@tiptap/extension-color'
 import UnderlineExtension from '@tiptap/extension-underline'
+import Image from '@tiptap/extension-image'
+import Link from '@tiptap/extension-link'
 
 const emptyDraft = () => ({
   id: null,
@@ -102,6 +112,67 @@ const stripWordTipsFromHtml = (html) => {
   }
 }
 
+const WORD_FONT_OPTIONS = [
+  'Arial',
+  'Arial Black',
+  'Aptos',
+  'Aptos Display',
+  'Aptos Narrow',
+  'Bahnschrift',
+  'Book Antiqua',
+  'Calibri',
+  'Calibri Light',
+  'Cambria',
+  'Cambria Math',
+  'Candara',
+  'Century Gothic',
+  'Comic Sans MS',
+  'Consolas',
+  'Constantia',
+  'Corbel',
+  'Courier New',
+  'Ebrima',
+  'Franklin Gothic Medium',
+  'Gabriola',
+  'Gadugi',
+  'Georgia',
+  'Garamond',
+  'Helvetica',
+  'Impact',
+  'Ink Free',
+  'Javanese Text',
+  'Lucida Bright',
+  'Lucida Console',
+  'Lucida Sans Unicode',
+  'Malgun Gothic',
+  'Marlett',
+  'Meiryo',
+  'Microsoft Himalaya',
+  'Microsoft JhengHei',
+  'Microsoft New Tai Lue',
+  'Microsoft PhagsPa',
+  'Microsoft Sans Serif',
+  'Microsoft Tai Le',
+  'Microsoft YaHei',
+  'Mongolian Baiti',
+  'Monotype Corsiva',
+  'MV Boli',
+  'Nirmala UI',
+  'Palatino Linotype',
+  'Segoe Print',
+  'Segoe Script',
+  'Segoe UI',
+  'Segoe UI Emoji',
+  'Segoe UI Historic',
+  'Segoe UI Symbol',
+  'Sylfaen',
+  'Tahoma',
+  'Times New Roman',
+  'Trebuchet MS',
+  'Verdana',
+  'Yu Gothic',
+]
+
 function RibbonButton({ active, disabled, onClick, title, children, className = '' }) {
   return (
     <button
@@ -127,6 +198,65 @@ function RibbonGroup({ title, children, className = '' }) {
     <div className={['flex items-center gap-2 px-3 py-2 border-r border-[var(--panel-border)] last:border-r-0', className].join(' ')}>
       <div className="flex flex-wrap items-center gap-1">{children}</div>
       {title ? <div className="sr-only">{title}</div> : null}
+    </div>
+  )
+}
+
+function ContractHeader({ logoUrl, tenantName, phone, email, taxId, tenantLabel }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-10 py-6 border-b border-gray-200">
+      <div className="flex items-center gap-3">
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt={tenantName || 'Tenant Logo'}
+            className="h-10 w-auto object-contain"
+          />
+        ) : (
+          <div className="h-10 w-10 rounded bg-gray-100 border border-gray-200" />
+        )}
+        <div className="font-semibold text-gray-900">{tenantName || tenantLabel}</div>
+      </div>
+      <div className="text-right text-xs text-gray-700">
+        {phone ? <div><span className="text-gray-500">Phone:</span> {phone}</div> : null}
+        {email ? <div><span className="text-gray-500">Email:</span> {email}</div> : null}
+        {taxId ? <div><span className="text-gray-500">Tax No.:</span> {taxId}</div> : null}
+      </div>
+    </div>
+  )
+}
+
+function ContractPageFrame({
+  children,
+  viewMode,
+  zoomLevel,
+  showTableGridlines,
+  isRTL,
+  tenantInfo,
+  tenantLabel,
+}) {
+  return (
+    <div className="w-full flex justify-center">
+      <div
+        className={`w-full rounded-2xl border border-[var(--panel-border)] overflow-visible bg-white text-black shadow ${
+          viewMode === 'pageWidth' ? 'max-w-[1160px]' : 'max-w-[900px]'
+        }`}
+        style={{
+          fontFamily: '"Times New Roman", Times, serif',
+          zoom: `${zoomLevel}%`,
+        }}
+        dir={isRTL ? 'rtl' : 'ltr'}
+      >
+        <ContractHeader
+          logoUrl={tenantInfo?.logoUrl}
+          tenantName={tenantInfo?.name}
+          phone={tenantInfo?.phone}
+          email={tenantInfo?.email}
+          taxId={tenantInfo?.taxId}
+          tenantLabel={tenantLabel}
+        />
+        <div className={`px-10 py-8 ${showTableGridlines ? 'contracts-gridlines-on' : ''}`}>{children}</div>
+      </div>
     </div>
   )
 }
@@ -168,12 +298,74 @@ const TextStyleWordExtras = Extension.create({
   },
 })
 
-function WordLikeRibbon({ editor, t, insertPlaceholder }) {
+const PageBreak = Node.create({
+  name: 'pageBreak',
+  group: 'block',
+  atom: true,
+  selectable: true,
+
+  parseHTML() {
+    return [{ tag: 'div.page-break' }]
+  },
+
+  renderHTML() {
+    return ['div', { class: 'page-break', style: 'page-break-before: always; border-top: 2px dashed #cbd5e1; margin: 16px 0;' }]
+  },
+
+  addCommands() {
+    return {
+      setPageBreak:
+        () =>
+        ({ chain }) =>
+          chain().insertContent({ type: this.name }).run(),
+    }
+  },
+})
+
+const PageNumberToken = Node.create({
+  name: 'pageNumberToken',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  parseHTML() {
+    return [{ tag: 'span.page-number-token' }]
+  },
+
+  renderHTML() {
+    return ['span', { class: 'page-number-token', contenteditable: 'false' }, 'Page #']
+  },
+
+  addCommands() {
+    return {
+      setPageNumberToken:
+        () =>
+        ({ chain }) =>
+          chain().insertContent({ type: this.name }).run(),
+    }
+  },
+})
+
+function WordLikeRibbon({
+  editor,
+  t,
+  insertPlaceholder,
+  viewMode,
+  setViewMode,
+  zoomLevel,
+  setZoomLevel,
+  showTableGridlines,
+  setShowTableGridlines,
+}) {
   const [fontFamily, setFontFamily] = useState('Times New Roman')
   const [fontSize, setFontSize] = useState('10pt')
+  const [activeMenu, setActiveMenu] = useState('edit')
   const [stylesOpen, setStylesOpen] = useState(false)
   const [headingOpen, setHeadingOpen] = useState(false)
   const [selectOpen, setSelectOpen] = useState(false)
+  const [insertTableOpen, setInsertTableOpen] = useState(false)
+  const [insertTablePreview, setInsertTablePreview] = useState({ rows: 3, cols: 3 })
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [replaceQuery, setReplaceQuery] = useState('')
@@ -183,6 +375,8 @@ function WordLikeRibbon({ editor, t, insertPlaceholder }) {
   const stylesRef = useRef(null)
   const headingRef = useRef(null)
   const selectRef = useRef(null)
+  const insertTableRef = useRef(null)
+  const imageInputRef = useRef(null)
 
   const can = (fn) => {
     if (!editor) return false
@@ -219,6 +413,8 @@ function WordLikeRibbon({ editor, t, insertPlaceholder }) {
     return { kind: 'paragraph', label: 'Normal' }
   }, [editor, editor?.state])
 
+  const headingLabel = currentStyle?.kind === 'heading' ? `Heading ${currentStyle.level}` : 'Normal'
+
   useEffect(() => {
     const onDown = (e) => {
       const tEl = e?.target
@@ -232,11 +428,16 @@ function WordLikeRibbon({ editor, t, insertPlaceholder }) {
       if (stylesOpen && !isInside(stylesRef)) setStylesOpen(false)
       if (headingOpen && !isInside(headingRef)) setHeadingOpen(false)
       if (selectOpen && !isInside(selectRef)) setSelectOpen(false)
+      if (insertTableOpen && !isInside(insertTableRef)) setInsertTableOpen(false)
     }
 
     window.addEventListener('mousedown', onDown, true)
     return () => window.removeEventListener('mousedown', onDown, true)
-  }, [stylesOpen, headingOpen, selectOpen])
+  }, [stylesOpen, headingOpen, selectOpen, insertTableOpen])
+
+  useEffect(() => {
+    if (insertTableOpen) setInsertTablePreview({ rows: 3, cols: 3 })
+  }, [insertTableOpen])
 
   const doFindNext = () => {
     const q = String(findQuery || '').trim()
@@ -331,6 +532,30 @@ function WordLikeRibbon({ editor, t, insertPlaceholder }) {
     } catch {}
   }
 
+  const doUndo = () => {
+    if (!editor) return
+    try {
+      editor.commands.focus()
+      editor.commands.undo()
+    } catch {
+      try {
+        editor.chain().focus().undo().run()
+      } catch {}
+    }
+  }
+
+  const doRedo = () => {
+    if (!editor) return
+    try {
+      editor.commands.focus()
+      editor.commands.redo()
+    } catch {
+      try {
+        editor.chain().focus().redo().run()
+      } catch {}
+    }
+  }
+
   const toggleFormatPainter = () => {
     if (!editor) return
 
@@ -399,232 +624,703 @@ function WordLikeRibbon({ editor, t, insertPlaceholder }) {
     }
   }, [editor, formatPainterOn])
 
+  const handleInsertImageClick = () => {
+    imageInputRef.current?.click?.()
+  }
+
+  const handleImageSelected = async (event) => {
+    const file = event?.target?.files?.[0]
+    if (!file || !editor) return
+
+    try {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const src = String(reader.result || '')
+        if (!src) return
+        editor.chain().focus().setImage({ src, alt: file.name || 'Inserted image' }).run()
+      }
+      reader.readAsDataURL(file)
+    } catch {}
+
+    try {
+      event.target.value = ''
+    } catch {}
+  }
+
+  const handleInsertTextBox = () => {
+    if (!editor) return
+    editor
+      .chain()
+      .focus()
+      .insertContent(`
+        <table style="width:100%; border:1px solid #cbd5e1; border-collapse:collapse; margin:12px 0;">
+          <tr>
+            <td style="padding:12px;">${t('Type text here')}</td>
+          </tr>
+        </table>
+      `)
+      .run()
+  }
+
+  const handleInsertLink = () => {
+    if (!editor) return
+    const href = String(window.prompt(t('Enter link URL'), 'https://') || '').trim()
+    if (!href) return
+    const text = String(window.prompt(t('Link text'), href) || '').trim() || href
+
+    editor
+      .chain()
+      .focus()
+      .insertContent(`<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`)
+      .run()
+  }
+
+  const handleInsertPageBreak = () => {
+    if (!editor) return
+    editor.chain().focus().setPageBreak().run()
+  }
+
+  const handleInsertBlankPage = () => {
+    if (!editor) return
+    editor.chain().focus().setPageBreak().insertContent('<p><br /></p>').run()
+    setInsertTableOpen(false)
+  }
+
+  const handleInsertPageNumber = () => {
+    if (!editor) return
+    editor.chain().focus().setPageNumberToken().run()
+    setInsertTableOpen(false)
+  }
+
+  const handleInsertHeaderFooterBlock = () => {
+    if (!editor) return
+    editor
+      .chain()
+      .focus()
+      .insertContent(`
+        <div class="contract-header-footer-block">
+          <div class="contract-header-footer-title">Header &amp; Footer</div>
+          <div class="contract-header-footer-text">Header/footer are managed automatically from tenant settings in this template.</div>
+        </div>
+      `)
+      .run()
+    setInsertTableOpen(false)
+  }
+
+  const handleInsertTable = (rows, cols) => {
+    if (!editor) return
+    const safeRows = Math.max(1, Math.min(10, Number(rows) || 0))
+    const safeCols = Math.max(1, Math.min(10, Number(cols) || 0))
+    editor.chain().focus().insertTable({ rows: safeRows, cols: safeCols, withHeaderRow: true }).run()
+    setInsertTableOpen(false)
+  }
+
+  const escapeHtml = (value) =>
+    String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;')
+
+  const buildTableHtmlFromGrid = (grid) => {
+    const rows = Array.isArray(grid) ? grid : []
+    const body = rows.map((row, rowIndex) => {
+      const cells = Array.isArray(row) ? row : []
+      const cellTag = rowIndex === 0 ? 'th' : 'td'
+      return `<tr>${cells.map((cell) => `<${cellTag}>${escapeHtml(cell)}</${cellTag}>`).join('')}</tr>`
+    }).join('')
+
+    return `
+      <table style="width:100%; border-collapse:collapse; margin:12px 0;">
+        <tbody>${body}</tbody>
+      </table>
+    `
+  }
+
+  const handleDrawTable = () => {
+    if (!editor) return
+    const rows = Number(window.prompt(t('Rows'), '3') || '3')
+    const cols = Number(window.prompt(t('Columns'), '3') || '3')
+    handleInsertTable(rows, cols)
+  }
+
+  const handleConvertTextToTable = () => {
+    if (!editor) return
+    const { state } = editor
+    const selection = state?.selection
+    if (!selection || selection.empty) {
+      window.alert(t('Please select text to convert into a table.'))
+      return
+    }
+
+    const raw = state.doc.textBetween(selection.from, selection.to, '\n')
+    const lines = String(raw || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    if (!lines.length) return
+
+    const grid = lines.map((line) => line.split('\t').map((cell) => cell.trim()))
+    const maxCols = Math.max(...grid.map((row) => row.length), 1)
+    const normalized = grid.map((row) => Array.from({ length: maxCols }, (_, idx) => row[idx] || ''))
+
+    const tableHtml = buildTableHtmlFromGrid(normalized)
+    editor.chain().focus().deleteSelection().insertContent(tableHtml).run()
+    setInsertTableOpen(false)
+  }
+
+  const handleConvertTableToText = () => {
+    if (!editor) return
+    const { state } = editor
+    const { $from } = state.selection
+    let tableDepth = -1
+
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      if ($from.node(depth)?.type?.name === 'table') {
+        tableDepth = depth
+        break
+      }
+    }
+
+    if (tableDepth < 0) {
+      window.alert(t('Place the cursor inside a table to convert it to text.'))
+      return
+    }
+
+    const tableNode = $from.node(tableDepth)
+    const tableRows = []
+
+    tableNode.forEach((rowNode) => {
+      const cells = []
+      rowNode.forEach((cellNode) => {
+        const text = String(cellNode?.textContent || '').trim()
+        cells.push(text)
+      })
+      tableRows.push(cells)
+    })
+
+    const from = $from.before(tableDepth)
+    const to = $from.after(tableDepth)
+    const textHtml = tableRows
+      .map((row) => `<p>${escapeHtml(row.filter(Boolean).join(' | '))}</p>`)
+      .join('')
+
+    editor.chain().focus().deleteRange({ from, to }).insertContent(textHtml).run()
+    setInsertTableOpen(false)
+  }
+
   return (
-    <div className="border border-[var(--panel-border)] rounded-2xl overflow-hidden bg-white text-black shadow-sm">
-      <div className="flex items-center gap-0 px-2 py-2">
-        <RibbonGroup title={t('Clipboard')}>
-          <RibbonButton title={t('Format Painter')} disabled={!editor} onClick={toggleFormatPainter} active={formatPainterOn} className="px-2">
-            <Paintbrush className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Paste')} disabled={!editor} onClick={doPaste} className="px-2">
-            <Copy className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Cut')} disabled={!editor} onClick={doCut} className="px-2">
-            <Scissors className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Copy')} disabled={!editor} onClick={doCopy} className="px-2">
-            <Copy className="h-4 w-4" />
-          </RibbonButton>
-        </RibbonGroup>
-
-        <RibbonGroup title={t('Font')} className="gap-3">
-          <select
-            className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm min-w-[170px]"
-            value={fontFamily}
-            onChange={(e) => onChangeFontFamily(e.target.value)}
-            title={t('Font Family')}
-          >
-            <option value="Times New Roman">Times New Roman</option>
-            <option value="Arial">Arial</option>
-            <option value="Calibri">Calibri</option>
-            <option value="Tahoma">Tahoma</option>
-            <option value="Verdana">Verdana</option>
-          </select>
-          <select
-            className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm w-[88px]"
-            value={fontSize}
-            onChange={(e) => onChangeFontSize(e.target.value)}
-            title={t('Font Size')}
-          >
-            {['8pt', '9pt', '10pt', '11pt', '12pt', '14pt', '16pt', '18pt', '20pt', '24pt', '28pt', '32pt'].map((s) => (
-              <option key={s} value={s}>
-                {s.replace('pt', '')}
-              </option>
-            ))}
-          </select>
-
-          <RibbonButton
-            title={t('Bold')}
-            active={!!editor?.isActive('bold')}
-            disabled={!editor || !can(() => editor.can().chain().focus().toggleBold().run())}
-            onClick={() => editor?.chain().focus().toggleBold().run()}
-          >
-            <Bold className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton
-            title={t('Italic')}
-            active={!!editor?.isActive('italic')}
-            disabled={!editor || !can(() => editor.can().chain().focus().toggleItalic().run())}
-            onClick={() => editor?.chain().focus().toggleItalic().run()}
-          >
-            <Italic className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton
-            title={t('Underline')}
-            active={!!editor?.isActive('underline')}
-            disabled={!editor || !can(() => editor.can().chain().focus().toggleUnderline().run())}
-            onClick={() => editor?.chain().focus().toggleUnderline().run()}
-          >
-            <Underline className="h-4 w-4" />
-          </RibbonButton>
-
-          <label className="h-9 px-2 rounded-lg inline-flex items-center gap-2 hover:bg-black/5">
-            <span className="text-xs opacity-80">{t('A')}</span>
-            <input
-              type="color"
-              className="h-6 w-6 bg-transparent border-0 p-0"
-              onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
-              title={t('Text Color')}
-            />
-          </label>
-        </RibbonGroup>
-
-        <RibbonGroup title={t('Paragraph')} className="gap-3">
-          <RibbonButton title={t('Bullets')} active={!!editor?.isActive('bulletList')} disabled={!editor} onClick={() => editor?.chain().focus().toggleBulletList().run()}>
-            <List className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Numbering')} active={!!editor?.isActive('orderedList')} disabled={!editor} onClick={() => editor?.chain().focus().toggleOrderedList().run()}>
-            <ListOrdered className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Decrease Indent')} disabled={!editor} onClick={() => editor?.chain().focus().liftListItem('listItem').run()}>
-            <IndentDecrease className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Increase Indent')} disabled={!editor} onClick={() => editor?.chain().focus().sinkListItem('listItem').run()}>
-            <IndentIncrease className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Align Left')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('left').run()}>
-            <AlignLeft className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Align Center')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('center').run()}>
-            <AlignCenter className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Align Right')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('right').run()}>
-            <AlignRight className="h-4 w-4" />
-          </RibbonButton>
-          <RibbonButton title={t('Justify')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('justify').run()}>
-            <AlignJustify className="h-4 w-4" />
-          </RibbonButton>
-        </RibbonGroup>
-
-        <RibbonGroup title={t('Styles')} className="gap-3">
-          <div className="relative" ref={stylesRef}>
+    <div className="border border-[var(--panel-border)] rounded-2xl overflow-visible bg-white text-black shadow-sm">
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageSelected}
+      />
+      <div className="border-b border-[var(--panel-border)] bg-[#f7f7f7] px-3 pt-2">
+        <div className="flex flex-wrap items-center gap-1">
+          {[
+            { key: 'edit', label: t('Edit') },
+            { key: 'insert', label: t('Insert') },
+            { key: 'format', label: t('Format') },
+            { key: 'view', label: t('View') },
+            { key: 'help', label: t('Help') },
+          ].map((menu) => (
             <button
+              key={menu.key}
               type="button"
-              onClick={() => {
-                setStylesOpen((v) => !v)
-                setHeadingOpen(false)
-              }}
-              className="h-12 px-6 rounded-xl border border-[var(--panel-border)] bg-white hover:bg-black/5 inline-flex items-center gap-2"
-              title={t('Styles')}
+              onClick={() => setActiveMenu(menu.key)}
+              className={`px-3 py-2 text-sm rounded-t-xl border border-b-0 transition-colors ${
+                activeMenu === menu.key
+                  ? 'bg-white border-[var(--panel-border)] text-black'
+                  : 'border-transparent text-gray-600 hover:text-black hover:bg-white/70'
+              }`}
             >
-              {currentStyle?.kind === 'paragraph' ? 'Normal' : 'Normal'}
-              <ChevronDown className="h-5 w-5 opacity-80" />
+              {menu.label}
             </button>
+          ))}
+        </div>
+      </div>
 
-            {stylesOpen && (
-              <div className="absolute left-0 top-[calc(100%+8px)] z-[30000] w-[220px] rounded-xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
-                {[
-                  { key: 'normal', label: 'Normal', run: () => editor?.chain().focus().setParagraph().run() },
-                ].map((x) => (
-                  <button
-                    key={x.key}
-                    type="button"
-                    className="w-full text-left px-4 py-2.5 hover:bg-black/5 text-sm"
-                    onClick={() => {
-                      x.run?.()
-                      setStylesOpen(false)
-                    }}
-                  >
-                    {x.label}
-                  </button>
-                ))}
+      <div className="relative flex flex-wrap items-center gap-0 px-2 py-2 min-h-[88px] overflow-visible">
+        {activeMenu === 'edit' && (
+          <>
+            <RibbonGroup title={t('History')}>
+              <RibbonButton title={t('Undo')} disabled={!editor || !can(() => editor.can().chain().focus().undo().run())} onClick={doUndo} className="px-2">
+                <Undo2 className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Redo')} disabled={!editor || !can(() => editor.can().chain().focus().redo().run())} onClick={doRedo} className="px-2">
+                <Redo2 className="h-4 w-4" />
+              </RibbonButton>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Clipboard')}>
+              <RibbonButton title={t('Format Painter')} disabled={!editor} onClick={toggleFormatPainter} active={formatPainterOn} className="px-2">
+                <Paintbrush className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Paste')} disabled={!editor} onClick={doPaste} className="px-2">
+                <Copy className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Cut')} disabled={!editor} onClick={doCut} className="px-2">
+                <Scissors className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Copy')} disabled={!editor} onClick={doCopy} className="px-2">
+                <Copy className="h-4 w-4" />
+              </RibbonButton>
+            </RibbonGroup>
+
+            <div className="flex-1" />
+
+            <RibbonGroup title={t('Editing')} className="border-r-0">
+              <RibbonButton
+                title={t('Find and Replace')}
+                disabled={!editor}
+                onClick={() => {
+                  if (!editor) return
+                  setFindOpen(true)
+                  setSelectOpen(false)
+                }}
+                className="px-2"
+              >
+                <Search className="h-4 w-4" />
+              </RibbonButton>
+
+              <div className="relative" ref={selectRef}>
+                <RibbonButton
+                  title={t('Select')}
+                  disabled={!editor}
+                  onClick={() => {
+                    if (!editor) return
+                    setSelectOpen((v) => !v)
+                  }}
+                  className="px-2"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </RibbonButton>
+
+                {selectOpen && (
+                  <div className="absolute right-0 top-[calc(100%+8px)] z-[30000] w-[180px] rounded-xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
+                    <button
+                      type="button"
+                      className="w-full text-left px-4 py-2.5 hover:bg-black/5 text-sm"
+                      onClick={() => {
+                        editor?.chain().focus().selectAll().run()
+                        setSelectOpen(false)
+                      }}
+                    >
+                      {t('Select All')}
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </RibbonGroup>
+          </>
+        )}
 
-          <div className="relative" ref={headingRef}>
-            <button
-              type="button"
-              onClick={() => {
-                setHeadingOpen((v) => !v)
-                setStylesOpen(false)
-              }}
-              className="h-12 px-6 rounded-xl border border-[var(--panel-border)] bg-white hover:bg-black/5 text-2xl font-bold inline-flex items-center gap-2"
-              title={t('Headings')}
-            >
-              {currentStyle?.kind === 'heading' ? `Heading ${currentStyle.level}` : 'Heading 1'}
-              <ChevronDown className="h-5 w-5 opacity-80" />
-            </button>
+        {activeMenu === 'insert' && (
+          <>
+            <RibbonGroup title={t('Insert')} className="gap-3">
+              <div className="relative" ref={insertTableRef}>
+                <RibbonButton
+                  title={t('Insert Table')}
+                  disabled={!editor}
+                  onClick={() => {
+                    if (!editor) return
+                    setInsertTableOpen((v) => !v)
+                  }}
+                  className="px-3 min-w-[140px] justify-between"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <span>{t('Table')}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4" />
+                </RibbonButton>
 
-            {headingOpen && (
-              <div className="absolute left-0 top-[calc(100%+8px)] z-[30000] w-[260px] rounded-xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
-                {[
-                  { level: 1, label: 'Heading 1' },
-                  { level: 2, label: 'Heading 2' },
-                  { level: 3, label: 'Heading 3' },
-                ].map((x) => (
+                {insertTableOpen && (
+                  <div className="absolute left-0 top-[calc(100%+10px)] z-[30000] w-[312px] rounded-2xl border border-[var(--panel-border)] bg-white shadow-2xl overflow-hidden">
+                    <div className="px-4 py-3 bg-black/[0.03] text-sm font-medium text-slate-700">
+                      {t('Insert Table')}
+                    </div>
+                    <div className="px-4 pt-4" onMouseLeave={() => setInsertTablePreview({ rows: 3, cols: 3 })}>
+                      <div className="grid grid-cols-10 gap-1.5">
+                        {Array.from({ length: 100 }).map((_, index) => {
+                          const row = Math.floor(index / 10) + 1
+                          const col = (index % 10) + 1
+                          const active = row <= insertTablePreview.rows && col <= insertTablePreview.cols
+                          return (
+                            <button
+                              key={`${row}-${col}`}
+                              type="button"
+                              className={`h-8 w-8 border border-slate-400 transition-colors ${
+                                active ? 'bg-blue-500 border-blue-600' : 'bg-white hover:bg-blue-50'
+                              }`}
+                              title={`${row} x ${col}`}
+                              onMouseEnter={() => setInsertTablePreview({ rows: row, cols: col })}
+                              onClick={() => handleInsertTable(insertTablePreview.rows, insertTablePreview.cols)}
+                            />
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-4 border-t border-[var(--panel-border)]">
+                      <button
+                        type="button"
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-black/5"
+                        onClick={() => handleInsertTable(insertTablePreview.rows, insertTablePreview.cols)}
+                      >
+                        <TableIcon className="h-5 w-5" />
+                        <span>{t('Insert Table')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-black/5"
+                        onClick={handleDrawTable}
+                      >
+                        <Paintbrush className="h-5 w-5" />
+                        <span>{t('Draw Table')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-black/5"
+                        onClick={handleConvertTextToTable}
+                      >
+                        <span className="h-5 w-5 inline-flex items-center justify-center text-lg leading-none">↔</span>
+                        <span>{t('Convert Text to Table...')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-black/5"
+                        onClick={handleConvertTableToText}
+                      >
+                        <span className="h-5 w-5 inline-flex items-center justify-center text-lg leading-none">↕</span>
+                        <span>{t('Convert Table to Text...')}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <select
+                className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm min-w-[240px]"
+                defaultValue=""
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v) insertPlaceholder(v)
+                  e.target.value = ''
+                }}
+                title={t('Insert Field')}
+              >
+                <option value="">{t('+ Insert Field')}</option>
+                <option value="{{contract_number}}">{t('Contract No.')}</option>
+                <option value="{{contract_date}}">{t('Contract Date')}</option>
+                <option value="{{customer_name}}">{t('Customer Name')}</option>
+                <option value="{{customer_phone}}">{t('Customer Phone')}</option>
+                <option value="{{unit_code}}">{t('Unit Code')}</option>
+                <option value="{{project_name}}">{t('Project')}</option>
+                <option value="{{total_price}}">{t('Total Price')}</option>
+                <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
+                <option value="{{installments_table}}">{t('Installments Table')}</option>
+              </select>
+              <RibbonButton title={t('Insert Picture')} disabled={!editor} onClick={handleInsertImageClick}>
+                <ImagePlus className="h-4 w-4" />
+                <span>{t('Picture')}</span>
+              </RibbonButton>
+              <RibbonButton title={t('Insert Text Box')} disabled={!editor} onClick={handleInsertTextBox}>
+                <FileText className="h-4 w-4" />
+                <span>{t('Text Box')}</span>
+              </RibbonButton>
+              <RibbonButton title={t('Insert Link')} disabled={!editor} onClick={handleInsertLink}>
+                <Link2 className="h-4 w-4" />
+                <span>{t('Link')}</span>
+              </RibbonButton>
+              <RibbonButton title={t('Blank Page')} disabled={!editor} onClick={handleInsertBlankPage}>
+                <span>{t('Blank Page')}</span>
+              </RibbonButton>
+              <RibbonButton title={t('Page Number')} disabled={!editor} onClick={handleInsertPageNumber}>
+                <span>{t('Page Number')}</span>
+              </RibbonButton>
+              <RibbonButton title={t('Header and Footer')} disabled={!editor} onClick={handleInsertHeaderFooterBlock}>
+                <span>{t('Header and Footer')}</span>
+              </RibbonButton>
+              <RibbonButton title={t('Page Break')} disabled={!editor} onClick={handleInsertPageBreak}>
+                <span>{t('Page Break')}</span>
+              </RibbonButton>
+            </RibbonGroup>
+            <div className="flex-1" />
+            <div className="px-4 text-xs text-gray-500">
+              {t('Insert merge fields, images, links, text boxes, or build a structured table inside the contract body.')}
+            </div>
+          </>
+        )}
+
+        {activeMenu === 'format' && (
+          <>
+            <RibbonGroup title={t('History')} className="gap-3">
+              <RibbonButton
+                title={t('Undo')}
+                disabled={!editor}
+                onClick={doUndo}
+                className="px-2 h-8 min-w-8"
+              >
+                <Undo2 className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton
+                title={t('Redo')}
+                disabled={!editor}
+                onClick={doRedo}
+                className="px-2 h-8 min-w-8"
+              >
+                <Redo2 className="h-4 w-4" />
+              </RibbonButton>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Font')} className="gap-3">
+              <select
+                className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm min-w-[220px]"
+                value={fontFamily}
+                onChange={(e) => onChangeFontFamily(e.target.value)}
+                title={t('Font Family')}
+              >
+                {WORD_FONT_OPTIONS.map((font) => (
+                  <option key={font} value={font}>
+                    {font}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm w-[88px]"
+                value={fontSize}
+                onChange={(e) => onChangeFontSize(e.target.value)}
+                title={t('Font Size')}
+              >
+                {['8pt', '9pt', '10pt', '11pt', '12pt', '14pt', '16pt', '18pt', '20pt', '24pt', '28pt', '32pt'].map((s) => (
+                  <option key={s} value={s}>
+                    {s.replace('pt', '')}
+                  </option>
+                ))}
+              </select>
+
+              <RibbonButton
+                title={t('Bold')}
+                active={!!editor?.isActive('bold')}
+                disabled={!editor || !can(() => editor.can().chain().focus().toggleBold().run())}
+                onClick={() => editor?.chain().focus().toggleBold().run()}
+              >
+                <Bold className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton
+                title={t('Italic')}
+                active={!!editor?.isActive('italic')}
+                disabled={!editor || !can(() => editor.can().chain().focus().toggleItalic().run())}
+                onClick={() => editor?.chain().focus().toggleItalic().run()}
+              >
+                <Italic className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton
+                title={t('Underline')}
+                active={!!editor?.isActive('underline')}
+                disabled={!editor || !can(() => editor.can().chain().focus().toggleUnderline().run())}
+                onClick={() => editor?.chain().focus().toggleUnderline().run()}
+              >
+                <Underline className="h-4 w-4" />
+              </RibbonButton>
+
+              <label className="h-9 px-2 rounded-lg inline-flex items-center gap-2 hover:bg-black/5">
+                <span className="text-xs opacity-80">{t('A')}</span>
+                <input
+                  type="color"
+                  className="h-6 w-6 bg-transparent border-0 p-0"
+                  onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
+                  title={t('Text Color')}
+                />
+              </label>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Paragraph')} className="gap-3">
+              <RibbonButton title={t('Bullets')} active={!!editor?.isActive('bulletList')} disabled={!editor} onClick={() => editor?.chain().focus().toggleBulletList().run()}>
+                <List className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Numbering')} active={!!editor?.isActive('orderedList')} disabled={!editor} onClick={() => editor?.chain().focus().toggleOrderedList().run()}>
+                <ListOrdered className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Decrease Indent')} disabled={!editor} onClick={() => editor?.chain().focus().liftListItem('listItem').run()}>
+                <IndentDecrease className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Increase Indent')} disabled={!editor} onClick={() => editor?.chain().focus().sinkListItem('listItem').run()}>
+                <IndentIncrease className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Align Left')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('left').run()}>
+                <AlignLeft className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Align Center')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('center').run()}>
+                <AlignCenter className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Align Right')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('right').run()}>
+                <AlignRight className="h-4 w-4" />
+              </RibbonButton>
+              <RibbonButton title={t('Justify')} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign('justify').run()}>
+                <AlignJustify className="h-4 w-4" />
+              </RibbonButton>
+            </RibbonGroup>
+
+            <RibbonGroup title={t('Styles')} className="gap-2 border-r-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative" ref={stylesRef}>
                   <button
-                    key={x.level}
                     type="button"
-                    className="w-full text-left px-4 py-2.5 hover:bg-black/5"
                     onClick={() => {
-                      editor?.chain().focus().toggleHeading({ level: x.level }).run()
+                      setStylesOpen((v) => !v)
                       setHeadingOpen(false)
                     }}
+                    className="w-[154px] h-10 rounded-xl border border-[var(--panel-border)] bg-white hover:bg-[#f8f8f8] px-3 inline-flex items-center justify-between shadow-sm"
+                    title={t('Styles')}
                   >
-                    <div className="text-sm font-semibold">{x.label}</div>
+                    <div className="flex flex-col items-start leading-tight">
+                      <span className="text-[10px] uppercase tracking-[0.16em] text-gray-400">{t('Styles')}</span>
+                      <span className="text-sm font-medium text-gray-900">Normal</span>
+                    </div>
+                    <ChevronDown className="h-4 w-4 opacity-70" />
                   </button>
-                ))}
+
+                  {stylesOpen && (
+                    <div className="absolute left-0 top-[calc(100%+8px)] z-[30000] w-[220px] rounded-2xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
+                      {[
+                        { key: 'normal', label: 'Normal', description: t('Default paragraph style'), run: () => editor?.chain().focus().setParagraph().run() },
+                      ].map((x) => (
+                        <button
+                          key={x.key}
+                          type="button"
+                          className="w-full text-left px-4 py-3 hover:bg-black/5"
+                          onClick={() => {
+                            x.run?.()
+                            setStylesOpen(false)
+                          }}
+                        >
+                          <div className="text-sm font-semibold">{x.label}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{x.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative" ref={headingRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeadingOpen((v) => !v)
+                      setStylesOpen(false)
+                    }}
+                    className="w-[190px] h-10 rounded-xl border border-[var(--panel-border)] bg-white hover:bg-[#f8f8f8] px-3 inline-flex items-center justify-between shadow-sm text-left"
+                    title={t('Headings')}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-gray-400">{t('Heading')}</div>
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {headingLabel}
+                      </div>
+                    </div>
+                    <ChevronDown className="h-4 w-4 opacity-70 shrink-0" />
+                  </button>
+
+                  {headingOpen && (
+                    <div className="absolute left-0 top-[calc(100%+8px)] z-[30000] w-[240px] rounded-2xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
+                      {[
+                        { key: 'normal', label: 'Normal', preview: 'Normal text', className: 'text-sm font-normal', run: () => editor?.chain().focus().setParagraph().run() },
+                        { key: 'h1', label: 'Heading 1', preview: 'Main Title', className: 'text-xl font-extrabold', run: () => editor?.chain().focus().setHeading({ level: 1 }).run() },
+                        { key: 'h2', label: 'Heading 2', preview: 'Section Title', className: 'text-lg font-bold', run: () => editor?.chain().focus().setHeading({ level: 2 }).run() },
+                        { key: 'h3', label: 'Heading 3', preview: 'Subsection Title', className: 'text-base font-semibold', run: () => editor?.chain().focus().setHeading({ level: 3 }).run() },
+                      ].map((x) => (
+                        <button
+                          key={x.key}
+                          type="button"
+                          className="w-full text-left px-4 py-3 hover:bg-black/5 border-b border-[var(--panel-border)] last:border-b-0"
+                          onClick={() => {
+                            x.run?.()
+                            setHeadingOpen(false)
+                          }}
+                        >
+                          <div className={`${x.className} text-gray-900 leading-none`}>{x.preview}</div>
+                          <div className="text-xs text-gray-500 mt-1.5">{x.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-        </RibbonGroup>
+            </RibbonGroup>
+          </>
+        )}
 
-        <div className="flex-1" />
+        {activeMenu === 'view' && (
+          <>
+            <RibbonGroup title={t('View Options')} className="gap-3">
+              <label className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-[var(--panel-border)] bg-white text-sm">
+                <span className="text-xs uppercase tracking-[0.14em] text-gray-500">{t('Zoom')}</span>
+                <select
+                  className="bg-transparent outline-none text-sm min-w-[88px]"
+                  value={zoomLevel}
+                  onChange={(e) => setZoomLevel(Number(e.target.value) || 100)}
+                >
+                  {[75, 90, 100, 110, 125, 150].map((value) => (
+                    <option key={value} value={value}>
+                      {value}%
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-        <RibbonGroup title={t('Editing')} className="border-r-0">
-          <RibbonButton
-            title={t('Find and Replace')}
-            disabled={!editor}
-            onClick={() => {
-              if (!editor) return
-              setFindOpen(true)
-              setSelectOpen(false)
-            }}
-            className="px-2"
-          >
-            <Search className="h-4 w-4" />
-          </RibbonButton>
-
-          <div className="relative" ref={selectRef}>
-            <RibbonButton
-              title={t('Select')}
-              disabled={!editor}
-              onClick={() => {
-                if (!editor) return
-                setSelectOpen((v) => !v)
-              }}
-              className="px-2"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </RibbonButton>
-
-            {selectOpen && (
-              <div className="absolute right-0 top-[calc(100%+8px)] z-[30000] w-[180px] rounded-xl border border-[var(--panel-border)] bg-white shadow-xl overflow-hidden">
+              <div className="inline-flex overflow-hidden rounded-xl border border-[var(--panel-border)] bg-white">
                 <button
                   type="button"
-                  className="w-full text-left px-4 py-2.5 hover:bg-black/5 text-sm"
-                  onClick={() => {
-                    editor?.chain().focus().selectAll().run()
-                    setSelectOpen(false)
-                  }}
+                  className={`px-3 py-2 text-sm ${viewMode === 'onePage' ? 'bg-blue-500 text-white' : 'hover:bg-black/5'}`}
+                  onClick={() => setViewMode('onePage')}
                 >
-                  {t('Select All')}
+                  {t('One Page')}
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-2 text-sm ${viewMode === 'pageWidth' ? 'bg-blue-500 text-white' : 'hover:bg-black/5'}`}
+                  onClick={() => setViewMode('pageWidth')}
+                >
+                  {t('Page Width')}
                 </button>
               </div>
-            )}
+
+              <label className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-[var(--panel-border)] bg-white text-sm">
+                <input
+                  type="checkbox"
+                  checked={showTableGridlines}
+                  onChange={(e) => setShowTableGridlines(e.target.checked)}
+                  className="h-4 w-4 accent-blue-600"
+                />
+                <span>{t('Table Gridlines')}</span>
+              </label>
+            </RibbonGroup>
+          </>
+        )}
+
+        {activeMenu === 'help' && (
+          <div className="w-full px-4 py-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="rounded-xl border border-[var(--panel-border)] bg-[#fafafa] p-3">
+                <div className="font-semibold mb-1">{t('Edit')}</div>
+                <div className="text-gray-600">{t('Use Undo, Redo, clipboard tools, and Find & Replace to refine existing content quickly.')}</div>
+              </div>
+              <div className="rounded-xl border border-[var(--panel-border)] bg-[#fafafa] p-3">
+                <div className="font-semibold mb-1">{t('Insert')}</div>
+                <div className="text-gray-600">{t('Insert merge fields like customer or contract data, or add a table for payment details.')}</div>
+              </div>
+              <div className="rounded-xl border border-[var(--panel-border)] bg-[#fafafa] p-3">
+                <div className="font-semibold mb-1">{t('Format')}</div>
+                <div className="text-gray-600">{t('Apply font, alignment, lists, and heading styles to keep contracts readable and professional.')}</div>
+              </div>
+            </div>
           </div>
-        </RibbonGroup>
+        )}
       </div>
 
       {findOpen && (
@@ -678,34 +1374,6 @@ function WordLikeRibbon({ editor, t, insertPlaceholder }) {
         </div>
       )}
 
-      <div className="border-t border-[var(--panel-border)] bg-white px-2 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="h-9 px-3 rounded-lg bg-white border border-[var(--panel-border)] text-sm min-w-[240px]"
-            defaultValue=""
-            onChange={(e) => {
-              const v = e.target.value
-              if (v) insertPlaceholder(v)
-              e.target.value = ''
-            }}
-            title={t('Insert Field')}
-          >
-            <option value="">{t('+ Insert Field')}</option>
-            <option value="{{contract_number}}">{t('Contract No.')}</option>
-            <option value="{{contract_date}}">{t('Contract Date')}</option>
-            <option value="{{customer_name}}">{t('Customer Name')}</option>
-            <option value="{{customer_phone}}">{t('Customer Phone')}</option>
-            <option value="{{unit_code}}">{t('Unit Code')}</option>
-            <option value="{{project_name}}">{t('Project')}</option>
-            <option value="{{total_price}}">{t('Total Price')}</option>
-            <option value="{{payment_plan_table}}">{t('Payment Plan Table')}</option>
-            <option value="{{installments_table}}">{t('Installments Table')}</option>
-          </select>
-          <RibbonButton title={t('Insert Table')} disabled={!editor} onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
-            {t('Insert Table')}
-          </RibbonButton>
-        </div>
-      </div>
     </div>
   )
 }
@@ -806,6 +1474,9 @@ export default function ContractsSettings() {
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [editorView, setEditorView] = useState('edit') // edit|preview
   const [templatesQuery, setTemplatesQuery] = useState('')
+  const [viewMode, setViewMode] = useState('onePage')
+  const [zoomLevel, setZoomLevel] = useState(100)
+  const [showTableGridlines, setShowTableGridlines] = useState(false)
 
   const activeTemplate = useMemo(() => templates.find(tpl => tpl.id === activeId) || null, [templates, activeId])
   const activeProjectName = useMemo(() => {
@@ -837,18 +1508,19 @@ export default function ContractsSettings() {
         id: tenant?.id || '',
         name: tenant?.name || '',
         logoUrl: profile?.logo_url || '',
-        phone: profile?.phone || '',
-        taxId: profile?.tax_id || '',
+        phone: profile?.phone || tenant?.phone || '',
+        email: profile?.email || tenant?.email || prev.email || '',
+        taxId: profile?.tax_id || tenant?.tax_id || '',
       }))
     } else {
-      setTenantInfo((prev) => ({ ...prev, id: '', name: '', logoUrl: '', phone: '', taxId: '' }))
+      setTenantInfo((prev) => ({ ...prev, id: '', name: '', logoUrl: '', phone: '', email: '', taxId: '' }))
     }
 
     if (smtpRes.status === 'fulfilled') {
       const fromEmail = smtpRes.value?.data?.from_email || ''
-      setTenantInfo((prev) => ({ ...prev, email: fromEmail || '' }))
+      setTenantInfo((prev) => ({ ...prev, email: prev.email || fromEmail || '' }))
     } else {
-      setTenantInfo((prev) => ({ ...prev, email: '' }))
+      setTenantInfo((prev) => ({ ...prev, email: prev.email || '' }))
     }
 
     // Projects: ensure tenant-scoped list is populated (some APIs require tenant_id explicitly)
@@ -928,6 +1600,14 @@ export default function ContractsSettings() {
       TextStyleWordExtras,
       UnderlineExtension,
       Color,
+      PageBreak,
+      PageNumberToken,
+      Image,
+      Link.configure({
+        openOnClick: true,
+        autolink: true,
+        defaultProtocol: 'https',
+      }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Table.configure({ resizable: true }),
       TableRow,
@@ -1186,41 +1866,6 @@ export default function ContractsSettings() {
         ? t('Saved')
         : ''
 
-  const Header = () => (
-    <div className="flex items-center justify-between gap-4 px-10 py-6 border-b border-gray-200">
-      <div className="flex items-center gap-3">
-        {tenantInfo.logoUrl ? (
-          <img
-            src={tenantInfo.logoUrl}
-            alt={tenantInfo.name || 'Tenant Logo'}
-            className="h-10 w-auto object-contain"
-          />
-        ) : (
-          <div className="h-10 w-10 rounded bg-gray-100 border border-gray-200" />
-        )}
-        <div className="font-semibold text-gray-900">{tenantInfo.name || t('Tenant')}</div>
-      </div>
-      <div className="text-right text-xs text-gray-700">
-        <div><span className="text-gray-500">Phone:</span> {tenantInfo.phone || '-'}</div>
-        <div><span className="text-gray-500">Email:</span> {tenantInfo.email || '-'}</div>
-        <div><span className="text-gray-500">Tax No.:</span> {tenantInfo.taxId || '-'}</div>
-      </div>
-    </div>
-  )
-
-  const ContractPage = ({ children }) => (
-    <div className="w-full flex justify-center">
-      <div
-        className="w-full max-w-[900px] rounded-2xl border border-[var(--panel-border)] overflow-hidden bg-white text-black shadow"
-        style={{ fontFamily: '"Times New Roman", Times, serif' }}
-        dir={isRTL ? 'rtl' : 'ltr'}
-      >
-        <Header />
-        <div className="px-10 py-8">{children}</div>
-      </div>
-    </div>
-  )
-
   return (
     <div className="p-6 space-y-6">
       <div className={`flex items-center gap-3 ${isRTL ? 'flex-row-reverse' : ''}`}>
@@ -1229,9 +1874,9 @@ export default function ContractsSettings() {
         <span className="ml-auto text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{t('Admin Only')}</span>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4">
         {/* Editor */}
-        <div className="lg:col-span-2 glass-panel rounded-2xl p-4 space-y-4">
+        <div className="order-2 glass-panel rounded-2xl p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <button
               className="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-2 disabled:opacity-50"
@@ -1344,7 +1989,17 @@ export default function ContractsSettings() {
           </div>
 
            {draft.content_type !== 'pdf' && (
-             <WordLikeRibbon editor={editor} t={t} insertPlaceholder={insertPlaceholder} />
+            <WordLikeRibbon
+              editor={editor}
+              t={t}
+              insertPlaceholder={insertPlaceholder}
+              viewMode={viewMode}
+              setViewMode={setViewMode}
+              zoomLevel={zoomLevel}
+              setZoomLevel={setZoomLevel}
+              showTableGridlines={showTableGridlines}
+              setShowTableGridlines={setShowTableGridlines}
+            />
            )}
 
            {false && (
@@ -1552,7 +2207,14 @@ export default function ContractsSettings() {
                 <div className="text-xs text-red-400">{t('Please upload a PDF file')}</div>
               )}
 
-              <ContractPage>
+              <ContractPageFrame
+                viewMode={viewMode}
+                zoomLevel={zoomLevel}
+                showTableGridlines={showTableGridlines}
+                isRTL={isRTL}
+                tenantInfo={tenantInfo}
+                tenantLabel={t('Tenant')}
+              >
                 {pdfPreviewUrl ? (
                   <div className="w-full">
                     <iframe
@@ -1564,7 +2226,7 @@ export default function ContractsSettings() {
                 ) : (
                   <div className="text-sm text-gray-600">{t('Upload a PDF to use as the contract template.')}</div>
                 )}
-              </ContractPage>
+              </ContractPageFrame>
             </div>
           ) : (
             <div className="space-y-2">
@@ -1600,7 +2262,14 @@ export default function ContractsSettings() {
                 )}
               </div>
 
-              <ContractPage>
+              <ContractPageFrame
+                viewMode={viewMode}
+                zoomLevel={zoomLevel}
+                showTableGridlines={showTableGridlines}
+                isRTL={isRTL}
+                tenantInfo={tenantInfo}
+                tenantLabel={t('Tenant')}
+              >
                 {editorView === 'preview' ? (
                   serverPreviewLoading ? (
                     <div className="text-sm opacity-70">{t('Loading...')}</div>
@@ -1612,11 +2281,15 @@ export default function ContractsSettings() {
                     />
                   )
                 ) : (
-                  <div onPaste={onBodyPaste} dir={isRTL ? 'rtl' : 'ltr'}>
+              <div
+                onPaste={onBodyPaste}
+                dir={isRTL ? 'rtl' : 'ltr'}
+                className={showTableGridlines ? 'contracts-gridlines-on' : ''}
+              >
                     <EditorContent editor={editor} />
                   </div>
                 )}
-              </ContractPage>
+              </ContractPageFrame>
             </div>
           )}
 
@@ -1628,9 +2301,17 @@ export default function ContractsSettings() {
         </div>
 
         {/* Templates list */}
-        <div className="glass-panel rounded-2xl p-4 space-y-3">
+        <div className="order-1 glass-panel rounded-2xl p-4 space-y-4">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">{t('Contracts Templates')}</div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400">
+                <FolderKanban className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="font-semibold">{t('Contracts Templates')}</div>
+                <div className="text-xs opacity-70">{t('Choose a template or create a new one before editing the contract body.')}</div>
+              </div>
+            </div>
             <button
               className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-2"
               onClick={startNewTemplate}
@@ -1647,6 +2328,33 @@ export default function ContractsSettings() {
             className="w-full px-3 py-2 rounded-lg border border-[var(--panel-border)] bg-gray-900/40 text-white"
             placeholder={t('Search templates...')}
           />
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-[var(--panel-border)] bg-white/[0.04] px-4 py-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] opacity-60">
+                <FileText className="w-4 h-4" />
+                {t('Templates')}
+              </div>
+              <div className="mt-2 text-2xl font-semibold">{templates.length}</div>
+              <div className="text-xs opacity-70 mt-1">{t('Available in this tenant')}</div>
+            </div>
+            <div className="rounded-2xl border border-[var(--panel-border)] bg-white/[0.04] px-4 py-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] opacity-60">
+                <Search className="w-4 h-4" />
+                {t('Filtered')}
+              </div>
+              <div className="mt-2 text-2xl font-semibold">{filteredTemplates.length}</div>
+              <div className="text-xs opacity-70 mt-1">{templatesQuery ? t('Matching your search') : t('Visible right now')}</div>
+            </div>
+            <div className="rounded-2xl border border-[var(--panel-border)] bg-white/[0.04] px-4 py-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] opacity-60">
+                <Sparkles className="w-4 h-4" />
+                {t('Current')}
+              </div>
+              <div className="mt-2 text-base font-semibold truncate">{activeTemplate?.name || t('New template')}</div>
+              <div className="text-xs opacity-70 mt-1">{activeTemplate ? t('Ready to edit') : t('Start from scratch')}</div>
+            </div>
+          </div>
 
           <div className="overflow-auto rounded-xl border border-[var(--panel-border)]">
             <table className="min-w-full text-sm">
@@ -1753,7 +2461,14 @@ export default function ContractsSettings() {
                 <div><span className="opacity-70">{t('Project')}:</span> {activeTemplate?.project?.name || activeProjectName}</div>
               </div>
               {draft.content_type === 'pdf' ? (
-                <ContractPage>
+                <ContractPageFrame
+                  viewMode={viewMode}
+                  zoomLevel={zoomLevel}
+                  showTableGridlines={showTableGridlines}
+                  isRTL={isRTL}
+                  tenantInfo={tenantInfo}
+                  tenantLabel={t('Tenant')}
+                >
                   {pdfPreviewUrl ? (
                     <iframe
                       title="contract-pdf-preview"
@@ -1763,9 +2478,16 @@ export default function ContractsSettings() {
                   ) : (
                     <div className="text-sm text-gray-600">{t('No PDF selected')}</div>
                   )}
-                </ContractPage>
+                </ContractPageFrame>
               ) : (
-                <ContractPage>
+                <ContractPageFrame
+                  viewMode={viewMode}
+                  zoomLevel={zoomLevel}
+                  showTableGridlines={showTableGridlines}
+                  isRTL={isRTL}
+                  tenantInfo={tenantInfo}
+                  tenantLabel={t('Tenant')}
+                >
                   {serverPreviewLoading ? (
                     <div className="text-sm opacity-70">{t('Loading...')}</div>
                   ) : (
@@ -1775,7 +2497,7 @@ export default function ContractsSettings() {
                       className="w-full h-[70vh] rounded-lg border border-gray-200"
                     />
                   )}
-                </ContractPage>
+                </ContractPageFrame>
               )}
             </div>
           </div>
@@ -1784,5 +2506,3 @@ export default function ContractsSettings() {
     </div>
   )
 }
-
-

@@ -21,6 +21,26 @@ class MetaLeadService
         $this->apiClient = $apiClient;
     }
 
+    protected function resolveLeadSource(array $data): string
+    {
+        $candidates = [
+            $data['campaign_name'] ?? null,
+            $data['ad_name'] ?? null,
+            $data['form_name'] ?? null,
+            $data['campaign_id'] ?? null,
+            $data['form_id'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $value = trim((string) ($candidate ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return 'meta';
+    }
+
     public function processLead($tenantId, $leadId, $pageId = null, $accessToken = null)
     {
         $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
@@ -62,7 +82,7 @@ class MetaLeadService
         try {
             $data = $this->apiClient->get("/{$leadId}", [
                 'access_token' => $accessToken,
-                'fields' => 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data',
+                'fields' => 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,form_name,field_data',
             ]);
 
             $this->storeLead($tenantId, $data, $integration);
@@ -197,11 +217,13 @@ class MetaLeadService
             $campaignId = $campaign->id;
         }
 
+        $resolvedSource = $this->resolveLeadSource($data);
+
         $leadData = array_merge([
             'name' => $name,
             'email' => $email,
             'phone' => $phone,
-            'source' => 'meta',
+            'source' => $resolvedSource,
             'platform' => 'facebook',
             'is_organic' => false,
             'campaign_id' => $campaignId,
@@ -213,6 +235,8 @@ class MetaLeadService
             'form_id' => $data['form_id'] ?? null,
             'meta_data' => [
                 'form_id' => $data['form_id'] ?? null, 
+                'form_name' => $data['form_name'] ?? null,
+                'campaign_name' => $data['campaign_name'] ?? null,
                 'fields' => $fields->toArray(),
                 'custom_questions' => $unmappedFields, // Explicitly store unmapped fields here
                 'raw_payload' => $data

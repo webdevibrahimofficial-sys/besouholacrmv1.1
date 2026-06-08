@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../utils/api';
 import { toast } from 'react-hot-toast';
-import { Monitor, Moon, Bell, Save } from 'lucide-react';
+import { Monitor, Moon, Bell, Save, Clock } from 'lucide-react';
 import Toggle from '../../shared/components/Toggle';
 
 const MODULE_DEFINITION = [

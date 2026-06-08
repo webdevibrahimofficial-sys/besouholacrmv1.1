@@ -25,6 +25,7 @@ import LeadHoverTooltip from '../components/LeadHoverTooltip'
 import { useDynamicFields } from '../hooks/useDynamicFields'
 import { countriesData } from '../data/countriesData'
 import { getLeadModulePermissions, getLeadPermissionFlags } from '../services/leadPermissions'
+import { normalizeColumnOrder, getFavoriteColumnOrder } from '../utils/columnPreferences'
 import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
@@ -34,7 +35,7 @@ export const Leads = () => {
   const { theme: contextTheme, resolvedTheme } = useTheme()
   const theme = resolvedTheme || contextTheme
   const isLight = theme === 'light'
-  const { user, company, crmSettings } = useAppState()
+  const { user, company, crmSettings, saveUiPreference } = useAppState()
   const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
   const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
   const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode])
@@ -1690,6 +1691,7 @@ if (!s) {
     }
     return next
   })
+  const [favoriteColumnOrder, setFavoriteColumnOrder] = useState([])
 
   const handleColumnReorder = (newOrder) => {
     if (!Array.isArray(newOrder)) return
@@ -1700,6 +1702,14 @@ if (!s) {
     const without = newOrder.filter(k => k !== 'creationDate')
     setColumnOrder([...without, 'creationDate'])
   }
+
+  useEffect(() => {
+    const savedFavorite = getFavoriteColumnOrder(user, 'leads')
+    if (savedFavorite.length > 0) {
+      setFavoriteColumnOrder(savedFavorite)
+      setColumnOrder(prev => normalizeColumnOrder(savedFavorite, Object.keys(displayColumns)))
+    }
+  }, [user, displayColumns])
 
   // Sync dynamic fields with visibleColumns and columnOrder
   useEffect(() => {
@@ -1757,6 +1767,29 @@ if (!s) {
     const all = Object.keys(displayColumns).reduce((acc, k) => { acc[k] = true; return acc }, {})
     setVisibleColumns(all)
   }
+
+  const saveFavoriteOrder = useCallback(async () => {
+    const next = normalizeColumnOrder(columnOrder, Object.keys(displayColumns))
+    setFavoriteColumnOrder(next)
+    try {
+      await saveUiPreference?.('leads', next)
+      const evt = new CustomEvent('app:toast', {
+        detail: { type: 'success', message: isRtl ? 'تم حفظ الترتيب المفضل' : 'Favorite order saved' }
+      })
+      window.dispatchEvent(evt)
+    } catch (error) {
+      console.error('Failed to save favorite column order', error)
+      const evt = new CustomEvent('app:toast', {
+        detail: { type: 'error', message: isRtl ? 'فشل حفظ الترتيب المفضل' : 'Failed to save favorite order' }
+      })
+      window.dispatchEvent(evt)
+    }
+  }, [columnOrder, displayColumns, isRtl, saveUiPreference])
+
+  const restoreFavoriteOrder = useCallback(() => {
+    if (!favoriteColumnOrder.length) return
+    setColumnOrder(normalizeColumnOrder(favoriteColumnOrder, Object.keys(displayColumns)))
+  }, [displayColumns, favoriteColumnOrder])
 
   useEffect(() => {
     const update = () => setIsMobile(window.innerWidth < 640)
@@ -3255,16 +3288,6 @@ if (!s) {
         <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>
           {location.pathname === '/leads/my-leads' ? (i18n.language === 'ar' ? 'مسار ليداتي' : t('My Leads Pipeline')) : t('Leads Pipeline')}
         </h2>
-        <ColumnToggle
-          columns={displayColumns}
-          visibleColumns={visibleColumns}
-          onColumnToggle={handleColumnToggle}
-          onResetColumns={resetVisibleColumns}
-          align={'right'}
-          compact
-          order={columnOrder}
-          onReorder={handleColumnReorder}
-        />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4 items-stretch">
@@ -3303,6 +3326,22 @@ if (!s) {
             <span className="font-bold">{formatInt(stageCounts[s.key] || 0)}</span>
           </button>
         ))}
+      </div>
+
+      <div className="flex justify-end mb-3">
+        <ColumnToggle
+          columns={displayColumns}
+          visibleColumns={visibleColumns}
+          onColumnToggle={handleColumnToggle}
+          onResetColumns={resetVisibleColumns}
+          align={'right'}
+          compact
+          order={columnOrder}
+          onReorder={handleColumnReorder}
+          favoriteOrder={favoriteColumnOrder}
+          onSaveFavoriteOrder={saveFavoriteOrder}
+          onRestoreFavoriteOrder={restoreFavoriteOrder}
+        />
       </div>
 
       {/* Main Table */}

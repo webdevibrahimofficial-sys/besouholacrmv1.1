@@ -17,6 +17,15 @@ const normalizeCompanyType = (...values) => {
   return ''
 }
 
+const formatCompanyTarget = (value, locale = 'en-US') => {
+  const normalized = Number(value || 0)
+  if (!Number.isFinite(normalized)) return '0'
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(normalized)
+}
+
 export default function CompanySettings() {
   const { t, i18n } = useTranslation()
   const isArabic = i18n.language === 'ar'
@@ -32,6 +41,7 @@ export default function CompanySettings() {
   })
 
   const currencySymbol = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'SAR'
+  const targetLocale = isArabic ? 'ar-EG' : 'en-US'
 
   useEffect(() => {
     const fetchUsersAndCalculateTargets = async () => {
@@ -736,7 +746,7 @@ export default function CompanySettings() {
                  
                  <div className="relative mt-2">
                    <div className="w-full bg-transparent font-mono text-2xl font-bold text-theme-text pr-12 rtl:pl-12 rtl:pr-0">
-                    {companyTargets.monthly}
+                    {formatCompanyTarget(companyTargets.monthly, targetLocale)}
                    </div>
                    <div className="absolute inset-y-0 right-3 rtl:right-auto rtl:left-3 flex items-center pointer-events-none text-theme-text/30 text-xs font-mono">
                     {currencySymbol}
@@ -768,7 +778,7 @@ export default function CompanySettings() {
                 
                 <div className="relative mt-2">
                    <div className="w-full bg-transparent font-mono text-2xl font-bold text-theme-text pr-12 rtl:pl-12 rtl:pr-0">
-                    {companyTargets.quarterly}
+                    {formatCompanyTarget(companyTargets.quarterly, targetLocale)}
                    </div>
                    <div className="absolute inset-y-0 right-3 rtl:right-auto rtl:left-3 flex items-center pointer-events-none text-theme-text/30 text-xs font-mono">
                     {currencySymbol}
@@ -800,7 +810,7 @@ export default function CompanySettings() {
                 
                 <div className="relative mt-2">
                    <div className="w-full bg-transparent font-mono text-2xl font-bold text-theme-text pr-12 rtl:pl-12 rtl:pr-0">
-                    {companyTargets.yearly}
+                    {formatCompanyTarget(companyTargets.yearly, targetLocale)}
                    </div>
                    <div className="absolute inset-y-0 right-3 rtl:right-auto rtl:left-3 flex items-center pointer-events-none text-theme-text/30 text-xs font-mono">
                     {currencySymbol}

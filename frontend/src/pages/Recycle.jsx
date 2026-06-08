@@ -1710,14 +1710,6 @@ export const Recycle = () => {
 
       <div className={`flex items-center justify-between mb-3`}>
         <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Deleted Leads')}</h2>
-        <ColumnToggle
-          columns={allColumns}
-          visibleColumns={visibleColumns}
-          onColumnToggle={handleColumnToggle}
-          onResetColumns={resetVisibleColumns}
-          align={'right'}
-          compact
-        />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4 items-stretch">
@@ -1739,6 +1731,17 @@ export const Recycle = () => {
             <span className="font-bold">{stageCounts[s.key] || 0}</span>
           </button>
         ))}
+      </div>
+
+      <div className="flex justify-end mb-3">
+        <ColumnToggle
+          columns={allColumns}
+          visibleColumns={visibleColumns}
+          onColumnToggle={handleColumnToggle}
+          onResetColumns={resetVisibleColumns}
+          align={'right'}
+          compact
+        />
       </div>
 
       {/* Main Table */}

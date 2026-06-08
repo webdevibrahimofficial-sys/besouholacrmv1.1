@@ -7,6 +7,7 @@ use App\Models\Tenant;
 use App\Services\TenantStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -29,12 +30,28 @@ class UserController extends Controller
         return !empty($filtered) ? $filtered : null;
     }
 
+    protected function filterExistingUserColumns(array $data): array
+    {
+        $allowed = [];
+
+        foreach ($data as $key => $value) {
+            if (Schema::hasColumn('users', $key)) {
+                $allowed[$key] = $value;
+            }
+        }
+
+        return $allowed;
+    }
+
     protected function syncScopeFilters(Request $request, User $user): void
     {
         $scopeFields = ['allowed_countries', 'allowed_regions', 'allowed_sources', 'allowed_projects'];
         $hasAnyScopeField = false;
 
         foreach ($scopeFields as $field) {
+            if (!Schema::hasColumn('users', $field)) {
+                continue;
+            }
             if ($request->exists($field) || $request->exists($field . '.0')) {
                 $user->{$field} = $this->normalizeScopeValues($request->input($field, []));
                 $hasAnyScopeField = true;
@@ -346,11 +363,11 @@ class UserController extends Controller
             $validated['avatar'] = $upload['path'];
         }
 
-        $validated['password'] = Hash::make($validated['password']);
-
         if ($tenantId !== null) {
             $validated['tenant_id'] = $tenantId;
         }
+        $validated['password'] = Hash::make($validated['password']);
+        $validated = $this->filterExistingUserColumns($validated);
         
         $user = User::create($validated);
         $this->syncScopeFilters($request, $user);
@@ -473,6 +490,8 @@ class UserController extends Controller
             $upload = $storage->upload($request->file('avatar'), 'avatars');
             $validated['avatar'] = $upload['path'];
         }
+        
+        $validated = $this->filterExistingUserColumns($validated);
         
         $user->update($validated);
         $this->syncScopeFilters($request, $user);

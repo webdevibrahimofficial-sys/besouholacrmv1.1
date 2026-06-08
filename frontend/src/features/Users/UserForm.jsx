@@ -56,6 +56,41 @@ const isAdminRole = (role) => {
   return r === 'admin' || r === 'tenant admin' || r === 'super admin';
 };
 
+const ARABIC_DIGIT_MAP = {
+  '٠': '0',
+  '١': '1',
+  '٢': '2',
+  '٣': '3',
+  '٤': '4',
+  '٥': '5',
+  '٦': '6',
+  '٧': '7',
+  '٨': '8',
+  '٩': '9',
+};
+
+const normalizeNumericInput = (value) => {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .trim()
+    .replace(/[\u0660-\u0669]/g, (digit) => ARABIC_DIGIT_MAP[digit] || digit)
+    .replace(/[,\u066C]/g, '')
+    .replace(/[^\d.-]/g, '');
+};
+
+const formatNumericDisplay = (value, locale = 'en-US', options = {}) => {
+  const normalized = normalizeNumericInput(value);
+  if (!normalized) return '';
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return '';
+
+  const { minimumFractionDigits = 0, maximumFractionDigits = 2 } = options;
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits,
+    maximumFractionDigits,
+  }).format(parsed);
+};
+
 const buildSelectAllPermissions = (filterInventoryPermsByTenantType) => {
   const perms = {};
   Object.entries(PERMISSIONS).forEach(([group, list]) => {
@@ -91,6 +126,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const isGeneralTenant = tenantTypeNorm === 'general'
   const isRealEstateTenant = tenantTypeNorm === 'realestate'
   const allowAllTenantTypes = !tenantTypeNorm
+  const numericLocale = isArabic ? 'ar-EG' : 'en-US'
 
   const filterInventoryPermsByTenantType = useCallback((list) => {
     const perms = Array.isArray(list) ? list : []
@@ -446,34 +482,35 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   }, [form.directManager, managers])
 
   const calculateTargets = (value, type) => {
-    const num = parseFloat(value);
+    const normalizedValue = normalizeNumericInput(value);
+    const num = parseFloat(normalizedValue);
     
     if (isNaN(num)) {
-       setForm(prev => ({ ...prev, monthlyTarget: value, quarterlyTarget: '', yearlyTarget: '' })); // allow clearing
-       if (value === '') setForm(prev => ({ ...prev, monthlyTarget: '', quarterlyTarget: '', yearlyTarget: '' }));
+       setForm(prev => ({ ...prev, monthlyTarget: normalizedValue, quarterlyTarget: '', yearlyTarget: '' })); // allow clearing
+       if (normalizedValue === '') setForm(prev => ({ ...prev, monthlyTarget: '', quarterlyTarget: '', yearlyTarget: '' }));
        return;
     }
 
     if (type === 'monthly') {
       setForm(prev => ({ 
         ...prev,
-        monthlyTarget: value, 
-        quarterlyTarget: (num * 3).toFixed(2), 
-        yearlyTarget: (num * 12).toFixed(2) 
+        monthlyTarget: normalizedValue, 
+        quarterlyTarget: String(num * 3), 
+        yearlyTarget: String(num * 12) 
       }));
     } else if (type === 'quarterly') {
       setForm(prev => ({ 
         ...prev,
-        monthlyTarget: (num / 3).toFixed(2), 
-        quarterlyTarget: value, 
-        yearlyTarget: (num * 4).toFixed(2) 
+        monthlyTarget: String(num / 3), 
+        quarterlyTarget: normalizedValue, 
+        yearlyTarget: String(num * 4) 
       }));
     } else if (type === 'yearly') {
       setForm(prev => ({ 
         ...prev,
-        monthlyTarget: (num / 12).toFixed(2), 
-        quarterlyTarget: (num / 4).toFixed(2), 
-        yearlyTarget: value 
+        monthlyTarget: String(num / 12), 
+        quarterlyTarget: String(num / 4), 
+        yearlyTarget: normalizedValue 
       }));
     }
   };
@@ -626,10 +663,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       formData.append('role', form.role || '');
       formData.append('notif_email', form.notifEmail ? 1 : 0);
       formData.append('notif_sms', form.notifSms ? 1 : 0);
-      formData.append('monthly_target', form.monthlyTarget || '');
-      formData.append('quarterly_target', form.quarterlyTarget || '');
-      formData.append('yearly_target', form.yearlyTarget || '');
-      formData.append('commission_percentage', form.commissionPercentage || '');
+      formData.append('monthly_target', normalizeNumericInput(form.monthlyTarget) || '');
+      formData.append('quarterly_target', normalizeNumericInput(form.quarterlyTarget) || '');
+      formData.append('yearly_target', normalizeNumericInput(form.yearlyTarget) || '');
+      formData.append('commission_percentage', normalizeNumericInput(form.commissionPercentage) || '');
       const allowedCountries = Array.isArray(form.allowedCountries) ? form.allowedCountries.filter(Boolean) : [];
       const allowedRegions = Array.isArray(form.allowedRegions) ? form.allowedRegions.filter(Boolean) : [];
       const allowedSources = Array.isArray(form.allowedSources) ? form.allowedSources.filter(Boolean) : [];
@@ -1433,13 +1470,16 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                      </label>
                      
                      <div className="relative mt-2">
-                       <input 
-                         type="number" 
-                         value={form.monthlyTarget || ''} 
-                         onChange={(e) => calculateTargets(e.target.value, 'monthly')} 
-                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
-                         placeholder="0.00" 
-                       />
+                      <input 
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
+                        value={formatNumericDisplay(form.monthlyTarget, numericLocale)} 
+                        onChange={(e) => calculateTargets(e.target.value, 'monthly')} 
+                        className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
+                        placeholder="0.00" 
+                      />
                        <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-base-content/30 text-xs font-mono">
                         {currencySymbol}
                       </div>
@@ -1470,8 +1510,11 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     
                     <div className="relative mt-2">
                       <input 
-                        type="number" 
-                        value={form.quarterlyTarget || ''} 
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
+                        value={formatNumericDisplay(form.quarterlyTarget, numericLocale)} 
                         onChange={(e) => calculateTargets(e.target.value, 'quarterly')} 
                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
                         placeholder="0.00" 
@@ -1506,8 +1549,11 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     
                     <div className="relative mt-2">
                       <input 
-                        type="number" 
-                        value={form.yearlyTarget || ''} 
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
+                        value={formatNumericDisplay(form.yearlyTarget, numericLocale)} 
                         onChange={(e) => calculateTargets(e.target.value, 'yearly')} 
                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
                         placeholder="0.00" 
@@ -1541,16 +1587,19 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                      </label>
                      
                      <div className="relative mt-2">
-                       <input 
-                         type="number" 
-                         value={form.commissionPercentage || ''} 
-                         onChange={(e) => updateField('commissionPercentage', e.target.value)} 
-                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
-                         placeholder="0.00"
-                         min="0"
-                         max="100"
-                         step="0.01"
-                       />
+                      <input 
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
+                        value={formatNumericDisplay(form.commissionPercentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} 
+                        onChange={(e) => updateField('commissionPercentage', normalizeNumericInput(e.target.value))} 
+                        className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
+                        placeholder="0.00"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                      />
                         <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-base-content/30 text-xs font-mono">
                          %
                        </div>
