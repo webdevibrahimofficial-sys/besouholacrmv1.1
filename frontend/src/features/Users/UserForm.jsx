@@ -128,6 +128,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       user?.department ||
       user?.department_id ||
       '',
+    allowedCountries: Array.isArray(user?.allowed_countries) ? user.allowed_countries : [],
+    allowedRegions: Array.isArray(user?.allowed_regions) ? user.allowed_regions : [],
+    allowedSources: Array.isArray(user?.allowed_sources) ? user.allowed_sources : [],
+    allowedProjects: Array.isArray(user?.allowed_projects) ? user.allowed_projects : [],
     branch: user?.branch || '',
     region: user?.region || '',
     area: user?.area || '',
@@ -150,14 +154,22 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const [initialForm, setInitialForm] = useState({ ...form });
   const [departments, setDepartments] = useState([]);
   const [managers, setManagers] = useState([]);
+  const [countries, setCountries] = useState([]);
+  const [regions, setRegions] = useState([]);
+  const [sources, setSources] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [avatarFile, setAvatarFile] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [deptsRes, usersRes] = await Promise.all([
+      const [deptsRes, usersRes, countriesRes, regionsRes, sourcesRes, projectsRes] = await Promise.all([
         api.get('/api/departments'),
         api.get('/api/users?all=1').catch(() => api.get('/api/users')),
+        api.get('/api/countries'),
+        api.get('/api/regions'),
+        api.get('/api/sources'),
+        api.get('/api/projects'),
       ]);
       setDepartments(deptsRes.data);
       const rawUsers = Array.isArray(usersRes.data)
@@ -168,6 +180,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         role: Array.isArray(u.roles) && u.roles[0]?.name ? u.roles[0].name : (u.role || u.job_title || ''),
       }));
       setManagers(normalizedManagers);
+      setCountries(Array.isArray(countriesRes.data) ? countriesRes.data : (countriesRes.data?.data || []));
+      setRegions(Array.isArray(regionsRes.data) ? regionsRes.data : (regionsRes.data?.data || []));
+      setSources(Array.isArray(sourcesRes.data) ? sourcesRes.data : (sourcesRes.data?.data || []));
+      setProjects(Array.isArray(projectsRes.data) ? projectsRes.data : (projectsRes.data?.data || []));
     } catch (err) {
       console.error('Failed to fetch form data', err);
     }
@@ -202,6 +218,68 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   }
   const showModulePerms = useMemo(() => isCustomRole || form.role === 'Sales Admin', [isCustomRole, form.role])
   const showGeoFields = useMemo(() => ['Sales Admin','Operation Manager','Branch Manager','Director'].includes(form.role), [form.role])
+  const showAssignmentScopeFilters = useMemo(() => {
+    const hiddenRoles = new Set([
+      'director',
+      'operation manager',
+      'operations manager',
+      'sales admin',
+      'customer manager',
+      'customer team leader',
+      'customer agent',
+      'support manager',
+      'support team leader',
+      'support agent',
+      'accountant',
+    ]);
+
+    return !hiddenRoles.has(normalizeRoleValue(form.role));
+  }, [form.role])
+  const countryOptions = useMemo(() => {
+    const seen = new Set();
+    return (countries || []).map(country => {
+      const value = String(country?.name_en || country?.name || country?.name_ar || '').trim();
+      if (!value || seen.has(value)) return null;
+      seen.add(value);
+      return {
+        value,
+        label: isArabic ? (country?.name_ar || country?.name_en || country?.name || value) : (country?.name_en || country?.name || country?.name_ar || value),
+      };
+    }).filter(Boolean);
+  }, [countries, isArabic]);
+  const regionOptions = useMemo(() => {
+    const seen = new Set();
+    return (regions || []).map(regionItem => {
+      const value = String(regionItem?.name_en || regionItem?.name || regionItem?.name_ar || '').trim();
+      if (!value || seen.has(value)) return null;
+      seen.add(value);
+      return {
+        value,
+        label: isArabic ? (regionItem?.name_ar || regionItem?.name_en || regionItem?.name || value) : (regionItem?.name_en || regionItem?.name || regionItem?.name_ar || value),
+      };
+    }).filter(Boolean);
+  }, [regions, isArabic]);
+  const sourceOptions = useMemo(() => {
+    const seen = new Set();
+    return (sources || []).map(source => {
+      const value = String(source?.name || source?.title || source?.value || '').trim();
+      if (!value || seen.has(value)) return null;
+      seen.add(value);
+      return { value, label: value };
+    }).filter(Boolean);
+  }, [sources]);
+  const projectOptions = useMemo(() => {
+    const seen = new Set();
+    return (projects || []).map(project => {
+      const value = String(project?.name || project?.name_ar || '').trim();
+      if (!value || seen.has(value)) return null;
+      seen.add(value);
+      return {
+        value,
+        label: isArabic ? (project?.name_ar || project?.name || value) : (project?.name || project?.name_ar || value),
+      };
+    }).filter(Boolean);
+  }, [projects, isArabic]);
 
   const passwordStrength = useMemo(() => {
     const pwd = form.password || '';
@@ -552,6 +630,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       formData.append('quarterly_target', form.quarterlyTarget || '');
       formData.append('yearly_target', form.yearlyTarget || '');
       formData.append('commission_percentage', form.commissionPercentage || '');
+      const allowedCountries = Array.isArray(form.allowedCountries) ? form.allowedCountries.filter(Boolean) : [];
+      const allowedRegions = Array.isArray(form.allowedRegions) ? form.allowedRegions.filter(Boolean) : [];
+      const allowedSources = Array.isArray(form.allowedSources) ? form.allowedSources.filter(Boolean) : [];
+      const allowedProjects = Array.isArray(form.allowedProjects) ? form.allowedProjects.filter(Boolean) : [];
+      (allowedCountries.length ? allowedCountries : ['']).forEach(value => formData.append('allowed_countries[]', value));
+      (allowedRegions.length ? allowedRegions : ['']).forEach(value => formData.append('allowed_regions[]', value));
+      (allowedSources.length ? allowedSources : ['']).forEach(value => formData.append('allowed_sources[]', value));
+      (allowedProjects.length ? allowedProjects : ['']).forEach(value => formData.append('allowed_projects[]', value));
 
       // Auto-grant for Sales Person: Leads.addAction (not user-configurable in UI).
       if (isSalesPersonRole(form.role)) {
@@ -918,20 +1004,21 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 <div className="w-1 h-6 bg-info rounded-full"></div>
                 <h2 className="card-title text-lg">2. Account Settings</h2>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-3">
+                <div className="md:order-1">
                   <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Role <span className="text-[#FF6B6B]">*</span></span></label>
                   <SearchableSelect
                     className="w-full"
                     options={ROLES}
                     value={form.role}
                     onChange={(val) => updateField('role', val)}
-                    
+                    placeholder={isArabic ? 'اختر الدور' : 'Select role'}
+                    showAllOption={false}
                   />
                   {errors.role && <div className="flex items-center gap-1 mt-1.5 text-[#FF6B6B] text-xs"><AlertCircle size={12}/> {errors.role}</div>}
                 </div>
                 {ROLE_HIERARCHY[form.role] && (
-                  <div>
+                  <div className="md:order-4">
                     <label className="label pt-0">
                       <span className="label-text font-medium text-base-content/80">
                         {isArabic ? 'المدير المباشر (اختياري)' : 'Direct Manager (Optional)'}
@@ -981,17 +1068,17 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     />
                   </div>
                 )}
-                <div>
+                <div className="md:order-2">
                   <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Status <span className="text-[#FF6B6B]">*</span></span></label>
                   <SearchableSelect
                     className="w-full"
                     options={STATUSES}
                     value={form.status}
                     onChange={(val) => updateField('status', val)}
-                    
+                    placeholder={isArabic ? 'نشط' : 'Active'}
                   />
                 </div>
-                <div>
+                <div className="md:order-3">
                   <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Department (Optional)</span></label>
                   <SearchableSelect
                     className="w-full"
@@ -1000,9 +1087,91 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     onChange={(dept) => {
                       setForm(prev => ({ ...prev, department: dept }))
                     }}
+                    placeholder={isArabic ? 'الكل' : 'All'}
+                  />
+                </div>
+                {false && showAssignmentScopeFilters && (
+                <div>
+                  <label className="label pt-0">
+                    <span className="label-text font-medium text-base-content/80">
+                      {isArabic ? 'Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)' : 'Projects (Optional)'}
+                    </span>
+                  </label>
+                  <SearchableSelect
+                    className="w-full"
+                    options={projectOptions}
+                    value={form.allowedProjects}
+                    onChange={(vals) => updateField('allowedProjects', vals)}
+                    placeholder={isArabic ? 'Ø§Ø®ØªØ± Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹' : 'Select projects'}
+                    multiple
+                  />
+                </div>
+                )}
+              </div>
+              {showAssignmentScopeFilters && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-3">
+                <div>
+                  <label className="label pt-0">
+                    <span className="label-text font-medium text-base-content/80">
+                      {isArabic ? 'الدول (اختياري)' : 'Country (Optional)'}
+                    </span>
+                  </label>
+                  <SearchableSelect
+                    className="w-full"
+                    options={countryOptions}
+                    value={form.allowedCountries}
+                    onChange={(vals) => updateField('allowedCountries', vals)}
+                    placeholder={isArabic ? 'اختر الدول' : 'Select countries'}
+                    multiple
+                  />
+                </div>
+                <div>
+                  <label className="label pt-0">
+                    <span className="label-text font-medium text-base-content/80">
+                      {isArabic ? 'المناطق (اختياري)' : 'Regions (Optional)'}
+                    </span>
+                  </label>
+                  <SearchableSelect
+                    className="w-full"
+                    options={regionOptions}
+                    value={form.allowedRegions}
+                    onChange={(vals) => updateField('allowedRegions', vals)}
+                    placeholder={isArabic ? 'اختر المناطق' : 'Select regions'}
+                    multiple
+                  />
+                </div>
+                <div>
+                  <label className="label pt-0">
+                    <span className="label-text font-medium text-base-content/80">
+                      {isArabic ? 'المصادر (اختياري)' : 'Sources (Optional)'}
+                    </span>
+                  </label>
+                  <SearchableSelect
+                    className="w-full"
+                    options={sourceOptions}
+                    value={form.allowedSources}
+                    onChange={(vals) => updateField('allowedSources', vals)}
+                    placeholder={isArabic ? 'اختر المصادر' : 'Select sources'}
+                    multiple
+                  />
+                </div>
+                <div>
+                  <label className="label pt-0">
+                    <span className="label-text font-medium text-base-content/80">
+                      {isArabic ? 'Projects (Optional)' : 'Projects (Optional)'}
+                    </span>
+                  </label>
+                  <SearchableSelect
+                    className="w-full"
+                    options={projectOptions}
+                    value={form.allowedProjects}
+                    onChange={(vals) => updateField('allowedProjects', vals)}
+                    placeholder={isArabic ? 'Select projects' : 'Select projects'}
+                    multiple
                   />
                 </div>
               </div>
+              )}
               {showGeoFields && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                   <div>

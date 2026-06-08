@@ -36,7 +36,17 @@ const getRank = (role) => {
   return mappedKey ? ROLE_RANKS[mappedKey] : 99;
 };
 
-const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, currentUser }) => {
+const ReAssignLeadModal = ({
+  isOpen,
+  onClose,
+  lead,
+  onAssign,
+  isArabic = false,
+  currentUser,
+  errorMessage = '',
+  submitting = false,
+  onClearError,
+}) => {
   const { theme } = useTheme();
   const isLight = theme === 'light';
 
@@ -61,6 +71,7 @@ const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, 
       console.log('ReAssignLeadModal Opened. Current User:', currentUser);
       fetchUsers();
       fetchRoles();
+      onClearError?.();
       // Reset states
       setSelectedUser(null);
       setAssignRole('sales');
@@ -72,6 +83,16 @@ const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, 
       });
     }
   }, [isOpen, currentUser]);
+
+  useEffect(() => {
+    if (!isOpen || !errorMessage) return;
+    const timer = setTimeout(() => {
+      const alert = document.getElementById('reassign-lead-error-banner');
+      alert?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [errorMessage, isOpen]);
 
   const isLeadershipRole = (role) => {
     if (!role) return false;
@@ -173,7 +194,7 @@ const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, 
     return matchesRole && matchesSearch;
   });
 
-  const handleAssign = () => {
+  const handleAssign = async () => {
     if (!selectedUser) return;
 
     // Prepare payload
@@ -185,8 +206,11 @@ const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, 
       options: options
     };
 
-    onAssign(assignData);
-    onClose();
+    onClearError?.();
+    const result = await onAssign?.(assignData);
+    if (result !== false) {
+      onClose();
+    }
   };
 
   if (!isOpen) return null;
@@ -215,6 +239,31 @@ const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, 
 
         {/* Content */}
         <div className="p-4 flex-1 overflow-y-auto space-y-4">
+          {errorMessage ? (
+            <div
+              id="reassign-lead-error-banner"
+              className={`rounded-2xl border px-4 py-3 shadow-sm ${
+                isLight
+                  ? 'border-red-200 bg-red-50 text-red-800'
+                  : 'border-red-500/30 bg-red-500/10 text-red-100'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${isLight ? 'bg-red-100 text-red-600' : 'bg-red-500/20 text-red-300'}`}>
+                  <FaTimes className="text-xs" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">
+                    {isArabic ? 'تعذر إسناد الليد للمستخدم المختار' : 'Unable to assign this lead to the selected user'}
+                  </p>
+                  <p className={`mt-1 text-sm leading-6 ${isLight ? 'text-red-700' : 'text-red-100/90'}`}>
+                    {errorMessage}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
 
           {/* Filter & Search */}
           <div className="flex gap-2">
@@ -253,7 +302,10 @@ const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, 
               filteredUsers.map(user => (
                 <div
                   key={user.id}
-                  onClick={() => setSelectedUser(user)}
+                  onClick={() => {
+                    onClearError?.();
+                    setSelectedUser(user);
+                  }}
                   className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer border transition-all ${selectedUser?.id === user.id
                       ? (isLight ? 'border-blue-500 bg-blue-50' : 'border-blue-500 bg-blue-900/20')
                       : (isLight ? 'border-transparent hover:bg-gray-50' : 'border-transparent hover:bg-slate-800')
@@ -430,13 +482,13 @@ const ReAssignLeadModal = ({ isOpen, onClose, lead, onAssign, isArabic = false, 
           </button>
           <button
             onClick={handleAssign}
-            disabled={!selectedUser}
-            className={`px-6 py-2 text-sm font-medium rounded-lg shadow-lg shadow-blue-500/20 transition-all ${selectedUser
+            disabled={!selectedUser || submitting}
+            className={`px-6 py-2 text-sm font-medium rounded-lg shadow-lg shadow-blue-500/20 transition-all ${selectedUser && !submitting
                 ? 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-[1.02]'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
           >
-            {isArabic ? 'تعيين' : 'Assign'}
+            {submitting ? (isArabic ? 'جارٍ الإسناد...' : 'Assigning...') : (isArabic ? 'تعيين' : 'Assign')}
           </button>
         </div>
 

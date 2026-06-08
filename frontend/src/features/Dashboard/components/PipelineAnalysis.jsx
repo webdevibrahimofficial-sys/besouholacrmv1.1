@@ -37,11 +37,12 @@ ChartJS.register(
   Legend
 );
 
-export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, dateTo }) => {
+export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, dateTo, exportMode = false }) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || 'en'
   const { theme, resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light'
+  const useLightColors = exportMode || isLight
 
 
   // Toolbar state
@@ -303,8 +304,10 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
 
   // Chart options
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
-  const tickColor = isLight ? '#0f172a' : '#e5e7eb';
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480;
+  const tickColor = useLightColors ? '#0f172a' : '#e5e7eb';
+  const tickFontSize = exportMode ? 13 : (isMobile ? 10 : 13)
+  const axisTitleFontSize = exportMode ? 14 : (isMobile ? 10 : 13)
   const measureDisplay = selectedMeasure === 'count'
     ? (lang === 'ar' ? 'عدد العملاء المحتملين' : 'No. of Leads')
     : selectedMeasure === 'value'
@@ -383,7 +386,7 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
     <div className="w-full">
       {/* Toolbar (simplified like Leads Analysis) */}
       <div className="flex flex-wrap items-center gap-2 mb-3 justify-end" data-export-ignore="true">
-        <span className={`${isLight ? 'text-blue-700 font-semibold' : 'dark:text-gray-300'} text-sm`}>
+        <span className={`${useLightColors ? 'text-blue-700 font-semibold' : 'dark:text-gray-300'} text-sm`}>
           {chartType === 'bar'
             ? (lang === 'ar' ? 'رسم بياني عمودي' : 'Bar Chart')
             : chartType === 'pie'
@@ -603,11 +606,11 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
             <tbody>
               {pivotRows.map((row, idx) => (
                 <tr key={idx} className="border-t border-gray-200 dark:border-gray-700">
-                  <td className={`px-3 py-2 font-medium whitespace-nowrap min-w-[120px] ${isLight ? 'text-black' : 'dark:text-white'}`}>{row.stage}</td>
+                  <td className={`px-3 py-2 font-medium whitespace-nowrap min-w-[120px] ${useLightColors ? 'text-black' : 'dark:text-white'}`}>{row.stage}</td>
                   {row.values.map((v, i) => (
-                    <td key={i} className={`px-3 py-2 whitespace-nowrap min-w-[120px] ${isLight ? 'text-black' : 'dark:text-gray-300'}`}>{v}</td>
+                    <td key={i} className={`px-3 py-2 whitespace-nowrap min-w-[120px] ${useLightColors ? 'text-black' : 'dark:text-gray-300'}`}>{v}</td>
                   ))}
-                  <td className={`px-3 py-2 font-semibold whitespace-nowrap min-w-[140px] ${isLight ? 'text-black' : 'dark:text-gray-100'}`}>{Math.round(row.total * 100) / 100}</td>
+                  <td className={`px-3 py-2 font-semibold whitespace-nowrap min-w-[140px] ${useLightColors ? 'text-black' : 'dark:text-gray-100'}`}>{Math.round(row.total * 100) / 100}</td>
                 </tr>
               ))}
             </tbody>
@@ -631,12 +634,12 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
             <tbody>
               {listRows.map((r, i) => (
                 <tr key={i} className="border-t border-gray-200 dark:border-gray-700">
-                  <td className={`px-3 py-2 whitespace-nowrap ${isLight ? 'text-black' : 'dark:text-gray-300'}`}>{applyYearToLabel(r.date)}</td>
-                  <td className={`px-3 py-2 whitespace-nowrap ${isLight ? 'text-black' : 'dark:text-gray-300'}`}>{r.employee}</td>
-                  <td className={`px-3 py-2 whitespace-nowrap ${isLight ? 'text-black' : 'dark:text-gray-300'}`}>{r.leadName}</td>
-                  <td className={`px-3 py-2 whitespace-nowrap ${isLight ? 'text-black' : 'dark:text-gray-300'}`}>{r.stage}</td>
-                  <td className={`px-3 py-2 whitespace-nowrap ${isLight ? 'text-black' : 'dark:text-gray-300'}`}>{r.value}</td>
-                  <td className={`px-3 py-2 whitespace-nowrap ${isLight ? 'text-black' : 'dark:text-gray-300'}`}>{r.prorated}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap ${useLightColors ? 'text-black' : 'dark:text-gray-300'}`}>{applyYearToLabel(r.date)}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap ${useLightColors ? 'text-black' : 'dark:text-gray-300'}`}>{r.employee}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap ${useLightColors ? 'text-black' : 'dark:text-gray-300'}`}>{r.leadName}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap ${useLightColors ? 'text-black' : 'dark:text-gray-300'}`}>{r.stage}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap ${useLightColors ? 'text-black' : 'dark:text-gray-300'}`}>{r.value}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap ${useLightColors ? 'text-black' : 'dark:text-gray-300'}`}>{r.prorated}</td>
                 </tr>
               ))}
             </tbody>

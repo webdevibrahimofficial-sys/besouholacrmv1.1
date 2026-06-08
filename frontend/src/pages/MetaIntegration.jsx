@@ -7,6 +7,7 @@ import GoogleAdsSettings from '../components/integrations/GoogleAdsSettings'
 import TikTokSettings from '../components/integrations/TikTokSettings'
 import TelegramSettings from '../components/integrations/TelegramSettings'
 import WebChatSettings from '../components/integrations/WebChatSettings'
+import WebsiteSettings from '../components/integrations/WebsiteSettings'
 
 export default function MetaIntegration() {
   const { t } = useTranslation()
@@ -37,6 +38,26 @@ export default function MetaIntegration() {
       }
     }
   }, [connect])
+
+  useEffect(() => {
+    if (activeIntegration !== 'website') return
+
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        closeSettings()
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [activeIntegration, closeSettings])
 
   // Routing to specific settings pages
   if (activeIntegration === 'meta') return <MetaSettings onClose={closeSettings} />
@@ -83,6 +104,19 @@ export default function MetaIntegration() {
             </ul>
           </div>
       </div>
+
+      {activeIntegration === 'website' ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4 py-6">
+          <div
+            className="absolute inset-0"
+            onClick={closeSettings}
+            aria-hidden="true"
+          />
+          <div className="relative z-[101] max-h-[90vh] w-full max-w-7xl overflow-y-auto rounded-2xl bg-[var(--page-bg,#fff)] shadow-2xl">
+            <WebsiteSettings onClose={closeSettings} />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

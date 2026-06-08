@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { FaTelegram, FaGlobe, FaGoogle, FaTiktok, FaFacebook } from 'react-icons/fa'
 import { metaService } from '../services/metaService'
 import { googleAdsService } from '../services/googleAdsService'
+import { websiteIntegrationService } from '../services/websiteIntegrationService'
 
 export function useIntegrations() {
   const { t } = useTranslation()
@@ -13,6 +14,7 @@ export function useIntegrations() {
   const [googleConnected, setGoogleConnected] = useState(false)
   const [metaConnected, setMetaConnected] = useState(false)
   const [metaConfigured, setMetaConfigured] = useState(false)
+  const [websiteConnected, setWebsiteConnected] = useState(false)
   const [tenantConfig, setTenantConfig] = useState(null)
 
   // Initialize status from local storage or services
@@ -28,6 +30,12 @@ export function useIntegrations() {
       const hasSecret = !!app?.app_secret_masked
       setMetaConfigured(!!appId && /^\d+$/.test(appId) && hasSecret)
     }).catch(() => setMetaConfigured(false))
+
+    websiteIntegrationService.listConnections()
+      .then((connections) => {
+        setWebsiteConnected(Array.isArray(connections) && connections.length > 0)
+      })
+      .catch(() => setWebsiteConnected(false))
 
     // Check Google Status
     googleAdsService.loadSettings().then(googleSettings => {
@@ -55,6 +63,16 @@ export function useIntegrations() {
       status: metaConnected ? t('Connected') : (metaConfigured ? t('Ready to connect') : t('Meta App not configured')),
       requiresSetup: !metaConfigured && !metaConnected,
       disabledReason: !metaConfigured && !metaConnected ? t('To connect Meta, add your Meta App ID (numbers) and App Secret first') : null,
+    },
+    { 
+      id: 'website', 
+      name: 'Website Leads', 
+      icon: FaGlobe, 
+      bg: 'bg-cyan-600', 
+      description: 'Generate secure website intake keys and collect website leads into the CRM',
+      connected: websiteConnected,
+      status: websiteConnected ? t('Configured') : t('Not Configured'),
+      ctaLabel: t('Open Settings'),
     },
     { 
       id: 'google-ads', 
@@ -102,7 +120,7 @@ export function useIntegrations() {
       return
     }
 
-    const supported = ['meta', 'google-ads']
+    const supported = ['meta', 'google-ads', 'website']
     if (supported.includes(integrationId)) {
       // If Meta isn't configured yet, send user to settings instead of failing
       if (integrationId === 'meta' && !metaConfigured && !metaConnected) {
@@ -139,6 +157,12 @@ export function useIntegrations() {
       const hasSecret = !!app?.app_secret_masked
       setMetaConfigured(!!appId && /^\d+$/.test(appId) && hasSecret)
     }).catch(() => setMetaConfigured(false))
+
+    websiteIntegrationService.listConnections()
+      .then((connections) => {
+        setWebsiteConnected(Array.isArray(connections) && connections.length > 0)
+      })
+      .catch(() => setWebsiteConnected(false))
   }
 
   // OAuth Logic (Moved from original file)

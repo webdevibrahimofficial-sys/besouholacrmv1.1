@@ -555,7 +555,7 @@ export const Dashboard = () => {
   const [analysisData, setAnalysisData] = useState(null);
   const pipelineAnalysisChartRef = useRef(null);
   const leadsAnalysisExportRef = useRef(null);
-  const [isExportingDashboardPdf, setIsExportingDashboardPdf] = useState(false);
+  const [exportingChartKey, setExportingChartKey] = useState(null);
   const [dashboardExportState, setDashboardExportState] = useState({
     active: false,
     chartKey: null,
@@ -588,9 +588,9 @@ export const Dashboard = () => {
   }, [dateFrom, dateTo, selectedEmployee, selectedManager, refreshTrigger]);
 
   const handleExportDashboardPdf = async (chartKey = 'all') => {
-    if (isExportingDashboardPdf) return;
+    if (exportingChartKey) return;
     try {
-      setIsExportingDashboardPdf(true);
+      setExportingChartKey(chartKey);
       const dateRangeLabel = dateFrom && dateTo
         ? `${dateFrom} → ${dateTo}`
         : dateFrom
@@ -643,7 +643,7 @@ export const Dashboard = () => {
       console.error('Failed to export dashboard charts PDF', error);
       alert(i18n.language === 'ar' ? 'فشل تصدير تقرير PDF' : 'Failed to export PDF report');
     } finally {
-      setIsExportingDashboardPdf(false);
+      setExportingChartKey(null);
     }
   };
 
@@ -1291,12 +1291,12 @@ export const Dashboard = () => {
                 <button
                   type="button"
                   onClick={() => handleExportDashboardPdf('leads-analysis')}
-                  disabled={isExportingDashboardPdf}
+                  disabled={!!exportingChartKey}
                   className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                   data-export-ignore="true"
                   title="Export PDF"
                 >
-                  <ExportButtonContent label={isExportingDashboardPdf ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
+                  <ExportButtonContent label={exportingChartKey === 'leads-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
                 </button>
                 <button onClick={() => setLeadsAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
@@ -1402,12 +1402,12 @@ export const Dashboard = () => {
                   <button
                     type="button"
                     onClick={() => handleExportDashboardPdf('pipeline-analysis')}
-                    disabled={isExportingDashboardPdf}
+                    disabled={!!exportingChartKey}
                     className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                     data-export-ignore="true"
                     title="Export PDF"
                   >
-                    <ExportButtonContent label={isExportingDashboardPdf ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
+                    <ExportButtonContent label={exportingChartKey === 'pipeline-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
                   </button>
                   <button onClick={() => setPipelineAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
@@ -1416,7 +1416,7 @@ export const Dashboard = () => {
                   </button>
                 </div>
                 <div className={`${pipelineAnalysisOpenMobile ? 'block' : 'hidden'} md:block`} ref={pipelineAnalysisChartRef}>
-                  <PipelineAnalysis selectedEmployee={effectiveEmployeeName} selectedManager={selectedManager} dateFrom={dateFrom} dateTo={dateTo} />
+                  <PipelineAnalysis selectedEmployee={effectiveEmployeeName} selectedManager={selectedManager} dateFrom={dateFrom} dateTo={dateTo} exportMode={exportingChartKey === 'pipeline-analysis'} />
                 </div>
               </div>
             </div>
@@ -1435,12 +1435,12 @@ export const Dashboard = () => {
               <div
                 ref={leadsAnalysisExportRef}
                 dir={i18n.dir()}
-                className={`rounded-2xl border p-6 shadow-xl ${isLight ? 'bg-white border-gray-200 text-gray-900' : 'bg-slate-900 border-gray-700 text-white'}`}
+                className={`rounded-2xl border p-6 shadow-xl bg-white border-gray-200 text-gray-900`}
                 style={{ width: 1600 }}
               >
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-2xl font-bold text-primary">{t('Leads Analysis')}</h3>
-                  <span className={`text-sm font-medium ${isLight ? 'text-gray-500' : 'text-gray-300'}`}>
+                  <h3 className="text-2xl font-bold text-gray-900">{t('Leads Analysis')}</h3>
+                  <span className="text-sm font-medium text-gray-500">
                     {dashboardExportState.totalPages > 1 ? `${dashboardExportState.pageIndex + 1}/${dashboardExportState.totalPages}` : ''}
                   </span>
                 </div>

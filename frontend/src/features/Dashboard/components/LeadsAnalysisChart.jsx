@@ -14,6 +14,11 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   const { theme, resolvedTheme } = useTheme()
   const isLight = resolvedTheme === 'light'
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480
+  const useLightColors = exportMode || isLight
+  const tickColor = useLightColors ? '#0f172a' : '#ffffff'
+  const gridColor = useLightColors ? 'rgba(15, 23, 42, 0.12)' : 'rgba(255, 255, 255, 0.12)'
+  const tickFontSize = exportMode ? 13 : (isMobile ? 10 : 12)
+  const axisTitleFontSize = exportMode ? 14 : (isMobile ? 10 : 13)
   const xAxisLabel = lang === 'ar' ? 'الأشهر' : 'Months'
   const yAxisLabel = lang === 'ar' ? 'عدد العملاء المحتملين' : 'No. of Leads'
   const [chartData, setChartData] = useState([])
@@ -282,14 +287,14 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     const options = {
       responsive: true,
       maintainAspectRatio: false,
-      devicePixelRatio: 2,
+      devicePixelRatio: exportMode ? 3 : 2,
       plugins: {
         legend: { display: false },
         tooltip: { enabled: true }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } }, title: { display: true, text: xAxisLabel, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 13, weight: 600 } } },
-        y: { beginAtZero: true, grid: { display: true, color: isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.12)' }, ticks: { precision: 0, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } }, title: { display: true, text: yAxisLabel, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 13, weight: 600 } } }
+        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
+        y: { beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
       }
     }
 
@@ -318,14 +323,14 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     const options = {
       responsive: true,
       maintainAspectRatio: false,
-      devicePixelRatio: 2,
+      devicePixelRatio: exportMode ? 3 : 2,
       plugins: {
-        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } } },
+        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } } },
         tooltip: { enabled: true }
       },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } }, title: { display: true, text: xAxisLabel, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 13, weight: 600 } } },
-        y: { stacked: true, beginAtZero: true, grid: { display: true }, ticks: { precision: 0, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } }, title: { display: true, text: yAxisLabel, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 13, weight: 600 } } }
+        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
+        y: { stacked: true, beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
       }
     }
 
@@ -359,14 +364,14 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     const options = {
       responsive: true,
       maintainAspectRatio: false,
-      devicePixelRatio: 2,
+      devicePixelRatio: exportMode ? 3 : 2,
       plugins: {
-        legend: { display: false, position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } } },
+        legend: { display: false, position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } } },
         tooltip: { enabled: true }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } }, title: { display: true, text: xAxisLabel, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 13, weight: 600 } } },
-        y: { beginAtZero: true, grid: { display: true }, ticks: { precision: 0, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 12 } }, title: { display: true, text: yAxisLabel, color: isLight ? '#0f172a' : '#ffffff', font: { size: isMobile ? 10 : 13, weight: 600 } } }
+        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
+        y: { beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
       }
     }
 
@@ -409,8 +414,8 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
           {segments.map((seg, index) => (
             <div key={index} className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: seg.color }} />
-              <span className="text-sm" style={{ color: isLight ? '#0f172a' : '#ffffff' }}>{seg.label}</span>
-              <span className="text-sm font-medium" style={{ color: isLight ? '#0f172a' : '#ffffff' }}>{seg.value}</span>
+              <span className="text-sm" style={{ color: tickColor }}>{seg.label}</span>
+              <span className="text-sm font-medium" style={{ color: tickColor }}>{seg.value}</span>
             </div>
           ))}
         </div>

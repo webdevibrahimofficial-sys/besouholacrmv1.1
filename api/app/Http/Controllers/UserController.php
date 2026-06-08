@@ -13,6 +13,39 @@ use Spatie\Permission\Models\Role;
 
 class UserController extends Controller
 {
+    protected function normalizeScopeValues($values): ?array
+    {
+        if ($values === null) {
+            return null;
+        }
+
+        $filtered = collect(is_array($values) ? $values : [$values])
+            ->map(fn ($value) => is_string($value) ? trim($value) : $value)
+            ->filter(fn ($value) => filled($value))
+            ->unique()
+            ->values()
+            ->all();
+
+        return !empty($filtered) ? $filtered : null;
+    }
+
+    protected function syncScopeFilters(Request $request, User $user): void
+    {
+        $scopeFields = ['allowed_countries', 'allowed_regions', 'allowed_sources', 'allowed_projects'];
+        $hasAnyScopeField = false;
+
+        foreach ($scopeFields as $field) {
+            if ($request->exists($field) || $request->exists($field . '.0')) {
+                $user->{$field} = $this->normalizeScopeValues($request->input($field, []));
+                $hasAnyScopeField = true;
+            }
+        }
+
+        if ($hasAnyScopeField) {
+            $user->save();
+        }
+    }
+
     public function index(Request $request)
     {
         $authUser = $request->user();
@@ -298,6 +331,14 @@ class UserController extends Controller
             'quarterly_target' => 'nullable|numeric|min:0',
             'yearly_target' => 'nullable|numeric|min:0',
             'commission_percentage' => 'nullable|numeric|min:0|max:100',
+            'allowed_countries' => 'nullable|array',
+            'allowed_countries.*' => 'nullable|string|max:100',
+            'allowed_regions' => 'nullable|array',
+            'allowed_regions.*' => 'nullable|string|max:100',
+            'allowed_sources' => 'nullable|array',
+            'allowed_sources.*' => 'nullable|string|max:100',
+            'allowed_projects' => 'nullable|array',
+            'allowed_projects.*' => 'nullable|string|max:150',
         ]);
         
         if ($request->hasFile('avatar')) {
@@ -312,6 +353,7 @@ class UserController extends Controller
         }
         
         $user = User::create($validated);
+        $this->syncScopeFilters($request, $user);
         
         if ($request->has('role')) {
             $roleName = $request->role;
@@ -403,6 +445,14 @@ class UserController extends Controller
             'quarterly_target' => 'nullable|numeric|min:0',
             'yearly_target' => 'nullable|numeric|min:0',
             'commission_percentage' => 'nullable|numeric|min:0|max:100',
+            'allowed_countries' => 'nullable|array',
+            'allowed_countries.*' => 'nullable|string|max:100',
+            'allowed_regions' => 'nullable|array',
+            'allowed_regions.*' => 'nullable|string|max:100',
+            'allowed_sources' => 'nullable|array',
+            'allowed_sources.*' => 'nullable|string|max:100',
+            'allowed_projects' => 'nullable|array',
+            'allowed_projects.*' => 'nullable|string|max:150',
         ]);
 
         if (array_key_exists('password', $validated) && $this->isPrimaryAdmin($user)) {
@@ -425,6 +475,7 @@ class UserController extends Controller
         }
         
         $user->update($validated);
+        $this->syncScopeFilters($request, $user);
 
         if ($previousStatus === 'Active' && $newStatus === 'Inactive') {
             $user->tokens()->delete();

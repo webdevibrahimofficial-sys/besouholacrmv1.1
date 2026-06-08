@@ -65,6 +65,8 @@ const applyCaptureStyles = (node) => {
     maxWidth: node.style.maxWidth,
     overflow: node.style.overflow,
     height: node.style.height,
+    backgroundColor: node.style.backgroundColor,
+    color: node.style.color,
   }
 
   const hiddenNodes = []
@@ -90,6 +92,8 @@ const applyCaptureStyles = (node) => {
     node.style.height = `${computedHeight}px`
   }
   node.style.overflow = 'visible'
+  node.style.backgroundColor = '#ffffff'
+  node.style.color = '#111827'
 
   return () => {
     node.style.width = previous.width
@@ -97,6 +101,8 @@ const applyCaptureStyles = (node) => {
     node.style.maxWidth = previous.maxWidth
     node.style.overflow = previous.overflow
     node.style.height = previous.height
+    node.style.backgroundColor = previous.backgroundColor
+    node.style.color = previous.color
 
     hiddenNodes.forEach(({ el, display, visibility }) => {
       el.style.display = display
@@ -113,7 +119,7 @@ const captureNodeAsPng = async (node) => {
     await wait(120)
     return await toPng(node, {
       cacheBust: true,
-      pixelRatio: 2.5,
+      pixelRatio: 3,
       backgroundColor: '#ffffff',
       filter: (domNode) => !(domNode?.dataset?.exportIgnore === 'true'),
     })
@@ -246,7 +252,7 @@ export async function exportDashboardChartsToPdf({
       const x = margin + ((contentWidth - renderWidth) / 2)
       const y = contentTop + ((contentHeight - renderHeight) / 2)
 
-      doc.addImage(imageData, 'PNG', x, y, renderWidth, renderHeight, undefined, 'FAST')
+      doc.addImage(imageData, 'PNG', x, y, renderWidth, renderHeight)
     }
 
     if (chart.cleanup) {

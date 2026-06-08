@@ -23,11 +23,11 @@ import ImportUsersModal from '@components/ImportUsersModal.jsx';
 import RotationRuleModal from '@features/Users/RotationRuleModal.jsx';
 import UserManagementUserCreate from '@features/Users/UserForm.jsx';
 import UserPreviewModal from '@features/Users/UserPreviewModal.jsx';
+import { ROLES } from '@features/Users/constants.js';
 import UserManagementUserProfile from '@pages/UserManagementUserProfile.jsx';
 import UserChangePasswordModal from '@features/Users/UserChangePasswordModal.jsx';
 
 // User Management Component
-const roles = ['Admin', 'Manager', 'Agent', 'Viewer'];
 const statuses = ['Active', 'Inactive', 'Suspended'];
 
 const { canAssignNow } = (() => {
@@ -376,6 +376,28 @@ export default function UserManagementUsers() {
     setSelectedUser(user);
     setShowPreviewModal(true);
   };
+
+  const roleFilterOptions = useMemo(() => {
+    const canonicalRoles = ['Admin', ...ROLES];
+    const seen = new Set();
+    const options = [];
+
+    canonicalRoles.forEach((role) => {
+      const value = String(role || '').trim();
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label: value });
+    });
+
+    users.forEach((user) => {
+      const value = String(user?.role || user?.job_title || '').trim();
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label: value });
+    });
+
+    return options;
+  }, [users]);
 
   const filtered = useMemo(() => {
     return users.filter((u) => {
@@ -969,7 +991,7 @@ export default function UserManagementUsers() {
               {isArabic ? 'الدور' : 'Role'}
             </label>
             <SearchableSelect
-              options={roles.map(o => ({ value: o, label: o }))}
+              options={roleFilterOptions}
               value={filters.role}
               onChange={(v) => setFilters(prev => ({ ...prev, role: v }))}
               placeholder={isArabic ? 'اختر الدور' : 'Select Role'}

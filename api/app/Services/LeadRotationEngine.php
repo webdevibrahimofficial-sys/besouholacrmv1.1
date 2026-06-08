@@ -292,6 +292,39 @@ class LeadRotationEngine
             return;
         }
 
+        $allowedSources = collect($assignee->allowed_sources ?? [])
+            ->map(function ($value) {
+                return strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) $value))));
+            })
+            ->filter()
+            ->unique()
+            ->values();
+
+        $leadSource = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) ($lead->source ?? '')))));
+        if ($allowedSources->isNotEmpty() && ($leadSource === '' || !$allowedSources->contains($leadSource))) {
+            return;
+        }
+
+        $allowedProjects = collect($assignee->allowed_projects ?? [])
+            ->map(function ($value) {
+                return strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) $value))));
+            })
+            ->filter()
+            ->unique()
+            ->values();
+
+        $leadProject = '';
+        if (!empty($lead->project_id)) {
+            $project = \App\Models\Project::find($lead->project_id);
+            $leadProject = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) ($project?->name ?? $project?->name_ar ?? '')))));
+        }
+        if ($leadProject === '') {
+            $leadProject = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) ($lead->project ?? '')))));
+        }
+        if ($allowedProjects->isNotEmpty() && ($leadProject === '' || !$allowedProjects->contains($leadProject))) {
+            return;
+        }
+
         $lead->assigned_to = $assignee->id;
         $lead->sales_person = $assignee->name;
         if (Schema::hasColumn('leads', 'assigned_at') && empty($lead->assigned_at)) {

@@ -6,7 +6,7 @@ export default function IntegrationCard({ integration, onConnect, onConfigure })
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
   const isLight = resolvedTheme !== 'dark'
-  const { name, description, icon: Icon, bg, status, connected, requiresSetup, disabledReason } = integration
+  const { name, description, icon: Icon, bg, status, connected, requiresSetup, disabledReason, ctaLabel, configureLabel } = integration
 
   return (
     <div
@@ -40,7 +40,7 @@ export default function IntegrationCard({ integration, onConnect, onConfigure })
               }`}
             >
               <FaCog size={12} />
-              {t('Configure')}
+              {configureLabel || t('Configure')}
             </button>
           ) : (
             <div className="flex flex-col gap-1">
@@ -49,7 +49,7 @@ export default function IntegrationCard({ integration, onConnect, onConfigure })
                 className={`${isLight ? 'text-cyan-700 hover:text-cyan-800' : 'text-cyan-500'} text-xs font-bold flex items-center gap-1 hover:gap-2 transition-all`}
                 title={disabledReason ? t(disabledReason) : ''}
               >
-                {requiresSetup ? t('Configure Meta App') : t('Connect Now')} <FaArrowRight size={10} className="transition-transform group-hover:translate-x-1" />
+                {ctaLabel || (requiresSetup ? t('Configure Meta App') : t('Connect Now'))} <FaArrowRight size={10} className="transition-transform group-hover:translate-x-1" />
               </button>
               {disabledReason && (
                 <div

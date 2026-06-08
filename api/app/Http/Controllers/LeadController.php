@@ -9,12 +9,14 @@ use App\Models\Entity;
 use App\Models\CrmSetting;
 use App\Models\User;
 use App\Models\Activity;
+use App\Models\Project;
 use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use App\Support\PhoneNormalizer;
 use App\Services\LeadRotationEngine;
 use Illuminate\Support\Str;
@@ -130,6 +132,113 @@ class LeadController extends Controller
         }
 
         return null;
+    }
+
+    private function normalizeLeadScopeValue($value): string
+    {
+        return Str::of((string) ($value ?? ''))
+            ->lower()
+            ->replace(['_', '-'], ' ')
+            ->squish()
+            ->value();
+    }
+
+    private function userAllowsLeadSource(?User $user, ?string $leadSource): bool
+    {
+        if (!$user) {
+            return true;
+        }
+
+        $allowedSources = collect($user->allowed_sources ?? [])
+            ->map(fn ($value) => $this->normalizeLeadScopeValue($value))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($allowedSources->isEmpty()) {
+            return true;
+        }
+
+        $normalizedLeadSource = $this->normalizeLeadScopeValue($leadSource);
+        if ($normalizedLeadSource === '') {
+            return false;
+        }
+
+        return $allowedSources->contains($normalizedLeadSource);
+    }
+
+    private function resolveLeadProjectLabel(?Lead $lead, ?string $projectName = null, $projectId = null): ?string
+    {
+        $explicitName = trim((string) ($projectName ?? ''));
+        if ($explicitName !== '') {
+            return $explicitName;
+        }
+
+        $explicitProjectId = $projectId ?: ($lead?->project_id ?? null);
+        if (!empty($explicitProjectId)) {
+            $project = Project::find($explicitProjectId);
+            $name = trim((string) ($project?->name ?? $project?->name_ar ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        $leadProject = trim((string) ($lead?->project ?? ''));
+        return $leadProject !== '' ? $leadProject : null;
+    }
+
+    private function userAllowsLeadProject(?User $user, ?string $leadProject): bool
+    {
+        if (!$user) {
+            return true;
+        }
+
+        $allowedProjects = collect($user->allowed_projects ?? [])
+            ->map(fn ($value) => $this->normalizeLeadScopeValue($value))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($allowedProjects->isEmpty()) {
+            return true;
+        }
+
+        $normalizedLeadProject = $this->normalizeLeadScopeValue($leadProject);
+        if ($normalizedLeadProject === '') {
+            return false;
+        }
+
+        return $allowedProjects->contains($normalizedLeadProject);
+    }
+
+    private function ensureUserCanBeAssignedLeadSource(?User $user, ?string $leadSource): void
+    {
+        if (!$user || $this->userAllowsLeadSource($user, $leadSource)) {
+            return;
+        }
+
+        $sourceLabel = trim((string) ($leadSource ?? '')) !== '' ? (string) $leadSource : 'Unknown';
+
+        throw ValidationException::withMessages([
+            'assigned_to' => [
+                "Cannot assign this lead to {$user->name}. Lead source '{$sourceLabel}' is outside the user's allowed sources.",
+            ],
+        ]);
+    }
+
+    private function ensureUserCanBeAssignedLeadProject(?User $user, ?string $leadProject): void
+    {
+        if (!$user || $this->userAllowsLeadProject($user, $leadProject)) {
+            return;
+        }
+
+        $projectLabel = trim((string) ($leadProject ?? '')) !== '' ? (string) $leadProject : 'Unknown';
+
+        throw ValidationException::withMessages([
+            'assigned_to' => [
+                "Cannot assign this lead to {$user->name}. Lead project '{$projectLabel}' is outside the user's allowed projects.",
+            ],
+        ]);
     }
 
     /**
@@ -2418,6 +2527,9 @@ class LeadController extends Controller
             
             // Logic 2 & 4: Assignment logic on creation
             if (!empty($data['assigned_to'])) {
+                 $assignee = User::find($data['assigned_to']);
+                 $this->ensureUserCanBeAssignedLeadSource($assignee, $data['source'] ?? $lead->source ?? null);
+                 $this->ensureUserCanBeAssignedLeadProject($assignee, $this->resolveLeadProjectLabel($lead, $data['project'] ?? null, $data['project_id'] ?? null));
                  $assigneeId = $data['assigned_to'];
                  $creatorId = $request->user()->id;
                  
@@ -2862,6 +2974,8 @@ class LeadController extends Controller
             if (isset($data['assigned_to'])) {
                 $user = \App\Models\User::find($data['assigned_to']);
                 if ($user) {
+                    $this->ensureUserCanBeAssignedLeadSource($user, $data['source'] ?? $lead->source ?? null);
+                    $this->ensureUserCanBeAssignedLeadProject($user, $this->resolveLeadProjectLabel($lead, $data['project'] ?? null, $data['project_id'] ?? null));
                     $data['sales_person'] = $user->name;
                 }
             } elseif ($request->has('assignedTo')) {
@@ -3618,6 +3732,8 @@ class LeadController extends Controller
                         }
 
                         foreach ($leads as $lead) {
+                            $this->ensureUserCanBeAssignedLeadSource($user, $lead->source);
+                            $this->ensureUserCanBeAssignedLeadProject($user, $this->resolveLeadProjectLabel($lead));
                             $oldAssigneeMap[$lead->id] = $lead->assigned_to;
 
                             if (empty($lead->manager_id)) {
@@ -4489,6 +4605,8 @@ class LeadController extends Controller
             }
 
             if ($user) {
+                $this->ensureUserCanBeAssignedLeadSource($user, $lead->source);
+                $this->ensureUserCanBeAssignedLeadProject($user, $this->resolveLeadProjectLabel($lead));
                 $lead->assigned_to = $user->id;
                 $lead->sales_person = $user->name;
             }

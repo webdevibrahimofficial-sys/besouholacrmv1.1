@@ -1946,6 +1946,22 @@ if (!s) {
   const [referralSupervisors, setReferralSupervisors] = useState([])
   const [bulkStatus, setBulkStatus] = useState('')
   const [bulkFeedback, setBulkFeedback] = useState(null)
+  const [assignModalError, setAssignModalError] = useState('')
+  const [assignModalSubmitting, setAssignModalSubmitting] = useState(false)
+
+  const extractApiErrorMessage = (error, fallbackAr, fallbackEn) => {
+    const fallback = isRtl ? fallbackAr : fallbackEn
+    const message = error?.response?.data?.message
+    const errors = error?.response?.data?.errors
+
+    if (errors && typeof errors === 'object') {
+      const firstError = Object.values(errors).flat().find(Boolean)
+      if (firstError) return String(firstError)
+    }
+
+    if (message) return String(message)
+    return fallback
+  }
 
   const uniqueAssignees = useMemo(() => {
     return Array.from(new Set(leads.map(l => l.assignedTo).filter(Boolean))).sort()
@@ -2003,7 +2019,8 @@ if (!s) {
       fetchLeads();
     } catch (error) {
       console.error('Failed to assign lead:', error);
-      const evt = new CustomEvent('app:toast', { detail: { type: 'error', message: isRtl ? 'فشل تعيين العميل' : 'Failed to assign lead' } });
+      const errorMessage = extractApiErrorMessage(error, 'فشل تعيين الليد', 'Failed to assign lead')
+      const evt = new CustomEvent('app:toast', { detail: { type: 'error', message: errorMessage } });
       window.dispatchEvent(evt);
       // Revert state by fetching fresh data
       fetchLeads();
@@ -2051,10 +2068,12 @@ if (!s) {
     
     if (!target) {
       setBulkFeedback({ key: 'bulk.selectAssigneeError' })
-      return
+      return false
     }
 
     try {
+      setAssignModalSubmitting(true)
+      setAssignModalError('')
       const { stage } = buildLeadTransferPayload(assignData);
       const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : stage === 'new_lead' ? 'New Lead' : null;
 
@@ -2093,12 +2112,18 @@ if (!s) {
       
       setBulkFeedback({ key: 'bulk.assignSuccess', params: { count: selectedLeads.length, target: assignData.userName } })
       setSelectedLeads([])
-      setShowBulkAssignModal(false)
       
       fetchLeads();
+      return true
     } catch (error) {
       console.error('Bulk assign failed', error);
-      setBulkFeedback({ key: 'bulk.assignError' });
+      const errorMessage = extractApiErrorMessage(error, 'تعذر إسناد الليد بسبب قيود المصدر للمستخدم المختار', 'Unable to assign the lead because of the selected user source restrictions')
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: errorMessage } }))
+      setAssignModalError(errorMessage)
+      setBulkFeedback({ key: 'bulk.assignError', params: { reason: errorMessage }, message: errorMessage });
+      return false
+    } finally {
+      setAssignModalSubmitting(false)
     }
   }
 
@@ -2134,7 +2159,9 @@ if (!s) {
       fetchLeads();
     } catch (error) {
       console.error('Bulk assign failed', error);
-      setBulkFeedback({ key: 'bulk.assignError' });
+      const errorMessage = extractApiErrorMessage(error, 'تعذر إسناد الليد بسبب قيود المصدر للمستخدم المختار', 'Unable to assign the lead because of the selected user source restrictions')
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: errorMessage } }))
+      setBulkFeedback({ key: 'bulk.assignError', params: { reason: errorMessage }, message: errorMessage });
     }
   }
 
@@ -4493,10 +4520,11 @@ if (!s) {
             fetchLeads(); 
           } catch (err) {
             console.error('Failed to transfer lead', err);
+            const errorMessage = extractApiErrorMessage(err, 'تعذر نقل الليد بسبب قيود المصدر للمستخدم المختار', 'Unable to transfer the lead because of the selected user source restrictions')
             const errEvt = new CustomEvent('app:toast', { 
               detail: { 
                 type: 'error', 
-                message: isRtl ? 'فشل في نقل الليد' : 'Failed to transfer lead' 
+                message: errorMessage
               } 
             });
             window.dispatchEvent(errEvt);
@@ -4762,11 +4790,18 @@ if (!s) {
       {showBulkAssignModal && (
         <ReAssignLeadModal
           isOpen={showBulkAssignModal}
-          onClose={() => setShowBulkAssignModal(false)}
+          onClose={() => {
+            setShowBulkAssignModal(false)
+            setAssignModalError('')
+            setAssignModalSubmitting(false)
+          }}
           lead={null}
           onAssign={handleBulkReAssign}
           isArabic={isRtl}
           currentUser={user}
+          errorMessage={assignModalError}
+          submitting={assignModalSubmitting}
+          onClearError={() => setAssignModalError('')}
         />
       )}
     </div>
