@@ -81,7 +81,8 @@ class WebsiteLeadIntakeService
                 'requests_count' => (int) $connection->requests_count + 1,
             ])->save();
 
-            $log = $this->logIntake($tenantId, (int) $connection->id, 'success', $payload, null, $request, (int) $lead->id);
+            $logStatus = in_array($result, ['created_duplicate', 'updated_duplicate'], true) ? 'duplicate' : 'success';
+            $log = $this->logIntake($tenantId, (int) $connection->id, $logStatus, $payload, null, $request, (int) $lead->id);
 
             DB::commit();
 
@@ -94,7 +95,7 @@ class WebsiteLeadIntakeService
             ];
         } catch (\Throwable $e) {
             DB::rollBack();
-            $this->logIntake($tenantId, (int) $connection->id, 'unexpected_exception', $payload, $e->getMessage(), $request);
+            $this->logIntake($tenantId, (int) $connection->id, 'exception', $payload, $e->getMessage(), $request);
             throw $e;
         } finally {
             if ($boundTenant) {

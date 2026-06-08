@@ -6,6 +6,7 @@ use App\Http\Requests\StoreWebsiteConnectionRequest;
 use App\Http\Requests\UpdateWebsiteConnectionRequest;
 use App\Models\Lead;
 use App\Models\WebsiteConnection;
+use App\Models\WebsiteIntakeLog;
 use App\Services\WebsiteApiKeyService;
 use App\Services\WebsiteSourceResolver;
 use Illuminate\Http\JsonResponse;
@@ -107,6 +108,7 @@ class WebsiteConnectionController extends Controller
             ->where('tenant_id', $tenantId)
             ->where('website_connection_id', $connection->id);
 
+        $acceptedStatuses = ['success', 'duplicate'];
         $total = (clone $baseQuery)->count();
         $thisMonth = (clone $baseQuery)
             ->whereMonth('created_at', now()->month)
@@ -114,6 +116,34 @@ class WebsiteConnectionController extends Controller
             ->count();
         $today = (clone $baseQuery)->whereDate('created_at', today())->count();
         $lastLead = (clone $baseQuery)->latest('created_at')->value('created_at');
+
+        $logsBaseQuery = WebsiteIntakeLog::query()
+            ->where('tenant_id', $tenantId)
+            ->where('website_connection_id', $connection->id);
+
+        $acceptedRequests = (clone $logsBaseQuery)
+            ->whereIn('status', $acceptedStatuses)
+            ->count();
+        $rejectedRequests = (clone $logsBaseQuery)
+            ->whereNotIn('status', $acceptedStatuses)
+            ->count();
+        $duplicateCount = (clone $logsBaseQuery)
+            ->where('status', 'duplicate')
+            ->count();
+        $blockedOriginsCount = (clone $logsBaseQuery)
+            ->where('status', 'blocked_origin')
+            ->count();
+
+        $lastSuccessfulAttempt = (clone $logsBaseQuery)
+            ->whereIn('status', $acceptedStatuses)
+            ->with('lead:id,name,phone,email')
+            ->latest('created_at')
+            ->first();
+
+        $lastFailedAttempt = (clone $logsBaseQuery)
+            ->whereNotIn('status', $acceptedStatuses)
+            ->latest('created_at')
+            ->first();
 
         $dailyLeads = (clone $baseQuery)
             ->where('created_at', '>=', now()->subDays(30))
@@ -133,6 +163,29 @@ class WebsiteConnectionController extends Controller
             'this_month' => $thisMonth,
             'today' => $today,
             'last_lead' => $lastLead ? \Illuminate\Support\Carbon::parse($lastLead)->diffForHumans() : null,
+            'accepted_requests' => $acceptedRequests,
+            'rejected_requests' => $rejectedRequests,
+            'duplicate_count' => $duplicateCount,
+            'blocked_origins_count' => $blockedOriginsCount,
+            'last_successful_lead' => $lastSuccessfulAttempt ? [
+                'created_at' => optional($lastSuccessfulAttempt->created_at)?->toIso8601String(),
+                'status' => $lastSuccessfulAttempt->status,
+                'page_url' => $lastSuccessfulAttempt->page_url,
+                'origin' => $lastSuccessfulAttempt->origin,
+                'lead' => $lastSuccessfulAttempt->lead ? [
+                    'id' => $lastSuccessfulAttempt->lead->id,
+                    'name' => $lastSuccessfulAttempt->lead->name,
+                    'phone' => $lastSuccessfulAttempt->lead->phone,
+                    'email' => $lastSuccessfulAttempt->lead->email,
+                ] : null,
+            ] : null,
+            'last_failed_attempt' => $lastFailedAttempt ? [
+                'created_at' => optional($lastFailedAttempt->created_at)?->toIso8601String(),
+                'status' => $lastFailedAttempt->status,
+                'error_message' => $lastFailedAttempt->error_message,
+                'origin' => $lastFailedAttempt->origin,
+                'page_url' => $lastFailedAttempt->page_url,
+            ] : null,
             'daily_leads' => $dailyLeads,
             'by_source' => $bySource,
         ]);

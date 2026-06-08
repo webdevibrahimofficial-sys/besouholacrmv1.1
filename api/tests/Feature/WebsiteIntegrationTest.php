@@ -295,4 +295,96 @@ class WebsiteIntegrationTest extends TestCase
         $response->assertStatus(422)
             ->assertJsonValidationErrors(['default_campaign_id', 'default_source_id']);
     }
+
+    public function test_logs_endpoint_returns_tenant_safe_filtered_results(): void
+    {
+        $create = $this->postJson('/api/website-connections', [
+            'name' => 'Logs Website',
+            'allowed_origins' => ['https://allowed.example.com'],
+            'allow_all_origins_for_testing' => false,
+            'is_active' => true,
+        ])->assertCreated();
+
+        $connectionId = (int) $create->json('connection.id');
+        $apiKey = (string) $create->json('api_key');
+
+        $this->withHeader('Origin', 'https://allowed.example.com')
+            ->postJson("/api/intake/website/{$apiKey}", [
+                'name' => 'Valid Lead',
+                'phone' => '01001234567',
+                'meta' => ['page_url' => 'https://allowed.example.com/form'],
+            ])->assertCreated();
+
+        $this->withHeader('Origin', 'https://blocked.example.com')
+            ->postJson("/api/intake/website/{$apiKey}", [
+                'name' => 'Blocked Lead',
+                'phone' => '01009998888',
+            ]);
+
+        $response = $this
+            ->withHeader('X-Tenant', $this->tenant->slug)
+            ->getJson('/api/website-intake-logs?connection_id=' . $connectionId . '&status=success');
+
+        $response->assertOk()
+            ->assertJsonStructure([
+                'data' => [[
+                    'id',
+                    'tenant_id',
+                    'website_connection_id',
+                    'status',
+                    'payload',
+                    'error_message',
+                    'origin',
+                    'page_url',
+                    'connection',
+                ]],
+            ]);
+
+        $data = $response->json('data');
+        $this->assertCount(1, $data);
+        $this->assertSame('success', $data[0]['status']);
+        $this->assertSame('https://allowed.example.com/form', $data[0]['page_url']);
+    }
+
+    public function test_stats_endpoint_returns_phase_a_metrics(): void
+    {
+        $create = $this->postJson('/api/website-connections', [
+            'name' => 'Stats Website',
+            'allow_all_origins_for_testing' => true,
+            'is_active' => true,
+        ])->assertCreated();
+
+        $connectionId = (int) $create->json('connection.id');
+        $apiKey = (string) $create->json('api_key');
+
+        $this->postJson("/api/intake/website/{$apiKey}", [
+            'name' => 'Original Lead',
+            'phone' => '01001234567',
+        ])->assertCreated();
+
+        CrmSetting::withoutGlobalScopes()->create([
+            'tenant_id' => $this->tenant->id,
+            'settings' => ['duplicationSystem' => true],
+        ]);
+
+        $this->postJson("/api/intake/website/{$apiKey}", [
+            'name' => 'Duplicate Lead',
+            'phone' => '+20 100 123 4567',
+        ])->assertCreated();
+
+        $stats = $this->getJson("/api/website-connections/{$connectionId}/stats");
+
+        $stats->assertOk()
+            ->assertJsonStructure([
+                'accepted_requests',
+                'rejected_requests',
+                'duplicate_count',
+                'blocked_origins_count',
+                'last_successful_lead',
+                'last_failed_attempt',
+            ]);
+
+        $this->assertSame(2, $stats->json('accepted_requests'));
+        $this->assertSame(1, $stats->json('duplicate_count'));
+    }
 }

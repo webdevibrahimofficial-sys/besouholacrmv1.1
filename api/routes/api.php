@@ -210,6 +210,7 @@ Route::middleware([ResolveTenant::class])
     Route::delete('/website-connections/{websiteConnection}', [\App\Http\Controllers\WebsiteConnectionController::class, 'destroy']);
     Route::post('/website-connections/{websiteConnection}/regenerate-key', [\App\Http\Controllers\WebsiteConnectionController::class, 'regenerateKey']);
     Route::get('/website-connections/{websiteConnection}/stats', [\App\Http\Controllers\WebsiteConnectionController::class, 'stats']);
+    Route::get('/website-intake-logs', [\App\Http\Controllers\WebsiteIntakeLogController::class, 'index']);
 
     // Contract & Collections (Real Estate)
     Route::prefix('cc')->group(function () {
