@@ -241,7 +241,7 @@ export default function WebsiteSettings({ onClose }) {
   const connected = connections.length > 0
 
   return (
-    <div className="card rounded-xl shadow-2xl w-full h-[92vh] max-h-[92vh] min-h-0 grid grid-cols-1 overflow-hidden border border-gray-200 dark:border-gray-800 sm:h-[85vh] sm:max-h-[85vh] sm:grid-cols-[16rem_1fr]">
+    <div className="card rounded-2xl shadow-2xl w-full h-[calc(100vh-1.5rem)] max-h-[calc(100vh-1.5rem)] grid grid-cols-1 overflow-hidden border border-gray-200 dark:border-gray-800 sm:grid-cols-[16rem_1fr]">
       <div className="w-full flex-shrink-0 bg-transparent border-b border-gray-200 dark:border-gray-800 flex flex-col min-h-0 sm:border-b-0 sm:border-r">
         <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-start justify-between gap-3">
@@ -298,23 +298,22 @@ export default function WebsiteSettings({ onClose }) {
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-transparent">
-        <div className="sticky top-0 z-10 px-4 py-4 border-b border-gray-200 dark:border-gray-800 bg-transparent backdrop-blur flex justify-between items-center sm:px-8 sm:py-5">
-          <div>
-            <h1 className="text-2xl font-bold text-theme">{activeTitle}</h1>
-            <p className="text-sm text-theme/70 mt-1">
-              Create secure website connections, generate intake keys, enforce origin policies, and review submission activity.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="hidden sm:inline-flex shrink-0 p-2 text-gray-900 dark:text-gray-100 hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
-            aria-label="Close"
-          >
-            <XCircle className="w-6 h-6 text-gray-900 dark:text-gray-100" />
-          </button>
-        </div>
-
         <div className="flex-1 overflow-auto p-4 sm:p-8 custom-scrollbar space-y-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-theme">{activeTitle}</h1>
+              <p className="text-sm text-theme/70 mt-1">
+                Create secure website connections, generate intake keys, enforce origin policies, and review submission activity.
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="hidden sm:inline-flex shrink-0 p-2 text-gray-900 dark:text-gray-100 hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
+              aria-label="Close"
+            >
+              <XCircle className="w-6 h-6 text-gray-900 dark:text-gray-100" />
+            </button>
+          </div>
           {revealedKey ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800 p-4 flex items-start gap-3">
               <KeyRound className="w-5 h-5 text-amber-600 dark:text-amber-300 mt-0.5" />

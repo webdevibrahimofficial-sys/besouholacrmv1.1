@@ -43,6 +43,7 @@ export default function MetaIntegration() {
     if (activeIntegration !== 'website') return
 
     const originalOverflow = document.body.style.overflow
+    document.body.classList.add('website-integration-open')
     document.body.style.overflow = 'hidden'
 
     const handleEscape = (event) => {
@@ -55,6 +56,7 @@ export default function MetaIntegration() {
 
     return () => {
       document.body.style.overflow = originalOverflow
+      document.body.classList.remove('website-integration-open')
       window.removeEventListener('keydown', handleEscape)
     }
   }, [activeIntegration, closeSettings])
@@ -106,17 +108,18 @@ export default function MetaIntegration() {
       </div>
 
       {activeIntegration === 'website' ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4 py-6">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-[#0b1020] px-4 py-3 sm:py-4">
           <div
-            className="absolute inset-0"
+            className="absolute inset-0 bg-[#0b1020]"
             onClick={closeSettings}
             aria-hidden="true"
           />
-          <div className="relative z-[101] max-h-[90vh] w-full max-w-7xl overflow-y-auto rounded-2xl bg-[var(--page-bg,#fff)] shadow-2xl">
+          <div className="relative z-[101] w-full max-w-7xl overflow-visible">
             <WebsiteSettings onClose={closeSettings} />
           </div>
         </div>
       ) : null}
+
     </div>
   )
 }

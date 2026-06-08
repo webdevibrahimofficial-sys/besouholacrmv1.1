@@ -20,6 +20,7 @@ export default function Layout({ children }) {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isMobileView, setIsMobileView] = useState(() => window.matchMedia('(max-width: 768px)').matches)
   const [isModalOpen, setIsModalOpen] = useState(() => document.body.classList.contains('app-modal-open'))
+  const [isWebsiteIntegrationOpen, setIsWebsiteIntegrationOpen] = useState(() => document.body.classList.contains('website-integration-open'))
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       const saved = window.localStorage.getItem('sidebarCollapsed')
@@ -56,6 +57,14 @@ export default function Layout({ children }) {
     return () => obs.disconnect()
   }, [])
 
+  useEffect(() => {
+    const update = () => setIsWebsiteIntegrationOpen(document.body.classList.contains('website-integration-open'))
+    update()
+    const obs = new MutationObserver(update)
+    obs.observe(document.body, { attributes: true, attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [])
+
 useEffect(() => {
   // تأكد من أن الاتجاه مطابق للغة الحالية في i18n عند كل رندر
   const currentLang = i18n.language || 'ar';
@@ -79,7 +88,7 @@ useEffect(() => {
     <div className="relative min-h-screen bg-[var(--app-bg)] text-[var(--app-text)] app-glass-neon">
 
       {/* Topbar */}
-      <div className={`${isModalOpen ? 'hidden' : (isMobileSidebarOpen && isMobileView ? 'hidden md:block' : '')}`}>
+      <div className={`${(isModalOpen || isWebsiteIntegrationOpen) ? 'hidden' : (isMobileSidebarOpen && isMobileView ? 'hidden md:block' : '')}`}>
         <Topbar
           onMobileToggle={() => setIsMobileSidebarOpen(v => !v)}
           mobileSidebarOpen={isMobileSidebarOpen}
@@ -92,6 +101,7 @@ useEffect(() => {
       <div className="flex w-full">
         {/* Sidebar (direct sibling) */}
         <AppSidebar 
+          className={isWebsiteIntegrationOpen ? 'hidden' : ''}
           open={isMobileSidebarOpen}
           onClose={() => setIsMobileSidebarOpen(false)}
           collapsed={!crmSettings || crmSettings.sidebarCollapsible !== false ? sidebarCollapsed : false}

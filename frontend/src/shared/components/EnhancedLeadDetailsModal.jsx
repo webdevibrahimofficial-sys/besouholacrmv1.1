@@ -314,6 +314,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [showCreateRequestModal, setShowCreateRequestModal] = useState(false);
   const [actionType, setActionType] = useState('call');
   const [commFilter, setCommFilter] = useState('all');
+  const showWhatsAppSection = commFilter !== 'email';
+  const showEmailSection = commFilter !== 'whatsapp';
+  const showBothCommPanels = showWhatsAppSection && showEmailSection;
   const [showCompose, setShowCompose] = useState(false);
   const [composeChannel, setComposeChannel] = useState('whatsapp');
   const [composeSubject, setComposeSubject] = useState('');
@@ -342,6 +345,96 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     controlModulePerms.includes('assignLeads');
   const canShowCreatorPermission =
     typeof propCanShowCreator === 'boolean' ? propCanShowCreator : leadPermissionFlags.canShowCreator;
+  const communicationStats = useMemo(() => {
+    const now = Date.now();
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+    const normalizeMessages = (messages, channel) =>
+      (Array.isArray(messages) ? messages : [])
+        .map((message, index) => {
+          const timestampValue = message?.timestamp ? new Date(message.timestamp).getTime() : NaN;
+          return {
+            id: message?.id || `${channel}-${index}`,
+            channel,
+            direction: String(message?.direction || '').toLowerCase(),
+            timestamp: Number.isFinite(timestampValue) ? timestampValue : null,
+          };
+        })
+        .filter((message) => message.timestamp);
+
+    const getChannelStats = (messages, channel) => {
+      const normalized = normalizeMessages(messages, channel).sort((a, b) => a.timestamp - b.timestamp);
+      const inboundMessages = normalized.filter((message) => message.direction === 'inbound');
+      const outboundMessages = normalized.filter((message) => message.direction === 'outbound');
+      const respondedInboundMessages = [];
+      const responseTimesInMinutes = [];
+
+      inboundMessages.forEach((inboundMessage) => {
+        const outboundReply = outboundMessages.find((message) => message.timestamp > inboundMessage.timestamp);
+        if (!outboundReply) return;
+        respondedInboundMessages.push(inboundMessage);
+        responseTimesInMinutes.push((outboundReply.timestamp - inboundMessage.timestamp) / (1000 * 60));
+      });
+
+      return {
+        channel,
+        totalMessages: normalized.length,
+        weeklyMessages: normalized.filter((message) => message.timestamp >= weekAgo).length,
+        inboundCount: inboundMessages.length,
+        outboundCount: outboundMessages.length,
+        respondedInboundCount: respondedInboundMessages.length,
+        responseRate: inboundMessages.length > 0 ? (respondedInboundMessages.length / inboundMessages.length) * 100 : 0,
+        averageResponseMinutes:
+          responseTimesInMinutes.length > 0
+            ? responseTimesInMinutes.reduce((sum, value) => sum + value, 0) / responseTimesInMinutes.length
+            : null,
+      };
+    };
+
+    const whatsappStats = getChannelStats(waMessages, 'whatsapp');
+    const emailStats = getChannelStats(emailMessages, 'email');
+    const channelStats = [whatsappStats, emailStats];
+    const channelsWithMessages = channelStats.filter((stats) => stats.totalMessages > 0);
+    const bestChannelStats = channelsWithMessages.sort((left, right) => {
+      if (right.responseRate !== left.responseRate) return right.responseRate - left.responseRate;
+      return right.totalMessages - left.totalMessages;
+    })[0] || null;
+
+    const allResponseTimes = channelStats
+      .map((stats) => stats.averageResponseMinutes)
+      .filter((value) => value !== null);
+
+    const averageResponseMinutes =
+      allResponseTimes.length > 0
+        ? allResponseTimes.reduce((sum, value) => sum + value, 0) / allResponseTimes.length
+        : null;
+
+    return {
+      bestChannelStats,
+      averageResponseMinutes,
+      weeklyInteractions: whatsappStats.weeklyMessages + emailStats.weeklyMessages,
+    };
+  }, [waMessages, emailMessages]);
+  const formatAverageResponseTime = (minutes) => {
+    if (minutes === null || Number.isNaN(minutes)) {
+      return isArabic ? 'لا توجد بيانات' : 'No data';
+    }
+    if (minutes < 60) {
+      return `${Math.round(minutes)}m`;
+    }
+    if (minutes < 24 * 60) {
+      return `${(minutes / 60).toFixed(minutes < 600 ? 1 : 0)}h`;
+    }
+    return `${(minutes / (24 * 60)).toFixed(1)}d`;
+  };
+  const bestChannelLabel = communicationStats.bestChannelStats
+    ? communicationStats.bestChannelStats.channel === 'whatsapp'
+      ? 'WhatsApp'
+      : 'Email'
+    : (isArabic ? 'لا توجد بيانات' : 'No data');
+  const bestChannelRateLabel = communicationStats.bestChannelStats
+    ? `${Math.round(communicationStats.bestChannelStats.responseRate)}% ${isArabic ? 'نسبة الرد' : 'Response Rate'}`
+    : (isArabic ? 'لا توجد تفاعلات' : 'No interactions yet');
   const allAttachments = useMemo(() => {
     const list = [];
     const currentLead = fetchedLead || lead;
@@ -2734,8 +2827,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'} md:col-span-2`}>
+              <div className={`grid grid-cols-1 ${showBothCommPanels ? 'md:grid-cols-3' : 'md:grid-cols-1'} gap-6`}>
+                {showWhatsAppSection && (
+                <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'} ${showBothCommPanels ? 'md:col-span-2' : ''}`}>
                   <div className="flex justify-between items-center mb-4">
                     <h4 className={`text-lg font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isArabic ? 'سجل واتساب' : 'WhatsApp Chat'}</h4>
                     <div className="text-sm">{waLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : ''}</div>
@@ -2811,6 +2905,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     )}
                   </div>
                 </div>
+                )}
+                {showWhatsAppSection && (
                 <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'}`}>
                   <div className="flex items-center justify-between mb-4">
                     <h4 className={`text-lg font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isArabic ? 'قوالب واتساب' : 'WhatsApp Templates'}</h4>
@@ -2857,9 +2953,11 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     )}
                   </div>
                 </div>
+                )}
               </div>
 
               {/* Email Panel */}
+              {showEmailSection && (
               <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'} mt-6`}>
                 <div className="flex justify-between items-center mb-4">
                   <h4 className={`text-lg font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isArabic ? 'سجل البريد الإلكتروني' : 'Email Thread'}</h4>
@@ -2962,6 +3060,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                   )}
                 </div>
               </div>
+              )}
 
               {/* Compose Panel moved near Add Message button */}
 
@@ -2969,18 +3068,22 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
                   <h5 className="font-medium text-green-800 mb-2">{isArabic ? 'أفضل قناة استجابة' : 'Best Response Channel'}</h5>
-                  <p className="text-2xl font-bold text-green-600">WhatsApp</p>
-                  <p className="text-sm text-green-600">{isArabic ? '85% نسبة الرد' : '85% Response Rate'}</p>
+                  <p className="text-2xl font-bold text-green-600">{bestChannelLabel}</p>
+                  <p className="text-sm text-green-600">{bestChannelRateLabel}</p>
                 </div>
                 <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
                   <h5 className="font-medium text-blue-800 mb-2">{isArabic ? 'زمن الرد المتوسط' : 'Avg Response Time'}</h5>
-                  <p className="text-2xl font-bold text-blue-600">2.5h</p>
-                  <p className="text-sm text-blue-600">{isArabic ? 'تحسن بنسبة 15%' : '15% Improvement'}</p>
+                  <p className="text-2xl font-bold text-blue-600">{formatAverageResponseTime(communicationStats.averageResponseMinutes)}</p>
+                  <p className="text-sm text-blue-600">
+                    {communicationStats.averageResponseMinutes !== null
+                      ? (isArabic ? 'محسوب من الردود الفعلية' : 'Based on actual replies')
+                      : (isArabic ? 'بانتظار بيانات كافية' : 'Waiting for enough data')}
+                  </p>
                 </div>
                 <div className="bg-gradient-to-r from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
                   <h5 className="font-medium text-purple-800 mb-2">{isArabic ? 'نشاط هذا الأسبوع' : 'This Week Activity'}</h5>
-                  <p className="text-2xl font-bold text-purple-600">12</p>
-                  <p className="text-sm text-purple-600">{isArabic ? 'تفاعل جديد' : 'New Interactions'}</p>
+                  <p className="text-2xl font-bold text-purple-600">{communicationStats.weeklyInteractions}</p>
+                  <p className="text-sm text-purple-600">{isArabic ? 'تفاعل هذا الأسبوع' : 'Interactions this week'}</p>
                 </div>
               </div>
             </div>
