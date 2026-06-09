@@ -80,6 +80,7 @@ const Campaigns = lazyRetry(() => import('../pages/Campaigns'))
 const LandingPages = lazyRetry(() => import('../pages/LandingPages'))
 const AddLandingPage = lazyRetry(() => import('../pages/AddLandingPage'))
 const MetaIntegration = lazyRetry(() => import('../pages/MetaIntegration'))
+const WebsiteCms = lazyRetry(() => import('../pages/WebsiteCms'))
 const GoogleAdsSettings = lazyRetry(() => import('../components/integrations/GoogleAdsSettings'))
 const MarketingReports = lazyRetry(() => import('../pages/MarketingReports'))
 const CampaignSummaryReport = lazyRetry(() => import('../pages/CampaignSummaryReport'))
@@ -354,6 +355,7 @@ export default function AppRouter() {
               <Route path="/marketing/landing-pages" element={<LandingPages />} />
               <Route path="/marketing/landing-pages/add" element={<AddLandingPage />} />
               <Route path="/marketing/meta-integration" element={<MetaIntegration />} />
+              <Route path="/marketing/website-cms" element={<Navigate to="/system/website" replace />} />
               <Route path="/marketing/google-ads" element={<GoogleAdsSettings />} />
               <Route path="/marketing/reports" element={<MarketingReports />} />
               <Route path="/marketing/reports/campaign-summary" element={<CampaignSummaryReport />} />
@@ -485,6 +487,7 @@ export default function AppRouter() {
               <Route path="/system/settings" element={<TenantSetup section="admin-settings" />} />
               
               <Route path="/system/integrations" element={<SystemIntegrations />} />
+              <Route path="/system/website" element={<WebsiteCms />} />
               <Route path="/system/error-log" element={<SystemErrorLog />} />
               <Route path="/system/backup" element={<Backup />} />
               <Route path="/system/transactions" element={<InventoryTransactions />} />

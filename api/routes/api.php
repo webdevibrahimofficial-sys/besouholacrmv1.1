@@ -149,6 +149,10 @@ Route::get('/p/{slug}', [\App\Http\Controllers\LandingPageController::class, 'sh
 Route::post('/p/{slug}/lead', [\App\Http\Controllers\LandingPageController::class, 'storeLead']);
 Route::post('/intake/website/{apiKey}', [\App\Http\Controllers\WebsiteIntakeController::class, 'store'])
     ->middleware('throttle:30,1');
+Route::get('/public/website/{tenantSlug}', [\App\Http\Controllers\PublicWebsiteContentController::class, 'show'])
+    ->middleware('throttle:60,1');
+Route::post('/public/website/events', [\App\Http\Controllers\PublicWebsiteEventController::class, 'store'])
+    ->middleware('throttle:120,1');
 
 Route::middleware([ResolveTenant::class])
     ->group(function () {
@@ -212,6 +216,24 @@ Route::middleware([ResolveTenant::class])
     Route::get('/website-connections/{websiteConnection}/stats', [\App\Http\Controllers\WebsiteConnectionController::class, 'stats']);
     Route::post('/website-connections/{websiteConnection}/test', [\App\Http\Controllers\WebsiteConnectionController::class, 'test']);
     Route::get('/website-intake-logs', [\App\Http\Controllers\WebsiteIntakeLogController::class, 'index']);
+
+    Route::prefix('system/company-website')
+        ->middleware('ensure.super_admin')
+        ->group(function () {
+            Route::get('/settings', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'showSettings']);
+            Route::put('/settings', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'updateSettings']);
+            Route::get('/homepage-sections', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'indexSections']);
+            Route::put('/homepage-sections/{websiteHomepageSection}', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'updateSection']);
+            Route::post('/homepage-sections/reorder', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'reorderSections']);
+            Route::get('/services', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'indexServices']);
+            Route::post('/services', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'storeService']);
+            Route::put('/services/{websiteService}', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'updateService']);
+            Route::delete('/services/{websiteService}', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'destroyService']);
+            Route::get('/analytics/overview', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsOverview']);
+            Route::get('/analytics/pages', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsPages']);
+            Route::get('/analytics/forms', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsForms']);
+            Route::get('/analytics/campaigns', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsCampaigns']);
+        });
 
     // Contract & Collections (Real Estate)
     Route::prefix('cc')->group(function () {

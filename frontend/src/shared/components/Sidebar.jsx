@@ -1052,6 +1052,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               const isTenantModules = isSystemTenants && section === 'modules'
               const isTenantAdminSettings = isSystemTenants && section === 'admin-settings'
               const isSystemErrorLog = location.pathname === '/system/error-log'
+              const isSystemWebsite = location.pathname === '/system/website'
               const isTransactions = location.pathname === '/inventory/transactions'
 
               return (
@@ -1188,6 +1189,27 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                       </span>
                       <span className="link-label">
                         {langCode.startsWith('ar') ? 'الربط العالمي' : 'Global Integrations'}
+                      </span>
+                    </span>
+                  </NavLink>
+
+                  <NavLink
+                    to="/system/website"
+                    title={uiCollapsed ? (langCode.startsWith('ar') ? 'موقع الشركة' : 'Company Website') : ''}
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        window.localStorage.removeItem('impersonateTenantSlug')
+                      }
+                      onClose()
+                    }}
+                    className={() => `${baseLink} !py-3 ${isSystemWebsite ? activeLink : ''}`}
+                  >
+                    <span className="nova-icon-label">
+                      <span className={`${iconContainer} ${iconTone}`}>
+                        <Globe size={18} />
+                      </span>
+                      <span className="link-label">
+                        {langCode.startsWith('ar') ? 'موقع الشركة' : 'Company Website'}
                       </span>
                     </span>
                   </NavLink>

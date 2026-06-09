@@ -42,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'check_api_key_expiration' => \App\Http\Middleware\CheckApiKeyExpiration::class,
             'csp' => \App\Http\Middleware\ContentSecurityPolicy::class,
+            'ensure.super_admin' => \App\Http\Middleware\EnsureSuperAdmin::class,
         ]);
 
         $middleware->web(append: [
