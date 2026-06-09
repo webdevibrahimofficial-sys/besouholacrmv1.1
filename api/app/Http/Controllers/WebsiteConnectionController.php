@@ -10,6 +10,7 @@ use App\Models\WebsiteIntakeLog;
 use App\Services\WebsiteApiKeyService;
 use App\Services\WebsiteSourceResolver;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -145,6 +146,9 @@ class WebsiteConnectionController extends Controller
             ->latest('created_at')
             ->first();
 
+        $analyticsLogs = (clone $logsBaseQuery)
+            ->get(['status', 'origin', 'payload', 'created_at']);
+
         $dailyLeads = (clone $baseQuery)
             ->where('created_at', '>=', now()->subDays(30))
             ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
@@ -158,15 +162,66 @@ class WebsiteConnectionController extends Controller
             ->orderByDesc('count')
             ->get();
 
+        $totalRequests = $analyticsLogs->count();
+        $acceptedLogs = $analyticsLogs->whereIn('status', $acceptedStatuses)->values();
+        $recentLogs = $analyticsLogs->where('created_at', '>=', now()->subDays(29))->values();
+
+        $topPages = $this->summarizeTopValues(
+            $acceptedLogs,
+            fn (WebsiteIntakeLog $log) => $this->extractPageUrl($log)
+        );
+
+        $topForms = $this->summarizeTopValues(
+            $acceptedLogs,
+            fn (WebsiteIntakeLog $log) => $this->extractFormName($log)
+        );
+
+        $topOrigins = $this->summarizeTopValues(
+            $acceptedLogs,
+            fn (WebsiteIntakeLog $log) => $this->normalizeAnalyticsValue($log->origin)
+        );
+
+        $leadsOverTime = collect(range(0, 29))
+            ->map(function (int $offset) use ($recentLogs, $acceptedStatuses): array {
+                $date = now()->subDays(29 - $offset)->toDateString();
+                $logsForDate = $recentLogs->filter(
+                    fn (WebsiteIntakeLog $log) => optional($log->created_at)?->toDateString() === $date
+                );
+
+                $acceptedForDate = $logsForDate->whereIn('status', $acceptedStatuses)->count();
+                $duplicatesForDate = $logsForDate->where('status', 'duplicate')->count();
+                $rejectedForDate = $logsForDate->whereNotIn('status', $acceptedStatuses)->count();
+
+                return [
+                    'date' => $date,
+                    'accepted' => $acceptedForDate,
+                    'duplicates' => $duplicatesForDate,
+                    'rejected' => $rejectedForDate,
+                    'total' => $logsForDate->count(),
+                ];
+            })
+            ->values();
+
+        $duplicateRate = $totalRequests > 0
+            ? round(($duplicateCount / $totalRequests) * 100, 2)
+            : 0.0;
+
+        $rejectionRate = $totalRequests > 0
+            ? round(($rejectedRequests / $totalRequests) * 100, 2)
+            : 0.0;
+
         return response()->json([
             'total' => $total,
             'this_month' => $thisMonth,
             'today' => $today,
             'last_lead' => $lastLead ? \Illuminate\Support\Carbon::parse($lastLead)->diffForHumans() : null,
+            'total_requests' => $totalRequests,
             'accepted_requests' => $acceptedRequests,
             'rejected_requests' => $rejectedRequests,
             'duplicate_count' => $duplicateCount,
             'blocked_origins_count' => $blockedOriginsCount,
+            'duplicate_rate' => $duplicateRate,
+            'rejection_rate' => $rejectionRate,
             'last_successful_lead' => $lastSuccessfulAttempt ? [
                 'created_at' => optional($lastSuccessfulAttempt->created_at)?->toIso8601String(),
                 'status' => $lastSuccessfulAttempt->status,
@@ -188,7 +243,54 @@ class WebsiteConnectionController extends Controller
             ] : null,
             'daily_leads' => $dailyLeads,
             'by_source' => $bySource,
+            'top_pages' => $topPages,
+            'top_forms' => $topForms,
+            'top_origins' => $topOrigins,
+            'leads_over_time' => $leadsOverTime,
         ]);
+    }
+
+    private function summarizeTopValues(Collection $logs, callable $resolver, int $limit = 5): array
+    {
+        return $logs
+            ->map(function (WebsiteIntakeLog $log) use ($resolver) {
+                return $this->normalizeAnalyticsValue($resolver($log));
+            })
+            ->filter()
+            ->countBy()
+            ->sortDesc()
+            ->take($limit)
+            ->map(fn (int $count, string $label) => [
+                'label' => $label,
+                'count' => $count,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function extractPageUrl(WebsiteIntakeLog $log): ?string
+    {
+        $payload = is_array($log->payload) ? $log->payload : [];
+
+        return $payload['meta']['page_url']
+            ?? $payload['page_url']
+            ?? null;
+    }
+
+    private function extractFormName(WebsiteIntakeLog $log): ?string
+    {
+        $payload = is_array($log->payload) ? $log->payload : [];
+
+        return $payload['meta']['form_name']
+            ?? $payload['form_name']
+            ?? null;
+    }
+
+    private function normalizeAnalyticsValue(mixed $value): ?string
+    {
+        $normalized = trim((string) $value);
+
+        return $normalized !== '' ? $normalized : null;
     }
 
     public function test(Request $request, int $websiteConnection): JsonResponse

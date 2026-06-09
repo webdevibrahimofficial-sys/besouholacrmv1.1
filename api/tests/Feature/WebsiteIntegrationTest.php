@@ -350,42 +350,93 @@ class WebsiteIntegrationTest extends TestCase
     {
         $create = $this->postJson('/api/website-connections', [
             'name' => 'Stats Website',
-            'allow_all_origins_for_testing' => true,
+            'allowed_origins' => ['https://landing.example.com', 'https://pricing.example.com'],
+            'allow_all_origins_for_testing' => false,
             'is_active' => true,
         ])->assertCreated();
 
         $connectionId = (int) $create->json('connection.id');
         $apiKey = (string) $create->json('api_key');
 
-        $this->postJson("/api/intake/website/{$apiKey}", [
-            'name' => 'Original Lead',
-            'phone' => '01001234567',
-        ])->assertCreated();
+        $this->withHeader('Origin', 'https://landing.example.com')
+            ->postJson("/api/intake/website/{$apiKey}", [
+                'name' => 'Original Lead',
+                'phone' => '01001234567',
+                'meta' => [
+                    'form_name' => 'Hero Form',
+                    'page_url' => 'https://landing.example.com/hero',
+                ],
+            ])->assertCreated();
 
         CrmSetting::withoutGlobalScopes()->create([
             'tenant_id' => $this->tenant->id,
             'settings' => ['duplicationSystem' => true],
         ]);
 
-        $this->postJson("/api/intake/website/{$apiKey}", [
-            'name' => 'Duplicate Lead',
-            'phone' => '+20 100 123 4567',
-        ])->assertCreated();
+        $this->withHeader('Origin', 'https://landing.example.com')
+            ->postJson("/api/intake/website/{$apiKey}", [
+                'name' => 'Duplicate Lead',
+                'phone' => '+20 100 123 4567',
+                'meta' => [
+                    'form_name' => 'Hero Form',
+                    'page_url' => 'https://landing.example.com/hero',
+                ],
+            ])->assertCreated();
 
+        $this->withHeader('Origin', 'https://pricing.example.com')
+            ->postJson("/api/intake/website/{$apiKey}", [
+                'name' => 'Pricing Lead',
+                'phone' => '01007776666',
+                'meta' => [
+                    'form_name' => 'Pricing Form',
+                    'page_url' => 'https://pricing.example.com/compare',
+                ],
+            ])->assertCreated();
+
+        $this->withHeader('Origin', 'https://blocked.example.com')
+            ->postJson("/api/intake/website/{$apiKey}", [
+                'name' => 'Blocked Lead',
+                'phone' => '01005554444',
+                'meta' => [
+                    'form_name' => 'Blocked Form',
+                    'page_url' => 'https://blocked.example.com/offer',
+                ],
+            ])->assertForbidden();
+
+        $this->flushHeaders();
         $stats = $this->getJson("/api/website-connections/{$connectionId}/stats");
 
         $stats->assertOk()
             ->assertJsonStructure([
+                'total_requests',
                 'accepted_requests',
                 'rejected_requests',
                 'duplicate_count',
                 'blocked_origins_count',
+                'duplicate_rate',
+                'rejection_rate',
                 'last_successful_lead',
                 'last_failed_attempt',
+                'top_pages',
+                'top_forms',
+                'top_origins',
+                'leads_over_time',
             ]);
 
-        $this->assertSame(2, $stats->json('accepted_requests'));
+        $this->assertSame(4, $stats->json('total_requests'));
+        $this->assertSame(3, $stats->json('accepted_requests'));
+        $this->assertSame(1, $stats->json('rejected_requests'));
         $this->assertSame(1, $stats->json('duplicate_count'));
+        $this->assertSame(1, $stats->json('blocked_origins_count'));
+        $this->assertEquals(25.0, $stats->json('duplicate_rate'));
+        $this->assertEquals(25.0, $stats->json('rejection_rate'));
+        $this->assertSame('https://landing.example.com/hero', $stats->json('top_pages.0.label'));
+        $this->assertSame(2, $stats->json('top_pages.0.count'));
+        $this->assertSame('Hero Form', $stats->json('top_forms.0.label'));
+        $this->assertSame(2, $stats->json('top_forms.0.count'));
+        $this->assertSame('https://landing.example.com', $stats->json('top_origins.0.label'));
+        $this->assertSame(2, $stats->json('top_origins.0.count'));
+        $this->assertNotEmpty($stats->json('leads_over_time'));
     }
 
     public function test_test_endpoint_creates_test_lead_for_current_tenant(): void
