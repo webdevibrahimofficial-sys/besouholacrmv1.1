@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+﻿﻿import { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import "react-datepicker/dist/react-datepicker.css"
@@ -533,22 +533,22 @@ export default function RequestsPage() {
       )}
 
       {/* Filter Section - Identical structure to SalesQuotations */}
-      <div className="glass-panel p-4 rounded-xl mb-6">
+      <div className={`${th.cardGlass} p-4 rounded-xl mb-6`}>
         <div className="flex justify-between items-center mb-3">
-          <h2 className={`text-sm font-semibold flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} `}>
+          <h2 className={`text-sm font-semibold flex items-center gap-2 ${th.title}`}>
             <Filter className="text-blue-500" size={16} /> {isRTL ? 'تصفية' : 'Filter'}
           </h2>
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               onClick={() => setShowAllFilters(prev => !prev)}
-              className="flex items-center gap-1.2 px-2.5 py-1.5 text-[11px] md:text-sm font-medium text-blue-600 bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg transition-all border border-blue-100 dark:border-blue-800"
+              className={`flex items-center gap-1.2 px-2.5 py-1.5 text-[11px] md:text-sm font-medium text-blue-600 ${isLight ? 'bg-blue-50 hover:bg-blue-100 border-blue-100' : 'bg-blue-900/30 hover:bg-blue-900/40 border-blue-800'} rounded-lg transition-all border`}
             >
               {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'عرض الكل' : 'Show All')}
               <ChevronDown size={14} className={`transform transition-transform ${showAllFilters ? 'rotate-180' : ''}`} />
             </button>
             <button
               onClick={clearFilters}
-              className="px-2.5 py-1.5 text-[11px] md:text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+              className={`px-2.5 py-1.5 text-[11px] md:text-sm font-medium ${th.muted} hover:text-red-600 ${isLight ? 'hover:bg-red-50' : 'hover:bg-red-900/20'} rounded-lg transition-all`}
             >
               {isRTL ? 'إعادة تعيين' : 'Reset'}
             </button>
@@ -727,7 +727,7 @@ export default function RequestsPage() {
         )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className={`bg-gray-700/50 ${isLight ? 'text-black' : 'text-white'} text-[var(--muted-text)] font-medium border-b border-[var(--card-border)]`}>
+            <thead className={`${th.tableHeader} font-medium`}>
               <tr>
                 <th className="p-4 w-10">
                   <input
@@ -770,7 +770,7 @@ export default function RequestsPage() {
                 </tr>
               ) : (
                 paginatedItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-700/50 dark:hover:bg-gray-800/50 transition-colors group">
+                  <tr key={item.id} className={`${th.tableRow} transition-colors group`}>
                     <td className="p-4">
                       <input
                         type="checkbox"
@@ -804,7 +804,7 @@ export default function RequestsPage() {
                       <div className="max-w-[160px] truncate" title={item.addonsNamesDisplay}>{item.addonsNamesDisplay}</div>
                     </td>
                     <td className="p-4 text-center">
-                      <span className="bg-gray-100 dark:bg-gray-800 text-[var(--muted-text)] px-2 py-1 rounded text-xs">
+                      <span className={`${th.badgeNeutral} px-2 py-1 rounded text-xs`}>
                         {item.addonsTotalQuantity || 0}
                       </span>
                     </td>
@@ -835,7 +835,7 @@ export default function RequestsPage() {
                             e.stopPropagation()
                             setPreviewItem(item)
                           }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium  text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 transition-colors shadow-sm"
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${isLight ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-blue-900/20 text-blue-400 hover:bg-blue-900/40'} transition-colors shadow-sm`}
                           title={isRTL ? 'معاينة' : 'Preview'}
                         >
                           <FaEye size={14} />
@@ -884,14 +884,14 @@ export default function RequestsPage() {
                                     setOpenMenuId(item.id)
                                   }
                                 }}
-                                className="action-menu-btn flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300 transition-colors"
+                                className={`action-menu-btn flex items-center justify-center w-8 h-8 rounded-full ${th.btnMore} transition-colors`}
                               >
                                 <FaEllipsisV size={14} />
                               </button>
 
                               {openMenuId === item.id && createPortal(
                                 <div
-                                  className="action-menu-dropdown fixed z-[9999] w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                                  className={`action-menu-dropdown fixed z-[9999] w-48 ${th.dropdown} rounded-lg overflow-hidden`}
                                   style={{
                                     top: menuPos.top,
                                     left: menuPos.left
@@ -904,7 +904,7 @@ export default function RequestsPage() {
                                       handleConvertToQuotation(item)
                                       setOpenMenuId(null)
                                     }}
-                                    className="w-full text-start px-4 py-3 text-sm text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center gap-3 transition-colors"
+                                    className={`w-full text-start px-4 py-3 text-sm text-purple-600 ${isLight ? 'hover:bg-purple-50' : 'hover:bg-purple-900/20'} flex items-center gap-3 transition-colors`}
                                   >
                                     <FaExchangeAlt size={16} />
                                     <span className="font-medium">{isRTL ? 'تحويل إلى عرض سعر' : 'Convert to Quotation'}</span>
@@ -916,7 +916,7 @@ export default function RequestsPage() {
                                       handleDelete(item.id)
                                       setOpenMenuId(null)
                                     }}
-                                    className="w-full text-start px-4 py-3 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-3 border-t border-gray-100 dark:border-gray-700 transition-colors"
+                                    className={`w-full text-start px-4 py-3 text-sm text-red-600 ${isLight ? 'hover:bg-red-50' : 'hover:bg-red-900/20'} flex items-center gap-3 ${th.border} border-t transition-colors`}
                                   >
                                     <FaTrash size={16} />
                                     <span className="font-medium">{isRTL ? 'حذف' : 'Delete'}</span>
@@ -976,18 +976,18 @@ export default function RequestsPage() {
           </div>
         ) : (
           paginatedItems.map((item) => (
-            <div key={item.id} className="card bg-white dark:bg-gray-800 p-4 rounded-xl border border-[var(--card-border)] shadow-sm space-y-3">
+            <div key={item.id} className={`${th.card} p-4 rounded-xl shadow-sm space-y-3`}>
               <div className="flex justify-between items-start">
                 <div className="flex flex-col">
                   <span className="text-xs text-blue-600 font-mono">#{item.id}</span>
-                  <h3 className="font-bold text-gray-800 dark:text-gray-100">{item.customerName}</h3>
+                  <h3 className={`font-bold ${th.title}`}>{item.customerName}</h3>
                 </div>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadgeMobile(item.status)}`}>
                   {item.status}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <div className={`grid grid-cols-2 gap-2 text-sm ${th.text}`}>
                 <div className="flex flex-col col-span-2">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'العناصر' : 'Items'}</span>
                   <span className="font-medium truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</span>
@@ -1072,7 +1072,7 @@ export default function RequestsPage() {
       </div>
 
       {filteredItems.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center justify-between rounded-xl p-2 border border-gray-100 dark:border-gray-700  gap-4">
+        <div className={`mt-4 flex flex-wrap items-center justify-between rounded-xl p-2 border ${th.border} gap-4`}>
           <div className="text-xs text-theme">
             {isRTL
               ? `عرض ${(currentPage - 1) * itemsPerPage + 1} إلى ${Math.min(currentPage * itemsPerPage, filteredItems.length)} من ${filteredItems.length} صنف`
@@ -1104,7 +1104,7 @@ export default function RequestsPage() {
             </button>
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{isRTL ? 'لكل صفحة:' : 'Per page:'}</span>
+            <span className={`text-xs ${th.muted} whitespace-nowrap`}>{isRTL ? 'لكل صفحة:' : 'Per page:'}</span>
             <select
               className="select select-bordered select-sm w-18 text-xs py-0 px-2 h-8 min-h-0"
               value={itemsPerPage}
@@ -1127,21 +1127,21 @@ export default function RequestsPage() {
           />
           <div className="absolute inset-0 flex items-start justify-center p-4 md:p-6">
             <div className="card w-full max-w-xl mt-10 max-h-[85vh] overflow-y-auto">
-              <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 ">
-                <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
+              <div className={`sticky top-0 z-10 flex items-center justify-between px-4 py-3 ${th.modalHeader}`}>
+                <h2 className={`text-lg font-semibold ${th.title}`}>
                   {isRTL ? 'إضافة طلب جديد' : 'Add New Request'}
                 </h2>
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center bg-white text-red-600 hover:bg-red-50 shadow-md"
+                  className={`w-8 h-8 rounded-full flex items-center justify-center ${isLight ? 'bg-white' : 'bg-gray-700'} text-red-600 hover:bg-red-50 shadow-md`}
                 >
                   <FaTimes size={18} />
                 </button>
               </div>
               <form onSubmit={handleSubmitForm} className="p-4 space-y-4">
-                <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                <div className={`rounded-xl p-4 ${th.infoPanel}`}>
+                  <p className={`text-sm ${th.muted}`}>
                     {isRTL
                       ? 'املأ الحقول التالية لإضافة طلب جديد. الحقول الأساسية مثل اسم العميل أو المنتج والكمية والسعر مطلوبة.'
                       : 'Fill in the form below to add a new request. Required fields include customer name or product, quantity, and price.'
@@ -1150,43 +1150,43 @@ export default function RequestsPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'اسم العميل' : 'Customer Name'}
                     </label>
                     <input
                       name="customer_name"
                       value={formData.customer_name}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                       placeholder={isRTL ? 'اكتب اسم العميل هنا' : 'Enter customer name'}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'رقم الهاتف' : 'Customer Phone'}
                     </label>
                     <input
                       name="customer_phone"
                       value={formData.customer_phone}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                       placeholder={isRTL ? '0100xxxxxxx' : 'e.g. +2010xxxxxxx'}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'المنتج / البند' : 'Product / Item'}
                     </label>
                     <input
                       name="product"
                       value={formData.product}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                       placeholder={isRTL ? 'اكتب اسم المنتج أو البند' : 'Enter product or item'}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'الكمية' : 'Quantity'}
                     </label>
                     <input
@@ -1194,13 +1194,13 @@ export default function RequestsPage() {
                       name="quantity"
                       value={formData.quantity}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                       min="1"
                       placeholder={isRTL ? '1' : '1'}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'السعر' : 'Price'}
                     </label>
                     <input
@@ -1208,20 +1208,20 @@ export default function RequestsPage() {
                       name="price"
                       value={formData.price}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                       min="0"
                       placeholder={isRTL ? '0.00' : '0.00'}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'الأولوية' : 'Priority'}
                     </label>
                     <select
                       name="priority"
                       value={formData.priority}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                     >
                       <option value="Low">{isRTL ? 'منخفضة' : 'Low'}</option>
                       <option value="Medium">{isRTL ? 'متوسطة' : 'Medium'}</option>
@@ -1229,14 +1229,14 @@ export default function RequestsPage() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'نوع الطلب' : 'Request Type'}
                     </label>
                     <select
                       name="type"
                       value={formData.type}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                     >
                       <option value="Inquiry">{isRTL ? 'استعلام' : 'Inquiry'}</option>
                       <option value="Booking">{isRTL ? 'حجز' : 'Booking'}</option>
@@ -1244,31 +1244,31 @@ export default function RequestsPage() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <label className={`text-xs font-medium ${th.label}`}>
                       {isRTL ? 'خطة الدفع' : 'Payment Plan'}
                     </label>
                     <input
                       name="payment_plan"
                       value={formData.payment_plan}
                       onChange={handleFormChange}
-                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      className={`input w-full ${th.input}`}
                       placeholder={isRTL ? 'مثال: دفعة أولى، شهري' : 'e.g. Upfront, Monthly'}
                     />
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                  <label className={`text-xs font-medium ${th.label}`}>
                     {isRTL ? 'ملاحظات' : 'Notes'}
                   </label>
                   <textarea
                     name="description"
                     value={formData.description}
                     onChange={handleFormChange}
-                    className="textarea w-full h-20 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                    className={`textarea w-full h-20 ${th.input}`}
                     placeholder={isRTL ? 'اكتب أي ملاحظات إضافية هنا' : 'Enter any additional notes here'}
                   />
                 </div>
-                <div className="flex justify-end gap-3 pt-2 border-t border-gray-100 dark:border-gray-700 mt-2">
+                <div className={`flex justify-end gap-3 pt-2 border-t ${th.border} mt-2`}>
                   <button
                     type="button"
                     onClick={() => setShowForm(false)}

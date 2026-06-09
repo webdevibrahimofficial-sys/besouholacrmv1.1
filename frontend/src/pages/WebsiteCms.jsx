@@ -8,7 +8,6 @@ const defaultHeroSectionContent = {
   headline_accent: '',
   subtitle:
     'Be Souhola adapts to your workflow. Capture leads, automate follow-ups, and close deals faster whether you are a growing business or a specialized real estate team.',
-  primary_cta: 'Request Demo',
   secondary_cta: 'Explore Features',
   form_title: 'Book Your Free Demo',
   form_subtitle: 'Tell us what you need and our team will contact you within 24 hours.',
@@ -29,7 +28,6 @@ const defaultHeroSectionContent = {
   success_title: 'Thank you!',
   success_message: 'We received your request. Our team will contact you shortly.',
   success_reset_text: 'Submit another request',
-  trust_points: ['500+ businesses', 'AI-powered automation', 'Enterprise-grade security'],
   benefit_points: ['Free consultation', 'Response within 24 hours', 'No commitment required'],
   form_panel_points: ['Setup support included', 'Tailored walkthrough', 'Clear next steps'],
   service_options: [
@@ -82,9 +80,6 @@ export default function WebsiteCms() {
     return {
       ...defaultHeroSectionContent,
       ...(heroSection.content || {}),
-      trust_points: Array.isArray(heroSection.content?.trust_points)
-        ? heroSection.content.trust_points
-        : defaultHeroSectionContent.trust_points,
       benefit_points: Array.isArray(heroSection.content?.benefit_points)
         ? heroSection.content.benefit_points
         : defaultHeroSectionContent.benefit_points,
@@ -343,16 +338,22 @@ export default function WebsiteCms() {
               <div className="mb-5">
                 <h2 className="text-lg font-semibold">Hero</h2>
                 <p className="mt-1 text-sm text-[var(--muted-text)]">
-                  Control the full homepage hero copy, badges, stats, and form content.
+                  Edit only the hero fields currently used on the public website.
                 </p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted-text)]">
+                      Hero Content
+                    </h3>
+                  </div>
+
                 {[
                   ['badge', 'Top Badge'],
                   ['headline', 'Headline'],
                   ['headline_accent', 'Headline Accent'],
-                  ['primary_cta', 'Primary CTA'],
                   ['secondary_cta', 'Secondary CTA'],
                   ['form_badge', 'Form Badge'],
                   ['form_title', 'Form Title'],
@@ -380,6 +381,7 @@ export default function WebsiteCms() {
                     />
                   </label>
                 ))}
+                </div>
 
                 <label className="block text-sm md:col-span-2">
                   <span className="mb-1 block text-[var(--muted-text)]">Subtitle</span>
@@ -401,6 +403,13 @@ export default function WebsiteCms() {
                   />
                 </label>
 
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted-text)]">
+                      Form Fields
+                    </h3>
+                  </div>
+
                 <label className="block text-sm md:col-span-2">
                   <span className="mb-1 block text-[var(--muted-text)]">Message Placeholder</span>
                   <textarea
@@ -420,17 +429,14 @@ export default function WebsiteCms() {
                     onChange={(e) => updateHeroField('success_message', e.target.value)}
                   />
                 </label>
+                </div>
 
-                <label className="block text-sm">
-                  <span className="mb-1 block text-[var(--muted-text)]">Top Badges</span>
-                  <textarea
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                    rows={4}
-                    value={(heroContent.trust_points || []).join('\n')}
-                    onChange={(e) => updateHeroList('trust_points', e.target.value)}
-                  />
-                  <span className="mt-1 block text-xs text-[var(--muted-text)]">One badge per line.</span>
-                </label>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted-text)]">
+                      Lists And Stats
+                    </h3>
+                  </div>
 
                 <label className="block text-sm">
                   <span className="mb-1 block text-[var(--muted-text)]">Benefit Points</span>
@@ -479,6 +485,7 @@ export default function WebsiteCms() {
                     Use one stat per line in this format: value | label
                   </span>
                 </label>
+                </div>
               </div>
 
               <button
