@@ -9,6 +9,7 @@ import {
   Key, 
   Settings2, 
   Share2, 
+  Globe,
   AlertOctagon, 
   Database, 
   ArrowLeftRight, 
@@ -72,6 +73,11 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
       title: 'Global Integrations', 
       path: '/system/integrations', 
       icon: <Share2 size={20} /> 
+    },
+    {
+      title: 'Company Website',
+      path: '/system/website',
+      icon: <Globe size={20} />
     },
     { 
       title: 'Error Log', 

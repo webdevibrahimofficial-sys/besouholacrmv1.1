@@ -1,7 +1,48 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { systemCompanyWebsiteService } from '../services/systemCompanyWebsiteService'
 import WebsiteAnalyticsPanel from '../components/website/WebsiteAnalyticsPanel'
+
+const defaultHeroSectionContent = {
+  badge: 'AI-Powered CRM Platform',
+  headline: 'One Intelligent CRM Built for Your Growth',
+  headline_accent: '',
+  subtitle:
+    'Be Souhola adapts to your workflow. Capture leads, automate follow-ups, and close deals faster whether you are a growing business or a specialized real estate team.',
+  primary_cta: 'Request Demo',
+  secondary_cta: 'Explore Features',
+  form_title: 'Book Your Free Demo',
+  form_subtitle: 'Tell us what you need and our team will contact you within 24 hours.',
+  form_badge: 'CRM Demo',
+  form_side_title: 'Why Teams Choose Us',
+  form_button_text: 'Request Demo',
+  name_label: 'Full name *',
+  name_placeholder: 'John Doe',
+  phone_label: 'Phone number *',
+  phone_placeholder: '+20 100 000 0000',
+  email_label: 'Email address',
+  email_placeholder: 'you@company.com',
+  service_label: 'Service interested in',
+  service_placeholder: 'Select your business type',
+  message_label: 'Notes',
+  message_placeholder: 'Anything we should know before we contact you?',
+  privacy_note: 'Your data stays private and is only used to contact you.',
+  success_title: 'Thank you!',
+  success_message: 'We received your request. Our team will contact you shortly.',
+  success_reset_text: 'Submit another request',
+  trust_points: ['500+ businesses', 'AI-powered automation', 'Enterprise-grade security'],
+  benefit_points: ['Free consultation', 'Response within 24 hours', 'No commitment required'],
+  form_panel_points: ['Setup support included', 'Tailored walkthrough', 'Clear next steps'],
+  service_options: [
+    'General Business CRM (Sales & Marketing)',
+    'Real Estate CRM (Property & Lead Management)',
+    'Other',
+  ],
+  stats: [
+    { value: '500+', label: 'Teams onboarded' },
+    { value: '24h', label: 'Average first response' },
+    { value: '38%', label: 'Faster deal closing' },
+  ],
+}
 
 const emptyService = {
   name: '',
@@ -13,7 +54,6 @@ const emptyService = {
 }
 
 export default function WebsiteCms() {
-  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState('settings')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -37,6 +77,28 @@ export default function WebsiteCms() {
     () => sections.find((section) => section.type === 'cta'),
     [sections]
   )
+  const heroContent = useMemo(() => {
+    if (!heroSection) return defaultHeroSectionContent
+    return {
+      ...defaultHeroSectionContent,
+      ...(heroSection.content || {}),
+      trust_points: Array.isArray(heroSection.content?.trust_points)
+        ? heroSection.content.trust_points
+        : defaultHeroSectionContent.trust_points,
+      benefit_points: Array.isArray(heroSection.content?.benefit_points)
+        ? heroSection.content.benefit_points
+        : defaultHeroSectionContent.benefit_points,
+      form_panel_points: Array.isArray(heroSection.content?.form_panel_points)
+        ? heroSection.content.form_panel_points
+        : defaultHeroSectionContent.form_panel_points,
+      service_options: Array.isArray(heroSection.content?.service_options)
+        ? heroSection.content.service_options
+        : defaultHeroSectionContent.service_options,
+      stats: Array.isArray(heroSection.content?.stats)
+        ? heroSection.content.stats
+        : defaultHeroSectionContent.stats,
+    }
+  }, [heroSection])
 
   const loadAll = async () => {
     setLoading(true)
@@ -60,6 +122,49 @@ export default function WebsiteCms() {
   useEffect(() => {
     loadAll()
   }, [])
+
+  const updateSectionContent = (sectionId, nextContent) => {
+    setSections((prev) =>
+      prev.map((item) =>
+        item.id === sectionId ? { ...item, content: nextContent } : item
+      )
+    )
+  }
+
+  const updateHeroField = (key, value) => {
+    if (!heroSection) return
+    updateSectionContent(heroSection.id, {
+      ...heroContent,
+      [key]: value,
+    })
+  }
+
+  const updateHeroList = (key, text) => {
+    updateHeroField(
+      key,
+      text
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  }
+
+  const updateHeroStats = (text) => {
+    const stats = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [value, ...labelParts] = line.split('|')
+        return {
+          value: value?.trim() || '',
+          label: labelParts.join('|').trim(),
+        }
+      })
+      .filter((item) => item.value || item.label)
+
+    updateHeroField('stats', stats)
+  }
 
   const saveSettings = async () => {
     setSaving(true)
@@ -233,7 +338,161 @@ export default function WebsiteCms() {
 
       {activeTab === 'homepage' ? (
         <div className="space-y-6">
-          {[heroSection, servicesIntroSection, ctaSection].filter(Boolean).map((section) => (
+          {heroSection ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+              <div className="mb-5">
+                <h2 className="text-lg font-semibold">Hero</h2>
+                <p className="mt-1 text-sm text-[var(--muted-text)]">
+                  Control the full homepage hero copy, badges, stats, and form content.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {[
+                  ['badge', 'Top Badge'],
+                  ['headline', 'Headline'],
+                  ['headline_accent', 'Headline Accent'],
+                  ['primary_cta', 'Primary CTA'],
+                  ['secondary_cta', 'Secondary CTA'],
+                  ['form_badge', 'Form Badge'],
+                  ['form_title', 'Form Title'],
+                  ['form_side_title', 'Form Side Title'],
+                  ['form_button_text', 'Form Button Text'],
+                  ['name_label', 'Name Label'],
+                  ['name_placeholder', 'Name Placeholder'],
+                  ['phone_label', 'Phone Label'],
+                  ['phone_placeholder', 'Phone Placeholder'],
+                  ['email_label', 'Email Label'],
+                  ['email_placeholder', 'Email Placeholder'],
+                  ['service_label', 'Service Label'],
+                  ['service_placeholder', 'Service Placeholder'],
+                  ['message_label', 'Message Label'],
+                  ['privacy_note', 'Privacy Note'],
+                  ['success_title', 'Success Title'],
+                  ['success_reset_text', 'Success Reset Button'],
+                ].map(([key, label]) => (
+                  <label key={key} className="block text-sm">
+                    <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                    <input
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                      value={heroContent[key] || ''}
+                      onChange={(e) => updateHeroField(key, e.target.value)}
+                    />
+                  </label>
+                ))}
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Subtitle</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={3}
+                    value={heroContent.subtitle || ''}
+                    onChange={(e) => updateHeroField('subtitle', e.target.value)}
+                  />
+                </label>
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Form Subtitle</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={3}
+                    value={heroContent.form_subtitle || ''}
+                    onChange={(e) => updateHeroField('form_subtitle', e.target.value)}
+                  />
+                </label>
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Message Placeholder</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={2}
+                    value={heroContent.message_placeholder || ''}
+                    onChange={(e) => updateHeroField('message_placeholder', e.target.value)}
+                  />
+                </label>
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Success Message</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={2}
+                    value={heroContent.success_message || ''}
+                    onChange={(e) => updateHeroField('success_message', e.target.value)}
+                  />
+                </label>
+
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">Top Badges</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={4}
+                    value={(heroContent.trust_points || []).join('\n')}
+                    onChange={(e) => updateHeroList('trust_points', e.target.value)}
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted-text)]">One badge per line.</span>
+                </label>
+
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">Benefit Points</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={4}
+                    value={(heroContent.benefit_points || []).join('\n')}
+                    onChange={(e) => updateHeroList('benefit_points', e.target.value)}
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted-text)]">One point per line.</span>
+                </label>
+
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">Form Panel Points</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={4}
+                    value={(heroContent.form_panel_points || []).join('\n')}
+                    onChange={(e) => updateHeroList('form_panel_points', e.target.value)}
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted-text)]">One point per line.</span>
+                </label>
+
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">Service Options</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={4}
+                    value={(heroContent.service_options || []).join('\n')}
+                    onChange={(e) => updateHeroList('service_options', e.target.value)}
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted-text)]">One option per line.</span>
+                </label>
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Stats</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 font-mono text-sm"
+                    rows={4}
+                    value={(heroContent.stats || [])
+                      .map((item) => `${item.value || ''} | ${item.label || ''}`)
+                      .join('\n')}
+                    onChange={(e) => updateHeroStats(e.target.value)}
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                    Use one stat per line in this format: value | label
+                  </span>
+                </label>
+              </div>
+
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => saveSection(heroSection, heroContent)}
+                className="mt-5 rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
+              >
+                Save Hero
+              </button>
+            </div>
+          ) : null}
+
+          {[servicesIntroSection, ctaSection].filter(Boolean).map((section) => (
             <div key={section.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
               <h2 className="mb-4 text-lg font-semibold capitalize">{section.title || section.type}</h2>
               <textarea
