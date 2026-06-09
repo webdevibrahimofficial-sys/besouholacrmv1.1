@@ -293,12 +293,6 @@ export default function WebsiteSettings({ onClose }) {
     }
   }
 
-  const snippetText = useMemo(() => {
-    if (!selectedConnection) return ''
-    const apiKey = revealedKey?.connection?.id === selectedConnection.id ? revealedKey.apiKey : null
-    return websiteIntegrationService.buildSnippet({ apiKey })
-  }, [revealedKey, selectedConnection])
-
   const activeTitle = useMemo(() => {
     if (mode === 'form') return formMode === 'edit' ? t('Edit Website Connection') : t('Create Website Connection')
     if (mode === 'snippet') return t('Installation Snippet')
@@ -460,9 +454,8 @@ export default function WebsiteSettings({ onClose }) {
                 <WebsiteSnippet
                   connection={selectedConnection}
                   apiKey={revealedKey?.connection?.id === selectedConnection?.id ? revealedKey.apiKey : null}
-                  snippet={snippetText}
                   onClose={() => setMode('list')}
-                  onCopy={(value) => handleCopy(value, 'Snippet copied.')}
+                  onCopy={(value) => handleCopy(value, t('Template copied.'))}
                 />
               ) : null}
 
