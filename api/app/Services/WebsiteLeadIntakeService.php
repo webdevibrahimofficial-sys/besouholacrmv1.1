@@ -251,6 +251,10 @@ class WebsiteLeadIntakeService
             'utm_source' => $existing['utm_source'] ?? null,
             'utm_campaign' => $existing['utm_campaign'] ?? null,
             'utm_medium' => $existing['utm_medium'] ?? null,
+            'session_id' => $existing['session_id'] ?? null,
+            'device' => $existing['device'] ?? null,
+            'browser' => $existing['browser'] ?? null,
+            'referrer' => $existing['referrer'] ?? null,
             'submitted_source' => $payload['source'] ?? ($existing['submitted_source'] ?? null),
             'payload_meta' => $existing,
         ];

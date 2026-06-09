@@ -50,6 +50,28 @@ export function AppStateProvider({ children }) {
       }
     }
 
+    // Sync Theme Preference from User Profile — DB is the source of truth.
+    // This fixes mobile browsers (Android Night Mode / cleared localStorage)
+    // where localStorage may be empty or stale, causing wrong theme on load.
+    if (rawUser?.theme_mode) {
+      const validThemes = ['light', 'dark', 'auto']
+      if (validThemes.includes(rawUser.theme_mode)) {
+        try {
+          localStorage.setItem('theme', rawUser.theme_mode)
+          const prefsRaw = localStorage.getItem('systemPrefs')
+          const prefs = prefsRaw ? JSON.parse(prefsRaw) : {}
+          prefs.theme = rawUser.theme_mode
+          localStorage.setItem('systemPrefs', JSON.stringify(prefs))
+          // Apply immediately to DOM so ThemeProvider picks it up on next render
+          const resolvedMode = rawUser.theme_mode === 'auto'
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : rawUser.theme_mode
+          document.documentElement.classList.toggle('dark', resolvedMode === 'dark')
+          document.documentElement.classList.toggle('light', resolvedMode === 'light')
+        } catch {}
+      }
+    }
+
     setCompany(payload.company || payload.tenant || null)
     
     // Store subscription plan string if it's 'super_admin', otherwise store subscription object

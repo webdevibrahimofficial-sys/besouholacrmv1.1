@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, BarChart3, CheckCircle, Code2, Globe, KeyRound, Link2, PlusCircle, Settings2, XCircle } from 'lucide-react'
+import { AlertTriangle, BarChart3, BookOpen, CheckCircle, Code2, Globe, KeyRound, Link2, PlusCircle, Settings2, XCircle } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { websiteIntegrationService } from '../../services/websiteIntegrationService'
 import WebsiteConnectionsList from './website/WebsiteConnectionsList'
 import WebsiteConnectionForm from './website/WebsiteConnectionForm'
 import WebsiteIntakeLogsPanel from './website/WebsiteIntakeLogsPanel'
+import WebsiteSetupGuide from './website/WebsiteSetupGuide'
 import WebsiteSnippet from './website/WebsiteSnippet'
 import WebsiteStatsPanel from './website/WebsiteStatsPanel'
 
@@ -166,6 +167,27 @@ export default function WebsiteSettings({ onClose }) {
     }
   }
 
+  const openGuide = async (connection = selectedConnection || connections[0] || null) => {
+    setSelectedConnection(connection)
+    setMode('guide')
+    setStats(null)
+
+    if (!connection) {
+      setStatsLoading(false)
+      return
+    }
+
+    setStatsLoading(true)
+    try {
+      const result = await websiteIntegrationService.getStats(connection.id)
+      setStats(result)
+    } catch (error) {
+      toast.error(error?.response?.data?.message || t('Failed to load website stats.'))
+    } finally {
+      setStatsLoading(false)
+    }
+  }
+
   const openSnippet = (connection) => {
     setSelectedConnection(connection)
     setMode('snippet')
@@ -272,6 +294,10 @@ export default function WebsiteSettings({ onClose }) {
           setStats(null)
           openStats(connection)
         }
+        if (mode === 'guide') {
+          setStats(null)
+          openGuide(connection)
+        }
         if (mode === 'list') {
           const updated = await websiteIntegrationService.listConnections()
           setConnections(updated)
@@ -295,6 +321,7 @@ export default function WebsiteSettings({ onClose }) {
 
   const activeTitle = useMemo(() => {
     if (mode === 'form') return formMode === 'edit' ? t('Edit Website Connection') : t('Create Website Connection')
+    if (mode === 'guide') return t('Website Setup Guide')
     if (mode === 'snippet') return t('Installation Snippet')
     if (mode === 'stats') return t('Connection Statistics')
     if (mode === 'logs') return t('Intake Logs')
@@ -331,6 +358,7 @@ export default function WebsiteSettings({ onClose }) {
         <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
           <NavButton active={mode === 'list'} icon={Link2} label={t('Connections')} onClick={() => setMode('list')} />
           <NavButton active={mode === 'form' && formMode === 'create'} icon={PlusCircle} label={t('New Connection')} onClick={openCreate} />
+          <NavButton active={mode === 'guide'} icon={BookOpen} label={t('Setup Guide')} onClick={() => openGuide()} />
           <NavButton
             active={mode === 'snippet'}
             icon={Code2}
@@ -429,6 +457,7 @@ export default function WebsiteSettings({ onClose }) {
                   onRegenerate={handleRegenerate}
                   onDelete={handleDelete}
                   onSnippet={openSnippet}
+                  onGuide={openGuide}
                   onCopyMasked={(connection) => handleCopy(connection.key_prefix || '', 'Key prefix copied.')}
                   onTestConnection={handleTest}
                 />
@@ -456,6 +485,33 @@ export default function WebsiteSettings({ onClose }) {
                   apiKey={revealedKey?.connection?.id === selectedConnection?.id ? revealedKey.apiKey : null}
                   onClose={() => setMode('list')}
                   onCopy={(value) => handleCopy(value, t('Template copied.'))}
+                />
+              ) : null}
+
+              {mode === 'guide' ? (
+                <WebsiteSetupGuide
+                  connections={connections}
+                  selectedConnection={selectedConnection}
+                  stats={stats}
+                  loading={statsLoading}
+                  apiKey={revealedKey?.connection?.id === selectedConnection?.id ? revealedKey.apiKey : null}
+                  onSelectConnection={(connectionId) => {
+                    const nextConnection = connections.find((item) => String(item.id) === String(connectionId)) || null
+                    openGuide(nextConnection)
+                  }}
+                  onCreate={openCreate}
+                  onEdit={openEdit}
+                  onOpenSnippet={openSnippet}
+                  onOpenLogs={(connection) => {
+                    if (connection) {
+                      setSelectedConnection(connection)
+                      setLogsFilters((prev) => ({ ...prev, connection_id: String(connection.id) }))
+                    }
+                    setMode('logs')
+                  }}
+                  onOpenStats={openStats}
+                  onTest={handleTest}
+                  onRegenerate={handleRegenerate}
                 />
               ) : null}
 

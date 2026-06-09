@@ -161,8 +161,15 @@ export default function ProfileSettingsPanel() {
         setAvatarPreview(newValues.avatarPreview)
         setLang(newValues.lang)
         setTz(newValues.tz)
-        // Theme sync removed to prevent overriding user's current session choice
-        // The localTheme is already initialized with globalTheme
+        // Sync theme from DB — but only if localStorage doesn't already have an explicit choice.
+        // This fixes the issue where mobile browsers (Android Night Mode) or cleared localStorage
+        // cause the app to fall back to 'auto' instead of the user's saved preference.
+        const lsTheme = (() => { try { return localStorage.getItem('theme') } catch { return null } })()
+        const validThemes = ['light', 'dark', 'auto']
+        if (!validThemes.includes(lsTheme) && validThemes.includes(newValues.theme)) {
+          setGlobalTheme(newValues.theme)
+        }
+        setLocalTheme(newValues.theme)
         
         setNotifEmail(newValues.notifEmail)
         setNotifSms(newValues.notifSms)

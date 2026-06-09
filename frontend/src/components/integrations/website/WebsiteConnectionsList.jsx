@@ -10,6 +10,7 @@ export default function WebsiteConnectionsList({
   onRegenerate,
   onDelete,
   onSnippet,
+  onGuide,
   onCopyMasked,
   onTestConnection,
 }) {
@@ -81,6 +82,11 @@ export default function WebsiteConnectionsList({
                   <button onClick={() => onSnippet(connection)} className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800">
                     <Code2 className="w-4 h-4" /> {t('Snippet')}
                   </button>
+                  {onGuide ? (
+                    <button onClick={() => onGuide(connection)} className="px-3 py-2 rounded-lg border border-cyan-200 text-cyan-700 dark:border-cyan-800 dark:text-cyan-300 text-sm flex items-center gap-2 hover:bg-cyan-50 dark:hover:bg-cyan-900/20">
+                      <Globe className="w-4 h-4" /> {t('Setup Guide')}
+                    </button>
+                  ) : null}
                   {onTestConnection && (
                     <button onClick={() => onTestConnection(connection)} className="px-3 py-2 rounded-lg border border-blue-200 text-blue-700 dark:border-blue-800 dark:text-blue-300 text-sm flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-900/20">
                       <Globe className="w-4 h-4" /> {t('Test Connection')}
@@ -104,4 +110,3 @@ export default function WebsiteConnectionsList({
     </div>
   )
 }
-

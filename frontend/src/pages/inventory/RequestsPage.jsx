@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import "react-datepicker/dist/react-datepicker.css"
 import { api } from '../../utils/api'
-import { useTheme } from '../../shared/context/ThemeProvider'
+import { useThemeClasses } from '../../utils/themeClasses'
 import { 
   FaFileImport, 
   FaFileExport,
@@ -35,288 +35,204 @@ import RequestsImportModal from './RequestsImportModal'
 import { useAppState } from '../../shared/context/AppStateProvider'
 
 const CURRENCY_SYMBOLS = {
-  EGP: 'E£',
-  USD: '$',
-  SAR: 'SAR',
-  AED: 'AED',
+  EGP: 'E£', USD: '$', SAR: 'SAR', AED: 'AED',
 }
-
-const getCurrencySymbol = (currencyCode) => {
-  const normalized = String(currencyCode || '').trim().toUpperCase()
-  return CURRENCY_SYMBOLS[normalized] || normalized || '$'
-}
+const getCurrencySymbol = (code) =>
+  CURRENCY_SYMBOLS[String(code || '').trim().toUpperCase()] || code || '$'
 
 const getUniqueTextList = (values = []) =>
-  [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))]
+  [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))]
 
 export default function RequestsPage() {
   const { t, i18n } = useTranslation()
-  const { theme } = useTheme()
-  const isLight = theme === 'light'
+  const th = useThemeClasses()
+  const { isLight } = th
   const isRTL = String(i18n.language || '').startsWith('ar')
 
   const { user, crmSettings } = useAppState()
-  const currencySymbol = getCurrencySymbol(crmSettings?.defaultCurrency || crmSettings?.default_currency || '$')
+  const currencySymbol = getCurrencySymbol(
+    crmSettings?.defaultCurrency || crmSettings?.default_currency || '$'
+  )
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitInventoryPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Inventory')
-  const inventoryModulePerms = hasExplicitInventoryPerms && Array.isArray(modulePermissions.Inventory) ? modulePermissions.Inventory : []
+  const inventoryModulePerms = hasExplicitInventoryPerms && Array.isArray(modulePermissions.Inventory)
+    ? modulePermissions.Inventory : []
   const effectiveInventoryPerms = hasExplicitInventoryPerms ? inventoryModulePerms : []
   const roleLower = String(user?.role || '').toLowerCase()
-  const isTenantAdmin =
-    roleLower === 'admin' ||
-    roleLower === 'tenant admin' ||
-    roleLower === 'tenant-admin'
+  const isTenantAdmin = roleLower === 'admin' || roleLower === 'tenant admin' || roleLower === 'tenant-admin'
   const canManageRequests =
-    effectiveInventoryPerms.includes('showRequests') ||
-    user?.is_super_admin ||
-    isTenantAdmin
+    effectiveInventoryPerms.includes('showRequests') || user?.is_super_admin || isTenantAdmin
 
-  // State
+  // ── State ─────────────────────────────────────────────────────────────────
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showImportModal, setShowImportModal] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({
-    customer_name: '',
-    customer_phone: '',
-    product: '',
-    quantity: 1,
-    price: 0,
-    type: 'Inquiry',
-    priority: 'Medium',
-    description: '',
-    payment_plan: ''
+    customer_name: '', customer_phone: '', product: '',
+    quantity: 1, price: 0, type: 'Inquiry', priority: 'Medium',
+    description: '', payment_plan: ''
   })
   const [saving, setSaving] = useState(false)
   const [previewItem, setPreviewItem] = useState(null)
   const [successMessage, setSuccessMessage] = useState('')
-  const [openMenuId, setOpenMenuId] = useState(null) // For tracking open dropdown menu
+  const [openMenuId, setOpenMenuId] = useState(null)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
 
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      // Check if click is inside the menu or the toggle button
       if (
         openMenuId &&
         !event.target.closest('.action-menu-dropdown') &&
         !event.target.closest('.action-menu-btn')
-      ) {
-        setOpenMenuId(null)
-      }
+      ) setOpenMenuId(null)
     }
-
     document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [openMenuId])
 
-
-  // Filters
-  const [q, setQ] = useState('') // Main search query
+  // ── Filters ───────────────────────────────────────────────────────────────
+  const [q, setQ] = useState('')
   const [filters, setFilters] = useState({
-    item: '',
-    category: '',
-    categoryType: '',
-    status: '',
-    dateFrom: '',
-    dateTo: '',
-    datePeriod: '',
-    createdBy: '',
-    salesPerson: '',
-    minTotal: '',
-    maxTotal: '',
-    minQuantity: '',
-    maxQuantity: ''
+    item: '', category: '', categoryType: '', status: '',
+    dateFrom: '', dateTo: '', datePeriod: '', createdBy: '',
+    salesPerson: '', minTotal: '', maxTotal: '', minQuantity: '', maxQuantity: ''
   })
   const [showAllFilters, setShowAllFilters] = useState(false)
 
-  // Pagination State
+  // ── Pagination & sort ─────────────────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
-
-  // Sorting
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
 
-  // Selection
+  // ── Selection ─────────────────────────────────────────────────────────────
   const [selectedItems, setSelectedItems] = useState([])
 
-  const formatAmount = (value) => `${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencySymbol}`
+  const formatAmount = (value) =>
+    `${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencySymbol}`
 
-  // Helper for success messages
   const showSuccess = (msg) => {
     setSuccessMessage(msg)
     setTimeout(() => setSuccessMessage(''), 3000)
   }
 
-  // Load Data
+  // ── Load Data (unchanged business logic) ─────────────────────────────────
   const load = async () => {
     try {
-      setLoading(true)
-      setError('')
-
-      // Requests and users are required. Items are enrichment only.
+      setLoading(true); setError('')
       const [requestsRes, usersRes, itemsRes] = await Promise.allSettled([
         api.get('/api/inventory-requests'),
         api.get('/api/users'),
         api.get('/api/items?all=true')
       ])
-
-      if (requestsRes.status !== 'fulfilled') {
-        throw requestsRes.reason
-      }
-
-      if (usersRes.status !== 'fulfilled') {
-        throw usersRes.reason
-      }
+      if (requestsRes.status !== 'fulfilled') throw requestsRes.reason
+      if (usersRes.status !== 'fulfilled') throw usersRes.reason
 
       const requestsData = requestsRes.value.data
       const usersData = usersRes.value.data.data || usersRes.value.data || []
-      const itemsDbData =
-        itemsRes.status === 'fulfilled'
-          ? (itemsRes.value.data.data || itemsRes.value.data || [])
-          : []
+      const itemsDbData = itemsRes.status === 'fulfilled'
+        ? (itemsRes.value.data.data || itemsRes.value.data || []) : []
 
-      if (itemsRes.status !== 'fulfilled') {
-        console.warn('Optional items enrichment failed in requests page:', itemsRes.reason)
-      }
+      if (itemsRes.status !== 'fulfilled')
+        console.warn('Optional items enrichment failed:', itemsRes.reason)
 
       const itemByName = new Map(
-        itemsDbData
-          .filter(item => String(item?.name || '').trim() !== '')
+        itemsDbData.filter(item => String(item?.name || '').trim() !== '')
           .map(item => [String(item.name).trim().toLowerCase(), item])
       )
       const userNameById = new Map(
-        usersData.map(tenantUser => [String(tenantUser?.id), tenantUser?.name || tenantUser?.full_name || tenantUser?.email || `User #${tenantUser?.id}`])
+        usersData.map(u => [String(u?.id), u?.name || u?.full_name || u?.email || `User #${u?.id}`])
       )
 
       const mappedItems = (requestsData.data || []).map(item => {
         let requestItems = []
-        
         if (item.meta_data?.items && Array.isArray(item.meta_data.items)) {
-            requestItems = item.meta_data.items.map(reqItem => {
-                const matched = itemByName.get(String(reqItem?.name || '').trim().toLowerCase())
-                const finalCategory = matched?.category || reqItem.category || '-'
-                const quantity = Number(reqItem?.quantity || 1)
-                const price = Number(reqItem?.price ?? matched?.price ?? 0)
-                const addonSource = Array.isArray(reqItem?.addons) && reqItem.addons.length > 0
-                  ? reqItem.addons
-                  : (Array.isArray(matched?.addons) ? matched.addons : [])
-
-                return {
-                    ...reqItem,
-                    quantity,
-                    price,
-                    type: matched?.type || reqItem.type || '-',
-                    itemType: matched?.item_type || matched?.itemType || reqItem.itemType || '-',
-                    category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
-                    addons: addonSource.map(addon => ({
-                      name: addon?.name || '',
-                      quantity: Number(addon?.quantity || 0),
-                      price: Number(addon?.price || 0),
-                    }))
-                }
-            })
+          requestItems = item.meta_data.items.map(reqItem => {
+            const matched = itemByName.get(String(reqItem?.name || '').trim().toLowerCase())
+            const finalCategory = matched?.category || reqItem.category || '-'
+            const quantity = Number(reqItem?.quantity || 1)
+            const price = Number(reqItem?.price ?? matched?.price ?? 0)
+            const addonSource = Array.isArray(reqItem?.addons) && reqItem.addons.length > 0
+              ? reqItem.addons : (Array.isArray(matched?.addons) ? matched.addons : [])
+            return {
+              ...reqItem, quantity, price,
+              type: matched?.type || reqItem.type || '-',
+              itemType: matched?.item_type || matched?.itemType || reqItem.itemType || '-',
+              category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
+              addons: addonSource.map(a => ({
+                name: a?.name || '', quantity: Number(a?.quantity || 0), price: Number(a?.price || 0),
+              }))
+            }
+          })
         } else if (item.product) {
-            const matchedItem = itemByName.get(String(item.product || '').trim().toLowerCase())
-            const finalCategory = matchedItem?.category || '-'
-            requestItems = [{ 
-                id: 1, 
-                name: item.product, 
-                type: matchedItem?.type || '-',
-                itemType: matchedItem?.item_type || matchedItem?.itemType || '-',
-                category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
-                quantity: item.quantity || 0, 
-                price: item.meta_data?.price || 0,
-                addons: Array.isArray(matchedItem?.addons)
-                  ? matchedItem.addons.map(addon => ({
-                      name: addon?.name || '',
-                      quantity: Number(addon?.quantity || 0),
-                      price: Number(addon?.price || 0),
-                    }))
-                  : [],
-            }]
+          const matchedItem = itemByName.get(String(item.product || '').trim().toLowerCase())
+          const finalCategory = matchedItem?.category || '-'
+          requestItems = [{
+            id: 1, name: item.product,
+            type: matchedItem?.type || '-',
+            itemType: matchedItem?.item_type || matchedItem?.itemType || '-',
+            category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
+            quantity: item.quantity || 0, price: item.meta_data?.price || 0,
+            addons: Array.isArray(matchedItem?.addons)
+              ? matchedItem.addons.map(a => ({ name: a?.name || '', quantity: Number(a?.quantity || 0), price: Number(a?.price || 0) }))
+              : [],
+          }]
         }
 
-        const itemNames = getUniqueTextList(requestItems.map(requestItem => requestItem.name))
-        const categoryNames = getUniqueTextList(requestItems.map(requestItem => requestItem.category))
-        const categoryTypes = getUniqueTextList(requestItems.map(requestItem => requestItem.type))
-        const itemTypes = getUniqueTextList(requestItems.map(requestItem => requestItem.itemType))
-        const totalQuantity = requestItems.reduce((sum, requestItem) => sum + Number(requestItem.quantity || 0), 0)
-        const baseItemsPrice = requestItems.reduce((sum, requestItem) => sum + (Number(requestItem.quantity || 0) * Number(requestItem.price || 0)), 0)
+        const itemNames = getUniqueTextList(requestItems.map(r => r.name))
+        const categoryNames = getUniqueTextList(requestItems.map(r => r.category))
+        const categoryTypes = getUniqueTextList(requestItems.map(r => r.type))
+        const itemTypes = getUniqueTextList(requestItems.map(r => r.itemType))
+        const totalQuantity = requestItems.reduce((s, r) => s + Number(r.quantity || 0), 0)
+        const baseItemsPrice = requestItems.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.price || 0), 0)
 
-        const expandedAddons = requestItems.flatMap(requestItem =>
-          (Array.isArray(requestItem.addons) ? requestItem.addons : [])
-            .filter(addon => String(addon?.name || '').trim() !== '')
-            .map(addon => {
-              const addonUnitQuantity = Number(addon.quantity || 0)
-              const addonPrice = Number(addon.price || 0)
-              const addonTotalQuantity = addonUnitQuantity * Number(requestItem.quantity || 0)
-              return {
-                name: String(addon.name || '').trim(),
-                quantity: addonTotalQuantity,
-                price: addonPrice,
-                totalPrice: addonTotalQuantity * addonPrice,
-              }
+        const expandedAddons = requestItems.flatMap(r =>
+          (Array.isArray(r.addons) ? r.addons : [])
+            .filter(a => String(a?.name || '').trim() !== '')
+            .map(a => {
+              const qty = Number(a.quantity || 0) * Number(r.quantity || 0)
+              return { name: String(a.name).trim(), quantity: qty, price: Number(a.price || 0), totalPrice: qty * Number(a.price || 0) }
             })
         )
 
-        const addonNames = getUniqueTextList(expandedAddons.map(addon => addon.name))
-        const addonsTotalQuantity = expandedAddons.reduce((sum, addon) => sum + Number(addon.quantity || 0), 0)
-        const addonsTotalPrice = expandedAddons.reduce((sum, addon) => sum + Number(addon.totalPrice || 0), 0)
-        const computedTotalPrice = baseItemsPrice + addonsTotalPrice
+        const addonNames = getUniqueTextList(expandedAddons.map(a => a.name))
+        const addonsTotalQty = expandedAddons.reduce((s, a) => s + Number(a.quantity || 0), 0)
+        const addonsTotalPrice = expandedAddons.reduce((s, a) => s + Number(a.totalPrice || 0), 0)
         const resolvedSalesPerson = userNameById.get(String(item.assigned_to)) || item.assigned_to_name || item.meta_data?.assigned_to_name || item.assigned_to || '-'
         const resolvedCreatedBy = item.meta_data?.created_by_name || item.created_by_name || userNameById.get(String(item.meta_data?.created_by_id)) || '-'
 
         return {
-            ...item,
-            customerCode: item.customer_name, // Fallback as we store name in backend
-            customerName: item.customer_name,
-            customerPhone: item.meta_data?.customer_phone || '',
-            items: requestItems,
-            itemNames,
-            itemNamesDisplay: itemNames.join(', ') || '-',
-            categoryNames,
-            categoryNamesDisplay: categoryNames.join(', ') || '-',
-            categoryTypes,
-            categoryTypesDisplay: categoryTypes.join(', ') || '-',
-            itemTypes,
-            itemTypesDisplay: itemTypes.join(', ') || '-',
-            quantityTotal: totalQuantity,
-            itemsPriceTotal: baseItemsPrice,
-            addonsNames: addonNames,
-            addonsNamesDisplay: addonNames.join(', ') || '-',
-            addonsTotalQuantity,
-            addonsTotalPrice,
-            total: computedTotalPrice || Number(item.meta_data?.total || 0),
-            notes: item.description,
-            salesPerson: resolvedSalesPerson,
-            createdBy: resolvedCreatedBy,
-            orderBy: resolvedCreatedBy,
-            createdAt: item.created_at || new Date().toISOString()
+          ...item,
+          customerCode: item.customer_name, customerName: item.customer_name,
+          customerPhone: item.meta_data?.customer_phone || '',
+          items: requestItems,
+          itemNames, itemNamesDisplay: itemNames.join(', ') || '-',
+          categoryNames, categoryNamesDisplay: categoryNames.join(', ') || '-',
+          categoryTypes, categoryTypesDisplay: categoryTypes.join(', ') || '-',
+          itemTypes, itemTypesDisplay: itemTypes.join(', ') || '-',
+          quantityTotal: totalQuantity, itemsPriceTotal: baseItemsPrice,
+          addonsNames: addonNames, addonsNamesDisplay: addonNames.join(', ') || '-',
+          addonsTotalQuantity: addonsTotalQty, addonsTotalPrice,
+          total: baseItemsPrice + addonsTotalPrice || Number(item.meta_data?.total || 0),
+          notes: item.description, salesPerson: resolvedSalesPerson,
+          createdBy: resolvedCreatedBy, orderBy: resolvedCreatedBy,
+          createdAt: item.created_at || new Date().toISOString()
         }
       })
       setItems(mappedItems)
     } catch (e) {
-      console.error(e)
-      setError('Failed to load requests')
-      setItems([])
+      console.error(e); setError('Failed to load requests'); setItems([])
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    load()
-  }, [])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [q, filters])
+  useEffect(() => { load() }, [])
+  useEffect(() => { setCurrentPage(1) }, [q, filters])
 
   const handleFormChange = (e) => {
     const { name, value } = e.target
@@ -331,171 +247,102 @@ export default function RequestsPage() {
     }
     setSaving(true)
     try {
-      const payload = {
+      await api.post('/api/inventory-requests', {
         ...formData,
         quantity: formData.quantity ? Number(formData.quantity) : null,
-        meta_data: {
-          price: Number(formData.price || 0),
-          total: Number(formData.quantity || 1) * Number(formData.price || 0)
-        }
-      }
-      await api.post('/api/inventory-requests', payload)
+        meta_data: { price: Number(formData.price || 0), total: Number(formData.quantity || 1) * Number(formData.price || 0) }
+      })
       await load()
       showSuccess(isRTL ? 'تم حفظ الطلب بنجاح' : 'Request saved successfully')
       setShowForm(false)
-      setFormData({
-        customer_name: '',
-        customer_phone: '',
-        product: '',
-        quantity: 1,
-        price: 0,
-        type: 'Inquiry',
-        priority: 'Medium',
-        description: '',
-        payment_plan: ''
-      })
+      setFormData({ customer_name: '', customer_phone: '', product: '', quantity: 1, price: 0, type: 'Inquiry', priority: 'Medium', description: '', payment_plan: '' })
     } catch (e) {
       console.error('Failed to save request', e)
       alert(isRTL ? 'فشل حفظ الطلب' : 'Failed to save request')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
-  // Filtering Logic
-  const itemOptions = useMemo(() => {
-    const unique = getUniqueTextList(items.flatMap(requestItem => requestItem.itemNames || []))
-    return unique.map(name => ({ value: name, label: name }))
-  }, [items])
+  // ── Derived filter options ─────────────────────────────────────────────────
+  const itemOptions = useMemo(() =>
+    getUniqueTextList(items.flatMap(r => r.itemNames || [])).map(n => ({ value: n, label: n })), [items])
+  const categoryOptions = useMemo(() =>
+    getUniqueTextList(items.flatMap(r => r.categoryNames || [])).map(n => ({ value: n, label: n })), [items])
+  const categoryTypeOptions = useMemo(() =>
+    getUniqueTextList(items.flatMap(r => r.categoryTypes || [])).map(n => ({ value: n, label: n })), [items])
+  const statusOptions = useMemo(() =>
+    getUniqueTextList(items.map(r => r.status)).map(n => ({ value: n, label: n })), [items])
+  const createdByOptions = useMemo(() =>
+    [...new Set(items.map(i => i.createdBy).filter(Boolean))].map(n => ({ value: n, label: n })), [items])
+  const salesPersonOptions = useMemo(() =>
+    getUniqueTextList(items.map(r => r.salesPerson)).map(n => ({ value: n, label: n })), [items])
 
-  const categoryOptions = useMemo(() => {
-    const unique = getUniqueTextList(items.flatMap(requestItem => requestItem.categoryNames || []))
-    return unique.map(name => ({ value: name, label: name }))
-  }, [items])
+  // ── Filtered items (unchanged logic) ──────────────────────────────────────
+  const filteredItems = useMemo(() => items.filter(item => {
+    if (q) {
+      const query = q.toLowerCase()
+      const match =
+        String(item.id || '').toLowerCase().includes(query) ||
+        String(item.customerCode || '').toLowerCase().includes(query) ||
+        String(item.customerName || '').toLowerCase().includes(query) ||
+        String(item.itemNamesDisplay || '').toLowerCase().includes(query) ||
+        String(item.categoryNamesDisplay || '').toLowerCase().includes(query) ||
+        String(item.categoryTypesDisplay || '').toLowerCase().includes(query) ||
+        String(item.salesPerson || '').toLowerCase().includes(query) ||
+        String(item.orderBy || '').toLowerCase().includes(query)
+      if (!match) return false
+    }
+    if (filters.dateFrom && new Date(item.createdAt) < new Date(filters.dateFrom)) return false
+    if (filters.dateTo) {
+      const end = new Date(filters.dateTo); end.setDate(end.getDate() + 1)
+      if (new Date(item.createdAt) >= end) return false
+    }
+    if (filters.item && !(item.itemNames || []).includes(filters.item)) return false
+    if (filters.category && !(item.categoryNames || []).includes(filters.category)) return false
+    if (filters.categoryType && !(item.categoryTypes || []).includes(filters.categoryType)) return false
+    if (filters.createdBy && item.createdBy !== filters.createdBy) return false
+    if (filters.salesPerson && item.salesPerson !== filters.salesPerson) return false
+    if (filters.status && item.status !== filters.status) return false
+    if (filters.minTotal && Number(item.total) < Number(filters.minTotal)) return false
+    if (filters.maxTotal && Number(item.total) > Number(filters.maxTotal)) return false
+    if (filters.minQuantity && Number(item.quantityTotal || 0) < Number(filters.minQuantity)) return false
+    if (filters.maxQuantity && Number(item.quantityTotal || 0) > Number(filters.maxQuantity)) return false
+    return true
+  }), [items, q, filters])
 
-  const categoryTypeOptions = useMemo(() => {
-    const unique = getUniqueTextList(items.flatMap(requestItem => requestItem.categoryTypes || []))
-    return unique.map(name => ({ value: name, label: name }))
-  }, [items])
-
-  const statusOptions = useMemo(() => {
-    const unique = getUniqueTextList(items.map(requestItem => requestItem.status))
-    return unique.map(name => ({ value: name, label: name }))
-  }, [items])
-
-  const createdByOptions = useMemo(() => {
-    const unique = [...new Set(items.map(i => i.createdBy).filter(Boolean))]
-    return unique.map(name => ({ value: name, label: name }))
-  }, [items])
-
-  const salesPersonOptions = useMemo(() => {
-    const unique = getUniqueTextList(items.map(requestItem => requestItem.salesPerson))
-    return unique.map(name => ({ value: name, label: name }))
-  }, [items])
-
-  const filteredItems = useMemo(() => {
-    return items.filter(item => {
-      // Search
-      if (q) {
-        const query = q.toLowerCase()
-        const match =
-          String(item.id || '').toLowerCase().includes(query) ||
-          String(item.customerCode || '').toLowerCase().includes(query) ||
-          String(item.customerName || '').toLowerCase().includes(query) ||
-          String(item.itemNamesDisplay || '').toLowerCase().includes(query) ||
-          String(item.categoryNamesDisplay || '').toLowerCase().includes(query) ||
-          String(item.categoryTypesDisplay || '').toLowerCase().includes(query) ||
-          String(item.salesPerson || '').toLowerCase().includes(query) ||
-          String(item.orderBy || '').toLowerCase().includes(query)
-        if (!match) return false
-      }
-
-      // Filters
-      if (filters.dateFrom) {
-        if (new Date(item.createdAt) < new Date(filters.dateFrom)) return false
-      }
-      if (filters.dateTo) {
-        const endDate = new Date(filters.dateTo)
-        endDate.setDate(endDate.getDate() + 1)
-        if (new Date(item.createdAt) >= endDate) return false
-      }
-
-      if (filters.item && !(item.itemNames || []).includes(filters.item)) return false
-      if (filters.category && !(item.categoryNames || []).includes(filters.category)) return false
-      if (filters.categoryType && !(item.categoryTypes || []).includes(filters.categoryType)) return false
-      if (filters.createdBy && item.createdBy !== filters.createdBy) return false
-      if (filters.salesPerson && item.salesPerson !== filters.salesPerson) return false
-      if (filters.status && item.status !== filters.status) return false
-      if (filters.minTotal && Number(item.total) < Number(filters.minTotal)) return false
-      if (filters.maxTotal && Number(item.total) > Number(filters.maxTotal)) return false
-
-      if (filters.minQuantity && Number(item.quantityTotal || 0) < Number(filters.minQuantity)) return false
-      if (filters.maxQuantity && Number(item.quantityTotal || 0) > Number(filters.maxQuantity)) return false
-
-      return true
-    })
-  }, [items, q, filters])
-
-  // Pagination Logic
   const paginatedItems = useMemo(() => {
     const sorted = [...filteredItems].sort((a, b) => {
-      const aVal = a[sortBy]
-      const bVal = b[sortBy]
-      if (aVal === bVal) return 0
-      if (sortOrder === 'asc') return aVal > bVal ? 1 : -1
-      return aVal < bVal ? 1 : -1
+      const av = a[sortBy], bv = b[sortBy]
+      if (av === bv) return 0
+      return sortOrder === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1)
     })
-
     return sorted.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
   }, [filteredItems, sortBy, sortOrder, currentPage, itemsPerPage])
 
   const handleSort = (field) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortBy(field)
-      setSortOrder('desc')
-    }
+    if (sortBy === field) setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    else { setSortBy(field); setSortOrder('desc') }
   }
-
-  const handleSelectAll = (e) => {
-    if (e.target.checked) {
-      setSelectedItems(paginatedItems.map(i => i.id))
-    } else {
-      setSelectedItems([])
-    }
-  }
-
-  const handleSelectRow = (id) => {
-    setSelectedItems(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    )
-  }
+  const handleSelectAll = (e) =>
+    setSelectedItems(e.target.checked ? paginatedItems.map(i => i.id) : [])
+  const handleSelectRow = (id) =>
+    setSelectedItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
 
   const handleApprove = async (id) => {
-    if (window.confirm(isRTL ? 'هل أنت متأكد من الموافقة على هذا الطلب؟' : 'Are you sure you want to approve this request?')) {
-      try {
-        await api.put(`/api/inventory-requests/${id}`, { status: 'Approved' })
-        setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'Approved' } : i))
-        showSuccess(isRTL ? 'تمت الموافقة على الطلب بنجاح' : 'Request approved successfully')
-      } catch (e) {
-        console.error(e)
-        alert('Failed to approve request')
-      }
-    }
+    if (!window.confirm(isRTL ? 'هل أنت متأكد من الموافقة على هذا الطلب؟' : 'Are you sure you want to approve this request?')) return
+    try {
+      await api.put(`/api/inventory-requests/${id}`, { status: 'Approved' })
+      setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'Approved' } : i))
+      showSuccess(isRTL ? 'تمت الموافقة على الطلب بنجاح' : 'Request approved successfully')
+    } catch (e) { console.error(e); alert('Failed to approve request') }
   }
 
   const handleReject = async (id) => {
-    if (window.confirm(isRTL ? 'هل أنت متأكد من رفض هذا الطلب؟' : 'Are you sure you want to reject this request?')) {
-      try {
-        await api.put(`/api/inventory-requests/${id}`, { status: 'Rejected' })
-        setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'Rejected' } : i))
-        showSuccess(isRTL ? 'تم رفض الطلب بنجاح' : 'Request rejected successfully')
-      } catch (e) {
-        console.error(e)
-        alert('Failed to reject request')
-      }
-    }
+    if (!window.confirm(isRTL ? 'هل أنت متأكد من رفض هذا الطلب؟' : 'Are you sure you want to reject this request?')) return
+    try {
+      await api.put(`/api/inventory-requests/${id}`, { status: 'Rejected' })
+      setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'Rejected' } : i))
+      showSuccess(isRTL ? 'تم رفض الطلب بنجاح' : 'Request rejected successfully')
+    } catch (e) { console.error(e); alert('Failed to reject request') }
   }
 
   const handleDelete = async (id) => {
@@ -503,126 +350,74 @@ export default function RequestsPage() {
       alert(isRTL ? 'لا تملك صلاحية حذف الطلبات' : 'You do not have permission to delete requests')
       return
     }
-    if (window.confirm(isRTL ? 'هل أنت متأكد من حذف هذا الطلب؟' : 'Are you sure you want to delete this request?')) {
-      try {
-        await api.delete(`/api/inventory-requests/${id}`)
-        setItems(prev => prev.filter(i => i.id !== id))
-        showSuccess(isRTL ? 'تم حذف الطلب بنجاح' : 'Request deleted successfully')
-      } catch (e) {
-        console.error(e)
-        alert('Failed to delete request')
-      }
-    }
+    if (!window.confirm(isRTL ? 'هل أنت متأكد من حذف هذا الطلب؟' : 'Are you sure you want to delete this request?')) return
+    try {
+      await api.delete(`/api/inventory-requests/${id}`)
+      setItems(prev => prev.filter(i => i.id !== id))
+      showSuccess(isRTL ? 'تم حذف الطلب بنجاح' : 'Request deleted successfully')
+    } catch (e) { console.error(e); alert('Failed to delete request') }
   }
 
   const handleConvertToQuotation = async (item) => {
-    if (window.confirm(isRTL ? 'هل تريد تحويل هذا الطلب إلى عرض سعر؟' : 'Convert this request to quotation?')) {
+    if (!window.confirm(isRTL ? 'هل تريد تحويل هذا الطلب إلى عرض سعر؟' : 'Convert this request to quotation?')) return
+    try {
+      setLoading(true)
+      let customerId = null
       try {
-        setLoading(true)
-        // 1. Find or Create Customer
-        let customerId = null
-        try {
-          const searchName = String(item.customerName || '').trim()
-          const { data: customersData } = await api.get('/api/customers', {
-            params: { q: searchName, per_page: 1 }
+        const searchName = String(item.customerName || '').trim()
+        const { data: customersData } = await api.get('/api/customers', { params: { q: searchName, per_page: 1 } })
+        const existing = Array.isArray(customersData?.data)
+          ? (customersData.data[0] || null)
+          : (Array.isArray(customersData) ? (customersData[0] || null) : null)
+        if (existing) {
+          customerId = String(existing.id)
+        } else {
+          let phone = String(item.customerPhone || '').trim()
+          if (!phone) {
+            const v = window.prompt(isRTL ? 'رقم هاتف العميل مطلوب. ادخل رقم الهاتف:' : 'Customer phone is required. Enter phone:')
+            phone = String(v || '').trim()
+          }
+          if (!phone) { alert(isRTL ? 'تم إلغاء التحويل' : 'Conversion canceled'); setLoading(false); return }
+          let leadEmail = '', leadAssignedTo = null
+          try {
+            const lr = await api.get('/api/leads', { params: { q: phone, per_page: 1 } })
+            const lf = Array.isArray(lr?.data?.data) ? (lr.data.data[0] || null) : (Array.isArray(lr?.data) ? (lr.data[0] || null) : null)
+            leadEmail = String(lf?.email || '').trim()
+            leadAssignedTo = lf?.assigned_to || (typeof lf?.assignedTo === 'object' ? lf.assignedTo?.id : null)
+          } catch {}
+          const nr = await api.post('/api/customers', {
+            name: item.customerName, phone, email: leadEmail || undefined,
+            assigned_to: leadAssignedTo ? String(leadAssignedTo) : undefined,
+            source: 'Converted Request', type: 'Individual', notes: `Auto-created from Request ${item.id}`
           })
-          const existing = Array.isArray(customersData?.data)
-            ? (customersData.data[0] || null)
-            : (Array.isArray(customersData) ? (customersData[0] || null) : null)
-
-          if (existing) {
-            customerId = String(existing.id)
-          } else {
-            let phone = String(item.customerPhone || '').trim()
-            if (!phone) {
-              const promptValue = window.prompt(
-                isRTL ? 'رقم هاتف العميل مطلوب لإنشاء عميل. ادخل رقم الهاتف:' : 'Customer phone is required to create a customer. Enter phone:'
-              )
-              phone = String(promptValue || '').trim()
-            }
-            if (!phone) {
-              alert(isRTL ? 'تم إلغاء التحويل لأن رقم الهاتف غير متوفر' : 'Conversion canceled because phone is missing')
-              setLoading(false)
-              return
-            }
-
-            let leadEmail = ''
-            let leadAssignedTo = null
-            try {
-              const leadRes = await api.get('/api/leads', { params: { q: phone, per_page: 1 } })
-              const leadFirst = Array.isArray(leadRes?.data?.data)
-                ? (leadRes.data.data[0] || null)
-                : (Array.isArray(leadRes?.data) ? (leadRes.data[0] || null) : null)
-              leadEmail = String(leadFirst?.email || '').trim()
-              leadAssignedTo = leadFirst?.assigned_to || (typeof leadFirst?.assignedTo === 'object' ? leadFirst.assignedTo?.id : null)
-            } catch {
-            }
-
-            // Create new customer
-            const newCustomerRes = await api.post('/api/customers', {
-              name: item.customerName,
-              phone,
-              email: leadEmail || undefined,
-              assigned_to: leadAssignedTo ? String(leadAssignedTo) : undefined,
-              source: 'Converted Request',
-              type: 'Individual',
-              notes: `Auto-created from Request ${item.id}`
-            })
-            customerId = String(newCustomerRes.data.id)
-          }
-        } catch (err) {
-          console.error('Error handling customer:', err)
-          const hasValidationErrors = !!(err?.response?.data?.errors)
-          const msg = hasValidationErrors
-            ? (isRTL ? 'فشل إنشاء/جلب العميل (بيانات غير مكتملة)' : 'Failed to find/create customer (invalid data)')
-            : (isRTL ? 'فشل إنشاء/جلب العميل' : 'Failed to find or create customer')
-          alert(msg)
-          setLoading(false)
-          return
+          customerId = String(nr.data.id)
         }
-
-        // 2. Prepare Quotation Data
-        const subtotal = (item.items || []).reduce((acc, it) => acc + (it.quantity * it.price), 0)
-        const tax = subtotal * 0.14
-        const total = subtotal + tax
-
-        const quotationData = {
-          customer_id: String(customerId || ''),
-          customer_name: item.customerName,
-          status: 'Draft',
-          date: new Date().toISOString().split('T')[0],
-          valid_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          items: item.items || [],
-          notes: `Converted from Request ${item.id}. ${item.notes || ''}`,
-          subtotal: subtotal,
-          total: total,
-          sales_person: item.salesPerson || user?.name || '',
-          meta_data: {
-            converted_from_request_id: item.id,
-            customer_phone: item.customerPhone
-          }
-        }
-
-        await api.post('/api/quotations', quotationData)
-
-        // 3. Update Request Status
-        await api.put(`/api/inventory-requests/${item.id}`, { status: 'Converted' })
-
-        const updatedItems = items.map(i => i.id === item.id ? { ...i, status: 'Converted' } : i)
-        setItems(updatedItems)
-
-        showSuccess(isRTL ? 'تم التحويل إلى عرض سعر بنجاح' : 'Converted to Quotation successfully')
-      } catch (e) {
-        console.error('Failed to convert to quotation', e)
-        const msg =
-          e?.response?.data?.message ||
-          (e?.response?.data?.errors ? JSON.stringify(e.response.data.errors) : null) ||
-          (isRTL ? 'فشل التحويل إلى عرض سعر' : 'Failed to convert to quotation')
-        alert(msg)
-      } finally {
-        setLoading(false)
+      } catch (err) {
+        const msg = err?.response?.data?.errors
+          ? (isRTL ? 'فشل إنشاء/جلب العميل (بيانات غير مكتملة)' : 'Failed to find/create customer (invalid data)')
+          : (isRTL ? 'فشل إنشاء/جلب العميل' : 'Failed to find or create customer')
+        alert(msg); setLoading(false); return
       }
-    }
+      const subtotal = (item.items || []).reduce((a, i) => a + (i.quantity * i.price), 0)
+      const tax = subtotal * 0.14
+      await api.post('/api/quotations', {
+        customer_id: String(customerId || ''), customer_name: item.customerName,
+        status: 'Draft', date: new Date().toISOString().split('T')[0],
+        valid_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        items: item.items || [], notes: `Converted from Request ${item.id}. ${item.notes || ''}`,
+        subtotal, total: subtotal + tax, sales_person: item.salesPerson || user?.name || '',
+        meta_data: { converted_from_request_id: item.id, customer_phone: item.customerPhone }
+      })
+      await api.put(`/api/inventory-requests/${item.id}`, { status: 'Converted' })
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'Converted' } : i))
+      showSuccess(isRTL ? 'تم التحويل إلى عرض سعر بنجاح' : 'Converted to Quotation successfully')
+    } catch (e) {
+      console.error(e)
+      const msg = e?.response?.data?.message
+        || (e?.response?.data?.errors ? JSON.stringify(e.response.data.errors) : null)
+        || (isRTL ? 'فشل التحويل إلى عرض سعر' : 'Failed to convert to quotation')
+      alert(msg)
+    } finally { setLoading(false) }
   }
 
   const handleImport = async (rows) => {
@@ -632,167 +427,107 @@ export default function RequestsPage() {
       try {
         const price = Number(row['Price'] || row['السعر']) || 0
         const quantity = Number(row['Quantity'] || row['الكمية']) || 1
-        
         const payload = {
           customer_name: row['Customer Name'] || row['اسم العميل'],
           customer_phone: row['Customer Phone'] || row['رقم الهاتف'],
           product: row['Product'] || row['المنتج'],
-          quantity: quantity,
-          price: price,
+          quantity, price,
           priority: row['Priority'] || row['الأولوية'] || 'Medium',
           type: row['Type'] || row['نوع الطلب'] || 'Inquiry',
           payment_plan: row['Payment Plan'] || row['خطة الدفع'] || '',
           description: row['Notes'] || row['ملاحظات'] || '',
-          meta_data: {
-             price: price,
-             total: quantity * price
-          }
+          meta_data: { price, total: quantity * price }
         }
-        
-        // Skip empty rows
         if (!payload.customer_name) continue
-
         await api.post('/api/inventory-requests', payload)
         successCount++
-      } catch (e) {
-        console.error('Import error', e)
-      }
+      } catch (e) { console.error('Import error', e) }
     }
-    
-    setLoading(false)
-    setShowImportModal(false)
+    setLoading(false); setShowImportModal(false)
     if (successCount > 0) {
       showSuccess(isRTL ? `تم استيراد ${successCount} طلب بنجاح` : `Successfully imported ${successCount} requests`)
       await load()
-    } else {
-      alert(isRTL ? 'فشل الاستيراد' : 'Import failed')
-    }
+    } else { alert(isRTL ? 'فشل الاستيراد' : 'Import failed') }
   }
 
   const handleExportSelected = () => {
-    const selectedRequests = items.filter(item => selectedItems.includes(item.id))
-    if (selectedRequests.length === 0) {
-      alert(isRTL ? 'اختر طلبًا واحدًا على الأقل للتصدير' : 'Select at least one request to export')
-      return
-    }
-
-    const header = [
-      isRTL ? 'رقم الطلب' : 'Order ID',
-      isRTL ? 'اسم العميل' : 'Customer Name',
-      isRTL ? 'العناصر' : 'Items',
-      isRTL ? 'الكمية' : 'Quantity',
-      isRTL ? 'اسم الفئة' : 'Category Name',
-      isRTL ? 'نوع الفئة' : 'Category Type',
-      isRTL ? 'السعر' : 'Price',
-      isRTL ? 'أسماء الإضافات' : 'Add-ons Name',
-      isRTL ? 'كمية الإضافات' : 'Add-ons Quantity',
-      isRTL ? 'سعر الإضافات' : 'Add-ons Price',
-      isRTL ? 'الإجمالي' : 'Total Price',
-      isRTL ? 'مندوب المبيعات' : 'Sales Person',
-      isRTL ? 'بواسطة' : 'Order By',
-      isRTL ? 'التاريخ' : 'Order Date',
-      isRTL ? 'الحالة' : 'Status',
-      isRTL ? 'ملاحظات' : 'Notes',
-    ]
-
-    const rows = selectedRequests.map(item => ([
-      item.id,
-      item.customerName || '',
-      item.itemNamesDisplay || '',
-      item.quantityTotal || 0,
-      item.categoryNamesDisplay || '',
-      item.categoryTypesDisplay || '',
-      Number(item.itemsPriceTotal || 0).toFixed(2),
-      item.addonsNamesDisplay || '',
-      item.addonsTotalQuantity || 0,
-      Number(item.addonsTotalPrice || 0).toFixed(2),
-      Number(item.total || 0).toFixed(2),
-      item.salesPerson || '',
-      item.orderBy || '',
-      new Date(item.createdAt).toLocaleDateString(),
-      item.status || '',
-      item.notes || '',
-    ]))
-
-    const csv = [header, ...rows]
-      .map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n')
-
+    const selected = items.filter(i => selectedItems.includes(i.id))
+    if (!selected.length) { alert(isRTL ? 'اختر طلبًا واحدًا على الأقل' : 'Select at least one request'); return }
+    const L = isRTL
+    const header = [L?'رقم الطلب':'Order ID',L?'اسم العميل':'Customer Name',L?'العناصر':'Items',L?'الكمية':'Quantity',L?'اسم الفئة':'Category Name',L?'نوع الفئة':'Category Type',L?'السعر':'Price',L?'أسماء الإضافات':'Add-ons Name',L?'كمية الإضافات':'Add-ons Quantity',L?'سعر الإضافات':'Add-ons Price',L?'الإجمالي':'Total Price',L?'مندوب المبيعات':'Sales Person',L?'بواسطة':'Order By',L?'التاريخ':'Order Date',L?'الحالة':'Status',L?'ملاحظات':'Notes']
+    const rows = selected.map(i => [i.id,i.customerName||'',i.itemNamesDisplay||'',i.quantityTotal||0,i.categoryNamesDisplay||'',i.categoryTypesDisplay||'',Number(i.itemsPriceTotal||0).toFixed(2),i.addonsNamesDisplay||'',i.addonsTotalQuantity||0,Number(i.addonsTotalPrice||0).toFixed(2),Number(i.total||0).toFixed(2),i.salesPerson||'',i.orderBy||'',new Date(i.createdAt).toLocaleDateString(),i.status||'',i.notes||''])
+    const csv = [header,...rows].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n')
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = url
-    link.download = `order-requests-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
+    link.href = url; link.download = `order-requests-${new Date().toISOString().slice(0,10)}.csv`; link.click()
     URL.revokeObjectURL(url)
   }
 
   const clearFilters = () => {
     setQ('')
-    setFilters({
-      item: '',
-      category: '',
-      categoryType: '',
-      status: '',
-      dateFrom: '',
-      dateTo: '',
-      datePeriod: '',
-      createdBy: '',
-      salesPerson: '',
-      minTotal: '',
-      maxTotal: '',
-      minQuantity: '',
-      maxQuantity: ''
-    })
+    setFilters({ item:'',category:'',categoryType:'',status:'',dateFrom:'',dateTo:'',datePeriod:'',createdBy:'',salesPerson:'',minTotal:'',maxTotal:'',minQuantity:'',maxQuantity:'' })
     setShowAllFilters(false)
   }
 
+  // ── Status badge helper ───────────────────────────────────────────────────
+  const statusBadge = (status) => {
+    if (status === 'Approved')  return 'border border-green-300 text-green-700'
+    if (status === 'Converted') return 'border border-purple-300 text-purple-700'
+    if (status === 'Rejected')  return 'border border-red-300 text-red-700'
+    return 'border border-yellow-300 text-yellow-700'
+  }
+  const statusBadgeMobile = (status) => {
+    if (status === 'Approved')  return 'bg-green-100 text-green-700'
+    if (status === 'Converted') return 'bg-purple-100 text-purple-700'
+    if (status === 'Rejected')  return 'bg-red-100 text-red-700'
+    return 'bg-yellow-100 text-yellow-700'
+  }
+
+  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      {/* Header */}
+    <div className={`p-4 md:p-6 space-y-6 min-h-screen ${th.page}`}>
+
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="rounded-xl p-4 md:p-6 relative mb-6">
         <div className="flex flex-wrap lg:flex-row lg:items-center justify-between gap-4">
           <div className="w-full lg:w-auto flex items-center justify-between lg:justify-start gap-3">
             <div className="relative flex flex-col items-start gap-1">
-              <h1 className={`text-xl md:text-2xl font-bold text-start ${isLight ? 'text-black' : 'text-white'} dark:text-white flex items-center gap-2`}>
+              <h1 className={`text-xl md:text-2xl font-bold text-start ${th.title} flex items-center gap-2`}>
                 {t('Order Requests')}
-                <span className="text-sm font-normal text-[var(--muted-text)] bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
+                <span className={`text-sm font-normal px-2 py-1 rounded-full ${th.badgeNeutral}`}>
                   {filteredItems.length}
                 </span>
               </h1>
               <span aria-hidden="true" className="inline-block h-[2px] w-full rounded bg-gradient-to-r from-blue-500 to-purple-600" />
-              <p className="text-sm text-[var(--muted-text)] mt-1">
+              <p className={`text-sm mt-1 ${th.muted}`}>
                 {isRTL ? 'إدارة طلبات الشراء' : 'Manage your order requests'}
               </p>
             </div>
           </div>
-
           <div className="w-full lg:w-auto flex flex-wrap lg:flex-row items-stretch lg:items-center gap-2 lg:gap-3">
             <button
               onClick={() => setShowImportModal(true)}
               className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 !text-white border-none flex items-center justify-center gap-2"
             >
-              <FaFileImport />
-              {isRTL ? 'استيراد' : 'Import'}
+              <FaFileImport /> {isRTL ? 'استيراد' : 'Import'}
             </button>
-
             {canManageRequests && (
               <button
                 onClick={() => setShowForm(true)}
                 className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-green-500 !text-white border-none flex items-center justify-center gap-2"
               >
-                <FaPlus />
-                {isRTL ? 'إضافة طلب' : 'Add Request'}
+                <FaPlus /> {isRTL ? 'إضافة طلب' : 'Add Request'}
               </button>
             )}
           </div>
         </div>
       </div>
 
+      {/* ── Alerts ──────────────────────────────────────────────────────────── */}
       {successMessage && (
         <div className="mb-3 p-3 rounded border border-green-300 bg-green-50 text-green-700">{successMessage}</div>
       )}
-
       {error && (
         <div className="mb-3 p-3 rounded border border-red-300 bg-red-50 text-red-700">{error}</div>
       )}
@@ -819,55 +554,54 @@ export default function RequestsPage() {
             </button>
           </div>
         </div>
-        {/* Primary Filters Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <Search className="text-blue-500" size={10} /> {isRTL ? '??? ???' : 'Search'}
+              <Search className="text-blue-500" size={10} /> {isRTL ? 'بحث عام' : 'Search'}
             </label>
             <input
               className="input w-full"
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder={isRTL ? '???? ?? ???????...' : 'Search requests...'}
+              placeholder={isRTL ? 'ابحث في الطلبات...' : 'Search requests...'}
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <FaShoppingCart className="text-blue-500" size={10} /> {isRTL ? '??????' : 'Item'}
+              <FaShoppingCart className="text-blue-500" size={10} /> {isRTL ? 'العنصر' : 'Item'}
             </label>
             <SearchableSelect
               options={itemOptions}
               value={filters.item}
               onChange={(val) => setFilters(prev => ({ ...prev, item: val }))}
-              placeholder={isRTL ? '???? ??????...' : 'Select Item...'}
+              placeholder={isRTL ? 'اختر عنصرا...' : 'Select Item...'}
               isRTL={isRTL}
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <Filter className="text-blue-500" size={10} /> {isRTL ? '??? ?????' : 'Category Name'}
+              <Filter className="text-blue-500" size={10} /> {isRTL ? 'اسم الفئة' : 'Category Name'}
             </label>
             <SearchableSelect
               options={categoryOptions}
               value={filters.category}
               onChange={(val) => setFilters(prev => ({ ...prev, category: val }))}
-              placeholder={isRTL ? '???? ?????...' : 'Select Category...'}
+              placeholder={isRTL ? 'اختر فئة...' : 'Select Category...'}
               isRTL={isRTL}
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-              <Filter className="text-blue-500" size={10} /> {isRTL ? '??? ?????' : 'Category Type'}
+              <Filter className="text-blue-500" size={10} /> {isRTL ? 'نوع الفئة' : 'Category Type'}
             </label>
             <SearchableSelect
               options={categoryTypeOptions}
               value={filters.categoryType}
               onChange={(val) => setFilters(prev => ({ ...prev, categoryType: val }))}
-              placeholder={isRTL ? '???? ?????...' : 'Select Type...'}
+              placeholder={isRTL ? 'اختر نوعا...' : 'Select Type...'}
               isRTL={isRTL}
             />
           </div>
@@ -878,33 +612,33 @@ export default function RequestsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                  <User className="text-blue-500" size={10} /> {isRTL ? '????? ????????' : 'Sales Person'}
+                  <User className="text-blue-500" size={10} /> {isRTL ? 'مندوب المبيعات' : 'Sales Person'}
                 </label>
                 <SearchableSelect
                   options={salesPersonOptions}
                   value={filters.salesPerson}
                   onChange={(val) => setFilters(prev => ({ ...prev, salesPerson: val }))}
-                  placeholder={isRTL ? '????...' : 'Select...'}
+                  placeholder={isRTL ? 'اختر...' : 'Select...'}
                   isRTL={isRTL}
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                  <User className="text-blue-500" size={10} /> {isRTL ? '???? ??????' : 'Created By'}
+                  <User className="text-blue-500" size={10} /> {isRTL ? 'تم الإنشاء بواسطة' : 'Created By'}
                 </label>
                 <SearchableSelect
                   options={createdByOptions}
                   value={filters.createdBy}
                   onChange={(val) => setFilters(prev => ({ ...prev, createdBy: val }))}
-                  placeholder={isRTL ? '????...' : 'Select...'}
+                  placeholder={isRTL ? 'اختر...' : 'Select...'}
                   isRTL={isRTL}
                 />
               </div>
 
               <div className="space-y-1 lg:col-span-2">
                 <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                  <Calendar className="text-blue-500" size={10} /> {isRTL ? '????? ?????' : 'Order Date'}
+                  <Calendar className="text-blue-500" size={10} /> {isRTL ? 'تاريخ الطلب' : 'Order Date'}
                 </label>
                 <DateRangePicker
                   from={filters.dateFrom}
@@ -920,20 +654,20 @@ export default function RequestsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                  <FaShoppingCart className="text-blue-500" size={10} /> {isRTL ? '?????? ??????' : 'No. of Quantity'}
+                  <FaShoppingCart className="text-blue-500" size={10} /> {isRTL ? 'عدد الكمية' : 'No. of Quantity'}
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="number"
                     className="input w-full text-xs"
-                    placeholder={isRTL ? '??' : 'Min'}
+                    placeholder={isRTL ? 'من' : 'Min'}
                     value={filters.minQuantity}
                     onChange={e => setFilters(prev => ({ ...prev, minQuantity: e.target.value }))}
                   />
                   <input
                     type="number"
                     className="input w-full text-xs"
-                    placeholder={isRTL ? '???' : 'Max'}
+                    placeholder={isRTL ? 'إلى' : 'Max'}
                     value={filters.maxQuantity}
                     onChange={e => setFilters(prev => ({ ...prev, maxQuantity: e.target.value }))}
                   />
@@ -942,20 +676,20 @@ export default function RequestsPage() {
 
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                  <DollarSign className="text-blue-500" size={10} /> {isRTL ? '?????? ????????' : 'Total Amount'}
+                  <DollarSign className="text-blue-500" size={10} /> {isRTL ? 'إجمالي المبلغ' : 'Total Amount'}
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="number"
                     className="input w-full text-xs"
-                    placeholder={isRTL ? '??' : 'From'}
+                    placeholder={isRTL ? 'من' : 'From'}
                     value={filters.minTotal}
                     onChange={e => setFilters(prev => ({ ...prev, minTotal: e.target.value }))}
                   />
                   <input
                     type="number"
                     className="input w-full text-xs"
-                    placeholder={isRTL ? '???' : 'To'}
+                    placeholder={isRTL ? 'إلى' : 'To'}
                     value={filters.maxTotal}
                     onChange={e => setFilters(prev => ({ ...prev, maxTotal: e.target.value }))}
                   />
@@ -964,13 +698,13 @@ export default function RequestsPage() {
 
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
-                  <Filter className="text-blue-500" size={10} /> {isRTL ? '??????' : 'Status'}
+                  <Filter className="text-blue-500" size={10} /> {isRTL ? 'الحالة' : 'Status'}
                 </label>
                 <SearchableSelect
                   options={statusOptions}
                   value={filters.status}
                   onChange={(val) => setFilters(prev => ({ ...prev, status: val }))}
-                  placeholder={isRTL ? '???? ??????...' : 'Select Status...'}
+                  placeholder={isRTL ? 'اختر حالة...' : 'Select Status...'}
                   isRTL={isRTL}
                 />
               </div>
@@ -979,7 +713,6 @@ export default function RequestsPage() {
         )}
       </div>
 
-      {/* Table Section - Identical structure to SalesQuotations */}
       <div className="hidden md:block card p-0 overflow-hidden border border-[var(--card-border)]">
         {selectedItems.length > 0 && (
           <div className="flex justify-end px-4 py-3 border-b border-[var(--card-border)] bg-[var(--body-background)]">
@@ -988,7 +721,7 @@ export default function RequestsPage() {
               className="btn btn-sm bg-indigo-600 hover:bg-indigo-700 !text-white border-none flex items-center justify-center gap-2"
             >
               <FaFileExport />
-              {isRTL ? '????? ??????' : 'Export Selected'}
+              {isRTL ? 'تصدير المحدد' : 'Export Selected'}
             </button>
           </div>
         )}
@@ -1004,22 +737,22 @@ export default function RequestsPage() {
                     onChange={handleSelectAll}
                   />
                 </th>
-                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('id')}>{isRTL ? '??? ?????' : 'Order ID'}</th>
-                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('customerName')}>{isRTL ? '??? ??????' : 'Customer Name'}</th>
-                <th className="p-4 min-w-[180px]">{isRTL ? '???????' : 'Items'}</th>
-                <th className="p-4 text-center">{isRTL ? '??????' : 'Quantity'}</th>
-                <th className="p-4 min-w-[160px]">{isRTL ? '??? ?????' : 'Category Name'}</th>
-                <th className="p-4 min-w-[140px]">{isRTL ? '??? ?????' : 'Category Type'}</th>
-                <th className="p-4 text-end">{isRTL ? '?????' : 'Price'}</th>
-                <th className="p-4 min-w-[160px]">{isRTL ? '????? ????????' : 'Add-ons Name'}</th>
-                <th className="p-4 text-center">{isRTL ? '???? ????????' : 'Add-ons Qty'}</th>
-                <th className="p-4 text-end">{isRTL ? '??? ????????' : 'Add-ons Price'}</th>
-                <th className="p-4 text-end cursor-pointer hover:text-blue-600" onClick={() => handleSort('total')}>{isRTL ? '????? ????????' : 'Total Price'}</th>
-                <th className="p-4 min-w-[140px]">{isRTL ? '????? ????????' : 'Sales Person'}</th>
-                <th className="p-4 min-w-[140px]">{isRTL ? '???? ??????' : 'Order By'}</th>
-                <th className="p-4 whitespace-nowrap">{isRTL ? '????? ?????' : 'Order Date'}</th>
-                <th className="p-4 text-center">{isRTL ? '??????' : 'Status'}</th>
-                <th className="p-4 whitespace-nowrap min-w-[280px]">{isRTL ? '???????' : 'Actions'}</th>
+                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('id')}>{isRTL ? 'رقم الطلب' : 'Order ID'}</th>
+                <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('customerName')}>{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
+                <th className="p-4 min-w-[180px]">{isRTL ? 'العناصر' : 'Items'}</th>
+                <th className="p-4 text-center">{isRTL ? 'الكمية' : 'Quantity'}</th>
+                <th className="p-4 min-w-[160px]">{isRTL ? 'اسم الفئة' : 'Category Name'}</th>
+                <th className="p-4 min-w-[140px]">{isRTL ? 'نوع الفئة' : 'Category Type'}</th>
+                <th className="p-4 text-end">{isRTL ? 'السعر' : 'Price'}</th>
+                <th className="p-4 min-w-[160px]">{isRTL ? 'أسماء الإضافات' : 'Add-ons Name'}</th>
+                <th className="p-4 text-center">{isRTL ? 'كمية الإضافات' : 'Add-ons Qty'}</th>
+                <th className="p-4 text-end">{isRTL ? 'سعر الإضافات' : 'Add-ons Price'}</th>
+                <th className="p-4 text-end cursor-pointer hover:text-blue-600" onClick={() => handleSort('total')}>{isRTL ? 'إجمالي السعر' : 'Total Price'}</th>
+                <th className="p-4 min-w-[140px]">{isRTL ? 'مندوب المبيعات' : 'Sales Person'}</th>
+                <th className="p-4 min-w-[140px]">{isRTL ? 'تم بواسطة' : 'Order By'}</th>
+                <th className="p-4 whitespace-nowrap">{isRTL ? 'تاريخ الطلب' : 'Order Date'}</th>
+                <th className="p-4 text-center">{isRTL ? 'الحالة' : 'Status'}</th>
+                <th className="p-4 whitespace-nowrap min-w-[280px]">{isRTL ? 'الإجراءات' : 'Actions'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--card-border)]">
@@ -1091,17 +824,12 @@ export default function RequestsPage() {
                       {new Date(item.createdAt).toLocaleDateString()}
                     </td>
                     <td className="p-4 text-center">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium border bg-transparent ${item.status === 'Approved' ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400' :
-                        item.status === 'Converted' ? 'border-purple-300 text-purple-700 dark:border-purple-700 dark:text-purple-400' :
-                          item.status === 'Rejected' ? 'border-red-300 text-red-700 dark:border-red-700 dark:text-red-400' :
-                            'border-yellow-300 text-yellow-700 dark:border-yellow-700 dark:text-yellow-400'
-                        }`}>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium border bg-transparent ${statusBadge(item.status)}`}>
                         {item.status}
                       </span>
                     </td>
                     <td className="p-4">
                       <div className="flex items-center justify-end gap-2 relative">
-                        {/* Primary Actions (3 buttons) */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -1140,7 +868,6 @@ export default function RequestsPage() {
                               <span className="hidden xl:inline">{isRTL ? 'رفض' : 'Reject'}</span>
                             </button>
 
-                            {/* More Actions Menu */}
                             <div className="relative shrink-0">
                               <button
                                 onClick={(e) => {
@@ -1236,348 +963,332 @@ export default function RequestsPage() {
             </tbody>
           </table>
         </div>
+      </div>
 
-      </div >
-
-      {/* Mobile Cards View */}
-      < div className="md:hidden grid grid-cols-1 gap-4 mt-4" >
-        {
-          loading ? (
-            <div className="p-8 text-center text-[var(--muted-text)]" >
-              {isRTL ? 'جاري التحميل...' : 'Loading...'}
-            </div>
-          ) : paginatedItems.length === 0 ? (
-            <div className="p-8 text-center text-[var(--muted-text)]">
-              {isRTL ? 'لا توجد طلبات مطابقة' : 'No matching requests found'}
-            </div>
-          ) : (
-            paginatedItems.map((item) => (
-              <div key={item.id} className="card bg-white dark:bg-gray-800 p-4 rounded-xl border border-[var(--card-border)] shadow-sm space-y-3">
-                {/* Header: ID and Status */}
-                <div className="flex justify-between items-start">
-                  <div className="flex flex-col">
-                    <span className="text-xs text-blue-600 font-mono">#{item.id}</span>
-                    <h3 className="font-bold text-gray-800 dark:text-gray-100">{item.customerName}</h3>
-                  </div>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.status === 'Approved' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                    item.status === 'Converted' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                      item.status === 'Rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                        'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                    }`}>
-                    {item.status}
-                  </span>
+      <div className="md:hidden grid grid-cols-1 gap-4 mt-4">
+        {loading ? (
+          <div className="p-8 text-center text-[var(--muted-text)]">
+            {isRTL ? 'جاري التحميل...' : 'Loading...'}
+          </div>
+        ) : paginatedItems.length === 0 ? (
+          <div className="p-8 text-center text-[var(--muted-text)]">
+            {isRTL ? 'لا توجد طلبات مطابقة' : 'No matching requests found'}
+          </div>
+        ) : (
+          paginatedItems.map((item) => (
+            <div key={item.id} className="card bg-white dark:bg-gray-800 p-4 rounded-xl border border-[var(--card-border)] shadow-sm space-y-3">
+              <div className="flex justify-between items-start">
+                <div className="flex flex-col">
+                  <span className="text-xs text-blue-600 font-mono">#{item.id}</span>
+                  <h3 className="font-bold text-gray-800 dark:text-gray-100">{item.customerName}</h3>
                 </div>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadgeMobile(item.status)}`}>
+                  {item.status}
+                </span>
+              </div>
 
-                {/* Details Grid */}
-                <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-300">
-                  <div className="flex flex-col col-span-2">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '???????' : 'Items'}</span>
-                    <span className="font-medium truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '????????' : 'Total Price'}</span>
-                    <span className="font-mono font-medium">{formatAmount(item.total)}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??????' : 'Quantity'}</span>
-                    <span>{item.quantityTotal || 0}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '?????' : 'Category'}</span>
-                    <span className="truncate" title={item.categoryNamesDisplay}>{item.categoryNamesDisplay}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??? ?????' : 'Category Type'}</span>
-                    <span className="truncate" title={item.categoryTypesDisplay}>{item.categoryTypesDisplay}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??? ????????' : 'Add-ons Price'}</span>
-                    <span className="font-mono">{formatAmount(item.addonsTotalPrice)}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '???????' : 'Date'}</span>
-                    <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '??????' : 'Order By'}</span>
-                    <span>{item.orderBy}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-[var(--muted-text)]">{isRTL ? '????? ????????' : 'Sales Person'}</span>
-                    <span>{item.salesPerson}</span>
-                  </div>
+              <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-300">
+                <div className="flex flex-col col-span-2">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'العناصر' : 'Items'}</span>
+                  <span className="font-medium truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</span>
                 </div>
-
-                {/* Actions */}
-                <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-[var(--card-border)] mt-auto">
-                  <button
-                    onClick={() => setPreviewItem(item)}
-                    className="flex-1 btn btn-xs h-9 bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-100 dark:bg-blue-900/10 dark:text-blue-400 dark:border-blue-900/30 flex items-center justify-center gap-1.5 rounded-lg transition-colors"
-                  >
-                    <FaEye size={12} /> {isRTL ? 'معاينة' : 'Preview'}
-                  </button>
-                  {(item.status === 'Pending' || item.status === 'Inquiry') && (
-                    <>
-                      <button
-                        onClick={() => handleApprove(item.id)}
-                        className="w-10 h-9 flex items-center justify-center bg-green-50 text-green-600 border border-green-100 hover:bg-green-100 dark:bg-green-900/10 dark:text-green-400 dark:border-green-900/30 rounded-lg transition-colors"
-                        title={isRTL ? 'موافقة' : 'Approve'}
-                      >
-                        <FaCheck size={12} />
-                      </button>
-                      <button
-                        onClick={() => handleReject(item.id)}
-                        className="w-10 h-9 flex items-center justify-center bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 dark:bg-red-900/10 dark:text-red-400 dark:border-red-900/30 rounded-lg transition-colors"
-                        title={isRTL ? 'رفض' : 'Reject'}
-                      >
-                        <FaBan size={12} />
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => handleConvertToQuotation(item)}
-                    className="w-10 h-9 flex items-center justify-center bg-purple-50 text-purple-600 border border-purple-100 hover:bg-purple-100 dark:bg-purple-900/10 dark:text-purple-400 dark:border-purple-900/30 rounded-lg transition-colors"
-                    title={isRTL ? 'تحويل إلى عرض سعر' : 'Convert to Quotation'}
-                  >
-                    <FaExchangeAlt size={12} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    className="w-10 h-9 flex items-center justify-center bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 dark:bg-red-900/10 dark:text-red-400 dark:border-red-900/30 rounded-lg transition-colors"
-                    title={isRTL ? 'حذف' : 'Delete'}
-                  >
-                    <FaTrash size={12} />
-                  </button>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'إجمالي السعر' : 'Total Price'}</span>
+                  <span className="font-mono font-medium">{formatAmount(item.total)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'الكمية' : 'Quantity'}</span>
+                  <span>{item.quantityTotal || 0}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'الفئة' : 'Category'}</span>
+                  <span className="truncate" title={item.categoryNamesDisplay}>{item.categoryNamesDisplay}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'نوع الفئة' : 'Category Type'}</span>
+                  <span className="truncate" title={item.categoryTypesDisplay}>{item.categoryTypesDisplay}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'سعر الإضافات' : 'Add-ons Price'}</span>
+                  <span className="font-mono">{formatAmount(item.addonsTotalPrice)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'التاريخ' : 'Date'}</span>
+                  <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'تم بواسطة' : 'Order By'}</span>
+                  <span>{item.orderBy}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'مندوب المبيعات' : 'Sales Person'}</span>
+                  <span>{item.salesPerson}</span>
                 </div>
               </div>
-            ))
-          )
-        }
-      </div >
 
-      {/* Pagination Footer */}
-      {
-        filteredItems.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center justify-between rounded-xl p-2 border border-gray-100 dark:border-gray-700  gap-4">
-            <div className="text-xs text-theme">
-              {isRTL
-                ? `عرض ${(currentPage - 1) * itemsPerPage + 1} إلى ${Math.min(currentPage * itemsPerPage, filteredItems.length)} من ${filteredItems.length} صنف`
-                : `Showing ${(currentPage - 1) * itemsPerPage + 1} to ${Math.min(currentPage * itemsPerPage, filteredItems.length)} of ${filteredItems.length} items`
-              }
+              <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-[var(--card-border)] mt-auto">
+                <button
+                  onClick={() => setPreviewItem(item)}
+                  className="flex-1 btn btn-xs h-9 bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-100 dark:bg-blue-900/10 dark:text-blue-400 dark:border-blue-900/30 flex items-center justify-center gap-1.5 rounded-lg transition-colors"
+                >
+                  <FaEye size={12} /> {isRTL ? 'معاينة' : 'Preview'}
+                </button>
+                {(item.status === 'Pending' || item.status === 'Inquiry') && (
+                  <>
+                    <button
+                      onClick={() => handleApprove(item.id)}
+                      className="w-10 h-9 flex items-center justify-center bg-green-50 text-green-600 border border-green-100 hover:bg-green-100 dark:bg-green-900/10 dark:text-green-400 dark:border-green-900/30 rounded-lg transition-colors"
+                      title={isRTL ? 'موافقة' : 'Approve'}
+                    >
+                      <FaCheck size={12} />
+                    </button>
+                    <button
+                      onClick={() => handleReject(item.id)}
+                      className="w-10 h-9 flex items-center justify-center bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 dark:bg-red-900/10 dark:text-red-400 dark:border-red-900/30 rounded-lg transition-colors"
+                      title={isRTL ? 'رفض' : 'Reject'}
+                    >
+                      <FaBan size={12} />
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => handleConvertToQuotation(item)}
+                  className="w-10 h-9 flex items-center justify-center bg-purple-50 text-purple-600 border border-purple-100 hover:bg-purple-100 dark:bg-purple-900/10 dark:text-purple-400 dark:border-purple-900/30 rounded-lg transition-colors"
+                  title={isRTL ? 'تحويل إلى عرض سعر' : 'Convert to Quotation'}
+                >
+                  <FaExchangeAlt size={12} />
+                </button>
+                <button
+                  onClick={() => handleDelete(item.id)}
+                  className="w-10 h-9 flex items-center justify-center bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 dark:bg-red-900/10 dark:text-red-400 dark:border-red-900/30 rounded-lg transition-colors"
+                  title={isRTL ? 'حذف' : 'Delete'}
+                >
+                  <FaTrash size={12} />
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                className="btn btn-sm btn-ghost"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage <= 1}
-                title={isRTL ? 'السابق' : 'Prev'}
-              >
-                <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
-              </button>
-              <span className="text-sm whitespace-nowrap text-theme">
-                {isRTL
-                  ? `الصفحة ${currentPage} من ${Math.ceil(filteredItems.length / itemsPerPage)}`
-                  : `Page ${currentPage} of ${Math.ceil(filteredItems.length / itemsPerPage)}`
-                }
-              </span>
-              <button
-                className="btn btn-sm btn-ghost"
-                onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredItems.length / itemsPerPage), p + 1))}
-                disabled={currentPage >= Math.ceil(filteredItems.length / itemsPerPage)}
-                title={isRTL ? 'التالي' : 'Next'}
-              >
-                <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
-              </button>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{isRTL ? 'لكل صفحة:' : 'Per page:'}</span>
-              <select
-                className="select select-bordered select-sm w-18 text-xs py-0 px-2 h-8 min-h-0"
-                value={itemsPerPage}
-                onChange={e => setItemsPerPage(Number(e.target.value))}
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
+          ))
+        )}
+      </div>
+
+      {filteredItems.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between rounded-xl p-2 border border-gray-100 dark:border-gray-700  gap-4">
+          <div className="text-xs text-theme">
+            {isRTL
+              ? `عرض ${(currentPage - 1) * itemsPerPage + 1} إلى ${Math.min(currentPage * itemsPerPage, filteredItems.length)} من ${filteredItems.length} صنف`
+              : `Showing ${(currentPage - 1) * itemsPerPage + 1} to ${Math.min(currentPage * itemsPerPage, filteredItems.length)} of ${filteredItems.length} items`
+            }
           </div>
-        )
-      }
+          <div className="flex items-center gap-2">
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              title={isRTL ? 'السابق' : 'Prev'}
+            >
+              <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
+            </button>
+            <span className="text-sm whitespace-nowrap text-theme">
+              {isRTL
+                ? `الصفحة ${currentPage} من ${Math.ceil(filteredItems.length / itemsPerPage)}`
+                : `Page ${currentPage} of ${Math.ceil(filteredItems.length / itemsPerPage)}`
+              }
+            </span>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredItems.length / itemsPerPage), p + 1))}
+              disabled={currentPage >= Math.ceil(filteredItems.length / itemsPerPage)}
+              title={isRTL ? 'التالي' : 'Next'}
+            >
+              <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
+            </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{isRTL ? 'لكل صفحة:' : 'Per page:'}</span>
+            <select
+              className="select select-bordered select-sm w-18 text-xs py-0 px-2 h-8 min-h-0"
+              value={itemsPerPage}
+              onChange={e => setItemsPerPage(Number(e.target.value))}
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+        </div>
+      )}
 
-      {
-        showForm && (
-          <div className="fixed inset-0 z-[200]">
-            <div
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setShowForm(false)}
-            />
-            <div className="absolute inset-0 flex items-start justify-center p-4 md:p-6">
-              <div className="card w-full max-w-xl mt-10 max-h-[85vh] overflow-y-auto">
-                <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 ">
-                  <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
-                    {isRTL ? 'إضافة طلب جديد' : 'Add New Request'}
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setShowForm(false)}
-                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white text-red-600 hover:bg-red-50 shadow-md"
-                  >
-                    <FaTimes size={18} />
-                  </button>
+      {showForm && (
+        <div className="fixed inset-0 z-[200]">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowForm(false)}
+          />
+          <div className="absolute inset-0 flex items-start justify-center p-4 md:p-6">
+            <div className="card w-full max-w-xl mt-10 max-h-[85vh] overflow-y-auto">
+              <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 ">
+                <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
+                  {isRTL ? 'إضافة طلب جديد' : 'Add New Request'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center bg-white text-red-600 hover:bg-red-50 shadow-md"
+                >
+                  <FaTimes size={18} />
+                </button>
+              </div>
+              <form onSubmit={handleSubmitForm} className="p-4 space-y-4">
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {isRTL
+                      ? 'املأ الحقول التالية لإضافة طلب جديد. الحقول الأساسية مثل اسم العميل أو المنتج والكمية والسعر مطلوبة.'
+                      : 'Fill in the form below to add a new request. Required fields include customer name or product, quantity, and price.'
+                    }
+                  </p>
                 </div>
-                <form onSubmit={handleSubmitForm} className="p-4 space-y-4">
-                  <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      {isRTL
-                        ? 'املأ الحقول التالية لإضافة طلب جديد. الحقول الأساسية مثل اسم العميل أو المنتج والكمية والسعر مطلوبة.'
-                        : 'Fill in the form below to add a new request. Required fields include customer name or product, quantity, and price.'
-                      }
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'اسم العميل' : 'Customer Name'}
-                      </label>
-                      <input
-                        name="customer_name"
-                        value={formData.customer_name}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                        placeholder={isRTL ? 'اكتب اسم العميل هنا' : 'Enter customer name'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'رقم الهاتف' : 'Customer Phone'}
-                      </label>
-                      <input
-                        name="customer_phone"
-                        value={formData.customer_phone}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                        placeholder={isRTL ? '0100xxxxxxx' : 'e.g. +2010xxxxxxx'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'المنتج / البند' : 'Product / Item'}
-                      </label>
-                      <input
-                        name="product"
-                        value={formData.product}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                        placeholder={isRTL ? 'اكتب اسم المنتج أو البند' : 'Enter product or item'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'الكمية' : 'Quantity'}
-                      </label>
-                      <input
-                        type="number"
-                        name="quantity"
-                        value={formData.quantity}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                        min="1"
-                        placeholder={isRTL ? '1' : '1'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'السعر' : 'Price'}
-                      </label>
-                      <input
-                        type="number"
-                        name="price"
-                        value={formData.price}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                        min="0"
-                        placeholder={isRTL ? '0.00' : '0.00'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'الأولوية' : 'Priority'}
-                      </label>
-                      <select
-                        name="priority"
-                        value={formData.priority}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                      >
-                        <option value="Low">{isRTL ? 'منخفضة' : 'Low'}</option>
-                        <option value="Medium">{isRTL ? 'متوسطة' : 'Medium'}</option>
-                        <option value="High">{isRTL ? 'مرتفعة' : 'High'}</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'نوع الطلب' : 'Request Type'}
-                      </label>
-                      <select
-                        name="type"
-                        value={formData.type}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                      >
-                        <option value="Inquiry">{isRTL ? 'استعلام' : 'Inquiry'}</option>
-                        <option value="Booking">{isRTL ? 'حجز' : 'Booking'}</option>
-                        <option value="Maintenance">{isRTL ? 'صيانة' : 'Maintenance'}</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                        {isRTL ? 'خطة الدفع' : 'Payment Plan'}
-                      </label>
-                      <input
-                        name="payment_plan"
-                        value={formData.payment_plan}
-                        onChange={handleFormChange}
-                        className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                        placeholder={isRTL ? 'مثال: دفعة أولى، شهري' : 'e.g. Upfront, Monthly'}
-                      />
-                    </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      {isRTL ? 'اسم العميل' : 'Customer Name'}
+                    </label>
+                    <input
+                      name="customer_name"
+                      value={formData.customer_name}
+                      onChange={handleFormChange}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      placeholder={isRTL ? 'اكتب اسم العميل هنا' : 'Enter customer name'}
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                      {isRTL ? 'ملاحظات' : 'Notes'}
+                      {isRTL ? 'رقم الهاتف' : 'Customer Phone'}
                     </label>
-                    <textarea
-                      name="description"
-                      value={formData.description}
+                    <input
+                      name="customer_phone"
+                      value={formData.customer_phone}
                       onChange={handleFormChange}
-                      className="textarea w-full h-20 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
-                      placeholder={isRTL ? 'اكتب أي ملاحظات إضافية هنا' : 'Enter any additional notes here'}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      placeholder={isRTL ? '0100xxxxxxx' : 'e.g. +2010xxxxxxx'}
                     />
                   </div>
-                  <div className="flex justify-end gap-3 pt-2 border-t border-gray-100 dark:border-gray-700 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowForm(false)}
-                      className="btn btn-ghost btn-sm"
-                    >
-                      {isRTL ? 'إغلاق' : 'Close'}
-                    </button>
-                    <button
-                      type="submit"
-                      className="btn btn-sm bg-green-600 hover:bg-green-500 text-white border-none"
-                      disabled={saving}
-                    >
-                      {saving ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : (isRTL ? 'حفظ الطلب' : 'Save Request')}
-                    </button>
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      {isRTL ? 'المنتج / البند' : 'Product / Item'}
+                    </label>
+                    <input
+                      name="product"
+                      value={formData.product}
+                      onChange={handleFormChange}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      placeholder={isRTL ? 'اكتب اسم المنتج أو البند' : 'Enter product or item'}
+                    />
                   </div>
-                </form>
-              </div>
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      {isRTL ? 'الكمية' : 'Quantity'}
+                    </label>
+                    <input
+                      type="number"
+                      name="quantity"
+                      value={formData.quantity}
+                      onChange={handleFormChange}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      min="1"
+                      placeholder={isRTL ? '1' : '1'}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      {isRTL ? 'السعر' : 'Price'}
+                    </label>
+                    <input
+                      type="number"
+                      name="price"
+                      value={formData.price}
+                      onChange={handleFormChange}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      min="0"
+                      placeholder={isRTL ? '0.00' : '0.00'}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      {isRTL ? 'الأولوية' : 'Priority'}
+                    </label>
+                    <select
+                      name="priority"
+                      value={formData.priority}
+                      onChange={handleFormChange}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                    >
+                      <option value="Low">{isRTL ? 'منخفضة' : 'Low'}</option>
+                      <option value="Medium">{isRTL ? 'متوسطة' : 'Medium'}</option>
+                      <option value="High">{isRTL ? 'مرتفعة' : 'High'}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      {isRTL ? 'نوع الطلب' : 'Request Type'}
+                    </label>
+                    <select
+                      name="type"
+                      value={formData.type}
+                      onChange={handleFormChange}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                    >
+                      <option value="Inquiry">{isRTL ? 'استعلام' : 'Inquiry'}</option>
+                      <option value="Booking">{isRTL ? 'حجز' : 'Booking'}</option>
+                      <option value="Maintenance">{isRTL ? 'صيانة' : 'Maintenance'}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      {isRTL ? 'خطة الدفع' : 'Payment Plan'}
+                    </label>
+                    <input
+                      name="payment_plan"
+                      value={formData.payment_plan}
+                      onChange={handleFormChange}
+                      className="input w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                      placeholder={isRTL ? 'مثال: دفعة أولى، شهري' : 'e.g. Upfront, Monthly'}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    {isRTL ? 'ملاحظات' : 'Notes'}
+                  </label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleFormChange}
+                    className="textarea w-full h-20 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500"
+                    placeholder={isRTL ? 'اكتب أي ملاحظات إضافية هنا' : 'Enter any additional notes here'}
+                  />
+                </div>
+                <div className="flex justify-end gap-3 pt-2 border-t border-gray-100 dark:border-gray-700 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowForm(false)}
+                    className="btn btn-ghost btn-sm"
+                  >
+                    {isRTL ? 'إغلاق' : 'Close'}
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-sm bg-green-600 hover:bg-green-500 text-white border-none"
+                    disabled={saving}
+                  >
+                    {saving ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : (isRTL ? 'حفظ الطلب' : 'Save Request')}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-        )
-      }
+        </div>
+      )}
 
       <RequestsImportModal
         isOpen={showImportModal}
@@ -1590,7 +1301,7 @@ export default function RequestsPage() {
         onClose={() => setPreviewItem(null)}
         request={previewItem}
       />
-    </div >
+    </div>
   )
 }
 
