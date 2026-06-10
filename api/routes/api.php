@@ -149,6 +149,8 @@ Route::get('/p/{slug}', [\App\Http\Controllers\LandingPageController::class, 'sh
 Route::post('/p/{slug}/lead', [\App\Http\Controllers\LandingPageController::class, 'storeLead']);
 Route::post('/intake/website/{apiKey}', [\App\Http\Controllers\WebsiteIntakeController::class, 'store'])
     ->middleware('throttle:30,1');
+Route::post('/intake/website/{apiKey}/career-application', [\App\Http\Controllers\WebsiteCareerApplicationController::class, 'store'])
+    ->middleware('throttle:20,1');
 Route::get('/public/website/{tenantSlug}', [\App\Http\Controllers\PublicWebsiteContentController::class, 'show'])
     ->middleware('throttle:60,1');
 Route::post('/public/website/events', [\App\Http\Controllers\PublicWebsiteEventController::class, 'store'])
@@ -229,6 +231,13 @@ Route::middleware([ResolveTenant::class])
             Route::post('/services', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'storeService']);
             Route::put('/services/{websiteService}', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'updateService']);
             Route::delete('/services/{websiteService}', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'destroyService']);
+            Route::get('/careers/page', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'showCareerPage']);
+            Route::put('/careers/page', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'updateCareerPage']);
+            Route::get('/careers/roles', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'indexCareerRoles']);
+            Route::post('/careers/roles', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'storeCareerRole']);
+            Route::put('/careers/roles/{websiteCareerRole}', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'updateCareerRole']);
+            Route::delete('/careers/roles/{websiteCareerRole}', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'destroyCareerRole']);
+            Route::get('/careers/applications', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'indexCareerApplications']);
             Route::get('/analytics/overview', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsOverview']);
             Route::get('/analytics/pages', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsPages']);
             Route::get('/analytics/forms', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsForms']);
