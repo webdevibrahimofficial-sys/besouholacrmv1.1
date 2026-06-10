@@ -51,6 +51,30 @@ class WebsiteCmsTest extends TestCase
             ->assertJsonPath('phone', '+20 100 000 0000');
     }
 
+    public function test_system_cms_settings_accept_valid_hex_primary_color(): void
+    {
+        $this->getJson('/api/system/company-website/settings')->assertOk();
+
+        $update = $this->putJson('/api/system/company-website/settings', [
+            'primary_color' => '#9372FF',
+        ]);
+
+        $update->assertOk()
+            ->assertJsonPath('primary_color', '#9372FF');
+    }
+
+    public function test_system_cms_settings_reject_invalid_primary_color(): void
+    {
+        $this->getJson('/api/system/company-website/settings')->assertOk();
+
+        $update = $this->putJson('/api/system/company-website/settings', [
+            'primary_color' => 'purple',
+        ]);
+
+        $update->assertStatus(422)
+            ->assertJsonValidationErrors(['primary_color']);
+    }
+
     public function test_homepage_sections_bootstrap_and_update(): void
     {
         $response = $this->getJson('/api/system/company-website/homepage-sections');

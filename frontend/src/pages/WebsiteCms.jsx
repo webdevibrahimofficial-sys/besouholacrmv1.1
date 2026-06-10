@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { systemCompanyWebsiteService } from '../services/systemCompanyWebsiteService'
 import WebsiteAnalyticsPanel from '../components/website/WebsiteAnalyticsPanel'
+import WebsiteCareersPanel, { emptyRole as emptyCareerRole } from '../components/website/WebsiteCareersPanel'
 
 const defaultHeroSectionContent = {
   badge: 'AI-Powered CRM Platform',
@@ -50,7 +51,6 @@ const emptyService = {
   form_name: '',
   is_active: true,
 }
-
 export default function WebsiteCms() {
   const [activeTab, setActiveTab] = useState('settings')
   const [loading, setLoading] = useState(true)
@@ -62,6 +62,11 @@ export default function WebsiteCms() {
   const [services, setServices] = useState([])
   const [serviceForm, setServiceForm] = useState(emptyService)
   const [editingServiceId, setEditingServiceId] = useState(null)
+  const [careerPage, setCareerPage] = useState(null)
+  const [careerRoles, setCareerRoles] = useState([])
+  const [careerApplications, setCareerApplications] = useState([])
+  const [careerRoleForm, setCareerRoleForm] = useState(emptyCareerRole)
+  const [editingCareerRoleId, setEditingCareerRoleId] = useState(null)
 
   const heroSection = useMemo(
     () => sections.find((section) => section.type === 'hero'),
@@ -99,14 +104,20 @@ export default function WebsiteCms() {
     setLoading(true)
     setError('')
     try {
-      const [settingsData, sectionsData, servicesData] = await Promise.all([
+      const [settingsData, sectionsData, servicesData, careerPageData, careerRolesData, careerApplicationsData] = await Promise.all([
         systemCompanyWebsiteService.getSettings(),
         systemCompanyWebsiteService.getHomepageSections(),
         systemCompanyWebsiteService.getServices(),
+        systemCompanyWebsiteService.getCareerPage(),
+        systemCompanyWebsiteService.getCareerRoles(),
+        systemCompanyWebsiteService.getCareerApplications(),
       ])
       setSettings(settingsData)
       setSections(sectionsData)
       setServices(servicesData)
+      setCareerPage(careerPageData)
+      setCareerRoles(careerRolesData)
+      setCareerApplications(careerApplicationsData)
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || 'Failed to load website CMS.')
     } finally {
@@ -214,6 +225,85 @@ export default function WebsiteCms() {
     }
   }
 
+  const saveCareerPage = async () => {
+    setSaving(true)
+    setMessage('')
+    setError('')
+    try {
+      const updated = await systemCompanyWebsiteService.updateCareerPage({
+        content: careerPage?.content || {},
+        is_active: careerPage?.is_active !== false,
+      })
+      setCareerPage(updated)
+      setMessage('Careers page updated successfully.')
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save careers page.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveCareerRole = async () => {
+    setSaving(true)
+    setMessage('')
+    setError('')
+    try {
+      if (editingCareerRoleId) {
+        const updated = await systemCompanyWebsiteService.updateCareerRole(editingCareerRoleId, careerRoleForm)
+        setCareerRoles((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+        setMessage('Career role updated successfully.')
+      } else {
+        const created = await systemCompanyWebsiteService.createCareerRole(careerRoleForm)
+        setCareerRoles((prev) => [...prev, created])
+        setMessage('Career role created successfully.')
+      }
+
+      setCareerRoleForm(emptyCareerRole)
+      setEditingCareerRoleId(null)
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save career role.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const editCareerRole = (role) => {
+    setEditingCareerRoleId(role.id)
+    setCareerRoleForm({
+      title: role.title || '',
+      slug: role.slug || '',
+      department: role.department || '',
+      location: role.location || '',
+      work_type: role.work_type || '',
+      employment_type: role.employment_type || '',
+      experience_level: role.experience_level || '',
+      summary: role.summary || '',
+      description: role.description || '',
+      responsibilities: Array.isArray(role.responsibilities) ? role.responsibilities : [],
+      requirements: Array.isArray(role.requirements) ? role.requirements : [],
+      benefits: Array.isArray(role.benefits) ? role.benefits : [],
+      sort_order: role.sort_order || 0,
+      is_featured: role.is_featured === true,
+      is_active: role.is_active !== false,
+    })
+  }
+
+  const removeCareerRole = async (roleId) => {
+    if (!window.confirm('Delete this career role?')) return
+    setSaving(true)
+    setMessage('')
+    setError('')
+    try {
+      await systemCompanyWebsiteService.deleteCareerRole(roleId)
+      setCareerRoles((prev) => prev.filter((item) => item.id !== roleId))
+      setMessage('Career role deleted successfully.')
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to delete career role.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const editService = (service) => {
     setEditingServiceId(service.id)
     setServiceForm({
@@ -258,7 +348,7 @@ export default function WebsiteCms() {
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div> : null}
 
       <div className="flex flex-wrap gap-2">
-        {['settings', 'homepage', 'services', 'analytics'].map((tab) => (
+        {['settings', 'homepage', 'services', 'careers', 'analytics'].map((tab) => (
           <button
             key={tab}
             type="button"
@@ -275,7 +365,9 @@ export default function WebsiteCms() {
                 ? 'Homepage'
                 : tab === 'services'
                   ? 'Services'
-                  : 'Analytics'}
+                  : tab === 'careers'
+                    ? 'Careers'
+                    : 'Analytics'}
           </button>
         ))}
       </div>
@@ -532,6 +624,27 @@ export default function WebsiteCms() {
       ) : null}
 
       {activeTab === 'analytics' ? <WebsiteAnalyticsPanel /> : null}
+
+      {activeTab === 'careers' ? (
+        <WebsiteCareersPanel
+          saving={saving}
+          careerPage={careerPage}
+          setCareerPage={setCareerPage}
+          saveCareerPage={saveCareerPage}
+          careerRoles={careerRoles}
+          roleForm={careerRoleForm}
+          setRoleForm={setCareerRoleForm}
+          editingCareerRoleId={editingCareerRoleId}
+          saveCareerRole={saveCareerRole}
+          editCareerRole={editCareerRole}
+          removeCareerRole={removeCareerRole}
+          cancelCareerRoleEdit={() => {
+            setEditingCareerRoleId(null)
+            setCareerRoleForm(emptyCareerRole)
+          }}
+          careerApplications={careerApplications}
+        />
+      ) : null}
 
       {activeTab === 'services' ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
