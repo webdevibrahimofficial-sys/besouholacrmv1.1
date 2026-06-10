@@ -37,7 +37,17 @@ export const getStoredUtmParams = () => {
   }
 };
 
-export const buildLeadMeta = ({ formName, utm = {}, sessionId, device, browser, referrer }) => {
+export const buildLeadMeta = ({
+  formName,
+  service,
+  itemId,
+  itemName,
+  utm = {},
+  sessionId,
+  device,
+  browser,
+  referrer,
+}) => {
   const storedUtm = getStoredUtmParams();
 
   return {
@@ -50,5 +60,8 @@ export const buildLeadMeta = ({ formName, utm = {}, sessionId, device, browser, 
     device: device || null,
     browser: browser || null,
     referrer: referrer || null,
+    service_interest: service || null,
+    lead_item_id: itemId || null,
+    lead_item_name: itemName || service || null,
   };
 };

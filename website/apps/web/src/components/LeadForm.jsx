@@ -25,6 +25,31 @@ const defaultServiceOptions = [
   'Other',
 ];
 
+const normalizeServiceOption = (option) => {
+  if (typeof option === 'string') {
+    const value = option.trim();
+    return value ? { value, label: value, itemId: null } : null;
+  }
+
+  if (!option || typeof option !== 'object') {
+    return null;
+  }
+
+  const label = String(option.label ?? option.name ?? option.value ?? '').trim();
+  if (!label) {
+    return null;
+  }
+
+  const rawValue = option.value ?? option.id ?? label;
+  const value = String(rawValue).trim();
+
+  return {
+    value: value || label,
+    label,
+    itemId: option.itemId ?? option.id ?? null,
+  };
+};
+
 const LeadForm = ({
   formName = 'Website Lead Form',
   className,
@@ -52,6 +77,9 @@ const LeadForm = ({
   const hasTrackedView = useRef(false);
   const hasTrackedStart = useRef(false);
   const textareaRef = useRef(null);
+  const normalizedServiceOptions = serviceOptions
+    .map(normalizeServiceOption)
+    .filter(Boolean);
 
   const {
     register,
@@ -92,8 +120,12 @@ const LeadForm = ({
     setSubmitError('');
 
     try {
+      const selectedService = normalizedServiceOptions.find((option) => option.value === values.service);
+
       await submitWebsiteLead({
         ...values,
+        service: selectedService?.label || values.service,
+        itemId: selectedService?.itemId ?? null,
         formName,
       });
 
@@ -226,9 +258,9 @@ const LeadForm = ({
               <option value="" className="bg-[#12151f] text-white/70">
                 {servicePlaceholder}
               </option>
-              {serviceOptions.map((option) => (
-                <option key={option} value={option} className="bg-[#12151f] text-white">
-                  {option}
+              {normalizedServiceOptions.map((option) => (
+                <option key={`${option.value}-${option.label}`} value={option.value} className="bg-[#12151f] text-white">
+                  {option.label}
                 </option>
               ))}
             </select>

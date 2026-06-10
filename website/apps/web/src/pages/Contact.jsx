@@ -53,7 +53,7 @@ const ContactInfoBlock = ({ icon: Icon, title, lines, delay, isLink = false, hre
 );
 
 const Contact = () => {
-  const { settings } = useWebsiteContent();
+  const { settings, leadServiceOptions } = useWebsiteContent();
 
   useEffect(() => {
     if (window.location.hash === '#lead-form') {
@@ -169,7 +169,7 @@ const Contact = () => {
               <p className="text-gray-400 mb-6">
                 Complete the form below and our team will get back to you shortly.
               </p>
-              <LeadForm formName="Contact Page Form" />
+              <LeadForm formName="Contact Page Form" serviceOptions={leadServiceOptions} />
             </motion.div>
           </div>
         </div>

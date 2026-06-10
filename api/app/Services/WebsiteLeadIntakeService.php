@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Models\CrmSetting;
+use App\Models\Item;
 use App\Models\Lead;
 use App\Models\User;
 use App\Models\WebsiteIntakeLog;
 use App\Notifications\DuplicateLeadWarning;
+use App\Notifications\LeadCreated;
 use App\Notifications\LeadAssigned;
 use App\Support\PhoneNormalizer;
 use App\Traits\ResolvesNotificationRecipients;
@@ -49,6 +51,7 @@ class WebsiteLeadIntakeService
         $sourceName = $this->sourceResolver->resolveSourceNameForConnection($tenantId, $connection->default_source_id);
         $rawPhone = trim((string) ($payload['phone'] ?? ''));
         $phone = PhoneNormalizer::normalize($rawPhone);
+        $itemId = $this->resolveWebsiteItemId($tenantId, is_array($payload['meta'] ?? null) ? $payload['meta'] : []);
 
         $leadPayload = [
             'tenant_id' => $tenantId,
@@ -59,6 +62,7 @@ class WebsiteLeadIntakeService
             'source' => $sourceName,
             'campaign_id' => $this->resolveCampaignId($tenantId, $connection->default_campaign_id),
             'website_connection_id' => (int) $connection->id,
+            'item_id' => $itemId,
             'stage' => 'New Lead',
             'status' => null,
             'created_by' => null,
@@ -87,6 +91,7 @@ class WebsiteLeadIntakeService
             DB::commit();
 
             $this->notifyAfterCommit($lead, $result);
+            $this->notifyLeadCreated($lead, $result);
 
             return [
                 'lead' => $lead->fresh(['creator:id,name', 'assignedAgent:id,name']),
@@ -136,16 +141,17 @@ class WebsiteLeadIntakeService
                 $duplicateOfId = $this->resolveDuplicateRootId($original, $tenantId);
 
                 $meta = is_array($data['meta_data'] ?? null) ? ($data['meta_data'] ?? []) : [];
+                $enteredStage = trim((string) ($data['stage'] ?? ''));
+                if ($enteredStage !== '') {
+                    $meta['entered_stage'] = $enteredStage;
+                }
                 $meta['duplicate_of'] = $duplicateOfId;
-                $meta['duplicate_attempts_count'] = (int) ($meta['duplicate_attempts_count'] ?? 0) + 1;
-                $meta['duplicate_attempts'] = array_values(array_slice(array_merge(
-                    is_array($meta['duplicate_attempts'] ?? null) ? $meta['duplicate_attempts'] : [],
-                    [[
-                        'at' => now()->toIso8601String(),
-                        'channel' => 'website_intake',
-                        'phone' => $data['phone'],
-                    ]]
-                ), -10));
+                $attempt = $this->buildDuplicateAttemptMeta($data, [
+                    'phone' => $data['phone'],
+                    'duplicate_of' => $duplicateOfId,
+                    'stage' => $enteredStage,
+                ]);
+                $meta = $this->bumpDuplicateAttemptMeta($meta, $attempt);
 
                 $data['meta_data'] = $meta;
                 $data['status'] = 'duplicate';
@@ -226,6 +232,58 @@ class WebsiteLeadIntakeService
         }
     }
 
+    private function notifyLeadCreated(Lead $lead, string $result): void
+    {
+        if (!in_array($result, ['created', 'created_duplicate'], true)) {
+            return;
+        }
+
+        $leadFresh = $lead->fresh(['assignedAgent:id,name', 'creator:id,name']);
+        if (!$leadFresh) {
+            return;
+        }
+
+        $recipients = [];
+
+        if ($leadFresh->assigned_to) {
+            $assignee = User::with(['manager', 'team.leader'])->find($leadFresh->assigned_to);
+            if ($assignee) {
+                $recipients[$assignee->id] = $assignee;
+                if ($assignee->manager) {
+                    $recipients[$assignee->manager->id] = $assignee->manager;
+                }
+                $teamLeader = $assignee->team?->leader;
+                if ($teamLeader) {
+                    $recipients[$teamLeader->id] = $teamLeader;
+                }
+            }
+        } else {
+            $tenantId = (int) $leadFresh->tenant_id;
+            $admins = User::where('tenant_id', $tenantId)
+                ->whereHas('roles', function ($query) {
+                    $query->whereIn('name', ['Admin', 'Tenant Admin', 'Sales Manager', 'Branch Manager']);
+                })
+                ->get();
+
+            foreach ($admins as $admin) {
+                $recipients[$admin->id] = $admin;
+            }
+        }
+
+        if (empty($recipients)) {
+            return;
+        }
+
+        $notification = new LeadCreated($leadFresh, 'Website Intake');
+
+        foreach (array_values($recipients) as $recipient) {
+            try {
+                $recipient->notify($notification);
+            } catch (\Throwable) {
+            }
+        }
+    }
+
     private function resolveCampaignId(int $tenantId, ?int $campaignId): ?int
     {
         if (!$campaignId) {
@@ -256,8 +314,29 @@ class WebsiteLeadIntakeService
             'browser' => $existing['browser'] ?? null,
             'referrer' => $existing['referrer'] ?? null,
             'submitted_source' => $payload['source'] ?? ($existing['submitted_source'] ?? null),
+            'service_interest' => $existing['service_interest'] ?? null,
+            'lead_item_id' => $existing['lead_item_id'] ?? null,
+            'lead_item_name' => $existing['lead_item_name'] ?? null,
             'payload_meta' => $existing,
         ];
+    }
+
+    /**
+     * Resolve the selected website item if it belongs to the current tenant.
+     *
+     * @param array<string, mixed> $meta
+     */
+    private function resolveWebsiteItemId(int $tenantId, array $meta): ?int
+    {
+        $itemId = $meta['lead_item_id'] ?? null;
+        if (!is_numeric($itemId) || (int) $itemId <= 0) {
+            return null;
+        }
+
+        return Item::query()
+            ->where('tenant_id', $tenantId)
+            ->where('id', (int) $itemId)
+            ->value('id');
     }
 
     private function isOriginAllowed(?array $allowedOrigins, bool $allowAllOriginsForTesting, ?string $origin): bool
@@ -385,6 +464,58 @@ class WebsiteLeadIntakeService
             })
             ->get()
             ->all();
+    }
+
+    /**
+     * Track duplicate attempts in meta_data (non-breaking).
+     *
+     * @param array<string, mixed> $meta
+     * @param array<string, mixed> $attempt
+     * @return array<string, mixed>
+     */
+    private function bumpDuplicateAttemptMeta(array $meta, array $attempt): array
+    {
+        $count = (int) ($meta['duplicate_attempts_count'] ?? 0);
+        $count++;
+        $meta['duplicate_attempts_count'] = $count;
+        $meta['last_duplicate_at'] = now()->toDateTimeString();
+
+        $attempts = $meta['duplicate_attempts'] ?? null;
+        $attempts = is_array($attempts) ? $attempts : [];
+        if (!empty($attempt)) {
+            $attempts[] = $attempt;
+        }
+        if (count($attempts) > 20) {
+            $attempts = array_slice($attempts, -20);
+        }
+
+        $meta['duplicate_attempts'] = $attempts;
+
+        return $meta;
+    }
+
+    /**
+     * Build a duplicate attempt record for website intake.
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $meta
+     * @return array<string, mixed>
+     */
+    private function buildDuplicateAttemptMeta(array $data, array $meta = []): array
+    {
+        $metaData = is_array($data['meta_data'] ?? null) ? $data['meta_data'] : [];
+
+        return array_filter([
+            'at' => now()->toIso8601String(),
+            'context' => 'website_intake',
+            'channel' => 'website',
+            'form_name' => $metaData['form_name'] ?? null,
+            'page_url' => $metaData['page_url'] ?? null,
+            'phone' => $meta['phone'] ?? null,
+            'duplicate_of' => $meta['duplicate_of'] ?? null,
+            'entered_stage' => $meta['stage'] ?? null,
+            'source' => $data['source'] ?? null,
+        ], fn ($v) => $v !== null && $v !== '');
     }
 
     /**

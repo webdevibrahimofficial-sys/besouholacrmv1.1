@@ -10,7 +10,7 @@ import { trackCtaClick } from '@/lib/analytics';
 const statsIcons = [Users, Clock3, BarChart3, Zap];
 
 const Hero = () => {
-  const { hero } = useWebsiteContent();
+  const { hero, leadServiceOptions } = useWebsiteContent();
   const heroStats = Array.isArray(hero.stats) && hero.stats.length > 0 ? hero.stats : [];
   const heroBenefitPoints =
     Array.isArray(hero.benefit_points) && hero.benefit_points.length > 0
@@ -164,7 +164,7 @@ const Hero = () => {
               <LeadForm
                 formName="Hero Lead Form"
                 compact
-                serviceOptions={hero.service_options}
+                serviceOptions={leadServiceOptions}
                 nameLabel={hero.name_label}
                 namePlaceholder={hero.name_placeholder}
                 phoneLabel={hero.phone_label}

@@ -8,7 +8,7 @@ import { useWebsiteContent } from '@/context/WebsiteContentContext';
 const highlightIcons = [TrendingUp, Clock, Headphones];
 
 const CTA = () => {
-  const { cta } = useWebsiteContent();
+  const { cta, leadServiceOptions } = useWebsiteContent();
 
   return (
     <section id="cta" className="relative py-24 md:py-32 overflow-hidden">
@@ -52,7 +52,7 @@ const CTA = () => {
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.2 }}
           >
-            <LeadForm formName="CTA Section Form" />
+            <LeadForm formName="CTA Section Form" serviceOptions={leadServiceOptions} />
           </motion.div>
         </div>
       </div>

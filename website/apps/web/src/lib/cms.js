@@ -41,6 +41,7 @@ export const fetchWebsiteContent = async () => {
         content,
       })),
       services: defaultWebsiteContent.services,
+      items: [],
     };
   }
 };

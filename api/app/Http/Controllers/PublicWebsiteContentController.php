@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Item;
 use App\Models\Tenant;
 use App\Models\WebsiteHomepageSection;
 use App\Models\WebsiteService;
@@ -73,6 +74,18 @@ class PublicWebsiteContentController extends Controller
             ])
             ->values();
 
+        $items = Item::query()
+            ->where('tenant_id', $tenantId)
+            ->whereNotNull('name')
+            ->where('name', '!=', '')
+            ->orderBy('name')
+            ->get([
+                'id',
+                'name',
+                'code',
+            ])
+            ->values();
+
         return response()->json([
             'tenant' => [
                 'id' => $tenant->id,
@@ -94,6 +107,7 @@ class PublicWebsiteContentController extends Controller
             ],
             'sections' => $sections,
             'services' => $services,
+            'items' => $items,
         ]);
     }
 }

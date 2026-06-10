@@ -26,7 +26,15 @@ const formatValidationErrors = (errors) => {
   return messages[0] || 'Please check the form and try again.';
 };
 
-export const submitWebsiteLead = async ({ name, phone, email, message, service, formName }) => {
+export const submitWebsiteLead = async ({
+  name,
+  phone,
+  email,
+  message,
+  service,
+  itemId,
+  formName,
+}) => {
   const endpoint = getIntakeEndpoint();
   const analyticsContext = buildAnalyticsContext({ form_name: formName });
 
@@ -39,6 +47,8 @@ export const submitWebsiteLead = async ({ name, phone, email, message, service, 
     meta: buildLeadMeta({
       formName,
       service: service?.trim() || undefined,
+      itemId: itemId || undefined,
+      itemName: service?.trim() || undefined,
       sessionId: analyticsContext.session_id,
       device: analyticsContext.device,
       browser: analyticsContext.browser,
@@ -69,7 +79,7 @@ export const submitWebsiteLead = async ({ name, phone, email, message, service, 
     throw error;
   }
 
-  await trackFormSubmit(formName);
+  void trackFormSubmit(formName);
 
   return data;
 };
