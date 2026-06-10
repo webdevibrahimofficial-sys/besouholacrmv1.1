@@ -10,8 +10,29 @@ export const lazyRetry = (componentImport) => {
       window.sessionStorage.getItem('page-has-been-force-refreshed') || 'false'
     );
 
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const tryImportWithRetries = async (attempts, delayMs) => {
+      let lastError;
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          return await componentImport();
+        } catch (error) {
+          lastError = error;
+
+          const isFinalAttempt = attempt === attempts;
+          if (!isFinalAttempt) {
+            await sleep(delayMs);
+          }
+        }
+      }
+
+      throw lastError;
+    };
+
     try {
-      const component = await componentImport();
+      const component = await tryImportWithRetries(3, 350);
       window.sessionStorage.setItem('page-has-been-force-refreshed', 'false');
       return component;
     } catch (error) {
@@ -27,8 +48,8 @@ export const lazyRetry = (componentImport) => {
       
       // The page has already been reloaded
       // Assuming that user is already using the latest version of the application.
-      // Let's let the application crash and raise the error.
-      throw error;
+      // Retry a bit more to survive transient Vite/HMR timing issues before crashing.
+      return tryImportWithRetries(2, 800);
     }
   });
 };
