@@ -134,7 +134,15 @@ const LeadForm = ({
       hasTrackedStart.current = false;
       onSuccess?.();
     } catch (error) {
-      const message = error.message || 'Something went wrong. Please try again.';
+      const isMissingApiKey = error?.message === 'Website intake API key is not configured.';
+      const message = isMissingApiKey
+        ? 'Unable to send your request right now. Please contact us directly.'
+        : error?.message || 'Something went wrong. Please try again.';
+
+      if (isMissingApiKey && import.meta.env.DEV) {
+        console.error('Website intake API key is not configured.');
+      }
+
       setSubmitError(message);
       trackFormError(formName, message);
     }
@@ -179,12 +187,12 @@ const LeadForm = ({
     <form
       onSubmit={handleSubmit(onSubmit)}
       className={cn(
-        'rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 backdrop-blur-md md:p-8',
+        'overflow-visible rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-5 backdrop-blur-md sm:p-6 md:p-7',
         className
       )}
       noValidate
     >
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
         <div className="space-y-2">
           <Label htmlFor={`${formName}-name`} className="text-gray-300">
             {nameLabel}
@@ -195,7 +203,7 @@ const LeadForm = ({
               id={`${formName}-name`}
               placeholder={namePlaceholder}
               autoComplete="name"
-              className="h-14 rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60"
+              className="h-[3.25rem] rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60 md:h-14"
               {...fieldHandlers(register('name', { required: 'Name is required' }))}
             />
           </div>
@@ -213,7 +221,7 @@ const LeadForm = ({
               type="tel"
               placeholder={phonePlaceholder}
               autoComplete="tel"
-              className="h-14 rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60"
+              className="h-[3.25rem] rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60 md:h-14"
               {...fieldHandlers(register('phone', { required: 'Phone number is required' }))}
             />
           </div>
@@ -231,7 +239,7 @@ const LeadForm = ({
               type="email"
               placeholder={emailPlaceholder}
               autoComplete="email"
-              className="h-14 rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60"
+              className="h-[3.25rem] rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60 md:h-14"
               {...fieldHandlers(
                 register('email', {
                   pattern: {
@@ -252,7 +260,7 @@ const LeadForm = ({
           <div className="relative">
             <select
               id={`${formName}-service`}
-              className="h-14 w-full appearance-none rounded-2xl border border-white/10 bg-black/25 px-4 pr-12 text-white focus:border-accent-purple/50 focus:outline-none"
+              className="h-[3.25rem] w-full appearance-none rounded-2xl border border-white/10 bg-black/25 px-4 pr-12 text-white focus:border-accent-purple/50 focus:outline-none md:h-14"
               {...fieldHandlers(register('service'))}
             >
               <option value="" className="bg-[#12151f] text-white/70">
@@ -284,7 +292,7 @@ const LeadForm = ({
                   : "Tell us about your business and what you're looking for...")
               }
               rows={2}
-              className="resize-none overflow-hidden rounded-2xl border-white/10 bg-black/25 pl-11 pt-4 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60"
+              className="min-h-[112px] resize-none overflow-hidden rounded-2xl border-white/10 bg-black/25 pl-11 pt-4 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60"
               {...fieldHandlers(register('message'))}
               onInput={(event) => {
                 autoResizeTextarea(event.currentTarget);
@@ -300,8 +308,8 @@ const LeadForm = ({
         </p>
       )}
 
-      <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="inline-flex items-center gap-2 text-sm text-white/65">
+      <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="inline-flex items-start gap-2 text-sm leading-relaxed text-white/65 lg:max-w-[60%]">
           <ShieldCheck className="h-4 w-4 text-accent-purple" />
           {privacyNote}
         </div>
@@ -310,7 +318,7 @@ const LeadForm = ({
           type="submit"
           disabled={isSubmitting}
           size="lg"
-          className="w-full rounded-full bg-accent-purple text-white hover:bg-accent-purple/90 md:w-auto md:min-w-[220px]"
+          className="w-full rounded-full bg-accent-purple text-white hover:bg-accent-purple/90 lg:w-auto lg:min-w-[220px]"
         >
           {isSubmitting ? (
             <>

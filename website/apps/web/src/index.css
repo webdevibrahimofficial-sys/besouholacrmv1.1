@@ -40,13 +40,29 @@
   * {
     @apply border-border;
   }
+  html {
+    scroll-padding-top: 5.5rem;
+  }
   body, html {
     @apply bg-background text-foreground;
+  }
+}
+
+@media (pointer: fine) {
+  html,
+  body,
+  a,
+  button,
+  [role='button'] {
     cursor: none;
   }
-  
-  a, button {
-    cursor: none;
+
+  input,
+  textarea,
+  select,
+  option,
+  [contenteditable='true'] {
+    cursor: text;
   }
 }
 
@@ -93,4 +109,11 @@
   background: radial-gradient(circle, rgba(255,255,255,0.12), transparent 70%);
   filter: blur(22px);
   pointer-events: none;
+}
+
+@media (max-width: 1279px) {
+  .hero-form-shell::after {
+    inset: 16% 10% auto;
+    height: 132px;
+  }
 }

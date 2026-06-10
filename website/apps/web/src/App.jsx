@@ -3,6 +3,8 @@ import { Routes, Route, useLocation } from 'react-router-dom';
 import Layout from '@/components/Layout';
 import Home from '@/pages/Home';
 import Contact from '@/pages/Contact';
+import Career from '@/pages/Career';
+import CareerRole from '@/pages/CareerRole';
 import Project from '@/pages/Project';
 import { AnimatePresence } from 'framer-motion';
 
@@ -13,6 +15,8 @@ function App() {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<Layout />}>
           <Route index element={<Home />} />
+          <Route path="career" element={<Career />} />
+          <Route path="career/:jobSlug" element={<CareerRole />} />
           <Route path="contact" element={<Contact />} />
           <Route path="project/:projectId" element={<Project />} />
         </Route>

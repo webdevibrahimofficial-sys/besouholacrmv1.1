@@ -29,13 +29,13 @@ const Hero = () => {
   };
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
+    <section className="relative flex min-h-screen items-start justify-center overflow-visible pt-20 sm:pt-24 lg:pt-28 xl:pt-32">
       <AnimatedHeroBackground />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_32%),linear-gradient(135deg,rgba(7,8,13,0.84),rgba(7,8,13,0.97))]" />
 
-      <div className="w-full px-5 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 relative z-10 py-16">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-          <div className="max-w-2xl lg:pl-2 xl:pl-4">
+      <div className="relative z-10 mx-auto w-full max-w-[1500px] px-4 py-12 sm:px-5 sm:py-14 lg:px-6 lg:py-16 xl:px-7 xl:py-20 2xl:px-8">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.95fr)] lg:items-start lg:gap-10 xl:gap-12 2xl:gap-16">
+          <div className="max-w-2xl lg:max-w-[42rem] lg:pt-4 xl:pt-6">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
@@ -52,7 +52,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
-              className="text-4xl sm:text-5xl md:text-6xl xl:text-[4.7rem] font-bold mb-6 max-w-4xl leading-[1.04] text-white uppercase"
+              className="mb-5 max-w-[9.5ch] text-[clamp(2.8rem,12vw,4.3rem)] font-bold uppercase leading-[0.98] text-white sm:max-w-[10ch] sm:text-[clamp(3.45rem,10vw,4.85rem)] lg:max-w-4xl lg:text-[3.9rem] xl:text-[4.3rem] 2xl:text-[4.8rem]"
             >
               <span className="text-gradient">{hero.headline}</span>
               {hero.headline_accent ? (
@@ -64,7 +64,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.4 }}
-              className="text-lg md:text-xl text-gray-300 mb-8 max-w-2xl leading-[1.4]"
+              className="mb-7 max-w-2xl text-lg leading-[1.45] text-gray-300 md:text-[1.15rem]"
             >
               {hero.subtitle}
             </motion.p>
@@ -73,9 +73,9 @@ const Hero = () => {
               <motion.div
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.48 }}
-                className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8"
-              >
+              transition={{ duration: 0.8, delay: 0.48 }}
+              className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3"
+            >
                 {heroStats.map(({ value, label }, index) => {
                   const Icon = statsIcons[index % statsIcons.length];
                   return (
@@ -135,17 +135,18 @@ const Hero = () => {
           <motion.div
             initial={{ opacity: 0, x: 40 }}
             animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8, delay: 0.4 }}
-              id="hero-lead-form"
-            >
-            <div className="hero-form-shell rounded-[2rem] border border-white/12 bg-white/[0.06] p-5 shadow-[0_32px_110px_rgba(0,0,0,0.42)] backdrop-blur-2xl md:p-7">
+            transition={{ duration: 0.8, delay: 0.4 }}
+            id="hero-lead-form"
+            className="lg:sticky lg:top-28 xl:top-32"
+          >
+            <div className="hero-form-shell rounded-[2rem] border border-white/12 bg-white/[0.06] p-5 shadow-[0_32px_110px_rgba(0,0,0,0.42)] backdrop-blur-2xl md:p-6 xl:p-7">
               <div className="mb-6 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                 <div>
                   <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-emerald-200">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     {hero.form_badge || hero.primary_cta}
                   </div>
-                  <h2 className="mt-4 text-2xl font-bold text-white uppercase md:text-[2rem]">{hero.form_title}</h2>
+                  <h2 className="mt-4 text-2xl font-bold text-white uppercase md:text-[1.9rem]">{hero.form_title}</h2>
                   <p className="mt-2 max-w-md text-gray-300">{hero.form_subtitle}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-4 text-sm text-gray-200 xl:max-w-[260px]">
@@ -190,7 +191,7 @@ const Hero = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1, delay: 1 }}
-        className="absolute bottom-10 left-1/2 transform -translate-x-1/2 hidden md:block"
+        className="absolute bottom-8 left-1/2 hidden -translate-x-1/2 transform xl:block"
       >
         <motion.div
           animate={{ y: [0, 10, 0] }}
