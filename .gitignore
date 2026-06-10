@@ -34,3 +34,4 @@ api/storage/logs/
 website/dist/
 website/apps/web/vite-dev.log
 website/apps/web/vite-dev.err.log
+website/apps/web/deploy-dist/
