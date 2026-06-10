@@ -47,68 +47,13 @@ class WebsiteLeadIntakeService
             throw new HttpException(403, 'Origin is not allowed for this website connection.');
         }
 
-        $tenantId = (int) $connection->tenant_id;
-        $sourceName = $this->sourceResolver->resolveSourceNameForConnection($tenantId, $connection->default_source_id);
-        $rawPhone = trim((string) ($payload['phone'] ?? ''));
-        $phone = PhoneNormalizer::normalize($rawPhone);
-        $itemId = $this->resolveWebsiteItemId($tenantId, is_array($payload['meta'] ?? null) ? $payload['meta'] : []);
+        $processed = $this->processResolvedConnection($connection, $payload, $request);
 
-        $leadPayload = [
-            'tenant_id' => $tenantId,
-            'name' => trim((string) ($payload['name'] ?? '')),
-            'phone' => $phone,
-            'email' => filled($payload['email'] ?? null) ? trim((string) $payload['email']) : null,
-            'notes' => filled($payload['message'] ?? null) ? trim((string) $payload['message']) : null,
-            'source' => $sourceName,
-            'campaign_id' => $this->resolveCampaignId($tenantId, $connection->default_campaign_id),
-            'website_connection_id' => (int) $connection->id,
-            'item_id' => $itemId,
-            'stage' => 'New Lead',
-            'status' => null,
-            'created_by' => null,
-            'meta_data' => $this->buildMetaData($connection, $payload),
+        return [
+            'lead' => $processed['lead']->fresh(['creator:id,name', 'assignedAgent:id,name']),
+            'status' => $processed['status'],
+            'log_id' => $processed['log']?->id,
         ];
-
-        $result = null;
-        $boundTenant = app()->bound('current_tenant_id');
-        $previousTenantId = $boundTenant ? app('current_tenant_id') : null;
-
-        try {
-            app()->instance('current_tenant_id', $tenantId);
-
-            DB::beginTransaction();
-
-            [$lead, $result] = $this->createOrUpdateLead($tenantId, $leadPayload, $rawPhone);
-
-            $connection->forceFill([
-                'last_used_at' => now(),
-                'requests_count' => (int) $connection->requests_count + 1,
-            ])->save();
-
-            $logStatus = in_array($result, ['created_duplicate', 'updated_duplicate'], true) ? 'duplicate' : 'success';
-            $log = $this->logIntake($tenantId, (int) $connection->id, $logStatus, $payload, null, $request, (int) $lead->id);
-
-            DB::commit();
-
-            $this->notifyAfterCommit($lead, $result);
-            $this->notifyLeadCreated($lead, $result);
-
-            return [
-                'lead' => $lead->fresh(['creator:id,name', 'assignedAgent:id,name']),
-                'status' => $result,
-                'log_id' => $log?->id,
-            ];
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            $this->logIntake($tenantId, (int) $connection->id, 'exception', $payload, $e->getMessage(), $request);
-            throw $e;
-        } finally {
-            if ($boundTenant) {
-                app()->instance('current_tenant_id', $previousTenantId);
-            } else {
-                app()->forgetInstance('current_tenant_id');
-            }
-        }
     }
 
     private function createOrUpdateLead(int $tenantId, array $data, string $rawPhone): array
@@ -533,10 +478,39 @@ class WebsiteLeadIntakeService
             throw new HttpException(422, 'Website connection is inactive.');
         }
 
-        $tenantId = (int) $connection->tenant_id;
+        $payload = $this->buildTestPayload();
 
-        // Build test payload
-        $payload = [
+        $result = null;
+
+        try {
+            $processed = $this->processResolvedConnection($connection, $payload, $request, [
+                'dispatch_notifications' => false,
+            ]);
+            $lead = $processed['lead'];
+            $result = $processed['status'];
+            $log = $processed['log'];
+
+            return [
+                'success' => true,
+                'message' => 'Test lead created successfully',
+                'lead_id' => $lead->id,
+                'log_id' => $log?->id,
+                'source' => $processed['source_name'],
+                'campaign_id' => $connection->default_campaign_id,
+                'status' => $result,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'status' => 'exception',
+            ];
+        }
+    }
+
+    private function buildTestPayload(): array
+    {
+        return [
             'name' => 'Website Test Lead',
             'phone' => '01000000000',
             'email' => 'test@example.com',
@@ -548,29 +522,20 @@ class WebsiteLeadIntakeService
                 'submitted_from' => 'crm_test_connection',
             ],
         ];
+    }
 
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $options
+     * @return array{lead: Lead, status: string, log: WebsiteIntakeLog|null, source_name: string}
+     */
+    private function processResolvedConnection($connection, array $payload, Request $request, array $options = []): array
+    {
+        $dispatchNotifications = $options['dispatch_notifications'] ?? true;
+        $tenantId = (int) $connection->tenant_id;
         $sourceName = $this->sourceResolver->resolveSourceNameForConnection($tenantId, $connection->default_source_id);
         $rawPhone = trim((string) ($payload['phone'] ?? ''));
-        $phone = PhoneNormalizer::normalize($rawPhone);
-
-        $leadPayload = [
-            'tenant_id' => $tenantId,
-            'name' => trim((string) ($payload['name'] ?? '')),
-            'phone' => $phone,
-            'email' => filled($payload['email'] ?? null) ? trim((string) $payload['email']) : null,
-            'notes' => filled($payload['message'] ?? null) ? trim((string) $payload['message']) : null,
-            'source' => $sourceName,
-            'campaign_id' => $this->resolveCampaignId($tenantId, $connection->default_campaign_id),
-            'website_connection_id' => (int) $connection->id,
-            'stage' => 'New Lead',
-            'status' => null,
-            'created_by' => null,
-            'meta_data' => $this->buildMetaData($connection, $payload),
-        ];
-
-        // Add test flag to metadata
-        $leadPayload['meta_data']['is_test'] = true;
-        $leadPayload['meta_data']['submitted_from'] = 'crm_test_connection';
+        $leadPayload = $this->buildLeadPayload($connection, $payload, $sourceName, $rawPhone);
 
         $result = null;
         $boundTenant = app()->bound('current_tenant_id');
@@ -593,24 +558,21 @@ class WebsiteLeadIntakeService
 
             DB::commit();
 
+            if ($dispatchNotifications) {
+                $this->notifyAfterCommit($lead, $result);
+                $this->notifyLeadCreated($lead, $result);
+            }
+
             return [
-                'success' => true,
-                'message' => 'Test lead created successfully',
-                'lead_id' => $lead->id,
-                'log_id' => $log?->id,
-                'source' => $sourceName,
-                'campaign_id' => $connection->default_campaign_id,
+                'lead' => $lead,
                 'status' => $result,
+                'log' => $log,
+                'source_name' => $sourceName,
             ];
         } catch (\Throwable $e) {
             DB::rollBack();
             $this->logIntake($tenantId, (int) $connection->id, 'exception', $payload, $e->getMessage(), $request);
-
-            return [
-                'success' => false,
-                'message' => $e->getMessage(),
-                'status' => 'exception',
-            ];
+            throw $e;
         } finally {
             if ($boundTenant) {
                 app()->instance('current_tenant_id', $previousTenantId);
@@ -618,5 +580,38 @@ class WebsiteLeadIntakeService
                 app()->forgetInstance('current_tenant_id');
             }
         }
+    }
+
+    private function buildLeadPayload($connection, array $payload, string $sourceName, string $rawPhone): array
+    {
+        $tenantId = (int) $connection->tenant_id;
+        $phone = PhoneNormalizer::normalize($rawPhone);
+        $meta = is_array($payload['meta'] ?? null) ? $payload['meta'] : [];
+        $itemId = $this->resolveWebsiteItemId($tenantId, $meta);
+        $metaData = $this->buildMetaData($connection, $payload);
+
+        if (($meta['is_test'] ?? false) === true) {
+            $metaData['is_test'] = true;
+        }
+
+        if (filled($meta['submitted_from'] ?? null)) {
+            $metaData['submitted_from'] = trim((string) $meta['submitted_from']);
+        }
+
+        return [
+            'tenant_id' => $tenantId,
+            'name' => trim((string) ($payload['name'] ?? '')),
+            'phone' => $phone,
+            'email' => filled($payload['email'] ?? null) ? trim((string) $payload['email']) : null,
+            'notes' => filled($payload['message'] ?? null) ? trim((string) $payload['message']) : null,
+            'source' => $sourceName,
+            'campaign_id' => $this->resolveCampaignId($tenantId, $connection->default_campaign_id),
+            'website_connection_id' => (int) $connection->id,
+            'item_id' => $itemId,
+            'stage' => 'New Lead',
+            'status' => null,
+            'created_by' => null,
+            'meta_data' => $metaData,
+        ];
     }
 }

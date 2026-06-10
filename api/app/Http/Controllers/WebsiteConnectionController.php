@@ -12,6 +12,7 @@ use App\Services\WebsiteSourceResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class WebsiteConnectionController extends Controller
@@ -104,6 +105,8 @@ class WebsiteConnectionController extends Controller
     {
         $tenantId = (int) $request->user()->tenant_id;
         $connection = $this->resolveTenantConnection($request, $websiteConnection);
+        $recentWindowStart = now()->subDays(29)->startOfDay();
+        $topAnalyticsWindowStart = now()->subDays(30)->startOfDay();
 
         $baseQuery = Lead::query()
             ->where('tenant_id', $tenantId)
@@ -122,18 +125,17 @@ class WebsiteConnectionController extends Controller
             ->where('tenant_id', $tenantId)
             ->where('website_connection_id', $connection->id);
 
-        $acceptedRequests = (clone $logsBaseQuery)
-            ->whereIn('status', $acceptedStatuses)
-            ->count();
-        $rejectedRequests = (clone $logsBaseQuery)
-            ->whereNotIn('status', $acceptedStatuses)
-            ->count();
-        $duplicateCount = (clone $logsBaseQuery)
-            ->where('status', 'duplicate')
-            ->count();
-        $blockedOriginsCount = (clone $logsBaseQuery)
-            ->where('status', 'blocked_origin')
-            ->count();
+        $statusCounts = (clone $logsBaseQuery)
+            ->selectRaw('status, COUNT(*) as aggregate_count')
+            ->groupBy('status')
+            ->pluck('aggregate_count', 'status');
+
+        $totalRequests = (int) $statusCounts->sum();
+        $acceptedRequests = (int) collect($acceptedStatuses)
+            ->sum(fn (string $status) => (int) ($statusCounts[$status] ?? 0));
+        $rejectedRequests = max(0, $totalRequests - $acceptedRequests);
+        $duplicateCount = (int) ($statusCounts['duplicate'] ?? 0);
+        $blockedOriginsCount = (int) ($statusCounts['blocked_origin'] ?? 0);
 
         $lastSuccessfulAttempt = (clone $logsBaseQuery)
             ->whereIn('status', $acceptedStatuses)
@@ -147,10 +149,14 @@ class WebsiteConnectionController extends Controller
             ->first();
 
         $analyticsLogs = (clone $logsBaseQuery)
+            ->whereIn('status', $acceptedStatuses)
+            ->where('created_at', '>=', $topAnalyticsWindowStart)
+            ->latest('created_at')
+            ->limit(5000)
             ->get(['status', 'origin', 'payload', 'created_at']);
 
         $dailyLeads = (clone $baseQuery)
-            ->where('created_at', '>=', now()->subDays(30))
+            ->where('created_at', '>=', $topAnalyticsWindowStart)
             ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
             ->groupBy('date')
             ->orderBy('date')
@@ -162,42 +168,58 @@ class WebsiteConnectionController extends Controller
             ->orderByDesc('count')
             ->get();
 
-        $totalRequests = $analyticsLogs->count();
-        $acceptedLogs = $analyticsLogs->whereIn('status', $acceptedStatuses)->values();
-        $recentLogs = $analyticsLogs->where('created_at', '>=', now()->subDays(29))->values();
-
         $topPages = $this->summarizeTopValues(
-            $acceptedLogs,
+            $analyticsLogs,
             fn (WebsiteIntakeLog $log) => $this->extractPageUrl($log)
         );
 
         $topForms = $this->summarizeTopValues(
-            $acceptedLogs,
+            $analyticsLogs,
             fn (WebsiteIntakeLog $log) => $this->extractFormName($log)
         );
 
-        $topOrigins = $this->summarizeTopValues(
-            $acceptedLogs,
-            fn (WebsiteIntakeLog $log) => $this->normalizeAnalyticsValue($log->origin)
-        );
+        $topOrigins = (clone $logsBaseQuery)
+            ->whereIn('status', $acceptedStatuses)
+            ->where('created_at', '>=', $topAnalyticsWindowStart)
+            ->whereNotNull('origin')
+            ->where('origin', '!=', '')
+            ->selectRaw('origin as label, COUNT(*) as count')
+            ->groupBy('origin')
+            ->orderByDesc('count')
+            ->limit(5)
+            ->get()
+            ->map(fn ($row) => [
+                'label' => (string) $row->label,
+                'count' => (int) $row->count,
+            ])
+            ->values()
+            ->all();
+
+        $leadsOverTimeRows = (clone $logsBaseQuery)
+            ->where('created_at', '>=', $recentWindowStart)
+            ->selectRaw(
+                "DATE(created_at) as date,
+                SUM(CASE WHEN status IN ('success', 'duplicate') THEN 1 ELSE 0 END) as accepted,
+                SUM(CASE WHEN status = 'duplicate' THEN 1 ELSE 0 END) as duplicates,
+                SUM(CASE WHEN status NOT IN ('success', 'duplicate') THEN 1 ELSE 0 END) as rejected,
+                COUNT(*) as total"
+            )
+            ->groupBy(DB::raw('DATE(created_at)'))
+            ->orderBy(DB::raw('DATE(created_at)'))
+            ->get()
+            ->keyBy('date');
 
         $leadsOverTime = collect(range(0, 29))
-            ->map(function (int $offset) use ($recentLogs, $acceptedStatuses): array {
-                $date = now()->subDays(29 - $offset)->toDateString();
-                $logsForDate = $recentLogs->filter(
-                    fn (WebsiteIntakeLog $log) => optional($log->created_at)?->toDateString() === $date
-                );
-
-                $acceptedForDate = $logsForDate->whereIn('status', $acceptedStatuses)->count();
-                $duplicatesForDate = $logsForDate->where('status', 'duplicate')->count();
-                $rejectedForDate = $logsForDate->whereNotIn('status', $acceptedStatuses)->count();
+            ->map(function (int $offset) use ($leadsOverTimeRows, $recentWindowStart): array {
+                $date = $recentWindowStart->copy()->addDays($offset)->toDateString();
+                $row = $leadsOverTimeRows->get($date);
 
                 return [
                     'date' => $date,
-                    'accepted' => $acceptedForDate,
-                    'duplicates' => $duplicatesForDate,
-                    'rejected' => $rejectedForDate,
-                    'total' => $logsForDate->count(),
+                    'accepted' => (int) ($row->accepted ?? 0),
+                    'duplicates' => (int) ($row->duplicates ?? 0),
+                    'rejected' => (int) ($row->rejected ?? 0),
+                    'total' => (int) ($row->total ?? 0),
                 ];
             })
             ->values();

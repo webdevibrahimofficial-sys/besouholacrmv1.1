@@ -439,6 +439,52 @@ class WebsiteIntegrationTest extends TestCase
         $this->assertNotEmpty($stats->json('leads_over_time'));
     }
 
+    public function test_stats_endpoint_limits_top_analytics_processing_to_recent_window(): void
+    {
+        $create = $this->postJson('/api/website-connections', [
+            'name' => 'Recent Stats Website',
+            'allow_all_origins_for_testing' => true,
+            'is_active' => true,
+        ])->assertCreated();
+
+        $connectionId = (int) $create->json('connection.id');
+        $apiKey = (string) $create->json('api_key');
+
+        $this->withHeader('Origin', 'https://recent.example.com')
+            ->postJson("/api/intake/website/{$apiKey}", [
+                'name' => 'Recent Lead',
+                'phone' => '01001112222',
+                'meta' => [
+                    'form_name' => 'Recent Form',
+                    'page_url' => 'https://recent.example.com/landing',
+                ],
+            ])->assertCreated();
+
+        WebsiteIntakeLog::withoutGlobalScopes()->create([
+            'tenant_id' => $this->tenant->id,
+            'website_connection_id' => $connectionId,
+            'status' => 'success',
+            'payload' => [
+                'meta' => [
+                    'form_name' => 'Old Form',
+                    'page_url' => 'https://old.example.com/landing',
+                ],
+            ],
+            'origin' => 'https://old.example.com',
+            'created_at' => now()->subDays(45),
+        ]);
+
+        $this->flushHeaders();
+        $stats = $this->getJson("/api/website-connections/{$connectionId}/stats");
+
+        $stats->assertOk()
+            ->assertJsonPath('total_requests', 2)
+            ->assertJsonPath('accepted_requests', 2)
+            ->assertJsonPath('top_pages.0.label', 'https://recent.example.com/landing')
+            ->assertJsonPath('top_forms.0.label', 'Recent Form')
+            ->assertJsonPath('top_origins.0.label', 'https://recent.example.com');
+    }
+
     public function test_test_endpoint_creates_test_lead_for_current_tenant(): void
     {
         $campaign = Campaign::create([
