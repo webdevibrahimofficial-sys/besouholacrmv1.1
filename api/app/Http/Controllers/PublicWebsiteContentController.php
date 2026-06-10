@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Item;
 use App\Models\Tenant;
+use App\Models\WebsiteCareerPage;
+use App\Models\WebsiteCareerRole;
 use App\Models\WebsiteHomepageSection;
 use App\Models\WebsiteService;
 use App\Models\WebsiteSetting;
@@ -86,6 +88,34 @@ class PublicWebsiteContentController extends Controller
             ])
             ->values();
 
+        $careerPage = WebsiteCareerPage::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->first();
+
+        $careerRoles = WebsiteCareerRole::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get([
+                'id',
+                'slug',
+                'title',
+                'department',
+                'location',
+                'work_type',
+                'employment_type',
+                'experience_level',
+                'summary',
+                'description',
+                'responsibilities',
+                'requirements',
+                'benefits',
+                'is_featured',
+            ])
+            ->values();
+
         return response()->json([
             'tenant' => [
                 'id' => $tenant->id,
@@ -108,6 +138,12 @@ class PublicWebsiteContentController extends Controller
             'sections' => $sections,
             'services' => $services,
             'items' => $items,
+            'careers' => [
+                'page' => $careerPage ? [
+                    'content' => $careerPage->content ?? [],
+                ] : null,
+                'roles' => $careerRoles,
+            ],
         ]);
     }
 }
