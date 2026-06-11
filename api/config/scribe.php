@@ -9,6 +9,20 @@ use function Knuckles\Scribe\Config\removeStrategies;
 
 // Only the most common configs are shown. See the https://scribe.knuckles.wtf/laravel/reference/config for all.
 
+if (! class_exists(\Knuckles\Scribe\Config\AuthIn::class)
+    || ! class_exists(\Knuckles\Scribe\Config\Defaults::class)
+    || ! class_exists(\Knuckles\Scribe\Extracting\Strategies\StaticData::class)) {
+    return [
+        'type' => 'laravel',
+        'laravel' => [
+            'add_routes' => false,
+            'docs_url' => '/docs',
+            'assets_directory' => null,
+            'middleware' => [],
+        ],
+    ];
+}
+
 return [
     // The HTML <title> for the generated documentation.
     'title' => config('app.name').' API Documentation',

@@ -187,14 +187,16 @@ const LeadForm = ({
     <form
       onSubmit={handleSubmit(onSubmit)}
       className={cn(
-        'overflow-visible rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-5 backdrop-blur-md sm:p-6 md:p-7',
+        compact
+          ? 'overflow-visible rounded-[1.35rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-4 backdrop-blur-md sm:p-5'
+          : 'overflow-visible rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-5 backdrop-blur-md sm:p-6 md:p-7',
         className
       )}
       noValidate
     >
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
+      <div className={cn('grid grid-cols-1 md:grid-cols-2', compact ? 'gap-3.5 md:gap-4' : 'gap-4 md:gap-5')}>
         <div className="space-y-2">
-          <Label htmlFor={`${formName}-name`} className="text-gray-300">
+          <Label htmlFor={`${formName}-name`} className={cn('text-gray-300', compact && 'text-[0.92rem]')}>
             {nameLabel}
           </Label>
           <div className="relative">
@@ -203,7 +205,10 @@ const LeadForm = ({
               id={`${formName}-name`}
               placeholder={namePlaceholder}
               autoComplete="name"
-              className="h-[3.25rem] rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60 md:h-14"
+              className={cn(
+                'rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60',
+                compact ? 'h-[3rem] text-[0.95rem]' : 'h-[3.25rem] md:h-14'
+              )}
               {...fieldHandlers(register('name', { required: 'Name is required' }))}
             />
           </div>
@@ -211,7 +216,7 @@ const LeadForm = ({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor={`${formName}-phone`} className="text-gray-300">
+          <Label htmlFor={`${formName}-phone`} className={cn('text-gray-300', compact && 'text-[0.92rem]')}>
             {phoneLabel}
           </Label>
           <div className="relative">
@@ -221,7 +226,10 @@ const LeadForm = ({
               type="tel"
               placeholder={phonePlaceholder}
               autoComplete="tel"
-              className="h-[3.25rem] rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60 md:h-14"
+              className={cn(
+                'rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60',
+                compact ? 'h-[3rem] text-[0.95rem]' : 'h-[3.25rem] md:h-14'
+              )}
               {...fieldHandlers(register('phone', { required: 'Phone number is required' }))}
             />
           </div>
@@ -229,7 +237,7 @@ const LeadForm = ({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor={`${formName}-email`} className="text-gray-300">
+          <Label htmlFor={`${formName}-email`} className={cn('text-gray-300', compact && 'text-[0.92rem]')}>
             {emailLabel}
           </Label>
           <div className="relative">
@@ -239,7 +247,10 @@ const LeadForm = ({
               type="email"
               placeholder={emailPlaceholder}
               autoComplete="email"
-              className="h-[3.25rem] rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60 md:h-14"
+              className={cn(
+                'rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60',
+                compact ? 'h-[3rem] text-[0.95rem]' : 'h-[3.25rem] md:h-14'
+              )}
               {...fieldHandlers(
                 register('email', {
                   pattern: {
@@ -254,13 +265,16 @@ const LeadForm = ({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor={`${formName}-service`} className="text-gray-300">
+          <Label htmlFor={`${formName}-service`} className={cn('text-gray-300', compact && 'text-[0.92rem]')}>
             {serviceLabel}
           </Label>
           <div className="relative">
             <select
               id={`${formName}-service`}
-              className="h-[3.25rem] w-full appearance-none rounded-2xl border border-white/10 bg-black/25 px-4 pr-12 text-white focus:border-accent-purple/50 focus:outline-none md:h-14"
+              className={cn(
+                'w-full appearance-none rounded-2xl border border-white/10 bg-black/25 px-4 pr-12 text-white focus:border-accent-purple/50 focus:outline-none',
+                compact ? 'h-[3rem] text-[0.95rem]' : 'h-[3.25rem] md:h-14'
+              )}
               {...fieldHandlers(register('service'))}
             >
               <option value="" className="bg-[#12151f] text-white/70">
@@ -277,7 +291,7 @@ const LeadForm = ({
         </div>
 
         <div className="space-y-2 md:col-span-2">
-          <Label htmlFor={`${formName}-message`} className="text-gray-300">
+          <Label htmlFor={`${formName}-message`} className={cn('text-gray-300', compact && 'text-[0.92rem]')}>
             {messageLabel || (compact ? 'Notes' : 'How can we help?')}
           </Label>
           <div className="relative">
@@ -292,7 +306,10 @@ const LeadForm = ({
                   : "Tell us about your business and what you're looking for...")
               }
               rows={2}
-              className="min-h-[112px] resize-none overflow-hidden rounded-2xl border-white/10 bg-black/25 pl-11 pt-4 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60"
+              className={cn(
+                'resize-none overflow-hidden rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60',
+                compact ? 'min-h-[96px] pt-3.5 text-[0.95rem]' : 'min-h-[112px] pt-4'
+              )}
               {...fieldHandlers(register('message'))}
               onInput={(event) => {
                 autoResizeTextarea(event.currentTarget);
@@ -308,8 +325,8 @@ const LeadForm = ({
         </p>
       )}
 
-      <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="inline-flex items-start gap-2 text-sm leading-relaxed text-white/65 lg:max-w-[60%]">
+      <div className={cn('flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between', compact ? 'mt-5' : 'mt-6')}>
+        <div className={cn('inline-flex items-start gap-2 leading-relaxed text-white/65 lg:max-w-[60%]', compact ? 'text-[0.85rem]' : 'text-sm')}>
           <ShieldCheck className="h-4 w-4 text-accent-purple" />
           {privacyNote}
         </div>
@@ -318,7 +335,10 @@ const LeadForm = ({
           type="submit"
           disabled={isSubmitting}
           size="lg"
-          className="w-full rounded-full bg-accent-purple text-white hover:bg-accent-purple/90 lg:w-auto lg:min-w-[220px]"
+          className={cn(
+            'w-full rounded-full bg-accent-purple text-white hover:bg-accent-purple/90 lg:w-auto',
+            compact ? 'h-11 px-5 text-sm lg:min-w-[190px]' : 'lg:min-w-[220px]'
+          )}
         >
           {isSubmitting ? (
             <>

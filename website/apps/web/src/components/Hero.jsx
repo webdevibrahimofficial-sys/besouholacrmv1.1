@@ -33,17 +33,17 @@ const Hero = () => {
       <AnimatedHeroBackground />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_32%),linear-gradient(135deg,rgba(7,8,13,0.84),rgba(7,8,13,0.97))]" />
 
-      <div className="relative z-10 mx-auto w-full max-w-[1500px] px-4 py-12 sm:px-5 sm:py-14 lg:px-6 lg:py-16 xl:px-7 xl:py-20 2xl:px-8">
-        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.95fr)] lg:items-start lg:gap-10 xl:gap-12 2xl:gap-16">
-          <div className="max-w-2xl lg:max-w-[42rem] lg:pt-4 xl:pt-6">
+      <div className="relative z-10 mx-auto w-full max-w-[1450px] px-4 py-10 sm:px-5 sm:py-12 lg:px-6 lg:py-14 xl:px-7 xl:py-16 2xl:px-8">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.88fr)] lg:items-start lg:gap-8 xl:gap-10 2xl:gap-12">
+          <div className="max-w-2xl lg:max-w-[38rem] lg:pt-2 xl:pt-4">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}
-              className="inline-flex items-center gap-2 rounded-full border border-accent-purple/20 bg-accent-purple/10 px-4 py-2 mb-4 shadow-[0_10px_40px_rgba(147,114,255,0.14)]"
+              className="mb-4 inline-flex items-center gap-2 rounded-full border border-accent-purple/20 bg-accent-purple/10 px-3.5 py-1.5 shadow-[0_10px_40px_rgba(147,114,255,0.14)]"
             >
               <Sparkles className="w-4 h-4 text-accent-purple" />
-              <span className="text-sm text-[#c5b8ff] uppercase tracking-widest">
+              <span className="text-[0.72rem] text-[#c5b8ff] uppercase tracking-[0.28em]">
                 {hero.badge}
               </span>
             </motion.div>
@@ -52,7 +52,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
-              className="mb-5 max-w-[9.5ch] text-[clamp(2.8rem,12vw,4.3rem)] font-bold uppercase leading-[0.98] text-white sm:max-w-[10ch] sm:text-[clamp(3.45rem,10vw,4.85rem)] lg:max-w-4xl lg:text-[3.9rem] xl:text-[4.3rem] 2xl:text-[4.8rem]"
+              className="mb-4 max-w-[9.5ch] text-[clamp(2.55rem,11vw,3.9rem)] font-bold uppercase leading-[0.98] text-white sm:max-w-[10ch] sm:text-[clamp(3rem,9vw,4.2rem)] lg:max-w-4xl lg:text-[3.45rem] xl:text-[3.8rem] 2xl:text-[4.15rem]"
             >
               <span className="text-gradient">{hero.headline}</span>
               {hero.headline_accent ? (
@@ -64,7 +64,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.4 }}
-              className="mb-7 max-w-2xl text-lg leading-[1.45] text-gray-300 md:text-[1.15rem]"
+              className="mb-6 max-w-xl text-[1rem] leading-[1.55] text-gray-300 md:text-[1.05rem]"
             >
               {hero.subtitle}
             </motion.p>
@@ -74,19 +74,19 @@ const Hero = () => {
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.48 }}
-              className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3"
+              className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3"
             >
                 {heroStats.map(({ value, label }, index) => {
                   const Icon = statsIcons[index % statsIcons.length];
                   return (
                     <div
                       key={`${label}-${value}-${index}`}
-                      className="rounded-2xl border border-white/10 bg-white/6 px-4 py-4 backdrop-blur-md"
+                      className="rounded-2xl border border-white/10 bg-white/6 px-4 py-3.5 backdrop-blur-md"
                     >
                       <div className="flex items-center gap-2 text-accent-purple">
                         <Icon className="h-4 w-4" />
                       </div>
-                      <div className="mt-3 text-3xl font-bold text-white">{value}</div>
+                      <div className="mt-2.5 text-[1.7rem] font-bold text-white">{value}</div>
                       <div className="mt-1 text-sm text-gray-400">{label}</div>
                     </div>
                   );
@@ -98,7 +98,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6 }}
-              className="flex flex-col sm:flex-row gap-4"
+              className="flex flex-col gap-4 sm:flex-row"
             >
               <Button
                 onClick={() => {
@@ -107,7 +107,7 @@ const Hero = () => {
                 }}
                 size="lg"
                 variant="outline"
-                className="border-2 border-accent-purple/40 hover:bg-accent-purple/10 text-white px-8 py-6 text-lg rounded-full shadow-[0_10px_24px_rgba(0,0,0,0.18)]"
+                className="rounded-full border-2 border-accent-purple/40 px-6 py-4 text-base text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)] hover:bg-accent-purple/10"
               >
                 {hero.secondary_cta}
                 <ArrowRight className="ml-2 h-5 w-5" />
@@ -118,12 +118,12 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.68 }}
-              className="mt-8 grid gap-3 sm:grid-cols-3"
+              className="mt-7 grid gap-3 sm:grid-cols-3"
             >
               {heroBenefitPoints.map((point) => (
                 <div
                   key={point}
-                  className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-gray-200"
+                  className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-gray-200"
                 >
                   <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-300" />
                   <span>{point}</span>
@@ -137,19 +137,19 @@ const Hero = () => {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8, delay: 0.4 }}
             id="hero-lead-form"
-            className="lg:sticky lg:top-28 xl:top-32"
+            className="lg:sticky lg:top-24 xl:top-28"
           >
-            <div className="hero-form-shell rounded-[2rem] border border-white/12 bg-white/[0.06] p-5 shadow-[0_32px_110px_rgba(0,0,0,0.42)] backdrop-blur-2xl md:p-6 xl:p-7">
-              <div className="mb-6 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="hero-form-shell rounded-[1.75rem] border border-white/12 bg-white/[0.06] p-4 shadow-[0_26px_90px_rgba(0,0,0,0.4)] backdrop-blur-2xl md:p-5 xl:p-6">
+              <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-emerald-200">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[0.68rem] font-medium uppercase tracking-[0.18em] text-emerald-200">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     {hero.form_badge || hero.primary_cta}
                   </div>
-                  <h2 className="mt-4 text-2xl font-bold text-white uppercase md:text-[1.9rem]">{hero.form_title}</h2>
-                  <p className="mt-2 max-w-md text-gray-300">{hero.form_subtitle}</p>
+                  <h2 className="mt-3 text-[1.9rem] font-bold uppercase leading-[1.05] text-white md:text-[1.7rem]">{hero.form_title}</h2>
+                  <p className="mt-2 max-w-md text-[0.98rem] text-gray-300">{hero.form_subtitle}</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-4 text-sm text-gray-200 xl:max-w-[260px]">
+                <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3.5 text-sm text-gray-200 xl:max-w-[235px]">
                   <div className="text-xs uppercase tracking-[0.18em] text-white/45">
                     {hero.form_side_title || 'Why teams choose us'}
                   </div>

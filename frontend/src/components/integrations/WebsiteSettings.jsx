@@ -76,6 +76,15 @@ export default function WebsiteSettings({ onClose }) {
     date_to: '',
   })
   const [revealedKey, setRevealedKey] = useState(null)
+  const selectedConnectionApiKey = useMemo(() => {
+    if (!revealedKey?.apiKey || !revealedKey?.connection?.id || !selectedConnection?.id) {
+      return null
+    }
+
+    return String(revealedKey.connection.id) === String(selectedConnection.id)
+      ? revealedKey.apiKey
+      : null
+  }, [revealedKey, selectedConnection])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -482,7 +491,7 @@ export default function WebsiteSettings({ onClose }) {
               {mode === 'snippet' ? (
                 <WebsiteSnippet
                   connection={selectedConnection}
-                  apiKey={revealedKey?.connection?.id === selectedConnection?.id ? revealedKey.apiKey : null}
+                  apiKey={selectedConnectionApiKey}
                   onClose={() => setMode('list')}
                   onCopy={(value) => handleCopy(value, t('Template copied.'))}
                 />
@@ -494,7 +503,7 @@ export default function WebsiteSettings({ onClose }) {
                   selectedConnection={selectedConnection}
                   stats={stats}
                   loading={statsLoading}
-                  apiKey={revealedKey?.connection?.id === selectedConnection?.id ? revealedKey.apiKey : null}
+                  apiKey={selectedConnectionApiKey}
                   onSelectConnection={(connectionId) => {
                     const nextConnection = connections.find((item) => String(item.id) === String(connectionId)) || null
                     openGuide(nextConnection)
