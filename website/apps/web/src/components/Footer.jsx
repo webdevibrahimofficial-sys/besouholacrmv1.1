@@ -10,6 +10,21 @@ const Footer = () => {
     const href = e.currentTarget.getAttribute('href');
     const [path, id] = href.split('#');
 
+    if (path && path !== '/' && path !== '') {
+      navigate(path);
+      if (id) {
+        setTimeout(() => {
+          const targetElement = document.getElementById(id);
+          if (targetElement) {
+            targetElement.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 100);
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      return;
+    }
+
     if (path === '/' || path === '') {
       navigate('/');
       setTimeout(() => {
@@ -49,7 +64,7 @@ const Footer = () => {
       links: [
         { name: 'Help Center', href: '#' },
         { name: 'Security', href: '#' },
-        { name: 'Privacy Policy', href: '#' },
+        { name: 'Privacy Policy', href: '/privacy' },
         { name: 'Terms of Service', href: '#' }
       ]
     },

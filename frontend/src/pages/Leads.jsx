@@ -1908,7 +1908,7 @@ if (!s) {
       case 'high': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
       case 'medium': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
       case 'low': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-      default: return `bg-gray-900 ${isLight ? 'text-black' : 'text-white'}`
+      default: return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
     }
   }
 
@@ -4187,8 +4187,8 @@ if (!s) {
                 onClick={handleExportRange}
                 className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none flex items-center gap-1"
               >
-                <FaDownload size={12} />
-                {t('Export')}
+                <FaDownload size={12} className="text-white" />
+                <span className="text-white">{t('Export')}</span>
               </button>
             </div>
           </div>

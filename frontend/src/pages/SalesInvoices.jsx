@@ -1372,8 +1372,10 @@ export default function SalesInvoices() {
                   : 'bg-blue-600 hover:bg-blue-700'
               }`}
             >
-              <FaDownload size={12} />
-              {(selectedItems.length > 0 || (exportFrom && exportTo && exportCount > 0)) ? `${isRTL ? 'تصدير المحدد' : 'Export Selected'} (${exportCount})` : t('Export')}
+              <FaDownload size={12} className="text-white" />
+              <span className="text-white">
+                {(selectedItems.length > 0 || (exportFrom && exportTo && exportCount > 0)) ? `${isRTL ? 'تصدير المحدد' : 'Export Selected'} (${exportCount})` : t('Export')}
+              </span>
             </button>
           </div>
         </div>

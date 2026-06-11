@@ -356,6 +356,7 @@ class UserController extends Controller
             'allowed_sources.*' => 'nullable|string|max:100',
             'allowed_projects' => 'nullable|array',
             'allowed_projects.*' => 'nullable|string|max:150',
+            'notification_settings' => 'nullable|json',
         ]);
         
         if ($request->hasFile('avatar')) {
@@ -370,6 +371,12 @@ class UserController extends Controller
         $validated = $this->filterExistingUserColumns($validated);
         
         $user = User::create($validated);
+
+        if ($request->filled('notification_settings')) {
+            $user->notification_settings = json_decode((string) $request->input('notification_settings'), true) ?: null;
+            $user->save();
+        }
+
         $this->syncScopeFilters($request, $user);
         
         if ($request->has('role')) {
@@ -470,6 +477,7 @@ class UserController extends Controller
             'allowed_sources.*' => 'nullable|string|max:100',
             'allowed_projects' => 'nullable|array',
             'allowed_projects.*' => 'nullable|string|max:150',
+            'notification_settings' => 'nullable|json',
         ]);
 
         if (array_key_exists('password', $validated) && $this->isPrimaryAdmin($user)) {
@@ -494,6 +502,14 @@ class UserController extends Controller
         $validated = $this->filterExistingUserColumns($validated);
         
         $user->update($validated);
+
+        if ($request->exists('notification_settings')) {
+            $user->notification_settings = $request->filled('notification_settings')
+                ? (json_decode((string) $request->input('notification_settings'), true) ?: null)
+                : null;
+            $user->save();
+        }
+
         $this->syncScopeFilters($request, $user);
 
         if ($previousStatus === 'Active' && $newStatus === 'Inactive') {

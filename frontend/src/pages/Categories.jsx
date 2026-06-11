@@ -39,7 +39,7 @@ export default function Categories() {
   )
 
   const labels = useMemo(() => ({
-    title: isArabic ? ' التصنيفات' : ' Categories',
+    title: isArabic ? 'التصنيفات' : 'Categories',
     formTitle: isArabic ? 'بيانات التصنيف' : 'Category Details',
     add: isArabic ? 'إضافة تصنيف' : 'Add Category',
     close: isArabic ? 'إغلاق' : 'Close',
@@ -64,6 +64,7 @@ export default function Categories() {
     product: isArabic ? 'منتج' : 'Product',
     service: isArabic ? 'خدمة' : 'Service',
     subscription: isArabic ? 'اشتراك' : 'Subscription',
+    package: isArabic ? 'باقة' : 'Package',
     brandName: isArabic ? 'اسم العلامة التجارية' : 'Brand Name',
     productName: isArabic ? 'اسم المنتج' : 'Product Name',
     itemName: isArabic ? 'اسم الصنف' : 'Item Name',
@@ -77,9 +78,12 @@ export default function Categories() {
     scope: isArabic ? 'النطاق' : 'Category Scope',
   }), [isArabic])
 
-  const appliesToOptions = useMemo(() => (
-    [ 'Product', 'Service', 'Subscription', 'Package']
-  ), [])
+  const appliesToOptions = useMemo(() => ([
+    { value: 'Product', label: labels.product },
+    { value: 'Service', label: labels.service },
+    { value: 'Subscription', label: labels.subscription },
+    { value: 'Package', label: labels.package },
+  ]), [labels.product, labels.service, labels.subscription, labels.package])
 
   const [form, setForm] = useState({
     id: null,
@@ -256,8 +260,31 @@ export default function Categories() {
     try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch (e) { void e }
   }
 
-  const appliesToFilterOptions = useMemo(() => [ 'Product', 'Service', 'Subscription', 'Package'], [])
-  const statusFilterOptions = useMemo(() => [ 'Active', 'Inactive'], [])
+  const appliesToFilterOptions = useMemo(() => ([
+    { value: 'Product', label: labels.product },
+    { value: 'Service', label: labels.service },
+    { value: 'Subscription', label: labels.subscription },
+    { value: 'Package', label: labels.package },
+  ]), [labels.product, labels.service, labels.subscription, labels.package])
+  const statusFilterOptions = useMemo(() => ([
+    { value: 'Active', label: labels.active },
+    { value: 'Inactive', label: labels.inactive },
+  ]), [labels.active, labels.inactive])
+
+  const getAppliesToLabel = (value) => {
+    switch (value) {
+      case 'Product':
+        return labels.product
+      case 'Service':
+        return labels.service
+      case 'Subscription':
+        return labels.subscription
+      case 'Package':
+        return labels.package
+      default:
+        return value || '-'
+    }
+  }
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -270,8 +297,8 @@ export default function Categories() {
         const q = filters.search.toLowerCase()
         if (!c.name.toLowerCase().includes(q) && !(c.description || '').toLowerCase().includes(q) && !(c.code || '').toLowerCase().includes(q)) return false
       }
-      if (filters.appliesTo && filters.appliesTo !== 'All' && c.appliesTo !== filters.appliesTo) return false
-      if (filters.status && filters.status !== 'All' && c.status !== filters.status) return false
+      if (filters.appliesTo && c.appliesTo !== filters.appliesTo) return false
+      if (filters.status && c.status !== filters.status) return false
       
       return true
     })
@@ -437,14 +464,19 @@ export default function Categories() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)]">{labels.appliesTo}</label>
-                <SearchableSelect options={appliesToFilterOptions} value={filters.appliesTo} onChange={val=>setFilters(prev=>({...prev, appliesTo: val}))} isRTL={isArabic} />
+                <SearchableSelect
+                  options={appliesToFilterOptions}
+                  value={filters.appliesTo}
+                  onChange={val => setFilters(prev => ({ ...prev, appliesTo: val }))}
+                  isRTL={isArabic}
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)]">{labels.status}</label>
                 <SearchableSelect 
                   options={statusFilterOptions} 
-                  value={filters.status || 'All'} 
-                  onChange={val => setFilters(prev => ({ ...prev, status: val === 'All' ? '' : val }))} 
+                  value={filters.status} 
+                  onChange={val => setFilters(prev => ({ ...prev, status: val }))} 
                   isRTL={isArabic} 
                 />
               </div>
@@ -475,7 +507,7 @@ export default function Categories() {
                   <div className="space-y-2 text-sm  dark:text-white mb-4">
                     <div className="flex justify-between border-b border-gray-100 dark:border-white/10 pb-2">
                       <span className=" dark:text-white">{labels.appliesTo}:</span>
-                      <span className="font-medium dark:text-white">{c.appliesTo}</span>
+                      <span className="font-medium dark:text-white">{getAppliesToLabel(c.appliesTo)}</span>
                     </div>
                     <div className="flex justify-between border-b border-gray-100 dark:border-white/10 pb-2">
                       <span className=" dark:text-white">{itemsCountLabel}:</span>
@@ -522,7 +554,7 @@ export default function Categories() {
                     <tr key={c.id} className=" hover:bg-gray-700/50 transition-colors group">
                       <td className="px-3 text-xs font-mono text-[var(--muted-text)]">{c.code || '-'}</td>
                       <td className="px-3"><span className="font-medium">{c.name}</span></td>
-                      <td className="px-3">{c.appliesTo}</td>
+                      <td className="px-3">{getAppliesToLabel(c.appliesTo)}</td>
                       <td className="px-3">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${c.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 '}`}>
                           {c.status === 'Active' ? labels.active : labels.inactive}
@@ -597,7 +629,13 @@ export default function Categories() {
                 
                 <div className="form-control">
                   <label className="label text-sm font-medium mb-1">{labels.appliesTo}</label>
-                  <SearchableSelect options={appliesToOptions} value={form.appliesTo} onChange={val => setForm(prev => ({...prev, appliesTo: val}))} isRTL={isArabic} />
+                  <SearchableSelect
+                    options={appliesToOptions}
+                    value={form.appliesTo}
+                    onChange={val => setForm(prev => ({ ...prev, appliesTo: val }))}
+                    isRTL={isArabic}
+                    showAllOption={false}
+                  />
                 </div>
 
                 <div className="form-control">

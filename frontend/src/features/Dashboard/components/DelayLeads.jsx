@@ -31,7 +31,7 @@ const renderStageBadge = (stage) => {
 
 import { useStages } from '@hooks/useStages';
 
-export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmployeeName, stageFilter }) => {
+export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmployeeName, stageFilter, onCountChange }) => {
   const { t, i18n } = useTranslation();
   const { theme, resolvedTheme } = useTheme();
   const isLight = (resolvedTheme || theme) === 'light';
@@ -509,6 +509,10 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
     });
   }, [delayLeads, selectedFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    onCountChange?.(filteredLeads.length);
+  }, [filteredLeads.length, onCountChange]);
   
   // Determine if we need to show scrollbar (when leads > 5)
   const FIXED_LIST_HEIGHT_CLASS = 'h-[420px]';

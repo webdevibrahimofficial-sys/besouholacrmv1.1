@@ -16,6 +16,7 @@ import {
 
 const formatPermissionLabel = (label) => {
   if (!label) return '';
+  if (label === 'checkInOutApprovals') return 'Check In & Out Approvals';
   const withSpaces = label.replace(/([A-Z])/g, ' $1').trim();
   return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
 };
@@ -54,6 +55,32 @@ const isSalesPersonRole = (role) => {
 const isAdminRole = (role) => {
   const r = normalizeRoleValue(role);
   return r === 'admin' || r === 'tenant admin' || r === 'super admin';
+};
+
+const getRoleFilteredPermissions = (group, perms, role) => {
+  const list = Array.isArray(perms) ? perms : [];
+
+  if (!isSalesPersonRole(role)) {
+    return list;
+  }
+
+  if (group === 'Leads') {
+    const hiddenLeadPerms = new Set(['viewDuplicateLeads', 'actOnDuplicateLeads']);
+    return list.filter(perm => !hiddenLeadPerms.has(perm));
+  }
+
+  if (group === 'Inventory') {
+    const hiddenInventoryPerms = new Set([
+      'addProject',
+      'exportProject',
+      'revertSoldProperty',
+      'deleteInventory',
+      'addDeveloper',
+    ]);
+    return list.filter(perm => !hiddenInventoryPerms.has(perm));
+  }
+
+  return list;
 };
 
 const ARABIC_DIGIT_MAP = {
@@ -108,7 +135,7 @@ const buildSelectAllPermissions = (filterInventoryPermsByTenantType) => {
 };
 
 export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { crmSettings, company } = useAppState()
   const isArabic = i18n.language === 'ar'
   const navigate = useNavigate();
@@ -177,6 +204,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     notifSms:
       user?.notifSms ??
       (typeof user?.notif_sms !== 'undefined' ? user.notif_sms : false),
+    notifApp:
+      user?.notifApp ??
+      user?.notification_settings?.app ??
+      true,
     monthlyTarget: user?.monthly_target || '',
     quarterlyTarget: user?.quarterly_target || '',
     yearlyTarget: user?.yearly_target || '',
@@ -369,7 +400,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage'],
         Customers: ['convertFromLead', 'addCustomer', 'showModule'],
         Support: ['showModule'],
-        Control: ['addRegions','addArea','addSource','userManagement','allowActionOnTeam','assignLeads','showReports','addDepartment']
+        Control: ['addRegions','addArea','addSource','userManagement','allowActionOnTeam','assignLeads','checkInOutApprovals','showReports','addDepartment']
       })
     } else if (form.role === 'Operation Manager') {
       setCustomPerms({
@@ -378,7 +409,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Marketing: [],
         Customers: ['editInfo','showModule'],
         Support: ['showModule','addTickets','sla','reports'],
-        Control: ['allowActionOnTeam','showReports','addDepartment']
+        Control: ['allowActionOnTeam','checkInOutApprovals','showReports','addDepartment']
       })
     } else if (form.role === 'Branch Manager') {
       setCustomPerms({
@@ -386,7 +417,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Inventory: ['addCategory','addItems'],
         Customers: ['addCustomer','editInfo','showModule'],
         Support: ['showModule'],
-        Control: ['allowActionOnTeam','assignLeads','showReports']
+        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Director') {
       setCustomPerms({
@@ -395,19 +426,19 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage','integration'],
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
         Support: ['showModule'],
-        Control: ['userManagement','assignLeads','exportLeads','showReports','multiAction','salesComment']
+        Control: ['userManagement','assignLeads','checkInOutApprovals','exportLeads','showReports','multiAction','salesComment']
       })
     } else if (form.role === 'Sales Manager') {
       setCustomPerms({
         Leads: ['addLead','importLeads','editInfo','addAction'],
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
-        Control: ['assignLeads','showReports']
+        Control: ['assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Team Leader') {
       setCustomPerms({
         Leads: ['addLead','importLeads','addAction'],
         Customers: ['editInfo','showModule'],
-        Control: ['allowActionOnTeam','assignLeads','showReports']
+        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Sales Person') {
       setCustomPerms({
@@ -663,6 +694,11 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       formData.append('role', form.role || '');
       formData.append('notif_email', form.notifEmail ? 1 : 0);
       formData.append('notif_sms', form.notifSms ? 1 : 0);
+      formData.append('notification_settings', JSON.stringify({
+        email: !!form.notifEmail,
+        sms: !!form.notifSms,
+        app: !!form.notifApp,
+      }));
       formData.append('monthly_target', normalizeNumericInput(form.monthlyTarget) || '');
       formData.append('quarterly_target', normalizeNumericInput(form.quarterlyTarget) || '');
       formData.append('yearly_target', normalizeNumericInput(form.yearlyTarget) || '');
@@ -683,7 +719,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
       Object.entries(customPerms || {}).forEach(([group, perms]) => {
         const baseAllowed = group === 'Reports' ? null : (PERMISSIONS[group] || []);
-        const allowed = (group === 'Inventory' && baseAllowed) ? filterInventoryPermsByTenantType(baseAllowed) : baseAllowed;
+        const roleFilteredAllowed = baseAllowed ? getRoleFilteredPermissions(group, baseAllowed, form.role) : baseAllowed;
+        const allowed = (group === 'Inventory' && roleFilteredAllowed)
+          ? filterInventoryPermsByTenantType(roleFilteredAllowed)
+          : roleFilteredAllowed;
         (perms || []).forEach((perm) => {
           if (allowed && !allowed.includes(perm)) return;
           if (isSalesPersonRole(form.role) && group === 'Leads' && perm === 'addAction') return;
@@ -1249,7 +1288,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         return ['Customers', 'Inventory'].includes(group);
                       }
                       if (form.role === 'Sales Person') {
-                        return !['Marketing', 'Control'].includes(group);
+                        return !['Marketing', 'Control', 'ContractCollections'].includes(group);
                       }
                       if (['Support Manager', 'Support Team Leader', 'Support Agent'].includes(form.role)) {
                         return ['Customers', 'Support'].includes(group);
@@ -1259,9 +1298,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     .map(([group, perms]) => {
                     const groupPerms = customPerms[group] || [];
                     const lockedPerms = (isSalesPersonRole(form.role) && group === 'Leads') ? ['addAction'] : [];
-                    const uiPerms = (isSalesPersonRole(form.role) && group === 'Leads')
+                    const baseUiPerms = (isSalesPersonRole(form.role) && group === 'Leads')
                       ? perms.filter(p => p !== 'addAction')
                       : perms;
+                    const uiPerms = getRoleFilteredPermissions(group, baseUiPerms, form.role);
                     const tenantUiPerms = group === 'Inventory' ? filterInventoryPermsByTenantType(uiPerms) : uiPerms;
                     const visibleGroupPerms = group === 'Reports' ? groupPerms : groupPerms.filter(p => tenantUiPerms.includes(p));
                     const allSelected = tenantUiPerms.length > 0 && tenantUiPerms.every(p => visibleGroupPerms.includes(p));
@@ -1427,6 +1467,12 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     <label className="label cursor-pointer justify-start gap-4">
                       <input type="checkbox" className="toggle toggle-primary" checked={form.notifSms} onChange={(e)=>updateField('notifSms', e.target.checked)} />
                       <span className="label-text font-medium">SMS Notifications</span>
+                    </label>
+                  </div>
+                  <div className="form-control">
+                    <label className="label cursor-pointer justify-start gap-4">
+                      <input type="checkbox" className="toggle toggle-primary" checked={form.notifApp} onChange={(e)=>updateField('notifApp', e.target.checked)} />
+                      <span className="label-text font-medium">{t('App Notifications')}</span>
                     </label>
                   </div>
                 </div>

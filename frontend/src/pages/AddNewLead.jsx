@@ -21,7 +21,7 @@ export const AddNewLead = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isRTL = String(i18n.language || '').startsWith('ar');
-  const { validatePhone } = usePhoneValidation();
+  const { validatePhone, COUNTRY_CODES } = usePhoneValidation();
 
   const [name, setName] = useState('');
   const [source, setSource] = useState('');
@@ -258,12 +258,51 @@ export const AddNewLead = () => {
     );
   };
 
+  const splitPhoneInput = (value, currentCode = '') => {
+    const raw = String(value || '');
+    const trimmed = raw.trim();
+
+    if (!trimmed.startsWith('+') && !trimmed.startsWith('00')) {
+      return {
+        code: currentCode,
+        number: raw,
+      };
+    }
+
+    const normalized = trimmed.startsWith('00') ? `+${trimmed.slice(2)}` : trimmed;
+    const matchedCode = [...COUNTRY_CODES]
+      .sort((a, b) => b.dialCode.length - a.dialCode.length)
+      .find((country) => normalized.startsWith(country.dialCode));
+
+    if (!matchedCode) {
+      return {
+        code: currentCode,
+        number: raw,
+      };
+    }
+
+    return {
+      code: matchedCode.dialCode,
+      number: normalized.slice(matchedCode.dialCode.length),
+    };
+  };
+
   const updateExtraLeadNumber = (idx, nIdx, field, value) => {
     setExtraLeads((prev) =>
       prev.map((l, i) => {
         if (i !== idx) return l;
         const arr = l.mobileNumbers || [{ code: '', number: '' }];
-        const updated = arr.map((n, j) => (j === nIdx ? { ...n, [field]: value } : n));
+        const updated = arr.map((n, j) => {
+          if (j !== nIdx) return n;
+          if (field !== 'number') return { ...n, [field]: value };
+
+          const parsed = splitPhoneInput(value, n?.code || '');
+          return {
+            ...n,
+            code: parsed.code,
+            number: parsed.number,
+          };
+        });
         return { ...l, mobileNumbers: updated };
       })
     );
@@ -300,7 +339,17 @@ export const AddNewLead = () => {
 
   const updateMobileNumber = (idx, field, value) => {
     setMobileNumbers(prev => {
-      const next = prev.map((n, i) => (i === idx ? { ...n, [field]: value } : n));
+      const next = prev.map((n, i) => {
+        if (i !== idx) return n;
+        if (field !== 'number') return { ...n, [field]: value };
+
+        const parsed = splitPhoneInput(value, n?.code || '');
+        return {
+          ...n,
+          code: parsed.code,
+          number: parsed.number,
+        };
+      });
       // validate current index
       const current = next[idx] || { code: '', number: '' };
       const check = validatePhone(current.code, current.number);

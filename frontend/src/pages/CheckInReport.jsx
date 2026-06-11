@@ -21,13 +21,17 @@ export default function CheckInReport() {
   const isRTL = i18n.language === 'ar' || i18n.dir() === 'rtl'
   const { user, crmSettings } = useAppState()
   const canExport = canExportReport(user, 'Check In Report')
+  const modulePermissions = user?.meta_data?.module_permissions || {}
+  const controlModulePerms = Array.isArray(modulePermissions.Control) ? modulePermissions.Control : []
 
-  const isAdminOrManager = useMemo(() => {
+  const canApproveCheckInOut = useMemo(() => {
     if (!user) return false;
     if (user.is_super_admin) return true;
-    const role = (user.role || '').toLowerCase();
-    return ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager', 'sales manager', 'branch manager'].includes(role);
-  }, [user]);
+    const role = String(user.role || '').toLowerCase();
+    if (['admin', 'tenant admin', 'tenant-admin'].includes(role)) return true;
+    if (controlModulePerms.includes('checkInOutApprovals')) return true;
+    return ['director', 'operation manager', 'branch manager', 'sales admin', 'sales manager', 'team leader'].includes(role);
+  }, [user, controlModulePerms]);
 
   const [data, setData] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -556,8 +560,8 @@ export default function CheckInReport() {
               </div>
 
               {(() => {
-                const canSubmit = item.salesPersonId === user?.id && item.status === 'pending'
-                const canModerate = isAdminOrManager && item.salesPersonId !== user?.id && item.status !== 'accepted' && item.status !== 'rejected'
+                const canSubmit = item.salesPersonId === user?.id && item.status === 'pending' && !canApproveCheckInOut
+                const canModerate = canApproveCheckInOut && item.status !== 'accepted' && item.status !== 'rejected'
                 return (
                   <>
                     {canSubmit && (
@@ -708,8 +712,8 @@ export default function CheckInReport() {
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <div className="flex items-center justify-center gap-2">
                       {(() => {
-                        const canSubmit = item.salesPersonId === user?.id && item.status === 'pending'
-                        const canModerate = isAdminOrManager && item.salesPersonId !== user?.id && item.status !== 'accepted' && item.status !== 'rejected'
+                        const canSubmit = item.salesPersonId === user?.id && item.status === 'pending' && !canApproveCheckInOut
+                        const canModerate = canApproveCheckInOut && item.status !== 'accepted' && item.status !== 'rejected'
 
                         if (!canSubmit && !canModerate) {
                           return <span className="text-xs text-[var(--muted-text)]">—</span>

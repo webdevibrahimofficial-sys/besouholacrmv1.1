@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { FaTimes, FaPaperclip, FaBuilding, FaRegIdCard, FaPhoneAlt, FaEnvelope, FaMapMarkerAlt, FaFileAlt, FaUserTie, FaClock } from 'react-icons/fa'
 import BrokerCheckInButton from './BrokerCheckInButton'
 import { api } from '../../utils/api'
+import { useTheme } from '../../shared/context/ThemeProvider'
 
 export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, broker = null, onCheckInSuccess = () => {}, onEdit = null, onBrokerUpdated = null }) {
+  const { resolvedTheme } = useTheme()
   const [visits, setVisits] = useState([])
   const [loading, setLoading] = useState(false)
   const [localBroker, setLocalBroker] = useState(broker)
@@ -14,6 +16,7 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
     (typeof document !== 'undefined' && document.documentElement?.lang) ||
     (typeof navigator !== 'undefined' && navigator.language) ||
     'en-US'
+  const isLight = resolvedTheme === 'light'
 
   useEffect(() => {
     if (!isOpen || !broker) return
@@ -38,9 +41,9 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
   if (!isOpen || !broker) return null
 
   const formatDateTime = (value) => {
-    if (!value) return '—'
+    if (!value) return '-'
     const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '—'
+    if (Number.isNaN(date.getTime())) return '-'
     return new Intl.DateTimeFormat(locale, {
       year: 'numeric',
       month: 'short',
@@ -51,18 +54,13 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
   }
 
   const formatDuration = (value) => {
-    if (value === null || value === undefined || value === '') return '—'
+    if (value === null || value === undefined || value === '') return '-'
     const totalMinutes = Math.max(0, Math.round(Number(value)))
-    if (!Number.isFinite(totalMinutes)) return '—'
-    if (totalMinutes < 60) {
-      return `${totalMinutes} min`
-    }
+    if (!Number.isFinite(totalMinutes)) return '-'
+    if (totalMinutes < 60) return `${totalMinutes} min`
     const hours = Math.floor(totalMinutes / 60)
     const minutes = totalMinutes % 60
-    if (minutes === 0) {
-      return `${hours}h`
-    }
-    return `${hours}h ${minutes}m`
+    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`
   }
 
   const contactPhones = Array.isArray(broker.phones)
@@ -95,8 +93,50 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
         : broker.brokerType
 
   const statusToneClass = String(broker?.status || '').toLowerCase() === 'active'
-    ? 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30'
-    : 'bg-slate-500/15 text-slate-300 ring-slate-400/30'
+    ? isLight
+      ? 'bg-emerald-100 text-emerald-700 ring-emerald-200'
+      : 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30'
+    : isLight
+      ? 'bg-slate-100 text-slate-700 ring-slate-200'
+      : 'bg-slate-500/15 text-slate-300 ring-slate-400/30'
+
+  const overlayClass = isLight ? 'bg-slate-900/20 backdrop-blur-sm' : 'bg-black/80 backdrop-blur-sm'
+  const modalClass = isLight
+    ? 'card w-full max-w-5xl max-h-[92vh] overflow-y-auto bg-white text-slate-900 shadow-2xl ring-1 ring-slate-200 backdrop-blur-xl'
+    : 'card w-full max-w-5xl max-h-[92vh] overflow-y-auto bg-[#0f1b46]/95 text-white shadow-2xl ring-1 ring-blue-400/30 backdrop-blur-xl'
+  const headerClass = isLight
+    ? 'sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-5 sm:px-8'
+    : 'sticky top-0 z-10 border-b border-white/10 bg-[#0f1b46]/95 px-5 py-5 sm:px-8'
+  const statCardClass = isLight
+    ? 'rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200'
+    : 'rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10'
+  const sectionCardClass = isLight
+    ? 'rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
+    : 'rounded-3xl border border-white/15 bg-white/5 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+  const sectionCardAltClass = isLight
+    ? 'rounded-3xl border border-slate-200 bg-slate-50 p-5'
+    : 'rounded-3xl border border-white/15 bg-white/5 p-5'
+  const panelTextClass = isLight ? 'text-slate-700' : 'text-slate-300'
+  const panelSubTextClass = isLight ? 'text-slate-500' : 'text-slate-400'
+  const panelValueClass = isLight ? 'text-slate-900' : 'text-slate-100'
+  const phoneLinkClass = isLight
+    ? 'flex items-start gap-3 text-slate-900 transition-colors hover:text-sky-700'
+    : 'flex items-start gap-3 text-slate-100 transition-colors hover:text-sky-300'
+  const chipClass = isLight
+    ? 'inline-flex items-center rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white ring-1 ring-slate-900/20'
+    : 'inline-flex items-center rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-slate-200 ring-1 ring-slate-700'
+  const editButtonClass = isLight
+    ? 'rounded-full border border-slate-200 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800'
+    : 'rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-sky-700 shadow-sm transition hover:bg-sky-50'
+  const closeButtonClass = isLight
+    ? 'flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-red-600 shadow-md transition hover:bg-red-50'
+    : 'flex h-11 w-11 items-center justify-center rounded-full bg-white text-red-600 shadow-md transition hover:bg-red-50'
+  const labelPillClass = isLight
+    ? 'inline-flex rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-sky-700 ring-1 ring-sky-200'
+    : 'inline-flex rounded-full bg-sky-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200 ring-1 ring-sky-400/25'
+  const contractedPillClass = isLight
+    ? 'inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200'
+    : 'inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-400/20'
 
   const taxAttachmentUrl =
     localBroker?.taxAttachment?.dataUrl ||
@@ -127,8 +167,8 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
         <div className="space-y-3 text-sm">
           {broker.email && (
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 text-sky-300"><FaEnvelope /></span>
-              <span className="break-all text-slate-100">{broker.email}</span>
+              <span className={`mt-0.5 ${isLight ? 'text-sky-600' : 'text-sky-300'}`}><FaEnvelope /></span>
+              <span className={`break-all ${panelValueClass}`}>{broker.email}</span>
             </div>
           )}
           {contactPhones.length > 0 && (
@@ -137,9 +177,9 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
                 <a
                   key={idx}
                   href={`tel:${phone}`}
-                  className="flex items-start gap-3 text-slate-100 hover:text-sky-300 transition-colors"
+                  className={phoneLinkClass}
                 >
-                  <span className="mt-0.5 text-sky-300"><FaPhoneAlt /></span>
+                  <span className={`mt-0.5 ${isLight ? 'text-sky-600' : 'text-sky-300'}`}><FaPhoneAlt /></span>
                   <span dir="ltr">{phone}</span>
                 </a>
               ))}
@@ -147,12 +187,12 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
           )}
           {broker.address && (
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 text-sky-300"><FaMapMarkerAlt /></span>
-              <span className="text-slate-200">{broker.address}</span>
+              <span className={`mt-0.5 ${isLight ? 'text-sky-600' : 'text-sky-300'}`}><FaMapMarkerAlt /></span>
+              <span className={panelTextClass}>{broker.address}</span>
             </div>
           )}
           {!broker.email && contactPhones.length === 0 && !broker.address && (
-            <div className="text-sm text-slate-400">No contact info available.</div>
+            <div className={`text-sm ${panelSubTextClass}`}>No contact info available.</div>
           )}
         </div>
       )
@@ -165,24 +205,24 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
         <div className="space-y-3 text-sm">
           {broker.agencyName && (
             <div>
-              <div className="text-xs uppercase tracking-wide text-slate-400">Agency</div>
-              <div className="mt-1 font-medium text-slate-100">{broker.agencyName}</div>
+              <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Agency</div>
+              <div className={`mt-1 font-medium ${panelValueClass}`}>{broker.agencyName}</div>
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="text-xs uppercase tracking-wide text-slate-400">Status</div>
-              <div className="mt-1 text-slate-100">{broker.status || '-'}</div>
+              <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Status</div>
+              <div className={`mt-1 ${panelValueClass}`}>{broker.status || '-'}</div>
             </div>
             <div>
-              <div className="text-xs uppercase tracking-wide text-slate-400">Contract</div>
-              <div className="mt-1 text-slate-100">{isContracted ? 'Contracted' : 'Not Contracted'}</div>
+              <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Contract</div>
+              <div className={`mt-1 ${panelValueClass}`}>{isContracted ? 'Contracted' : 'Not Contracted'}</div>
             </div>
           </div>
           {broker.commissionRate != null && broker.commissionRate !== '' && (
             <div>
-              <div className="text-xs uppercase tracking-wide text-slate-400">Commission</div>
-              <div className="mt-1 font-medium text-slate-100">{broker.commissionRate}%</div>
+              <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Commission</div>
+              <div className={`mt-1 font-medium ${panelValueClass}`}>{broker.commissionRate}%</div>
             </div>
           )}
         </div>
@@ -195,13 +235,13 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
       content: Array.isArray(broker.salesPersons) && broker.salesPersons.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {broker.salesPersons.map((sp, idx) => (
-            <span key={idx} className="inline-flex items-center rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-slate-200 ring-1 ring-slate-700">
+            <span key={idx} className={chipClass}>
               {sp}
             </span>
           ))}
         </div>
       ) : (
-        <div className="text-sm text-slate-400">Unassigned</div>
+        <div className={`text-sm ${panelSubTextClass}`}>Unassigned</div>
       )
     },
     {
@@ -211,22 +251,22 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
       content: (
         <div className="space-y-3 text-sm">
           <div>
-            <div className="text-xs uppercase tracking-wide text-slate-400">Tax ID</div>
+            <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Tax ID</div>
             <div className="mt-1 flex items-center gap-2">
-              <span className="text-slate-100">{String(broker.taxId || broker.tax_id || '').trim() || '—'}</span>
+              <span className={panelValueClass}>{String(broker.taxId || broker.tax_id || '').trim() || '-'}</span>
               {taxAttachmentUrl && (
-                <a href={taxAttachmentUrl} download={broker.taxAttachment?.name || 'tax'} className="text-xs font-medium text-sky-300 hover:text-sky-200">
+                <a href={taxAttachmentUrl} download={broker.taxAttachment?.name || 'tax'} className={`text-xs font-medium transition-colors ${isLight ? 'text-sky-700 hover:text-sky-900' : 'text-sky-300 hover:text-sky-200'}`}>
                   Download
                 </a>
               )}
             </div>
           </div>
           <div>
-            <div className="text-xs uppercase tracking-wide text-slate-400">National ID</div>
+            <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>National ID</div>
             <div className="mt-1 flex items-center gap-2">
-              <span className="text-slate-100">{String(broker.nationalId || broker.national_id || '').trim() || '—'}</span>
+              <span className={panelValueClass}>{String(broker.nationalId || broker.national_id || '').trim() || '-'}</span>
               {nationalAttachmentUrl && (
-                <a href={nationalAttachmentUrl} download={broker.nationalAttachment?.name || 'national'} className="text-xs font-medium text-sky-300 hover:text-sky-200">
+                <a href={nationalAttachmentUrl} download={broker.nationalAttachment?.name || 'national'} className={`text-xs font-medium transition-colors ${isLight ? 'text-sky-700 hover:text-sky-900' : 'text-sky-300 hover:text-sky-200'}`}>
                   Download
                 </a>
               )}
@@ -318,27 +358,27 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
 
   return (
     <div className="fixed inset-0 z-[300]">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <div className={`absolute inset-0 ${overlayClass}`} onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="card w-full max-w-5xl max-h-[92vh] overflow-y-auto bg-[#0f1b46]/95 text-white shadow-2xl ring-1 ring-blue-400/30 backdrop-blur-xl">
-          <div className="sticky top-0 z-10 border-b border-white/10 bg-[#0f1b46]/95 px-5 py-5 sm:px-8">
+        <div className={modalClass}>
+          <div className={headerClass}>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="inline-flex rounded-full bg-sky-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200 ring-1 ring-sky-400/25">
+                  <span className={labelPillClass}>
                     {brokerTypeLabel}
                   </span>
                   <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${statusToneClass}`}>
                     {broker.status || 'Unknown'}
                   </span>
                   {isContracted && (
-                    <span className="inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-400/20">
+                    <span className={contractedPillClass}>
                       Contracted
                     </span>
                   )}
                 </div>
-                <h2 className="truncate text-3xl font-bold tracking-tight text-white">{broker.name}</h2>
-                <p className="mt-2 text-sm text-slate-300">
+                <h2 className={`truncate text-3xl font-bold tracking-tight ${panelValueClass}`}>{broker.name}</h2>
+                <p className={`mt-2 text-sm ${panelTextClass}`}>
                   Review broker details, documents, visits, and recent activity in one place.
                 </p>
               </div>
@@ -347,33 +387,33 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
                   <button
                     type="button"
                     onClick={() => onEdit(broker)}
-                    className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-sky-700 shadow-sm transition hover:bg-sky-50"
+                    className={editButtonClass}
                   >
                     Edit
                   </button>
                 )}
-                <button onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-red-600 shadow-md transition hover:bg-red-50">
+                <button onClick={onClose} className={closeButtonClass}>
                   <FaTimes />
                 </button>
               </div>
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10">
-                <div className="text-xs uppercase tracking-wide text-slate-400">Latest Visit</div>
-                <div className="mt-1 text-sm font-medium text-slate-100">
+              <div className={statCardClass}>
+                <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Latest Visit</div>
+                <div className={`mt-1 text-sm font-medium ${panelValueClass}`}>
                   {latestVisit?.checkInDate ? formatDateTime(latestVisit.checkInDate) : 'No visits yet'}
                 </div>
               </div>
-              <div className="rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10">
-                <div className="text-xs uppercase tracking-wide text-slate-400">Visit Duration</div>
-                <div className="mt-1 text-sm font-medium text-slate-100">
-                  {latestVisit?.durationMinutes != null ? formatDuration(latestVisit.durationMinutes) : '—'}
+              <div className={statCardClass}>
+                <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Visit Duration</div>
+                <div className={`mt-1 text-sm font-medium ${panelValueClass}`}>
+                  {latestVisit?.durationMinutes != null ? formatDuration(latestVisit.durationMinutes) : '-'}
                 </div>
               </div>
-              <div className="rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10">
-                <div className="text-xs uppercase tracking-wide text-slate-400">Recent Activity</div>
-                <div className="mt-1 text-sm font-medium text-slate-100">
+              <div className={statCardClass}>
+                <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>Recent Activity</div>
+                <div className={`mt-1 text-sm font-medium ${panelValueClass}`}>
                   {latestVisit?.status ? latestVisit.status : 'No recent activity'}
                 </div>
               </div>
@@ -383,25 +423,25 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
           <div className="space-y-6 px-5 py-5 sm:px-8">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {infoCards.map(({ key, title, icon: Icon, content }) => (
-                <div key={key} className="rounded-3xl border border-white/15 bg-white/5 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                <div key={key} className={sectionCardClass}>
                   <div className="mb-4 flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-300 ring-1 ring-sky-400/20">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${isLight ? 'bg-sky-100 text-sky-600 ring-1 ring-sky-200' : 'bg-sky-500/10 text-sky-300 ring-1 ring-sky-400/20'}`}>
                       <Icon />
                     </div>
-                    <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">{title}</h4>
+                    <h4 className={`text-sm font-semibold uppercase tracking-[0.2em] ${panelSubTextClass}`}>{title}</h4>
                   </div>
                   {content}
                 </div>
               ))}
             </div>
 
-            <div className="rounded-3xl border border-white/15 bg-white p-5 text-slate-900 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between mb-2 gap-4">
+            <div className={sectionCardAltClass}>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Attachments</h4>
-                  <p className="text-sm text-slate-500">Upload one or more files directly from this preview.</p>
+                  <h4 className={`text-xs font-semibold uppercase tracking-[0.2em] ${panelSubTextClass}`}>Attachments</h4>
+                  <p className={`text-sm ${panelSubTextClass}`}>Upload one or more files directly from this preview.</p>
                 </div>
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-100">
+                <label className={`inline-flex cursor-pointer items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${isLight ? 'border border-slate-200 bg-slate-900 text-white hover:bg-slate-800' : 'border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'}`}>
                   <input
                     ref={attachmentInputRef}
                     type="file"
@@ -413,7 +453,7 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
                 </label>
               </div>
               {uploadingAttachment && (
-                <div className="mb-2 text-xs text-slate-700">Uploading...</div>
+                <div className={`mb-2 text-xs ${panelTextClass}`}>Uploading...</div>
               )}
               {attachmentUploadError && (
                 <div className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{attachmentUploadError}</div>
@@ -421,17 +461,17 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
               {normalizedAttachments.length > 0 ? (
                 <div className="space-y-2 text-sm">
                   {normalizedAttachments.map((item, idx) => (
-                    <div key={`${item.href}-${idx}`} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-4">
+                    <div key={`${item.href}-${idx}`} className={`flex items-center justify-between gap-3 rounded-2xl p-4 ${isLight ? 'bg-white ring-1 ring-slate-200' : 'bg-slate-50'}`}>
                       <div>
-                        <div className="text-sm font-semibold text-slate-900">{item.label}</div>
-                        <div className="text-xs text-slate-500">{item.name}</div>
+                        <div className={`text-sm font-semibold ${panelValueClass}`}>{item.label}</div>
+                        <div className={`text-xs ${panelSubTextClass}`}>{item.name}</div>
                       </div>
                       <a
                         href={item.href}
                         download={item.name}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-blue-600 ring-1 ring-slate-200 transition hover:text-blue-800"
+                        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 transition ${isLight ? 'bg-slate-900 text-white ring-1 ring-slate-300 hover:bg-slate-800' : 'bg-white text-blue-600 ring-1 ring-slate-200 hover:text-blue-800'}`}
                       >
                         <FaPaperclip className="w-4 h-4" />
                         Download
@@ -440,25 +480,25 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
                   ))}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                <div className={`rounded-2xl border border-dashed px-4 py-8 text-center text-sm ${isLight ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-slate-200 bg-white/5 text-slate-400'}`}>
                   No attachments uploaded yet.
                 </div>
               )}
             </div>
 
             {additionalFieldEntries.length > 0 && (
-              <div className="rounded-3xl border border-white/15 bg-white/5 p-5">
+              <div className={sectionCardClass}>
                 <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-300 ring-1 ring-sky-400/20">
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${isLight ? 'bg-sky-100 text-sky-600 ring-1 ring-sky-200' : 'bg-sky-500/10 text-sky-300 ring-1 ring-sky-400/20'}`}>
                     <FaFileAlt />
                   </div>
-                  <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Additional Info</h4>
+                  <h4 className={`text-sm font-semibold uppercase tracking-[0.2em] ${panelSubTextClass}`}>Additional Info</h4>
                 </div>
                 <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                   {additionalFieldEntries.map(([key, value]) => (
-                    <div key={key} className="rounded-2xl bg-slate-900/30 px-4 py-3 ring-1 ring-white/5">
-                      <div className="text-xs uppercase tracking-wide text-slate-400">{key}</div>
-                      <div className="mt-1 break-words text-slate-100">{String(value)}</div>
+                    <div key={key} className={`rounded-2xl px-4 py-3 ${isLight ? 'bg-slate-50 ring-1 ring-slate-200' : 'bg-slate-900/30 ring-1 ring-white/5'}`}>
+                      <div className={`text-xs uppercase tracking-wide ${panelSubTextClass}`}>{key}</div>
+                      <div className={`mt-1 break-words ${panelValueClass}`}>{String(value)}</div>
                     </div>
                   ))}
                 </div>
@@ -466,38 +506,38 @@ export default function BrokerPreviewModal({ isOpen = true, onClose = () => {}, 
             )}
           </div>
 
-          <div className="border-t border-white/10 px-5 py-5 sm:px-8">
+          <div className={`border-t px-5 py-5 sm:px-8 ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
-                <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Recent Visits</h4>
-                <p className="mt-1 text-sm text-slate-400">Track latest broker check-ins and check-outs.</p>
+                <h4 className={`text-sm font-semibold uppercase tracking-[0.2em] ${panelSubTextClass}`}>Recent Visits</h4>
+                <p className={`mt-1 text-sm ${panelSubTextClass}`}>Track latest broker check-ins and check-outs.</p>
               </div>
               <BrokerCheckInButton brokerId={broker.id} brokerName={broker.name} onCheckInSuccess={() => { onCheckInSuccess(); }} />
             </div>
             {loading ? (
-              <div className="text-sm text-slate-400">Loading...</div>
+              <div className={`text-sm ${panelSubTextClass}`}>Loading...</div>
             ) : visits.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 px-4 py-8 text-center text-sm text-slate-400">
+              <div className={`rounded-2xl border border-dashed px-4 py-8 text-center text-sm ${isLight ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-white/15 bg-white/5 text-slate-400'}`}>
                 No visits found
               </div>
             ) : (
               <div className="space-y-3">
                 {visits.map(v => (
-                  <div key={v.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div key={v.id} className={`rounded-2xl border p-4 ${isLight ? 'border-slate-200 bg-white' : 'border-white/10 bg-white/5'}`}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <div className="text-sm font-semibold text-slate-100">{v.salesPerson || v.salesPersonName || 'Unknown'}</div>
-                        <div className="mt-1 inline-flex rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-slate-200 ring-1 ring-slate-700">
+                        <div className={`text-sm font-semibold ${panelValueClass}`}>{v.salesPerson || v.salesPersonName || 'Unknown'}</div>
+                        <div className={chipClass}>
                           {v.status || 'pending'}
                         </div>
                       </div>
-                      <div className="grid gap-2 text-xs text-slate-300 sm:text-right">
+                      <div className={`grid gap-2 text-xs ${panelTextClass} sm:text-right`}>
                         <div className="flex items-center gap-2 sm:justify-end">
-                          <FaClock className="text-sky-300" />
+                          <FaClock className={isLight ? 'text-sky-600' : 'text-sky-300'} />
                           <span>{v.durationMinutes != null ? formatDuration(v.durationMinutes) : 'In progress'}</span>
                         </div>
-                        <div>Check-In: {v.checkInDate ? formatDateTime(v.checkInDate) : '—'}</div>
-                        <div>Check-Out: {v.checkOutDate ? formatDateTime(v.checkOutDate) : '—'}</div>
+                        <div>Check-In: {v.checkInDate ? formatDateTime(v.checkInDate) : '-'}</div>
+                        <div>Check-Out: {v.checkOutDate ? formatDateTime(v.checkOutDate) : '-'}</div>
                       </div>
                     </div>
                   </div>

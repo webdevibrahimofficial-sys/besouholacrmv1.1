@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { metaService } from '../../services/metaService'
 import { 
   Activity, 
@@ -106,6 +107,8 @@ const Toggle = ({ label, checked, onChange, description }) => (
 // --- Main Component ---
 
 export default function MetaSettings({ onClose }) {
+  const { i18n } = useTranslation()
+  const isArabic = i18n.language === 'ar'
   // State
   const [activeTab, setActiveTab] = useState('overview')
   const [settings, setSettings] = useState({})
@@ -430,32 +433,32 @@ export default function MetaSettings({ onClose }) {
       {/* Header / Connect Button */}
       <div className="flex items-center justify-between">
         <div>
-           <h3 className="text-lg font-medium text-theme">Connected Accounts</h3>
-           <p className="text-sm text-theme">Manage your Facebook & Instagram connections.</p>
+           <h3 className="text-lg font-medium text-theme">{isArabic ? 'الحسابات المتصلة' : 'Connected Accounts'}</h3>
+           <p className="text-sm text-theme">{isArabic ? 'إدارة اتصالات فيسبوك وإنستغرام الخاصة بك.' : 'Manage your Facebook & Instagram connections.'}</p>
         </div>
         <button
           type="button"
           onClick={handleConnect}
           disabled={!canConnect}
-          title={!canConnect ? 'Save Tenant Meta App settings (App ID + Secret) first' : ''}
+          title={!canConnect ? (isArabic ? 'احفظ إعدادات تطبيق ميتا الخاصة بالتينانت (App ID + Secret) أولًا' : 'Save Tenant Meta App settings (App ID + Secret) first') : ''}
           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#1877F2] hover:bg-[#166fe5] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Facebook className="w-4 h-4 mr-2" />
-          Add New Account
+          {isArabic ? 'إضافة حساب جديد' : 'Add New Account'}
         </button>
       </div>
 
       <div className="bg-transparent rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 sm:p-5">
-        <h4 className="text-sm font-semibold text-theme mb-3">Tenant Meta App</h4>
+        <h4 className="text-sm font-semibold text-theme mb-3">{isArabic ? 'تطبيق ميتا الخاص بالتينانت' : 'Tenant Meta App'}</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <InputField
-            label="App ID"
+            label={isArabic ? 'معرّف التطبيق' : 'App ID'}
             value={appSettings.app_id}
             onChange={(v) => {
               const next = v?.trim?.() ?? v
               setAppSettings(prev => ({ ...prev, app_id: next }))
               if (next && !/^\d+$/.test(String(next))) {
-                setAppValidationErrors(prev => ({ ...prev, app_id: 'App ID must be numbers only' }))
+                setAppValidationErrors(prev => ({ ...prev, app_id: isArabic ? 'يجب أن يكون معرّف التطبيق أرقامًا فقط' : 'App ID must be numbers only' }))
               } else {
                 setAppValidationErrors(prev => {
                   const n = { ...prev }
@@ -464,11 +467,11 @@ export default function MetaSettings({ onClose }) {
                 })
               }
             }}
-            placeholder="e.g. 123456789012345"
+            placeholder={isArabic ? 'مثال: 123456789012345' : 'e.g. 123456789012345'}
             error={appValidationErrors.app_id}
           />
           <InputField
-            label="App Secret (leave empty to keep current)"
+            label={isArabic ? 'سر التطبيق (اتركه فارغًا للاحتفاظ بالقيمة الحالية)' : 'App Secret (leave empty to keep current)'}
             value={appSettings.app_secret}
             onChange={(v) => {
               setAppSettings(prev => ({ ...prev, app_secret: v }))
@@ -478,18 +481,18 @@ export default function MetaSettings({ onClose }) {
                 return n
               })
             }}
-            placeholder={appSettings.app_secret_masked || 'Meta App Secret'}
+            placeholder={appSettings.app_secret_masked || (isArabic ? 'سر تطبيق ميتا' : 'Meta App Secret')}
             type="password"
             error={appValidationErrors.app_secret}
           />
           <InputField
-            label="Verify Token (optional)"
+            label={isArabic ? 'رمز التحقق (اختياري)' : 'Verify Token (optional)'}
             value={appSettings.verify_token}
             onChange={(v) => setAppSettings(prev => ({ ...prev, verify_token: v }))}
-            placeholder={appSettings.verify_token_set ? 'Already configured' : 'Webhook verify token'}
+            placeholder={appSettings.verify_token_set ? (isArabic ? 'مُعدّ مسبقًا' : 'Already configured') : (isArabic ? 'رمز تحقق الويب هوك' : 'Webhook verify token')}
           />
           <div className="text-xs text-theme/70 self-end pb-2">
-            {appSettings.webhook_url ? `Webhook URL: ${appSettings.webhook_url}` : 'Save settings to generate webhook URL'}
+            {appSettings.webhook_url ? `${isArabic ? 'رابط الويب هوك' : 'Webhook URL'}: ${appSettings.webhook_url}` : (isArabic ? 'احفظ الإعدادات لإنشاء رابط الويب هوك' : 'Save settings to generate webhook URL')}
           </div>
         </div>
         <div className="mt-3 flex justify-end">
@@ -499,7 +502,7 @@ export default function MetaSettings({ onClose }) {
             disabled={savingAppSettings}
             className="inline-flex items-center px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
           >
-            {savingAppSettings ? 'Saving...' : 'Save App Settings'}
+            {savingAppSettings ? (isArabic ? 'جارٍ الحفظ...' : 'Saving...') : (isArabic ? 'حفظ إعدادات التطبيق' : 'Save App Settings')}
           </button>
         </div>
       </div>
@@ -509,9 +512,9 @@ export default function MetaSettings({ onClose }) {
         {connections.length === 0 ? (
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md p-6 text-center">
              <AlertCircle className="h-8 w-8 text-blue-400 mx-auto mb-2" />
-             <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">No Accounts Connected</h4>
+             <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">{isArabic ? 'لا توجد حسابات متصلة' : 'No Accounts Connected'}</h4>
              <p className="mt-1 text-sm text-blue-700 dark:text-blue-400 max-w-sm mx-auto">
-               Connect a Facebook account to start syncing businesses, ad accounts, and pages.
+               {isArabic ? 'اربط حساب فيسبوك لبدء مزامنة الأنشطة التجارية وحسابات الإعلانات والصفحات.' : 'Connect a Facebook account to start syncing businesses, ad accounts, and pages.'}
              </p>
           </div>
         ) : (
@@ -881,7 +884,7 @@ export default function MetaSettings({ onClose }) {
                 <span className="bg-blue-600 text-theme p-1.5 rounded mr-2">
                    <Facebook className="w-4 h-4" />
                 </span>
-                Meta Sync
+                {isArabic ? 'مزامنة ميتا' : 'Meta Sync'}
               </h2>
               <button
                 onClick={onClose}
@@ -899,28 +902,28 @@ export default function MetaSettings({ onClose }) {
               active={activeTab === 'overview'} 
               id="overview" 
               icon={LayoutDashboard} 
-              label="Overview" 
+              label={isArabic ? 'نظرة عامة' : 'Overview'} 
               onClick={setActiveTab} 
             />
             <TabButton 
               active={activeTab === 'pixel'} 
               id="pixel" 
               icon={Activity} 
-              label="Pixel & CAPI" 
+              label={isArabic ? 'البكسل و CAPI' : 'Pixel & CAPI'} 
               onClick={setActiveTab} 
             />
             <TabButton 
               active={activeTab === 'leads'} 
               id="leads" 
               icon={Database} 
-              label="Lead Sync" 
+              label={isArabic ? 'مزامنة الليدز' : 'Lead Sync'} 
               onClick={setActiveTab} 
             />
             <TabButton 
               active={activeTab === 'diagnostics'} 
               id="diagnostics" 
               icon={Terminal} 
-              label="Diagnostics" 
+              label={isArabic ? 'التشخيص' : 'Diagnostics'} 
               onClick={setActiveTab} 
             />
           </nav>
@@ -932,19 +935,19 @@ export default function MetaSettings({ onClose }) {
           <div className="sticky top-0 z-10 px-4 py-4 border-b border-gray-200 dark:border-gray-800 bg-transparent backdrop-blur flex justify-between items-center sm:px-8 sm:py-5">
              <div>
                <h1 className="text-2xl font-bold text-theme">
-                 {activeTab === 'overview' && 'Account Overview'}
-                 {activeTab === 'pixel' && 'Tracking Configuration'}
-                 {activeTab === 'leads' && 'Lead Generation'}
-                 {activeTab === 'diagnostics' && 'System Health'}
+                 {activeTab === 'overview' && (isArabic ? 'نظرة عامة على الحساب' : 'Account Overview')}
+                 {activeTab === 'pixel' && (isArabic ? 'إعداد التتبع' : 'Tracking Configuration')}
+                 {activeTab === 'leads' && (isArabic ? 'مزامنة العملاء المحتملين' : 'Lead Generation')}
+                 {activeTab === 'diagnostics' && (isArabic ? 'حالة النظام' : 'System Health')}
                </h1>
              </div>
               <div className="flex items-center space-x-4">
                {/* Auto-save Status Indicator */}
                <div className="text-sm font-medium transition-colors duration-300">
-                  {saveStatus === 'pending' && <span className="text-gray-400">Saving...</span>}
-                  {saveStatus === 'saving' && <span className="text-blue-500 animate-pulse">Saving...</span>}
-                  {saveStatus === 'saved' && <span className="text-green-500 flex items-center"><CheckCircle className="w-4 h-4 mr-1"/> Saved</span>}
-                  {saveStatus === 'error' && <span className="text-red-500">Save Failed</span>}
+                  {saveStatus === 'pending' && <span className="text-gray-400">{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>}
+                  {saveStatus === 'saving' && <span className="text-blue-500 animate-pulse">{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>}
+                  {saveStatus === 'saved' && <span className="text-green-500 flex items-center"><CheckCircle className="w-4 h-4 mr-1"/>{isArabic ? 'تم الحفظ' : 'Saved'}</span>}
+                  {saveStatus === 'error' && <span className="text-red-500">{isArabic ? 'فشل الحفظ' : 'Save Failed'}</span>}
                </div>
                <button
                  onClick={onClose}
@@ -960,7 +963,7 @@ export default function MetaSettings({ onClose }) {
             {loading ? (
               <div className="flex flex-col items-center justify-center h-full space-y-4">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                <p className="text-theme animate-pulse">Loading settings...</p>
+                <p className="text-theme animate-pulse">{isArabic ? 'جارٍ تحميل الإعدادات...' : 'Loading settings...'}</p>
               </div>
             ) : (
               <>

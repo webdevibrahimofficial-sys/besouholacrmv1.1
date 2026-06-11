@@ -254,6 +254,7 @@ export const Dashboard = () => {
   const [leadsAnalysisOpenMobile, setLeadsAnalysisOpenMobile] = useState(true);
   const [pipelineAnalysisOpenMobile, setPipelineAnalysisOpenMobile] = useState(true);
   const [delayLeadsOpenMobile, setDelayLeadsOpenMobile] = useState(true);
+  const [delayLeadsCount, setDelayLeadsCount] = useState(0);
   const [commentsOpenMobile, setCommentsOpenMobile] = useState(true);
   const [recentCallsOpenMobile, setRecentCallsOpenMobile] = useState(true);
   const [selectedStageFilter, setSelectedStageFilter] = useState('');
@@ -968,6 +969,9 @@ export const Dashboard = () => {
                         <Users className="w-5 h-5 text-white" />
                       </div>
                     </div>
+                    <div className="inline-flex items-center text-[11px] font-semibold px-1.5 py-[2px] rounded-md border border-blue-300 bg-blue-100/60 text-blue-700">
+                      {t('Stage share of total')}: 100%
+                    </div>
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -skew-x-12 transform -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out"></div>
                 </div>
@@ -1168,7 +1172,12 @@ export const Dashboard = () => {
             <div className="lg:col-span-2">
               <div className="p-4 glass-panel h-full overflow-auto rounded-lg shadow-md">
                 <div className="section-header flex items-center w-full justify-between gap-2 mb-3">
-                  <h3 className={`flex-1 text-xl font-semibold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Delay Leads')}</h3>
+                  <div className={`flex min-w-0 flex-1 items-center gap-3 ${i18n.dir() === 'rtl' ? 'flex-row-reverse' : ''}`}>
+                    <h3 className={`text-xl font-semibold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Delay Leads')}</h3>
+                    <span className="inline-flex items-center justify-center min-w-9 rounded-full border border-blue-400/30 bg-blue-500/10 px-3 py-1 text-sm font-semibold text-blue-500">
+                      {delayLeadsCount}
+                    </span>
+                  </div>
                   <button onClick={() => setDelayLeadsOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                       <path d="M6 9l6 6 6-6" />
@@ -1176,7 +1185,14 @@ export const Dashboard = () => {
                   </button>
                 </div>
                 <div className={`${delayLeadsOpenMobile ? 'block' : 'hidden'} md:block`}>
-                  <DelayLeads dateFrom={dateFrom} dateTo={dateTo} selectedEmployee={selectedEmployee || selectedManager} selectedEmployeeName={effectiveEmployeeName} stageFilter={selectedStageFilter} />
+                  <DelayLeads
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    selectedEmployee={selectedEmployee || selectedManager}
+                    selectedEmployeeName={effectiveEmployeeName}
+                    stageFilter={selectedStageFilter}
+                    onCountChange={setDelayLeadsCount}
+                  />
                 </div>
               </div>
             </div>
@@ -1294,9 +1310,9 @@ export const Dashboard = () => {
                   disabled={!!exportingChartKey}
                   className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                   data-export-ignore="true"
-                  title="Export PDF"
+                  title={i18n.language === 'ar' ? 'تصدير PDF' : 'Export PDF'}
                 >
-                  <ExportButtonContent label={exportingChartKey === 'leads-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
+                  <ExportButtonContent label={exportingChartKey === 'leads-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : (i18n.language === 'ar' ? 'تصدير' : 'Export')} />
                 </button>
                 <button onClick={() => setLeadsAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
@@ -1405,9 +1421,9 @@ export const Dashboard = () => {
                     disabled={!!exportingChartKey}
                     className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                     data-export-ignore="true"
-                    title="Export PDF"
+                  title={i18n.language === 'ar' ? 'تصدير PDF' : 'Export PDF'}
                   >
-                    <ExportButtonContent label={exportingChartKey === 'pipeline-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : 'Export'} />
+                    <ExportButtonContent label={exportingChartKey === 'pipeline-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : (i18n.language === 'ar' ? 'تصدير' : 'Export')} />
                   </button>
                   <button onClick={() => setPipelineAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">

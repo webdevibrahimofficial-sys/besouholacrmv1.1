@@ -27,6 +27,40 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   const chartHeightClass = exportMode ? 'h-[420px]' : 'h-40 sm:h-48'
   const pieSize = exportMode ? 260 : 192
 
+  const translateMonthLabel = (label) => {
+    if (!label || lang !== 'ar') return label
+
+    const monthMap = {
+      january: 'يناير',
+      jan: 'يناير',
+      february: 'فبراير',
+      feb: 'فبراير',
+      march: 'مارس',
+      mar: 'مارس',
+      april: 'أبريل',
+      apr: 'أبريل',
+      may: 'مايو',
+      june: 'يونيو',
+      jun: 'يونيو',
+      july: 'يوليو',
+      jul: 'يوليو',
+      august: 'أغسطس',
+      aug: 'أغسطس',
+      september: 'سبتمبر',
+      sep: 'سبتمبر',
+      sept: 'سبتمبر',
+      october: 'أكتوبر',
+      oct: 'أكتوبر',
+      november: 'نوفمبر',
+      nov: 'نوفمبر',
+      december: 'ديسمبر',
+      dec: 'ديسمبر',
+    }
+
+    const normalizedLabel = String(label).trim()
+    return monthMap[normalizedLabel.toLowerCase()] || label
+  }
+
   // Advanced search states
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -248,7 +282,10 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
 
   useEffect(() => {
     const rawData = data || sampleData[filters.dataType || 'monthly']
-    const filteredData = applyFilters(rawData)
+    const filteredData = applyFilters(rawData).map(item => ({
+      ...item,
+      label: translateMonthLabel(item.label),
+    }))
     setChartData(filteredData)
     
     if (chartType === 'pie' || chartType === 'doughnut') {
@@ -256,7 +293,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     } else {
       setMaxValue(Math.max(...filteredData.map(item => item.value)) * 1.2)
     }
-  }, [data, filters, chartType, searchTerm, advancedFilters])
+  }, [data, filters, chartType, searchTerm, advancedFilters, lang])
 
   const getBarHeightPx = (value) => {
     if (!maxValue || maxValue <= 0) return '1px'

@@ -40,6 +40,7 @@ export default function UserManagementUserProfile({ userProp, idProp, asModal = 
           area: data.area || '',
           notifEmail: data.notif_email ?? true,
           notifSms: data.notif_sms ?? false,
+          notifApp: data.notification_settings?.app ?? true,
         };
         if (!cancelled) {
           setUser(normalized);

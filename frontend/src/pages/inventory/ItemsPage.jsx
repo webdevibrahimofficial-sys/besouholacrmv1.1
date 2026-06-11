@@ -79,7 +79,7 @@ export default function ItemsPage() {
     stock: isArabic ? 'المخزون' : 'Stock',
     minStock: isArabic ? 'الحد الأدنى' : 'Min Stock',
     unit: isArabic ? 'الوحدة' : 'Unit',
-    sku: 'SKU',
+    sku: isArabic ? 'رمز الصنف' : 'SKU',
     description: isArabic ? 'الوصف' : 'Description',
     save: isArabic ? 'حفظ' : 'Save',
     listTitle: isArabic ? 'قائمة الأصناف' : 'Items List',
@@ -438,7 +438,7 @@ export default function ItemsPage() {
     if (option === 'Product') return 'منتج'
     if (option === 'Service') return 'خدمة'
     if (option === 'Subscription') return 'اشتراك'
-    if (option === 'Package') return 'باكدج'
+    if (option === 'Package') return 'باقة'
     return option
   }
   const getItemTypeOptionLabel = (option) => {
@@ -449,6 +449,8 @@ export default function ItemsPage() {
     if (option === 'Yearly') return 'سنوي'
     return option
   }
+
+  const getAllSuffix = () => (isArabic ? '(الكل)' : '(All)')
   // Use full category objects for form
   const categoryOptionsForForm = useMemo(() => {
     return categories
@@ -896,7 +898,7 @@ export default function ItemsPage() {
 
                 {dynamicFields.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-white/10">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-3">{isArabic ? '???? ?????' : 'Custom Fields'}</h4>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-3">{isArabic ? 'حقول مخصصة' : 'Custom Fields'}</h4>
                     <DynamicFieldRenderer
                       fields={dynamicFields}
                       values={dynamicValues}
@@ -908,7 +910,7 @@ export default function ItemsPage() {
                 <div className="flex justify-end gap-3 pt-6 border-t border-white/10">
                   <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 rounded-md text-sm font-medium text-theme hover:text-white hover:bg-white/10 transition-colors">{labels.close}</button>
                   <button type="submit" className="px-6 py-2 rounded-md text-sm font-medium bg-blue-600 hover:bg-blue-500 text-theme shadow-lg shadow-blue-900/50" disabled={loading}>
-                    {loading ? (isArabic ? '???????? ??????????...' : 'Saving...') : labels.save}
+                    {loading ? (isArabic ? 'جارٍ الحفظ...' : 'Saving...') : labels.save}
                   </button>
                 </div>
               </form>
@@ -938,7 +940,7 @@ export default function ItemsPage() {
                 onClick={() => setShowAllFilters(prev => !prev)}
                 className="inline-flex items-center gap-2 rounded-2xl bg-blue-600/20 px-5 py-3 text-base font-medium text-blue-400 transition-colors hover:bg-blue-600/30"
               >
-                {showAllFilters ? 'Hide' : 'Show All'}
+                {showAllFilters ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'عرض الكل' : 'Show All')}
                 {showAllFilters ? <FaChevronUp /> : <FaChevronDown />}
               </button>
               <button onClick={clearFilters} className="px-3 py-1.5 text-sm text-theme hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
@@ -982,9 +984,9 @@ export default function ItemsPage() {
                 <FaCube className="text-blue-500" /> {labels.categoryType}
               </label>
               <select className="select select-sm h-8 text-xs w-full min-h-0" value={filters.type} onChange={e => setFilters({ ...filters, type: e.target.value, category: '' })}>
-                <option value="">{labels.categoryType} (All)</option>
+                <option value="">{`${labels.categoryType} ${getAllSuffix()}`}</option>
                 {TYPE_OPTIONS.map(t => (
-                  <option key={t} value={t}>{isArabic ? (t === 'Product' ? '????' : t === 'Service' ? '????' : t === 'Subscription' ? '??????' : '?????') : t}</option>
+                  <option key={t} value={t}>{getCategoryTypeOptionLabel(t)}</option>
                 ))}
               </select>
             </div>
@@ -1014,7 +1016,7 @@ export default function ItemsPage() {
                   value={filters.itemType}
                   onChange={e => setFilters({ ...filters, itemType: e.target.value })}
                 >
-                  <option value="">{labels.itemType} (All)</option>
+                  <option value="">{`${labels.itemType} ${getAllSuffix()}`}</option>
                   {ITEM_TYPE_OPTIONS.map(option => (
                     <option key={option} value={option}>{getItemTypeOptionLabel(option)}</option>
                   ))}
@@ -1026,7 +1028,7 @@ export default function ItemsPage() {
                   <FaCheckCircle className="text-blue-500" /> {labels.status}
                 </label>
                 <select className="select select-sm h-8 text-xs w-full min-h-0" value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
-                  <option value="">{labels.status} (All)</option>
+                  <option value="">{`${labels.status} ${getAllSuffix()}`}</option>
                   <option value="Active">{labels.active}</option>
                   <option value="Inactive">{labels.inactive}</option>
                 </select>
@@ -1087,8 +1089,8 @@ export default function ItemsPage() {
                         <td className="px-4 py-3 text-start text-theme">
                           <span className="text-xs text-nowrap">{item.category || '-'}</span>
                         </td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{item.type || '-'}</td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{item.itemType || '-'}</td>
+                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{getCategoryTypeOptionLabel(item.type || '-')}</td>
+                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{getItemTypeOptionLabel(item.itemType || '-')}</td>
                         <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(item.price)}</td>
                         <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.stock ?? 0)}</td>
                         <td className="px-4 py-3 text-start">
@@ -1158,7 +1160,7 @@ export default function ItemsPage() {
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.categoryType}</span>
-                        <span>{item.type}</span>
+                        <span>{getCategoryTypeOptionLabel(item.type || '-')}</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.price}</span>
@@ -1170,7 +1172,7 @@ export default function ItemsPage() {
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.itemType}</span>
-                      <span>{item.itemType || '-'}</span>
+                      <span>{getItemTypeOptionLabel(item.itemType || '-')}</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.addonsPrice}</span>

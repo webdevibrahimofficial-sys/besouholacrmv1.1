@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@utils/api'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { Toggle } from '../../shared/components'
+import { COUNTRY_CODES } from '../../hooks/usePhoneValidation'
 
 const DEFAULTS = {
   requestApprovals: false,
@@ -108,12 +109,63 @@ export default function CRMSettings() {
     } catch (_) {}
   }
 
-  const countries = [
-    { code: 'EG', name: 'Egypt' },
-    { code: 'SA', name: 'Saudi Arabia' },
-    { code: 'AE', name: 'United Arab Emirates' },
+  const countries = COUNTRY_CODES.map(country => ({
+    code: country.iso2,
+    name: isRTL ? country.nameAr : country.nameEn,
+    dialCode: country.dialCode,
+    flag: country.flag,
+  }))
+  const currencies = [
+    'AED',
+    'ARS',
+    'AUD',
+    'BDT',
+    'BHD',
+    'BRL',
+    'CAD',
+    'CHF',
+    'CNY',
+    'CZK',
+    'DKK',
+    'DZD',
+    'EGP',
+    'EUR',
+    'GBP',
+    'HKD',
+    'HUF',
+    'IDR',
+    'INR',
+    'IQD',
+    'JOD',
+    'JPY',
+    'KES',
+    'KRW',
+    'KWD',
+    'LBP',
+    'MAD',
+    'MXN',
+    'MYR',
+    'NGN',
+    'NOK',
+    'NZD',
+    'OMR',
+    'PHP',
+    'PKR',
+    'PLN',
+    'QAR',
+    'RUB',
+    'SAR',
+    'SEK',
+    'SGD',
+    'THB',
+    'TRY',
+    'TND',
+    'UAH',
+    'USD',
+    'VND',
+    'YER',
+    'ZAR',
   ]
-  const currencies = ['EGP', 'SAR', 'AED', 'USD']
   const timeZones = ['Africa/Cairo', 'Asia/Riyadh', 'Asia/Dubai', 'UTC']
   const dateFormats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']
   const timeFormats = ['24h', '12h']
@@ -231,7 +283,7 @@ export default function CRMSettings() {
               onChange={e => setField('defaultCountryCode', e.target.value)}
               className="w-full px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-theme-text focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             >
-              {countries.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+              {countries.map(c => <option key={c.code} value={c.code}>{`${c.flag} ${c.name} (${c.dialCode})`}</option>)}
             </select>
           </div>
           <div className="space-y-2">

@@ -4,6 +4,7 @@ import { COUNTRY_CODES } from '../hooks/usePhoneValidation';
 
 const CountryCodeSelect = ({ value, onChange, isLight, inputTone, isRTL, disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const selectedCountry = COUNTRY_CODES.find((c) => c.dialCode === value);
   
   // Filter list based on input
   const filteredCodes = COUNTRY_CODES.filter((c) => {
@@ -27,6 +28,11 @@ const CountryCodeSelect = ({ value, onChange, isLight, inputTone, isRTL, disable
 
   return (
     <div className="relative w-24 sm:w-28 shrink-0">
+      {selectedCountry ? (
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base leading-none">
+          {selectedCountry.flag}
+        </span>
+      ) : null}
       <input
         type="text"
         value={value}
@@ -41,7 +47,7 @@ const CountryCodeSelect = ({ value, onChange, isLight, inputTone, isRTL, disable
           setIsOpen(true);
         }}
         onBlur={() => setTimeout(() => setIsOpen(false), 200)}
-        className={`w-full rounded-md border px-2 py-2 text-center text-sm ${inputTone} disabled:opacity-60 disabled:cursor-not-allowed`}
+        className={`w-full rounded-md border py-2 text-sm ${selectedCountry ? 'pl-9 pr-8 text-left' : 'px-2 text-center'} ${inputTone} disabled:opacity-60 disabled:cursor-not-allowed`}
         placeholder="+Code"
         dir="ltr"
       />
