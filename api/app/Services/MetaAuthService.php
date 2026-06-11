@@ -63,9 +63,20 @@ class MetaAuthService
 
         $driver = $this->socialiteDriver($tenantId);
 
+        $scopes = config('services.facebook.scopes', [
+            'public_profile',
+            'email',
+            'pages_show_list',
+            'pages_read_engagement',
+            'ads_read',
+            'leads_retrieval',
+            'business_management',
+            'pages_manage_metadata',
+        ]);
+
         $driver = $driver
             ->stateless()
-            ->scopes(['ads_management', 'leads_retrieval', 'pages_read_engagement', 'pages_manage_ads', 'pages_show_list', 'business_management'])
+            ->scopes($scopes)
         ;
 
         if ($state) {

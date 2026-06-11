@@ -225,9 +225,12 @@ class MetaAuthController extends Controller
         $this->ensureMetaSettingsAccess($request->user());
         $tenantId = $request->user()->tenant_id;
 
-        TenantMetaApp::where('tenant_id', $tenantId)->delete();
+        TenantMetaApp::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->delete();
 
-        Integration::where('tenant_id', $tenantId)
+        Integration::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
             ->where('provider', 'meta')
             ->update(['status' => 'inactive']);
 

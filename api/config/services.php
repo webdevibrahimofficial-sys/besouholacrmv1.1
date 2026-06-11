@@ -44,6 +44,10 @@ return [
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
         'redirect' => env('FACEBOOK_REDIRECT_URI'),
         'verify_token' => env('FACEBOOK_VERIFY_TOKEN', env('META_VERIFY_TOKEN')),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('FACEBOOK_SCOPES', 'public_profile,email,pages_show_list,pages_read_engagement,ads_read,leads_retrieval,business_management,pages_manage_metadata'))
+        ))),
     ],
 
     'meta' => [
