@@ -79,6 +79,15 @@ const sanitizePayload = (data) => {
   }
 }
 
+const buildAxiosLikeUrl = (baseURL, url) => {
+  const base = String(baseURL || '')
+  const path = String(url || '')
+  if (!base) return path
+  if (!path) return base
+  if (/^[a-z]+:\/\//i.test(path)) return path
+  return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
+}
+
 export const api = axios.create({
   baseURL: getApiBaseUrl(),
   headers: {
@@ -89,18 +98,32 @@ export const api = axios.create({
 api.interceptors.request.use((config) => {
   if (config.url) {
     const hasApiSuffixInBase = /\/api\/?$/.test(String(config.baseURL || ''))
+    const isAbsoluteUrl = /^[a-z]+:\/\//i.test(String(config.url))
 
-    // Prevent /api/api double prefix when callers use "/api/..." while baseURL already ends with /api
-    if (hasApiSuffixInBase && config.url.startsWith('/api/')) {
-      config.url = config.url.substring(4)
-    }
+    if (!isAbsoluteUrl) {
+      let normalizedUrl = String(config.url)
 
-    if (hasApiSuffixInBase && config.url.startsWith('api/')) {
-      config.url = config.url.substring(3)
-    }
+      // Prevent /api/api double prefix when callers use "/api/..." while baseURL already ends with /api.
+      // Keep the result relative so axios preserves the "/api" path segment from baseURL.
+      if (hasApiSuffixInBase && normalizedUrl.startsWith('/api/')) {
+        normalizedUrl = normalizedUrl.substring(5)
+      } else if (hasApiSuffixInBase && normalizedUrl.startsWith('api/')) {
+        normalizedUrl = normalizedUrl.substring(4)
+      } else if (hasApiSuffixInBase && normalizedUrl === '/api') {
+        normalizedUrl = ''
+      } else if (hasApiSuffixInBase && normalizedUrl === 'api') {
+        normalizedUrl = ''
+      }
 
-    if (!config.url.startsWith('/')) {
-      config.url = '/' + config.url
+      if (hasApiSuffixInBase) {
+        normalizedUrl = normalizedUrl.replace(/^\/+/, '')
+        config.url = normalizedUrl || '/'
+      } else {
+        if (!normalizedUrl.startsWith('/')) {
+          normalizedUrl = '/' + normalizedUrl
+        }
+        config.url = normalizedUrl
+      }
     }
   }
 
@@ -140,11 +163,7 @@ api.interceptors.request.use((config) => {
   }
 
   if (apiDebugEnabled) {
-    let fullUrl = `${config.baseURL || ''}${config.url || ''}`
-    try {
-      fullUrl = new URL(config.url || '', config.baseURL || window.location.origin).toString()
-    } catch {
-    }
+    const fullUrl = buildAxiosLikeUrl(config.baseURL, config.url)
     console.info('API REQUEST', {
       url: fullUrl,
       method: config.method,

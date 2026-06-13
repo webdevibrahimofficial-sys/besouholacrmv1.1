@@ -1326,70 +1326,128 @@ if (!s) {
     return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
   }
 
-  const normalizeExcelDatePart = (value) => {
-    if (value === null || value === undefined || value === '') return ''
+  const formatDateTimeParts = ({ year, month, day, hours = 0, minutes = 0, seconds = 0 } = {}) => {
+    if (!year || !month || !day) return null
+    return {
+      date: `${year}-${pad2(month)}-${pad2(day)}`,
+      time: `${pad2(hours)}:${pad2(minutes)}`,
+      seconds: pad2(seconds),
+      datetime: `${year}-${pad2(month)}-${pad2(day)} ${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`
+    }
+  }
+
+  const extractExcelDateTimeParts = (value) => {
+    if (value === null || value === undefined || value === '') return null
 
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return toLocalYmd(value)
+      return formatDateTimeParts({
+        year: value.getFullYear(),
+        month: value.getMonth() + 1,
+        day: value.getDate(),
+        hours: value.getHours(),
+        minutes: value.getMinutes(),
+        seconds: value.getSeconds()
+      })
     }
 
     if (typeof value === 'number' && Number.isFinite(value)) {
       try {
         const parsed = XLSX.SSF.parse_date_code(value)
         if (parsed && parsed.y && parsed.m && parsed.d) {
-          return `${parsed.y}-${pad2(parsed.m)}-${pad2(parsed.d)}`
+          return formatDateTimeParts({
+            year: parsed.y,
+            month: parsed.m,
+            day: parsed.d,
+            hours: parsed.H || 0,
+            minutes: parsed.M || 0,
+            seconds: parsed.S || 0
+          })
         }
       } catch {
       }
 
       const ms = Math.round((value - 25569) * 86400 * 1000)
       const date = new Date(ms)
-      if (!Number.isNaN(date.getTime())) return toLocalYmd(date)
-      return ''
+      if (!Number.isNaN(date.getTime())) {
+        return formatDateTimeParts({
+          year: date.getFullYear(),
+          month: date.getMonth() + 1,
+          day: date.getDate(),
+          hours: date.getHours(),
+          minutes: date.getMinutes(),
+          seconds: date.getSeconds()
+        })
+      }
+      return null
     }
 
     const raw = String(value).trim()
-    if (!raw) return ''
+    if (!raw) return null
 
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+    const isoLike = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/)
+    if (isoLike) {
+      return formatDateTimeParts({
+        year: Number(isoLike[1]),
+        month: Number(isoLike[2]),
+        day: Number(isoLike[3]),
+        hours: Number(isoLike[4] || 0),
+        minutes: Number(isoLike[5] || 0),
+        seconds: Number(isoLike[6] || 0)
+      })
+    }
 
-    // Common formats: dd/mm/yyyy or mm/dd/yyyy
-    const m = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
-    if (m) {
-      const a = Number(m[1])
-      const b = Number(m[2])
-      let year = Number(m[3])
+    const slashLike = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?)?$/i)
+    if (slashLike) {
+      const a = Number(slashLike[1])
+      const b = Number(slashLike[2])
+      let year = Number(slashLike[3])
       if (year < 100) year += 2000
 
-      // Assume dd/mm if first part > 12
       const day = a > 12 ? a : b
       const month = a > 12 ? b : a
+      let hours = Number(slashLike[4] || 0)
+      const minutes = Number(slashLike[5] || 0)
+      const seconds = Number(slashLike[6] || 0)
+      const ampm = String(slashLike[7] || '').toLowerCase()
+
+      if (ampm === 'pm' && hours < 12) hours += 12
+      if (ampm === 'am' && hours === 12) hours = 0
+
       if (year && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-        return `${year}-${pad2(month)}-${pad2(day)}`
+        return formatDateTimeParts({ year, month, day, hours, minutes, seconds })
       }
     }
 
     const asDate = new Date(raw)
-    if (!Number.isNaN(asDate.getTime())) return toLocalYmd(asDate)
-    return ''
+    if (!Number.isNaN(asDate.getTime())) {
+      return formatDateTimeParts({
+        year: asDate.getFullYear(),
+        month: asDate.getMonth() + 1,
+        day: asDate.getDate(),
+        hours: asDate.getHours(),
+        minutes: asDate.getMinutes(),
+        seconds: asDate.getSeconds()
+      })
+    }
+
+    return null
+  }
+
+  const normalizeExcelDatePart = (value) => {
+    return extractExcelDateTimeParts(value)?.date || ''
+  }
+
+  const normalizeExcelDateTime = (value) => {
+    return extractExcelDateTimeParts(value)?.datetime || ''
   }
 
   const normalizeExcelTimePart = (value) => {
+    const extracted = extractExcelDateTimeParts(value)
+    if (extracted) return extracted.time
+
     if (value === null || value === undefined || value === '') return ''
 
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return `${pad2(value.getHours())}:${pad2(value.getMinutes())}`
-    }
-
     if (typeof value === 'number' && Number.isFinite(value)) {
-      try {
-        const parsed = XLSX.SSF.parse_date_code(value)
-        if (parsed && (parsed.H !== undefined || parsed.M !== undefined)) {
-          return `${pad2(parsed.H || 0)}:${pad2(parsed.M || 0)}`
-        }
-      } catch {
-      }
-
       const totalMinutes = Math.round((value * 24 * 60) % (24 * 60))
       const hours = Math.floor(totalMinutes / 60)
       const minutes = totalMinutes % 60
@@ -1468,12 +1526,13 @@ if (!s) {
       const normalizedStage = normalizeStageName(stageStr, sourceStr)
       const rawNextDate = findValue(row, headerMap.nextActionDate)
       const rawNextTime = findValue(row, headerMap.nextActionTime)
-      const next_action_date = normalizeExcelDatePart(rawNextDate)
-      const next_action_time = normalizeExcelTimePart(rawNextTime)
+      const nextDateTimeParts = extractExcelDateTimeParts(rawNextDate)
+      const next_action_date = nextDateTimeParts?.date || normalizeExcelDatePart(rawNextDate)
+      const next_action_time = normalizeExcelTimePart(rawNextTime) || nextDateTimeParts?.time || ''
       const rawCreationDate = findValue(row, headerMap.creationDate)
       const rawFirstActionDate = findValue(row, headerMap.firstActionDate)
-      const creation_date = normalizeExcelDatePart(rawCreationDate) || ''
-      const first_action_date = normalizeExcelDatePart(rawFirstActionDate) || ''
+      const creation_date = normalizeExcelDateTime(rawCreationDate) || normalizeExcelDatePart(rawCreationDate) || ''
+      const first_action_date = normalizeExcelDateTime(rawFirstActionDate) || normalizeExcelDatePart(rawFirstActionDate) || ''
       const phone_country = String(findValue(row, headerMap.phoneCountry) || '').trim()
       return {
         id: Date.now() + Math.random(),

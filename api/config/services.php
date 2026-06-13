@@ -44,6 +44,7 @@ return [
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
         'redirect' => env('FACEBOOK_REDIRECT_URI'),
         'verify_token' => env('FACEBOOK_VERIFY_TOKEN', env('META_VERIFY_TOKEN')),
+        'minimal_scopes' => ['public_profile', 'email'],
         'scopes' => array_values(array_filter(array_map(
             'trim',
             explode(',', env('FACEBOOK_SCOPES', 'public_profile,email,pages_show_list,pages_read_engagement,ads_read,leads_retrieval,business_management,pages_manage_metadata'))
@@ -54,6 +55,7 @@ return [
         'use_tenant_apps' => env('META_USE_TENANT_APPS', true),
         'mock_mode' => env('META_MOCK_MODE', false),
         'mock_on_local' => env('META_MOCK_ON_LOCAL', false),
+        'oauth_minimal_scopes' => env('META_OAUTH_MINIMAL_SCOPES', false),
     ],
 
     'google' => [

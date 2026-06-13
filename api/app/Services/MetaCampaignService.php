@@ -73,7 +73,7 @@ class MetaCampaignService
         $endpoint = "/{$apiAdAccountId}/campaigns";
         
         $params = [
-            'fields' => 'id,name,status,objective,budget_remaining,daily_budget,lifetime_budget,created_time,updated_time,insights.date_preset(lifetime){impressions,clicks,spend,reach,actions,action_values}',
+            'fields' => 'id,name,status,objective,budget_remaining,daily_budget,lifetime_budget,created_time,updated_time,insights.date_preset(maximum){impressions,clicks,spend,reach,actions,action_values}',
             'limit' => 100,
             'access_token' => $accessToken,
         ];
@@ -174,7 +174,7 @@ class MetaCampaignService
         $endpoint = "/{$apiAdAccountId}/adsets";
         
         $params = [
-            'fields' => 'id,name,status,campaign_id,billing_event,optimization_goal,daily_budget,lifetime_budget,start_time,end_time,insights.date_preset(lifetime){impressions,clicks,spend}',
+            'fields' => 'id,name,status,campaign_id,billing_event,optimization_goal,daily_budget,lifetime_budget,start_time,end_time,insights.date_preset(maximum){impressions,clicks,spend}',
             'limit' => 100,
             'access_token' => $accessToken,
         ];
@@ -248,7 +248,7 @@ class MetaCampaignService
         $endpoint = "/{$apiAdAccountId}/ads";
         
         $params = [
-            'fields' => 'id,name,status,adset_id,campaign_id,creative{thumbnail_url,image_url,title,body},insights.date_preset(lifetime){impressions,clicks,spend}',
+            'fields' => 'id,name,status,adset_id,campaign_id,creative{thumbnail_url,image_url,title,body},insights.date_preset(maximum){impressions,clicks,spend}',
             'limit' => 100,
             'access_token' => $accessToken,
         ];

@@ -8,12 +8,13 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Spatie\Multitenancy\Jobs\NotTenantAware;
 
-class SyncMetaCampaigns implements ShouldQueue
+class SyncMetaCampaigns implements ShouldQueue, NotTenantAware
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $tenantId;
+    public $tenantId;
 
     /**
      * Create a new job instance.
@@ -30,6 +31,7 @@ class SyncMetaCampaigns implements ShouldQueue
      */
     public function handle(MetaCampaignService $service): void
     {
+        app()->instance('current_tenant_id', $this->tenantId);
         $service->syncAll($this->tenantId);
     }
 }

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\FieldController;
 use App\Http\Controllers\LeadController;
@@ -94,6 +95,12 @@ Route::post('/mock/tenant/{tenant}/google-ads/{account}/leads', [\App\Http\Contr
 Route::post('/google/webhook', [\App\Http\Controllers\GoogleWebhookController::class, 'receive']);
 Route::get('/auth/google/callback', [\App\Http\Controllers\GoogleAuthController::class, 'callback']);
 Route::get('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback'])->name('meta.callback');
+Route::post('/facebook/data-deletion', function () {
+    return response()->json([
+        'url' => 'https://besouholacrm.net/privacy',
+        'confirmation_code' => (string) Str::uuid(),
+    ]);
+});
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'verify']);
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'receive']);
 Route::middleware('auth:sanctum')->group(function () {

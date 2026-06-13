@@ -119,6 +119,21 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
     })
   }, [regions, isArabic])
 
+  const allRegionValues = useMemo(() => {
+    return regionOptions.map((option) => String(option.value))
+  }, [regionOptions])
+
+  const normalizedRegionValues = useMemo(() => {
+    if (!Array.isArray(regionValues) || regionValues.length === 0) return null
+
+    const uniqueSelected = Array.from(new Set(regionValues.map((value) => String(value))))
+    if (allRegionValues.length > 0 && allRegionValues.every((value) => uniqueSelected.includes(value))) {
+      return null
+    }
+
+    return uniqueSelected
+  }, [allRegionValues, regionValues])
+
   const saveRule = useCallback(async () => {
     if (!user?.id) {
       window.dispatchEvent(new CustomEvent('app:toast', {
@@ -187,7 +202,7 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
               project_id: useItem ? null : (pid ? Number(pid) : null),
               item_id: useItem ? (pid ? Number(pid) : null) : null,
               source: src ? String(src) : null,
-              regions: Array.isArray(regionValues) && regionValues.length ? regionValues : null,
+              regions: normalizedRegionValues,
               position: isAssign ? Number(position || 1) : null,
               is_active: !!isActive,
             }
@@ -234,7 +249,7 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
     } finally {
       setSaving(false)
     }
-  }, [companyType, fetchData, isActive, isArabic, isAssign, itemIds, onSaved, position, projectIds, regionValues, sourceValues, type, user?.id])
+  }, [companyType, fetchData, isActive, isArabic, isAssign, itemIds, normalizedRegionValues, onSaved, position, projectIds, sourceValues, type, user?.id])
 
   if (!open) return null
 
@@ -300,7 +315,7 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
                 label={isArabic ? 'المناطق' : 'Regions'}
                 isRTL={isArabic}
                 multiple
-                showAllOption={false}
+                showAllOption={true}
               />
             </div>
 

@@ -101,7 +101,7 @@ class LeadsImportHandler implements ImportHandler
             $nextActionDate = trim((string) ($normalized['next_action_date'] ?? $normalized['nextActionDate'] ?? ''));
             $nextActionTime = trim((string) ($normalized['next_action_time'] ?? $normalized['nextActionTime'] ?? ''));
             $creationDateRaw = trim((string) ($normalized['creation_date'] ?? $normalized['creationDate'] ?? $normalized['created_at'] ?? $normalized['createdAt'] ?? ''));
-            $firstActionDateRaw = trim((string) ($normalized['first_action_date'] ?? $normalized['firstActionDate'] ?? ''));
+            $firstActionDateRaw = trim((string) ($normalized['first_action_date'] ?? $normalized['firstActionDate'] ?? $normalized['last_action_date'] ?? $normalized['lastActionDate'] ?? $normalized['action_date'] ?? $normalized['actionDate'] ?? ''));
             $comment = trim((string) ($normalized['comment'] ?? $normalized['comments'] ?? ''));
             $phoneCountry = trim((string) ($normalized['phone_country'] ?? ''));
 
@@ -383,8 +383,8 @@ class LeadsImportHandler implements ImportHandler
                 if ($creationDate && !$upsertedExistingDuplicate) {
                     $lead->timestamps = false;
                     $lead->forceFill([
-                        'created_at' => $creationDate->copy()->startOfDay(),
-                        'updated_at' => $creationDate->copy()->startOfDay(),
+                        'created_at' => $creationDate->copy(),
+                        'updated_at' => $creationDate->copy(),
                     ])->save();
                     $lead->timestamps = true;
                 }
@@ -392,7 +392,7 @@ class LeadsImportHandler implements ImportHandler
                 $firstActionDate = $this->parseYmdDate($firstActionDateRaw);
                 if ($firstActionDate && !$upsertedExistingDuplicate) {
                     $lead->forceFill([
-                        'last_contact' => $firstActionDate->copy()->startOfDay(),
+                        'last_contact' => $firstActionDate->copy(),
                     ])->save();
                 }
 
@@ -428,8 +428,9 @@ class LeadsImportHandler implements ImportHandler
                 }
 
                 // Next action creation (optional, best-effort).
-                if ($nextActionDate !== '' && preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $nextActionDate)) {
-                    $time = $nextActionTime !== '' && preg_match('/^\\d{2}:\\d{2}$/', $nextActionTime) ? $nextActionTime : null;
+                $nextActionAt = $this->parseImportedNextActionAt($nextActionDate, $nextActionTime);
+                if ($nextActionAt) {
+                    $time = $nextActionAt->format('H:i');
                     try {
                         LeadAction::create([
                             'lead_id' => $lead->id,
@@ -440,7 +441,7 @@ class LeadsImportHandler implements ImportHandler
                             'stage_id_at_creation' => null,
                             'next_action_type' => 'call',
                             'details' => array_filter([
-                                'date' => $nextActionDate,
+                                'date' => $nextActionAt->toDateString(),
                                 'time' => $time,
                                 'status' => 'scheduled',
                                 'source' => 'import',
@@ -801,5 +802,26 @@ class LeadsImportHandler implements ImportHandler
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    private function parseImportedNextActionAt($dateValue, $timeValue): ?\Carbon\Carbon
+    {
+        $dateRaw = trim((string) $dateValue);
+        $timeRaw = trim((string) $timeValue);
+
+        if ($dateRaw === '') {
+            return null;
+        }
+
+        $dateTime = $this->parseYmdDate($dateRaw);
+        if ($dateTime) {
+            if ($timeRaw !== '' && preg_match('/^\d{1,2}:\d{2}$/', $timeRaw)) {
+                [$hours, $minutes] = array_map('intval', explode(':', $timeRaw, 2));
+                $dateTime->setTime($hours, $minutes, 0);
+            }
+            return $dateTime;
+        }
+
+        return null;
     }
 }

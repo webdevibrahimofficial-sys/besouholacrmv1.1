@@ -134,7 +134,7 @@ export default function MetaSettings({ onClose }) {
   // Form State
   const [events, setEvents] = useState({ Lead: true, Contact: true, CompleteRegistration: false, Purchase: false })
   const [enableCapi, setEnableCapi] = useState(false)
-  const [autoSync, setAutoSync] = useState(false)
+  const [autoSync, setAutoSync] = useState(true)
   const [fieldMap, setFieldMap] = useState({ name: 'name', email: 'email', phone: 'phone', utm_source: 'utm_source', utm_campaign: 'utm_campaign' })
   
   // Validation
@@ -177,7 +177,7 @@ export default function MetaSettings({ onClose }) {
 
       const saved = data.settings || {}
       setEnableCapi(!!saved.enableCapi)
-      setAutoSync(!!saved.autoSync)
+      setAutoSync(saved.autoSync ?? true)
       if (saved.events && typeof saved.events === 'object') {
         setEvents(prev => ({ ...prev, ...saved.events }))
       }

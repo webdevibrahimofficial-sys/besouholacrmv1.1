@@ -60,7 +60,7 @@ class MetaLeadService
 
             // Fallback: Find any valid connection if no specific page context or token found yet
             if (!$accessToken) {
-                $connection = MetaConnection::where('tenant_id', $tenantId)->latest()->first();
+                $connection = $this->resolveFallbackConnection($tenantId);
                 if ($connection) {
                     $accessToken = $connection->user_access_token;
                 }
@@ -251,6 +251,30 @@ class MetaLeadService
             ],
             $leadData
         );
+    }
+
+    protected function resolveFallbackConnection($tenantId): ?MetaConnection
+    {
+        $connections = MetaConnection::where('tenant_id', $tenantId)
+            ->where(function ($query) {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            })
+            ->orderByDesc('updated_at')
+            ->limit(2)
+            ->get();
+
+        if ($connections->count() > 1) {
+            Log::warning('Meta lead processing fallback is ambiguous for tenant with multiple connections and no page context.', [
+                'tenant_id' => $tenantId,
+                'connection_ids' => $connections->pluck('id')->all(),
+                'reason' => 'missing_page_context',
+            ]);
+
+            return null;
+        }
+
+        return $connections->first();
     }
 
     protected function notifyTenantAdmin($tenantId, $reason)

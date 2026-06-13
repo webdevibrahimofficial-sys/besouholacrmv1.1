@@ -534,6 +534,13 @@ export default function SalesActivitiesReport() {
     const leadsBySales = new Map()
     const revenueBySalesCurrent = new Map()
     const delayedLeadsBySales = new Map()
+    const normalizeCallOutcome = (action) => {
+      const raw = String(action?.details?.outcome || action?.outcome || '').trim().toLowerCase()
+      if (!raw) return ''
+      if (raw === 'answer') return 'answer'
+      if (['no_answer', 'no answer', 'no-answer'].includes(raw)) return 'no_answer'
+      return raw
+    }
 
     // 1. Initialize rows for all eligible users (to show even those with 0 actions but potential revenue)
     let eligibleUsers = usersList
@@ -573,6 +580,8 @@ export default function SalesActivitiesReport() {
           delayed: 0,
           actions: 0,
           calls: 0,
+          answered: 0,
+          noAnswer: 0,
           revenue: 0,
           target: 0,
           actionByStage: '',
@@ -600,6 +609,12 @@ export default function SalesActivitiesReport() {
         const actionType = (action.action_type || action.type || '').toLowerCase()
         if (channel.includes('call') || actionType.includes('call')) {
           row.calls += 1
+          const outcome = normalizeCallOutcome(action)
+          if (outcome === 'answer') {
+            row.answered += 1
+          } else if (outcome === 'no_answer') {
+            row.noAnswer += 1
+          }
         }
 
         // Calculate breakdown by stage for this user
@@ -822,6 +837,8 @@ export default function SalesActivitiesReport() {
         isRTL ? 'المتأخرة' : 'Delayed',
         isRTL ? 'الإجراءات' : 'Actions',
         isRTL ? 'المكالمات' : 'Calls',
+        isRTL ? 'تم الرد' : 'Answer',
+        isRTL ? 'لم يتم الرد' : 'No Answer',
         isRTL ? 'الإجراء حسب المرحلة' : 'Action by Stage',
         isRTL ? 'الإيرادات' : 'Revenue',
         isRTL ? 'الهدف' : 'Target',
@@ -838,6 +855,8 @@ export default function SalesActivitiesReport() {
           row.delayed,
           row.actions,
           row.calls,
+          row.answered,
+          row.noAnswer,
           row.actionByStage,
           row.revenue.toLocaleString(),
           row.target.toLocaleString(),
@@ -875,6 +894,8 @@ export default function SalesActivitiesReport() {
       [isRTL ? 'المتأخرة' : 'Delayed']: row.delayed,
       [isRTL ? 'الإجراءات' : 'Actions']: row.actions,
       [isRTL ? 'المكالمات' : 'Calls']: row.calls,
+      [isRTL ? 'تم الرد' : 'Answer']: row.answered,
+      [isRTL ? 'لم يتم الرد' : 'No Answer']: row.noAnswer,
       [isRTL ? 'الإيرادات' : 'Revenue']: row.revenue,
       [isRTL ? 'الهدف' : 'Target']: row.target,
       [isRTL ? 'إجمالي الإيرادات (فريق)' : 'Total Revenue (Team)']: row.totalRevenue,
@@ -1225,6 +1246,8 @@ export default function SalesActivitiesReport() {
                 <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'المتأخرة' : 'Delayed'}</th>
                 <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الإجراءات' : 'Actions'}</th>
                 <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'المكالمات' : 'Calls'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'تم الرد' : 'Answer'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'لم يتم الرد' : 'No Answer'}</th>
                 <th className={`hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-start ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الإجراء حسب المرحلة' : 'Action by Stage'}</th>
                 <th className={`px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{isRTL ? 'الإيرادات' : 'Revenue'}</th>
                 <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الهدف' : 'Target'}</th>
@@ -1237,7 +1260,7 @@ export default function SalesActivitiesReport() {
               {filteredData.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                      colSpan={13}
                     className="px-4 py-6 text-center text-[var(--muted-text)]"
                   >
                     {isRTL ? 'لا توجد بيانات' : 'No data'}
@@ -1247,7 +1270,7 @@ export default function SalesActivitiesReport() {
               {filteredData.length > 0 && paginatedRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                      colSpan={13}
                     className="px-4 py-6 text-center text-[var(--muted-text)]"
                   >
                     {isRTL ? 'لا توجد نتائج' : 'No results'}
@@ -1267,6 +1290,8 @@ export default function SalesActivitiesReport() {
                     <td className="hidden md:table-cell px-4 py-3 text-center text-red-500 font-medium">{row.delayed}</td>
                     <td className={`hidden md:table-cell px-4 py-3 text-center ${isLight ? 'text-black' : 'text-white'} `}>{row.actions}</td>
                     <td className={`hidden md:table-cell px-4 py-3 text-center ${isLight ? 'text-black' : 'text-white'} `}>{row.calls}</td>
+                    <td className="hidden md:table-cell px-4 py-3 text-center text-emerald-600 font-medium">{row.answered}</td>
+                    <td className="hidden md:table-cell px-4 py-3 text-center text-rose-500 font-medium">{row.noAnswer}</td>
                     <td className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-start">
                       <div
                         className="relative inline-block"
@@ -1321,6 +1346,14 @@ export default function SalesActivitiesReport() {
                             <div className="flex justify-between">
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'المكالمات' : 'Calls'}:</span>
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{row.calls}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'تم الرد' : 'Answer'}:</span>
+                              <span className="text-emerald-600">{row.answered}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'لم يتم الرد' : 'No Answer'}:</span>
+                              <span className="text-rose-500">{row.noAnswer}</span>
                             </div>
                             <div className="col-span-2 space-y-2 py-2 border-t border-white/5 mt-1">
                               <span className="text-[var(--muted-text)] block mb-1">{isRTL ? 'توزيع الإجراءات:' : 'Actions Distribution:'}</span>

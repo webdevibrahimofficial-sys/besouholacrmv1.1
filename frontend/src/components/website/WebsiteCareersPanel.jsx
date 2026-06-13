@@ -112,129 +112,108 @@ function FieldRenderer({ label, value, onChange, textarea = false, rows = 3 }) {
 function ApplicationsPanel({ applications }) {
   if (!applications?.length) {
     return (
-      <div className="rounded-[28px] border border-dashed border-[var(--border)] bg-[var(--surface)] p-8 text-sm text-[var(--muted-text)]">
+      <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-6 text-sm text-[var(--muted-text)]">
         No career applications have been submitted yet.
       </div>
     )
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {applications.map((application) => (
         <div
           key={application.id}
-          className="relative overflow-hidden rounded-[28px] border border-white/12 bg-[linear-gradient(135deg,rgba(255,255,255,0.16),rgba(255,255,255,0.05))] p-6 shadow-[0_20px_50px_rgba(15,23,42,0.12)] backdrop-blur-xl"
+          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
         >
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(129,140,248,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(56,189,248,0.1),transparent_28%)]" />
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-lg font-semibold text-[var(--content-text)]">
+                  {application.full_name}
+                </h3>
+                <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs uppercase tracking-wide text-[var(--muted-text)]">
+                  {application.status}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-[var(--muted-text)]">
+                {application.role_title || 'General application'} · {formatDate(application.created_at)}
+              </p>
+            </div>
 
-          <div className="relative flex flex-col gap-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-xl font-semibold text-[var(--content-text)]">
-                    {application.full_name}
-                  </h3>
-                  <span className="rounded-full border border-indigo-500/30 bg-indigo-500/18 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-indigo-800">
-                    {application.role_title || 'General'}
-                  </span>
-                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/18 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-emerald-800">
-                    {application.status}
-                  </span>
-                  <span className="rounded-full border border-slate-400/25 bg-slate-900/8 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-700">
-                    {formatDate(application.created_at)}
-                  </span>
-                </div>
+            <div className="flex flex-wrap gap-2 text-sm">
+              {application.cv_url ? (
+                <a
+                  href={application.cv_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg bg-[var(--primary)] px-3 py-2 text-white"
+                >
+                  Open CV
+                </a>
+              ) : null}
+              {application.linkedin_url ? (
+                <a
+                  href={application.linkedin_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-[var(--content-text)]"
+                >
+                  LinkedIn
+                </a>
+              ) : null}
+              {application.portfolio_url ? (
+                <a
+                  href={application.portfolio_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-[var(--content-text)]"
+                >
+                  Portfolio
+                </a>
+              ) : null}
+            </div>
+          </div>
 
-                <p className="mt-3 text-sm leading-6 text-slate-700">
-                  Candidate snapshot from the careers funnel with direct access to the CV, profile links, and hiring answers.
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              ['Email', application.email],
+              ['Phone', application.phone],
+              ['Current Role', application.current_role || '—'],
+              ['Experience', application.years_experience || '—'],
+              ['Location', application.location || '—'],
+              ['Work Preference', application.work_preference || '—'],
+              ['Availability', application.availability || '—'],
+              ['Salary Expectation', application.salary_expectation || '—'],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-[var(--surface-2)] px-4 py-3">
+                <div className="text-xs uppercase tracking-wide text-[var(--muted-text)]">{label}</div>
+                <div className="mt-1 text-sm text-[var(--content-text)]">{value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            {[
+              ['Motivation', application.motivation],
+              ['Biggest Achievement', application.biggest_achievement],
+              ['Additional Notes', application.cover_letter],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-[var(--surface-2)] px-4 py-3">
+                <div className="text-xs uppercase tracking-wide text-[var(--muted-text)]">{label}</div>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--content-text)]">
+                  {value || '—'}
                 </p>
               </div>
+            ))}
+          </div>
 
-              <div className="flex flex-wrap gap-2 text-sm">
-                {application.cv_url ? (
-                  <a
-                    href={application.cv_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-full bg-slate-950 px-4 py-2.5 font-medium text-white shadow-[0_12px_26px_rgba(15,23,42,0.28)] transition hover:bg-slate-900"
-                  >
-                    Open CV
-                  </a>
-                ) : null}
-                {application.linkedin_url ? (
-                  <a
-                    href={application.linkedin_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-full border border-slate-300/70 bg-white/55 px-4 py-2.5 text-slate-800 transition hover:bg-white/75"
-                  >
-                    LinkedIn
-                  </a>
-                ) : null}
-                {application.portfolio_url ? (
-                  <a
-                    href={application.portfolio_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-full border border-slate-300/70 bg-white/55 px-4 py-2.5 text-slate-800 transition hover:bg-white/75"
-                  >
-                    Portfolio
-                  </a>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {[
-                ['Email', application.email],
-                ['Phone', application.phone],
-                ['Current Role', application.current_role || '—'],
-                ['Experience', application.years_experience || '—'],
-                ['Location', application.location || '—'],
-                ['Work Preference', application.work_preference || '—'],
-                ['Availability', application.availability || '—'],
-                ['Salary Expectation', application.salary_expectation || '—'],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4 backdrop-blur-md"
-                >
-                  <div className="text-[11px] uppercase tracking-[0.2em] text-[var(--muted-text)]">{label}</div>
-                  <div className="mt-2 text-base font-medium text-[var(--content-text)]">{value}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-3">
-              {[
-                ['Motivation', application.motivation],
-                ['Biggest Achievement', application.biggest_achievement],
-                ['Additional Notes', application.cover_letter],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4 backdrop-blur-md"
-                >
-                  <div className="text-[11px] uppercase tracking-[0.2em] text-[var(--muted-text)]">{label}</div>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[var(--content-text)]">
-                    {value || '—'}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-3 border-t border-white/10 pt-4 text-xs text-[var(--muted-text)]">
-              <span className="rounded-full border border-white/10 bg-white/8 px-3 py-1.5">
-                Source: {application.source || 'website_careers'}
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/8 px-3 py-1.5">
-                Origin: {application.origin || '—'}
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/8 px-3 py-1.5">
-                CV: {application.cv_original_name || 'No file'}
-                {application.cv_size ? ` · ${formatFileSize(application.cv_size)}` : ''}
-              </span>
-            </div>
+          <div className="mt-4 flex flex-wrap gap-4 text-xs text-[var(--muted-text)]">
+            <span>Source: {application.source || 'website_careers'}</span>
+            <span>Origin: {application.origin || '—'}</span>
+            <span>
+              CV: {application.cv_original_name || 'No file'}
+              {application.cv_size ? ` · ${formatFileSize(application.cv_size)}` : ''}
+            </span>
           </div>
         </div>
       ))}
@@ -268,16 +247,16 @@ function RoleEditorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-md">
-      <div className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/18 bg-[linear-gradient(145deg,rgba(15,23,42,0.94),rgba(30,41,59,0.9))] shadow-[0_30px_80px_rgba(15,23,42,0.55)]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.26),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(56,189,248,0.18),transparent_30%)]" />
+      <div className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/15 bg-[linear-gradient(135deg,rgba(255,255,255,0.18),rgba(255,255,255,0.06))] shadow-[0_30px_80px_rgba(15,23,42,0.45)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.24),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(56,189,248,0.18),transparent_30%)]" />
 
         <div className="relative flex items-center justify-between border-b border-white/10 px-6 py-5">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Careers CMS</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">
+            <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted-text)]">Careers CMS</p>
+            <h3 className="mt-2 text-xl font-semibold text-[var(--content-text)]">
               {editingCareerRoleId ? 'Edit Career Role' : 'Add Career Role'}
             </h3>
-            <p className="mt-1 text-sm text-slate-200/85">
+            <p className="mt-1 text-sm text-[var(--muted-text)]">
               Build a polished role card with clear hiring details and website-ready content.
             </p>
           </div>
@@ -285,7 +264,7 @@ function RoleEditorModal({
           <button
             type="button"
             onClick={cancelCareerRoleEdit}
-            className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+            className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-[var(--content-text)] transition hover:bg-white/15"
           >
             Close
           </button>
@@ -304,9 +283,9 @@ function RoleEditorModal({
               ['sort_order', 'Sort Order'],
             ].map(([key, label]) => (
               <label key={key} className="block text-sm">
-                <span className="mb-1.5 block font-medium text-slate-100">{label}</span>
+                <span className="mb-1.5 block text-[var(--muted-text)]">{label}</span>
                 <input
-                  className="w-full rounded-2xl border border-white/15 bg-white/95 px-4 py-3 text-slate-950 outline-none transition placeholder:text-slate-500 focus:border-[var(--primary)] focus:bg-white"
+                  className="w-full rounded-2xl border border-white/12 bg-white/10 px-4 py-3 text-[var(--content-text)] outline-none transition placeholder:text-[var(--muted-text)]/70 focus:border-[var(--primary)] focus:bg-white/14"
                   value={roleForm[key] ?? ''}
                   onChange={(e) =>
                     setRoleForm((prev) => ({
@@ -323,9 +302,9 @@ function RoleEditorModal({
               ['description', 'Description', 5],
             ].map(([key, label, rows]) => (
               <label key={key} className="block text-sm md:col-span-2">
-                <span className="mb-1.5 block font-medium text-slate-100">{label}</span>
+                <span className="mb-1.5 block text-[var(--muted-text)]">{label}</span>
                 <textarea
-                  className="w-full rounded-2xl border border-white/15 bg-white/95 px-4 py-3 text-slate-950 outline-none transition placeholder:text-slate-500 focus:border-[var(--primary)] focus:bg-white"
+                  className="w-full rounded-2xl border border-white/12 bg-white/10 px-4 py-3 text-[var(--content-text)] outline-none transition placeholder:text-[var(--muted-text)]/70 focus:border-[var(--primary)] focus:bg-white/14"
                   rows={rows}
                   value={roleForm[key] || ''}
                   onChange={(e) => setRoleForm((prev) => ({ ...prev, [key]: e.target.value }))}
@@ -339,9 +318,9 @@ function RoleEditorModal({
               ['benefits', 'Benefits'],
             ].map(([key, label]) => (
               <label key={key} className="block text-sm md:col-span-2">
-                <span className="mb-1.5 block font-medium text-slate-100">{label}</span>
+                <span className="mb-1.5 block text-[var(--muted-text)]">{label}</span>
                 <textarea
-                  className="w-full rounded-2xl border border-white/15 bg-white/95 px-4 py-3 text-slate-950 outline-none transition placeholder:text-slate-500 focus:border-[var(--primary)] focus:bg-white"
+                  className="w-full rounded-2xl border border-white/12 bg-white/10 px-4 py-3 text-[var(--content-text)] outline-none transition placeholder:text-[var(--muted-text)]/70 focus:border-[var(--primary)] focus:bg-white/14"
                   rows={4}
                   value={normalizeList(roleForm[key]).join('\n')}
                   onChange={(e) =>
@@ -351,13 +330,13 @@ function RoleEditorModal({
                     }))
                   }
                 />
-                <span className="mt-1 block text-xs text-slate-300/80">One item per line.</span>
+                <span className="mt-1 block text-xs text-[var(--muted-text)]">One item per line.</span>
               </label>
             ))}
           </div>
 
           <div className="mt-5 flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-white">
+            <label className="flex items-center gap-2 text-sm text-[var(--content-text)]">
               <input
                 type="checkbox"
                 checked={roleForm.is_featured === true}
@@ -365,7 +344,7 @@ function RoleEditorModal({
               />
               Featured role
             </label>
-            <label className="flex items-center gap-2 text-sm text-white">
+            <label className="flex items-center gap-2 text-sm text-[var(--content-text)]">
               <input
                 type="checkbox"
                 checked={roleForm.is_active !== false}
@@ -387,7 +366,7 @@ function RoleEditorModal({
             <button
               type="button"
               onClick={cancelCareerRoleEdit}
-              className="rounded-full border border-white/15 bg-white/8 px-5 py-2.5 text-sm text-white transition hover:bg-white/12"
+              className="rounded-full border border-white/15 bg-white/8 px-5 py-2.5 text-sm text-[var(--content-text)] transition hover:bg-white/12"
             >
               Cancel
             </button>
@@ -465,10 +444,10 @@ export default function WebsiteCareersPanel({
               key={key}
               type="button"
               onClick={() => setActiveSubTab(key)}
-              className={`rounded-full border px-4 py-2 text-sm transition ${
+              className={`rounded-full px-4 py-2 text-sm ${
                 activeSubTab === key
-                  ? 'border-slate-900 bg-slate-900 text-white shadow-[0_8px_24px_rgba(15,23,42,0.16)]'
-                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-text)] hover:bg-[var(--surface)]'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'bg-[var(--surface-2)] text-[var(--muted-text)]'
               }`}
             >
               {label}
@@ -780,7 +759,7 @@ export default function WebsiteCareersPanel({
         <div className="space-y-5">
           <div className="relative overflow-hidden rounded-[28px] border border-white/12 bg-[linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,41,59,0.88))] p-6 text-white shadow-[0_25px_80px_rgba(15,23,42,0.2)]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(129,140,248,0.28),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(34,211,238,0.18),transparent_28%)]" />
-            <div className="relative flex flex- gap-5 xl:flex-row xl:items-center xl:justify-between">
+            <div className="relative flex flex-wrap gap-5 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0 flex-1">
                 <p className="text-xs uppercase tracking-[0.32em] text-white/55">Hiring Pipeline</p>
                 <h3 className="mt-2 text-2xl font-semibold">Career Roles</h3>

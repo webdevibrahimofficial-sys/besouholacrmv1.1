@@ -8,13 +8,14 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Spatie\Multitenancy\Jobs\NotTenantAware;
 
-class SyncMetaInsights implements ShouldQueue
+class SyncMetaInsights implements ShouldQueue, NotTenantAware
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $tenantId;
-    protected $days;
+    public $tenantId;
+    public $days;
 
     /**
      * Create a new job instance.
@@ -30,6 +31,7 @@ class SyncMetaInsights implements ShouldQueue
      */
     public function handle(MetaInsightService $service): void
     {
+        app()->instance('current_tenant_id', $this->tenantId);
         $service->syncInsights($this->tenantId, $this->days);
     }
 }

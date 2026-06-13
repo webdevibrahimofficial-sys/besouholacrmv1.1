@@ -28,6 +28,8 @@ class SyncMetaAssets implements ShouldQueue, NotTenantAware
 
     public function handle(MetaAuthService $metaAuthService): void
     {
+        app()->instance('current_tenant_id', $this->tenantId);
+
         $connection = MetaConnection::withoutGlobalScopes()
             ->whereKey($this->connectionId)
             ->where('tenant_id', $this->tenantId)

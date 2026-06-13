@@ -1448,10 +1448,15 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                     ? 'no answer'
                     : (prev.notes === 'no answer' ? '' : prev.notes)
                 }))}
-                className={`flex items-center gap-3 px-6 py-4 rounded-xl transition-all font-medium backdrop-blur-md bg-white/10 hover:bg-white/20 shadow-2xl shadow-black/30 hover:shadow-black/50 border ${actionData.answerStatus === 'answer'
-                  ? 'text-green-300 hover:text-green-200 shadow-green-500/20 border-green-400/40'
-                  : 'text-red-300 hover:text-red-200 shadow-red-500/20 border-red-400/40'
-                  }`}
+                className={`flex items-center gap-3 px-6 py-4 rounded-xl transition-all font-medium backdrop-blur-md border ${
+                  actionData.answerStatus === 'answer'
+                    ? (isLight
+                      ? 'bg-green-50 text-green-700 hover:bg-green-100 border-green-300 shadow-lg shadow-green-200/70'
+                      : 'bg-white/10 hover:bg-white/20 text-green-300 hover:text-green-200 shadow-2xl shadow-black/30 hover:shadow-black/50 shadow-green-500/20 border-green-400/40')
+                    : (isLight
+                      ? 'bg-red-50 text-red-700 hover:bg-red-100 border-red-300 shadow-lg shadow-red-200/70'
+                      : 'bg-white/10 hover:bg-white/20 text-red-300 hover:text-red-200 shadow-2xl shadow-black/30 hover:shadow-black/50 shadow-red-500/20 border-red-400/40')
+                }`}
               >
                 {actionData.answerStatus === 'answer' ? (
                   <>
@@ -1501,15 +1506,14 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           {actionData.nextAction === 'meeting' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
                   {isArabic ? 'نوع الاجتماع' : 'Meeting Type'}
                 </label>
-                <div className="space-y-2">
+                <div className="relative">
                   <select
                     name="meetingType"
                     value={actionData.meetingType}
                     onChange={handleInputChange}
-                    disabled
                     className={`${isLight ? `w-full px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900` : `w-full px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white`}`}
                   >
                     {meetingTypes.map(type => (
@@ -1522,7 +1526,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
                   {isArabic ? 'مكان الاجتماع' : 'Meeting Location'}
                 </label>
                 <div className="relative">

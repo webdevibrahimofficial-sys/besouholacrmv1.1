@@ -49,6 +49,43 @@ class MetaAuthService
         return $driver;
     }
 
+    protected function minimalOauthScopesEnabled(): bool
+    {
+        return filter_var(config('services.meta.oauth_minimal_scopes', false), FILTER_VALIDATE_BOOL);
+    }
+
+    protected function resolveOauthScopes(): array
+    {
+        if ($this->minimalOauthScopesEnabled()) {
+            return config('services.facebook.minimal_scopes', [
+                'public_profile',
+                'email',
+            ]);
+        }
+
+        return config('services.facebook.scopes', [
+            'public_profile',
+            'email',
+            'pages_show_list',
+            'pages_read_engagement',
+            'ads_read',
+            'leads_retrieval',
+            'business_management',
+            'pages_manage_metadata',
+        ]);
+    }
+
+    protected function logRedirectAttempt($tenantId, array $credentials, array $scopes): void
+    {
+        Log::info('Meta OAuth redirect initiated', [
+            'tenant_id' => $tenantId,
+            'app_id' => $credentials['app_id'] ?? null,
+            'redirect_uri' => $this->redirectUri,
+            'scopes' => $scopes,
+            'minimal_scope_mode' => $this->minimalOauthScopesEnabled(),
+        ]);
+    }
+
     public function getRedirectUrl($tenantId = null, ?string $state = null)
     {
         // Mock Mode Check for Redirect URL
@@ -61,18 +98,11 @@ class MetaAuthService
             return route('meta.callback', $params);
         }
 
+        $credentials = $this->resolveCredentials($tenantId);
         $driver = $this->socialiteDriver($tenantId);
+        $scopes = $this->resolveOauthScopes();
 
-        $scopes = config('services.facebook.scopes', [
-            'public_profile',
-            'email',
-            'pages_show_list',
-            'pages_read_engagement',
-            'ads_read',
-            'leads_retrieval',
-            'business_management',
-            'pages_manage_metadata',
-        ]);
+        $this->logRedirectAttempt($tenantId, $credentials, $scopes);
 
         $driver = $driver
             ->stateless()
@@ -104,7 +134,7 @@ class MetaAuthService
             // 1. Create/Update Integration (Generic)
             Integration::firstOrCreate(
                 ['tenant_id' => $tenantId, 'provider' => 'meta'],
-                ['status' => 'active', 'settings' => []]
+                ['status' => 'active', 'settings' => ['autoSync' => true]]
             );
 
             // 2. Store Meta Connection (OAuth User)
@@ -318,20 +348,14 @@ class MetaAuthService
 
     public function getAccessToken($tenantId)
     {
-        // Get the first available valid connection for this tenant
-        $connection = MetaConnection::where('tenant_id', $tenantId)
-            ->where(function ($query) {
-                $query->whereNull('expires_at')
-                      ->orWhere('expires_at', '>', now());
-            })
-            ->first();
+        $connection = $this->resolveFallbackConnection($tenantId, false);
 
         if ($connection) {
             return $connection->user_access_token;
         }
 
-        // If no valid token, try to find an expired one and refresh it
-        $connection = MetaConnection::where('tenant_id', $tenantId)->first();
+        // If no valid token, try to find a single expired connection and refresh it.
+        $connection = $this->resolveFallbackConnection($tenantId, true);
         
         if ($connection) {
             if ($this->refreshToken($connection)) {
@@ -340,6 +364,35 @@ class MetaAuthService
         }
 
         return null;
+    }
+
+    protected function resolveFallbackConnection($tenantId, bool $includeExpired): ?MetaConnection
+    {
+        $query = MetaConnection::where('tenant_id', $tenantId);
+
+        if (!$includeExpired) {
+            $query->where(function ($builder) {
+                $builder->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            });
+        }
+
+        $connections = $query
+            ->orderByDesc('updated_at')
+            ->limit(2)
+            ->get();
+
+        if ($connections->count() > 1) {
+            Log::warning('Meta access token fallback is ambiguous for tenant with multiple connections.', [
+                'tenant_id' => $tenantId,
+                'include_expired' => $includeExpired,
+                'connection_ids' => $connections->pluck('id')->all(),
+            ]);
+
+            return null;
+        }
+
+        return $connections->first();
     }
 
     public function subscribePageToLeadgenWebhook(string $pageId, string $pageToken): array

@@ -130,10 +130,12 @@ class MetaAuthController extends Controller
         $pages = MetaPage::where('tenant_id', $tenantId)->get();
         
         $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
+        $settings = $this->metaDefaultSettings($integration?->settings);
 
         return response()->json([
             'connected' => $connections->isNotEmpty(),
             'integration_status' => $integration ? $integration->status : 'inactive',
+            'settings' => $settings,
             'connections' => $connections,
             'businesses' => $businesses,
             'ad_accounts' => $adAccounts,
@@ -154,7 +156,7 @@ class MetaAuthController extends Controller
             'settings' => 'required|array',
         ]);
 
-        $settings = is_array($integration->settings) ? $integration->settings : [];
+        $settings = $this->metaDefaultSettings($integration->settings);
         $integration->settings = array_merge($settings, $validated['settings']);
         $integration->save();
 
@@ -250,6 +252,15 @@ class MetaAuthController extends Controller
         }
 
         abort(403, 'Only tenant admins can manage Meta App settings.');
+    }
+
+    protected function metaDefaultSettings($settings = null): array
+    {
+        $current = is_array($settings) ? $settings : [];
+
+        return array_merge([
+            'autoSync' => true,
+        ], $current);
     }
 
     public function toggleAsset(Request $request)

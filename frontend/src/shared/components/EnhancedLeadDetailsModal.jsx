@@ -36,6 +36,17 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [uploadingLeadAttachments, setUploadingLeadAttachments] = useState(false);
   const leadAttachmentInputRef = useRef(null);
 
+  const formatCoordinatePair = (location) => {
+    const lat = Number(location?.lat);
+    const lng = Number(location?.lng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return '-';
+    }
+
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  };
+
   useEffect(() => {
     if (initialActionId && leadActions.length > 0) {
       const actionExists = leadActions.find(a => a.id == initialActionId);
@@ -2317,7 +2328,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                             <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
                               <div className="flex items-center gap-2">
                                 <span className="truncate max-w-[100px] sm:max-w-[150px]" title={item.location?.address || `${item.location?.lat}, ${item.location?.lng}`}>
-                                  {item.location?.address || (item.location?.lat ? `${item.location.lat.toFixed(4)}, ${item.location.lng.toFixed(4)}` : '-')}
+                                  {item.location?.address || formatCoordinatePair(item.location)}
                                 </span>
                                 {item.location && (item.location.lat || item.location.address) && (
                                   <button
@@ -2339,7 +2350,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                             <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
                               <div className="flex items-center gap-2">
                                 <span className="truncate max-w-[100px] sm:max-w-[150px]" title={item.checkOutLocation?.address || `${item.checkOutLocation?.lat}, ${item.checkOutLocation?.lng}`}>
-                                  {item.checkOutLocation?.address || (item.checkOutLocation?.lat ? `${item.checkOutLocation.lat.toFixed(4)}, ${item.checkOutLocation.lng.toFixed(4)}` : '-')}
+                                  {item.checkOutLocation?.address || formatCoordinatePair(item.checkOutLocation)}
                                 </span>
                                 {item.checkOutLocation && (item.checkOutLocation.lat || item.checkOutLocation.address) && (
                                   <button

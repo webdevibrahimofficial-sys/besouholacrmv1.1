@@ -318,7 +318,12 @@ function PipelineStagesManager() {
   return (
     <div className="glass-panel rounded-2xl p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <div className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{t('Pipeline Setup Stages')}</div>
+        <div className={`inline-flex items-center gap-2 font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
+          <span>{t('Pipeline Setup Stages')}</span>
+          <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-200">
+            {pipelineStages.length}
+          </span>
+        </div>
         <button className="px-3 py-2 rounded bg-blue-600 text-white" onClick={() => setShowNewStage(v => !v)}>
           {t('New Stage')}
         </button>
