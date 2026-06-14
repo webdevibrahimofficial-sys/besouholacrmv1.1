@@ -174,6 +174,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   const activeRowRef = useRef(null);
   
   const [leads, setLeads] = useState([]);
+  const [delayedTotal, setDelayedTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchLeads = async () => {
@@ -184,9 +185,12 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
       
       // Use the dedicated delayed leads endpoint
       const response = await api.get('/api/leads/delayed', { params });
-      const data = response.data.data || response.data;
-      const leadsArray = Array.isArray(data) ? data : (data.data || []);
+      const payload = response.data || {};
+      const leadsArray = Array.isArray(payload.data)
+        ? payload.data
+        : (Array.isArray(payload) ? payload : []);
       setLeads(leadsArray);
+      setDelayedTotal(Number(payload.total || 0));
     } catch (error) {
       console.error('Failed to fetch leads for DelayLeads', error);
     } finally {
@@ -511,8 +515,8 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   }, [delayLeads, selectedFilter, dateFrom, dateTo]);
 
   useEffect(() => {
-    onCountChange?.(filteredLeads.length);
-  }, [filteredLeads.length, onCountChange]);
+    onCountChange?.(delayedTotal);
+  }, [delayedTotal, onCountChange]);
   
   // Determine if we need to show scrollbar (when leads > 5)
   const FIXED_LIST_HEIGHT_CLASS = 'h-[420px]';

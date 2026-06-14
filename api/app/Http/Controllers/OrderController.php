@@ -104,11 +104,13 @@ class OrderController extends Controller
         $order = Order::create($validated);
         $crm = CrmSetting::first();
         $settings = is_array($crm?->settings) ? $crm->settings : [];
-        $start = (int)($settings['startOrderCode'] ?? 1000);
+        $rawStart = (string) ($settings['startOrderCode'] ?? '0001');
+        $start = (int) $rawStart;
+        $numberWidth = max(1, strlen(preg_replace('/\D/', '', $rawStart)));
         if (empty($order->uuid)) {
             // Use Start Code + (ID - 1) to ensure uniqueness
             $next = $start + (int)$order->id - 1;
-            $order->uuid = 'SO-' . $next;
+            $order->uuid = 'SO-' . str_pad((string) $next, $numberWidth, '0', STR_PAD_LEFT);
             $order->save();
         }
 

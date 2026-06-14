@@ -44,6 +44,18 @@ class MetaLeadService
     public function processLead($tenantId, $leadId, $pageId = null, $accessToken = null)
     {
         $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
+        $tokenSource = $accessToken ? 'explicit' : null;
+
+        if ($this->isPostmanTestLeadId($leadId)) {
+            Log::info('Processing synthetic Postman Meta lead', [
+                'tenant_id' => $tenantId,
+                'lead_id' => $leadId,
+                'page_id' => $pageId,
+            ]);
+
+            $this->storeLead($tenantId, $this->buildPostmanTestLeadPayload($leadId, $pageId), $integration);
+            return;
+        }
         
         if (!$accessToken) {
             // Try to find token via Page ID
@@ -51,9 +63,11 @@ class MetaLeadService
                 $page = MetaPage::with('connection')->where('tenant_id', $tenantId)->where('page_id', $pageId)->first();
                 if ($page) {
                     $accessToken = $page->page_token;
+                    $tokenSource = $accessToken ? 'page_token' : null;
                     // Fallback to User Token if Page Token is missing
                     if (!$accessToken && $page->connection) {
                         $accessToken = $page->connection->user_access_token;
+                        $tokenSource = $accessToken ? 'page_connection_user_token' : null;
                     }
                 }
             }
@@ -63,6 +77,7 @@ class MetaLeadService
                 $connection = $this->resolveFallbackConnection($tenantId);
                 if ($connection) {
                     $accessToken = $connection->user_access_token;
+                    $tokenSource = $accessToken ? 'fallback_user_token' : null;
                 }
             }
 
@@ -70,6 +85,7 @@ class MetaLeadService
                 // Check if Mock Mode is enabled and allow bypass with a dummy token
                 if (config('services.meta.mock_mode')) {
                     $accessToken = 'mock_access_token_bypass';
+                    $tokenSource = 'mock_mode';
                     Log::info("Mock Mode: Using dummy access token for lead processing (Tenant: {$tenantId}, Lead: {$leadId})");
                 } else {
                     Log::error("No valid Meta access token found for tenant {$tenantId} while processing lead {$leadId}");
@@ -78,8 +94,16 @@ class MetaLeadService
             }
         }
 
-    // Fetch lead details from Graph API
+        // Fetch lead details from Graph API
         try {
+            Log::info('Meta Lead Fetch', [
+                'tenant_id' => $tenantId,
+                'lead_id' => $leadId,
+                'page_id' => $pageId,
+                'token_source' => $tokenSource,
+                'token_prefix' => $accessToken ? substr($accessToken, 0, 15) : null,
+            ]);
+
             $data = $this->apiClient->get("/{$leadId}", [
                 'access_token' => $accessToken,
                 'fields' => 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,form_name,field_data',
@@ -301,5 +325,34 @@ class MetaLeadService
                 Log::error("Failed to send Meta notification to user {$admin->id}: " . $e->getMessage());
             }
         }
+    }
+
+    protected function isPostmanTestLeadId($leadId): bool
+    {
+        return str_starts_with(strtolower(trim((string) $leadId)), 'postman-test-');
+    }
+
+    protected function buildPostmanTestLeadPayload($leadId, $pageId = null): array
+    {
+        $suffix = preg_replace('/[^a-z0-9]+/i', '-', strtolower((string) $leadId));
+
+        return [
+            'id' => (string) $leadId,
+            'created_time' => now()->toIso8601String(),
+            'campaign_id' => null,
+            'campaign_name' => 'Postman Test Campaign',
+            'ad_id' => null,
+            'ad_name' => 'Postman Test Ad',
+            'adset_id' => null,
+            'adset_name' => 'Postman Test Ad Set',
+            'form_id' => 'postman-test-form',
+            'form_name' => 'Postman Test Form',
+            'field_data' => [
+                ['name' => 'full_name', 'values' => ['Postman Test Lead']],
+                ['name' => 'email', 'values' => ["{$suffix}@postman.test"]],
+                ['name' => 'phone_number', 'values' => ['+201000000000']],
+            ],
+            'page_id' => $pageId,
+        ];
     }
 }

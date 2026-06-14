@@ -14,12 +14,32 @@ class MetaWebhookService
 
     public function handleWebhook(Request $request, $tenantId = null)
     {
-        // Skip signature verification in Mock Mode
-        if (!config('services.meta.mock_mode')) {
+        // Allow explicit Postman smoke tests without a Meta signature.
+        if ($request->header('X-Webhook-Test') === 'postman') {
+            Log::info('Postman webhook signature bypassed', [
+                'tenant_id' => $tenantId,
+                'content_length' => strlen((string) $request->getContent()),
+            ]);
+        } elseif (!config('services.meta.mock_mode')) {
             // Verify signature
             $signature = $request->header('X-Hub-Signature-256') ?? $request->header('X-Hub-Signature');
             $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
             $appSecret = $credentials['app_secret'] ?? null;
+            $rawBody = (string) $request->getContent();
+
+            Log::info('Meta Signature Debug', [
+                'tenant_id' => $tenantId,
+                'signature_present' => !empty($signature),
+                'signature_header' => $signature ? explode('=', $signature, 2)[0] : null,
+                'payload_len' => strlen($rawBody),
+                'app_secret_len' => strlen((string) $appSecret),
+                'content_type' => $request->header('Content-Type'),
+            ]);
+            Log::info('Meta Signature Full Debug', [
+                'tenant_id' => $tenantId,
+                'signature' => $signature,
+                'content_length' => strlen($rawBody),
+            ]);
 
             if (!$appSecret) {
                 Log::error('Meta webhook rejected: missing app secret');
@@ -29,10 +49,15 @@ class MetaWebhookService
             // Signature format: sha1=... or sha256=...
             // $signature header contains "algo=hash"
             
-            if (!$signature || !$this->verifySignature($request->getContent(), $signature, $appSecret)) {
+            if (!$signature || !$this->verifySignature($rawBody, $signature, $appSecret)) {
                 Log::warning("Invalid webhook signature from " . $request->ip());
                 abort(403, 'Invalid signature');
             }
+
+            Log::info('Meta Signature Verified', [
+                'tenant_id' => $tenantId,
+                'payload_len' => strlen($rawBody),
+            ]);
         } else {
             Log::info("Mock Mode: Skipping webhook signature verification.");
         }
@@ -44,6 +69,13 @@ class MetaWebhookService
             foreach ($entries as $entry) {
                 $changes = is_array($entry['changes'] ?? null) ? $entry['changes'] : [];
                 foreach ($changes as $change) {
+                    Log::info('Meta Webhook Change Observed', [
+                        'tenant_id' => $tenantId,
+                        'entry_id' => $entry['id'] ?? null,
+                        'field' => $change['field'] ?? null,
+                        'value_keys' => is_array($change['value'] ?? null) ? array_keys($change['value']) : [],
+                    ]);
+
                     if (isset($change['field']) && $change['field'] === 'leadgen') {
                         $value = $change['value'] ?? [];
                         $pageId = $entry['id'] ?? ($value['page_id'] ?? null);
@@ -54,6 +86,11 @@ class MetaWebhookService
                             $resolvedTenantId = $tenantId ?: $this->findTenantIdByPageId($pageId);
                             
                             if ($resolvedTenantId) {
+                                Log::info('Meta Lead Dispatching', [
+                                    'tenant_id' => $resolvedTenantId,
+                                    'page_id' => $pageId,
+                                    'leadgen_id' => $leadGenId,
+                                ]);
                                 \App\Jobs\ProcessMetaLead::dispatch($resolvedTenantId, $leadGenId, $pageId);
                             } else {
                                 Log::warning("No tenant found for page_id: {$pageId}");

@@ -47,6 +47,8 @@ const Footer = () => {
         { name: 'Contact', href: '/contact' },
         { name: 'Careers', href: '/career' },
         { name: 'Privacy Policy', href: '/privacy' },
+        { name: 'Terms & Conditions', href: '/terms' },
+        { name: 'Data Processing & Security', href: '/data-processing-security' },
       ],
     },
     {

@@ -315,12 +315,13 @@ class CustomerController extends Controller
             $settings = is_array($crm?->settings) ? $crm->settings : [];
             
             if (!$request->filled('customer_code')) {
-                $startCode = $settings['startCustomerCode'] ?? 'C-1000';
+                $startCode = (string) ($settings['startCustomerCode'] ?? '0001');
                 
                 // Extract prefix and number (e.g., "C-" and "1000")
                 if (preg_match('/^([^\d]*)(\d+)$/', $startCode, $matches)) {
                     $prefix = $matches[1];
                     $startNumber = intval($matches[2]);
+                    $numberWidth = strlen($matches[2]);
 
                     // Find the max number currently used with this prefix
                     // We look for codes starting with prefix and followed by digits
@@ -345,7 +346,7 @@ class CustomerController extends Controller
                         }
                     }
 
-                    $customer->customer_code = $prefix . $nextNumber;
+                    $customer->customer_code = $prefix . str_pad((string) $nextNumber, $numberWidth, '0', STR_PAD_LEFT);
                 } else {
                     // Fallback if pattern doesn't match
                     $customer->customer_code = $startCode . '-' . $customer->id;

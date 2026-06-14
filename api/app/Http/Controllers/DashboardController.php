@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\LeadAction;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
 
 class DashboardController extends Controller
 {
@@ -17,34 +16,44 @@ class DashboardController extends Controller
         // Date filters
         $dateFrom = $request->input('date_from');
         $dateTo = $request->input('date_to');
+        $user = $request->user();
+        $tenantId = $user?->tenant_id ?? (app()->bound('current_tenant_id') ? app('current_tenant_id') : null);
 
-        $query = LeadAction::query()
-            ->select('user_id', DB::raw('count(*) as total_actions'))
-            ->whereNotNull('user_id');
+        $query = User::query()
+            ->select(
+                'users.id as user_id',
+                'users.name',
+                'users.email',
+                DB::raw('COUNT(lead_actions.id) as total_actions')
+            )
+            ->where('users.tenant_id', $tenantId)
+            ->leftJoin('lead_actions', function ($join) use ($dateFrom, $dateTo, $tenantId) {
+                $join->on('lead_actions.user_id', '=', 'users.id');
 
-        if ($dateFrom) {
-            $query->whereDate('created_at', '>=', $dateFrom);
-        }
+                if ($tenantId) {
+                    $join->where('lead_actions.tenant_id', '=', $tenantId);
+                }
 
-        if ($dateTo) {
-            $query->whereDate('created_at', '<=', $dateTo);
-        }
+                if ($dateFrom) {
+                    $join->whereDate('lead_actions.created_at', '>=', $dateFrom);
+                }
 
-        // The BelongsToTenant trait on LeadAction automatically handles tenant_id filtering
+                if ($dateTo) {
+                    $join->whereDate('lead_actions.created_at', '<=', $dateTo);
+                }
+            });
 
-        $topUsers = $query->groupBy('user_id')
+        $topUsers = $query->groupBy('users.id', 'users.name', 'users.email')
             ->orderByDesc('total_actions')
-            ->limit(5)
-            ->with('user:id,name,email') // Eager load user details (relation is 'user' now)
             ->get();
 
         // Format the response
-        $data = $topUsers->map(function ($action) {
+        $data = $topUsers->map(function ($row) {
             return [
-                'user_id' => $action->user_id,
-                'name' => $action->user ? $action->user->name : 'Unknown User',
-                'email' => $action->user ? $action->user->email : '',
-                'total_actions' => $action->total_actions,
+                'user_id' => $row->user_id,
+                'name' => $row->name ?: 'Unknown User',
+                'email' => $row->email ?: '',
+                'total_actions' => (int) $row->total_actions,
             ];
         });
 

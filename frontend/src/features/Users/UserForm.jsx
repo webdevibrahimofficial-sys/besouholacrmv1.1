@@ -1249,18 +1249,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
               </div>
               )}
               {showGeoFields && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                <div className="grid grid-cols-1 gap-3 mt-3">
                   <div>
                     <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'الفرع (اختياري)' : 'Branch (Optional)'}</span></label>
                     <input className={inputStyle} value={form.branch} onChange={(e)=>updateField('branch', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'المنطقة (اختياري)' : 'Region (Optional)'}</span></label>
-                    <input className={inputStyle} value={form.region} onChange={(e)=>updateField('region', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'المربع/الحقل (اختياري)' : 'Area (Optional)'}</span></label>
-                    <input className={inputStyle} value={form.area} onChange={(e)=>updateField('area', e.target.value)} />
                   </div>
                 </div>
               )}

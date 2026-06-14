@@ -3344,6 +3344,26 @@ class LeadController extends Controller
         }
 
         $phonesInBatch = [];
+        $availableStages = [];
+        $stageRows = \App\Models\Stage::query()
+            ->where('tenant_id', $currentTenantId)
+            ->get(['name', 'name_ar']);
+
+        foreach ($stageRows as $stageRow) {
+            $canonicalStage = trim((string) ($stageRow->name ?? $stageRow->name_ar ?? ''));
+            if ($canonicalStage === '') {
+                continue;
+            }
+
+            foreach ([(string) ($stageRow->name ?? ''), (string) ($stageRow->name_ar ?? '')] as $stageAlias) {
+                $stageAlias = trim($stageAlias);
+                if ($stageAlias === '') {
+                    continue;
+                }
+
+                $availableStages[strtolower(str_replace([' ', '-'], '', $stageAlias))] = $canonicalStage;
+            }
+        }
 
         foreach ($leads as $index => $leadData) {
             try {
@@ -3424,10 +3444,20 @@ class LeadController extends Controller
                         $stage = 'Cold Calls';
                     } elseif ($normIncoming === 'duplicate') {
                          $stage = 'Duplicate';
+                    } elseif (in_array($normIncoming, ['reseal', 'resale'])) {
+                        $stage = 'Resale';
                     } else {
                         $stage = $incomingStage;
                     }
                 }
+
+                $stageKey = strtolower(str_replace([' ', '-'], '', trim((string) $stage)));
+                if ($stageKey === '' || !isset($availableStages[$stageKey])) {
+                    $errors[] = "Row {$rowNum}: Stage '{$stage}' not found in stages table. Row skipped.";
+                    continue;
+                }
+
+                $stage = $availableStages[$stageKey];
 
                 $enteredStage = $stage;
                 $status = 'new';

@@ -7,6 +7,8 @@ import Career from '@/pages/Career';
 import CareerRole from '@/pages/CareerRole';
 import Project from '@/pages/Project';
 import Privacy from '@/pages/Privacy';
+import Terms from '@/pages/Terms';
+import DataProcessingSecurity from '@/pages/DataProcessingSecurity';
 import { AnimatePresence } from 'framer-motion';
 
 function App() {
@@ -20,6 +22,8 @@ function App() {
           <Route path="career/:jobSlug" element={<CareerRole />} />
           <Route path="contact" element={<Contact />} />
           <Route path="privacy" element={<Privacy />} />
+          <Route path="terms" element={<Terms />} />
+          <Route path="data-processing-security" element={<DataProcessingSecurity />} />
           <Route path="project/:projectId" element={<Project />} />
         </Route>
       </Routes>

@@ -1,128 +1,103 @@
 import React from 'react';
-import { Helmet } from 'react-helmet';
+import LegalPageLayout from '@/components/LegalPageLayout';
 
 const sections = [
   {
-    title: 'Information We Collect',
+    title: 'Welcome',
     body: [
-      'We may collect information you provide directly, such as your name, email address, phone number, company name, and any details you submit through forms, demos, or support requests.',
-      'We also collect limited technical data automatically, including device type, browser information, IP address, pages visited, and interaction data used for analytics and product improvement.',
+      'This Privacy Policy describes how Be Souhola collects, uses, stores, processes, and protects personal and business-related information in connection with Be Souhola CRM, including the mobile application, web application, website, and related services.',
+      'By accessing or using Be Souhola CRM, you acknowledge that you have read and understood this Privacy Policy.',
     ],
   },
   {
-    title: 'How We Use Information',
+    title: '1. Information We Collect',
     body: [
-      'We use collected information to respond to inquiries, provide our services, improve the platform, personalize experiences, perform analytics, and send important service communications.',
-      'If you request a demo or contact our team, we may use your details to follow up and provide relevant product or business information.',
+      'Be Souhola may collect information provided directly by users, organizations, and website visitors, including names, email addresses, phone numbers, company details, job titles, billing information, account credentials, and any information submitted through contact forms, demo requests, onboarding processes, or support channels.',
+      'The Company may also collect technical and operational information such as IP addresses, browser type, device information, log records, interaction data, system events, and service usage metrics required for platform operation, analytics, support, and security monitoring.',
     ],
   },
   {
-    title: 'Cookies and Tracking',
-    body: [
-      'Our website may use cookies and similar technologies to remember preferences, measure traffic, and understand how visitors use the site.',
-      'You can control cookies through your browser settings, but some features may not work properly if cookies are disabled.',
+    title: '2. How Information Is Used',
+    list: [
+      'To create, maintain, and administer user accounts and customer organizations.',
+      'To provide CRM functionality, onboarding, support, implementation, and service communications.',
+      'To monitor service performance, maintain security, investigate misuse, and improve product functionality.',
+      'To communicate with users regarding demos, inquiries, billing matters, operational notices, and legitimate business updates.',
+      'To comply with applicable legal, contractual, regulatory, and security obligations.',
     ],
   },
   {
-    title: 'Sharing of Information',
+    title: '3. Cookies and Similar Technologies',
     body: [
-      'We do not sell personal information.',
-      'We may share information with trusted service providers who help us operate the website, deliver services, host infrastructure, analyze usage, or communicate with you, subject to confidentiality obligations.',
-      'We may also disclose information if required by law, to protect our rights, or to prevent fraud or abuse.',
+      'Be Souhola may use cookies, local storage, and similar technologies to improve website functionality, remember user preferences, measure traffic, understand user behavior, and support analytics and performance monitoring.',
+      'Users may manage such technologies through their browser or device settings. Disabling certain technologies may affect website performance or specific features.',
     ],
   },
   {
-    title: 'Data Retention',
+    title: '4. Sharing and Disclosure of Information',
     body: [
-      'We keep personal information only as long as necessary to fulfill the purposes described in this policy, comply with legal obligations, resolve disputes, and enforce agreements.',
+      'Be Souhola does not sell personal information. Information may be shared with trusted service providers, infrastructure partners, hosting providers, communication platforms, analytics providers, support tools, and other subprocessors where necessary to operate, secure, maintain, or improve the service.',
+      'Information may also be disclosed if required by law, legal process, regulatory obligation, contract enforcement, security response, fraud prevention, or protection of the rights, property, and safety of Be Souhola, its customers, or others.',
     ],
   },
   {
-    title: 'Security',
+    title: '5. Data Ownership and Customer Responsibility',
     body: [
-      'We use reasonable administrative, technical, and organizational safeguards to protect personal information. However, no method of transmission or storage is completely secure, so we cannot guarantee absolute security.',
+      'Customer and lead data entered into Be Souhola CRM remains under the responsibility of the subscribing organization that controls or submits such data.',
+      'Organizations are responsible for ensuring that data collected and entered into the system is obtained and processed lawfully and that appropriate notices, permissions, and consents are maintained where required.',
     ],
   },
   {
-    title: 'Your Rights',
+    title: '6. Data Retention',
     body: [
-      'Depending on your location, you may have rights to access, correct, delete, or restrict the use of your personal information, and to object to certain processing activities.',
-      'To exercise your rights, contact us using the details below. We may need to verify your identity before processing your request.',
+      'Be Souhola retains information only for as long as reasonably necessary to provide services, fulfill contractual obligations, maintain operational integrity, support lawful business purposes, resolve disputes, enforce agreements, and comply with applicable laws.',
     ],
   },
   {
-    title: 'Third-Party Services',
+    title: '7. Data Security',
     body: [
-      'Our website may integrate with third-party services such as analytics, hosting, CRM tools, social media platforms, and communication services. Their use of your information is governed by their own privacy policies.',
+      'Be Souhola applies reasonable administrative, technical, and organizational safeguards designed to protect information against unauthorized access, misuse, alteration, disclosure, or loss. While the Company takes data protection seriously, no method of transmission, storage, or processing can be guaranteed as completely secure.',
     ],
   },
   {
-    title: 'Changes to This Policy',
+    title: '8. User Rights',
     body: [
-      'We may update this Privacy Policy from time to time. The updated version will be posted on this page with a revised effective date.',
+      'Depending on applicable law and the user’s jurisdiction, individuals may have rights relating to access, correction, deletion, restriction, objection, or portability of certain personal information.',
+      'Requests may be submitted through the Company’s official contact channels. Be Souhola may require reasonable identity verification before responding to such requests.',
     ],
   },
   {
-    title: 'Contact Us',
+    title: '9. Third-Party Services',
     body: [
-      'If you have any questions about this Privacy Policy or our data practices, please contact us through the website contact form or email us at the address listed on the contact page.',
+      'Be Souhola CRM and its website may integrate with or rely upon third-party services for hosting, analytics, messaging, payments, authentication, infrastructure, and operational support. Use of those services may also be subject to the policies and terms of the relevant third-party providers.',
+    ],
+  },
+  {
+    title: '10. Policy Updates',
+    body: [
+      'Be Souhola reserves the right to update this Privacy Policy at any time. Revised versions become effective upon publication on the official website unless otherwise stated.',
+    ],
+  },
+  {
+    title: '11. Contact Information',
+    body: [
+      'Be Souhola',
+      'Website: https://www.besouhola.com',
+      'Email: info@besouhola.com',
+      'If you have questions regarding this Privacy Policy or Be Souhola’s information handling practices, you may contact the Company using the details above.',
     ],
   },
 ];
 
 const Privacy = () => {
   return (
-    <div className="bg-[#0C0D0D] text-white">
-      <Helmet>
-        <title>Privacy Policy | Be Souhola CRM</title>
-        <meta
-          name="description"
-          content="Read the Be Souhola CRM Privacy Policy to learn how we collect, use, and protect your information."
-        />
-      </Helmet>
-
-      <section className="relative overflow-hidden py-24 sm:py-32">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(55,121,255,0.16),transparent_28%)]" />
-        <div className="relative container mx-auto px-6">
-          <div className="max-w-4xl">
-            <p className="mb-4 text-sm uppercase tracking-[0.35em] text-gray-400">
-              Legal
-            </p>
-            <h1 className="text-5xl md:text-7xl font-bold leading-tight">
-              Privacy <span className="text-accent-purple">Policy</span>
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg text-gray-300">
-              Last updated: June 11, 2026
-            </p>
-            <p className="mt-6 max-w-3xl text-lg text-gray-400 leading-relaxed">
-              This Privacy Policy explains how Be Souhola CRM collects, uses,
-              stores, and protects information when you visit our website or use
-              our services.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="pb-24 sm:pb-32">
-        <div className="container mx-auto px-6">
-          <div className="mx-auto grid max-w-4xl gap-6">
-            {sections.map((section, index) => (
-              <article
-                key={section.title}
-                className="rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8 shadow-[0_18px_60px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-transform duration-300 hover:-translate-y-0.5"
-              >
-                <h2 className="text-2xl font-semibold text-white">{section.title}</h2>
-                <div className="mt-4 space-y-4 text-gray-300 leading-relaxed">
-                  {section.body.map((paragraph) => (
-                    <p key={paragraph}>{paragraph}</p>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-    </div>
+    <LegalPageLayout
+      title="Privacy Policy"
+      accent="Policy"
+      effectiveDate="June 2026"
+      description="This Privacy Policy governs how Be Souhola CRM collects, uses, processes, stores, and protects personal and business-related information."
+      sections={sections}
+    />
   );
 };
 

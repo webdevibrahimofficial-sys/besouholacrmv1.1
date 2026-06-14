@@ -9,6 +9,7 @@ use App\Models\Item;
 use App\Models\Lead;
 use App\Models\LeadAction;
 use App\Models\Project;
+use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Imports\Contracts\ImportHandler;
@@ -52,6 +53,28 @@ class LeadsImportHandler implements ImportHandler
         $warningRows = 0;
 
         $allowedColumns = $this->allowedLeadColumns();
+        $availableStages = [];
+        if ($tenantId) {
+            $stageRows = Stage::query()
+                ->where('tenant_id', $tenantId)
+                ->get(['name', 'name_ar']);
+
+            foreach ($stageRows as $stageRow) {
+                $canonicalStage = trim((string) ($stageRow->name ?? $stageRow->name_ar ?? ''));
+                if ($canonicalStage === '') {
+                    continue;
+                }
+
+                foreach ([(string) ($stageRow->name ?? ''), (string) ($stageRow->name_ar ?? '')] as $stageAlias) {
+                    $stageAlias = trim($stageAlias);
+                    if ($stageAlias === '') {
+                        continue;
+                    }
+
+                    $availableStages[strtolower(str_replace([' ', '-'], '', $stageAlias))] = $canonicalStage;
+                }
+            }
+        }
 
         foreach ($rows as $index => $rawRow) {
             $totalRows++;
@@ -251,10 +274,31 @@ class LeadsImportHandler implements ImportHandler
                     $normalized['stage'] = 'Cold Calls';
                 } elseif ($normIncoming === 'duplicate') {
                     $normalized['stage'] = 'Duplicate';
+                } elseif (in_array($normIncoming, ['reseal', 'resale'], true)) {
+                    $normalized['stage'] = 'Resale';
                 } else {
                     $normalized['stage'] = $incomingStage;
                 }
             }
+
+            $stageLabel = trim((string) ($normalized['stage'] ?? ''));
+            $stageKey = strtolower(str_replace([' ', '-'], '', $stageLabel));
+            if ($stageKey === '' || !isset($availableStages[$stageKey])) {
+                $this->storeRow($job, [
+                    'row_number' => $rowNumber,
+                    'status' => 'skipped',
+                    'reason_code' => 'stage_not_found',
+                    'reason_message' => "Stage '{$stageLabel}' not found in stages table. Row skipped.",
+                    'raw_data' => $rawRow,
+                    'normalized_data' => $this->withFieldErrors($normalized, ['stage' => "Stage '{$stageLabel}' not found in stages table."]),
+                    'warnings' => $warnings,
+                    'entity_type' => 'leads',
+                ]);
+                $skippedRows++;
+                continue;
+            }
+
+            $normalized['stage'] = $availableStages[$stageKey];
 
             // Store common template fields inside meta_data (best-effort).
             $meta = is_array($normalized['meta_data'] ?? null) ? ($normalized['meta_data'] ?? []) : [];

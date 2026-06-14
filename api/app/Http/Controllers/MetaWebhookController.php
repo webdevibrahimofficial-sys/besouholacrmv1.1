@@ -85,6 +85,10 @@ class MetaWebhookController extends Controller
                 'top_level_keys' => is_array($payload) ? array_keys($payload) : [],
                 'tenant_id' => $tenantId,
             ]);
+            Log::info('Meta Webhook Payload', [
+                'tenant_id' => $tenantId,
+                'payload' => $payload,
+            ]);
 
             $this->webhookService->handleWebhook($request, $tenantId);
             return response()->json(['ok' => true], 200);

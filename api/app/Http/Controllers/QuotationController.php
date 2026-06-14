@@ -124,7 +124,9 @@ class QuotationController extends Controller
         // Generate Code
         $crm = \App\Models\CrmSetting::first();
         $settings = is_array($crm?->settings) ? $crm->settings : [];
-        $start = (int)($settings['startQuotationCode'] ?? 1000);
+        $rawStart = (string) ($settings['startQuotationCode'] ?? '0001');
+        $start = (int) $rawStart;
+        $numberWidth = max(1, strlen(preg_replace('/\D/', '', $rawStart)));
         
         // Use transaction to ensure code uniqueness if possible, or just generate
         // For now, simple logic as before
@@ -136,7 +138,7 @@ class QuotationController extends Controller
         
         // Code Generation
         // Logic: Start Code + (ID - 1) to ensure unique incremental codes starting from the setting value
-        $startCode = (int)($settings['startQuotationCode'] ?? 1000);
+        $startCode = (int) $rawStart;
         // If we want the first ID (1) to be Start Code (1000):
         // Code = 1000 + 1 - 1 = 1000.
         // If ID is 100, Code = 1000 + 100 - 1 = 1099.
@@ -144,7 +146,7 @@ class QuotationController extends Controller
         
         $meta = $quotation->meta_data ?? []; // Refresh meta
         if (empty($meta['quotation_code'])) {
-            $meta['quotation_code'] = 'Q-' . $next;
+            $meta['quotation_code'] = 'Q-' . str_pad((string) $next, $numberWidth, '0', STR_PAD_LEFT);
             $quotation->meta_data = $meta;
             $quotation->save();
         }

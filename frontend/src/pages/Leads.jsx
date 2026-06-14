@@ -447,6 +447,10 @@ if (!s) {
   const setStageFilterNormalized = (next) => {
     const arr = Array.isArray(next) ? next : (next ? [next] : [])
     const normalized = arr.map(normalizeStageFilterValue).filter(Boolean)
+    setSelectedLeads([])
+    setShowBulkDuplicateMenu(false)
+    setShowBulkDuplicateTransferModal(false)
+    setShowBulkAssignModal(false)
     setStageFilter(normalized)
   }
 

@@ -158,10 +158,12 @@ class SalesInvoiceController extends Controller
         ]));
         $crm = \App\Models\CrmSetting::first();
         $settings = is_array($crm?->settings) ? $crm->settings : [];
-        $start = (int)($settings['startInvoiceCode'] ?? 1000);
+        $rawStart = (string) ($settings['startInvoiceCode'] ?? '0001');
+        $start = (int) $rawStart;
+        $numberWidth = max(1, strlen(preg_replace('/\D/', '', $rawStart)));
         if (empty($invoice->invoice_number)) {
             $next = max($start, (int)$invoice->id);
-            $invoice->invoice_number = 'INV-' . $next;
+            $invoice->invoice_number = 'INV-' . str_pad((string) $next, $numberWidth, '0', STR_PAD_LEFT);
             $invoice->save();
         }
 
