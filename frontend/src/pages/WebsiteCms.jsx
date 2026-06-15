@@ -181,6 +181,64 @@ const defaultTestimonialsSectionContent = {
   ],
 }
 
+const defaultLeadLeakDetectorSectionContent = {
+  eyebrow: 'Free sales audit',
+  title: 'Are leads slipping through your pipeline?',
+  subtitle:
+    'Answer 7 quick questions and uncover the top three sales leaks holding your team back in under 60 seconds.',
+  items: [
+    'First-response speed',
+    'Lead leakage points',
+    'Follow-up consistency',
+  ],
+  button_text: 'Start the audit',
+  floating_button_text: 'Test your pipeline',
+  app_eyebrow: 'Mobile app',
+  app_headline: 'Manage leads, teams, and projects from anywhere',
+  app_description:
+    'Give your sales team a fast mobile workspace to follow up leads, manage tasks, and stay updated in the field.',
+  app_image_url: '',
+  app_highlights: [
+    'Lead follow-up',
+    'Team tasks',
+    'Real estate inventory',
+    'Instant reminders',
+  ],
+  app_title: 'Be Souhola Mobile App',
+  app_subtitle:
+    'A polished mobile workspace for sales teams, projects, and daily follow-up.',
+  app_items: [
+    'Leads',
+    'Tasks',
+    'Projects',
+    'Reports',
+  ],
+  app_button_text: 'See the mobile app in action',
+  app_availability_text: 'Mobile app available for your sales team',
+  integration_eyebrow: 'Live integrations',
+  integration_headline: 'Plug every lead source into one CRM flow',
+  integration_description:
+    'Show that Meta, website forms, chat, ads, WhatsApp, and notifications all land inside one connected operating layer for your sales team.',
+  integration_highlights: [
+    'Unified lead intake',
+    'Live source visibility',
+    'Faster follow-up handoff',
+  ],
+  integration_title: 'Live Integration Badge',
+  integration_subtitle:
+    'Show that every lead source, chat, and notification flow can live inside one connected CRM engine.',
+  integration_items: [
+    'Meta Leads',
+    'Website Forms',
+    'Website Chat',
+    'Google Ads',
+    'WhatsApp',
+    'Email Notifications',
+  ],
+  integration_button_text: 'See the audit in action',
+  result_cta_text: 'Book a result-based demo',
+}
+
 const emptyService = {
   name: '',
   short_description: '',
@@ -222,6 +280,13 @@ const homepageSubTabLabels = {
   testimonials: 'Testimonials',
   more_sections: 'More Sections',
 }
+const carouselSettingsTabs = ['app_slide', 'audit_slide', 'integration_slide', 'result_cta']
+const carouselSettingsTabLabels = {
+  app_slide: 'App Slide',
+  audit_slide: 'Audit Slide',
+  integration_slide: 'Integration Slide',
+  result_cta: 'Result & CTA',
+}
 
 export default function WebsiteCms() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -243,6 +308,10 @@ export default function WebsiteCms() {
   const [careerRoleForm, setCareerRoleForm] = useState(emptyCareerRole)
   const [editingCareerRoleId, setEditingCareerRoleId] = useState(null)
   const [homepageSubTab, setHomepageSubTab] = useState('hero')
+  const [carouselSettingsTab, setCarouselSettingsTab] = useState('app_slide')
+  const [leadLeakDetectorFiles, setLeadLeakDetectorFiles] = useState({
+    app_image: null,
+  })
   const [brandingFiles, setBrandingFiles] = useState({
     logo: null,
   })
@@ -296,6 +365,12 @@ export default function WebsiteCms() {
   )
   const testimonialsSection = useMemo(
     () => sections.find((section) => section.type === 'testimonials'),
+    [sections]
+  )
+  const leadLeakDetectorSection = useMemo(
+    () =>
+      sections.find((section) => section.type === 'lead_leak_detector') ||
+      sections.find((section) => section.type === 'integration_badge'),
     [sections]
   )
   const ctaSection = useMemo(
@@ -373,6 +448,18 @@ export default function WebsiteCms() {
           : defaultTestimonialsSectionContent.testimonials,
     }
   }, [testimonialsSection])
+  const leadLeakDetectorContent = useMemo(() => {
+    if (!leadLeakDetectorSection) return defaultLeadLeakDetectorSectionContent
+    return {
+      ...defaultLeadLeakDetectorSectionContent,
+      ...(leadLeakDetectorSection.content || {}),
+      items:
+        Array.isArray(leadLeakDetectorSection.content?.items) &&
+        leadLeakDetectorSection.content.items.length > 0
+          ? leadLeakDetectorSection.content.items
+          : defaultLeadLeakDetectorSectionContent.items,
+    }
+  }, [leadLeakDetectorSection])
 
   const loadAll = async () => {
     setLoading(true)
@@ -519,6 +606,24 @@ export default function WebsiteCms() {
     })
   }
 
+  const updateLeadLeakDetectorField = (key, value) => {
+    if (!leadLeakDetectorSection) return
+    updateSectionContent(leadLeakDetectorSection.id, {
+      ...leadLeakDetectorContent,
+      [key]: value,
+    })
+  }
+
+  const updateLeadLeakDetectorList = (text) => {
+    updateLeadLeakDetectorField(
+      'items',
+      text
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  }
+
   const updateTestimonialItemField = (index, key, value) => {
     if (!testimonialsSection) return
     const items = Array.isArray(testimonialsContent.testimonials)
@@ -545,6 +650,10 @@ export default function WebsiteCms() {
       if (hasLogoFile) {
         Object.entries(settings || {}).forEach(([key, value]) => {
           if (value == null) return
+          if (typeof value === 'boolean') {
+            payload.append(key, value ? '1' : '0')
+            return
+          }
           if (typeof value === 'object') {
             payload.append(key, JSON.stringify(value))
           } else {
@@ -575,6 +684,33 @@ export default function WebsiteCms() {
       setMessage(`${section.title || section.type} updated successfully.`)
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || 'Failed to save section.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveLeadLeakDetectorSection = async () => {
+    if (!leadLeakDetectorSection) return
+
+    setSaving(true)
+    setMessage('')
+    setError('')
+
+    try {
+      const hasAppImage = Boolean(leadLeakDetectorFiles.app_image)
+      const payload = hasAppImage ? new FormData() : { content: leadLeakDetectorContent }
+
+      if (hasAppImage) {
+        payload.append('content', JSON.stringify(leadLeakDetectorContent))
+        payload.append('app_slide_image', leadLeakDetectorFiles.app_image)
+      }
+
+      const updated = await systemCompanyWebsiteService.updateHomepageSection(leadLeakDetectorSection.id, payload)
+      setSections((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      setLeadLeakDetectorFiles({ app_image: null })
+      setMessage('Carousel settings updated successfully.')
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save carousel settings.')
     } finally {
       setSaving(false)
     }
@@ -821,6 +957,24 @@ export default function WebsiteCms() {
 
       {activeTab === 'settings' && settings ? (
         <div className="space-y-6">
+          <div className="sticky top-3 z-10 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-slate-900">Settings Changes</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Save your company info, branding, and contact page updates.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={saving}
+              onClick={saveSettings}
+              className="inline-flex min-w-[160px] items-center justify-center rounded-xl border border-blue-700 bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(37,99,235,0.25)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? 'Saving...' : 'Save Settings'}
+            </button>
+          </div>
+
           <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
             {[
               ['company_name', 'Company Name'],
@@ -883,6 +1037,46 @@ export default function WebsiteCms() {
                 onChange={(e) => setSettings({ ...settings, seo_description: e.target.value })}
               />
             </label>
+          </div>
+
+          <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <h2 className="text-lg font-semibold">Social Links</h2>
+              <p className="mt-1 text-sm text-[var(--muted-text)]">
+                These icons appear in the public website footer only when a valid link exists.
+              </p>
+            </div>
+
+            {[
+              ['facebook', 'Facebook'],
+              ['whatsapp', 'WhatsApp'],
+              ['twitter', 'Twitter / X'],
+              ['linkedin', 'LinkedIn'],
+              ['instagram', 'Instagram'],
+              ['github', 'GitHub'],
+            ].map(([key, label]) => (
+              <label key={key} className="block text-sm">
+                <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                  <input
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    value={settings.social_links?.[key] || ''}
+                    onChange={(e) =>
+                      setSettings({
+                      ...settings,
+                      social_links: {
+                        ...(settings.social_links || {}),
+                        [key]: e.target.value,
+                      },
+                    })
+                  }
+                />
+                {key === 'whatsapp' ? (
+                  <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                    You can paste a phone number or a full WhatsApp link.
+                  </span>
+                ) : null}
+              </label>
+            ))}
           </div>
 
           <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
@@ -1644,6 +1838,306 @@ export default function WebsiteCms() {
 
           {homepageSubTab === 'more_sections' ? (
             <div className="space-y-6">
+              {leadLeakDetectorSection ? (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+                  <div className="mb-5 flex flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold">Carousel Settings</h2>
+                      <p className="mt-1 text-sm text-[var(--muted-text)]">
+                        Manage each carousel view in its own tab so the homepage promo stays organized and easier to edit.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={saveLeadLeakDetectorSection}
+                      className="inline-flex min-w-[190px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                    >
+                      {saving ? 'Saving...' : 'Save Carousel Settings'}
+                    </button>
+                  </div>
+
+                  <div className="mb-5 flex flex-wrap gap-3">
+                    {carouselSettingsTabs.map((tab) => {
+                      const isActive = carouselSettingsTab === tab
+                      return (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => setCarouselSettingsTab(tab)}
+                          className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                            isActive
+                              ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                              : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:border-blue-400 hover:text-blue-600'
+                          }`}
+                        >
+                          {carouselSettingsTabLabels[tab]}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {carouselSettingsTab === 'app_slide' ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {[
+                        ['app_eyebrow', 'App Eyebrow'],
+                        ['app_headline', 'App Headline'],
+                        ['app_title', 'App Slide Title'],
+                        ['app_button_text', 'App Slide Button Text'],
+                        ['app_availability_text', 'App Availability Text'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                            value={leadLeakDetectorContent[key] || ''}
+                            onChange={(e) => updateLeadLeakDetectorField(key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">App Slide Subtitle</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={3}
+                          value={leadLeakDetectorContent.app_subtitle || ''}
+                          onChange={(e) => updateLeadLeakDetectorField('app_subtitle', e.target.value)}
+                        />
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">App Slide Description</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={3}
+                          value={leadLeakDetectorContent.app_description || ''}
+                          onChange={(e) => updateLeadLeakDetectorField('app_description', e.target.value)}
+                        />
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">App Slide Image</span>
+                        <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                          {leadLeakDetectorContent.app_image_url ? (
+                            <img
+                              src={leadLeakDetectorContent.app_image_url}
+                              alt="App slide preview"
+                              className="h-40 w-full rounded-lg border border-[var(--border)] object-cover"
+                            />
+                          ) : null}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="block w-full text-sm"
+                            onChange={(e) =>
+                              setLeadLeakDetectorFiles((prev) => ({
+                                ...prev,
+                                app_image: e.target.files?.[0] || null,
+                              }))
+                            }
+                          />
+                          <span className="block text-xs text-[var(--muted-text)]">
+                            {leadLeakDetectorFiles.app_image
+                              ? `Selected: ${leadLeakDetectorFiles.app_image.name}`
+                              : 'Upload a new image to replace the current app slide.'}
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">App Slide Items</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={4}
+                          value={Array.isArray(leadLeakDetectorContent.app_items) ? leadLeakDetectorContent.app_items.join('\n') : ''}
+                          onChange={(e) =>
+                            updateLeadLeakDetectorField(
+                              'app_items',
+                              e.target.value
+                                .split('\n')
+                                .map((line) => line.trim())
+                                .filter(Boolean)
+                            )
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          These chips appear inside the first app showcase slide.
+                        </span>
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">App Left Highlights</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={4}
+                          value={Array.isArray(leadLeakDetectorContent.app_highlights) ? leadLeakDetectorContent.app_highlights.join('\n') : ''}
+                          onChange={(e) =>
+                            updateLeadLeakDetectorField(
+                              'app_highlights',
+                              e.target.value
+                                .split('\n')
+                                .map((line) => line.trim())
+                                .filter(Boolean)
+                            )
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          These badges appear on the left side when the app slide is active.
+                        </span>
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {carouselSettingsTab === 'audit_slide' ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {[
+                        ['eyebrow', 'Eyebrow'],
+                        ['title', 'Title'],
+                        ['button_text', 'Main Button Text'],
+                        ['floating_button_text', 'Floating Button Text'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                            value={leadLeakDetectorContent[key] || ''}
+                            onChange={(e) => updateLeadLeakDetectorField(key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Subtitle</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={3}
+                          value={leadLeakDetectorContent.subtitle || ''}
+                          onChange={(e) => updateLeadLeakDetectorField('subtitle', e.target.value)}
+                        />
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Quick Value Points</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={4}
+                          value={Array.isArray(leadLeakDetectorContent.items) ? leadLeakDetectorContent.items.join('\n') : ''}
+                          onChange={(e) => updateLeadLeakDetectorList(e.target.value)}
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          One short promise per line.
+                        </span>
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {carouselSettingsTab === 'integration_slide' ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {[
+                        ['integration_eyebrow', 'Integration Eyebrow'],
+                        ['integration_headline', 'Integration Headline'],
+                        ['integration_title', 'Integration Slide Title'],
+                        ['integration_button_text', 'Integration Slide Button Text'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                            value={leadLeakDetectorContent[key] || ''}
+                            onChange={(e) => updateLeadLeakDetectorField(key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Integration Slide Subtitle</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={3}
+                          value={leadLeakDetectorContent.integration_subtitle || ''}
+                          onChange={(e) => updateLeadLeakDetectorField('integration_subtitle', e.target.value)}
+                        />
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Integration Description</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={3}
+                          value={leadLeakDetectorContent.integration_description || ''}
+                          onChange={(e) => updateLeadLeakDetectorField('integration_description', e.target.value)}
+                        />
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Integration Slide Items</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={4}
+                          value={Array.isArray(leadLeakDetectorContent.integration_items) ? leadLeakDetectorContent.integration_items.join('\n') : ''}
+                          onChange={(e) =>
+                            updateLeadLeakDetectorField(
+                              'integration_items',
+                              e.target.value
+                                .split('\n')
+                                .map((line) => line.trim())
+                                .filter(Boolean)
+                            )
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          One integration per line for the rotating card.
+                        </span>
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Integration Left Highlights</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          rows={4}
+                          value={Array.isArray(leadLeakDetectorContent.integration_highlights) ? leadLeakDetectorContent.integration_highlights.join('\n') : ''}
+                          onChange={(e) =>
+                            updateLeadLeakDetectorField(
+                              'integration_highlights',
+                              e.target.value
+                                .split('\n')
+                                .map((line) => line.trim())
+                                .filter(Boolean)
+                            )
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          These badges appear on the left side when the integration slide is active.
+                        </span>
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {carouselSettingsTab === 'result_cta' ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="block text-sm">
+                        <span className="mb-1 block text-[var(--muted-text)]">Result CTA Text</span>
+                        <input
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          value={leadLeakDetectorContent.result_cta_text || ''}
+                          onChange={(e) => updateLeadLeakDetectorField('result_cta_text', e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={saveLeadLeakDetectorSection}
+                    className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
+                  >
+                    Save {leadLeakDetectorSection.title || leadLeakDetectorSection.type}
+                  </button>
+                </div>
+              ) : null}
+
               {servicesIntroSection ? (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
                   <div className="mb-5">

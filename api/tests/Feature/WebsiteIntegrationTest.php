@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\WebsiteConnection;
 use App\Models\WebsiteIntakeLog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -122,6 +123,60 @@ class WebsiteIntegrationTest extends TestCase
         $connection = WebsiteConnection::withoutGlobalScopes()->findOrFail($connectionId);
         $this->assertSame(1, (int) $connection->requests_count);
         $this->assertNotNull($connection->last_used_at);
+    }
+
+    public function test_lead_leak_detector_submission_generates_and_attaches_pdf_report(): void
+    {
+        Storage::fake('public');
+
+        $create = $this->postJson('/api/website-connections', [
+            'name' => 'Lead Leak Website',
+            'url' => 'https://example.com',
+            'allow_all_origins_for_testing' => true,
+            'is_active' => true,
+        ])->assertCreated();
+
+        $apiKey = (string) $create->json('api_key');
+
+        $response = $this->postJson("/api/intake/website/{$apiKey}", [
+            'name' => 'Diagnostic Lead',
+            'phone' => '+20 100 555 0101',
+            'email' => 'diagnostic@example.com',
+            'source' => 'lead_leak_detector',
+            'meta' => [
+                'company_name' => 'Example Company',
+                'lead_leak_detector' => [
+                    'score' => 62,
+                    'risk_level' => 'medium',
+                    'top_leaks' => ['speed', 'followup', 'handoff'],
+                    'answers' => [
+                        'first_response_time' => [
+                            'label' => '30 minutes to 2 hours',
+                            'score' => 56,
+                            'leak' => 'speed',
+                        ],
+                    ],
+                    'cta_type' => 'full_report',
+                    'source_trigger' => 'result_cta',
+                ],
+            ],
+        ]);
+
+        $response->assertCreated();
+
+        $lead = Lead::query()
+            ->where('tenant_id', $this->tenant->id)
+            ->where('email', 'diagnostic@example.com')
+            ->firstOrFail();
+
+        $reportPath = "tenants/{$this->tenant->id}/leads/{$lead->id}/attachments/lead-leak-report-{$lead->id}.pdf";
+
+        $this->assertSame(62, $lead->meta_data['lead_leak_detector']['score'] ?? null);
+        $this->assertSame('medium', $lead->meta_data['lead_leak_detector']['risk_level'] ?? null);
+        $this->assertSame($reportPath, $lead->meta_data['lead_leak_detector']['report']['path'] ?? null);
+        $this->assertContains($reportPath, $lead->attachments ?? []);
+        Storage::disk('public')->assertExists($reportPath);
+        $this->assertStringStartsWith('%PDF-', Storage::disk('public')->get($reportPath));
     }
 
     public function test_invalid_key_returns_401_and_saves_log(): void

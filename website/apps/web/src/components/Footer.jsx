@@ -2,10 +2,65 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Facebook, Github, Instagram, Linkedin, Twitter } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
-import crmLogoMark from '../../../../../frontend/src/assets/be-souhola-logo-dark-collapse.png';
+import { useWebsiteContent } from '@/context/WebsiteContentContext';
+import crmLogoMark from '@/assets/be-souhola-logo-dark.png';
+
+const WhatsAppIcon = ({ size = 18, className = '' }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    className={className}
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M20.5 3.5A11.5 11.5 0 0 0 1.9 17.3L1 23l5.8-1a11.5 11.5 0 0 0 13.7-18.5Zm-8.4 18a9.6 9.6 0 0 1-4.9-1.4l-.35-.2-3.45.6.58-3.35-.23-.37a9.6 9.6 0 1 1 8.34 4.72Zm5.56-6.6c-.3-.15-1.8-.9-2.08-1a.75.75 0 0 0-.55-.03c-.16.05-.42.2-.65.48-.2.23-.8.8-.98.96-.18.17-.36.19-.67.04-.3-.15-1.25-.46-2.38-1.47-.88-.79-1.47-1.76-1.64-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.34.45-.51.15-.17.2-.3.3-.5.1-.2.05-.39-.03-.54-.08-.15-.66-1.6-.9-2.2-.23-.56-.46-.48-.65-.49h-.56c-.2 0-.54.07-.82.39-.28.32-1.06 1.03-1.06 2.52 0 1.48 1.09 2.91 1.24 3.1.15.2 2.11 3.24 5.12 4.54.72.31 1.28.49 1.72.63.72.23 1.38.2 1.9.12.58-.09 1.8-.73 2.05-1.44.25-.71.25-1.32.18-1.44-.08-.12-.28-.2-.58-.35Z" />
+  </svg>
+);
+
+const normalizeSocialHref = (name, href) => {
+  const value = typeof href === 'string' ? href.trim() : '';
+  if (!value) return '';
+
+  if (name === 'whatsapp') {
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+
+    const digits = value.replace(/[^\d]/g, '');
+    if (!digits) return '';
+    return `https://wa.me/${digits}`;
+  }
+
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+
+  return '';
+};
 
 const Footer = () => {
   const navigate = useNavigate();
+  const { settings, contactPageContent } = useWebsiteContent();
+  const companyName = settings?.company_name || 'Be Souhola';
+  const logoSrc = settings?.logo_url || crmLogoMark;
+  const mainWebsiteUrl =
+    contactPageContent?.website_url || settings?.website_url || 'https://besouhola.com';
+  const socialIconMap = {
+    github: Github,
+    twitter: Twitter,
+    linkedin: Linkedin,
+    instagram: Instagram,
+    facebook: Facebook,
+    whatsapp: WhatsAppIcon,
+  };
+  const socialLinks = Object.entries(settings?.social_links || {})
+  .map(([name, href]) => ({
+    name,
+    href: normalizeSocialHref(name.toLowerCase(), href),
+    icon: socialIconMap[name.toLowerCase()],
+  }))
+    .filter((social) => social.icon && social.href && social.href !== '#');
 
   const handleNavClick = (e) => {
     e.preventDefault();
@@ -54,17 +109,9 @@ const Footer = () => {
     {
       title: 'Quick Links',
       links: [
-        { name: 'Visit Main Site', href: 'https://besouhola.com', external: true },
+        { name: 'Visit Main Site', href: mainWebsiteUrl, external: true },
       ],
     },
-  ];
-
-  const socialLinks = [
-    { icon: Github, name: 'Github', href: '#' },
-    { icon: Twitter, name: 'Twitter', href: '#' },
-    { icon: Linkedin, name: 'LinkedIn', href: '#' },
-    { icon: Instagram, name: 'Instagram', href: '#' },
-    { icon: Facebook, name: 'Facebook', href: 'https://www.facebook.com/profile.php?id=61587661674565' },
   ];
 
   return (
@@ -83,14 +130,14 @@ const Footer = () => {
             <Link to="/" className="flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-[16px] border border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
                 <img
-                  src={crmLogoMark}
-                  alt="Be Souhola CRM logo"
+                  src={logoSrc}
+                  alt={`${companyName} CRM logo`}
                   className="h-full w-full object-contain"
                 />
               </div>
               <div>
                 <div className="text-lg font-semibold tracking-tight text-white">
-                  Be <span className="text-accent-purple">Souhola</span>{' '}
+                  {companyName.split(' ')[0] || 'Be'} <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
                   <span className="text-white/72">CRM</span>
                 </div>
                 <div className="text-sm text-white/45">
@@ -184,22 +231,24 @@ const Footer = () => {
             &copy; {new Date().getFullYear()} Be Souhola. All Rights Reserved.
           </p>
 
-          <div className="flex justify-center gap-3 md:justify-end">
-            {socialLinks.map((social) => {
-              const Icon = social.icon;
-              return (
-                <a
-                  key={social.name}
-                  href={social.href}
-                  target={social.href !== '#' ? '_blank' : undefined}
-                  rel={social.href !== '#' ? 'noopener noreferrer' : undefined}
-                  className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-gray-400 transition-all duration-300 hover:border-accent-purple/35 hover:text-accent-purple"
-                >
-                  <Icon size={18} />
-                </a>
-              );
-            })}
-          </div>
+          {socialLinks.length > 0 ? (
+            <div className="flex justify-center gap-3 md:justify-end">
+              {socialLinks.map((social) => {
+                const Icon = social.icon;
+                return (
+                  <a
+                    key={social.name}
+                    href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-gray-400 transition-all duration-300 hover:border-accent-purple/35 hover:text-accent-purple"
+                  >
+                    <Icon size={18} />
+                  </a>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
     </footer>

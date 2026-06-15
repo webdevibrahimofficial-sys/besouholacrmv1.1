@@ -91,6 +91,15 @@ export const trackServiceView = (serviceSlug, serviceName) =>
 export const trackPhoneClick = () => trackEvent('phone_click');
 export const trackWhatsappClick = () => trackEvent('whatsapp_click');
 
+export const trackLeadLeakDetectorEvent = (eventName, extra = {}) =>
+  trackEvent(eventName, {
+    meta: {
+      feature: 'lead_leak_detector',
+      ...(extra.meta || {}),
+    },
+    ...extra,
+  });
+
 export const resetScrollTracking = () => {
   firedScrollMilestones.clear();
 };

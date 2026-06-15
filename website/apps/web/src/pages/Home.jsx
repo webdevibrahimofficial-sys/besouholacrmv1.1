@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet';
 import Hero from '@/components/Hero';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import TrustedClients from '@/components/TrustedClients';
+import LeadLeakDetector from '@/components/LeadLeakDetector.jsx';
 import Services from '@/components/Services';
 import About from '@/components/About';
 import Portfolio from '@/components/Portfolio';
@@ -57,6 +58,9 @@ const Home = () => {
         </script>
       </Helmet>
       <Hero />
+      <SectionAnimator>
+        <LeadLeakDetector />
+      </SectionAnimator>
       <SectionAnimator>
         <TrustedClients />
       </SectionAnimator>

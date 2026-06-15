@@ -32,10 +32,18 @@ export const WebsiteContentProvider = ({ children }) => {
 
   const value = useMemo(() => {
     const sections = content?.sections || [];
+    // TODO: Remove integration_badge fallback after CMS content migration.
+    const leadLeakDetectorSection =
+      sections.find((section) => section.type === 'lead_leak_detector') ||
+      sections.find((section) => section.type === 'integration_badge');
     const hero = getSectionContent(sections, 'hero', defaultWebsiteContent.sections.hero);
     const settings = {
       ...defaultWebsiteContent.settings,
       ...(content?.settings || {}),
+    };
+    settings.social_links = {
+      ...defaultWebsiteContent.settings.social_links,
+      ...(content?.settings?.social_links || {}),
     };
     const contactPageContent = {
       ...defaultWebsiteContent.settings.contact_page_content,
@@ -96,6 +104,10 @@ export const WebsiteContentProvider = ({ children }) => {
         'services_intro',
         defaultWebsiteContent.sections.services_intro
       ),
+      leadLeakDetector:
+        leadLeakDetectorSection?.content ||
+        defaultWebsiteContent.sections.lead_leak_detector ||
+        defaultWebsiteContent.sections.integration_badge,
       cta: getSectionContent(sections, 'cta', defaultWebsiteContent.sections.cta),
       leadServiceOptions,
       careersPage: {

@@ -34,6 +34,8 @@ export const submitWebsiteLead = async ({
   service,
   itemId,
   formName,
+  source = 'website',
+  metaOverrides = {},
 }) => {
   const endpoint = getIntakeEndpoint();
   const analyticsContext = buildAnalyticsContext({ form_name: formName });
@@ -43,17 +45,20 @@ export const submitWebsiteLead = async ({
     phone: phone.trim(),
     email: email?.trim() || undefined,
     message: message?.trim() || undefined,
-    source: 'website',
-    meta: buildLeadMeta({
-      formName,
-      service: service?.trim() || undefined,
-      itemId: itemId || undefined,
-      itemName: service?.trim() || undefined,
-      sessionId: analyticsContext.session_id,
-      device: analyticsContext.device,
-      browser: analyticsContext.browser,
-      referrer: analyticsContext.referrer,
-    }),
+    source,
+    meta: {
+      ...buildLeadMeta({
+        formName,
+        service: service?.trim() || undefined,
+        itemId: itemId || undefined,
+        itemName: service?.trim() || undefined,
+        sessionId: analyticsContext.session_id,
+        device: analyticsContext.device,
+        browser: analyticsContext.browser,
+        referrer: analyticsContext.referrer,
+      }),
+      ...metaOverrides,
+    },
   };
 
   const response = await fetch(endpoint, {

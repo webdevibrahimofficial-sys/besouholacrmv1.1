@@ -141,6 +141,7 @@ class SystemCompanyWebsiteController extends Controller
             'testimonial_4_avatar' => ['nullable', 'image', 'max:5120'],
             'testimonial_5_avatar' => ['nullable', 'image', 'max:5120'],
             'testimonial_6_avatar' => ['nullable', 'image', 'max:5120'],
+            'app_slide_image' => ['nullable', 'image', 'max:10240'],
         ]);
 
         $content = is_array($validated['content'] ?? null)
@@ -197,6 +198,14 @@ class SystemCompanyWebsiteController extends Controller
             $content['testimonials'] = $testimonials;
         }
 
+        if ($section->type === 'lead_leak_detector' && $request->hasFile('app_slide_image')) {
+            $upload = $this->tenantStorageService->upload(
+                $request->file('app_slide_image'),
+                'website/lead-leak-detector'
+            );
+            $content['app_image_url'] = $upload['url'];
+        }
+
         if (
             array_key_exists('content', $validated)
             || $request->hasFile('primary_image')
@@ -210,6 +219,7 @@ class SystemCompanyWebsiteController extends Controller
             || $request->hasFile('testimonial_4_avatar')
             || $request->hasFile('testimonial_5_avatar')
             || $request->hasFile('testimonial_6_avatar')
+            || $request->hasFile('app_slide_image')
         ) {
             $validated['content'] = $content;
         }

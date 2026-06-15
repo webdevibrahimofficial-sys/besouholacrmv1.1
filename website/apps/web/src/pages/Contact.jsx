@@ -19,7 +19,23 @@ const pageTransition = {
 };
 const siteUrl = 'https://besouhola.com';
 
-const ContactInfoBlock = ({ icon: Icon, title, lines, delay, isLink = false, href = '#' }) => (
+const normalizeWhatsAppHref = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '#';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  const digits = raw.replace(/[^\d]/g, '');
+  return digits ? `https://wa.me/${digits}` : '#';
+};
+
+const ContactInfoBlock = ({
+  icon: Icon,
+  title,
+  lines,
+  delay,
+  isLink = false,
+  href = '#',
+  onClick,
+}) => (
   <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
@@ -35,8 +51,9 @@ const ContactInfoBlock = ({ icon: Icon, title, lines, delay, isLink = false, hre
         {isLink ? (
           <a
             href={href}
-            target="_blank"
-            rel="noopener noreferrer"
+            onClick={onClick}
+            target={href.startsWith('http') ? '_blank' : undefined}
+            rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
             className="text-lg text-gray-200 hover:text-accent-purple transition-colors duration-300"
           >
             {lines[0]}
@@ -55,6 +72,9 @@ const ContactInfoBlock = ({ icon: Icon, title, lines, delay, isLink = false, hre
 
 const Contact = () => {
   const { settings, leadServiceOptions, contactPageContent } = useWebsiteContent();
+  const emailHref = `mailto:${settings.email || 'sales@besouhola.com'}`;
+  const phoneHref = `tel:${String(settings.phone || '+1 (555) 234-5678').replace(/[^\d+]/g, '')}`;
+  const whatsappHref = normalizeWhatsAppHref(settings.whatsapp);
 
   useEffect(() => {
     if (window.location.hash === '#lead-form') {
@@ -116,24 +136,28 @@ const Contact = () => {
                   title={contactPageContent.sales_label || 'Sales & Demos'}
                   lines={[settings.email || 'sales@besouhola.com']}
                   delay={0.3}
+                  isLink
+                  href={emailHref}
                 />
-                <div onClick={trackPhoneClick}>
+                <ContactInfoBlock
+                  icon={Phone}
+                  title={contactPageContent.phone_label || 'Phone'}
+                  lines={[settings.phone || '+1 (555) 234-5678']}
+                  delay={0.4}
+                  isLink
+                  href={phoneHref}
+                  onClick={trackPhoneClick}
+                />
+                {settings.whatsapp ? (
                   <ContactInfoBlock
                     icon={Phone}
-                    title={contactPageContent.phone_label || 'Phone'}
-                    lines={[settings.phone || '+1 (555) 234-5678']}
-                    delay={0.4}
+                    title={contactPageContent.whatsapp_label || 'WhatsApp'}
+                    lines={[settings.whatsapp]}
+                    delay={0.45}
+                    isLink
+                    href={whatsappHref}
+                    onClick={trackWhatsappClick}
                   />
-                </div>
-                {settings.whatsapp ? (
-                  <div onClick={trackWhatsappClick}>
-                    <ContactInfoBlock
-                      icon={Phone}
-                      title={contactPageContent.whatsapp_label || 'WhatsApp'}
-                      lines={[settings.whatsapp]}
-                      delay={0.45}
-                    />
-                  </div>
                 ) : null}
                 <ContactInfoBlock
                   icon={MapPin}

@@ -9,6 +9,7 @@ export const defaultWebsiteContent = {
     address: '200 Tech Boulevard, Suite 400, Innovation City, CA 94102',
     social_links: {
       facebook: 'https://www.facebook.com/profile.php?id=61587661674565',
+      whatsapp: null,
     },
     contact_page_content: {
       headline: "Let's",
@@ -227,6 +228,173 @@ export const defaultWebsiteContent = {
       description:
         'Be Souhola is a software company specializing in developing advanced Customer Relationship Management (CRM) solutions designed to support business growth and enhance operational efficiency.',
       tags: ['CRM', 'Real Estate', 'AI Automation', 'Analytics'],
+    },
+    lead_leak_detector: {
+      eyebrow: 'Free sales audit',
+      title: 'Are leads slipping through your pipeline?',
+      subtitle:
+        'Answer 7 quick questions and uncover the top three sales leaks holding your team back in under 60 seconds.',
+      items: [
+        'First-response speed',
+        'Lead leakage points',
+        'Follow-up consistency',
+      ],
+      button_text: 'Start the audit',
+      floating_button_text: 'Test your pipeline',
+      app_eyebrow: 'Mobile app',
+      app_headline: 'Manage leads, teams, and projects from anywhere',
+      app_description:
+        'Give your sales team a fast mobile workspace to follow up leads, manage tasks, and stay updated in the field.',
+      app_image_url: '',
+      app_highlights: [
+        'Lead follow-up',
+        'Team tasks',
+        'Real estate inventory',
+        'Instant reminders',
+      ],
+      app_title: 'Be Souhola Mobile App',
+      app_subtitle:
+        'A polished mobile workspace for sales teams, projects, and daily follow-up.',
+      app_items: [
+        'Leads',
+        'Tasks',
+        'Projects',
+        'Reports',
+      ],
+      app_button_text: 'See the mobile app in action',
+      app_availability_text: 'Mobile app available for your sales team',
+      integration_eyebrow: 'Live integrations',
+      integration_headline: 'Plug every lead source into one CRM flow',
+      integration_description:
+        'Show that Meta, website forms, chat, ads, WhatsApp, and notifications all land inside one connected operating layer for your sales team.',
+      integration_highlights: [
+        'Unified lead intake',
+        'Live source visibility',
+        'Faster follow-up handoff',
+      ],
+      integration_title: 'Live Integration Badge',
+      integration_subtitle:
+        'Show that every lead source, chat, and notification flow can live inside one connected CRM engine.',
+      integration_items: [
+        'Meta Leads',
+        'Website Forms',
+        'Website Chat',
+        'Google Ads',
+        'WhatsApp',
+        'Email Notifications',
+      ],
+      integration_button_text: 'See the audit in action',
+      result_cta_text: 'Book a result-based demo',
+      result_secondary_text: 'See how Be Souhola closes these leaks',
+      modal_title: 'Lead Leak Detector',
+      modal_subtitle:
+        'A guided sales health check that shows where your pipeline is losing qualified leads before they turn into revenue.',
+      modal_note: '7 quick questions. No sensitive financial data. Instant result.',
+      modal_start_text: 'Start diagnosis',
+      report_prompt:
+        'Want a walkthrough tailored to your result? See how Be Souhola fixes these leaks with automation, alerts, and performance reporting.',
+      solution_heading: 'Your Issue -> Be Souhola Solution',
+      estimated_loss_label: 'Estimated revenue drag',
+      estimated_loss_low: 'Minor leakage pressure',
+      estimated_loss_medium: 'Moderate leakage pressure',
+      estimated_loss_high: 'High leakage pressure',
+      risk_low_label: 'Low',
+      risk_medium_label: 'Medium',
+      risk_high_label: 'High',
+      leak_labels: {
+        speed: 'First-contact delay',
+        followup: 'Follow-up process',
+        visibility: 'Sales visibility',
+        handoff: 'Lead assignment flow',
+        qualification: 'Lead qualification',
+      },
+      solution_map: {
+        speed: 'Instant alerts and automatic lead routing',
+        followup: 'Follow-up reminders and structured cadences',
+        visibility: 'Live team performance dashboards',
+        handoff: 'Ownership rules and SLA tracking',
+        qualification: 'Structured intake forms and lead scoring',
+      },
+      questions: [
+        {
+          prompt: 'How long does it usually take before your team makes the first contact with a new lead?',
+          options: [
+            { label: 'Less than 5 minutes', score: 100, leak: 'speed' },
+            { label: '5 to 30 minutes', score: 82, leak: 'speed' },
+            { label: '30 minutes to 2 hours', score: 56, leak: 'speed' },
+            { label: 'More than 2 hours', score: 24, leak: 'speed' },
+            { label: 'We do not know', score: 18, leak: 'visibility' },
+          ],
+        },
+        {
+          prompt: 'How are new leads assigned to the sales team today?',
+          options: [
+            { label: 'Automatically and instantly', score: 100, leak: 'handoff' },
+            { label: 'Manually but with clear ownership', score: 78, leak: 'handoff' },
+            { label: 'Shared inbox or group chat', score: 46, leak: 'handoff' },
+            { label: 'Often unclear or delayed', score: 20, leak: 'handoff' },
+          ],
+        },
+        {
+          prompt: 'What usually happens if a lead does not respond after the first outreach?',
+          options: [
+            { label: 'Automatic reminders keep follow-up consistent', score: 100, leak: 'followup' },
+            { label: 'The team follows up manually with a process', score: 74, leak: 'followup' },
+            { label: 'Follow-up depends on each rep', score: 42, leak: 'followup' },
+            { label: 'Many leads are forgotten', score: 12, leak: 'followup' },
+          ],
+        },
+        {
+          prompt: 'How visible is team performance across the pipeline?',
+          options: [
+            { label: 'We have live dashboards by stage and owner', score: 100, leak: 'visibility' },
+            { label: 'We review reports weekly', score: 76, leak: 'visibility' },
+            { label: 'Mostly spreadsheets and manual checks', score: 40, leak: 'visibility' },
+            { label: 'Very limited visibility', score: 14, leak: 'visibility' },
+          ],
+        },
+        {
+          prompt: 'How are leads qualified before sales spends time on them?',
+          options: [
+            { label: 'Clear qualification rules and forms', score: 100, leak: 'qualification' },
+            { label: 'Some qualification questions exist', score: 70, leak: 'qualification' },
+            { label: 'Qualification is inconsistent', score: 38, leak: 'qualification' },
+            { label: 'Almost no qualification process', score: 16, leak: 'qualification' },
+          ],
+        },
+        {
+          prompt: 'How many channels feed leads into your pipeline?',
+          options: [
+            { label: 'All channels flow into one system', score: 100, leak: 'handoff' },
+            { label: 'Most channels are connected', score: 78, leak: 'handoff' },
+            { label: 'Some channels are disconnected', score: 44, leak: 'visibility' },
+            { label: 'Many channels are handled separately', score: 18, leak: 'visibility' },
+          ],
+        },
+        {
+          prompt: 'When a manager asks where deals are getting stuck, how fast can the team answer?',
+          options: [
+            { label: 'Immediately with live pipeline data', score: 100, leak: 'visibility' },
+            { label: 'Within the same day', score: 74, leak: 'visibility' },
+            { label: 'It takes manual digging', score: 36, leak: 'visibility' },
+            { label: 'We usually cannot answer clearly', score: 10, leak: 'visibility' },
+          ],
+        },
+      ],
+    },
+    integration_badge: {
+      eyebrow: 'Free sales audit',
+      title: 'Are leads slipping through your pipeline?',
+      subtitle:
+        'Answer 7 quick questions and uncover the top three sales leaks holding your team back in under 60 seconds.',
+      items: [
+        'First-response speed',
+        'Lead leakage points',
+        'Follow-up consistency',
+      ],
+      button_text: 'Start the audit',
+      floating_button_text: 'Test your pipeline',
+      result_cta_text: 'Book a result-based demo',
     },
     cta: {
       headline: 'Ready to Transform Your',

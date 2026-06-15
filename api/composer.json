@@ -8,6 +8,7 @@
     "require": {
         "php": "^8.2",
         "doctrine/dbal": "^4.4",
+        "dompdf/dompdf": "3.1",
         "googleads/google-ads-php": "^32.1",
         "kreait/laravel-firebase": "^7.2",
         "laravel-notification-channels/webpush": "^10.4",

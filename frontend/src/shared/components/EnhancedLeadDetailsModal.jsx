@@ -507,10 +507,18 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       });
     }
     
-    return list;
+    return list.map((item) =>
+      String(item.path || '').includes('lead-leak-report-')
+        ? {
+            ...item,
+            source: isArabic ? 'تقرير تشخيص المبيعات' : 'Sales Leakage Audit',
+          }
+        : item
+    );
   }, [fetchedLead, lead, leadActions, isArabic]);
 
   const effectiveLead = fetchedLead || lead || {};
+  const leadLeakDiagnostic = effectiveLead?.meta_data?.lead_leak_detector;
   const permissions = effectiveLead.permissions || {};
   
   // Lead Ownership Logic
@@ -2033,6 +2041,49 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         <div className={`flex-1 overflow-y-auto p-2 sm:p-6 ${isLight ? 'bg-white/70' : 'bg-slate-800'} ${showAddActionModal ? 'hidden' : ''}`}>
           {activeTab === 'overview' && (
             <div className="space-y-3 sm:space-y-8">
+              {leadLeakDiagnostic && (
+                <div className={`rounded-2xl border p-4 sm:p-5 ${isLight ? 'border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50' : 'border-violet-500/30 bg-gradient-to-r from-violet-500/10 to-blue-500/10'}`}>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`text-xs font-semibold uppercase tracking-[0.16em] ${isLight ? 'text-violet-700' : 'text-violet-300'}`}>
+                          {isArabic ? 'تشخيص تسريب المبيعات' : 'Sales Leakage Audit'}
+                        </span>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          leadLeakDiagnostic.risk_level === 'high'
+                            ? 'bg-red-100 text-red-700'
+                            : leadLeakDiagnostic.risk_level === 'medium'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {isArabic ? 'المخاطر' : 'Risk'}: {leadLeakDiagnostic.risk_level || '-'}
+                        </span>
+                      </div>
+                      <div className={`mt-2 text-3xl font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        {leadLeakDiagnostic.score ?? 0}/100
+                      </div>
+                      <div className={`mt-2 flex flex-wrap gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                        {(leadLeakDiagnostic.top_leaks || []).map((leak) => (
+                          <span key={leak} className={`rounded-full border px-2.5 py-1 ${isLight ? 'border-slate-200 bg-white' : 'border-slate-600 bg-slate-800'}`}>
+                            {String(leak).replaceAll('_', ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    {leadLeakDiagnostic.report?.path && (
+                      <a
+                        href={getFileUrl(leadLeakDiagnostic.report.path)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-700"
+                      >
+                        <FaFileAlt />
+                        {isArabic ? 'فتح التقرير الكامل' : 'Open Full Report'}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
               {/* Two Column: Current Status (left) and Lead Information (right) */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-8">
                 {/* Left: Current Status */}

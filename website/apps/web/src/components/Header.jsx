@@ -4,12 +4,16 @@ import { Menu, X, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Link } from 'react-router-dom';
 import { trackCtaClick } from '@/lib/analytics';
-import crmLogoMark from '../../../../../frontend/src/assets/be-souhola-logo-dark-collapse.png';
+import { useWebsiteContent } from '@/context/WebsiteContentContext';
+import crmLogoMark from '@/assets/be-souhola-logo-dark.png';
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const navigate = useNavigate();
+  const { settings } = useWebsiteContent();
+  const logoSrc = settings?.logo_url || crmLogoMark;
+  const companyName = settings?.company_name || 'Be Souhola';
   const navLinks = [
     { name: 'Services', href: '/#services' },
     { name: 'About', href: '/#about' },
@@ -81,13 +85,13 @@ const Header = () => {
           <Link to="/" onClick={handleHomeClick} className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-white/18 bg-[linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.03))] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] sm:h-11 sm:w-11">
               <img
-                src={crmLogoMark}
-                alt="Be Souhola CRM logo"
+                src={logoSrc}
+                alt={`${companyName} CRM logo`}
                 className="h-full w-full object-contain"
               />
             </div>
             <div className="text-base font-semibold tracking-tight text-white sm:text-[1.08rem]">
-              Be <span className="text-accent-purple">Souhola</span>{' '}
+              {companyName.split(' ')[0] || 'Be'} <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
               <span className="text-white/72">CRM</span>
             </div>
           </Link>
@@ -137,13 +141,13 @@ const Header = () => {
                 <Link to="/" onClick={handleHomeClick} className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-white/18 bg-[linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.03))] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
                     <img
-                      src={crmLogoMark}
-                      alt="Be Souhola CRM logo"
+                      src={logoSrc}
+                      alt={`${companyName} CRM logo`}
                       className="h-full w-full object-contain"
                     />
                   </div>
                   <div className="text-lg font-semibold tracking-tight text-white">
-                    Be <span className="text-accent-purple">Souhola</span>{' '}
+                    {companyName.split(' ')[0] || 'Be'} <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
                     <span className="text-white/72">CRM</span>
                   </div>
                 </Link>

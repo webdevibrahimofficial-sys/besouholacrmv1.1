@@ -9,6 +9,18 @@ export const systemCompanyWebsiteService = {
   },
 
   async updateSettings(payload) {
+    const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData
+
+    if (isFormData) {
+      payload.append('_method', 'PUT')
+      const res = await api.post(`${basePath}/settings`, payload, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      return res.data
+    }
+
     const res = await api.put(`${basePath}/settings`, payload)
     return res.data
   },
@@ -19,6 +31,18 @@ export const systemCompanyWebsiteService = {
   },
 
   async updateHomepageSection(id, payload) {
+    const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData
+
+    if (isFormData) {
+      payload.append('_method', 'PUT')
+      const res = await api.post(`${basePath}/homepage-sections/${id}`, payload, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      return res.data
+    }
+
     const res = await api.put(`${basePath}/homepage-sections/${id}`, payload)
     return res.data
   },

@@ -14,6 +14,7 @@ use App\Support\PhoneNormalizer;
 use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class WebsiteLeadIntakeService
@@ -24,6 +25,7 @@ class WebsiteLeadIntakeService
         private readonly WebsiteApiKeyService $apiKeyService,
         private readonly WebsiteSourceResolver $sourceResolver,
         private readonly LeadRotationEngine $rotationEngine,
+        private readonly LeadLeakReportService $leadLeakReportService,
     ) {
     }
 
@@ -245,7 +247,7 @@ class WebsiteLeadIntakeService
     {
         $existing = is_array($payload['meta'] ?? null) ? $payload['meta'] : [];
 
-        return [
+        $metaData = [
             'integration' => 'website',
             'connection_id' => $connection->id,
             'connection_name' => $connection->name,
@@ -263,6 +265,38 @@ class WebsiteLeadIntakeService
             'lead_item_id' => $existing['lead_item_id'] ?? null,
             'lead_item_name' => $existing['lead_item_name'] ?? null,
             'payload_meta' => $existing,
+        ];
+
+        $diagnostic = $this->extractLeadLeakDiagnostic($payload, $existing);
+        if ($diagnostic !== null) {
+            $metaData['lead_leak_detector'] = $this->leadLeakReportService->normalizeDiagnostic($diagnostic);
+        }
+
+        return $metaData;
+    }
+
+    private function extractLeadLeakDiagnostic(array $payload, array $meta): ?array
+    {
+        $submittedSource = strtolower(trim((string) ($payload['source'] ?? $meta['source'] ?? '')));
+        if ($submittedSource !== 'lead_leak_detector') {
+            return null;
+        }
+
+        if (is_array($meta['lead_leak_detector'] ?? null)) {
+            return $meta['lead_leak_detector'];
+        }
+
+        if (!isset($meta['detector_score']) && !isset($meta['detector_answers'])) {
+            return null;
+        }
+
+        return [
+            'score' => $meta['detector_score'] ?? 0,
+            'risk_level' => $meta['detector_risk_level'] ?? null,
+            'top_leaks' => $meta['detector_top_leaks'] ?? [],
+            'answers' => $meta['detector_answers'] ?? [],
+            'cta_type' => $meta['cta_type'] ?? null,
+            'source_trigger' => $meta['source_trigger'] ?? null,
         ];
     }
 
@@ -538,6 +572,7 @@ class WebsiteLeadIntakeService
         $leadPayload = $this->buildLeadPayload($connection, $payload, $sourceName, $rawPhone);
 
         $result = null;
+        $generatedReportPath = null;
         $boundTenant = app()->bound('current_tenant_id');
         $previousTenantId = $boundTenant ? app('current_tenant_id') : null;
 
@@ -547,6 +582,11 @@ class WebsiteLeadIntakeService
             DB::beginTransaction();
 
             [$lead, $result] = $this->createOrUpdateLead($tenantId, $leadPayload, $rawPhone);
+
+            $diagnostic = data_get($leadPayload, 'meta_data.lead_leak_detector');
+            if (is_array($diagnostic)) {
+                $generatedReportPath = $this->leadLeakReportService->generateForLead($lead, $diagnostic);
+            }
 
             $connection->forceFill([
                 'last_used_at' => now(),
@@ -571,6 +611,9 @@ class WebsiteLeadIntakeService
             ];
         } catch (\Throwable $e) {
             DB::rollBack();
+            if ($generatedReportPath) {
+                Storage::disk('public')->delete($generatedReportPath);
+            }
             $this->logIntake($tenantId, (int) $connection->id, 'exception', $payload, $e->getMessage(), $request);
             throw $e;
         } finally {
