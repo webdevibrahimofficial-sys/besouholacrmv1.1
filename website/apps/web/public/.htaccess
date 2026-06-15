@@ -7,10 +7,12 @@
 </IfModule>
 
 <IfModule mod_headers.c>
-	Header set X-Powered-By "Hostinger Horizons"
-
 	# Cache everything on CDN by default
 	Header set Cache-Control "public, s-maxage=604800, max-age=0"
+	Header always set X-Content-Type-Options "nosniff"
+	Header always set X-Frame-Options "SAMEORIGIN"
+	Header always set Referrer-Policy "strict-origin-when-cross-origin"
+	Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
 
 	# Cache in browser all assets
 	<If "%{REQUEST_URI} =~ m#^/assets/.*$#">

@@ -8,6 +8,8 @@ import CareerApplicationForm from '@/components/CareerApplicationForm';
 import { trackCtaClick } from '@/lib/analytics';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 
+const siteUrl = 'https://besouhola.com';
+
 const Career = () => {
   const {
     careersPage,
@@ -51,6 +53,19 @@ const Career = () => {
         <title>Careers at Be Souhola CRM</title>
         <meta
           name="description"
+          content="Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams."
+        />
+        <link rel="canonical" href={`${siteUrl}/career`} />
+        <meta property="og:title" content="Careers at Be Souhola CRM" />
+        <meta
+          property="og:description"
+          content="Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams."
+        />
+        <meta property="og:url" content={`${siteUrl}/career`} />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:title" content="Careers at Be Souhola CRM" />
+        <meta
+          name="twitter:description"
           content="Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams."
         />
       </Helmet>

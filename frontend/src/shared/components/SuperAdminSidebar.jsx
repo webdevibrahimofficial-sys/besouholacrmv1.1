@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
@@ -41,6 +40,21 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
     ? 'bg-blue-50 text-blue-600 font-medium' 
     : 'bg-blue-900/20 text-blue-400 font-medium';
   const baseLink = `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm ${isLight ? 'text-gray-700' : 'text-gray-300'}`;
+  const subLinkBase = `flex items-center rounded-lg px-3 py-2 text-sm transition-all duration-200 ${isLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-400 hover:bg-gray-800'}`;
+  const subLinkActive = isLight
+    ? 'bg-blue-50 text-blue-600 font-medium'
+    : 'bg-blue-900/20 text-blue-400 font-medium';
+
+  const websiteSubmenuItems = [
+    { title: 'Analytics', path: '/system/website?tab=analytics' },
+    { title: 'Homepage', path: '/system/website?tab=homepage' },
+    { title: 'Services', path: '/system/website?tab=services' },
+    { title: 'Careers', path: '/system/website?tab=careers' },
+    { title: 'Settings', path: '/system/website?tab=settings' },
+  ];
+
+  const isWebsiteRoute = location.pathname === '/system/website';
+  const activeWebsiteTab = new URLSearchParams(location.search).get('tab') || 'settings';
 
   // Menu Items Definition
   const menuItems = [
@@ -150,26 +164,48 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
         {/* Navigation Items */}
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
             {menuItems.map((item) => (
-                <NavLink
-                    key={item.path}
-                    to={item.path}
-                    onClick={() => {
-                        if (window.innerWidth < 768) onClose();
-                    }}
-                    className={({ isActive }) => `
-                        ${baseLink} 
-                        ${isActive ? activeLink : ''}
-                        ${collapsed ? 'justify-center px-0' : ''}
-                    `}
-                    title={collapsed ? t(item.title) : ''}
-                >
-                    <span className={`${collapsed ? '' : 'min-w-[20px]'}`}>
-                        {item.icon}
-                    </span>
-                    {!collapsed && (
-                        <span className="truncate">{t(item.title)}</span>
-                    )}
-                </NavLink>
+                <div key={item.path}>
+                    <NavLink
+                        to={item.path}
+                        onClick={() => {
+                            if (window.innerWidth < 768) onClose();
+                        }}
+                        className={({ isActive }) => `
+                            ${baseLink} 
+                            ${isActive ? activeLink : ''}
+                            ${collapsed ? 'justify-center px-0' : ''}
+                        `}
+                        title={collapsed ? t(item.title) : ''}
+                    >
+                        <span className={`${collapsed ? '' : 'min-w-[20px]'}`}>
+                            {item.icon}
+                        </span>
+                        {!collapsed && (
+                            <span className="truncate">{t(item.title)}</span>
+                        )}
+                    </NavLink>
+
+                    {!collapsed && item.path === '/system/website' && isWebsiteRoute ? (
+                        <div className="mt-1 space-y-1 pl-11">
+                            {websiteSubmenuItems.map((subItem) => {
+                                const isSubItemActive = activeWebsiteTab === new URLSearchParams(subItem.path.split('?')[1]).get('tab');
+
+                                return (
+                                    <NavLink
+                                        key={subItem.path}
+                                        to={subItem.path}
+                                        onClick={() => {
+                                            if (window.innerWidth < 768) onClose();
+                                        }}
+                                        className={`${subLinkBase} ${isSubItemActive ? subLinkActive : ''}`}
+                                    >
+                                        <span className="truncate">{t(subItem.title)}</span>
+                                    </NavLink>
+                                );
+                            })}
+                        </div>
+                    ) : null}
+                </div>
             ))}
         </nav>
 

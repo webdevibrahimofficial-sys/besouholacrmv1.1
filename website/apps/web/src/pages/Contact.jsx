@@ -17,6 +17,7 @@ const pageTransition = {
   ease: 'anticipate',
   duration: 0.5,
 };
+const siteUrl = 'https://besouhola.com';
 
 const ContactInfoBlock = ({ icon: Icon, title, lines, delay, isLink = false, href = '#' }) => (
   <motion.div
@@ -53,7 +54,7 @@ const ContactInfoBlock = ({ icon: Icon, title, lines, delay, isLink = false, hre
 );
 
 const Contact = () => {
-  const { settings, leadServiceOptions } = useWebsiteContent();
+  const { settings, leadServiceOptions, contactPageContent } = useWebsiteContent();
 
   useEffect(() => {
     if (window.location.hash === '#lead-form') {
@@ -78,6 +79,19 @@ const Contact = () => {
           name="description"
           content="Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations."
         />
+        <link rel="canonical" href={`${siteUrl}/contact`} />
+        <meta property="og:title" content="Contact Be Souhola - Schedule Your Demo" />
+        <meta
+          property="og:description"
+          content="Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations."
+        />
+        <meta property="og:url" content={`${siteUrl}/contact`} />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:title" content="Contact Be Souhola - Schedule Your Demo" />
+        <meta
+          name="twitter:description"
+          content="Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations."
+        />
       </Helmet>
 
       <section className="bg-[#0C0D0D] text-white py-24 sm:py-32">
@@ -89,24 +103,24 @@ const Contact = () => {
               transition={{ duration: 0.8, delay: 0.2 }}
             >
               <h1 className="text-5xl md:text-7xl font-bold text-white uppercase mb-6 leading-tight">
-                Let's <span className="text-accent-purple">connect</span>
+                {contactPageContent.headline}{' '}
+                <span className="text-accent-purple">{contactPageContent.headline_accent}</span>
               </h1>
               <p className="text-xl text-gray-400 max-w-md mb-12">
-                Schedule a demo, get support, or learn how Be Souhola can transform
-                your business operations.
+                {contactPageContent.description}
               </p>
 
               <div className="space-y-8 mb-12">
                 <ContactInfoBlock
                   icon={Mail}
-                  title="Sales & Demos"
+                  title={contactPageContent.sales_label || 'Sales & Demos'}
                   lines={[settings.email || 'sales@besouhola.com']}
                   delay={0.3}
                 />
                 <div onClick={trackPhoneClick}>
                   <ContactInfoBlock
                     icon={Phone}
-                    title="Phone"
+                    title={contactPageContent.phone_label || 'Phone'}
                     lines={[settings.phone || '+1 (555) 234-5678']}
                     delay={0.4}
                   />
@@ -115,7 +129,7 @@ const Contact = () => {
                   <div onClick={trackWhatsappClick}>
                     <ContactInfoBlock
                       icon={Phone}
-                      title="WhatsApp"
+                      title={contactPageContent.whatsapp_label || 'WhatsApp'}
                       lines={[settings.whatsapp]}
                       delay={0.45}
                     />
@@ -123,17 +137,17 @@ const Contact = () => {
                 ) : null}
                 <ContactInfoBlock
                   icon={MapPin}
-                  title="Our Office"
+                  title={contactPageContent.address_label || 'Our Office'}
                   lines={[settings.address || '200 Tech Boulevard, Suite 400, Innovation City, CA 94102']}
                   delay={0.5}
                 />
                 <ContactInfoBlock
                   icon={Globe}
-                  title="Website"
-                  lines={['besouhola.com']}
+                  title={contactPageContent.website_label || 'Website'}
+                  lines={[contactPageContent.website_text || 'besouhola.com']}
                   delay={0.6}
                   isLink
-                  href="https://besouhola.com"
+                  href={contactPageContent.website_url || 'https://besouhola.com'}
                 />
               </div>
 
@@ -150,7 +164,7 @@ const Contact = () => {
                     rel="noopener noreferrer"
                     className="text-lg text-gray-300 hover:text-accent-purple transition-colors duration-300"
                   >
-                    Facebook
+                    {contactPageContent.social_label || 'Facebook'}
                   </a>
                 ) : null}
               </motion.div>
@@ -164,10 +178,10 @@ const Contact = () => {
               className="scroll-mt-28"
             >
               <h2 className="text-2xl font-bold text-white uppercase mb-2">
-                Request a demo
+                {contactPageContent.form_title || 'Request a demo'}
               </h2>
               <p className="text-gray-400 mb-6">
-                Complete the form below and our team will get back to you shortly.
+                {contactPageContent.form_subtitle || 'Complete the form below and our team will get back to you shortly.'}
               </p>
               <LeadForm formName="Contact Page Form" serviceOptions={leadServiceOptions} />
             </motion.div>

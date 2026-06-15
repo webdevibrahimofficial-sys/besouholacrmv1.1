@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { systemCompanyWebsiteService } from '../services/systemCompanyWebsiteService'
 import WebsiteAnalyticsPanel from '../components/website/WebsiteAnalyticsPanel'
 import WebsiteCareersPanel, { emptyRole as emptyCareerRole } from '../components/website/WebsiteCareersPanel'
@@ -43,6 +44,143 @@ const defaultHeroSectionContent = {
   ],
 }
 
+const defaultTrustedClientsSectionContent = {
+  eyebrow: 'Trusted by industry leaders',
+  highlight_text: '50+ industries/businesses',
+  headline_suffix: 'trust Be Souhola',
+  clients: [
+    'Meridian Properties',
+    'Skyline Realty Group',
+    'Urban Development Partners',
+    'Coastal Estates',
+    'PropTech Innovations',
+    'Thompson & Associates',
+  ],
+}
+const defaultAboutSectionContent = {
+  primary_enabled: true,
+  primary_image_url:
+    'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/charlesdeluvio-lks7vei-eag-unsplash-7Or6F.jpg',
+  primary_image_alt: 'Modern office with technology team collaborating on CRM development',
+  primary_title: "We're passionate about",
+  primary_title_accent: 'business transformation',
+  primary_card_one_title: 'CRM platform powered by artificial intelligence',
+  primary_card_one_body:
+    'This platform enables organizations to manage their relationships and operations more efficiently while keeping pace with digital transformation and the future vision.',
+  primary_card_two_title: 'Focus on measurable impact',
+  primary_card_two_body:
+    'Our mission is to empower companies to build a smart business ecosystem that connects sales teams, customer service, and management within one flexible and customizable platform. We aim to enhance customer experience, improve operational efficiency, and support decision-making through real-time analytics and intelligent AI-driven tools, ensuring sustainable growth and long-term competitive advantage.',
+  secondary_enabled: true,
+  secondary_image_url:
+    'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/whatsapp-image-2026-02-16-at-9.34.48-pm-1-crJEf.jpeg',
+  secondary_image_alt: 'Diverse team collaborating on CRM strategy and implementation',
+  secondary_title: 'Your success, our',
+  secondary_title_accent: 'technology',
+  secondary_card_one_title: 'Our vision for the future',
+  secondary_card_one_body:
+    'Our vision is to become the leading technology partner for companies in the real estate sector and other industries by providing an integrated CRM platform powered by artificial intelligence. This platform enables organizations to manage their relationships and operations more efficiently while keeping pace with digital transformation and the future vision.',
+  secondary_card_two_title: 'Built for scalability and growth',
+  secondary_card_two_body:
+    'This platform enables organizations to manage their relationships and operations more efficiently while keeping pace with digital transformation and the future vision. From startups to enterprise organizations, Be Souhola scales with your business.',
+}
+const defaultPortfolioSectionContent = {
+  eyebrow: 'Industry Solutions',
+  title: 'Real results across',
+  title_accent: 'multiple industries',
+  description:
+    'Discover how Be Souhola empowers businesses across real estate, property management, and professional services to achieve measurable growth and operational excellence.',
+  cards: [
+    {
+      slug: 'real-estate-pipeline',
+      title: 'Real Estate Sales Pipeline',
+      metric: 'Increased sales by 47%',
+      description:
+        'Complete sales pipeline management for real estate firms with automated lead tracking and deal progression.',
+      image_url:
+        'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/tech-daily-lkyv7faumza-unsplash-2-FOBCl.jpg',
+      image_alt:
+        'Real estate CRM dashboard showing sales pipeline and property listings on a laptop',
+    },
+    {
+      slug: 'property-management',
+      title: 'Property Management Operations',
+      metric: 'Manages 850+ properties',
+      description:
+        'Streamlined property management operations with tenant tracking, maintenance scheduling, and financial reporting.',
+      image_url:
+        'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/gemini_generated_image_n6u5epn6u5epn6u5-5abrf-2-W2Hon.jpg',
+      image_alt:
+        'Property management dashboard displaying tenant information and maintenance schedules on a tablet',
+    },
+    {
+      slug: 'multi-industry-tracking',
+      title: 'Multi-Industry Client Tracking',
+      metric: 'Reduced admin time by 62%',
+      description:
+        'Customizable client relationship management adapted for healthcare, consulting, and professional services sectors.',
+      image_url:
+        'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/sumup-vsyr_mbh7q4-unsplash-2-Hxitr.jpg',
+      image_alt:
+        'Business analytics dashboard showing client tracking metrics and performance data on a smartphone',
+    },
+  ],
+}
+const defaultTestimonialsSectionContent = {
+  title: 'Businesses that',
+  title_accent: 'transformed',
+  title_suffix: 'with Be Souhola',
+  testimonials: [
+    {
+      name: 'Marcus Rivera',
+      role: 'VP of Sales, Meridian Properties',
+      content:
+        'Be Souhola transformed how we manage client relationships and increased our sales pipeline visibility by 53%. The real-time analytics help us identify opportunities we were missing before.',
+      avatar:
+        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    },
+    {
+      name: 'Priya Sharma',
+      role: 'Operations Director, Skyline Realty Group',
+      content:
+        'The customizable workflows saved our team 12 hours every week. We can finally focus on building relationships instead of drowning in spreadsheets and manual data entry.',
+      avatar:
+        'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    },
+    {
+      name: 'James Chen',
+      role: 'CEO, Urban Development Partners',
+      content:
+        'We manage over 600 properties across three cities, and Be Souhola keeps everything organized in one place. The AI-powered insights have helped us make faster, data-driven decisions.',
+      avatar:
+        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    },
+    {
+      name: 'Sofia Martinez',
+      role: 'Sales Manager, Coastal Estates',
+      content:
+        'Our conversion rate increased by 38% within the first quarter. The automated follow-ups ensure we never miss a lead, and the mobile app keeps us productive on the go.',
+      avatar:
+        'https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    },
+    {
+      name: 'David Thompson',
+      role: 'Managing Partner, Thompson & Associates',
+      content:
+        'Be Souhola adapted perfectly to our consulting firm. The platform is flexible enough to handle our unique workflows while powerful enough to scale as we grow.',
+      avatar:
+        'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    },
+    {
+      name: 'Aisha Okonkwo',
+      role: 'Head of Customer Success, PropTech Innovations',
+      content:
+        'The real-time collaboration features keep our entire team aligned. We reduced our sales cycle by 22% and improved customer satisfaction scores across the board.',
+      avatar:
+        'https://images.unsplash.com/photo-1517841905240-472988babdf9?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    },
+  ],
+}
+
 const emptyService = {
   name: '',
   short_description: '',
@@ -51,8 +189,45 @@ const emptyService = {
   form_name: '',
   is_active: true,
 }
+
+const websiteTabs = ['settings', 'homepage', 'services', 'careers', 'analytics']
+const websiteTabLabels = {
+  settings: 'Settings',
+  homepage: 'Homepage',
+  services: 'Services',
+  careers: 'Careers',
+  analytics: 'Analytics',
+}
+const defaultContactPageContent = {
+  headline: "Let's",
+  headline_accent: 'connect',
+  description: 'Schedule a demo, get support, or learn how Be Souhola can transform your business operations.',
+  sales_label: 'Sales & Demos',
+  phone_label: 'Phone',
+  whatsapp_label: 'WhatsApp',
+  address_label: 'Our Office',
+  website_label: 'Website',
+  website_text: 'besouhola.com',
+  website_url: 'https://besouhola.com',
+  social_label: 'Facebook',
+  form_title: 'Request a demo',
+  form_subtitle: 'Complete the form below and our team will get back to you shortly.',
+}
+const homepageSubTabs = ['hero', 'trusted_clients', 'about', 'portfolio', 'testimonials', 'more_sections']
+const homepageSubTabLabels = {
+  hero: 'Hero',
+  trusted_clients: 'Trusted Clients',
+  about: 'About',
+  portfolio: 'Portfolio',
+  testimonials: 'Testimonials',
+  more_sections: 'More Sections',
+}
+
 export default function WebsiteCms() {
-  const [activeTab, setActiveTab] = useState('settings')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const activeTab = websiteTabs.includes(requestedTab) ? requestedTab : 'settings'
+  const activeTabLabel = websiteTabLabels[activeTab] || 'Settings'
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -67,6 +242,37 @@ export default function WebsiteCms() {
   const [careerApplications, setCareerApplications] = useState([])
   const [careerRoleForm, setCareerRoleForm] = useState(emptyCareerRole)
   const [editingCareerRoleId, setEditingCareerRoleId] = useState(null)
+  const [homepageSubTab, setHomepageSubTab] = useState('hero')
+  const [brandingFiles, setBrandingFiles] = useState({
+    logo: null,
+  })
+  const [aboutImageFiles, setAboutImageFiles] = useState({
+    primary_image: null,
+    secondary_image: null,
+  })
+  const [portfolioImageFiles, setPortfolioImageFiles] = useState({
+    0: null,
+    1: null,
+    2: null,
+  })
+  const [testimonialImageFiles, setTestimonialImageFiles] = useState({
+    0: null,
+    1: null,
+    2: null,
+    3: null,
+    4: null,
+    5: null,
+  })
+  const [aboutPanels, setAboutPanels] = useState({
+    primary: true,
+    secondary: false,
+  })
+
+  useEffect(() => {
+    if (!websiteTabs.includes(requestedTab)) {
+      setSearchParams({ tab: 'settings' }, { replace: true })
+    }
+  }, [requestedTab, setSearchParams])
 
   const heroSection = useMemo(
     () => sections.find((section) => section.type === 'hero'),
@@ -74,6 +280,22 @@ export default function WebsiteCms() {
   )
   const servicesIntroSection = useMemo(
     () => sections.find((section) => section.type === 'services_intro'),
+    [sections]
+  )
+  const trustedClientsSection = useMemo(
+    () => sections.find((section) => section.type === 'trusted_clients'),
+    [sections]
+  )
+  const aboutSection = useMemo(
+    () => sections.find((section) => section.type === 'about'),
+    [sections]
+  )
+  const portfolioSection = useMemo(
+    () => sections.find((section) => section.type === 'portfolio'),
+    [sections]
+  )
+  const testimonialsSection = useMemo(
+    () => sections.find((section) => section.type === 'testimonials'),
     [sections]
   )
   const ctaSection = useMemo(
@@ -99,6 +321,58 @@ export default function WebsiteCms() {
         : defaultHeroSectionContent.stats,
     }
   }, [heroSection])
+  const trustedClientsContent = useMemo(() => {
+    if (!trustedClientsSection) return defaultTrustedClientsSectionContent
+    return {
+      ...defaultTrustedClientsSectionContent,
+      ...(trustedClientsSection.content || {}),
+      clients: Array.isArray(trustedClientsSection.content?.clients)
+        ? trustedClientsSection.content.clients
+        : defaultTrustedClientsSectionContent.clients,
+    }
+  }, [trustedClientsSection])
+  const contactPageContent = useMemo(
+    () => ({
+      ...defaultContactPageContent,
+      ...(settings?.contact_page_content || {}),
+    }),
+    [settings]
+  )
+  const aboutContent = useMemo(() => {
+    if (!aboutSection) return defaultAboutSectionContent
+    return {
+      ...defaultAboutSectionContent,
+      ...(aboutSection.content || {}),
+    }
+  }, [aboutSection])
+  const portfolioContent = useMemo(() => {
+    if (!portfolioSection) return defaultPortfolioSectionContent
+    return {
+      ...defaultPortfolioSectionContent,
+      ...(portfolioSection.content || {}),
+      cards: Array.isArray(portfolioSection.content?.cards) && portfolioSection.content.cards.length > 0
+        ? portfolioSection.content.cards.map((card, index) => ({
+            ...(defaultPortfolioSectionContent.cards[index] || {}),
+            ...(card || {}),
+          }))
+        : defaultPortfolioSectionContent.cards,
+    }
+  }, [portfolioSection])
+  const testimonialsContent = useMemo(() => {
+    if (!testimonialsSection) return defaultTestimonialsSectionContent
+    return {
+      ...defaultTestimonialsSectionContent,
+      ...(testimonialsSection.content || {}),
+      testimonials:
+        Array.isArray(testimonialsSection.content?.testimonials) &&
+        testimonialsSection.content.testimonials.length > 0
+          ? testimonialsSection.content.testimonials.map((item, index) => ({
+              ...(defaultTestimonialsSectionContent.testimonials[index] || {}),
+              ...(item || {}),
+            }))
+          : defaultTestimonialsSectionContent.testimonials,
+    }
+  }, [testimonialsSection])
 
   const loadAll = async () => {
     setLoading(true)
@@ -172,13 +446,117 @@ export default function WebsiteCms() {
     updateHeroField('stats', stats)
   }
 
+  const updateTrustedClientsField = (key, value) => {
+    if (!trustedClientsSection) return
+    updateSectionContent(trustedClientsSection.id, {
+      ...trustedClientsContent,
+      [key]: value,
+    })
+  }
+
+  const updateTrustedClientsList = (text) => {
+    updateTrustedClientsField(
+      'clients',
+      text
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  }
+
+  const updateAboutField = (key, value) => {
+    if (!aboutSection) return
+    updateSectionContent(aboutSection.id, {
+      ...aboutContent,
+      [key]: value,
+    })
+  }
+
+  const toggleAboutPanel = (panel) => {
+    setAboutPanels((prev) => ({
+      ...prev,
+      [panel]: !prev[panel],
+    }))
+  }
+
+  const updatePortfolioField = (key, value) => {
+    if (!portfolioSection) return
+    updateSectionContent(portfolioSection.id, {
+      ...portfolioContent,
+      [key]: value,
+    })
+  }
+
+  const updatePortfolioCardField = (index, key, value) => {
+    if (!portfolioSection) return
+    const cards = Array.isArray(portfolioContent.cards) ? [...portfolioContent.cards] : []
+    cards[index] = {
+      ...(cards[index] || {}),
+      [key]: value,
+    }
+    updateSectionContent(portfolioSection.id, {
+      ...portfolioContent,
+      cards,
+    })
+  }
+
+  const updateServicesIntroField = (key, value) => {
+    if (!servicesIntroSection) return
+    setSections((prev) =>
+      prev.map((item) =>
+        item.id === servicesIntroSection.id
+          ? { ...item, content: { ...(item.content || {}), [key]: value } }
+          : item
+      )
+    )
+  }
+
+  const updateTestimonialsField = (key, value) => {
+    if (!testimonialsSection) return
+    updateSectionContent(testimonialsSection.id, {
+      ...testimonialsContent,
+      [key]: value,
+    })
+  }
+
+  const updateTestimonialItemField = (index, key, value) => {
+    if (!testimonialsSection) return
+    const items = Array.isArray(testimonialsContent.testimonials)
+      ? [...testimonialsContent.testimonials]
+      : []
+    items[index] = {
+      ...(items[index] || {}),
+      [key]: value,
+    }
+    updateSectionContent(testimonialsSection.id, {
+      ...testimonialsContent,
+      testimonials: items,
+    })
+  }
+
   const saveSettings = async () => {
     setSaving(true)
     setMessage('')
     setError('')
     try {
-      const updated = await systemCompanyWebsiteService.updateSettings(settings)
+      const hasLogoFile = Boolean(brandingFiles.logo)
+      const payload = hasLogoFile ? new FormData() : settings
+
+      if (hasLogoFile) {
+        Object.entries(settings || {}).forEach(([key, value]) => {
+          if (value == null) return
+          if (typeof value === 'object') {
+            payload.append(key, JSON.stringify(value))
+          } else {
+            payload.append(key, value)
+          }
+        })
+        payload.append('logo', brandingFiles.logo)
+      }
+
+      const updated = await systemCompanyWebsiteService.updateSettings(payload)
       setSettings(updated)
+      setBrandingFiles({ logo: null })
       setMessage('Website settings saved successfully.')
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || 'Failed to save settings.')
@@ -197,6 +575,96 @@ export default function WebsiteCms() {
       setMessage(`${section.title || section.type} updated successfully.`)
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || 'Failed to save section.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveAboutSection = async () => {
+    if (!aboutSection) return
+
+    setSaving(true)
+    setMessage('')
+    setError('')
+
+    try {
+      const formData = new FormData()
+      formData.append('content', JSON.stringify(aboutContent))
+      if (aboutImageFiles.primary_image) {
+        formData.append('primary_image', aboutImageFiles.primary_image)
+      }
+      if (aboutImageFiles.secondary_image) {
+        formData.append('secondary_image', aboutImageFiles.secondary_image)
+      }
+
+      const updated = await systemCompanyWebsiteService.updateHomepageSection(aboutSection.id, formData)
+      setSections((prev) => prev.map((item) => (item.id === aboutSection.id ? updated : item)))
+      setAboutImageFiles({
+        primary_image: null,
+        secondary_image: null,
+      })
+      setMessage('About section updated successfully.')
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save About section.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const savePortfolioSection = async () => {
+    if (!portfolioSection) return
+
+    setSaving(true)
+    setMessage('')
+    setError('')
+
+    try {
+      const formData = new FormData()
+      formData.append('content', JSON.stringify(portfolioContent))
+      if (portfolioImageFiles[0]) formData.append('portfolio_card_1_image', portfolioImageFiles[0])
+      if (portfolioImageFiles[1]) formData.append('portfolio_card_2_image', portfolioImageFiles[1])
+      if (portfolioImageFiles[2]) formData.append('portfolio_card_3_image', portfolioImageFiles[2])
+
+      const updated = await systemCompanyWebsiteService.updateHomepageSection(portfolioSection.id, formData)
+      setSections((prev) => prev.map((item) => (item.id === portfolioSection.id ? updated : item)))
+      setPortfolioImageFiles({ 0: null, 1: null, 2: null })
+      setMessage('Portfolio section updated successfully.')
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save Portfolio section.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveTestimonialsSection = async () => {
+    if (!testimonialsSection) return
+
+    setSaving(true)
+    setMessage('')
+    setError('')
+
+    try {
+      const formData = new FormData()
+      formData.append('content', JSON.stringify(testimonialsContent))
+      for (let i = 0; i < 6; i += 1) {
+        if (testimonialImageFiles[i]) {
+          formData.append(`testimonial_${i + 1}_avatar`, testimonialImageFiles[i])
+        }
+      }
+
+      const updated = await systemCompanyWebsiteService.updateHomepageSection(testimonialsSection.id, formData)
+      setSections((prev) => prev.map((item) => (item.id === testimonialsSection.id ? updated : item)))
+      setTestimonialImageFiles({
+        0: null,
+        1: null,
+        2: null,
+        3: null,
+        4: null,
+        5: null,
+      })
+      setMessage('Testimonials section updated successfully.')
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save Testimonials section.')
     } finally {
       setSaving(false)
     }
@@ -338,7 +806,11 @@ export default function WebsiteCms() {
   return (
     <div className="space-y-6 p-1">
       <div>
-        <h1 className="text-2xl font-semibold text-[var(--content-text)]">Company Website</h1>
+        <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold text-[var(--content-text)]">
+          <span>Company Website</span>
+          <span className="text-[var(--muted-text)]">/</span>
+          <span className="text-blue-600">{activeTabLabel}</span>
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted-text)]">
           Manage besouhola.com content, homepage sections, services, and analytics.
         </p>
@@ -347,70 +819,149 @@ export default function WebsiteCms() {
       {message ? <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-300">{message}</div> : null}
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div> : null}
 
-      <div className="flex flex-wrap gap-2">
-        {['settings', 'homepage', 'services', 'careers', 'analytics'].map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`rounded-full px-4 py-2 text-sm ${
-              activeTab === tab
-                ? 'bg-[var(--primary)] text-white'
-                : 'bg-[var(--surface-2)] text-[var(--muted-text)]'
-            }`}
-          >
-            {tab === 'settings'
-              ? 'Settings'
-              : tab === 'homepage'
-                ? 'Homepage'
-                : tab === 'services'
-                  ? 'Services'
-                  : tab === 'careers'
-                    ? 'Careers'
-                    : 'Analytics'}
-          </button>
-        ))}
-      </div>
-
       {activeTab === 'settings' && settings ? (
-        <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
-          {[
-            ['company_name', 'Company Name'],
-            ['logo_url', 'Logo URL'],
-            ['phone', 'Phone'],
-            ['email', 'Email'],
-            ['whatsapp', 'WhatsApp'],
-            ['primary_color', 'Primary Color'],
-            ['seo_title', 'SEO Title'],
-          ].map(([key, label]) => (
-            <label key={key} className="block text-sm">
-              <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+        <div className="space-y-6">
+          <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
+            {[
+              ['company_name', 'Company Name'],
+              ['phone', 'Phone'],
+              ['email', 'Email'],
+              ['whatsapp', 'WhatsApp'],
+              ['primary_color', 'Primary Color'],
+              ['seo_title', 'SEO Title'],
+            ].map(([key, label]) => (
+              <label key={key} className="block text-sm">
+                <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                <input
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                  value={settings[key] || ''}
+                  onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
+                />
+              </label>
+            ))}
+            <div className="block text-sm">
+              <span className="mb-1 block text-[var(--muted-text)]">Logo Upload</span>
+              {settings.logo_url ? (
+                <img
+                  src={settings.logo_url}
+                  alt={settings.company_name || 'Company logo'}
+                  className="mb-3 h-20 w-auto rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2 object-contain"
+                />
+              ) : null}
               <input
+                type="file"
+                accept="image/*"
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                value={settings[key] || ''}
-                onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
+                onChange={(e) =>
+                  setBrandingFiles((prev) => ({
+                    ...prev,
+                    logo: e.target.files?.[0] || null,
+                  }))
+                }
+              />
+              <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                {brandingFiles.logo
+                  ? `Selected: ${brandingFiles.logo.name}`
+                  : 'Upload a logo image to replace the current one.'}
+              </span>
+            </div>
+            <label className="block text-sm md:col-span-2">
+              <span className="mb-1 block text-[var(--muted-text)]">Address</span>
+              <textarea
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                rows={3}
+                value={settings.address || ''}
+                onChange={(e) => setSettings({ ...settings, address: e.target.value })}
               />
             </label>
-          ))}
-          <label className="block text-sm md:col-span-2">
-            <span className="mb-1 block text-[var(--muted-text)]">Address</span>
-            <textarea
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-              rows={3}
-              value={settings.address || ''}
-              onChange={(e) => setSettings({ ...settings, address: e.target.value })}
-            />
-          </label>
-          <label className="block text-sm md:col-span-2">
-            <span className="mb-1 block text-[var(--muted-text)]">SEO Description</span>
-            <textarea
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-              rows={3}
-              value={settings.seo_description || ''}
-              onChange={(e) => setSettings({ ...settings, seo_description: e.target.value })}
-            />
-          </label>
-          <div className="md:col-span-2">
+            <label className="block text-sm md:col-span-2">
+              <span className="mb-1 block text-[var(--muted-text)]">SEO Description</span>
+              <textarea
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                rows={3}
+                value={settings.seo_description || ''}
+                onChange={(e) => setSettings({ ...settings, seo_description: e.target.value })}
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <h2 className="text-lg font-semibold">Contact Page</h2>
+              <p className="mt-1 text-sm text-[var(--muted-text)]">
+                Control the messaging and contact labels shown on the public contact page.
+              </p>
+            </div>
+
+            {[
+              ['headline', 'Headline'],
+              ['headline_accent', 'Headline Accent'],
+              ['sales_label', 'Sales Label'],
+              ['phone_label', 'Phone Label'],
+              ['whatsapp_label', 'WhatsApp Label'],
+              ['address_label', 'Address Label'],
+              ['website_label', 'Website Label'],
+              ['website_text', 'Website Text'],
+              ['website_url', 'Website URL'],
+              ['social_label', 'Social Label'],
+              ['form_title', 'Form Title'],
+            ].map(([key, label]) => (
+              <label key={key} className="block text-sm">
+                <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                <input
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                  value={contactPageContent[key] || ''}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      contact_page_content: {
+                        ...contactPageContent,
+                        [key]: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </label>
+            ))}
+
+            <label className="block text-sm md:col-span-2">
+              <span className="mb-1 block text-[var(--muted-text)]">Description</span>
+              <textarea
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                rows={3}
+                value={contactPageContent.description || ''}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    contact_page_content: {
+                      ...contactPageContent,
+                      description: e.target.value,
+                    },
+                  })
+                }
+              />
+            </label>
+
+            <label className="block text-sm md:col-span-2">
+              <span className="mb-1 block text-[var(--muted-text)]">Form Subtitle</span>
+              <textarea
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                rows={3}
+                value={contactPageContent.form_subtitle || ''}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    contact_page_content: {
+                      ...contactPageContent,
+                      form_subtitle: e.target.value,
+                    },
+                  })
+                }
+              />
+            </label>
+          </div>
+
+          <div>
             <button
               type="button"
               disabled={saving}
@@ -425,7 +976,28 @@ export default function WebsiteCms() {
 
       {activeTab === 'homepage' ? (
         <div className="space-y-6">
-          {heroSection ? (
+          <div className="flex flex-wrap gap-3">
+            {homepageSubTabs.map((tab) => {
+              const isActive = homepageSubTab === tab
+
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setHomepageSubTab(tab)}
+                  className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
+                    isActive
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted-text)] hover:border-blue-300 hover:text-[var(--text)]'
+                  }`}
+                >
+                  {homepageSubTabLabels[tab]}
+                </button>
+              )
+            })}
+          </div>
+
+          {homepageSubTab === 'hero' && heroSection ? (
             <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
               <div className="mb-5">
                 <h2 className="text-lg font-semibold">Hero</h2>
@@ -580,46 +1152,626 @@ export default function WebsiteCms() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => saveSection(heroSection, heroContent)}
-                className="mt-5 rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
-              >
-                Save Hero
-              </button>
+              <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+                <p className="text-xs text-[var(--muted-text)]">
+                  اضغط على الزر لحفظ أي تعديل في قسم الهيرو على الموقع.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => saveSection(heroSection, heroContent)}
+                  className="inline-flex min-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  {saving ? 'Saving...' : 'Save Hero'}
+                </button>
+              </div>
             </div>
           ) : null}
 
-          {[servicesIntroSection, ctaSection].filter(Boolean).map((section) => (
-            <div key={section.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
-              <h2 className="mb-4 text-lg font-semibold capitalize">{section.title || section.type}</h2>
-              <textarea
-                className="min-h-[220px] w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 font-mono text-sm"
-                value={JSON.stringify(section.content || {}, null, 2)}
-                onChange={(e) => {
-                  try {
-                    const parsed = JSON.parse(e.target.value)
-                    setSections((prev) =>
-                      prev.map((item) =>
-                        item.id === section.id ? { ...item, content: parsed } : item
-                      )
-                    )
-                  } catch {
-                    // Keep editing until valid JSON.
-                  }
-                }}
-              />
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => saveSection(section, section.content || {})}
-                className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
-              >
-                Save {section.title || section.type}
-              </button>
+          {homepageSubTab === 'trusted_clients' && trustedClientsSection ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+              <div className="mb-5">
+                <h2 className="text-lg font-semibold">Trusted Clients</h2>
+                <p className="mt-1 text-sm text-[var(--muted-text)]">
+                  Control the trust section headline and the client names shown on the public website.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">Eyebrow</span>
+                  <input
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    value={trustedClientsContent.eyebrow || ''}
+                    onChange={(e) => updateTrustedClientsField('eyebrow', e.target.value)}
+                  />
+                </label>
+
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">Highlighted Text</span>
+                  <input
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    value={trustedClientsContent.highlight_text || ''}
+                    onChange={(e) => updateTrustedClientsField('highlight_text', e.target.value)}
+                  />
+                </label>
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Headline Suffix</span>
+                  <input
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    value={trustedClientsContent.headline_suffix || ''}
+                    onChange={(e) => updateTrustedClientsField('headline_suffix', e.target.value)}
+                  />
+                </label>
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Client Names</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={8}
+                    value={(trustedClientsContent.clients || []).join('\n')}
+                    onChange={(e) => updateTrustedClientsList(e.target.value)}
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted-text)]">One client per line.</span>
+                </label>
+              </div>
+
+              <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+                <p className="text-xs text-[var(--muted-text)]">
+                  اضغط على الزر لحفظ أي تعديل في هذا السيكشن على الموقع.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => saveSection(trustedClientsSection, trustedClientsContent)}
+                  className="inline-flex min-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  {saving ? 'Saving...' : 'Save Trusted Clients'}
+                </button>
+              </div>
             </div>
-          ))}
+          ) : null}
+
+          {homepageSubTab === 'about' && aboutSection ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+              <div className="mb-5">
+                <h2 className="text-lg font-semibold">About</h2>
+                <p className="mt-1 text-sm text-[var(--muted-text)]">
+                  Control the About section images, titles, and content blocks shown on the public website.
+                </p>
+              </div>
+
+              <div className="space-y-6">
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
+                  <button
+                    type="button"
+                    onClick={() => toggleAboutPanel('primary')}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left"
+                  >
+                    <span className="text-sm font-semibold uppercase tracking-wide text-[var(--muted-text)]">
+                      Primary Block
+                    </span>
+                    <span className="text-lg text-[var(--muted-text)]">
+                      {aboutPanels.primary ? '−' : '+'}
+                    </span>
+                  </button>
+
+                  {aboutPanels.primary ? (
+                    <div className="grid gap-4 border-t border-[var(--border)] px-4 py-4 md:grid-cols-2">
+                      <div className="block text-sm md:col-span-2">
+                        <span className="mb-2 block text-[var(--muted-text)]">Primary Image</span>
+                        {aboutContent.primary_image_url ? (
+                          <img
+                            src={aboutContent.primary_image_url}
+                            alt={aboutContent.primary_image_alt || 'Primary about'}
+                            className="mb-3 h-40 w-full rounded-lg border border-[var(--border)] object-cover md:w-80"
+                          />
+                        ) : null}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          onChange={(e) =>
+                            setAboutImageFiles((prev) => ({
+                              ...prev,
+                              primary_image: e.target.files?.[0] || null,
+                            }))
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          {aboutImageFiles.primary_image
+                            ? `Selected: ${aboutImageFiles.primary_image.name}`
+                            : 'Upload a new image to replace the current one.'}
+                        </span>
+                      </div>
+
+                      {[
+                        ['primary_image_alt', 'Primary Image Alt'],
+                        ['primary_title', 'Primary Title'],
+                        ['primary_title_accent', 'Primary Title Accent'],
+                        ['primary_card_one_title', 'Primary Card One Title'],
+                        ['primary_card_two_title', 'Primary Card Two Title'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                            value={aboutContent[key] || ''}
+                            onChange={(e) => updateAboutField(key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Primary Card One Body</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          rows={4}
+                          value={aboutContent.primary_card_one_body || ''}
+                          onChange={(e) => updateAboutField('primary_card_one_body', e.target.value)}
+                        />
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Primary Card Two Body</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          rows={6}
+                          value={aboutContent.primary_card_two_body || ''}
+                          onChange={(e) => updateAboutField('primary_card_two_body', e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
+                  <button
+                    type="button"
+                    onClick={() => toggleAboutPanel('secondary')}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left"
+                  >
+                    <span className="text-sm font-semibold uppercase tracking-wide text-[var(--muted-text)]">
+                      Secondary Block
+                    </span>
+                    <span className="text-lg text-[var(--muted-text)]">
+                      {aboutPanels.secondary ? '−' : '+'}
+                    </span>
+                  </button>
+
+                  {aboutPanels.secondary ? (
+                    <div className="grid gap-4 border-t border-[var(--border)] px-4 py-4 md:grid-cols-2">
+                      <div className="block text-sm md:col-span-2">
+                        <span className="mb-2 block text-[var(--muted-text)]">Secondary Image</span>
+                        {aboutContent.secondary_image_url ? (
+                          <img
+                            src={aboutContent.secondary_image_url}
+                            alt={aboutContent.secondary_image_alt || 'Secondary about'}
+                            className="mb-3 h-40 w-full rounded-lg border border-[var(--border)] object-cover md:w-80"
+                          />
+                        ) : null}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          onChange={(e) =>
+                            setAboutImageFiles((prev) => ({
+                              ...prev,
+                              secondary_image: e.target.files?.[0] || null,
+                            }))
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          {aboutImageFiles.secondary_image
+                            ? `Selected: ${aboutImageFiles.secondary_image.name}`
+                            : 'Upload a new image to replace the current one.'}
+                        </span>
+                      </div>
+
+                      {[
+                        ['secondary_image_alt', 'Secondary Image Alt'],
+                        ['secondary_title', 'Secondary Title'],
+                        ['secondary_title_accent', 'Secondary Title Accent'],
+                        ['secondary_card_one_title', 'Secondary Card One Title'],
+                        ['secondary_card_two_title', 'Secondary Card Two Title'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                            value={aboutContent[key] || ''}
+                            onChange={(e) => updateAboutField(key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Secondary Card One Body</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          rows={4}
+                          value={aboutContent.secondary_card_one_body || ''}
+                          onChange={(e) => updateAboutField('secondary_card_one_body', e.target.value)}
+                        />
+                      </label>
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Secondary Card Two Body</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          rows={4}
+                          value={aboutContent.secondary_card_two_body || ''}
+                          onChange={(e) => updateAboutField('secondary_card_two_body', e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+                <p className="text-xs text-[var(--muted-text)]">
+                  Use this save button to publish About section content changes to the public website.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={saveAboutSection}
+                  className="inline-flex min-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  {saving ? 'Saving...' : 'Save About'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {homepageSubTab === 'portfolio' && portfolioSection ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+              <div className="mb-5">
+                <h2 className="text-lg font-semibold">Portfolio</h2>
+                <p className="mt-1 text-sm text-[var(--muted-text)]">
+                  Control the industry solutions section heading, description, and portfolio cards shown on the public website.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {[
+                  ['eyebrow', 'Eyebrow'],
+                  ['title', 'Title'],
+                  ['title_accent', 'Title Accent'],
+                ].map(([key, label]) => (
+                  <label key={key} className="block text-sm">
+                    <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                    <input
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                      value={portfolioContent[key] || ''}
+                      onChange={(e) => updatePortfolioField(key, e.target.value)}
+                    />
+                  </label>
+                ))}
+
+                <label className="block text-sm md:col-span-2">
+                  <span className="mb-1 block text-[var(--muted-text)]">Description</span>
+                  <textarea
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    rows={4}
+                    value={portfolioContent.description || ''}
+                    onChange={(e) => updatePortfolioField('description', e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-6 space-y-6">
+                {(portfolioContent.cards || []).map((card, index) => (
+                  <div key={index} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                    <h3 className="mb-4 text-base font-semibold">Card {index + 1}</h3>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="block text-sm md:col-span-2">
+                        <span className="mb-2 block text-[var(--muted-text)]">Card Image</span>
+                        {card.image_url ? (
+                          <img
+                            src={card.image_url}
+                            alt={card.image_alt || `Portfolio card ${index + 1}`}
+                            className="mb-3 h-40 w-full rounded-lg border border-[var(--border)] object-cover md:w-80"
+                          />
+                        ) : null}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          onChange={(e) =>
+                            setPortfolioImageFiles((prev) => ({
+                              ...prev,
+                              [index]: e.target.files?.[0] || null,
+                            }))
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          {portfolioImageFiles[index]
+                            ? `Selected: ${portfolioImageFiles[index].name}`
+                            : 'Upload a new image to replace the current one.'}
+                        </span>
+                      </div>
+
+                      {[
+                        ['slug', 'Project Slug'],
+                        ['title', 'Card Title'],
+                        ['metric', 'Metric'],
+                        ['image_alt', 'Image Alt'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                            value={card[key] || ''}
+                            onChange={(e) => updatePortfolioCardField(index, key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Card Description</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          rows={3}
+                          value={card.description || ''}
+                          onChange={(e) => updatePortfolioCardField(index, 'description', e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+                <p className="text-xs text-[var(--muted-text)]">
+                  Use this save button to publish Portfolio section changes to the public website.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={savePortfolioSection}
+                  className="inline-flex min-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  {saving ? 'Saving...' : 'Save Portfolio'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {homepageSubTab === 'testimonials' && testimonialsSection ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+              <div className="mb-5">
+                <h2 className="text-lg font-semibold">Testimonials</h2>
+                <p className="mt-1 text-sm text-[var(--muted-text)]">
+                  Control the testimonials heading and customer quotes shown in the public website slider.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                {[
+                  ['title', 'Title'],
+                  ['title_accent', 'Title Accent'],
+                  ['title_suffix', 'Title Suffix'],
+                ].map(([key, label]) => (
+                  <label key={key} className="block text-sm">
+                    <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                    <input
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                      value={testimonialsContent[key] || ''}
+                      onChange={(e) => updateTestimonialsField(key, e.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div className="mt-6 space-y-6">
+                {(testimonialsContent.testimonials || []).map((item, index) => (
+                  <div key={index} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                    <h3 className="mb-4 text-base font-semibold">Testimonial {index + 1}</h3>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="block text-sm md:col-span-2">
+                        <span className="mb-2 block text-[var(--muted-text)]">Avatar</span>
+                        {item.avatar ? (
+                          <img
+                            src={item.avatar}
+                            alt={item.name || `Testimonial ${index + 1}`}
+                            className="mb-3 h-20 w-20 rounded-full border border-[var(--border)] object-cover"
+                          />
+                        ) : null}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          onChange={(e) =>
+                            setTestimonialImageFiles((prev) => ({
+                              ...prev,
+                              [index]: e.target.files?.[0] || null,
+                            }))
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                          {testimonialImageFiles[index]
+                            ? `Selected: ${testimonialImageFiles[index].name}`
+                            : 'Upload a new avatar to replace the current one.'}
+                        </span>
+                      </div>
+
+                      {[
+                        ['name', 'Name'],
+                        ['role', 'Role'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                            value={item[key] || ''}
+                            onChange={(e) => updateTestimonialItemField(index, key, e.target.value)}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--muted-text)]">Quote</span>
+                        <textarea
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                          rows={4}
+                          value={item.content || ''}
+                          onChange={(e) => updateTestimonialItemField(index, 'content', e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+                <p className="text-xs text-[var(--muted-text)]">
+                  Use this save button to publish Testimonials section changes to the public website.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={saveTestimonialsSection}
+                  className="inline-flex min-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  {saving ? 'Saving...' : 'Save Testimonials'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {homepageSubTab === 'more_sections' ? (
+            <div className="space-y-6">
+              {servicesIntroSection ? (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+                  <div className="mb-5">
+                    <h2 className="text-lg font-semibold">{servicesIntroSection.title || 'Services Intro'}</h2>
+                    <p className="mt-1 text-sm text-[var(--muted-text)]">
+                      Control the heading, description, and tags shown above the services list.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[
+                      ['title', 'Title'],
+                      ['title_accent', 'Title Accent'],
+                    ].map(([key, label]) => (
+                      <label key={key} className="block text-sm">
+                        <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                        <input
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          value={servicesIntroSection.content?.[key] || ''}
+                          onChange={(e) => updateServicesIntroField(key, e.target.value)}
+                        />
+                      </label>
+                    ))}
+
+                    <label className="block text-sm md:col-span-2">
+                      <span className="mb-1 block text-[var(--muted-text)]">Description</span>
+                      <textarea
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                        rows={4}
+                        value={servicesIntroSection.content?.description || ''}
+                        onChange={(e) => updateServicesIntroField('description', e.target.value)}
+                      />
+                    </label>
+
+                    <label className="block text-sm md:col-span-2">
+                      <span className="mb-1 block text-[var(--muted-text)]">Tags</span>
+                      <textarea
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                        rows={4}
+                        value={Array.isArray(servicesIntroSection.content?.tags) ? servicesIntroSection.content.tags.join('\n') : ''}
+                        onChange={(e) =>
+                          updateServicesIntroField(
+                            'tags',
+                            e.target.value
+                              .split('\n')
+                              .map((item) => item.trim())
+                              .filter(Boolean)
+                          )
+                        }
+                      />
+                      <span className="mt-1 block text-xs text-[var(--muted-text)]">One tag per line.</span>
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => saveSection(servicesIntroSection, servicesIntroSection.content || {})}
+                    className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
+                  >
+                    Save {servicesIntroSection.title || servicesIntroSection.type}
+                  </button>
+                </div>
+              ) : null}
+
+              {ctaSection ? (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+                  <div className="mb-5">
+                    <h2 className="text-lg font-semibold">Closing CTA</h2>
+                    <p className="mt-1 text-sm text-[var(--muted-text)]">
+                      Keep this section lightweight: a strong headline, a reassurance line, and one button that jumps back to the hero form.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[
+                      ['headline', 'Headline'],
+                      ['headline_accent', 'Headline Accent'],
+                      ['button_text', 'Button Text'],
+                    ].map(([key, label]) => (
+                      <label key={key} className="block text-sm">
+                        <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                        <input
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                          value={ctaSection.content?.[key] || ''}
+                          onChange={(e) =>
+                            setSections((prev) =>
+                              prev.map((item) =>
+                                item.id === ctaSection.id
+                                  ? { ...item, content: { ...(item.content || {}), [key]: e.target.value } }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                      </label>
+                    ))}
+
+                    <label className="block text-sm md:col-span-2">
+                      <span className="mb-1 block text-[var(--muted-text)]">Reassurance Line</span>
+                      <textarea
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                        rows={3}
+                        value={ctaSection.content?.subtitle || ''}
+                        onChange={(e) =>
+                          setSections((prev) =>
+                            prev.map((item) =>
+                              item.id === ctaSection.id
+                                ? { ...item, content: { ...(item.content || {}), subtitle: e.target.value } }
+                                : item
+                            )
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => saveSection(ctaSection, ctaSection.content || {})}
+                    className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
+                  >
+                    Save Closing CTA
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

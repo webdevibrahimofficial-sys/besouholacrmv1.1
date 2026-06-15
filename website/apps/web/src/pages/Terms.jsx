@@ -148,6 +148,7 @@ const Terms = () => {
     <LegalPageLayout
       title="Terms & Conditions"
       accent="Conditions"
+      canonicalPath="/terms"
       effectiveDate="June 2026"
       description="These Terms & Conditions govern the use of the Be Souhola CRM mobile application, web application, and related services provided by Be Souhola."
       sections={sections}

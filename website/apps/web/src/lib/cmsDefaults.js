@@ -10,6 +10,22 @@ export const defaultWebsiteContent = {
     social_links: {
       facebook: 'https://www.facebook.com/profile.php?id=61587661674565',
     },
+    contact_page_content: {
+      headline: "Let's",
+      headline_accent: 'connect',
+      description:
+        'Schedule a demo, get support, or learn how Be Souhola can transform your business operations.',
+      sales_label: 'Sales & Demos',
+      phone_label: 'Phone',
+      whatsapp_label: 'WhatsApp',
+      address_label: 'Our Office',
+      website_label: 'Website',
+      website_text: 'besouhola.com',
+      website_url: 'https://besouhola.com',
+      social_label: 'Facebook',
+      form_title: 'Request a demo',
+      form_subtitle: 'Complete the form below and our team will get back to you shortly.',
+    },
     primary_color: '#9372FF',
     seo_title: 'Be Souhola - CRM Platform for Real Estate & Business',
     seo_description:
@@ -69,6 +85,142 @@ export const defaultWebsiteContent = {
         { value: '38%', label: 'Faster deal closing' },
       ],
     },
+    trusted_clients: {
+      eyebrow: 'Trusted by industry leaders',
+      highlight_text: '50+ industries/businesses',
+      headline_suffix: 'trust Be Souhola',
+      clients: [
+        'Meridian Properties',
+        'Skyline Realty Group',
+        'Urban Development Partners',
+        'Coastal Estates',
+        'PropTech Innovations',
+        'Thompson & Associates',
+      ],
+    },
+    about: {
+      primary_enabled: true,
+      primary_image_url:
+        'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/charlesdeluvio-lks7vei-eag-unsplash-7Or6F.jpg',
+      primary_image_alt: 'Modern office with technology team collaborating on CRM development',
+      primary_title: "We're passionate about",
+      primary_title_accent: 'business transformation',
+      primary_card_one_title: 'CRM platform powered by artificial intelligence',
+      primary_card_one_body:
+        'This platform enables organizations to manage their relationships and operations more efficiently while keeping pace with digital transformation and the future vision.',
+      primary_card_two_title: 'Focus on measurable impact',
+      primary_card_two_body:
+        'Our mission is to empower companies to build a smart business ecosystem that connects sales teams, customer service, and management within one flexible and customizable platform. We aim to enhance customer experience, improve operational efficiency, and support decision-making through real-time analytics and intelligent AI-driven tools, ensuring sustainable growth and long-term competitive advantage.',
+      secondary_enabled: true,
+      secondary_image_url:
+        'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/whatsapp-image-2026-02-16-at-9.34.48-pm-1-crJEf.jpeg',
+      secondary_image_alt: 'Diverse team collaborating on CRM strategy and implementation',
+      secondary_title: 'Your success, our',
+      secondary_title_accent: 'technology',
+      secondary_card_one_title: 'Our vision for the future',
+      secondary_card_one_body:
+        'Our vision is to become the leading technology partner for companies in the real estate sector and other industries by providing an integrated CRM platform powered by artificial intelligence. This platform enables organizations to manage their relationships and operations more efficiently while keeping pace with digital transformation and the future vision.',
+      secondary_card_two_title: 'Built for scalability and growth',
+      secondary_card_two_body:
+        'This platform enables organizations to manage their relationships and operations more efficiently while keeping pace with digital transformation and the future vision. From startups to enterprise organizations, Be Souhola scales with your business.',
+    },
+    portfolio: {
+      eyebrow: 'Industry Solutions',
+      title: 'Real results across',
+      title_accent: 'multiple industries',
+      description:
+        'Discover how Be Souhola empowers businesses across real estate, property management, and professional services to achieve measurable growth and operational excellence.',
+      cards: [
+        {
+          slug: 'real-estate-pipeline',
+          title: 'Real Estate Sales Pipeline',
+          metric: 'Increased sales by 47%',
+          description:
+            'Complete sales pipeline management for real estate firms with automated lead tracking and deal progression.',
+          image_url:
+            'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/tech-daily-lkyv7faumza-unsplash-2-FOBCl.jpg',
+          image_alt:
+            'Real estate CRM dashboard showing sales pipeline and property listings on a laptop',
+        },
+        {
+          slug: 'property-management',
+          title: 'Property Management Operations',
+          metric: 'Manages 850+ properties',
+          description:
+            'Streamlined property management operations with tenant tracking, maintenance scheduling, and financial reporting.',
+          image_url:
+            'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/gemini_generated_image_n6u5epn6u5epn6u5-5abrf-2-W2Hon.jpg',
+          image_alt:
+            'Property management dashboard displaying tenant information and maintenance schedules on a tablet',
+        },
+        {
+          slug: 'multi-industry-tracking',
+          title: 'Multi-Industry Client Tracking',
+          metric: 'Reduced admin time by 62%',
+          description:
+            'Customizable client relationship management adapted for healthcare, consulting, and professional services sectors.',
+          image_url:
+            'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/sumup-vsyr_mbh7q4-unsplash-2-Hxitr.jpg',
+          image_alt:
+            'Business analytics dashboard showing client tracking metrics and performance data on a smartphone',
+        },
+      ],
+    },
+    testimonials: {
+      title: 'Businesses that',
+      title_accent: 'transformed',
+      title_suffix: 'with Be Souhola',
+      testimonials: [
+        {
+          name: 'Marcus Rivera',
+          role: 'VP of Sales, Meridian Properties',
+          content:
+            'Be Souhola transformed how we manage client relationships and increased our sales pipeline visibility by 53%. The real-time analytics help us identify opportunities we were missing before.',
+          avatar:
+            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+        },
+        {
+          name: 'Priya Sharma',
+          role: 'Operations Director, Skyline Realty Group',
+          content:
+            'The customizable workflows saved our team 12 hours every week. We can finally focus on building relationships instead of drowning in spreadsheets and manual data entry.',
+          avatar:
+            'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+        },
+        {
+          name: 'James Chen',
+          role: 'CEO, Urban Development Partners',
+          content:
+            'We manage over 600 properties across three cities, and Be Souhola keeps everything organized in one place. The AI-powered insights have helped us make faster, data-driven decisions.',
+          avatar:
+            'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+        },
+        {
+          name: 'Sofia Martinez',
+          role: 'Sales Manager, Coastal Estates',
+          content:
+            'Our conversion rate increased by 38% within the first quarter. The automated follow-ups ensure we never miss a lead, and the mobile app keeps us productive on the go.',
+          avatar:
+            'https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+        },
+        {
+          name: 'David Thompson',
+          role: 'Managing Partner, Thompson & Associates',
+          content:
+            'Be Souhola adapted perfectly to our consulting firm. The platform is flexible enough to handle our unique workflows while powerful enough to scale as we grow.',
+          avatar:
+            'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+        },
+        {
+          name: 'Aisha Okonkwo',
+          role: 'Head of Customer Success, PropTech Innovations',
+          content:
+            'The real-time collaboration features keep our entire team aligned. We reduced our sales cycle by 22% and improved customer satisfaction scores across the board.',
+          avatar:
+            'https://images.unsplash.com/photo-1517841905240-472988babdf9?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+        },
+      ],
+    },
     services_intro: {
       title: 'PLATFORM',
       title_accent: 'FEATURES',
@@ -81,6 +233,7 @@ export const defaultWebsiteContent = {
       headline_accent: 'Business',
       subtitle:
         'Join hundreds of businesses already using Be Souhola to streamline operations, boost sales, and build stronger client relationships.',
+      button_text: 'Start Now',
       highlights: [
         'Boost conversion rates by up to 38%',
         'Go live in days, not months',

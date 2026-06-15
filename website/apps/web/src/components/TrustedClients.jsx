@@ -1,16 +1,11 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-
-const clients = [
-  'Meridian Properties',
-  'Skyline Realty Group',
-  'Urban Development Partners',
-  'Coastal Estates',
-  'PropTech Innovations',
-  'Thompson & Associates'
-];
+import { useWebsiteContent } from '@/context/WebsiteContentContext';
 
 const TrustedClients = () => {
+  const { trustedClients } = useWebsiteContent();
+  const clients = Array.isArray(trustedClients?.clients) ? trustedClients.clients.filter(Boolean) : [];
+
   return (
     <section className="py-16 bg-[#0C0D0D] border-y border-white/10">
       <div className="container mx-auto px-6">
@@ -21,9 +16,14 @@ const TrustedClients = () => {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <p className="text-sm uppercase tracking-widest text-gray-400 mb-2">Trusted by industry leaders</p>
+          <p className="text-sm uppercase tracking-widest text-gray-400 mb-2">
+            {trustedClients?.eyebrow || 'Trusted by industry leaders'}
+          </p>
           <h3 className="text-2xl md:text-3xl font-bold text-white">
-            <span className="text-accent-purple">50+ industries/businesses</span> trust Be Souhola
+            <span className="text-accent-purple">
+              {trustedClients?.highlight_text || '50+ industries/businesses'}
+            </span>{' '}
+            {trustedClients?.headline_suffix || 'trust Be Souhola'}
           </h3>
         </motion.div>
 

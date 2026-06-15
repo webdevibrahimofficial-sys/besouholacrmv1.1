@@ -47,15 +47,27 @@ class SystemCompanyWebsiteController extends Controller
         $tenantId = $this->ownerTenantResolver->bindTenantContext();
         $this->bootstrapService->ensureForTenant($tenantId);
 
+        foreach (['social_links', 'contact_page_content'] as $field) {
+            $payload = $request->input($field);
+            if (is_string($payload)) {
+                $decoded = json_decode($payload, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $request->merge([$field => $decoded]);
+                }
+            }
+        }
+
         $rules = [
             'company_name' => ['nullable', 'string', 'max:255'],
             'logo_url' => ['nullable', 'string', 'max:2048'],
+            'logo' => ['nullable', 'image', 'max:5120'],
             'favicon_url' => ['nullable', 'string', 'max:2048'],
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
             'whatsapp' => ['nullable', 'string', 'max:50'],
             'address' => ['nullable', 'string', 'max:1000'],
             'social_links' => ['nullable', 'array'],
+            'contact_page_content' => ['nullable', 'array'],
             'primary_color' => ['nullable', 'string', 'max:20', self::HEX_COLOR_RULE],
             'seo_title' => ['nullable', 'string', 'max:255'],
             'seo_description' => ['nullable', 'string', 'max:2000'],
@@ -71,6 +83,11 @@ class SystemCompanyWebsiteController extends Controller
         $settings = WebsiteSetting::withoutGlobalScopes()
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
+
+        if ($request->hasFile('logo')) {
+            $upload = $this->tenantStorageService->upload($request->file('logo'), 'website/branding');
+            $validated['logo_url'] = $upload['url'];
+        }
 
         $settings->update($validated);
 
@@ -100,12 +117,102 @@ class SystemCompanyWebsiteController extends Controller
             ->where('tenant_id', $tenantId)
             ->findOrFail($websiteHomepageSection);
 
+        $contentPayload = $request->input('content');
+        if (is_string($contentPayload)) {
+            $decoded = json_decode($contentPayload, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $request->merge(['content' => $decoded]);
+            }
+        }
+
         $validated = $request->validate([
             'title' => ['nullable', 'string', 'max:255'],
             'content' => ['nullable', 'array'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
+            'primary_image' => ['nullable', 'image', 'max:5120'],
+            'secondary_image' => ['nullable', 'image', 'max:5120'],
+            'portfolio_card_1_image' => ['nullable', 'image', 'max:5120'],
+            'portfolio_card_2_image' => ['nullable', 'image', 'max:5120'],
+            'portfolio_card_3_image' => ['nullable', 'image', 'max:5120'],
+            'testimonial_1_avatar' => ['nullable', 'image', 'max:5120'],
+            'testimonial_2_avatar' => ['nullable', 'image', 'max:5120'],
+            'testimonial_3_avatar' => ['nullable', 'image', 'max:5120'],
+            'testimonial_4_avatar' => ['nullable', 'image', 'max:5120'],
+            'testimonial_5_avatar' => ['nullable', 'image', 'max:5120'],
+            'testimonial_6_avatar' => ['nullable', 'image', 'max:5120'],
         ]);
+
+        $content = is_array($validated['content'] ?? null)
+            ? $validated['content']
+            : (is_array($section->content) ? $section->content : []);
+
+        if ($request->hasFile('primary_image')) {
+            $upload = $this->tenantStorageService->upload(
+                $request->file('primary_image'),
+                'website/about'
+            );
+            $content['primary_image_url'] = $upload['url'];
+        }
+
+        if ($request->hasFile('secondary_image')) {
+            $upload = $this->tenantStorageService->upload(
+                $request->file('secondary_image'),
+                'website/about'
+            );
+            $content['secondary_image_url'] = $upload['url'];
+        }
+
+        if ($section->type === 'portfolio') {
+            $cards = is_array($content['cards'] ?? null) ? array_values($content['cards']) : [];
+
+            foreach ([1, 2, 3] as $index) {
+                $field = 'portfolio_card_' . $index . '_image';
+                if ($request->hasFile($field) && isset($cards[$index - 1])) {
+                    $upload = $this->tenantStorageService->upload(
+                        $request->file($field),
+                        'website/portfolio'
+                    );
+                    $cards[$index - 1]['image_url'] = $upload['url'];
+                }
+            }
+
+            $content['cards'] = $cards;
+        }
+
+        if ($section->type === 'testimonials') {
+            $testimonials = is_array($content['testimonials'] ?? null) ? array_values($content['testimonials']) : [];
+
+            foreach ([1, 2, 3, 4, 5, 6] as $index) {
+                $field = 'testimonial_' . $index . '_avatar';
+                if ($request->hasFile($field) && isset($testimonials[$index - 1])) {
+                    $upload = $this->tenantStorageService->upload(
+                        $request->file($field),
+                        'website/testimonials'
+                    );
+                    $testimonials[$index - 1]['avatar'] = $upload['url'];
+                }
+            }
+
+            $content['testimonials'] = $testimonials;
+        }
+
+        if (
+            array_key_exists('content', $validated)
+            || $request->hasFile('primary_image')
+            || $request->hasFile('secondary_image')
+            || $request->hasFile('portfolio_card_1_image')
+            || $request->hasFile('portfolio_card_2_image')
+            || $request->hasFile('portfolio_card_3_image')
+            || $request->hasFile('testimonial_1_avatar')
+            || $request->hasFile('testimonial_2_avatar')
+            || $request->hasFile('testimonial_3_avatar')
+            || $request->hasFile('testimonial_4_avatar')
+            || $request->hasFile('testimonial_5_avatar')
+            || $request->hasFile('testimonial_6_avatar')
+        ) {
+            $validated['content'] = $content;
+        }
 
         $section->update($validated);
 

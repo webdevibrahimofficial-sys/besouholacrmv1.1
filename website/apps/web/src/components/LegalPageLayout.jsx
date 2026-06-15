@@ -1,18 +1,28 @@
 import React from 'react';
 import { Helmet } from 'react-helmet';
 
+const siteUrl = 'https://besouhola.com';
+
 const LegalPageLayout = ({
   title,
   accent,
   description,
   effectiveDate,
   sections = [],
+  canonicalPath,
 }) => {
   return (
     <div className="bg-[#0C0D0D] text-white">
       <Helmet>
         <title>{title} | Be Souhola CRM</title>
         <meta name="description" content={description} />
+        {canonicalPath ? <link rel="canonical" href={`${siteUrl}${canonicalPath}`} /> : null}
+        <meta property="og:title" content={`${title} | Be Souhola CRM`} />
+        <meta property="og:description" content={description} />
+        {canonicalPath ? <meta property="og:url" content={`${siteUrl}${canonicalPath}`} /> : null}
+        <meta property="og:type" content="article" />
+        <meta name="twitter:title" content={`${title} | Be Souhola CRM`} />
+        <meta name="twitter:description" content={description} />
       </Helmet>
 
       <section className="relative overflow-hidden py-24 sm:py-32">

@@ -9,6 +9,8 @@ import { getRoleBySlug } from '@/data/careers';
 import { trackCtaClick } from '@/lib/analytics';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 
+const siteUrl = 'https://besouhola.com';
+
 const CareerRole = () => {
   const { jobSlug } = useParams();
   const { careerRoles } = useWebsiteContent();
@@ -42,6 +44,13 @@ const CareerRole = () => {
       <Helmet>
         <title>{role.title} | Be Souhola Careers</title>
         <meta name="description" content={role.summary} />
+        <link rel="canonical" href={`${siteUrl}/career/${role.slug || jobSlug}`} />
+        <meta property="og:title" content={`${role.title} | Be Souhola Careers`} />
+        <meta property="og:description" content={role.summary} />
+        <meta property="og:url" content={`${siteUrl}/career/${role.slug || jobSlug}`} />
+        <meta property="og:type" content="article" />
+        <meta name="twitter:title" content={`${role.title} | Be Souhola Careers`} />
+        <meta name="twitter:description" content={role.summary} />
       </Helmet>
 
       <section className="relative overflow-hidden px-4 pb-20 pt-28 sm:px-6 sm:pt-32 lg:px-8 lg:pb-24 lg:pt-36">

@@ -36,18 +36,15 @@ const Header = () => {
   const handleSmoothScroll = (e) => {
     e.preventDefault();
     const href = e.currentTarget.getAttribute('href');
-    const [path, id] = href.split('#');
+    const [pathname, hashTarget] = String(href || '').split('#');
 
-    if (path === '/' && id) {
-      navigate(path);
-      setTimeout(() => {
-        const targetElement = document.getElementById(id);
-        if (targetElement) {
-          targetElement.scrollIntoView({ behavior: 'smooth' });
-        }
-      }, 100);
+    if (hashTarget) {
+      navigate({
+        pathname: pathname || '/',
+        hash: `#${hashTarget}`,
+      });
     } else {
-      navigate(href);
+      navigate(pathname || '/');
     }
 
     if (isOpen) {

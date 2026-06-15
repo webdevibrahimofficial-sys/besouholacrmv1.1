@@ -37,6 +37,10 @@ export const WebsiteContentProvider = ({ children }) => {
       ...defaultWebsiteContent.settings,
       ...(content?.settings || {}),
     };
+    const contactPageContent = {
+      ...defaultWebsiteContent.settings.contact_page_content,
+      ...(settings.contact_page_content || {}),
+    };
     const services =
       content?.services?.length > 0 ? content.services : defaultWebsiteContent.services;
     const hasCmsItemPayload = content?.fromCms === true && Array.isArray(content?.items);
@@ -72,8 +76,21 @@ export const WebsiteContentProvider = ({ children }) => {
       loading,
       fromCms: content?.fromCms === true,
       settings,
+      contactPageContent,
       services,
       hero,
+      trustedClients: getSectionContent(
+        sections,
+        'trusted_clients',
+        defaultWebsiteContent.sections.trusted_clients
+      ),
+      about: getSectionContent(sections, 'about', defaultWebsiteContent.sections.about),
+      portfolio: getSectionContent(sections, 'portfolio', defaultWebsiteContent.sections.portfolio),
+      testimonials: getSectionContent(
+        sections,
+        'testimonials',
+        defaultWebsiteContent.sections.testimonials
+      ),
       servicesIntro: getSectionContent(
         sections,
         'services_intro',

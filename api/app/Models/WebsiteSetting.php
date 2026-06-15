@@ -14,6 +14,7 @@ class WebsiteSetting extends Model
 
     protected $casts = [
         'social_links' => 'array',
+        'contact_page_content' => 'array',
         'is_published' => 'boolean',
     ];
 }
