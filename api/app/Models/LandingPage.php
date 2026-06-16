@@ -12,6 +12,7 @@ class LandingPage extends Model
 
     protected $fillable = [
         'tenant_id',
+        'agency_id',
         'campaign_id',
         'title',
         'slug',

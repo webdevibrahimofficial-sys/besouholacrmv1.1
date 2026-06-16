@@ -6,15 +6,20 @@ use App\Models\Campaign;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Http\Resources\CampaignResource;
+use App\Support\AppliesAgencyScope;
 
 class CampaignController extends Controller
 {
+    use AppliesAgencyScope;
+
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $campaigns = Campaign::latest()->get();
+        $campaigns = Campaign::query();
+        $this->applyAgencyScope($campaigns, $request->user());
+        $campaigns = $campaigns->latest()->get();
         return CampaignResource::collection($campaigns);
     }
 
@@ -22,6 +27,7 @@ class CampaignController extends Controller
     {
         // Get campaigns
         $query = Campaign::query();
+        $this->applyAgencyScope($query, $request->user());
         
         // Date filters
         if ($request->has('date_from')) {
@@ -32,7 +38,9 @@ class CampaignController extends Controller
         // We use a separate query to get the global average across all campaigns (or just the filtered ones?)
         // The requirement says "Average CPC in all client campaigns".
         // We'll use all campaigns for a stable baseline.
-        $tenantStats = Campaign::selectRaw('SUM(spend) as total_spend, SUM(clicks) as total_clicks')
+        $tenantStatsQuery = Campaign::query();
+        $this->applyAgencyScope($tenantStatsQuery, $request->user());
+        $tenantStats = $tenantStatsQuery->selectRaw('SUM(spend) as total_spend, SUM(clicks) as total_clicks')
             ->first();
         
         $avgCpc = ($tenantStats && $tenantStats->total_clicks > 0) 
@@ -134,6 +142,7 @@ class CampaignController extends Controller
         // Allow both snake_case and camelCase for validation
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
+            'agency_id' => 'nullable|string|max:255',
             'source' => 'nullable|string',
             'startDate' => 'nullable|date',
             'start_date' => 'nullable|date',
@@ -162,6 +171,8 @@ class CampaignController extends Controller
             $data['created_by'] = $request->user()->name;
         }
 
+        $data['agency_id'] = $this->resolveAgencyIdForWrite($request, $request->user());
+
         $campaign = Campaign::create($data);
 
         return (new CampaignResource($campaign))
@@ -175,6 +186,7 @@ class CampaignController extends Controller
      */
     public function show(Campaign $campaign)
     {
+        $this->ensureAgencyOwnership(request()->user(), $campaign);
         return new CampaignResource($campaign);
     }
 
@@ -185,6 +197,7 @@ class CampaignController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
+            'agency_id' => 'nullable|string|max:255',
             'source' => 'nullable|string',
             'billingModel' => 'nullable|in:cpl,cpa,cpd',
             'meta_data' => 'nullable|array',
@@ -202,6 +215,7 @@ class CampaignController extends Controller
         }
 
         $data = $request->all();
+        $this->ensureAgencyOwnership($request->user(), $campaign);
 
         // Map camelCase to snake_case
         if ($request->has('budgetType')) $data['budget_type'] = $request->budgetType;
@@ -209,6 +223,7 @@ class CampaignController extends Controller
         if ($request->has('startDate')) $data['start_date'] = $request->startDate;
         if ($request->has('endDate')) $data['end_date'] = $request->endDate;
         if ($request->has('landingPage')) $data['landing_page'] = $request->landingPage;
+        $data['agency_id'] = $this->resolveAgencyIdForWrite($request, $request->user()) ?? $campaign->agency_id;
         if ($request->has('billingModel')) {
             $meta = $campaign->meta_data ?? [];
             $meta['billing_model'] = $request->billingModel;
@@ -226,6 +241,7 @@ class CampaignController extends Controller
 
     public function recordAction(Request $request, Campaign $campaign)
     {
+        $this->ensureAgencyOwnership($request->user(), $campaign);
         $validated = $request->validate([
             'action' => 'required|string',
             'amount' => 'nullable|numeric'
@@ -243,6 +259,7 @@ class CampaignController extends Controller
      */
     public function destroy(Campaign $campaign)
     {
+        $this->ensureAgencyOwnership(request()->user(), $campaign);
         $campaign->delete();
         return response()->json(['message' => 'Campaign deleted successfully']);
     }

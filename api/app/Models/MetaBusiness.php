@@ -11,6 +11,7 @@ class MetaBusiness extends Model
 
     protected $fillable = [
         'tenant_id',
+        'agency_id',
         'connection_id',
         'fb_business_id',
         'business_name',

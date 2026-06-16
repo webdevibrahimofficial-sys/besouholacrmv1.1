@@ -116,7 +116,7 @@ class MetaAuthService
         return $driver->redirect()->getTargetUrl();
     }
 
-    public function handleSocialUser($tenantId, $socialUser)
+    public function handleSocialUser($tenantId, $socialUser, ?string $agencyId = null)
     {
         try {
             // Exchange short-lived token for long-lived token
@@ -144,6 +144,7 @@ class MetaAuthService
                     'fb_user_id' => $userId,
                 ],
                 [
+                    'agency_id' => $agencyId,
                     'user_access_token' => $longLivedToken,
                     'expires_at' => $expiresAt,
                     'name' => $userName,
@@ -166,6 +167,7 @@ class MetaAuthService
     {
         $accessToken = $connection->user_access_token;
         $tenantId = $connection->tenant_id;
+        $agencyId = $connection->agency_id;
 
         // A. Fetch Businesses
         try {
@@ -183,6 +185,7 @@ class MetaAuthService
                 ],
                 [
                     'connection_id' => $connection->id,
+                    'agency_id' => $agencyId,
                     'business_name' => $bizData['name'],
                 ]
             );
@@ -207,6 +210,7 @@ class MetaAuthService
                     ],
                     [
                         'business_id' => $business->id,
+                        'agency_id' => $agencyId,
                         'name' => $adData['name'] ?? 'Unnamed Ad Account',
                         'currency' => $adData['currency'] ?? 'USD',
                         'timezone' => $adData['timezone'] ?? 'UTC',
@@ -232,6 +236,7 @@ class MetaAuthService
                 ],
                 [
                     'connection_id' => $connection->id,
+                    'agency_id' => $agencyId,
                     'page_name' => $pageData['name'],
                     'page_token' => $pageData['access_token'], // Long-lived page token
                     'instagram_business_account_id' => $pageData['instagram_business_account']['id'] ?? null,
@@ -269,7 +274,7 @@ class MetaAuthService
     }
 
 
-    public function handleCallback($tenantId)
+    public function handleCallback($tenantId, ?string $agencyId = null)
     {
         if (config('services.meta.mock_mode')) {
              $mockUser = (object) [
@@ -278,12 +283,12 @@ class MetaAuthService
                 'email' => 'mock@example.com',
                 'token' => 'mock_access_token_' . uniqid(),
              ];
-             return $this->handleSocialUser($tenantId, $mockUser);
+             return $this->handleSocialUser($tenantId, $mockUser, $agencyId);
         }
 
         $driver = $this->socialiteDriver($tenantId);
         $user = $driver->stateless()->user();
-        return $this->handleSocialUser($tenantId, $user);
+        return $this->handleSocialUser($tenantId, $user, $agencyId);
     }
 
     public function refreshAllTokens($tenantId)

@@ -12,6 +12,7 @@ class MetaConnection extends Model
 
     protected $fillable = [
         'tenant_id',
+        'agency_id',
         'fb_user_id',
         'user_access_token',
         'expires_at',

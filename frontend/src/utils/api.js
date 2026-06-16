@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const apiDebugEnabled = String(import.meta.env.VITE_API_DEBUG || (import.meta.env.DEV ? 'true' : 'false')).toLowerCase() === 'true'
+const apiDebugEnabled = String(import.meta.env.VITE_API_DEBUG || 'false').toLowerCase() === 'true'
 
 const resolveTenantSlugFromHost = () => {
   if (typeof window === 'undefined') return null

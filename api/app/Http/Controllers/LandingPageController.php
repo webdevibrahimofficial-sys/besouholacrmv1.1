@@ -20,9 +20,12 @@ use App\Models\Project;
 use App\Models\Unit;
 use App\Models\Item;
 use App\Models\Tenant;
+use App\Support\AppliesAgencyScope;
 
 class LandingPageController extends Controller
 {
+    use AppliesAgencyScope;
+
     private function tenantSchema()
     {
         $connection = (new LandingPage())->getConnectionName() ?: config('database.default');
@@ -122,9 +125,11 @@ class LandingPageController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $landingPages = LandingPage::with('campaign')->latest()->get();
+        $landingPages = LandingPage::with('campaign');
+        $this->applyAgencyScope($landingPages, $request->user());
+        $landingPages = $landingPages->latest()->get();
         return LandingPageResource::collection($landingPages);
     }
 
@@ -140,6 +145,7 @@ class LandingPageController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'title' => 'required|string|max:255',
+                'agency_id' => 'nullable|string|max:255',
                 'campaign_id' => 'nullable|exists:campaigns,id',
                 'lead_project_id' => array_values(array_filter([
                     'nullable',
@@ -221,6 +227,20 @@ class LandingPageController extends Controller
                 ]);
             }
             $data['tenant_id'] = (int) $tenantId;
+            $data['agency_id'] = $this->resolveAgencyIdForWrite($request, $request->user());
+
+            if ($request->user()?->isAgencyScopedMarketingUser() && !empty($data['campaign_id'])) {
+                $campaign = Campaign::where('tenant_id', $tenantId)
+                    ->where('id', $data['campaign_id'])
+                    ->where('agency_id', $request->user()->agency_id)
+                    ->first();
+
+                if (!$campaign) {
+                    throw ValidationException::withMessages([
+                        'campaign_id' => ['Selected campaign is outside your agency scope.'],
+                    ]);
+                }
+            }
 
             // Generate Slug
             $data['slug'] = Str::slug($request->title) . '-' . Str::random(6);
@@ -308,6 +328,7 @@ class LandingPageController extends Controller
      */
     public function show(LandingPage $landingPage)
     {
+        $this->ensureAgencyOwnership(request()->user(), $landingPage);
         return new LandingPageResource($landingPage);
     }
 
@@ -323,6 +344,7 @@ class LandingPageController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'title' => 'required|string|max:255',
+                'agency_id' => 'nullable|string|max:255',
                 'campaign_id' => 'nullable|exists:campaigns,id',
                 'lead_project_id' => array_values(array_filter([
                     'nullable',
@@ -384,6 +406,21 @@ class LandingPageController extends Controller
             }
 
             $data = $request->except(['logo', 'cover', 'media', 'slug']);
+            $this->ensureAgencyOwnership($request->user(), $landingPage);
+            $data['agency_id'] = $this->resolveAgencyIdForWrite($request, $request->user()) ?? $landingPage->agency_id;
+
+            if ($request->user()?->isAgencyScopedMarketingUser() && !empty($data['campaign_id'])) {
+                $campaign = Campaign::where('tenant_id', $landingPage->tenant_id)
+                    ->where('id', $data['campaign_id'])
+                    ->where('agency_id', $request->user()->agency_id)
+                    ->first();
+
+                if (!$campaign) {
+                    throw ValidationException::withMessages([
+                        'campaign_id' => ['Selected campaign is outside your agency scope.'],
+                    ]);
+                }
+            }
 
             if ($request->hasFile('logo')) {
                 // Delete old logo
@@ -506,6 +543,7 @@ class LandingPageController extends Controller
      */
     public function destroy(LandingPage $landingPage)
     {
+        $this->ensureAgencyOwnership(request()->user(), $landingPage);
         // Delete Logo
         if ($landingPage->logo && strpos($landingPage->logo, '/storage/') === 0) {
              \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('/storage/', '', $landingPage->logo));
@@ -608,6 +646,7 @@ class LandingPageController extends Controller
             'gcl_id' => $request->gclid,
             'notes' => $request->message,
             'meta_data' => [
+                'agency_id' => $landingPage->agency_id,
                 'landing_page_id' => $landingPage->id,
                 'landing_page_title' => $landingPage->title,
                 'landing_page_slug' => $landingPage->slug,

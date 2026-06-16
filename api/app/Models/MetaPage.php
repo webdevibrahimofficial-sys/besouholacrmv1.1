@@ -12,6 +12,7 @@ class MetaPage extends Model
 
     protected $fillable = [
         'tenant_id',
+        'agency_id',
         'connection_id',
         'ad_account_id',
         'page_id',

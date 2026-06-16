@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Agency;
 use App\Models\User;
 use App\Models\Tenant;
+use App\Support\AppliesAgencyScope;
 use App\Services\TenantStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -14,6 +16,54 @@ use Spatie\Permission\Models\Role;
 
 class UserController extends Controller
 {
+    use AppliesAgencyScope;
+
+    protected function tenantIdFromRequest(?Request $request = null): ?int
+    {
+        $request ??= request();
+
+        if (app()->bound('current_tenant_id')) {
+            return (int) app('current_tenant_id');
+        }
+
+        if (app()->bound('tenant')) {
+            return (int) app('tenant')->id;
+        }
+
+        return $request?->user()?->tenant_id ? (int) $request->user()->tenant_id : null;
+    }
+
+    protected function agencyKeyRule(?int $tenantId)
+    {
+        return Rule::exists('agencies', 'key')->where(function ($query) use ($tenantId) {
+            if ($tenantId !== null) {
+                $query->where('tenant_id', $tenantId);
+            }
+        });
+    }
+
+    protected function syncAgencyDisplayName(User $user): void
+    {
+        $meta = is_array($user->meta_data) ? $user->meta_data : [];
+
+        if (blank($user->agency_id)) {
+            unset($meta['agency_key'], $meta['agency_name']);
+            $user->meta_data = !empty($meta) ? $meta : null;
+            $user->save();
+            return;
+        }
+
+        $agency = Agency::query()->where('key', $user->agency_id)->first();
+        if (!$agency) {
+            return;
+        }
+
+        $meta['agency_key'] = $agency->key;
+        $meta['agency_name'] = $agency->name;
+        $user->meta_data = $meta;
+        $user->save();
+    }
+
     protected function normalizeScopeValues($values): ?array
     {
         if ($values === null) {
@@ -80,6 +130,10 @@ class UserController extends Controller
 
         if ($tenantIdContext !== null) {
             $query->where('tenant_id', $tenantIdContext);
+        }
+
+        if ($this->isAgencyScopedMarketingUser($authUser) && $this->currentAgencyId($authUser)) {
+            $query->where('agency_id', $this->currentAgencyId($authUser));
         }
 
         if ($request->has('department_id')) {
@@ -299,6 +353,8 @@ class UserController extends Controller
 
     public function store(Request $request, TenantStorageService $storage)
     {
+        $this->enforceAgencyAssignmentWrite($request);
+
         // Check User Limit
         $tenantId = null;
         if (app()->bound('current_tenant_id')) {
@@ -336,6 +392,7 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', $emailUnique],
             'password' => 'required|string|min:8',
+            'agency_id' => ['nullable', 'string', 'max:255', $this->agencyKeyRule($tenantId)],
             'team_id' => 'nullable|exists:teams,id',
             'username' => ['nullable', 'string', 'max:255', $usernameUnique],
             'phone' => 'nullable|string|max:20',
@@ -367,10 +424,16 @@ class UserController extends Controller
         if ($tenantId !== null) {
             $validated['tenant_id'] = $tenantId;
         }
+
+        if ($this->isAgencyScopedMarketingUser($request->user())) {
+            $validated['agency_id'] = $this->currentAgencyId($request->user());
+        }
+
         $validated['password'] = Hash::make($validated['password']);
         $validated = $this->filterExistingUserColumns($validated);
         
         $user = User::create($validated);
+        $this->syncAgencyDisplayName($user);
 
         if ($request->filled('notification_settings')) {
             $user->notification_settings = json_decode((string) $request->input('notification_settings'), true) ?: null;
@@ -415,6 +478,7 @@ class UserController extends Controller
     
     public function show(User $user)
     {
+        $this->ensureVisibleWithinAgencyScope(request()->user(), $user);
         $user->load(['team.department', 'roles', 'manager']);
         
         // For show, we need to calculate targets too.
@@ -443,6 +507,9 @@ class UserController extends Controller
 
     public function update(Request $request, User $user, TenantStorageService $storage)
     {
+        $this->ensureVisibleWithinAgencyScope($request->user(), $user);
+        $this->enforceAgencyAssignmentWrite($request, $user);
+
         $emailUnique = Rule::unique('users', 'email')->ignore($user->id);
         $usernameUnique = Rule::unique('users', 'username')->ignore($user->id);
         if ($user->tenant_id === null) {
@@ -453,10 +520,13 @@ class UserController extends Controller
             $usernameUnique = $usernameUnique->where('tenant_id', $user->tenant_id);
         }
 
+        $tenantId = $user->tenant_id ?: $this->tenantIdFromRequest($request);
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'email' => ['sometimes', 'email', $emailUnique],
             'password' => 'sometimes|string|min:8',
+            'agency_id' => ['nullable', 'string', 'max:255', $this->agencyKeyRule($tenantId)],
             'team_id' => 'nullable|exists:teams,id',
             'username' => ['nullable', 'string', 'max:255', $usernameUnique],
             'phone' => 'nullable|string|max:20',
@@ -499,9 +569,14 @@ class UserController extends Controller
             $validated['avatar'] = $upload['path'];
         }
         
+        if ($this->isAgencyScopedMarketingUser($request->user())) {
+            $validated['agency_id'] = $this->currentAgencyId($request->user());
+        }
+
         $validated = $this->filterExistingUserColumns($validated);
         
         $user->update($validated);
+        $this->syncAgencyDisplayName($user);
 
         if ($request->exists('notification_settings')) {
             $user->notification_settings = $request->filled('notification_settings')
@@ -570,6 +645,7 @@ class UserController extends Controller
     
     public function destroy(User $user)
     {
+        $this->ensureVisibleWithinAgencyScope(request()->user(), $user);
         if ($this->isPrimaryAdmin($user)) {
             return response()->json([
                 'message' => 'Primary admin user cannot be deleted.',
@@ -694,5 +770,35 @@ class UserController extends Controller
 
         $owner = $tenant->owner;
         return $owner && $owner->id === $user->id;
+    }
+
+    protected function ensureVisibleWithinAgencyScope(?User $actor, User $target): void
+    {
+        if (!$this->isAgencyScopedMarketingUser($actor)) {
+            return;
+        }
+
+        if ((string) ($target->agency_id ?? '') !== (string) $this->currentAgencyId($actor)) {
+            abort(404);
+        }
+    }
+
+    protected function enforceAgencyAssignmentWrite(Request $request, ?User $target = null): void
+    {
+        $actor = $request->user();
+        if (!$this->isAgencyScopedMarketingUser($actor)) {
+            return;
+        }
+
+        $expectedAgencyId = (string) $this->currentAgencyId($actor);
+        $requestedAgencyId = trim((string) $request->input('agency_id', ''));
+
+        if ($requestedAgencyId !== '' && $requestedAgencyId !== $expectedAgencyId) {
+            abort(403, 'You cannot assign a different agency.');
+        }
+
+        if ($target && trim((string) ($target->agency_id ?? '')) !== $expectedAgencyId) {
+            abort(404);
+        }
     }
 }

@@ -36,7 +36,7 @@ export default function LeadsPipelineReport() {
   })
   const [salesPersonStats, setSalesPersonStats] = useState([])
   const [monthlySeries, setMonthlySeries] = useState([])
-  const [reportOptions, setReportOptions] = useState({ stages: [], sources: [], projects: [] })
+  const [reportOptions, setReportOptions] = useState({ stages: [], sources: [], agencies: [], projects: [] })
   const [reportLoading, setReportLoading] = useState(false)
 
   useEffect(() => {
@@ -81,6 +81,7 @@ export default function LeadsPipelineReport() {
   const [managerFilter, setManagerFilter] = useState('')
   const [stageFilter, setStageFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
+  const [agencyFilter, setAgencyFilter] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
   const [assignDateFrom, setAssignDateFrom] = useState('')
   const [assignDateTo, setAssignDateTo] = useState('')
@@ -191,6 +192,7 @@ export default function LeadsPipelineReport() {
           assigned_to: salesPersonFilter || undefined,
           stage: stageFilter || undefined,
           source: sourceFilter || undefined,
+          agency: agencyFilter || undefined,
           project: projectFilter || undefined,
           assigned_date_from: assignDateFrom || undefined,
           assigned_date_to: assignDateTo || undefined,
@@ -215,7 +217,7 @@ export default function LeadsPipelineReport() {
         })
         setSalesPersonStats(res.data?.salesPersonStats || [])
         setMonthlySeries(res.data?.monthly || [])
-        setReportOptions(res.data?.options || { stages: [], sources: [], projects: [] })
+        setReportOptions(res.data?.options || { stages: [], sources: [], agencies: [], projects: [] })
         setCurrentPage(1)
       } catch (err) {
         console.error('Failed to fetch leads pipeline report', err)
@@ -230,7 +232,7 @@ export default function LeadsPipelineReport() {
         })
         setSalesPersonStats([])
         setMonthlySeries([])
-        setReportOptions({ stages: [], sources: [], projects: [] })
+        setReportOptions({ stages: [], sources: [], agencies: [], projects: [] })
       } finally {
         setReportLoading(false)
       }
@@ -243,6 +245,7 @@ export default function LeadsPipelineReport() {
     salesPersonFilter,
     stageFilter,
     sourceFilter,
+    agencyFilter,
     projectFilter,
     assignDateFrom,
     assignDateTo,
@@ -447,6 +450,7 @@ export default function LeadsPipelineReport() {
                 setManagerFilter('')
                 setStageFilter('')
                 setSourceFilter('')
+                setAgencyFilter('')
                 setProjectFilter('')
                 setAssignDateFrom('')
                 setAssignDateTo('')
@@ -467,7 +471,7 @@ export default function LeadsPipelineReport() {
 
         <div className="space-y-3">
           {/* First Row - Always Visible */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Sales Person */}
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
@@ -534,6 +538,24 @@ export default function LeadsPipelineReport() {
                 onChange={setSourceFilter}
                 placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Source'}
                 icon={<Tag size={16} />}
+                isRTL={isRTL}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
+                Agency
+              </label>
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'All Agencies' },
+                  ...Array.from(new Set((reportOptions.agencies || []).filter(Boolean))).map(a => ({ value: a, label: a }))
+                ]}
+                value={agencyFilter}
+                onChange={setAgencyFilter}
+                placeholder="Agency"
+                icon={<Briefcase size={16} />}
                 isRTL={isRTL}
               />
             </div>

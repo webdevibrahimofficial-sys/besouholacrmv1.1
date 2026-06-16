@@ -6,16 +6,23 @@ use Illuminate\Http\Request;
 use App\Models\Campaign;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use App\Support\AppliesAgencyScope;
 
 class CampaignReportController extends Controller
 {
+    use AppliesAgencyScope;
+
     public function dashboard(Request $request)
     {
+        $user = $request->user();
+        $campaignBaseQuery = Campaign::query();
+        $this->applyAgencyScope($campaignBaseQuery, $user);
+
         // 1. Overview Counts
         $overview = [
-            'active' => Campaign::where('status', 'active')->orWhere('status', 'ACTIVE')->count(),
-            'inactive' => Campaign::where('status', 'inactive')->orWhere('status', 'ARCHIVED')->orWhere('status', 'COMPLETED')->count(),
-            'paused' => Campaign::where('status', 'paused')->orWhere('status', 'PAUSED')->count(),
+            'active' => (clone $campaignBaseQuery)->where(function ($q) { $q->where('status', 'active')->orWhere('status', 'ACTIVE'); })->count(),
+            'inactive' => (clone $campaignBaseQuery)->where(function ($q) { $q->where('status', 'inactive')->orWhere('status', 'ARCHIVED')->orWhere('status', 'COMPLETED'); })->count(),
+            'paused' => (clone $campaignBaseQuery)->where(function ($q) { $q->where('status', 'paused')->orWhere('status', 'PAUSED'); })->count(),
         ];
 
         // 2. Cost & Revenue by Channel (Provider)
@@ -23,7 +30,7 @@ class CampaignReportController extends Controller
         // Since we can't easily group by a coalesce in strict mode without raw query that might be db-specific,
         // we'll fetch all and aggregate in collection for safety and flexibility.
         
-        $campaigns = Campaign::select('id', 'name', 'provider', 'source', 'spend', 'revenue', 'leads', 'impressions', 'start_date', 'status', 'profit', 'roi')
+        $campaigns = (clone $campaignBaseQuery)->select('id', 'name', 'provider', 'source', 'spend', 'revenue', 'leads', 'impressions', 'start_date', 'status', 'profit', 'roi')
             ->get();
 
         $channels = $campaigns->groupBy(function($item) {
@@ -103,6 +110,7 @@ class CampaignReportController extends Controller
 
     public function duration(Request $request)
     {
+        $user = $request->user();
         $range = $request->input('range', '30d');
         $days = match ($range) {
             '7d' => 7,
@@ -113,7 +121,9 @@ class CampaignReportController extends Controller
 
         // 1. KPIs
         // Avg Duration (days between start and end, or start and now if active)
-        $avgDuration = Campaign::where('start_date', '>=', $startDate)
+        $avgDurationQuery = Campaign::where('start_date', '>=', $startDate);
+        $this->applyAgencyScope($avgDurationQuery, $user);
+        $avgDuration = $avgDurationQuery
             ->selectRaw('AVG(DATEDIFF(COALESCE(end_date, NOW()), start_date)) as avg_days')
             ->value('avg_days') ?? 0;
             
@@ -137,20 +147,21 @@ class CampaignReportController extends Controller
             $dayLabel = Carbon::now()->subDays($i)->format('M d');
             
             // Count campaigns active on this date
-            $count = Campaign::where('start_date', '<=', $date)
+            $countQuery = Campaign::where('start_date', '<=', $date)
                 ->where(function ($q) use ($date) {
                     $q->whereNull('end_date')->orWhere('end_date', '>=', $date);
-                })
-                ->count();
+                });
+            $this->applyAgencyScope($countQuery, $user);
+            $count = $countQuery->count();
             
             // Aggregate metrics for campaigns active on this date (simplified: using total averages)
             // In a real app, you'd query a daily_stats table.
-            $dailyStats = Campaign::where('start_date', '<=', $date)
+            $dailyStatsQuery = Campaign::where('start_date', '<=', $date)
                 ->where(function ($q) use ($date) {
                     $q->whereNull('end_date')->orWhere('end_date', '>=', $date);
-                })
-                ->selectRaw('AVG(revenue/NULLIF(spend,0)) as avg_roas, AVG(spend/NULLIF(leads,0)) as avg_cpl')
-                ->first();
+                });
+            $this->applyAgencyScope($dailyStatsQuery, $user);
+            $dailyStats = $dailyStatsQuery->selectRaw('AVG(revenue/NULLIF(spend,0)) as avg_roas, AVG(spend/NULLIF(leads,0)) as avg_cpl')->first();
                 
             $curve[] = [
                 'day' => $dayLabel, 
@@ -162,7 +173,9 @@ class CampaignReportController extends Controller
         }
 
         // 3. Age Distribution (Histogram of durations)
-        $campaigns = Campaign::where('start_date', '>=', $startDate)->get();
+        $campaignsQuery = Campaign::where('start_date', '>=', $startDate);
+        $this->applyAgencyScope($campaignsQuery, $user);
+        $campaigns = $campaignsQuery->get();
         $distribution = [
             '1-7 Days' => 0,
             '8-14 Days' => 0,
@@ -187,8 +200,9 @@ class CampaignReportController extends Controller
         }
 
         // 4. Health (Active campaigns with metrics)
-        $health = Campaign::where('status', 'active') // Assuming 'active' status exists
-            ->get()
+        $healthQuery = Campaign::where('status', 'active');
+        $this->applyAgencyScope($healthQuery, $user);
+        $health = $healthQuery->get()
             ->map(function ($c) {
                 $spend = $c->spend ?? 0;
                 $revenue = $c->revenue ?? 0;
@@ -221,12 +235,14 @@ class CampaignReportController extends Controller
 
     public function summary(Request $request)
     {
+        $user = $request->user();
         // Filter params
         $startDate = $request->input('start_date');
         $endDate = $request->input('end_date');
         $query = $request->input('query');
 
         $campaigns = Campaign::query();
+        $this->applyAgencyScope($campaigns, $user);
 
         if ($startDate && $endDate) {
             $campaigns->whereBetween('start_date', [$startDate, $endDate]);

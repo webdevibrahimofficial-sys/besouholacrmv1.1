@@ -27,6 +27,7 @@ class Campaign extends Model
         'audience',
         'created_by',
         'tenant_id',
+        'agency_id',
         'meta_data',
         // Meta Integration Fields
         'meta_id',

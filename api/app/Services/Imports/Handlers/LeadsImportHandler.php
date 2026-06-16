@@ -8,12 +8,16 @@ use App\Models\ImportJobRow;
 use App\Models\Item;
 use App\Models\Lead;
 use App\Models\LeadAction;
+use App\Models\InventoryRequest;
 use App\Models\Project;
+use App\Models\RealEstateRequest;
 use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\Visit;
 use App\Services\Imports\Contracts\ImportHandler;
 use App\Support\PhoneNormalizer;
+use App\Support\TenantSourceLookup;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Schema;
 
@@ -155,6 +159,24 @@ class LeadsImportHandler implements ImportHandler
                 $skippedRows++;
                 continue;
             }
+
+            $resolvedSourceName = TenantSourceLookup::resolveName($tenantId, $sourceName);
+            if (!$resolvedSourceName) {
+                $this->storeRow($job, [
+                    'row_number' => $rowNumber,
+                    'status' => 'skipped',
+                    'reason_code' => 'source_not_found',
+                    'reason_message' => "Source '{$sourceName}' not found in sources table. Row skipped.",
+                    'raw_data' => $rawRow,
+                    'normalized_data' => $this->withFieldErrors($normalized, ['source' => "Source '{$sourceName}' not found in sources table."]),
+                    'warnings' => $warnings,
+                    'entity_type' => 'leads',
+                ]);
+                $skippedRows++;
+                continue;
+            }
+            $normalized['source'] = $resolvedSourceName;
+            $sourceName = $resolvedSourceName;
 
             $email = trim((string) ($normalized['email'] ?? ''));
             if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -444,6 +466,8 @@ class LeadsImportHandler implements ImportHandler
                     $firstLeadIdByPhone[$phone] = $createdId;
                 }
 
+                $nextActionAt = $this->parseImportedNextActionAt($nextActionDate, $nextActionTime);
+
                 // Sales Person Assignment (optional). If not found, keep the row as success and add a warning.
                 if ($assignedToRaw !== '') {
                     $assignedToNorm = mb_strtolower(trim($assignedToRaw), 'UTF-8');
@@ -471,9 +495,29 @@ class LeadsImportHandler implements ImportHandler
                     }
                 }
 
+                $importedOperationalType = $this->mapImportedStageToOperationalType((string) ($normalized['stage'] ?? ''));
+                $shouldCollapseIntoOperationalAction = in_array($importedOperationalType, ['meeting', 'proposal', 'reservation', 'rent', 'follow_up'], true);
+
+                $operationAt = $firstActionDate
+                    ?: $nextActionAt
+                    ?: $creationDate
+                    ?: now();
+
+                $this->createOperationalRecordsFromImportedStage(
+                    $lead,
+                    (string) ($normalized['stage'] ?? ''),
+                    $operationAt,
+                    $uploaderId,
+                    $isGeneral,
+                    array_filter([
+                        'imported_comment' => $comment !== '' ? $comment : null,
+                        'imported_next_action_date' => $nextActionAt?->toDateString(),
+                        'imported_next_action_time' => $nextActionAt?->format('H:i'),
+                    ], fn ($value) => $value !== null && $value !== '')
+                );
+
                 // Next action creation (optional, best-effort).
-                $nextActionAt = $this->parseImportedNextActionAt($nextActionDate, $nextActionTime);
-                if ($nextActionAt) {
+                if ($nextActionAt && !$shouldCollapseIntoOperationalAction) {
                     $time = $nextActionAt->format('H:i');
                     try {
                         LeadAction::create([
@@ -500,7 +544,7 @@ class LeadsImportHandler implements ImportHandler
                 // Import comments -> record as an action (so it appears in Last Comment + Actions timeline).
                 // If an Action Date is provided in the sheet, use it as the action "performed at" date (and created_at)
                 // so that it counts as an action performed on that date.
-                if ($comment !== '') {
+                if ($comment !== '' && !$shouldCollapseIntoOperationalAction) {
                     $actionDateRaw = trim((string) ($normalized['action_date'] ?? $normalized['actionDate'] ?? $firstActionDateRaw ?? $creationDateRaw ?? ''));
                     $actionAt = $this->parseYmdDate($actionDateRaw);
                     try {
@@ -867,5 +911,238 @@ class LeadsImportHandler implements ImportHandler
         }
 
         return null;
+    }
+
+    private function createOperationalRecordsFromImportedStage(
+        Lead $lead,
+        ?string $stage,
+        \Carbon\Carbon $operationAt,
+        ?int $uploaderId,
+        bool $isGeneral,
+        array $supplementalDetails = []
+    ): void {
+        $operation = $this->mapImportedStageToOperationalType($stage);
+        if (!$operation) {
+            return;
+        }
+
+        $actorId = $lead->assigned_to ?: $lead->created_by ?: $uploaderId;
+        $meta = [
+            'source' => 'excel_import',
+            'auto_generated' => true,
+            'created_from_stage' => $lead->stage,
+            'lead_id' => $lead->id,
+        ];
+
+        if (in_array($operation, ['meeting', 'proposal', 'reservation', 'rent', 'follow_up'], true)) {
+            $this->createImportedLeadAction($lead, $operation, $operationAt, $actorId, $meta, $supplementalDetails);
+        }
+
+        if ($operation === 'reservation') {
+            $this->createImportedReservationRecord($lead, $operationAt, $actorId, $meta, $isGeneral);
+        }
+
+        if ($operation === 'check_in') {
+            $this->createImportedVisit($lead, $operationAt, $actorId, $meta);
+        }
+    }
+
+    private function createImportedLeadAction(
+        Lead $lead,
+        string $actionType,
+        \Carbon\Carbon $operationAt,
+        ?int $actorId,
+        array $meta,
+        array $supplementalDetails = []
+    ): void {
+        $description = 'Auto-created from imported stage';
+
+        $exists = LeadAction::query()
+            ->where('lead_id', $lead->id)
+            ->where('action_type', $actionType)
+            ->where('description', $description)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        $action = new LeadAction([
+            'lead_id' => $lead->id,
+            'tenant_id' => $lead->tenant_id,
+            'user_id' => $actorId,
+            'action_type' => $actionType,
+            'description' => $description,
+            'stage_id_at_creation' => null,
+            'next_action_type' => null,
+            'details' => array_filter(array_merge([
+                'date' => $operationAt->toDateString(),
+                'time' => $operationAt->format('H:i'),
+                'status' => 'imported',
+                'source' => 'excel_import',
+                'auto_generated' => true,
+                'created_from_stage' => $lead->stage,
+            ], $supplementalDetails), fn ($value) => $value !== null && $value !== ''),
+        ]);
+        $action->created_at = $operationAt->copy();
+        $action->updated_at = $operationAt->copy();
+        $action->save();
+    }
+
+    private function createImportedReservationRecord(
+        Lead $lead,
+        \Carbon\Carbon $operationAt,
+        ?int $actorId,
+        array $meta,
+        bool $isGeneral
+    ): void {
+        if ($isGeneral) {
+            $exists = InventoryRequest::query()
+                ->where('tenant_id', $lead->tenant_id)
+                ->where('customer_name', $lead->name)
+                ->where('product', (string) ($lead->item ?? $lead->project ?? ''))
+                ->whereDate('created_at', $operationAt->toDateString())
+                ->exists();
+
+            if ($exists) {
+                return;
+            }
+
+            $request = InventoryRequest::create([
+                'tenant_id' => $lead->tenant_id,
+                'customer_name' => $lead->name,
+                'property_unit' => null,
+                'product' => (string) ($lead->item ?? $lead->project ?? ''),
+                'quantity' => 1,
+                'status' => 'Imported',
+                'priority' => 'Medium',
+                'type' => 'Booking',
+                'description' => 'Auto-created from imported stage',
+                'assigned_to' => (string) ($lead->sales_person ?? ''),
+                'payment_plan' => null,
+                'meta_data' => array_merge($meta, [
+                    'customer_phone' => $lead->phone,
+                    'created_by_id' => $actorId,
+                ]),
+            ]);
+
+            $request->timestamps = false;
+            $request->forceFill([
+                'created_at' => $operationAt->copy(),
+                'updated_at' => $operationAt->copy(),
+            ])->save();
+            $request->timestamps = true;
+
+            return;
+        }
+
+        $exists = RealEstateRequest::query()
+            ->where('tenant_id', $lead->tenant_id)
+            ->where('customer_name', $lead->name)
+            ->where('project', (string) ($lead->project ?? ''))
+            ->whereDate('date', $operationAt->toDateString())
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        $request = RealEstateRequest::create([
+            'tenant_id' => $lead->tenant_id,
+            'customer_name' => $lead->name,
+            'project' => (string) ($lead->project ?? ''),
+            'unit' => '',
+            'amount' => 0,
+            'status' => 'Imported',
+            'type' => 'Booking',
+            'date' => $operationAt->toDateString(),
+            'notes' => 'Auto-created from imported stage',
+            'phone' => $lead->phone,
+            'source' => (string) ($lead->source ?? ''),
+            'meta_data' => array_merge($meta, [
+                'created_by_id' => $actorId,
+            ]),
+        ]);
+
+        $request->timestamps = false;
+        $request->forceFill([
+            'created_at' => $operationAt->copy(),
+            'updated_at' => $operationAt->copy(),
+        ])->save();
+        $request->timestamps = true;
+    }
+
+    private function createImportedVisit(
+        Lead $lead,
+        \Carbon\Carbon $operationAt,
+        ?int $actorId,
+        array $meta
+    ): void {
+        $exists = Visit::query()
+            ->where('lead_id', $lead->id)
+            ->where('type', 'lead')
+            ->whereDate('check_in_at', $operationAt->toDateString())
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        $salesPersonName = (string) ($lead->sales_person ?? '');
+        if ($salesPersonName === '' && $lead->assigned_to) {
+            $assignee = User::query()->find($lead->assigned_to);
+            $salesPersonName = (string) ($assignee->name ?? '');
+        }
+
+        $visit = Visit::create([
+            'tenant_id' => $lead->tenant_id,
+            'lead_id' => $lead->id,
+            'type' => 'lead',
+            'sales_person_id' => $lead->assigned_to ?: $actorId,
+            'sales_person_name' => $salesPersonName,
+            'customer_name' => $lead->name,
+            'check_in_at' => $operationAt->copy(),
+            'status' => 'imported',
+            'created_by' => $actorId,
+            'meta_data' => $meta,
+        ]);
+
+        $visit->timestamps = false;
+        $visit->forceFill([
+            'created_at' => $operationAt->copy(),
+            'updated_at' => $operationAt->copy(),
+        ])->save();
+        $visit->timestamps = true;
+    }
+
+    private function mapImportedStageToOperationalType(?string $stage): ?string
+    {
+        $normalized = strtolower(trim((string) $stage));
+        $normalized = str_replace(['_', '-'], ' ', $normalized);
+        $normalized = preg_replace('/\s+/u', ' ', $normalized);
+        $compact = str_replace(' ', '', $normalized);
+
+        $map = [
+            'meeting' => 'meeting',
+            'اجتماع' => 'meeting',
+            'proposal' => 'proposal',
+            'عرض' => 'proposal',
+            'عرضسعر' => 'proposal',
+            'reservation' => 'reservation',
+            'حجز' => 'reservation',
+            'rent' => 'rent',
+            'ايجار' => 'rent',
+            'إيجار' => 'rent',
+            'followup' => 'follow_up',
+            'follow up' => 'follow_up',
+            'متابعة' => 'follow_up',
+            'checkin' => 'check_in',
+            'check in' => 'check_in',
+            'تشيكان' => 'check_in',
+            'تشيكإن' => 'check_in',
+            'تشيك ان' => 'check_in',
+        ];
+
+        return $map[$normalized] ?? $map[$compact] ?? null;
     }
 }

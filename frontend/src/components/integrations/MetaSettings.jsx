@@ -14,7 +14,8 @@ import {
   ShieldCheck,
   ChevronRight,
   Zap,
-  RefreshCw
+  RefreshCw,
+  Copy
 } from 'lucide-react'
 import { api } from '../../utils/api'
 
@@ -297,6 +298,17 @@ export default function MetaSettings({ onClose }) {
     }
   }
 
+  const handleCopyWebhookUrl = async () => {
+    if (!appSettings.webhook_url) return
+
+    try {
+      await navigator.clipboard.writeText(appSettings.webhook_url)
+      showToast('success', isArabic ? 'تم نسخ رابط الويب هوك' : 'Webhook URL copied')
+    } catch {
+      showToast('error', isArabic ? 'تعذر نسخ الرابط' : 'Failed to copy webhook URL')
+    }
+  }
+
   const validateNumeric = (key, value) => {
     if (value && !/^\d+$/.test(value)) {
       setValidationErrors(prev => ({ ...prev, [key]: 'Must contain only numbers' }))
@@ -431,8 +443,8 @@ export default function MetaSettings({ onClose }) {
     return (
     <div className="space-y-6">
       {/* Header / Connect Button */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-2xl">
            <h3 className="text-lg font-medium text-theme">{isArabic ? 'الحسابات المتصلة' : 'Connected Accounts'}</h3>
            <p className="text-sm text-theme">{isArabic ? 'إدارة اتصالات فيسبوك وإنستغرام الخاصة بك.' : 'Manage your Facebook & Instagram connections.'}</p>
         </div>
@@ -441,16 +453,21 @@ export default function MetaSettings({ onClose }) {
           onClick={handleConnect}
           disabled={!canConnect}
           title={!canConnect ? (isArabic ? 'احفظ إعدادات تطبيق ميتا الخاصة بالتينانت (App ID + Secret) أولًا' : 'Save Tenant Meta App settings (App ID + Secret) first') : ''}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#1877F2] hover:bg-[#166fe5] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-[#1877F2] px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-[#166fe5] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
-          <Facebook className="w-4 h-4 mr-2" />
+          <Facebook className="h-4 w-4" />
           {isArabic ? 'إضافة حساب جديد' : 'Add New Account'}
         </button>
       </div>
 
-      <div className="bg-transparent rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 sm:p-5">
-        <h4 className="text-sm font-semibold text-theme mb-3">{isArabic ? 'تطبيق ميتا الخاص بالتينانت' : 'Tenant Meta App'}</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/40 sm:p-5">
+        <h4 className="text-sm font-semibold text-theme mb-2">{isArabic ? 'تطبيق ميتا الخاص بالتينانت' : 'Tenant Meta App'}</h4>
+        <p className="mb-4 text-xs leading-6 text-theme/70">
+          {isArabic
+            ? 'احفظ بيانات التطبيق أولًا، وبعدها استخدم رابط الويب هوك داخل Meta Developer.'
+            : 'Save the app credentials first, then use the generated webhook URL inside Meta Developer.'}
+        </p>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <InputField
             label={isArabic ? 'معرّف التطبيق' : 'App ID'}
             value={appSettings.app_id}
@@ -491,16 +508,39 @@ export default function MetaSettings({ onClose }) {
             onChange={(v) => setAppSettings(prev => ({ ...prev, verify_token: v }))}
             placeholder={appSettings.verify_token_set ? (isArabic ? 'مُعدّ مسبقًا' : 'Already configured') : (isArabic ? 'رمز تحقق الويب هوك' : 'Webhook verify token')}
           />
-          <div className="text-xs text-theme/70 self-end pb-2">
-            {appSettings.webhook_url ? `${isArabic ? 'رابط الويب هوك' : 'Webhook URL'}: ${appSettings.webhook_url}` : (isArabic ? 'احفظ الإعدادات لإنشاء رابط الويب هوك' : 'Save settings to generate webhook URL')}
+          <div className="flex h-full flex-col rounded-2xl border border-dashed border-gray-300 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/40">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-theme">
+                {isArabic ? 'رابط الويب هوك' : 'Webhook URL'}
+              </span>
+              {appSettings.webhook_url ? (
+                <button
+                  type="button"
+                  onClick={handleCopyWebhookUrl}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-theme transition hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {isArabic ? 'نسخ' : 'Copy'}
+                </button>
+              ) : null}
+            </div>
+            {appSettings.webhook_url ? (
+              <div className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-3 text-xs leading-6 text-theme shadow-sm break-all dark:border-gray-700 dark:bg-gray-900/60">
+                {appSettings.webhook_url}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-xs leading-6 text-theme/70 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                {isArabic ? 'احفظ الإعدادات لإنشاء رابط الويب هوك' : 'Save settings to generate webhook URL'}
+              </div>
+            )}
           </div>
         </div>
-        <div className="mt-3 flex justify-end">
+        <div className="mt-5 flex justify-end">
           <button
             type="button"
             onClick={handleSaveAppSettings}
             disabled={savingAppSettings}
-            className="inline-flex items-center px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 disabled:opacity-50 sm:w-auto"
           >
             {savingAppSettings ? (isArabic ? 'جارٍ الحفظ...' : 'Saving...') : (isArabic ? 'حفظ إعدادات التطبيق' : 'Save App Settings')}
           </button>

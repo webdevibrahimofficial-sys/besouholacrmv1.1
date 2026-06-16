@@ -422,6 +422,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('roles', [RoleController::class , 'index']);
     Route::post('stages/reorder', [\App\Http\Controllers\StageController::class, 'reorder']);
     Route::apiResource('stages', \App\Http\Controllers\StageController::class);
+    Route::apiResource('agencies', \App\Http\Controllers\AgencyController::class);
     Route::apiResource('sources', \App\Http\Controllers\SourceController::class);
     Route::apiResource('items', ItemController::class);
     Route::apiResource('real-estate-requests', \App\Http\Controllers\RealEstateRequestController::class);

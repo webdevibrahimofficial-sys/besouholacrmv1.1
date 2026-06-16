@@ -34,6 +34,7 @@ class User extends Authenticatable
         'email',
         'password',
         'tenant_id',
+        'agency_id',
         'is_super_admin',
         'role_level',
         'username',
@@ -119,6 +120,25 @@ class User extends Authenticatable
         }
 
         return $this->roles->first()?->name;
+    }
+
+    public function isAgencyScopedMarketingUser(): bool
+    {
+        $roleValues = collect([
+            $this->job_title,
+            $this->getRoleAttribute(),
+            $this->role,
+        ])
+            ->filter()
+            ->map(function ($value) {
+                return strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) $value))));
+            })
+            ->unique()
+            ->values();
+
+        $isMarketingRole = $roleValues->contains(fn ($role) => in_array($role, ['marketing manager', 'marketing moderator'], true));
+
+        return $isMarketingRole && filled($this->agency_id);
     }
 
     public function team(): \Illuminate\Database\Eloquent\Relations\BelongsTo

@@ -505,13 +505,8 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
       return ps === s;
     };
     const primary = ranged.filter(matchesStage);
-    // Ensure newest delayed leads (by next action datetime) are at the top
-    return [...primary].sort((a, b) => {
-      const ad = new Date(a.actionDate || 0).getTime()
-      const bd = new Date(b.actionDate || 0).getTime()
-      if (bd !== ad) return bd - ad
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-    });
+    // Preserve backend ordering so delay sorting is controlled in one place.
+    return primary;
   }, [delayLeads, selectedFilter, dateFrom, dateTo]);
 
   useEffect(() => {

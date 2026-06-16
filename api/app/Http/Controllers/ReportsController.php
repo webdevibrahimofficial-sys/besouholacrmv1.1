@@ -8,7 +8,10 @@ use App\Models\LeadAction;
 use App\Models\Customer;
 use App\Models\Visit;
 use App\Models\Export;
+use App\Models\InventoryRequest;
+use App\Models\RealEstateRequest;
 use App\Models\Revenue;
+use App\Models\Tenant;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -30,6 +33,8 @@ class ReportsController extends Controller
         $endOfMonth = $now->copy()->endOfMonth();
         $startOfLastMonth = $now->copy()->subMonth()->startOfMonth();
         $endOfLastMonth = $now->copy()->subMonth()->endOfMonth();
+        $tenant = $user->tenant_id ? Tenant::find($user->tenant_id) : null;
+        $companyType = strtolower((string) ($tenant?->company_type ?? ''));
 
         // Get viewable user IDs for filtering (Hierarchy)
         $viewableUserIds = $this->getViewableUserIds($user);
@@ -108,7 +113,61 @@ class ReportsController extends Controller
         $meetingsStats = $getStats(LeadAction::class, 'created_at', ['action_type' => 'meeting']);
 
         // 4. Reservations Report
-        $reservationsStats = $getStats(LeadAction::class, 'created_at', ['action_type' => 'reservation']);
+        $getReservationStats = function () use ($user, $companyType, $startOfMonth, $endOfMonth, $startOfLastMonth, $endOfLastMonth) {
+            $buildQuery = function (string $modelClass) use ($user) {
+                $query = $modelClass::query();
+
+                if ($user->tenant_id) {
+                    $query->where('tenant_id', $user->tenant_id);
+                }
+
+                return $query;
+            };
+
+            $countForRange = function ($from, $to) use ($buildQuery, $companyType) {
+                $total = 0;
+
+                if ($companyType === 'real estate' || $companyType === '') {
+                    $total += (clone $buildQuery(RealEstateRequest::class))
+                        ->whereBetween('created_at', [$from, $to])
+                        ->count();
+                }
+
+                if ($companyType === 'general' || $companyType === '') {
+                    $total += (clone $buildQuery(InventoryRequest::class))
+                        ->whereBetween('created_at', [$from, $to])
+                        ->count();
+                }
+
+                return $total;
+            };
+
+            $totalValue = 0;
+            if ($companyType === 'real estate' || $companyType === '') {
+                $totalValue += $buildQuery(RealEstateRequest::class)->count();
+            }
+            if ($companyType === 'general' || $companyType === '') {
+                $totalValue += $buildQuery(InventoryRequest::class)->count();
+            }
+
+            $currentValue = $countForRange($startOfMonth, $endOfMonth);
+            $lastMonthValue = $countForRange($startOfLastMonth, $endOfLastMonth);
+
+            $trend = 0;
+            if ($lastMonthValue > 0) {
+                $trend = (($currentValue - $lastMonthValue) / $lastMonthValue) * 100;
+            } elseif ($currentValue > 0) {
+                $trend = 100;
+            }
+
+            return [
+                'value' => $totalValue,
+                'trend' => round($trend, 1),
+                'trendUp' => $trend >= 0,
+            ];
+        };
+
+        $reservationsStats = $getReservationStats();
 
         // 5. Closed Deals
         $dealsStats = $getStats(LeadAction::class, 'created_at', ['action_type' => 'closing_deals']);

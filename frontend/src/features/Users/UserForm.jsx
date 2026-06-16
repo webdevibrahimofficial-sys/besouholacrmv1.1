@@ -179,6 +179,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       (Array.isArray(user?.roles) && user.roles[0]?.name) ||
       user?.job_title ||
       '',
+    agencyId: user?.agency_id || '',
     directManager: normalizeSelectValue(
       user?.directManager ??
       user?.manager_id ??
@@ -224,33 +225,63 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const [countries, setCountries] = useState([]);
   const [regions, setRegions] = useState([]);
   const [sources, setSources] = useState([]);
+  const [agencies, setAgencies] = useState([]);
   const [projects, setProjects] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [avatarFile, setAvatarFile] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [deptsRes, usersRes, countriesRes, regionsRes, sourcesRes, projectsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get('/api/departments'),
         api.get('/api/users?all=1').catch(() => api.get('/api/users')),
         api.get('/api/countries'),
         api.get('/api/regions'),
         api.get('/api/sources'),
+        api.get('/api/agencies?active=1'),
         api.get('/api/projects'),
       ]);
-      setDepartments(deptsRes.data);
-      const rawUsers = Array.isArray(usersRes.data)
-        ? usersRes.data
-        : (usersRes.data?.data || []);
+
+      const [
+        departmentsResult,
+        usersResult,
+        countriesResult,
+        regionsResult,
+        sourcesResult,
+        agenciesResult,
+        projectsResult,
+      ] = results;
+
+      const getData = (result, fallback = []) => (
+        result?.status === 'fulfilled' ? result.value?.data : fallback
+      );
+
+      const departmentsData = getData(departmentsResult, []);
+      const usersData = getData(usersResult, []);
+      const countriesData = getData(countriesResult, []);
+      const regionsData = getData(regionsResult, []);
+      const sourcesData = getData(sourcesResult, []);
+      const agenciesData = getData(agenciesResult, []);
+      const projectsData = getData(projectsResult, []);
+
+      setDepartments(Array.isArray(departmentsData) ? departmentsData : (departmentsData?.data || []));
+      const rawUsers = Array.isArray(usersData)
+        ? usersData
+        : (usersData?.data || []);
       const normalizedManagers = rawUsers.map(u => ({
         ...u,
         role: Array.isArray(u.roles) && u.roles[0]?.name ? u.roles[0].name : (u.role || u.job_title || ''),
       }));
       setManagers(normalizedManagers);
-      setCountries(Array.isArray(countriesRes.data) ? countriesRes.data : (countriesRes.data?.data || []));
-      setRegions(Array.isArray(regionsRes.data) ? regionsRes.data : (regionsRes.data?.data || []));
-      setSources(Array.isArray(sourcesRes.data) ? sourcesRes.data : (sourcesRes.data?.data || []));
-      setProjects(Array.isArray(projectsRes.data) ? projectsRes.data : (projectsRes.data?.data || []));
+      setCountries(Array.isArray(countriesData) ? countriesData : (countriesData?.data || []));
+      setRegions(Array.isArray(regionsData) ? regionsData : (regionsData?.data || []));
+      setSources(Array.isArray(sourcesData) ? sourcesData : (sourcesData?.data || []));
+      setAgencies(Array.isArray(agenciesData) ? agenciesData : (agenciesData?.data || []));
+      setProjects(Array.isArray(projectsData) ? projectsData : (projectsData?.data || []));
+
+      if (agenciesResult?.status === 'rejected') {
+        console.error('Failed to fetch tenant agencies', agenciesResult.reason);
+      }
     } catch (err) {
       console.error('Failed to fetch form data', err);
     }
@@ -347,6 +378,21 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       };
     }).filter(Boolean);
   }, [projects, isArabic]);
+  const agencyOptions = useMemo(() => {
+    const baseOptions = (agencies || []).map((agency) => {
+      const value = String(agency?.key || '').trim();
+      const label = String(agency?.name || agency?.key || '').trim();
+      if (!value || !label) return null;
+      return { value, label };
+    }).filter(Boolean);
+
+    const currentValue = String(form.agencyId || '').trim();
+    if (!currentValue || baseOptions.some(option => option.value === currentValue)) {
+      return baseOptions;
+    }
+
+    return [{ value: currentValue, label: currentValue }, ...baseOptions];
+  }, [agencies, form.agencyId]);
 
   const passwordStrength = useMemo(() => {
     const pwd = form.password || '';
@@ -647,6 +693,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     if (!form.fullName?.trim()) e.fullName = 'Full Name is required';
     if (!form.email?.trim()) e.email = 'Email is required';
     if (!form.role?.trim()) e.role = 'Role is required';
+    if (['Marketing Manager', 'Marketing Moderator'].includes(form.role) && !String(form.agencyId || '').trim()) {
+      e.agencyId = isArabic ? 'الوكالة مطلوبة لهذا الدور' : 'Agency is required for this role';
+    }
     if (!isPrimaryAdmin && !isEdit && (form.password?.length || 0) < 8) e.password = 'Password must be at least 8 characters';
     if (!isPrimaryAdmin && isEdit && form.password && form.password.length < 8) e.password = 'Password must be at least 8 characters';
     
@@ -692,6 +741,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       formData.append('manager_id', form.directManager || '');
       formData.append('department_id', form.department || '');
       formData.append('role', form.role || '');
+      formData.append('agency_id', String(form.agencyId || '').trim());
       formData.append('notif_email', form.notifEmail ? 1 : 0);
       formData.append('notif_sms', form.notifSms ? 1 : 0);
       formData.append('notification_settings', JSON.stringify({
@@ -1154,6 +1204,27 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     placeholder={isArabic ? 'نشط' : 'Active'}
                   />
                 </div>
+                {['Marketing Manager', 'Marketing Moderator'].includes(form.role) && (
+                  <div className="md:order-5">
+                    <label className="label pt-0">
+                      <span className="label-text font-medium text-base-content/80">
+                        {isArabic ? 'الوكالة' : 'Agency'} <span className="text-[#FF6B6B]">*</span>
+                      </span>
+                    </label>
+                    <SearchableSelect
+                      className="w-full"
+                      options={agencyOptions}
+                      value={form.agencyId}
+                      onChange={(value) => updateField('agencyId', normalizeSelectValue(value))}
+                      placeholder={isArabic ? 'اختر الوكالة' : 'Select agency'}
+                      showAllOption={false}
+                    />
+                    {errors.agencyId && <div className="flex items-center gap-1 mt-1.5 text-[#FF6B6B] text-xs"><AlertCircle size={12}/> {errors.agencyId}</div>}
+                    <div className="text-xs text-base-content/50 mt-1.5">
+                      {isArabic ? 'يتم حفظ المفتاح الثابت للوكالة داخليًا لاستخدامه في الفلترة والعزل.' : 'The agency stable key is stored internally for filtering and scoping.'}
+                    </div>
+                  </div>
+                )}
                 <div className="md:order-3">
                   <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Department (Optional)</span></label>
                   <SearchableSelect

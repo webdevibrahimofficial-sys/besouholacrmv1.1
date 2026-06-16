@@ -117,6 +117,7 @@ const ModulesSettings = lazy(() => import('../pages/settings/system/ModulesSetti
 const SecuritySettings = lazy(() => import('../pages/settings/system/SecuritySettings'))
 const CRMSettings = lazy(() => import('../pages/settings/system/CRMSettings'))
 const CustomFields = lazy(() => import('../pages/settings/system/CustomFields'))
+const Agencies = lazy(() => import('../pages/settings/system/Agencies'))
 const Sources = lazy(() => import('../pages/settings/system/Sources'))
 const Country = lazy(() => import('../pages/settings/system/locations/Country'))
 const Cities = lazy(() => import('../pages/settings/system/locations/Cities'))
@@ -404,6 +405,7 @@ export default function AppRouter() {
               <Route path="/settings/system/security" element={<SecuritySettings />} />
               <Route path="/settings/system/crm" element={<CRMSettings />} />
               <Route path="/settings/system/custom-fields" element={<CustomFields />} />
+              <Route path="/settings/system/agencies" element={<Agencies />} />
               <Route path="/settings/system/sources" element={<Sources />} />
               <Route path="/settings/system/locations/country" element={<Country />} />
               <Route path="/settings/system/locations/cities" element={<Cities />} />

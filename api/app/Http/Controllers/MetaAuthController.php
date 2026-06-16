@@ -18,9 +18,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Support\AppliesAgencyScope;
 
 class MetaAuthController extends Controller
 {
+    use AppliesAgencyScope;
+
     protected MetaAuthService $metaAuthService;
     protected TenantMetaCredentialsResolver $credentialsResolver;
 
@@ -41,6 +44,7 @@ class MetaAuthController extends Controller
         Cache::put('meta_oauth_state:' . $state, [
             'tenant_id' => $user->tenant_id,
             'user_id' => $user->id,
+            'agency_id' => $this->currentAgencyId($user),
         ], now()->addMinutes(10));
 
         try {
@@ -60,6 +64,7 @@ class MetaAuthController extends Controller
         try {
             $user = $request->user();
             $tenantId = $user?->tenant_id;
+            $agencyId = $this->currentAgencyId($user);
 
             if (!$tenantId) {
                 $state = $request->input('state') ?? $request->query('state');
@@ -78,11 +83,12 @@ class MetaAuthController extends Controller
                 }
 
                 $tenantId = $ctx['tenant_id'];
+                $agencyId = trim((string) ($ctx['agency_id'] ?? '')) ?: null;
             }
             
             $this->credentialsResolver->resolveForTenant($tenantId);
             app()->instance('current_tenant_id', $tenantId);
-            $connection = $this->metaAuthService->handleCallback($tenantId);
+            $connection = $this->metaAuthService->handleCallback($tenantId, $agencyId);
             
             // Ensure Integration record exists and is active
             Integration::updateOrCreate(
@@ -124,10 +130,15 @@ class MetaAuthController extends Controller
         $user = $request->user();
         $tenantId = $user->tenant_id;
 
-        $connections = MetaConnection::where('tenant_id', $tenantId)->get();
-        $businesses = MetaBusiness::where('tenant_id', $tenantId)->get();
-        $adAccounts = MetaAdAccount::with('business')->where('tenant_id', $tenantId)->get();
-        $pages = MetaPage::where('tenant_id', $tenantId)->get();
+        $connections = MetaConnection::where('tenant_id', $tenantId);
+        $businesses = MetaBusiness::where('tenant_id', $tenantId);
+        $adAccounts = MetaAdAccount::with('business')->where('tenant_id', $tenantId);
+        $pages = MetaPage::where('tenant_id', $tenantId);
+
+        $this->applyAgencyScope($connections, $user);
+        $this->applyAgencyScope($businesses, $user);
+        $this->applyAgencyScope($adAccounts, $user);
+        $this->applyAgencyScope($pages, $user);
         
         $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
         $settings = $this->metaDefaultSettings($integration?->settings);
@@ -136,10 +147,10 @@ class MetaAuthController extends Controller
             'connected' => $connections->isNotEmpty(),
             'integration_status' => $integration ? $integration->status : 'inactive',
             'settings' => $settings,
-            'connections' => $connections,
-            'businesses' => $businesses,
-            'ad_accounts' => $adAccounts,
-            'pages' => $pages,
+            'connections' => $connections->get(),
+            'businesses' => $businesses->get(),
+            'ad_accounts' => $adAccounts->get(),
+            'pages' => $pages->get(),
         ]);
     }
     
@@ -275,10 +286,14 @@ class MetaAuthController extends Controller
         $tenantId = $user->tenant_id;
         
         if ($request->type === 'ad_account') {
-            $asset = MetaAdAccount::where('tenant_id', $tenantId)->findOrFail($request->id);
+            $assetQuery = MetaAdAccount::where('tenant_id', $tenantId);
+            $this->applyAgencyScope($assetQuery, $user);
+            $asset = $assetQuery->findOrFail($request->id);
             $asset->update(['is_active' => $request->is_active]);
         } else {
-            $asset = MetaPage::where('tenant_id', $tenantId)->findOrFail($request->id);
+            $assetQuery = MetaPage::where('tenant_id', $tenantId);
+            $this->applyAgencyScope($assetQuery, $user);
+            $asset = $assetQuery->findOrFail($request->id);
             $asset->update(['is_active' => $request->is_active]);
             $this->syncPageWebhookSubscription($asset, (bool) $request->is_active);
         }
@@ -319,11 +334,15 @@ class MetaAuthController extends Controller
         $user = $request->user();
         $tenantId = $user->tenant_id;
 
-        $page = MetaPage::where('tenant_id', $tenantId)->findOrFail($request->page_id);
+        $pageQuery = MetaPage::where('tenant_id', $tenantId);
+        $this->applyAgencyScope($pageQuery, $user);
+        $page = $pageQuery->findOrFail($request->page_id);
         
         if ($request->ad_account_id) {
             // Verify ad account belongs to tenant
-            $adAccount = MetaAdAccount::where('tenant_id', $tenantId)->findOrFail($request->ad_account_id);
+            $adAccountQuery = MetaAdAccount::where('tenant_id', $tenantId);
+            $this->applyAgencyScope($adAccountQuery, $user);
+            $adAccount = $adAccountQuery->findOrFail($request->ad_account_id);
             $page->update(['ad_account_id' => $adAccount->id]);
         } else {
             $page->update(['ad_account_id' => null]);
@@ -343,7 +362,9 @@ class MetaAuthController extends Controller
         $tenantId = $user->tenant_id;
 
         if ($request->type === 'business') {
-            $asset = MetaBusiness::where('tenant_id', $tenantId)->findOrFail($request->id);
+            $businessQuery = MetaBusiness::where('tenant_id', $tenantId);
+            $this->applyAgencyScope($businessQuery, $user);
+            $asset = $businessQuery->findOrFail($request->id);
             // Optional: Check if it has ad accounts and warn? Or cascade delete?
             // Laravel relationships usually handle cascade if configured, otherwise we manual delete.
             // For now, let's just delete the business record. Ad Accounts might become orphaned or we should delete them too.
@@ -351,10 +372,14 @@ class MetaAuthController extends Controller
             MetaAdAccount::where('business_id', $asset->id)->delete();
             $asset->delete();
         } elseif ($request->type === 'ad_account') {
-            $asset = MetaAdAccount::where('tenant_id', $tenantId)->findOrFail($request->id);
+            $adAccountQuery = MetaAdAccount::where('tenant_id', $tenantId);
+            $this->applyAgencyScope($adAccountQuery, $user);
+            $asset = $adAccountQuery->findOrFail($request->id);
             $asset->delete();
         } elseif ($request->type === 'page') {
-            $asset = MetaPage::where('tenant_id', $tenantId)->findOrFail($request->id);
+            $pageQuery = MetaPage::where('tenant_id', $tenantId);
+            $this->applyAgencyScope($pageQuery, $user);
+            $asset = $pageQuery->findOrFail($request->id);
             $asset->delete();
         }
 
@@ -367,19 +392,31 @@ class MetaAuthController extends Controller
         $connectionId = $request->input('connection_id');
 
         if ($connectionId) {
-            MetaConnection::where('tenant_id', $user->tenant_id)->where('id', $connectionId)->delete();
+            $query = MetaConnection::where('tenant_id', $user->tenant_id)->where('id', $connectionId);
+            $this->applyAgencyScope($query, $user);
+            $query->delete();
         } else {
             // Disconnect all if no specific ID
-            MetaConnection::where('tenant_id', $user->tenant_id)->delete();
+            $query = MetaConnection::where('tenant_id', $user->tenant_id);
+            $this->applyAgencyScope($query, $user);
+            $query->delete();
         }
 
         // Check if any connections remain
-        $remainingConnections = MetaConnection::where('tenant_id', $user->tenant_id)->exists();
+        $remainingQuery = MetaConnection::where('tenant_id', $user->tenant_id);
+        $this->applyAgencyScope($remainingQuery, $user);
+        $remainingConnections = $remainingQuery->exists();
 
         if (!$remainingConnections) {
-            MetaPage::where('tenant_id', $user->tenant_id)->delete();
-            MetaAdAccount::where('tenant_id', $user->tenant_id)->delete();
-            MetaBusiness::where('tenant_id', $user->tenant_id)->delete();
+            $pageDelete = MetaPage::where('tenant_id', $user->tenant_id);
+            $adDelete = MetaAdAccount::where('tenant_id', $user->tenant_id);
+            $businessDelete = MetaBusiness::where('tenant_id', $user->tenant_id);
+            $this->applyAgencyScope($pageDelete, $user);
+            $this->applyAgencyScope($adDelete, $user);
+            $this->applyAgencyScope($businessDelete, $user);
+            $pageDelete->delete();
+            $adDelete->delete();
+            $businessDelete->delete();
             Integration::updateOrCreate(
                 ['tenant_id' => $user->tenant_id, 'provider' => 'meta'],
                 ['status' => 'inactive']

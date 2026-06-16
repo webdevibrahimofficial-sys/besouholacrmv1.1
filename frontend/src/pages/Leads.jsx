@@ -211,6 +211,7 @@ export const Leads = () => {
   const [filteredLeads, setFilteredLeads] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [sourceFilter, setSourceFilter] = useState([])
+  const [agencyFilter, setAgencyFilter] = useState([])
   const [priorityFilter, setPriorityFilter] = useState([])
   // New filter states
   const [projectFilter, setProjectFilter] = useState([])
@@ -604,6 +605,7 @@ if (!s) {
     const params = {
         search: filters.search,
         source: filters.source.length > 0 ? filters.source : null,
+        agency: filters.agency.length > 0 ? filters.agency : null,
         priority: filters.priority.length > 0 ? filters.priority : null,
         campaign: filters.campaign.length > 0 ? filters.campaign : null,
         country: filters.country.length > 0 ? filters.country : null,
@@ -637,6 +639,7 @@ if (!s) {
           viewType: location.pathname === '/leads/my-leads' ? 'my_leads' : 'all_leads',
           search: searchTerm, 
           source: sourceFilter,
+          agency: agencyFilter,
           priority: priorityFilter,
           campaign: campaignFilter,
           country: countryFilter,
@@ -761,6 +764,7 @@ if (!s) {
       // When the user is viewing "Cold Calls" stage, the table should be driven by stage (not source),
       // even if a source filter is currently selected.
       source: !isColdCallsStageView && filters.source.length > 0 ? filters.source : null,
+      agency: filters.agency.length > 0 ? filters.agency : null,
       priority: filters.priority.length > 0 ? filters.priority : null,
       campaign: filters.campaign.length > 0 ? filters.campaign : null,
       country: filters.country.length > 0 ? filters.country : null,
@@ -800,6 +804,7 @@ if (!s) {
         stage: stageFilter,
         oldStage: oldStageFilter,
         source: sourceFilter,
+        agency: agencyFilter,
         priority: priorityFilter,
         campaign: campaignFilter,
         country: countryFilter,
@@ -836,6 +841,7 @@ if (!s) {
     stageFilter,
     oldStageFilter,
     sourceFilter,
+    agencyFilter,
     priorityFilter,
     campaignFilter,
     salesPersonFilter,
@@ -2504,6 +2510,7 @@ if (!s) {
       stage: stageFilter.length > 0 ? stageFilter : null,
       old_stage: oldStageFilter.length > 0 ? oldStageFilter : null,
       source: sourceFilter.length > 0 ? sourceFilter : null,
+      agency: agencyFilter.length > 0 ? agencyFilter : null,
       priority: priorityFilter.length > 0 ? priorityFilter : null,
       campaign: campaignFilter.length > 0 ? campaignFilter : null,
       country: countryFilter.length > 0 ? countryFilter : null,
@@ -2848,6 +2855,7 @@ if (!s) {
               onClick={() => {
                 setSearchTerm('')
                 setSourceFilter([])
+                setAgencyFilter([])
                 setPriorityFilter([])
                 setProjectFilter([])
                 setStageFilter([])
@@ -2883,7 +2891,7 @@ if (!s) {
         {/* Filter Controls */}
         <div className="space-y-3">
           {/* First Row - Always Visible (Search + 3 filters) */}
-          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-2">
             {/* Search */}
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
@@ -2912,6 +2920,23 @@ if (!s) {
                 multiple={true}
                 onChange={setSourceFilter}
                 options={sourcesList.map(s => ({ value: s.name, label: s.name }))}
+                placeholder={t('All')}
+                isRTL={isRtl}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5V4H2v16h5m10 0v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4m10 0H7m10-10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                {t('Agency')}
+              </label>
+              <SearchableSelect
+                value={agencyFilter}
+                multiple={true}
+                onChange={setAgencyFilter}
+                options={(statsData?.agencies || []).map(agency => ({ value: agency, label: agency }))}
                 placeholder={t('All')}
                 isRTL={isRtl}
               />

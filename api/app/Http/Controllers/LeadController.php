@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use App\Support\PhoneNormalizer;
+use App\Support\TenantSourceLookup;
 use App\Services\LeadRotationEngine;
 use Illuminate\Support\Str;
 
@@ -58,6 +59,50 @@ class LeadController extends Controller
             ->get();
     }
     use ResolvesNotificationRecipients;
+
+    private function metaJsonTextExpression(string $column, string $path): string
+    {
+        $driver = DB::connection()->getDriverName();
+        $jsonPath = '$.' . ltrim($path, '$.');
+
+        return match ($driver) {
+            'pgsql' => sprintf("%s #>> '{%s}'", $column, str_replace('.', ',', ltrim($path, '$.'))),
+            'sqlite' => sprintf("json_extract(%s, '%s')", $column, $jsonPath),
+            'sqlsrv' => sprintf("JSON_VALUE(%s, '%s')", $column, $jsonPath),
+            default => sprintf("JSON_UNQUOTE(JSON_EXTRACT(%s, '%s'))", $column, $jsonPath),
+        };
+    }
+
+    private function applyMetaDataTextFilter($query, string $path, array $values, string $column = 'leads.meta_data'): void
+    {
+        $values = array_values(array_filter(array_map(fn ($value) => trim((string) $value), $values), fn ($value) => $value !== ''));
+        if (empty($values)) {
+            return;
+        }
+
+        $expression = $this->metaJsonTextExpression($column, $path);
+        $query->where(function ($q) use ($expression, $values) {
+            foreach ($values as $value) {
+                $q->orWhereRaw("{$expression} = ?", [$value]);
+            }
+        });
+    }
+
+    private function distinctMetaDataTextValues($query, string $path, string $alias = 'value', string $column = 'meta_data'): array
+    {
+        $expression = $this->metaJsonTextExpression($column, $path);
+
+        return (clone $query)
+            ->selectRaw("{$expression} as {$alias}")
+            ->whereRaw("{$expression} is not null")
+            ->distinct()
+            ->limit(300)
+            ->pluck($alias)
+            ->map(fn ($value) => trim((string) $value))
+            ->filter()
+            ->values()
+            ->all();
+    }
 
     private function resolveDuplicateRootId(?Lead $lead, ?int $tenantId = null): ?int
     {
@@ -1266,6 +1311,14 @@ class LeadController extends Controller
             }
         }
 
+        if ($request->filled('agency')) {
+            $this->applyMetaDataTextFilter($query, 'agency', (array) $request->agency);
+        }
+
+        if ($user?->isAgencyScopedMarketingUser() && filled($user->agency_id)) {
+            $this->applyMetaDataTextFilter($query, 'agency_id', [(string) $user->agency_id]);
+        }
+
         // Handle Source filter with normalization (e.g., "Cold Calls" matches "cold-call")
          if ($request->filled('source')) {
              $sources = (array)$request->source;
@@ -1416,6 +1469,8 @@ class LeadController extends Controller
                 ->filter()
                 ->values()
                 ->all();
+
+            $distinctAgencies = $this->distinctMetaDataTextValues($query, 'agency', 'agency', 'meta_data');
 
             $distinctProjects = (clone $query)
                 ->whereNotNull('project')
@@ -1633,6 +1688,7 @@ class LeadController extends Controller
                 'options' => [
                     'stages' => $distinctStages,
                     'sources' => $distinctSources,
+                    'agencies' => $distinctAgencies,
                     'projects' => $distinctProjects,
                 ],
             ]);
@@ -1655,6 +1711,7 @@ class LeadController extends Controller
                 'options' => [
                     'stages' => [],
                     'sources' => [],
+                    'agencies' => [],
                     'projects' => [],
                 ],
             ], 500);
@@ -2053,6 +2110,8 @@ class LeadController extends Controller
                     )
                 ")->count();
 
+                $distinctAgencies = $this->distinctMetaDataTextValues($query, 'agency', 'agency', 'leads.meta_data');
+
                 return [
                     'total' => $totalFromByStage,
                     'new' => $newFromByStage,
@@ -2061,7 +2120,8 @@ class LeadController extends Controller
                     'duplicate' => $duplicateCount,
                     'closedDeals' => $closedDealsCount,
                     'hotCount' => (int) $hotCount,
-                    'byStage' => $byStage
+                    'byStage' => $byStage,
+                    'agencies' => $distinctAgencies,
                 ];
             });
 
@@ -2357,6 +2417,21 @@ class LeadController extends Controller
                 unset($data['phone_country']);
             }
 
+            $tenantId = $request->user()?->tenant_id;
+            $sourceInput = trim((string) ($data['source'] ?? ''));
+            if ($sourceInput !== '') {
+                $resolvedSourceName = TenantSourceLookup::resolveName($tenantId, $sourceInput);
+                if (!$resolvedSourceName) {
+                    return response()->json([
+                        'errors' => [
+                            'source' => ['Selected source does not exist for this tenant.'],
+                        ],
+                    ], 422);
+                }
+
+                $data['source'] = $resolvedSourceName;
+            }
+
             // Normalize phone for consistent search/duplicate matching
             $rawPhone = isset($data['phone']) ? trim((string) $data['phone']) : '';
             if ($rawPhone !== '') {
@@ -2388,8 +2463,7 @@ class LeadController extends Controller
             $crm = CrmSetting::first();
             $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
             $variantsForSearch = null;
-            $tenantId = $request->user()?->tenant_id;
-             
+            
             // Set default stage if not provided
            if (empty($data['stage']) || strtolower($data['stage']) == 'new' || strtolower($data['stage']) == 'new lead') {
                $data['stage'] = 'New Lead';
@@ -2439,6 +2513,12 @@ class LeadController extends Controller
             if ($phoneCountryHint) {
                 $meta = is_array($data['meta_data'] ?? null) ? ($data['meta_data'] ?? []) : [];
                 $meta['phone_country'] = $phoneCountryHint;
+                $data['meta_data'] = $meta;
+            }
+
+            if ($request->user()?->isAgencyScopedMarketingUser() && filled($request->user()?->agency_id)) {
+                $meta = is_array($data['meta_data'] ?? null) ? ($data['meta_data'] ?? []) : [];
+                $meta['agency_id'] = (string) $request->user()->agency_id;
                 $data['meta_data'] = $meta;
             }
 
@@ -2789,9 +2869,6 @@ class LeadController extends Controller
                 }
             ]);
 
-            // Sort by newest leads first
-            $query->latest();
-
             $perPage = (int) $request->get('per_page', 20);
             $page = max(1, (int) $request->get('page', 1));
 
@@ -2825,12 +2902,32 @@ class LeadController extends Controller
                 }
 
                 if ($now->greaterThanOrEqualTo($scheduled->copy()->addMinute())) {
-                    $filtered[] = $lead;
+                    $filtered[] = [
+                        'lead' => $lead,
+                        'scheduled_at' => $scheduled->getTimestamp(),
+                        'created_at' => optional($lead->created_at)->getTimestamp() ?? 0,
+                        'lead_id' => (int) ($lead->id ?? 0),
+                    ];
                 }
             }
 
-            $total = count($filtered);
-            $slice = array_slice($filtered, ($page - 1) * $perPage, $perPage);
+            usort($filtered, function ($a, $b) {
+                // Backend is the source of truth for delay ordering:
+                // show the latest delayed action first.
+                if (($b['scheduled_at'] ?? 0) !== ($a['scheduled_at'] ?? 0)) {
+                    return ($b['scheduled_at'] ?? 0) <=> ($a['scheduled_at'] ?? 0);
+                }
+
+                if (($b['created_at'] ?? 0) !== ($a['created_at'] ?? 0)) {
+                    return ($b['created_at'] ?? 0) <=> ($a['created_at'] ?? 0);
+                }
+
+                return ($b['lead_id'] ?? 0) <=> ($a['lead_id'] ?? 0);
+            });
+
+            $orderedLeads = array_map(fn ($item) => $item['lead'], $filtered);
+            $total = count($orderedLeads);
+            $slice = array_slice($orderedLeads, ($page - 1) * $perPage, $perPage);
 
             return new \Illuminate\Pagination\LengthAwarePaginator(
                 $slice,
@@ -3499,12 +3596,12 @@ class LeadController extends Controller
                     $nextActionTime = '';
                 }
 
-                // 5. Source exists check (optional but good for data integrity)
-                // We already checked $sourceName is not empty.
-                $sourceExists = \App\Models\Source::where('tenant_id', $currentTenantId)
-                    ->where('name', $sourceName)->exists();
-                // If it doesn't exist, we will use it anyway but we could also log a warning.
-                // For now, keeping it flexible as per previous requirement but strict on presence.
+                $resolvedSourceName = TenantSourceLookup::resolveName($currentTenantId, $sourceName);
+                if (!$resolvedSourceName) {
+                    $errors[] = "Row {$rowNum}: Source '{$sourceName}' not found in sources table. Row skipped.";
+                    continue;
+                }
+                $sourceName = $resolvedSourceName;
 
                 // 6. Create Lead
                 $metaData = [];

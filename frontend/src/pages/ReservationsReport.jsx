@@ -200,6 +200,8 @@ export default function ReservationsReport() {
 
   const openLeadPreview = async (reservation) => {
     const leadId = reservation.leadId || reservation.lead_id || reservation.metaData?.lead_id || reservation.meta_data?.lead_id;
+    const digits = String(reservation.contact || '').replace(/[^0-9]/g, '');
+    const reservationName = String(reservation.customer || '').trim().toLowerCase();
 
     const fallbackLead = {
       // IMPORTANT: don't use reservation row id like "RE-123" as a lead id,
@@ -219,32 +221,107 @@ export default function ReservationsReport() {
       notes: reservation.type ? `${reservation.type} | ${reservation.value || 0} EGP` : ''
     };
 
+    const pickBestLeadMatch = (list) => {
+      if (!Array.isArray(list) || list.length === 0) {
+        return null;
+      }
+
+      const normalized = list.filter(Boolean);
+
+      if (leadId) {
+        const byId = normalized.find((lead) => String(lead?.id || '') === String(leadId));
+        if (byId) {
+          return byId;
+        }
+      }
+
+      if (digits) {
+        const exactPhoneAndName = normalized.find((lead) => {
+          const leadDigits = String(lead?.phone || '').replace(/[^0-9]/g, '');
+          const leadName = String(lead?.name || lead?.fullName || '').trim().toLowerCase();
+          return leadDigits === digits && leadName === reservationName;
+        });
+        if (exactPhoneAndName) {
+          return exactPhoneAndName;
+        }
+
+        const exactPhone = normalized.find((lead) => {
+          const leadDigits = String(lead?.phone || '').replace(/[^0-9]/g, '');
+          return leadDigits === digits;
+        });
+        if (exactPhone) {
+          return exactPhone;
+        }
+      }
+
+      if (reservationName) {
+        const exactName = normalized.find((lead) => {
+          const leadName = String(lead?.name || lead?.fullName || '').trim().toLowerCase();
+          return leadName === reservationName;
+        });
+        if (exactName) {
+          return exactName;
+        }
+      }
+
+      return normalized[0] || null;
+    };
+
+    const searchLeadList = async (searchValue) => {
+      if (!searchValue) {
+        return null;
+      }
+
+      const listRes = await api.get('/api/leads', {
+        params: {
+          search: searchValue,
+          per_page: 25,
+        },
+      });
+
+      const list = Array.isArray(listRes.data?.data)
+        ? listRes.data.data
+        : (Array.isArray(listRes.data) ? listRes.data : []);
+
+      return pickBestLeadMatch(list);
+    };
+
     if (leadId) {
       try {
         const res = await api.get(`/api/leads/${leadId}`);
         const leadFromServer = res.data?.data || res.data;
-        setSelectedLead(leadFromServer || fallbackLead);
-      } catch (error) {
-        console.warn('Failed to load lead details, using reservation fallback', error);
-        setSelectedLead(fallbackLead);
-      }
-    } else {
-      // Best-effort: for older reservation records that were saved without lead_id, try lookup by phone.
-      const digits = String(reservation.contact || '').replace(/[^0-9]/g, '');
-      if (digits) {
-        try {
-          const listRes = await api.get('/api/leads', { params: { search: digits, per_page: 10 } });
-          const list = Array.isArray(listRes.data?.data) ? listRes.data.data : (Array.isArray(listRes.data) ? listRes.data : []);
-          const exact = list.find(l => String(l?.phone || '').replace(/[^0-9]/g, '') === digits);
-          setSelectedLead(exact || list[0] || fallbackLead);
-        } catch (error) {
-          console.warn('Failed to lookup lead by phone, using reservation fallback', error);
-          setSelectedLead(fallbackLead);
+        if (leadFromServer?.id) {
+          setSelectedLead(leadFromServer);
+          setShowLeadModal(true);
+          return;
         }
-      } else {
-        setSelectedLead(fallbackLead);
+      } catch (error) {
+        console.warn('Failed to load lead by reservation lead_id, trying lead search fallback', error);
       }
     }
+
+    try {
+      let matchedLead = null;
+
+      if (digits) {
+        matchedLead = await searchLeadList(digits);
+      }
+
+      if (!matchedLead && reservation.customer) {
+        matchedLead = await searchLeadList(reservation.customer);
+      }
+
+      if (matchedLead?.id) {
+        setSelectedLead(matchedLead);
+      } else {
+        console.warn('Failed to resolve real lead from reservation row, using final fallback.');
+        setSelectedLead(fallbackLead);
+      }
+    } catch (error) {
+      console.warn('Failed to lookup lead from reservations report, using final fallback', error);
+      setSelectedLead(fallbackLead);
+    }
+
     setShowLeadModal(true);
   };
 

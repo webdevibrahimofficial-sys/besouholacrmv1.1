@@ -521,6 +521,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
+  const canViewAgenciesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('userManagement')
   const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')
   const canViewLocationsSettings =
     hasFullSettingsAccess || effectiveControlPerms.some(p => ['addRegions', 'addArea'].includes(p))
@@ -2062,6 +2063,11 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                         {canViewContractsSettings && (
                           <NavLink to="/settings/operations/contracts" onClick={onClose} title={isCollapsed ? t('Contracts Settings') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
                             <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><FileText size={18} /></span><span className="text-[14px] link-label">{t('Contracts Settings')}</span></span>
+                          </NavLink>
+                        )}
+                        {canViewAgenciesSettings && (
+                          <NavLink to="/settings/system/agencies" onClick={onClose} title={isCollapsed ? t('Agencies') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
+                            <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><Building2 size={18} /></span><span className="text-[14px] link-label">{t('Agencies')}</span></span>
                           </NavLink>
                         )}
                         {canViewSourcesSettings && (

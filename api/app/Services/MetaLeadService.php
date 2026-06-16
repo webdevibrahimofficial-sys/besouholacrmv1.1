@@ -8,6 +8,7 @@ use App\Models\Integration;
 use App\Models\MetaPage;
 use App\Models\MetaConnection;
 use App\Models\Campaign;
+use App\Models\Source;
 use Illuminate\Support\Facades\Log;
 use App\Models\User;
 use App\Notifications\MetaConnectionLostNotification;
@@ -23,22 +24,7 @@ class MetaLeadService
 
     protected function resolveLeadSource(array $data): string
     {
-        $candidates = [
-            $data['campaign_name'] ?? null,
-            $data['ad_name'] ?? null,
-            $data['form_name'] ?? null,
-            $data['campaign_id'] ?? null,
-            $data['form_id'] ?? null,
-        ];
-
-        foreach ($candidates as $candidate) {
-            $value = trim((string) ($candidate ?? ''));
-            if ($value !== '') {
-                return $value;
-            }
-        }
-
-        return 'meta';
+        return 'Meta Ads';
     }
 
     public function processLead($tenantId, $leadId, $pageId = null, $accessToken = null)
@@ -109,6 +95,10 @@ class MetaLeadService
                 'fields' => 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,form_name,field_data',
             ]);
 
+            if ($pageId && empty($data['page_id'])) {
+                $data['page_id'] = (string) $pageId;
+            }
+
             $this->storeLead($tenantId, $data, $integration);
 
         } catch (\Exception $e) {
@@ -133,6 +123,8 @@ class MetaLeadService
         if (!$integration) {
             $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
         }
+
+        $this->ensureMetaSourceExists($tenantId);
 
         // Parse field_data to get name, email, phone
         // Meta returns field_data as an array of objects: [{name: "email", values: ["..."]}, ...]
@@ -242,11 +234,14 @@ class MetaLeadService
         }
 
         $resolvedSource = $this->resolveLeadSource($data);
+        $pageContext = $this->resolvePageContext($tenantId, $data);
+        $agencyName = $this->resolveAgencyName($data, $pageContext);
 
         $leadData = array_merge([
             'name' => $name,
             'email' => $email,
             'phone' => $phone,
+            'stage' => 'New Lead',
             'source' => $resolvedSource,
             'platform' => 'facebook',
             'is_organic' => false,
@@ -258,9 +253,20 @@ class MetaLeadService
             'ad_name' => $data['ad_name'] ?? null,
             'form_id' => $data['form_id'] ?? null,
             'meta_data' => [
+                'provider' => 'meta',
+                'agency_id' => $pageContext['agency_id'] ?? null,
+                'agency' => $agencyName,
+                'source' => $resolvedSource,
+                'page_id' => $pageContext['page_id'] ?? ($data['page_id'] ?? null),
+                'page_name' => $pageContext['page_name'] ?? ($data['page_name'] ?? null),
                 'form_id' => $data['form_id'] ?? null, 
                 'form_name' => $data['form_name'] ?? null,
+                'campaign_id' => $data['campaign_id'] ?? null,
                 'campaign_name' => $data['campaign_name'] ?? null,
+                'adset_id' => $data['adset_id'] ?? null,
+                'adset_name' => $data['adset_name'] ?? null,
+                'ad_id' => $data['ad_id'] ?? null,
+                'ad_name' => $data['ad_name'] ?? null,
                 'fields' => $fields->toArray(),
                 'custom_questions' => $unmappedFields, // Explicitly store unmapped fields here
                 'raw_payload' => $data
@@ -275,6 +281,58 @@ class MetaLeadService
             ],
             $leadData
         );
+    }
+
+    protected function ensureMetaSourceExists(int $tenantId): void
+    {
+        Source::firstOrCreate(
+            ['tenant_id' => $tenantId, 'name' => 'Meta Ads'],
+            ['is_active' => true]
+        );
+    }
+
+    protected function resolvePageContext(int $tenantId, array $data): array
+    {
+        $pageId = trim((string) ($data['page_id'] ?? ''));
+        $pageName = trim((string) ($data['page_name'] ?? ''));
+
+        if ($pageId === '') {
+            return [
+                'page_id' => null,
+                'page_name' => $pageName !== '' ? $pageName : null,
+                'agency_id' => null,
+            ];
+        }
+
+        $page = MetaPage::query()
+            ->where('tenant_id', $tenantId)
+            ->where('page_id', $pageId)
+            ->first();
+
+        return [
+            'page_id' => $pageId,
+            'page_name' => $page?->page_name ?: ($pageName !== '' ? $pageName : null),
+            'agency_id' => $page?->agency_id,
+        ];
+    }
+
+    protected function resolveAgencyName(array $data, array $pageContext): ?string
+    {
+        $candidates = [
+            $data['agency'] ?? null,
+            data_get($data, 'meta_data.agency'),
+            $pageContext['page_name'] ?? null,
+            $data['page_name'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $value = trim((string) ($candidate ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     protected function resolveFallbackConnection($tenantId): ?MetaConnection

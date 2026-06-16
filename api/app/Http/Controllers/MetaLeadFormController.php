@@ -7,9 +7,12 @@ use App\Models\Integration;
 use App\Models\MetaPage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Support\AppliesAgencyScope;
 
 class MetaLeadFormController extends Controller
 {
+    use AppliesAgencyScope;
+
     public function __construct(protected MetaApiClientInterface $apiClient)
     {
     }
@@ -27,7 +30,9 @@ class MetaLeadFormController extends Controller
         }
 
         $pages = MetaPage::where('tenant_id', $tenantId)
-            ->where('is_active', true)
+            ->where('is_active', true);
+        $this->applyAgencyScope($pages, $user);
+        $pages = $pages
             ->get(['id', 'page_id', 'page_name', 'page_token']);
 
         $forms = [];
@@ -101,4 +106,3 @@ class MetaLeadFormController extends Controller
         return response()->json(['message' => 'Form mapping saved', 'settings' => $integration->settings]);
     }
 }
-

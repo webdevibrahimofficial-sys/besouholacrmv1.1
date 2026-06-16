@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Lead;
 use App\Models\Export;
+use App\Support\TenantSourceLookup;
 
 class ExcelImportController extends Controller
 {
@@ -34,9 +35,16 @@ class ExcelImportController extends Controller
 
                     if (empty($data)) continue;
 
+                    $sourceInput = trim((string) ($data['source'] ?? ''));
+                    $resolvedSourceName = TenantSourceLookup::resolveName($user->tenant_id, $sourceInput);
+                    if (!$resolvedSourceName) {
+                        $failedRows++;
+                        continue;
+                    }
+                    $data['source'] = $resolvedSourceName;
+
                     Lead::create(array_merge([
                         'tenant_id' => $user->tenant_id,
-                        'source' => 'import',
                         'status' => 'new',
                         'priority' => 'medium',
                     ], $data));
@@ -152,6 +160,11 @@ class ExcelImportController extends Controller
                     if (!$src || strtolower((string)$src) === 'import') {
                         $src = 'cold-call';
                     }
+                    $resolvedSourceName = TenantSourceLookup::resolveName($user->tenant_id, $src);
+                    if (!$resolvedSourceName) {
+                        $failedRows++;
+                        continue;
+                    }
                     $lead = Lead::create([
                         'tenant_id' => $user->tenant_id,
                         'name' => $leadData['name'] ?? 'Unknown',
@@ -160,7 +173,7 @@ class ExcelImportController extends Controller
                         'company' => $leadData['company'] ?? null,
                         'status' => $leadData['status'] ?? 'new',
                         'priority' => $leadData['priority'] ?? 'medium',
-                        'source' => $src,
+                        'source' => $resolvedSourceName,
                         'campaign' => $leadData['campaign'] ?? null,
                         'assigned_to' => $leadData['assigned_to'] ?? null,
                         'estimated_value' => $leadData['estimated_value'] ?? 0,

@@ -1530,7 +1530,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     }
   };
 
-  const getTypeLabel = (type) => {
+  function getTypeLabel(type) {
     switch (String(type).toLowerCase()) {
       case 'call': return isArabic ? '??????' : 'Call';
       case 'email': return isArabic ? '????' : 'Email';
@@ -1549,7 +1549,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       case 'note': return isArabic ? '??????' : 'Note';
       default: return isArabic ? '??? ????' : 'Unknown';
     }
-  };
+  }
 
   const toggleActionSelection = (actionId) => {
     setSelectedActions(prev =>
