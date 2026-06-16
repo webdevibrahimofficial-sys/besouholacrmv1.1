@@ -3745,6 +3745,8 @@ class LeadController extends Controller
                     }
                 }
 
+                $importedStageName = trim((string) ($row['Stage'] ?? $row['stage'] ?? ''));
+
                 if ($nextActionDate !== '') {
                     try {
                         \App\Models\LeadAction::create([
@@ -3752,7 +3754,7 @@ class LeadController extends Controller
                             'tenant_id' => $currentTenantId,
                             'user_id' => $lead->assigned_to ?: $currentUserId,
                             'action_type' => 'call',
-                            'description' => 'Imported next action',
+                            'description' => $comment !== '' ? $comment : 'Imported next action',
                             'stage_id_at_creation' => null,
                             'next_action_type' => 'call',
                             'details' => array_filter([
@@ -3761,6 +3763,8 @@ class LeadController extends Controller
                                 'status' => 'scheduled',
                                 'source' => 'import',
                                 'priority' => $lead->priority ?? 'medium',
+                                'imported_stage' => $importedStageName !== '' ? $importedStageName : null,
+                                'stage_at_creation_name' => $importedStageName !== '' ? $importedStageName : null,
                             ], fn($v) => $v !== null && $v !== ''),
                         ]);
                     } catch (\Throwable $e) {
@@ -3769,7 +3773,7 @@ class LeadController extends Controller
                 }
 
                 // Import comment -> record as an action (so it appears in Last Comment + Actions timeline)
-                if ($comment !== '') {
+                if ($comment !== '' && $nextActionDate === '') {
                     try {
                         \App\Models\LeadAction::create([
                             'lead_id' => $lead->id,
@@ -3782,6 +3786,8 @@ class LeadController extends Controller
                             'details' => array_filter([
                                 'status' => 'done',
                                 'source' => 'import',
+                                'imported_stage' => $importedStageName !== '' ? $importedStageName : null,
+                                'stage_at_creation_name' => $importedStageName !== '' ? $importedStageName : null,
                             ], fn($v) => $v !== null && $v !== ''),
                         ]);
                     } catch (\Throwable $e) {

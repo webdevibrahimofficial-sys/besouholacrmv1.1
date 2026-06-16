@@ -53,8 +53,9 @@ try {
 } catch {}
 
 const queryClient = new QueryClient()
+const APP_BUILD_ID = '2026-06-16-fix-login-bundle'
 
-console.log('CRM App Initialized - Version: ' + new Date().toISOString())
+console.log('CRM App Initialized - Version: ' + new Date().toISOString(), APP_BUILD_ID)
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

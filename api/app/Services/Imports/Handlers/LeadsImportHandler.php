@@ -516,7 +516,11 @@ class LeadsImportHandler implements ImportHandler
                     ], fn ($value) => $value !== null && $value !== '')
                 );
 
+                $importedStageName = trim((string) ($normalized['stage'] ?? ''));
+
                 // Next action creation (optional, best-effort).
+                // If the row already contains a comment, collapse both into one action
+                // so the timeline shows a single actionable record instead of Call + Comment.
                 if ($nextActionAt && !$shouldCollapseIntoOperationalAction) {
                     $time = $nextActionAt->format('H:i');
                     try {
@@ -525,7 +529,7 @@ class LeadsImportHandler implements ImportHandler
                             'tenant_id' => $tenantId,
                             'user_id' => $lead->assigned_to ?: $uploaderId,
                             'action_type' => 'call',
-                            'description' => 'Imported next action',
+                            'description' => $comment !== '' ? $comment : 'Imported next action',
                             'stage_id_at_creation' => null,
                             'next_action_type' => 'call',
                             'details' => array_filter([
@@ -534,6 +538,8 @@ class LeadsImportHandler implements ImportHandler
                                 'status' => 'scheduled',
                                 'source' => 'import',
                                 'priority' => $lead->priority ?? 'medium',
+                                'imported_stage' => $importedStageName !== '' ? $importedStageName : null,
+                                'stage_at_creation_name' => $importedStageName !== '' ? $importedStageName : null,
                             ], fn ($v) => $v !== null && $v !== ''),
                         ]);
                     } catch (\Throwable $e) {
@@ -544,7 +550,7 @@ class LeadsImportHandler implements ImportHandler
                 // Import comments -> record as an action (so it appears in Last Comment + Actions timeline).
                 // If an Action Date is provided in the sheet, use it as the action "performed at" date (and created_at)
                 // so that it counts as an action performed on that date.
-                if ($comment !== '' && !$shouldCollapseIntoOperationalAction) {
+                if ($comment !== '' && !$shouldCollapseIntoOperationalAction && !$nextActionAt) {
                     $actionDateRaw = trim((string) ($normalized['action_date'] ?? $normalized['actionDate'] ?? $firstActionDateRaw ?? $creationDateRaw ?? ''));
                     $actionAt = $this->parseYmdDate($actionDateRaw);
                     try {
@@ -552,6 +558,8 @@ class LeadsImportHandler implements ImportHandler
                             'status' => 'done',
                             'source' => 'import',
                             'import_job_id' => (int) $job->id,
+                            'imported_stage' => $importedStageName !== '' ? $importedStageName : null,
+                            'stage_at_creation_name' => $importedStageName !== '' ? $importedStageName : null,
                         ];
 
                         if ($actionAt) {

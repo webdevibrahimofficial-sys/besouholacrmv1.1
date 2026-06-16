@@ -5,6 +5,25 @@
   RewriteCond %{HTTP_HOST} ^besouholacrm\.net$ [NC]
   RewriteRule ^(.*)$ https://www.besouholacrm.net/$1 [L,R=301]
 
+  # Correct MIME types for JavaScript modules
+  <IfModule mod_mime.c>
+    AddType application/javascript .js
+    AddType application/javascript .mjs
+  </IfModule>
+
+  # Prevent stale app shell and service worker caches after deployments
+  <IfModule mod_headers.c>
+    <FilesMatch "^(index\.html|sw\.js|service-worker\.js)$">
+      Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+      Header set Pragma "no-cache"
+      Header set Expires "0"
+    </FilesMatch>
+
+    <FilesMatch "\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2)$">
+      Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+  </IfModule>
+
   # Existing React Rewrite Rules
   RewriteBase /
   RewriteRule ^index\.html$ - [L]

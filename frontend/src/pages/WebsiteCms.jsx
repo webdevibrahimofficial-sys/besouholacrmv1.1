@@ -288,6 +288,34 @@ const carouselSettingsTabLabels = {
   result_cta: 'Result & CTA',
 }
 
+const normalizeWebsiteSettingsObject = (value, fallback = {}) => {
+  if (Array.isArray(value)) return value
+  if (value && typeof value === 'object') return value
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (parsed && typeof parsed === 'object') {
+        return parsed
+      }
+    } catch {
+      return fallback
+    }
+  }
+
+  return fallback
+}
+
+const normalizeWebsiteSettings = (value) => {
+  const base = value && typeof value === 'object' ? { ...value } : {}
+
+  return {
+    ...base,
+    social_links: normalizeWebsiteSettingsObject(base.social_links, {}),
+    contact_page_content: normalizeWebsiteSettingsObject(base.contact_page_content, {}),
+  }
+}
+
 export default function WebsiteCms() {
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
@@ -473,7 +501,7 @@ export default function WebsiteCms() {
         systemCompanyWebsiteService.getCareerRoles(),
         systemCompanyWebsiteService.getCareerApplications(),
       ])
-      setSettings(settingsData)
+      setSettings(normalizeWebsiteSettings(settingsData))
       setSections(sectionsData)
       setServices(servicesData)
       setCareerPage(careerPageData)
@@ -644,11 +672,12 @@ export default function WebsiteCms() {
     setMessage('')
     setError('')
     try {
+      const normalizedSettings = normalizeWebsiteSettings(settings)
       const hasLogoFile = Boolean(brandingFiles.logo)
-      const payload = hasLogoFile ? new FormData() : settings
+      const payload = hasLogoFile ? new FormData() : normalizedSettings
 
       if (hasLogoFile) {
-        Object.entries(settings || {}).forEach(([key, value]) => {
+        Object.entries(normalizedSettings || {}).forEach(([key, value]) => {
           if (value == null) return
           if (typeof value === 'boolean') {
             payload.append(key, value ? '1' : '0')
@@ -664,7 +693,7 @@ export default function WebsiteCms() {
       }
 
       const updated = await systemCompanyWebsiteService.updateSettings(payload)
-      setSettings(updated)
+      setSettings(normalizeWebsiteSettings(updated))
       setBrandingFiles({ logo: null })
       setMessage('Website settings saved successfully.')
     } catch (err) {
