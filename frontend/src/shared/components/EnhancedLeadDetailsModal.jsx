@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../context/ThemeProvider';
 import { useAppState } from '../context/AppStateProvider';
-import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt } from 'react-icons/fa';
+import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt, FaHistory } from 'react-icons/fa';
 
 import AddActionModal from '../../components/AddActionModal';
 import EditLeadModal from '../../components/EditLeadModal';
@@ -22,7 +22,7 @@ import { getLeadPermissionFlags } from '../../services/leadPermissions';
 import { getPhoneDigits } from '../utils/phoneDisplay'
 import { buildLeadTransferPayload } from '../utils/leadTransfer'
 
-const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId }) => {
+const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId, onImportHistory }) => {
   const { theme: contextTheme, resolvedTheme } = useTheme();
   const { user, company, crmSettings } = useAppState();
   const theme = resolvedTheme || contextTheme || propTheme;
@@ -2489,15 +2489,26 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
               {/* Simple header with Add button */}
               <div className="flex items-center justify-between mb-2">
                 <h3 className={`${isLight ? 'text-black' : 'text-white'} font-semibold`}>{isArabic ? 'الإجراءات' : 'Actions'}</h3>
-                {canAddAction && (
-                  <button
-                    onClick={() => setShowAddActionModal(true)}
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-                  >
-                    <FaPlus />
-                    {isArabic ? 'إضافة إجراء جديد' : 'Add New Action'}
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {typeof onImportHistory === 'function' && (
+                    <button
+                      onClick={() => onImportHistory(effectiveLead || lead)}
+                      className="bg-violet-500 hover:bg-violet-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+                    >
+                      <FaHistory />
+                      {isArabic ? 'استيراد الهيستوري' : 'Import History'}
+                    </button>
+                  )}
+                  {canAddAction && (
+                    <button
+                      onClick={() => setShowAddActionModal(true)}
+                      className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+                    >
+                      <FaPlus />
+                      {isArabic ? 'إضافة إجراء جديد' : 'Add New Action'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Search and Filters (Status & Type) */}

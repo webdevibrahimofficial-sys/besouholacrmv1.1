@@ -955,7 +955,8 @@ class LeadsImportHandler implements ImportHandler
         array $meta,
         array $supplementalDetails = []
     ): void {
-        $description = 'Auto-created from imported stage';
+        $importedComment = trim((string) ($supplementalDetails['imported_comment'] ?? ''));
+        $description = $importedComment !== '' ? $importedComment : 'Auto-created from imported stage';
 
         $exists = LeadAction::query()
             ->where('lead_id', $lead->id)

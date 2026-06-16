@@ -470,8 +470,22 @@ class ImportJobController extends Controller
             'exception' => $this->humanizeReasonMessage($reasonMessage, $module, $isAr),
         ];
 
+        $leadHistoryCodes = [
+            'context_row' => $isAr ? 'صف سياقي فقط بدون أكشن' : 'Context-only row',
+            'missing_match_fields' => $isAr ? 'اسم العميل أو الهاتف مطلوب للمطابقة' : 'Client name or phone is required for matching',
+            'lead_not_found' => $isAr ? 'لم يتم العثور على الليد المطابقة' : 'Matching lead not found',
+            'ambiguous_lead_match' => $isAr ? 'يوجد أكثر من ليد مطابقة لنفس البيانات' : 'More than one lead matches this history row',
+            'duplicate_history_entry' => $isAr ? 'هذا السجل التاريخي موجود بالفعل' : 'Equivalent history entry already exists',
+            'invalid_row' => $isAr ? 'صف غير صالح' : 'Invalid row',
+            'exception' => $this->humanizeReasonMessage($reasonMessage, $module, $isAr),
+        ];
+
         if ($module === 'leads' && isset($leadCodes[$code])) {
             return $leadCodes[$code];
+        }
+
+        if ($module === 'lead_history' && isset($leadHistoryCodes[$code])) {
+            return $leadHistoryCodes[$code];
         }
 
         if ($code === 'exception') {
@@ -543,7 +557,7 @@ class ImportJobController extends Controller
         ]);
 
         $module = Str::of($validated['module'])->lower()->trim()->toString();
-        if (!in_array($module, ['leads', 'lead'], true)) {
+        if (!in_array($module, ['leads', 'lead', 'lead_history', 'lead-history', 'leadhistory', 'history'], true)) {
             return response()->json(['message' => 'Unsupported module for Phase A', 'module' => $module], 422);
         }
 
@@ -554,13 +568,19 @@ class ImportJobController extends Controller
         $job = ImportJob::create([
             'tenant_id' => $user->tenant_id,
             'uploaded_by' => $user->id,
-            'module' => $module === 'lead' ? 'leads' : $module,
+            'module' => match ($module) {
+                'lead' => 'leads',
+                'lead-history', 'leadhistory', 'history' => 'lead_history',
+                default => $module,
+            },
             'file_name' => $fileName,
             'source' => 'json',
             'status' => 'processing',
             'started_at' => now(),
             'meta_data' => [
-                'update_existing' => (bool) ($validated['updateExisting'] ?? false),
+                'update_existing' => $module === 'leads'
+                    ? (bool) ($validated['updateExisting'] ?? false)
+                    : false,
             ],
         ]);
 
@@ -627,7 +647,10 @@ class ImportJobController extends Controller
             Export::create([
                 'tenant_id' => $tenantId,
                 'user_id' => $userId,
-                'module' => 'Leads',
+                'module' => match ($job->module) {
+                    'lead_history' => 'Lead History',
+                    default => 'Leads',
+                },
                 'action' => 'import',
                 'file_name' => $job->file_name ?? ('import_job_' . $job->id),
                 'status' => in_array($job->status, ['completed', 'completed_with_issues'], true) ? 'success' : 'failed',
@@ -730,6 +753,21 @@ class ImportJobController extends Controller
                 'priority' => 'Priority',
                 'notes' => 'Notes',
                 'company' => 'Company',
+            ];
+        } elseif ($module === 'lead_history') {
+            $preferred = [
+                'name' => 'Client Name',
+                'phone' => 'Mobile',
+                'phone_country' => 'Phone Country',
+                'stage' => 'Stage',
+                'action_at' => 'Action Date',
+                'follow_date' => 'Follow Date',
+                'date' => 'Date',
+                'assigned_to' => 'Sales Rep',
+                'sales_rep' => 'Sales Rep',
+                'sales_person' => 'Sales Person',
+                'comment' => 'Comment',
+                'notes' => 'Notes',
             ];
         }
 

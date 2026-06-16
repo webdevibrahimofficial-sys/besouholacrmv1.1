@@ -4,6 +4,7 @@ namespace App\Services\Imports;
 
 use App\Models\ImportJob;
 use App\Services\Imports\Contracts\ImportHandler;
+use App\Services\Imports\Handlers\LeadHistoryImportHandler;
 use App\Services\Imports\Handlers\LeadsImportHandler;
 use Illuminate\Support\Str;
 
@@ -15,6 +16,7 @@ class ImportService
 
         return match ($module) {
             'leads', 'lead' => app(LeadsImportHandler::class),
+            'lead_history', 'lead-history', 'leadhistory', 'history' => app(LeadHistoryImportHandler::class),
             default => throw new \InvalidArgumentException("Unsupported import module: {$module}"),
         };
     }
@@ -30,4 +32,3 @@ class ImportService
         $handler->handle($job, $rows, $mapping, $options);
     }
 }
-

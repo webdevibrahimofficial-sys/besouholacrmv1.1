@@ -11,11 +11,12 @@ import { useNavigate, useLocation } from 'react-router-dom'
  // Import the custom checkbox
 import * as XLSX from 'xlsx'
 import * as LucideIcons from 'lucide-react'
-import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEnvelope, FaWhatsapp, FaEye, FaPhone, FaChevronLeft, FaChevronRight, FaClone, FaExchangeAlt, FaUserTie, FaUserCheck, FaTrash, FaDownload, FaList } from 'react-icons/fa'
+import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEnvelope, FaWhatsapp, FaEye, FaPhone, FaChevronLeft, FaChevronRight, FaClone, FaExchangeAlt, FaUserTie, FaUserCheck, FaTrash, FaDownload, FaList, FaHistory } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import ReAssignLeadModal from '../shared/components/ReAssignLeadModal'
 import ImportLeadsModal from '../components/ImportLeadsModal'
+import ImportLeadHistoryModal from '../components/ImportLeadHistoryModal'
 import AddActionModal from '../components/AddActionModal'
 import ColumnToggle from '../components/ColumnToggle'
 import CompareLeadsModal from '../components/CompareLeadsModal'
@@ -257,10 +258,30 @@ export const Leads = () => {
   const [importError, setImportError] = useState('')
   const [importSummary, setImportSummary] = useState(null)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showImportMenu, setShowImportMenu] = useState(false)
+  const [historyExcelFile, setHistoryExcelFile] = useState(null)
+  const [historyImporting, setHistoryImporting] = useState(false)
+  const [historyImportError, setHistoryImportError] = useState('')
+  const [historyImportSummary, setHistoryImportSummary] = useState(null)
+  const [showHistoryImportModal, setShowHistoryImportModal] = useState(false)
+  const [historySelectedSheet, setHistorySelectedSheet] = useState('')
+  const [historyImportLeadContext, setHistoryImportLeadContext] = useState(null)
   const [stageDefs, setStageDefs] = useState([])
   const [isMobile, setIsMobile] = useState(false)
   const [isDataLoaded, setIsDataLoaded] = useState(false)
   const [initialActionId, setInitialActionId] = useState(null)
+  const importMenuRef = useRef(null)
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(event.target)) {
+        setShowImportMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     if (!canShowCreator && createdByFilter.length) {
@@ -1509,6 +1530,17 @@ if (!s) {
     comment: ['comment', 'تعليق', 'comments', 'تعليق إضافي']
   }
 
+  const leadHistoryHeaderMap = {
+    name: ['client name', 'name', 'lead name', 'customer name', 'Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„', 'Ø§Ù„Ø§Ø³Ù…'],
+    phone: ['mobile', 'phone', 'contact', 'Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„', 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ', 'Ø§Ù„Ù‡Ø§ØªÙ'],
+    phone_country: ['phone country', 'phone_country', 'country code', 'countrycode', 'Ø±Ù…Ø² Ø§Ù„Ø¯ÙˆÙ„Ø©', 'ÙƒÙˆØ¯ Ø§Ù„Ø¯ÙˆÙ„Ø©'],
+    stage: ['stage', 'status', 'action type', 'Ø§Ù„Ù…Ø±Ø­Ù„Ø©', 'Ø§Ù„Ø§Ø³ØªÙŠØ¯Ø¬'],
+    action_at: ['action date', 'follow date', 'date', 'history date', 'ØªØ§Ø±ÙŠØ®', 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'],
+    follow_date: ['follow date', 'next follow date', 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'],
+    assigned_to: ['sales rep', 'sales person', 'assigned to', 'assignedto', 'Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨', 'Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„'],
+    comment: ['comment', 'comments', 'note', 'notes', 'ØªØ¹Ù„ÙŠÙ‚', 'Ù…Ù„Ø§Ø­Ø¸Ø©'],
+  }
+
   const findValue = (row, keys) => {
     if (!Array.isArray(keys) || !keys.length) return ''
     const rowKeys = Object.keys(row || {})
@@ -1521,6 +1553,79 @@ if (!s) {
       }
     }
     return ''
+  }
+
+  const findHeaderMapping = (headers, aliasesMap) => {
+    const normalizedHeaders = Array.isArray(headers)
+      ? headers.map((header) => ({ header, normalized: normalizeKey(header) }))
+      : []
+
+    return Object.entries(aliasesMap || {}).reduce((acc, [field, aliases]) => {
+      const match = normalizedHeaders.find(({ normalized }) =>
+        Array.isArray(aliases) && aliases.some((alias) => normalized === normalizeKey(alias))
+      )
+
+      if (match?.header) {
+        acc[match.header] = field
+      }
+
+      return acc
+    }, {})
+  }
+
+  const loadImportJobRows = async (jobId) => {
+    if (!jobId) return []
+    const rowsRes = await api.get(`/api/import-jobs/${jobId}/rows`, { params: { per_page: 200 } })
+    return Array.isArray(rowsRes.data?.data) ? rowsRes.data.data : (Array.isArray(rowsRes.data) ? rowsRes.data : [])
+  }
+
+  const buildImportSummary = (summary, jobId, jobRows = []) => {
+    const successRows = Number(summary?.success_rows ?? 0) || 0
+    const duplicateRows = Number(summary?.duplicate_rows ?? 0) || 0
+    const skippedRows = Number(summary?.skipped_rows ?? 0) || 0
+    const failedRows = Number(summary?.failed_rows ?? 0) || 0
+    const warningRows = Number(summary?.warning_rows ?? 0) || 0
+
+    const duplicateExisting = Array.isArray(jobRows)
+      ? jobRows.filter((row) => row?.reason_code === 'duplicate_existing').length
+      : 0
+    const duplicateInFile = Array.isArray(jobRows)
+      ? jobRows.filter((row) => row?.reason_code === 'duplicate_in_file').length
+      : 0
+
+    const errors = []
+    if (Array.isArray(jobRows)) {
+      jobRows.forEach((row) => {
+        const rowNo = row?.row_number ?? ''
+        const status = String(row?.status || '')
+        if (status === 'failed' || status === 'skipped') {
+          const message = row?.reason_message
+            ? String(row.reason_message)
+            : (status === 'skipped' ? 'Row skipped' : 'Row failed')
+          errors.push(`Row ${rowNo}: ${message}`)
+        }
+        if (Array.isArray(row?.warnings) && row.warnings.length) {
+          row.warnings.forEach((warning) => {
+            const message = String(warning?.message || warning?.code || 'Warning')
+            errors.push(`Row ${rowNo}: ${message}`)
+          })
+        }
+      })
+    }
+
+    return {
+      jobId,
+      jobRows,
+      added: successRows + duplicateRows,
+      duplicates: duplicateRows,
+      duplicateExisting,
+      duplicateInFile,
+      skipped: skippedRows,
+      failed: failedRows,
+      warnings: warningRows,
+      newCount: successRows,
+      errors,
+    }
   }
 
   const parseExcelToLeads = async (file) => {
@@ -1572,6 +1677,25 @@ if (!s) {
       }
     })
     return parsed
+  }
+
+  const parseExcelToLeadHistory = async (file, selectedSheetName) => {
+    const data = await file.arrayBuffer()
+    const workbook = XLSX.read(data, { type: 'array' })
+    const activeSheetName = selectedSheetName && workbook.SheetNames.includes(selectedSheetName)
+      ? selectedSheetName
+      : workbook.SheetNames[0]
+    const worksheet = workbook.Sheets[activeSheetName]
+    const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
+    const headers = rows.length > 0 ? Object.keys(rows[0]) : []
+    const mapping = findHeaderMapping(headers, leadHistoryHeaderMap)
+
+    return {
+      rows,
+      headers,
+      mapping,
+      activeSheetName,
+    }
   }
 
   const handleExcelUpload = async () => {
@@ -1726,6 +1850,112 @@ if (!s) {
       setImporting(false)
     }
   }
+
+  const handleLeadHistoryUpload = async () => {
+    if (!historyExcelFile) {
+      setHistoryImportError('import.selectFileError')
+      return
+    }
+
+    setHistoryImporting(true)
+    setHistoryImportError(null)
+    setHistoryImportSummary(null)
+
+    try {
+      const { rows, mapping } = await parseExcelToLeadHistory(historyExcelFile, historySelectedSheet)
+
+      if (!rows.length) {
+        setHistoryImportError(isRtl ? 'Ù…Ù„Ù Ø§Ù„Ù‡ÙŠØ³ØªÙˆØ±ÙŠ ÙØ§Ø±Øº.' : 'The history file is empty.')
+        return
+      }
+
+      const mappedFields = Object.values(mapping || {})
+
+      if (!mappedFields.includes('name') && !mappedFields.includes('phone')) {
+        setHistoryImportError(
+          isRtl
+            ? 'Ù„Ø§Ø²Ù… ÙŠÙƒÙˆÙ† ÙÙŠ Ø§Ù„Ù…Ù„Ù Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø£Ùˆ Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„ Ø¹Ù„Ø´Ø§Ù† Ù†Ø±Ø¨Ø· Ø§Ù„Ù‡ÙŠØ³ØªÙˆØ±ÙŠ Ø¨Ø§Ù„Ù„ÙŠØ¯ Ø§Ù„Ø­Ù‚ÙŠÙ‚ÙŠ.'
+            : 'The history file must include either client name or mobile to match the real lead.'
+        )
+        return
+      }
+
+      const response = await api.post('/api/import-jobs', {
+        module: 'lead_history',
+        file_name: historyExcelFile?.name || 'lead_history_import.xlsx',
+        rows,
+        mapping,
+      })
+
+      const jobId = Number(response.data?.job_id || 0) || null
+      const summary = response.data?.summary || {}
+
+      let jobRows = []
+      try {
+        jobRows = await loadImportJobRows(jobId)
+      } catch {
+        jobRows = []
+      }
+
+      const builtSummary = buildImportSummary(summary, jobId, jobRows)
+      setHistoryImportSummary(builtSummary)
+      setHistoryImportError(null)
+
+      const hasIssues =
+        builtSummary.errors.length > 0 ||
+        builtSummary.skipped > 0 ||
+        builtSummary.failed > 0 ||
+        builtSummary.warnings > 0
+
+      const processedRows = Number(summary?.total_rows ?? rows.length) || rows.length
+
+      window.dispatchEvent(
+        new CustomEvent('app:toast', {
+          detail: {
+            type: builtSummary.added > 0 ? 'success' : (hasIssues ? 'warning' : 'error'),
+            message: isRtl
+              ? `ØªÙ…Øª Ù…Ø¹Ø§Ù„Ø¬Ø© ${processedRows} ØµÙ Ù‡ÙŠØ³ØªÙˆØ±ÙŠ. Ø§Ù„Ù†Ø§Ø¬Ø­: ${builtSummary.newCount}ØŒ Ø§Ù„Ù…ÙƒØ±Ø±: ${builtSummary.duplicates}ØŒ Ø§Ù„Ù…Ø´Ø§ÙƒÙ„: ${builtSummary.failed + builtSummary.skipped}.`
+              : `Processed ${processedRows} history rows. Success: ${builtSummary.newCount}, duplicates: ${builtSummary.duplicates}, issues: ${builtSummary.failed + builtSummary.skipped}.`,
+          },
+        })
+      )
+
+      if (!hasIssues) {
+        setTimeout(() => {
+          setShowHistoryImportModal(false)
+          setHistoryImportSummary(null)
+          setHistoryImportError('')
+          setHistoryExcelFile(null)
+          setHistorySelectedSheet('')
+        }, 2000)
+      }
+
+      fetchLeads()
+    } catch (err) {
+      console.error(err)
+      if (historyExcelFile) {
+        logImportEvent({
+          module: 'Lead History',
+          fileName: historyExcelFile.name,
+          format: 'xlsx',
+          status: 'failed',
+          errorMessage: err?.message,
+        })
+      }
+
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || ''
+      setHistoryImportError(backendMessage || 'import.readFileError')
+    } finally {
+      setHistoryImporting(false)
+    }
+  }
+
+  const openLeadHistoryImportModal = useCallback((leadContext = null) => {
+    setHistoryImportLeadContext(leadContext || null)
+    setHistoryImportError('')
+    setHistoryImportSummary(null)
+    setShowHistoryImportModal(true)
+  }, [])
 
 
   const [visibleColumns, setVisibleColumns] = useState({
@@ -2828,14 +3058,44 @@ if (!s) {
             </button>
           )}
           {canImportLeads && (
-            <button onClick={() => setShowImportModal(true)} className="btn btn-sm bg-blue-600 hover:bg-blue-700  border-none gap-2 max-[480px]:px-2 max-[480px]:py-1.5 max-[480px]:h-8 max-[480px]:gap-1 max-[480px]:text-xs whitespace-nowrap" >
-              <svg className="  w-3 h-3 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 3v12" />
-                <path d="M8 11l4 4 4-4" />
-                <path d="M4 20h16" />
-              </svg>
-              <span className="text-white">{t('Import')}</span>
-            </button>
+            <div className="relative" ref={importMenuRef}>
+              <button
+                onClick={() => setShowImportMenu((prev) => !prev)}
+                className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none gap-2 max-[480px]:px-2 max-[480px]:py-1.5 max-[480px]:h-8 max-[480px]:gap-1 max-[480px]:text-xs whitespace-nowrap"
+              >
+                <svg className="w-3 h-3 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 3v12" />
+                  <path d="M8 11l4 4 4-4" />
+                  <path d="M4 20h16" />
+                </svg>
+                <span className="text-white">{t('Import')}</span>
+                <FaChevronDown size={12} className={`text-white transition-transform duration-200 ${showImportMenu ? 'rotate-180' : ''}`} />
+              </button>
+              {showImportMenu && (
+                <div className={`absolute top-full ${isRtl ? 'left-0' : 'right-0'} mt-2 min-w-[220px] rounded-xl shadow-xl border z-40 overflow-hidden ${isLight ? 'bg-white border-gray-200' : 'bg-slate-900 border-slate-700'}`}>
+                  <button
+                    onClick={() => {
+                      setShowImportMenu(false)
+                      setShowImportModal(true)
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors ${isLight ? 'text-black hover:bg-blue-50' : 'text-white hover:bg-slate-800'}`}
+                  >
+                    <FaDownload className="text-blue-500" size={14} />
+                    <span>{isRtl ? 'استيراد الليدز' : 'Import Leads'}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowImportMenu(false)
+                      openLeadHistoryImportModal()
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors border-t ${isLight ? 'text-black hover:bg-indigo-50 border-gray-100' : 'text-white hover:bg-slate-800 border-slate-800'}`}
+                  >
+                    <FaHistory className="text-violet-500" size={14} />
+                    <span>{isRtl ? 'استيراد الهيستوري' : 'Import History'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -4888,6 +5148,29 @@ if (!s) {
         />
       )}
 
+      {showHistoryImportModal && (
+        <ImportLeadHistoryModal
+          isOpen={showHistoryImportModal}
+          onClose={() => {
+            setShowHistoryImportModal(false)
+            setHistoryImportError('')
+            setHistoryImportSummary(null)
+            setHistoryExcelFile(null)
+            setHistorySelectedSheet('')
+            setHistoryImportLeadContext(null)
+          }}
+          targetLead={historyImportLeadContext}
+          historyFile={historyExcelFile}
+          setHistoryFile={setHistoryExcelFile}
+          selectedSheet={historySelectedSheet}
+          setSelectedSheet={setHistorySelectedSheet}
+          onImport={handleLeadHistoryUpload}
+          importing={historyImporting}
+          importError={historyImportError}
+          importSummary={historyImportSummary}
+        />
+      )}
+
       
 
       {/* Enhanced Lead Details Modal */}
@@ -4908,6 +5191,7 @@ if (!s) {
           usersList={usersList}
           onAssign={() => fetchLeads()}
           onUpdateLead={handleUpdateLead}
+          onImportHistory={(leadContext) => openLeadHistoryImportModal(leadContext)}
           canAddAction={canAddAction}
           canShowCreator={canShowCreator}
         />

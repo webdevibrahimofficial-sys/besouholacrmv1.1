@@ -14,7 +14,7 @@ import { api, logExportEvent } from '../utils/api'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../shared/components/SearchableSelect'
 import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
-import { Filter, User, Tag, Briefcase, Trophy, ChevronDown, ChevronLeft, ChevronRight, Eye, Phone, Trash, Calendar } from 'lucide-react'
+import { Filter, User, Tag, Briefcase, Trophy, ChevronDown, ChevronLeft, ChevronRight, Eye, Phone, Calendar, Trash } from 'lucide-react'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import LeadDetailsModal from '../components/LeadDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
@@ -29,13 +29,6 @@ export default function ReservationsReport() {
   const canExport = canExportReport(user, 'Reservations Report')
   const isRTL = i18n.language === 'ar'
 
-  const isAdminOrManager = useMemo(() => {
-    if (!user) return false;
-    if (user.is_super_admin) return true;
-    const role = (user.role || '').toLowerCase();
-    return ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager', 'sales manager', 'branch manager'].includes(role);
-  }, [user]);
-
   const companyType = String(company?.company_type || '').toLowerCase()
   const isRealEstate = companyType === 'real estate'
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -47,6 +40,15 @@ export default function ReservationsReport() {
   const [sourceList, setSourceList] = useState(['all'])
   const [projectList, setProjectList] = useState(['all'])
   const [usersList, setUsersList] = useState([])
+  const [deletingReservationId, setDeletingReservationId] = useState(null)
+
+  const isAdminOrManager = useMemo(() => {
+    if (!user) return false
+    if (user.is_super_admin) return true
+
+    const role = String(user.role || '').toLowerCase()
+    return ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager', 'sales manager', 'branch manager'].includes(role)
+  }, [user])
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -117,69 +119,69 @@ export default function ReservationsReport() {
     fetchSources()
   }, [])
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const LIMIT = 1000
-        let realEstate = []
-        let inventory = []
+  const fetchData = async () => {
+    try {
+      const LIMIT = 1000
+      let realEstate = []
+      let inventory = []
 
-        if (companyType === 'real estate') {
-           realEstate = await getRealEstateRequests(1, LIMIT)
-        } else if (companyType === 'general') {
-           inventory = await getInventoryRequests(1, LIMIT)
-        } else {
-           const [re, inv] = await Promise.all([
-             getRealEstateRequests(1, LIMIT),
-             getInventoryRequests(1, LIMIT)
-           ])
-           realEstate = re
-           inventory = inv
-        }
-
-        const realEstateRows = Array.isArray(realEstate) ? realEstate.map(item => ({
-          id: `RE-${item.id}`,
-          leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
-          customer: item.customer || item.customer_name || '',
-          contact: item.phone || '',
-          reservationDateTime: item.date || item.created_at || '',
-          type: item.type || 'Booking',
-          status: item.status || '',
-          value: typeof item.amount === 'number' ? item.amount : parseFloat(item.amount || '0') || 0,
-          handledBy: (item.meta_data && (item.meta_data.created_by_name || item.meta_data.sales_person)) || '',
-          manager: '',
-          createdOn: item.created_at || '',
-          lastAction: item.updated_at || item.date || '',
-          source: item.source || '',
-          project: item.project || '',
-          meta_data: item.meta_data || null
-        })) : []
-
-        const inventoryRows = Array.isArray(inventory) ? inventory.map(item => ({
-          id: `INV-${item.id}`,
-          leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
-          customer: item.customer_name || '',
-          contact: '',
-          reservationDateTime: item.created_at || '',
-          type: item.type || '',
-          status: item.status || '',
-          value: 0,
-          handledBy: item.assigned_to || '',
-          manager: '',
-          createdOn: item.created_at || '',
-          lastAction: item.updated_at || '',
-          source: item.source || '',
-          project: item.product || item.property_unit || '',
-          meta_data: item.meta_data || null
-        })) : []
-
-        setRaw([...realEstateRows, ...inventoryRows])
-      } catch (e) {
-        console.error('Failed to load reservations data', e)
-        setRaw([])
+      if (companyType === 'real estate') {
+         realEstate = await getRealEstateRequests(1, LIMIT)
+      } else if (companyType === 'general') {
+         inventory = await getInventoryRequests(1, LIMIT)
+      } else {
+         const [re, inv] = await Promise.all([
+           getRealEstateRequests(1, LIMIT),
+           getInventoryRequests(1, LIMIT)
+         ])
+         realEstate = re
+         inventory = inv
       }
-    }
 
+      const realEstateRows = Array.isArray(realEstate) ? realEstate.map(item => ({
+        id: `RE-${item.id}`,
+        leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
+        customer: item.customer || item.customer_name || '',
+        contact: item.phone || '',
+        reservationDateTime: item.date || item.created_at || '',
+        type: item.type || 'Booking',
+        status: item.status || '',
+        value: typeof item.amount === 'number' ? item.amount : parseFloat(item.amount || '0') || 0,
+        handledBy: (item.meta_data && (item.meta_data.created_by_name || item.meta_data.sales_person)) || '',
+        manager: '',
+        createdOn: item.created_at || '',
+        lastAction: item.updated_at || item.date || '',
+        source: item.source || '',
+        project: item.project || '',
+        meta_data: item.meta_data || null
+      })) : []
+
+      const inventoryRows = Array.isArray(inventory) ? inventory.map(item => ({
+        id: `INV-${item.id}`,
+        leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
+        customer: item.customer_name || '',
+        contact: '',
+        reservationDateTime: item.created_at || '',
+        type: item.type || '',
+        status: item.status || '',
+        value: 0,
+        handledBy: item.assigned_to || '',
+        manager: '',
+        createdOn: item.created_at || '',
+        lastAction: item.updated_at || '',
+        source: item.source || '',
+        project: item.product || item.property_unit || '',
+        meta_data: item.meta_data || null
+      })) : []
+
+      setRaw([...realEstateRows, ...inventoryRows])
+    } catch (e) {
+      console.error('Failed to load reservations data', e)
+      setRaw([])
+    }
+  }
+
+  useEffect(() => {
     fetchData()
 
     const handleRealEstateUpdate = () => {
@@ -197,6 +199,65 @@ export default function ReservationsReport() {
       window.removeEventListener('inventory-requests-updated', handleInventoryUpdate)
     }
   }, [companyType])
+
+  const getReservationApiTarget = (reservation) => {
+    const rawId = String(reservation?.id || '')
+
+    if (rawId.startsWith('RE-')) {
+      return { resource: 'real-estate-requests', id: rawId.slice(3), eventName: 'real-estate-requests-updated' }
+    }
+
+    if (rawId.startsWith('INV-')) {
+      return { resource: 'inventory-requests', id: rawId.slice(4), eventName: 'inventory-requests-updated' }
+    }
+
+    return null
+  }
+
+  const handleDeleteReservation = async (reservation) => {
+    if (!isAdminOrManager || deletingReservationId) return
+
+    const target = getReservationApiTarget(reservation)
+    if (!target?.id) {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRTL ? 'تعذر تحديد السجل المطلوب حذفه' : 'Unable to resolve reservation record for deletion'
+        }
+      }))
+      return
+    }
+
+    const confirmed = window.confirm(
+      isRTL ? 'هل أنت متأكد من حذف هذا الحجز؟' : 'Are you sure you want to delete this reservation?'
+    )
+    if (!confirmed) return
+
+    setDeletingReservationId(reservation.id)
+
+    try {
+      await api.delete(`/api/${target.resource}/${target.id}`)
+      setRaw((prev) => prev.filter((row) => row.id !== reservation.id))
+      window.dispatchEvent(new Event(target.eventName))
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'success',
+          message: isRTL ? 'تم حذف الحجز بنجاح' : 'Reservation deleted successfully'
+        }
+      }))
+    } catch (error) {
+      console.error('Failed to delete reservation', error)
+      const message = error?.response?.data?.message || (isRTL ? 'فشل حذف الحجز' : 'Failed to delete reservation')
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message
+        }
+      }))
+    } finally {
+      setDeletingReservationId(null)
+    }
+  }
 
   const openLeadPreview = async (reservation) => {
     const leadId = reservation.leadId || reservation.lead_id || reservation.metaData?.lead_id || reservation.meta_data?.lead_id;
@@ -1002,7 +1063,12 @@ export default function ReservationsReport() {
                             <Phone size={16} className="text-emerald-600 dark:text-emerald-400" />
                           </button>
                           {isAdminOrManager && (
-                            <button title={isRTL ? 'حذف' : 'Delete'} className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/20">
+                            <button
+                              title={isRTL ? 'حذف' : 'Delete'}
+                              className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => handleDeleteReservation(r)}
+                              disabled={deletingReservationId === r.id}
+                            >
                               <Trash size={16} className="text-rose-600 dark:text-rose-400" />
                             </button>
                           )}

@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx'
 import { api, logImportEvent } from '../../../utils/api'
 
 export default function Import() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [file, setFile] = useState(null)
   const [target, setTarget] = useState('leads')
   const [hasHeader, setHasHeader] = useState(true)
@@ -26,6 +26,8 @@ export default function Import() {
   const [jobRowsSearch, setJobRowsSearch] = useState('')
   const [jobRowsPerPage, setJobRowsPerPage] = useState(25)
   const [jobRowsPage, setJobRowsPage] = useState(1)
+  const [sheetNames, setSheetNames] = useState([])
+  const [selectedSheet, setSelectedSheet] = useState('')
   const inputRef = useRef(null)
 
   const allowedTypes = useMemo(() => ['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], [])
@@ -33,21 +35,20 @@ export default function Import() {
   const targetFields = useMemo(() => ({
     customers: ['id','name','phone','email','status'],
     leads: ['id','name','phone','source','status'],
+    lead_history: ['name', 'phone', 'phone_country', 'stage', 'action_at', 'assigned_to', 'comment'],
     products: ['id','name','sku','price','stock'],
     users: ['id','name','email','role'],
     projects: ['id','name','city','status'],
     properties: ['id','type','area','price']
   }), [])
 
-  const importJobsSupportedTargets = useMemo(() => new Set(['leads']), [])
+  const importJobsSupportedTargets = useMemo(() => new Set(['leads', 'lead_history']), [])
   const isTargetSupported = importJobsSupportedTargets.has(String(target || '').toLowerCase())
+  const isLeadHistoryTarget = String(target || '').toLowerCase() === 'lead_history'
 
-  const parseFile = useCallback(async (f) => {
-    const buf = await f.arrayBuffer()
-    const wb = XLSX.read(buf, { type: 'array' })
-    const wsName = wb.SheetNames[0]
+  const parseWorkbookSheet = useCallback((wb, wsName) => {
     const ws = wb.Sheets[wsName]
-    const data = XLSX.utils.sheet_to_json(ws, { header: hasHeader ? 1 : 0 })
+    const data = XLSX.utils.sheet_to_json(ws, { header: hasHeader ? 1 : 0, defval: '' })
     let cols = []
     let parsedRows = []
     if (hasHeader) {
@@ -75,6 +76,53 @@ export default function Import() {
     setMapping(initMap)
     setStep(2)
   }, [hasHeader, target, targetFields])
+
+  useEffect(() => {
+    if (!file) return
+
+    let cancelled = false
+    const loadWorkbook = async () => {
+      try {
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        const names = Array.isArray(wb.SheetNames) ? wb.SheetNames : []
+
+        if (cancelled) return
+
+        setSheetNames(names)
+
+        const activeSheet = selectedSheet && names.includes(selectedSheet)
+          ? selectedSheet
+          : (names[0] || '')
+
+        if (!activeSheet) {
+          throw new Error('No worksheet found')
+        }
+
+        if (activeSheet !== selectedSheet) {
+          setSelectedSheet(activeSheet)
+        }
+
+        parseWorkbookSheet(wb, activeSheet)
+      } catch (e) {
+        if (cancelled) return
+        setStatus('error')
+        setStep(1)
+        setColumns([])
+        setRows([])
+        setMapping({})
+        setSummary({
+          error: 'invalid_file',
+          message: e?.message || 'Invalid or corrupted file',
+        })
+      }
+    }
+
+    loadWorkbook()
+    return () => {
+      cancelled = true
+    }
+  }, [file, selectedSheet, hasHeader, target, parseWorkbookSheet])
 
   const getFormatFromFile = useCallback((f) => {
     const name = String(f?.name || '').toLowerCase()
@@ -110,29 +158,10 @@ export default function Import() {
       return
     }
     setFile(f)
+    setSheetNames([])
+    setSelectedSheet('')
     setStatus('idle')
-    try {
-      await parseFile(f)
-    } catch (e) {
-      setStatus('error')
-      setStep(1)
-      setColumns([])
-      setRows([])
-      setMapping({})
-      setSummary({
-        error: 'invalid_file',
-        message: e?.message || 'Invalid or corrupted file',
-      })
-      logImportEvent({
-        module: target,
-        fileName: f.name,
-        format: getFormatFromFile(f),
-        status: 'failed',
-        errorMessage: e?.message || 'Invalid or corrupted file',
-        metaData: { reason_code: 'invalid_file' },
-      })
-    }
-  }, [allowedTypes, getFormatFromFile, parseFile, target])
+  }, [allowedTypes, getFormatFromFile, target])
 
   const onDrop = (e) => {
     e.preventDefault()
@@ -164,7 +193,7 @@ export default function Import() {
         file_name: fileName,
         rows,
         mapping,
-        updateExisting,
+        updateExisting: target === 'leads' ? updateExisting : false,
       })
 
       setSummary(resp.data)
@@ -207,6 +236,8 @@ export default function Import() {
     setJobRowsSearch('')
     setJobRowsPerPage(25)
     setJobRowsPage(1)
+    setSheetNames([])
+    setSelectedSheet('')
     setStatus('idle')
     setStep(1)
   }
@@ -323,19 +354,44 @@ export default function Import() {
               <select value={target} onChange={e=>setTarget(e.target.value)} className="input-soft w-full">
                 <option value="customers">{t('Customers')}</option>
                 <option value="leads">{t('Leads')}</option>
+                <option value="lead_history">{i18n.language === 'ar' ? 'سجل الليدز' : 'Lead History'}</option>
                 <option value="products">{t('Products')}</option>
                 <option value="users">{t('Users')}</option>
                 <option value="projects">{t('Projects')}</option>
                 <option value="properties">{t('Properties')}</option>
               </select>
+              {sheetNames.length > 1 && (
+                <div>
+                  <label className="block text-sm mt-2">{i18n.language === 'ar' ? 'ورقة العمل' : 'Worksheet'}</label>
+                  <select value={selectedSheet} onChange={e => setSelectedSheet(e.target.value)} className="input-soft w-full">
+                    {sheetNames.map((sheet) => (
+                      <option key={sheet} value={sheet}>{sheet}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-xs text-[var(--muted-text)]">
+                    {i18n.language === 'ar'
+                      ? 'اختر ورقة العمل الصحيحة إذا كان الملف يحتوي على أكثر من worksheet.'
+                      : 'Choose the correct worksheet when the file contains more than one sheet.'}
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-2 mt-2">
                 <input id="hasHeader" type="checkbox" checked={hasHeader} onChange={e=>setHasHeader(e.target.checked)} />
                 <label htmlFor="hasHeader" className="text-sm">{t('import.hasHeader')}</label>
               </div>
-              <div className="flex items-center gap-2">
-                <input id="updateExisting" type="checkbox" checked={updateExisting} onChange={e=>setUpdateExisting(e.target.checked)} />
-                <label htmlFor="updateExisting" className="text-sm">{t('import.updateExisting')}</label>
-              </div>
+              {target === 'leads' && (
+                <div className="flex items-center gap-2">
+                  <input id="updateExisting" type="checkbox" checked={updateExisting} onChange={e=>setUpdateExisting(e.target.checked)} />
+                  <label htmlFor="updateExisting" className="text-sm">{t('import.updateExisting')}</label>
+                </div>
+              )}
+              {isLeadHistoryTarget && (
+                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-xs text-blue-100">
+                  {i18n.language === 'ar'
+                    ? 'استيراد سجل الليدز يضيف Actions تاريخية فقط، ولا يغيّر الـ stage الحالية الموجودة على الليد.'
+                    : 'Lead History import adds historical actions only and does not change the lead current stage.'}
+                </div>
+              )}
               <div className="pt-2 flex items-center gap-3">
                 <button disabled={!file} onClick={() => setStep(2)} className={`px-3 py-2 rounded-lg ${!file? 'bg-gray-600 cursor-not-allowed':'bg-green-600 hover:bg-green-700'} text-white`}>{t('Next')}</button>
                 {status === 'error' && <span className="text-sm text-red-400">{t('import.unsupportedType')}</span>}
@@ -353,6 +409,11 @@ export default function Import() {
                 <button className="px-3 py-2 rounded bg-blue-600 text-white" onClick={() => setStep(3)}>{t('Next')}</button>
               </div>
             </div>
+            {selectedSheet && (
+              <div className="mb-3 text-xs text-[var(--muted-text)]">
+                {i18n.language === 'ar' ? `ورقة العمل الحالية: ${selectedSheet}` : `Current worksheet: ${selectedSheet}`}
+              </div>
+            )}
             <div className="overflow-auto">
               <table className="min-w-full text-sm">
                 <thead>
@@ -388,7 +449,9 @@ export default function Import() {
             </div>
             {!isTargetSupported && (
               <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-                Phase A supports Leads only. Other modules will be enabled after the Leads flow is stable.
+                {i18n.language === 'ar'
+                  ? 'الإصدار الحالي يدعم استيراد الليدز وسجل الليدز فقط في هذا المسار.'
+                  : 'This flow currently supports Leads and Lead History only.'}
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
