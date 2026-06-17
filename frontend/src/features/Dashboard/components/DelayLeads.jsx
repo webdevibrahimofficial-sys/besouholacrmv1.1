@@ -736,20 +736,19 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
             <thead className={`text-xs uppercase`}>
               <tr>
                 <th scope="col" className="px-6 py-3">{t('Lead Name')}</th>
-                <th scope="col" className="px-6 py-3">{t('Next Action')}</th>
                 <th scope="col" className="px-6 py-3">{t('Mobile')}</th>
                 <th scope="col" className="px-6 py-3">{t('Actions')}</th>
-                <th scope="col" className="px-6 py-3">{t('Source')}</th>
-                <th scope="col" className="px-6 py-3">{t('Sales Person')}</th>
                 <th scope="col" className="px-6 py-3">{t('Stage')}</th>
+                <th scope="col" className="px-6 py-3">{t('Source')}</th>
                 <th scope="col" className="px-6 py-3">{t('Last Comment')}</th>
+                <th scope="col" className="px-6 py-3">{t('Next Action')}</th>
                 <th scope="col" className="px-6 py-3">{t('Action Date')}</th>
               </tr>
             </thead>
             <tbody>
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     {t('No data available')}
                   </td>
                 </tr>
@@ -759,14 +758,6 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                   className={`border-b ${isLight ? 'bg-white border-gray-200 hover:bg-gray-50' : 'bg-gray-800 border-gray-700 dark:hover:bg-blue-900/25 dark:hover:shadow-md dark:hover:shadow-black/40'}`}
                 >
                   <td className="px-6 py-4">{lead.leadName}</td>
-                  <td className="px-6 py-4">
-                    {lead.nextDelayedAction ? (
-                    <div className="flex flex-col text-xs">
-                        <span className="font-semibold">{lead.nextDelayedAction.type}</span>
-                        <span className="text-gray-500">{lead.nextDelayedAction.date} {lead.nextDelayedAction.time ? String(lead.nextDelayedAction.time).slice(0,5) : ''}</span>
-                    </div>
-                    ) : '-'}
-                  </td>
                   <td className={`px-6 py-4`} dir="ltr">{displayMobile(lead.mobile, lead)}</td>
                   <td className={`px-6 py-4`}>
                     <div className="flex items-center gap-2 flex-nowrap">
@@ -826,10 +817,17 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                       </button>
                     </div>
                   </td>
-                  <td className={`px-6 py-4`}>{lead.source || '-'}</td>
-                  <td className={`px-6 py-4`}>{lead.employeeName || '-'}</td>
                   <td className={`px-6 py-4 ${isLight ? 'stage-cell' : ''}`}>{renderStageBadge(lead.pipelineStage)}</td>
+                  <td className={`px-6 py-4`}>{lead.source || '-'}</td>
                   <td className={`px-6 py-4`}>{lead.lastComment}</td>
+                  <td className="px-6 py-4">
+                    {lead.nextDelayedAction ? (
+                    <div className="flex flex-col text-xs">
+                        <span className="font-semibold">{lead.nextDelayedAction.type}</span>
+                        <span className="text-gray-500">{lead.nextDelayedAction.date} {lead.nextDelayedAction.time ? String(lead.nextDelayedAction.time).slice(0,5) : ''}</span>
+                    </div>
+                    ) : '-'}
+                  </td>
                   <td className={`px-6 py-4`}>{formatDateSafe(lead.actionDate)}</td>
                 </tr>
               ))}

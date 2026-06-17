@@ -11,7 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
  // Import the custom checkbox
 import * as XLSX from 'xlsx'
 import * as LucideIcons from 'lucide-react'
-import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEnvelope, FaWhatsapp, FaEye, FaPhone, FaChevronLeft, FaChevronRight, FaClone, FaExchangeAlt, FaUserTie, FaUserCheck, FaTrash, FaDownload, FaList, FaHistory } from 'react-icons/fa'
+import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEnvelope, FaWhatsapp, FaEye, FaPhone, FaChevronLeft, FaChevronRight, FaClone, FaExchangeAlt, FaUserTie, FaUserCheck, FaTrash, FaDownload, FaList, FaHistory, FaCopy } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import ReAssignLeadModal from '../shared/components/ReAssignLeadModal'
@@ -56,6 +56,93 @@ export const Leads = () => {
   const isRtl = String(i18n.language || '').startsWith('ar')
 
   const maskPhoneNumber = (phone, phoneCountry) => formatPhoneForDisplay(phone, { showFull: !maskMobileNumber, defaultCountryCode: phoneCountry || defaultDialCode })
+  const getLeadDefaultCountryCode = (lead) =>
+    lead?.phone_country ||
+    lead?.phoneCountry ||
+    lead?.meta_data?.phone_country ||
+    lead?.metaData?.phone_country ||
+    lead?.meta_data?.phoneCountry ||
+    lead?.metaData?.phoneCountry ||
+    defaultDialCode
+
+  const getLeadPhoneEntries = (lead) => {
+    const defaultCountryCode = getLeadDefaultCountryCode(lead)
+    const notesPhoneMatch = String(lead?.notes || '')
+      .match(/(?:^|\n)\s*Other phones?\s*:\s*([^\n]+)/i)
+    const notesOtherPhones = notesPhoneMatch?.[1] || ''
+    const values = [
+      lead?.phone,
+      lead?.mobile,
+      lead?.other_mobile,
+      lead?.otherMobile,
+      lead?.other_phone,
+      lead?.otherPhone,
+      lead?.meta_data?.other_mobile,
+      lead?.metaData?.other_mobile,
+      lead?.meta_data?.otherMobile,
+      lead?.metaData?.otherMobile,
+      lead?.meta_data?.other_phone,
+      lead?.metaData?.other_phone,
+      lead?.meta_data?.otherPhone,
+      lead?.metaData?.otherPhone,
+      lead?.custom_fields?.other_mobile,
+      lead?.custom_fields?.otherMobile,
+      lead?.custom_fields?.other_phone,
+      lead?.custom_fields?.otherPhone,
+      lead?.custom_fields?.phone2,
+      lead?.custom_fields?.phone_2,
+      lead?.custom_fields?.mobile2,
+      lead?.custom_fields?.mobile_2,
+      notesOtherPhones,
+    ]
+
+    const seen = new Set()
+    const entries = []
+
+    values.forEach((value) => {
+      const raw = String(value || '').trim()
+      if (!raw) return
+
+      getPhoneLines(raw, {
+        showFull: !maskMobileNumber,
+        defaultCountryCode,
+      }).forEach((line) => {
+        const digitsKey = String(line?.digits || '').trim()
+        const displayKey = String(line?.display || '').trim()
+        const key = digitsKey || displayKey
+        if (!key || seen.has(key)) return
+        seen.add(key)
+        entries.push({
+          display: displayKey,
+          digits: digitsKey,
+        })
+      })
+    })
+
+    return entries
+  }
+
+  const copyPhoneToClipboard = async (phone) => {
+    const value = String(phone || '').trim()
+    if (!value) return
+
+    try {
+      await navigator.clipboard.writeText(value)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'success',
+          message: isRtl ? 'تم نسخ الرقم' : 'Phone copied',
+        },
+      }))
+    } catch {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRtl ? 'تعذر نسخ الرقم' : 'Could not copy phone',
+        },
+      }))
+    }
+  }
 
   const formatYmdLocal = (date) => {
     if (!date) return ''
@@ -236,7 +323,7 @@ export const Leads = () => {
   const [whatsappIntentsFilter, setWhatsappIntentsFilter] = useState([])
   const [actionTypeFilter, setActionTypeFilter] = useState([])
   const [duplicateStatusFilter, setDuplicateStatusFilter] = useState([])
-  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortBy, setSortBy] = useState('')
   const [sortOrder, setSortOrder] = useState('desc')
   const [selectedLeads, setSelectedLeads] = useState([])
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
@@ -540,22 +627,29 @@ if (!s) {
     return parseComparableDate(composed) ?? parseComparableDate(dateRaw) ?? null
   }
 
-  const applyStageSortRule = useCallback((rows, stageValues) => {
+  const creationSortedStageValues = ['new lead', 'duplicate', 'pending', 'cold calls', 'in-progress']
+
+  const isCreationSortedStage = useCallback((lead) => {
+    const stageValue = lead?.display_stage || lead?.stage || lead?.status || ''
+    return creationSortedStageValues.includes(normalizeStageFilterValue(stageValue))
+  }, [])
+
+  const applyStageSortRule = useCallback((rows) => {
     const list = Array.isArray(rows) ? [...rows] : []
     if (list.length <= 1) return list
 
-    const rule = deriveStageSortRule(stageValues)
-    if (rule.sortBy === 'createdAt') {
-      list.sort((a, b) => {
-        const at = getLeadCreationTs(a) ?? -Infinity
-        const bt = getLeadCreationTs(b) ?? -Infinity
-        return bt - at
-      })
-      return list
-    }
-
-    // nextActionDate asc (closest first), nulls last; tiebreaker by createdAt desc.
+    // Bucket 0: creation-sorted stages, Bucket 1: the rest of the pipeline.
     list.sort((a, b) => {
+      const aBucket = isCreationSortedStage(a) ? 0 : 1
+      const bBucket = isCreationSortedStage(b) ? 0 : 1
+      if (aBucket !== bBucket) return aBucket - bBucket
+
+      if (aBucket === 0) {
+        const ac = getLeadCreationTs(a) ?? -Infinity
+        const bc = getLeadCreationTs(b) ?? -Infinity
+        return bc - ac
+      }
+
       const at = getLeadNextActionTs(a)
       const bt = getLeadNextActionTs(b)
       const aHas = at != null
@@ -563,21 +657,13 @@ if (!s) {
       if (aHas && bHas && at !== bt) return at - bt
       if (aHas && !bHas) return -1
       if (!aHas && bHas) return 1
+
       const ac = getLeadCreationTs(a) ?? -Infinity
       const bc = getLeadCreationTs(b) ?? -Infinity
       return bc - ac
     })
     return list
-  }, [deriveStageSortRule])
-
-  // Auto-apply the rule when stage filter changes (keeps UI consistent with the pipeline behavior).
-  useEffect(() => {
-    const { sortBy: desiredBy, sortOrder: desiredOrder } = deriveStageSortRule(stageFilter)
-    if (sortBy !== desiredBy) setSortBy(desiredBy)
-    if (sortOrder !== desiredOrder) setSortOrder(desiredOrder)
-    // Reset pagination so the user sees the top of the newly sorted results.
-    setCurrentPage(1)
-  }, [stageFilter, deriveStageSortRule]) 
+  }, [isCreationSortedStage])
    
   const tableHeaderBgClass = 'bg-theme-sidebar dark:bg-gray-900/95'
   const buttonBase = 'text-sm font-semibold rounded-lg transition-all duration-200 ease-out'
@@ -2801,6 +2887,30 @@ if (!s) {
     }
 
     const computeNextActionDateTime = () => {
+      const actionKeys = [
+        latestAction?.type,
+        latestAction?.action_type,
+        latestAction?.next_action_type,
+        latestAction?.stage,
+        latestDetails?.actionType,
+        latestDetails?.action_type,
+        latestDetails?.next_action_type,
+        latestDetails?.nextAction,
+        latestDetails?.stage,
+      ].map((value) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_'))
+      const isFinalAction = actionKeys.some((value) => [
+        'cancel',
+        'cancellation',
+        'cancelled',
+        'closing_deals',
+        'closing_deal',
+        'done_deal',
+        'done_deals',
+        'won',
+        'lost',
+      ].includes(value))
+      if (isFinalAction) return ''
+
       const nextActionDateRaw = latestAction?.date || latestDetails?.date || ''
       const nextActionTimeRaw = latestAction?.time || latestDetails?.time || ''
       const nextActionDatePart = String(nextActionDateRaw || '').includes('T')
@@ -2834,7 +2944,7 @@ if (!s) {
         }
         case 'contact': {
           const email = String(lead?.email || '').trim();
-          const phone = String(lead?.phone || lead?.mobile || '').trim();
+          const phone = getLeadPhoneEntries(lead).map((entry) => entry.display).join('\n');
           if (email && phone) return `${email}\n${phone}`;
           return email || phone || '-';
         }
@@ -3137,7 +3247,7 @@ if (!s) {
                 setEmailFilter('')
                 setActionTypeFilter([])
                 setDuplicateStatusFilter([])
-                setSortBy('createdAt')
+                setSortBy('')
                 setSortOrder('desc')
                 setCurrentPage(1)
               }}
@@ -3977,43 +4087,50 @@ if (!s) {
 
                       }
                       case 'contact':
+                        const phoneEntries = getLeadPhoneEntries(lead)
                         return (
                           <td key="contact" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `}>
-                            <div className={`font-normal ${isLight ? 'text-black' : 'text-white'} `}>{lead.email}</div>
-                            <div className="mt-0.5 flex flex-col gap-1">
-                              {getPhoneLines(lead.phone || lead.mobile || '', {
-                                showFull: !maskMobileNumber,
-                                defaultCountryCode:
-                                  lead.phone_country ||
-                                  lead.phoneCountry ||
-                                  lead?.meta_data?.phone_country ||
-                                  lead?.metaData?.phone_country ||
-                                  lead?.meta_data?.phoneCountry ||
-                                  lead?.metaData?.phoneCountry ||
-                                  defaultDialCode,
-                              }).map((line, idx) => (
+                            <div className={`max-w-[260px] truncate font-normal ${isLight ? 'text-black' : 'text-white'} `} title={lead.email || ''}>{lead.email}</div>
+                            <div className="mt-0.5 flex flex-col items-start gap-0.5">
+                              {phoneEntries.map((line, idx) => (
                                 <div
                                   key={idx}
-                                  className={`font-normal ${isLight ? 'text-black' : 'text-white'} hover:text-[#25D366] cursor-pointer transition-colors duration-200 flex items-center gap-1`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (line?.digits) window.open(`https://wa.me/${line.digits}`, '_blank')
-                                  }}
-                                  title={t('Open WhatsApp')}
+                                  className={`group flex max-w-[260px] items-center gap-1 font-normal ${isLight ? 'text-black' : 'text-white'}`}
                                 >
-                                  <FaWhatsapp size={12} className="text-[#25D366]" />
-                                  <span dir="ltr">
-                                    {line.display ||
-                                      maskPhoneNumber(
-                                        lead.phone,
-                                        lead.phone_country ||
-                                          lead.phoneCountry ||
-                                          lead?.meta_data?.phone_country ||
-                                          lead?.metaData?.phone_country ||
-                                          lead?.meta_data?.phoneCountry ||
-                                          lead?.metaData?.phoneCountry
-                                      )}
-                                  </span>
+                                  <span dir="ltr" className="min-w-0 truncate leading-5" title={line.display}>{line.display}</span>
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[#25D366] transition hover:opacity-80"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      if (line?.digits) window.open(`https://wa.me/${line.digits}`, '_blank')
+                                    }}
+                                    title={t('Open WhatsApp')}
+                                  >
+                                    <FaWhatsapp size={11} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-blue-600 transition hover:opacity-80 dark:text-[#60a5fa]"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      if (line?.digits) window.open(`tel:${line.digits}`)
+                                    }}
+                                    title={t('Call')}
+                                  >
+                                    <FaPhone size={10} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      copyPhoneToClipboard(line.display)
+                                    }}
+                                    title={t('Copy')}
+                                  >
+                                    <FaCopy size={10} />
+                                  </button>
                                 </div>
                               ))}
                             </div>
@@ -4120,17 +4237,7 @@ if (!s) {
                                   title={t('Call')}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    const raw = lead.phone || lead.mobile || ''
-                                    const digits = getPhoneDigits(raw, {
-                                      defaultCountryCode:
-                                        lead.phone_country ||
-                                        lead.phoneCountry ||
-                                        lead?.meta_data?.phone_country ||
-                                        lead?.metaData?.phone_country ||
-                                        lead?.meta_data?.phoneCountry ||
-                                        lead?.metaData?.phoneCountry ||
-                                        defaultDialCode,
-                                    })
+                                    const digits = getLeadPhoneEntries(lead)?.[0]?.digits || ''
                                     if (digits) window.open(`tel:${digits}`)
                                   }}
                                   className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"
@@ -4300,6 +4407,30 @@ if (!s) {
                               if (typeof details === 'string') {
                                 try { details = JSON.parse(details) } catch { details = {} }
                               }
+
+                              const actionKeys = [
+                                action.type,
+                                action.action_type,
+                                action.next_action_type,
+                                action.stage,
+                                details.actionType,
+                                details.action_type,
+                                details.next_action_type,
+                                details.nextAction,
+                                details.stage,
+                              ].map((value) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_'))
+                              const isFinalAction = actionKeys.some((value) => [
+                                'cancel',
+                                'cancellation',
+                                'cancelled',
+                                'closing_deals',
+                                'closing_deal',
+                                'done_deal',
+                                'done_deals',
+                                'won',
+                                'lost',
+                              ].includes(value))
+                              if (isFinalAction) return '-'
 
                               const dateRaw = action.date || details.date || ''
                               const timeRaw = action.time || details.time || ''

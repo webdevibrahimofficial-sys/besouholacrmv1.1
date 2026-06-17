@@ -873,7 +873,20 @@ class LeadController extends Controller
                 $query->whereIn('leads.assigned_to', (array)$request->sales_person);
             }
             if ($request->filled('manager_id')) {
-                $query->whereIn('users.manager_id', (array)$request->manager_id);
+                $requestedManagers = array_values(array_filter(array_map('trim', (array) $request->manager_id), fn($v) => $v !== ''));
+                $viewableIds = [];
+                foreach ($requestedManagers as $managerId) {
+                    $ids = $this->getViewableUserIds($user, is_numeric($managerId) ? (int) $managerId : $managerId);
+                    if (is_array($ids) && !empty($ids)) {
+                        $viewableIds = array_merge($viewableIds, $ids);
+                    }
+                }
+                $viewableIds = array_values(array_unique(array_map('intval', $viewableIds)));
+                if (!empty($viewableIds)) {
+                    $query->whereIn('leads.assigned_to', $viewableIds);
+                } else {
+                    $query->whereRaw('1 = 0');
+                }
             }
             if ($request->filled('project')) {
                 $query->whereIn('leads.project', (array)$request->project);
@@ -1836,13 +1849,10 @@ class LeadController extends Controller
      */
     private function applyLeadsSmartOrdering($query, Request $request, $user): void
     {
-        $stages = [];
-        if ($request->has('stage')) {
-            $stages = (array) $request->stage;
-        }
+        $driver = DB::connection()->getDriverName();
+        [$dateExpr, $timeExpr] = $this->buildNextActionExtractExpr($driver, 'la');
 
-        $stages = array_values(array_filter(array_map(fn($v) => strtolower(trim((string) $v)), $stages), fn($v) => $v !== ''));
-
+        $stageExpr = "LOWER(TRIM(COALESCE(leads.stage, leads.status, '')))";
         $creationStages = [
             'new',
             'new lead',
@@ -1859,31 +1869,52 @@ class LeadController extends Controller
             'cold-call',
             'cold_call',
             'cold_calls',
+            'cold call',
         ];
+        $creationStageList = "('" . implode("','", array_map(fn($v) => str_replace("'", "''", $v), $creationStages)) . "')";
+        $isCreationStageExpr = "CASE WHEN {$stageExpr} IN {$creationStageList} THEN 1 ELSE 0 END";
 
-        $shouldSortByCreatedAt = empty($stages) || empty(array_diff($stages, $creationStages));
-        if ($shouldSortByCreatedAt) {
-            $query->orderBy('leads.created_at', 'desc');
-            return;
-        }
+        $latestActionIds = DB::table('lead_actions as la')
+            ->selectRaw('MAX(la.id) as id, la.lead_id')
+            ->when(!$this->isAdminUser($user), function ($q) use ($driver) {
+                // Exclude manager-only actions from ordering for non-admins.
+                // Keep in sync with the visibility logic used when eager-loading latestAction.
+                $q->whereRaw($this->buildActionVisibilityWhere($driver, 'la'));
+            })
+            ->groupBy('la.lead_id');
 
-        $this->applyNextActionDateOrdering($query, $user);
+        $query->leftJoinSub($latestActionIds, 'la_latest', function ($join) {
+            $join->on('la_latest.lead_id', '=', 'leads.id');
+        });
+        $query->leftJoin('lead_actions as la', 'la.id', '=', 'la_latest.id');
+
+        // Bucket 0: creation-based stages, Bucket 1: other stages.
+        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 1 THEN 0 ELSE 1 END asc");
+        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 1 THEN leads.created_at END desc");
+        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN CASE WHEN {$dateExpr} IS NULL THEN 1 ELSE 0 END END asc");
+        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN {$dateExpr} END asc");
+        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN COALESCE({$timeExpr}, '') END asc");
+        $query->orderBy('leads.created_at', 'desc');
+    }
+
+    private function isAdminUser($user): bool
+    {
+        $roleLower = strtolower($user->role ?? '');
+        $roles = $user->getRoleNames()->map(fn($r) => strtolower($r))->toArray();
+
+        return str_contains($roleLower, 'admin')
+            || in_array('admin', $roles, true)
+            || in_array('tenant admin', $roles, true)
+            || !empty($user->is_super_admin);
     }
 
     private function applyNextActionDateOrdering($query, $user): void
     {
         $driver = DB::connection()->getDriverName();
 
-        $roleLower = strtolower($user->role ?? '');
-        $roles = $user->getRoleNames()->map(fn($r) => strtolower($r))->toArray();
-        $isAdmin = str_contains($roleLower, 'admin')
-            || in_array('admin', $roles, true)
-            || in_array('tenant admin', $roles, true)
-            || $user->is_super_admin;
-
         $latestActionIds = DB::table('lead_actions as la')
             ->selectRaw('MAX(la.id) as id, la.lead_id')
-            ->when(!$isAdmin, function ($q) use ($driver) {
+            ->when(!$this->isAdminUser($user), function ($q) use ($driver) {
                 // Exclude manager-only actions from ordering for non-admins.
                 // Keep in sync with the visibility logic used when eager-loading latestAction.
                 $q->whereRaw($this->buildActionVisibilityWhere($driver, 'la'));
@@ -2679,7 +2710,7 @@ class LeadController extends Controller
             if ($lead->assigned_to) {
                 $assignee = User::with(['manager', 'team.leader'])->find($lead->assigned_to);
                 $actor = $request->user();
-                if ($assignee && $actor && $assignee->id !== $actor->id) {
+                if ($assignee && $actor) {
                     $notification = new \App\Notifications\LeadAssigned($lead, $actor->name);
                     $recipients = $this->buildNotificationRecipients(
                         $assignee,
@@ -3119,7 +3150,7 @@ class LeadController extends Controller
                 $assignee = User::with(['manager', 'team.leader'])->find($lead->assigned_to);
                 $actor = $request->user();
 
-                if ($assignee && $actor && $assignee->id !== $actor->id) {
+                if ($assignee && $actor) {
                     $notification = new \App\Notifications\LeadAssigned($lead, $actor->name);
                     $previousOwner = $oldAssigneeId ? User::find($oldAssigneeId) : null;
                     $recipients = $this->buildNotificationRecipients(
@@ -3911,7 +3942,7 @@ class LeadController extends Controller
             try {
                 $assignee = User::with(['manager', 'team.leader'])->find($userId);
                 $actor = $request->user();
-                if ($assignee && $actor && (string) $assignee->id !== (string) $actor->id) {
+                if ($assignee && $actor) {
                     foreach (array_values(array_unique($notifyLeadIds)) as $leadId) {
                         try {
                             $leadFresh = Lead::with(['assignedAgent:id,name', 'creator:id,name'])->find($leadId);
@@ -4820,7 +4851,7 @@ class LeadController extends Controller
             if ($lead->assigned_to && (string) $lead->assigned_to !== (string) $oldAssigneeId) {
                 $assignee = User::with(['manager', 'team.leader'])->find($lead->assigned_to);
                 $actor = $request->user();
-                if ($assignee && $actor && $assignee->id !== $actor->id) {
+                if ($assignee && $actor) {
                     $leadFresh = $lead->fresh(['assignedAgent:id,name', 'creator:id,name']);
                     $notification = new \App\Notifications\LeadAssigned($leadFresh, $actor->name);
                     $previousOwner = $oldAssigneeId ? User::find($oldAssigneeId) : null;

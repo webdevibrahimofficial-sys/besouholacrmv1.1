@@ -7,15 +7,21 @@ import { useAppState } from '@shared/context/AppStateProvider';
 import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay';
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone';
 
-const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageFilter, managerId }) => {
+const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageFilter, managerId, onCountChange }) => {
   const { t, i18n } = useTranslation();
   const { theme, resolvedTheme } = useTheme();
   const { crmSettings } = useAppState();
   const isLight = resolvedTheme === 'light';
   const [selectedLead, setSelectedLead] = useState(null);
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
+  const [rangeMode, setRangeMode] = useState('today');
   const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode]);
   const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings]);
+  const rangeOptions = useMemo(() => ([
+    { key: 'today', label: t('Today') },
+    { key: 'week', label: t('7 Days') },
+    { key: 'all', label: t('All') },
+  ]), [t]);
   const SCROLLBAR_CSS = `
     .scrollbar-thin-blue { scrollbar-width: thin; scrollbar-color: #2563eb transparent; }
     .scrollbar-thin-blue::-webkit-scrollbar { width: 8px; }
@@ -48,6 +54,36 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
     ...c,
     createdAt: new Date(Date.now() - (idx + 1) * 15 * 60 * 1000).toISOString()
   }))
+
+  const isSameDay = (left, right) => {
+    if (!left || !right) return false;
+    const a = new Date(left);
+    const b = new Date(right);
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return false;
+    return a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
+  }
+
+  const matchesLocalRange = (iso) => {
+    if (rangeMode === 'all') return true;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return true;
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (rangeMode === 'today') {
+      return isSameDay(d, todayStart);
+    }
+
+    if (rangeMode === 'week') {
+      const weekAgo = new Date(todayStart);
+      weekAgo.setDate(weekAgo.getDate() - 6);
+      return d >= weekAgo;
+    }
+
+    return true;
+  }
 
   const formatDateTimeSafe = (iso) => {
     try {
@@ -91,8 +127,12 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
     return true
   }
   const displayCalls = withDates.filter(c => (
-    matchesStage(c) && (!employee || c.employeeName === employee) && inDateRange(c.createdAt)
+    matchesStage(c) && (!employee || c.employeeName === employee) && inDateRange(c.createdAt) && matchesLocalRange(c.createdAt)
   ))
+
+  useEffect(() => {
+    onCountChange?.(displayCalls.length);
+  }, [displayCalls.length, onCountChange]);
 
   const getCallDefaultCountryCode = (call) => String(call?.phoneCountry || '').trim() || defaultDialCode
   const displayPhone = (call) => formatPhoneForDisplay(call?.phoneNumber || '', {
@@ -143,6 +183,24 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
   return (
     <>
       <style>{SCROLLBAR_CSS}</style>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1 rounded-full border border-gray-200 bg-white/70 p-1 shadow-sm dark:border-gray-700 dark:bg-gray-900/70">
+          {rangeOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setRangeMode(option.key)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-colors ${
+                rangeMode === option.key
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="space-y-3 max-h-96 overflow-y-auto scrollbar-thin-blue">
         {displayCalls.map((call) => (
           <div

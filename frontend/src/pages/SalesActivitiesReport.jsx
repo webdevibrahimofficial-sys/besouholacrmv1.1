@@ -183,19 +183,47 @@ export default function SalesActivitiesReport() {
   }
 
   const getActionStageName = (action) => {
-    const details = action.details || {}
+    let details = action.details || {}
+    if (typeof details === 'string') {
+      try {
+        details = JSON.parse(details)
+      } catch {
+        details = {}
+      }
+    }
+
     const stageObj = action.stage || details.stage
     if (stageObj && (stageObj.name || stageObj.nameAr || stageObj.name_ar)) {
       return stageObj.name || stageObj.nameAr || stageObj.name_ar
     }
-    return (
+
+    const rawType = String(
       action.next_action_type ||
       details.nextAction ||
       details.next_action_type ||
+      details.actionType ||
+      details.action_type ||
       action.action_type ||
       action.type ||
       ''
-    )
+    ).toLowerCase().trim()
+
+    const hasCancelReason =
+      rawType === 'cancel' ||
+      details?.cancelReason ||
+      details?.cancel_reason ||
+      (Array.isArray(details?.comments) &&
+        details.comments.some((comment) => String(comment?.kind || '').toLowerCase() === 'cancel_reason'))
+
+    if (rawType === 'comment' || rawType === 'note') {
+      return hasCancelReason ? 'cancel' : ''
+    }
+
+    if (hasCancelReason) {
+      return 'cancel'
+    }
+
+    return rawType
   }
 
   const getLeadOwnerName = (action) => {
@@ -256,6 +284,152 @@ export default function SalesActivitiesReport() {
     const parsed = new Date(`${date}T${normalizedTime}:00`)
     if (Number.isNaN(parsed.getTime())) return null
     return parsed
+  }
+
+  const parseDateDetails = (value) => {
+    if (!value) return ''
+    const raw = String(value).trim()
+    if (!raw) return ''
+
+    const isoDate = raw.match(/^(\d{4}-\d{2}-\d{2})$/)
+    if (isoDate) return isoDate[1]
+
+    const isoDateTime = raw.match(/^(\d{4}-\d{2}-\d{2})[T\s]/)
+    if (isoDateTime) return isoDateTime[1]
+
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) return ''
+
+    const yyyy = parsed.getFullYear()
+    const mm = String(parsed.getMonth() + 1).padStart(2, '0')
+    const dd = String(parsed.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+
+  const parseActionDetails = (details) => {
+    if (details && typeof details === 'object') return details
+    if (typeof details !== 'string') return {}
+    try {
+      const parsed = JSON.parse(details)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const inDateRange = (value, from, to) => {
+    if (!from && !to) return true
+    const current = parseDateDetails(value)
+    if (!current) return false
+    if (from && current < from) return false
+    if (to && current > to) return false
+    return true
+  }
+
+  const normalizeActionTypeKey = (...values) =>
+    String(values.find((value) => String(value || '').trim()) || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[\s-]+/g, '_')
+
+  const getLeadAssignedDate = (lead) => parseDateDetails(
+    lead?.assigned_at ||
+    lead?.assignedAt ||
+    lead?.assigned_date ||
+    lead?.assign_date ||
+    lead?.assignDate ||
+    ''
+  )
+
+  const getLeadCreationDate = (lead) => parseDateDetails(
+    lead?.created_at ||
+    lead?.createdAt ||
+    lead?.creationDate ||
+    lead?.created ||
+    ''
+  )
+
+  const getActionCreatedDate = (action) => parseDateDetails(
+    action?.created_at ||
+    action?.createdAt ||
+    action?.date ||
+    parseActionDetails(action?.details)?.date ||
+    ''
+  )
+
+  const isProposalAction = (action) => {
+    const details = parseActionDetails(action?.details)
+    const type = normalizeActionTypeKey(
+      action?.next_action_type,
+      details?.nextAction,
+      details?.next_action_type,
+      details?.actionType,
+      details?.action_type,
+      action?.action_type,
+      action?.type
+    )
+    return type === 'proposal'
+  }
+
+  const isClosingAction = (action) => {
+    const details = parseActionDetails(action?.details)
+    const type = normalizeActionTypeKey(
+      action?.next_action_type,
+      details?.nextAction,
+      details?.next_action_type,
+      details?.actionType,
+      details?.action_type,
+      action?.action_type,
+      action?.type
+    )
+    return ['closing_deals', 'closing_deal', 'close_deal', 'done_deal', 'done_deals'].includes(type)
+  }
+
+  const matchesDateFilters = (action) => {
+    const lead = action?.lead || {}
+
+    if (!inDateRange(getLeadAssignedDate(lead), assignDateFrom, assignDateTo)) {
+      return false
+    }
+
+    if (!inDateRange(getLeadCreationDate(lead), creationDateFrom, creationDateTo)) {
+      return false
+    }
+
+    if (!inDateRange(getActionCreatedDate(action), lastActionDateFrom, lastActionDateTo)) {
+      return false
+    }
+
+    if ((closeDealsDateFrom || closeDealsDateTo) && !isClosingAction(action)) {
+      return false
+    }
+
+    if (!inDateRange(
+      isClosingAction(action) ? getActionCreatedDate(action) : null,
+      closeDealsDateFrom,
+      closeDealsDateTo
+    )) {
+      return false
+    }
+
+    if ((proposalDateFrom || proposalDateTo) && !isProposalAction(action)) {
+      return false
+    }
+
+    if (!inDateRange(
+      isProposalAction(action)
+        ? (() => {
+            const details = parseActionDetails(action?.details)
+            return details?.proposalDate || details?.proposal_date || action?.date || action?.created_at || ''
+          })()
+        : null,
+      proposalDateFrom,
+      proposalDateTo
+    )) {
+      return false
+    }
+
+    return true
   }
 
   const isEligibleDelayedAction = (action) => {
@@ -494,9 +668,27 @@ export default function SalesActivitiesReport() {
         ? true
         : projectFilter.includes(projectValue)
 
-      return bySales && byManager && byStage && bySource && byProject
+      return bySales && byManager && byStage && bySource && byProject && matchesDateFilters(action)
     })
-  }, [actions, usersList, salesPersonFilter, managerFilter, stageFilter, sourceFilter, projectFilter])
+  }, [
+    actions,
+    usersList,
+    salesPersonFilter,
+    managerFilter,
+    stageFilter,
+    sourceFilter,
+    projectFilter,
+    assignDateFrom,
+    assignDateTo,
+    creationDateFrom,
+    creationDateTo,
+    lastActionDateFrom,
+    lastActionDateTo,
+    closeDealsDateFrom,
+    closeDealsDateTo,
+    proposalDateFrom,
+    proposalDateTo,
+  ])
 
   const [totalRevenueByUserId, setTotalRevenueByUserId] = useState({})
   const [targetMap, setTargetMap] = useState({})
@@ -727,6 +919,26 @@ export default function SalesActivitiesReport() {
     const start = (currentPage - 1) * entriesPerPage
     return filteredData.slice(start, start + entriesPerPage)
   }, [filteredData, currentPage, entriesPerPage])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [
+    salesPersonFilter,
+    managerFilter,
+    stageFilter,
+    sourceFilter,
+    projectFilter,
+    assignDateFrom,
+    assignDateTo,
+    creationDateFrom,
+    creationDateTo,
+    lastActionDateFrom,
+    lastActionDateTo,
+    closeDealsDateFrom,
+    closeDealsDateTo,
+    proposalDateFrom,
+    proposalDateTo,
+  ])
 
   const actionsByStageData = useMemo(() => {
     const stageCounts = filteredActions.reduce((acc, action) => {

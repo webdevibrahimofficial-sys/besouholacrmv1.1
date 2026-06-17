@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../context/ThemeProvider';
 import { useAppState } from '../context/AppStateProvider';
-import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt } from 'react-icons/fa';
+import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt, FaCopy } from 'react-icons/fa';
 
 import AddActionModal from '../../components/AddActionModal';
 import EditLeadModal from '../../components/EditLeadModal';
@@ -19,7 +19,7 @@ import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, getWha
 import { getLeadEmailMessages, sendEmailText } from '../../services/emailService';
 import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
-import { getPhoneDigits } from '../utils/phoneDisplay'
+import { getPhoneDigits, getPhoneLines } from '../utils/phoneDisplay'
 import { buildLeadTransferPayload } from '../utils/leadTransfer'
 
 const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId, onImportHistory }) => {
@@ -699,8 +699,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       type: action.action_type || action.type || details.actionType || details.action_type || details.channel || details.selectedQuickOption || 'call',
       title: action.title || details.title || getTypeLabel(action.action_type || action.type),
       description: action.description || details.description || '',
-      date: details.date || action.date || (action.created_at ? action.created_at.split('T')[0] : ''),
-      time: details.time || action.time || (action.created_at ? action.created_at.split('T')[1]?.substring(0, 5) : ''),
+      date: details.date || action.date || '',
+      time: details.time || action.time || '',
       user: action.creator?.name || action.user?.name || action.user || 'Unknown', // Handle object or string
       userRole: creatorRole,
       status: details.status || action.status || 'pending',
@@ -872,6 +872,82 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
       return isArabic ? 'غير محدد' : 'Unassigned';
     })()
+  };
+
+  const getLeadDefaultCountryCode = (leadItem) =>
+    leadItem?.phone_country ||
+    leadItem?.phoneCountry ||
+    leadItem?.meta_data?.phone_country ||
+    leadItem?.metaData?.phone_country ||
+    leadItem?.meta_data?.phoneCountry ||
+    leadItem?.metaData?.phoneCountry ||
+    '+20';
+
+  const getLeadPhoneEntries = (leadItem) => {
+    const defaultCountryCode = getLeadDefaultCountryCode(leadItem);
+    const notesPhoneMatch = String(leadItem?.notes || leadItem?.note || '')
+      .match(/(?:^|\n)\s*Other phones?\s*:\s*([^\n]+)/i);
+    const notesOtherPhones = notesPhoneMatch?.[1] || '';
+    const values = [
+      leadItem?.phone,
+      leadItem?.mobile,
+      leadItem?.other_mobile,
+      leadItem?.otherMobile,
+      leadItem?.other_phone,
+      leadItem?.otherPhone,
+      leadItem?.meta_data?.other_mobile,
+      leadItem?.metaData?.other_mobile,
+      leadItem?.meta_data?.otherMobile,
+      leadItem?.metaData?.otherMobile,
+      leadItem?.meta_data?.other_phone,
+      leadItem?.metaData?.other_phone,
+      leadItem?.meta_data?.otherPhone,
+      leadItem?.metaData?.otherPhone,
+      leadItem?.custom_fields?.other_mobile,
+      leadItem?.custom_fields?.otherMobile,
+      leadItem?.custom_fields?.other_phone,
+      leadItem?.custom_fields?.otherPhone,
+      leadItem?.custom_fields?.phone2,
+      leadItem?.custom_fields?.phone_2,
+      leadItem?.custom_fields?.mobile2,
+      leadItem?.custom_fields?.mobile_2,
+      notesOtherPhones,
+    ];
+
+    const seen = new Set();
+    const entries = [];
+
+    values.forEach((value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return;
+
+      getPhoneLines(raw, {
+        showFull: crmSettings?.showMobileNumber !== false,
+        defaultCountryCode,
+      }).forEach((line) => {
+        const digitsKey = String(line?.digits || '').trim();
+        const displayKey = String(line?.display || '').trim();
+        const key = digitsKey || displayKey;
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        entries.push({ display: displayKey, digits: digitsKey });
+      });
+    });
+
+    return entries;
+  };
+
+  const phoneEntries = getLeadPhoneEntries(effectiveLead);
+
+  const copyPhoneToClipboard = async (phone) => {
+    const value = String(phone || '').trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast('success', isArabic ? 'تم نسخ الرقم' : 'Phone copied');
+    } catch {
+      showToast('error', isArabic ? 'تعذر نسخ الرقم' : 'Could not copy phone');
+    }
   };
 
   useEffect(() => {
@@ -1510,6 +1586,52 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     ).toLowerCase().trim();
   };
 
+  const normalizeActionKey = (value) =>
+    String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+
+  const isFinalAction = (action) => {
+    const details = action?.details || {};
+    const values = [
+      action?.type,
+      action?.action_type,
+      action?.next_action_type,
+      action?.stage,
+      action?.stageAtCreation,
+      details?.actionType,
+      details?.action_type,
+      details?.next_action_type,
+      details?.nextAction,
+      details?.stage,
+      details?.stage_at_creation_name,
+      details?.stageAtCreationName,
+      getActionStage(action),
+    ].map(normalizeActionKey);
+
+    return values.some((value) => [
+      'cancel',
+      'cancellation',
+      'cancelled',
+      'closing_deals',
+      'closing_deal',
+      'done_deal',
+      'done_deals',
+      'won',
+      'lost',
+    ].includes(value));
+  };
+
+  const getScheduledNextActionDateTime = (action) => {
+    if (isFinalAction(action)) return '';
+    const details = action?.details || {};
+    const dateRaw = details?.date || action?.date || '';
+    const timeRaw = details?.time || action?.time || '';
+    const datePart = String(dateRaw || '').includes('T')
+      ? String(dateRaw).split('T')[0]
+      : String(dateRaw || '').trim();
+    const timePart = String(timeRaw || '').trim();
+    return datePart ? `${datePart}${timePart ? ` ${timePart.slice(0, 5)}` : ''}` : '';
+  };
+
   const getTypeColor = (type) => {
     switch (String(type).toLowerCase()) {
       case 'call': return 'text-blue-400 border-blue-400';
@@ -1762,7 +1884,48 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                   </div>
                 </div>
                 {crmSettings?.showMobileNumber !== false && (
-                  <p className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs mb-0.5`}>{leadData.phone}</p>
+                  <div className="mb-0.5 flex flex-col items-start gap-0.5">
+                    {phoneEntries.length > 0 ? phoneEntries.map((entry, idx) => (
+                      <div key={idx} className={`group flex max-w-[240px] items-center gap-1 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                        <span dir="ltr" className="min-w-0 truncate leading-4" title={entry.display}>{entry.display}</span>
+                        <button
+                          type="button"
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[#25D366] transition hover:opacity-80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (entry?.digits) window.open(`https://wa.me/${entry.digits}`, '_blank');
+                          }}
+                          title={isArabic ? 'واتساب' : 'WhatsApp'}
+                        >
+                          <FaWhatsapp size={10} />
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-blue-600 transition hover:opacity-80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (entry?.digits) window.open(`tel:${entry.digits}`, '_blank');
+                          }}
+                          title={isArabic ? 'مكالمة' : 'Call'}
+                        >
+                          <FaPhone size={9} />
+                        </button>
+                        <button
+                          type="button"
+                          className={`inline-flex h-4 w-4 shrink-0 items-center justify-center transition hover:opacity-80 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyPhoneToClipboard(entry.display);
+                          }}
+                          title={isArabic ? 'نسخ' : 'Copy'}
+                        >
+                          <FaCopy size={9} />
+                        </button>
+                      </div>
+                    )) : (
+                      <p className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs`}>{leadData.phone}</p>
+                    )}
+                  </div>
                 )}
                 <p className={`${isLight ? 'text-slate-500' : 'text-slate-400'} text-[10px] sm:text-xs`}>{leadData.email}</p>
               </div>
@@ -2599,7 +2762,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                               </div>
                               <div className="flex items-center gap-1">
                                 <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'الأولوية:' : 'Priority:'}</span>
-                                <span className={`px-2 py-1 rounded border text-xs ${getPriorityColor(action.priority)}`}>{isArabic ? (action.priority === 'high' ? 'عالية' : action.priority === 'medium' ? 'متوسطة' : 'منخفضة') : (action.priority === 'high' ? 'High' : action.priority === 'medium' ? 'Medium' : 'Low')}</span>
+                                {(() => {
+                                  const displayPriority = leadData?.priority || action.priority || 'medium';
+                                  return (
+                                    <span className={`px-2 py-1 rounded border text-xs ${getPriorityColor(displayPriority)}`}>
+                                      {isArabic
+                                        ? (displayPriority === 'high' ? 'عالية' : displayPriority === 'medium' ? 'متوسطة' : 'منخفضة')
+                                        : (displayPriority === 'high' ? 'High' : displayPriority === 'medium' ? 'Medium' : 'Low')}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <div className="flex items-center gap-1">
                                 <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'نوع الإجراء:' : 'Action Type:'}</span>
@@ -2653,15 +2825,14 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                                   })()}
                                 </span>
                               </div>
+                              {getScheduledNextActionDateTime(action) ? (
                               <div className="flex items-center gap-1">
                                 <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'الموعد القادم:' : 'Scheduled Next Action:'}</span>
                                 <span className={`${isLight ? 'text-slate-800' : 'text-slate-300'} whitespace-nowrap`}>
-                                  {(() => {
-                                    const datePart = (action.date || '').includes('T') ? action.date.split('T')[0] : action.date;
-                                    return `${datePart} ${action.time ? String(action.time).slice(0, 5) : ''}`;
-                                  })()}
+                                  {getScheduledNextActionDateTime(action)}
                                 </span>
                               </div>
+                              ) : null}
                             </div>
                           <div className="mt-2 w-full">
                             {(() => {
@@ -2827,16 +2998,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                   <>
                     <button
                       onClick={() => {
-                        const raw = lead?.phone || lead?.mobile || ''
-                        const digits = getPhoneDigits(raw, {
-                          defaultCountryCode:
-                            lead?.phone_country ||
-                            lead?.phoneCountry ||
-                            lead?.meta_data?.phone_country ||
-                            lead?.metaData?.phone_country ||
-                            lead?.meta_data?.phoneCountry ||
-                            lead?.metaData?.phoneCountry ||
-                            '+20',
+                        const digits = phoneEntries?.[0]?.digits || getPhoneDigits(lead?.phone || lead?.mobile || '', {
+                          defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
                         })
                         if (digits) window.open(`tel:${digits}`, '_blank')
                       }}
@@ -2847,16 +3010,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     </button>
                     <button
                       onClick={() => {
-                        const raw = lead?.phone || lead?.mobile || ''
-                        const digits = getPhoneDigits(raw, {
-                          defaultCountryCode:
-                            lead?.phone_country ||
-                            lead?.phoneCountry ||
-                            lead?.meta_data?.phone_country ||
-                            lead?.metaData?.phone_country ||
-                            lead?.meta_data?.phoneCountry ||
-                            lead?.metaData?.phoneCountry ||
-                            '+20',
+                        const digits = phoneEntries?.[0]?.digits || getPhoneDigits(lead?.phone || lead?.mobile || '', {
+                          defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
                         })
                         if (digits) window.open(`https://wa.me/${digits}`, '_blank')
                       }}

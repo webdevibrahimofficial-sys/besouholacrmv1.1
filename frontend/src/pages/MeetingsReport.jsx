@@ -50,6 +50,30 @@ export default function MeetingsReport() {
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
 
+  const normalizeRole = (value) => String(value || '').toLowerCase().trim()
+  const isManagerLikeRole = (value) => {
+    const role = normalizeRole(value)
+    return role.includes('manager') || role.includes('director') || role.includes('team leader')
+  }
+
+  const getDescendants = (rootId, allUsers) => {
+    const descendants = []
+    const stack = [Number(rootId)]
+    const seen = new Set()
+    while (stack.length) {
+      const current = stack.pop()
+      if (!Number.isFinite(current) || seen.has(current)) continue
+      seen.add(current)
+      allUsers.forEach((u) => {
+        if (Number(u.manager_id) === current) {
+          descendants.push(u)
+          stack.push(Number(u.id))
+        }
+      })
+    }
+    return descendants
+  }
+
   const toggleRow = (id) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
   };
@@ -184,11 +208,26 @@ export default function MeetingsReport() {
   }, [users])
 
   const managerOptions = useMemo(() => {
-    const managerIds = new Set(users.map(u => u.manager_id).filter(Boolean))
-    return users.filter(u => managerIds.has(u.id)).map(u => ({
-      value: String(u.id),
-      label: u.name || `#${u.id}`
-    }))
+    if (!users.length) return []
+
+    const directManagerIds = new Set(users.map(u => Number(u.manager_id)).filter(Number.isFinite))
+    const managerCandidates = users.filter((u) => {
+      const role = String(u.role || (Array.isArray(u.roles) && u.roles[0]?.name) || '')
+      return directManagerIds.has(Number(u.id)) || isManagerLikeRole(role)
+    })
+
+    const withDescendants = managerCandidates.filter((u) => {
+      const descendants = getDescendants(u.id, users)
+      return descendants.length > 0
+    })
+
+    const uniqueManagers = Array.from(new Map(withDescendants.map(m => [String(m.id), m])).values())
+    return uniqueManagers
+      .map(u => ({
+        value: String(u.id),
+        label: u.name || `#${u.id}`
+      }))
+      .filter(o => o.label)
   }, [users])
 
   const sourceOptions = useMemo(() => {
@@ -388,7 +427,16 @@ export default function MeetingsReport() {
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}><Tag size={12} className="text-blue-500 dark:text-blue-400" />{isRTL ? 'المصدر' : 'Source'}</label>
-              <SearchableSelect options={sourceOptions} value={sourceFilter} onChange={setSourceFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<Tag size={16} />} />
+              <SearchableSelect
+                options={sourceOptions}
+                value={sourceFilter}
+                onChange={setSourceFilter}
+                placeholder={isRTL ? 'اختر' : 'Select'}
+                multiple
+                isRTL={isRTL}
+                icon={<Tag size={16} />}
+                showAllOption={false}
+              />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}><Briefcase size={12} className="text-blue-500 dark:text-blue-400" />{isRTL ? 'المشروع' : 'Project'}</label>
