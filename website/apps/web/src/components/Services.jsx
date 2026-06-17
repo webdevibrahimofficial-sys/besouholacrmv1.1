@@ -20,11 +20,11 @@ const Services = () => {
     <section id="services" className="py-24 bg-[#0C0D0D]">
       <div className="container mx-auto px-6 relative z-10">
         <div className="mb-16">
-          <h2 className="text-5xl md:text-7xl lg:text-8xl font-bold mb-6 leading-tight text-white uppercase">
+          <h2 className="text-section-title font-bold mb-6 text-white uppercase">
             {servicesIntro.title}{' '}
             <span className="text-accent-purple">{servicesIntro.title_accent}</span>
           </h2>
-          <p className="text-xl md:text-2xl text-gray-300 max-w-3xl mt-4">
+          <p className="text-section-lead text-gray-300 max-w-3xl mt-4">
             {servicesIntro.description}
           </p>
           <div className="flex flex-wrap gap-3 mt-8">
@@ -48,7 +48,7 @@ const Services = () => {
               >
                 <div className="flex items-center gap-4">
                   <h3
-                    className={`text-3xl md:text-5xl font-bold transition-colors duration-300 ${
+                    className={`text-item-title font-bold transition-colors duration-300 ${
                       activeIndex === index
                         ? 'text-white'
                         : 'text-gray-600 group-hover:text-gray-400'
@@ -91,7 +91,7 @@ const Services = () => {
                     className="overflow-hidden"
                   >
                     <div className="pb-8 pr-16">
-                      <p className="text-lg text-gray-400 max-w-2xl">
+                      <p className="text-body text-gray-400 max-w-2xl">
                         {service.description || service.short_description}
                       </p>
                     </div>

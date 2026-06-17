@@ -1,8 +1,7 @@
 export const defaultWebsiteContent = {
   settings: {
     company_name: 'Be Souhola',
-    logo_url:
-      'https://horizons-cdn.hostinger.com/e141138d-8b42-408c-96c1-7c817f53871e/49e5fc512fe9f5468e81f2135e55bdb4.png',
+    logo_url: '',
     phone: '+1 (555) 234-5678',
     email: 'sales@besouhola.com',
     whatsapp: null,

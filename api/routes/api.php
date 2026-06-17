@@ -27,6 +27,7 @@ use App\Http\Controllers\OauthController;
 use App\Http\Controllers\GmailController;
 use App\Http\Controllers\GeminiController;
 use App\Http\Controllers\PublicFileController;
+use App\Http\Controllers\PublicWebsiteAssetController;
 use App\Http\Controllers\MetaWebhookController;
 use App\Http\Controllers\MetaLeadFormController;
 use App\Http\Controllers\ExcelImportController;
@@ -118,6 +119,10 @@ Route::get('/public-files/{path}', [PublicFileController::class , 'show'])
     ->where('path', '.*')
     ->name('public.files.show');
 
+Route::get('/public-website-assets/{path}', [PublicWebsiteAssetController::class, 'show'])
+    ->where('path', '.*')
+    ->name('public.website-assets.show');
+
 // Super Admin Routes (Accessible on main domain)
 Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])->group(function () {
     Route::get('tenants', [SuperAdminController::class , 'tenants']);
@@ -155,9 +160,14 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])
 Route::get('/p/{slug}', [\App\Http\Controllers\LandingPageController::class, 'showPublic']);
 Route::post('/p/{slug}/lead', [\App\Http\Controllers\LandingPageController::class, 'storeLead']);
 Route::post('/intake/website/{apiKey}', [\App\Http\Controllers\WebsiteIntakeController::class, 'store'])
-    ->middleware('throttle:30,1');
+    ->middleware('throttle:60,1');
 Route::post('/intake/website/{apiKey}/career-application', [\App\Http\Controllers\WebsiteCareerApplicationController::class, 'store'])
     ->middleware('throttle:20,1');
+Route::get('/public/lead-leak-reports/{tenantId}/{leadId}/{filename}', [\App\Http\Controllers\WebsiteIntakeController::class, 'downloadLeadLeakReport'])
+    ->whereNumber('tenantId')
+    ->whereNumber('leadId')
+    ->where('filename', 'lead-leak-report-[0-9]+\.pdf')
+    ->middleware('throttle:60,1');
 Route::get('/public/website/{tenantSlug}', [\App\Http\Controllers\PublicWebsiteContentController::class, 'show'])
     ->middleware('throttle:60,1');
 Route::post('/public/website/events', [\App\Http\Controllers\PublicWebsiteEventController::class, 'store'])

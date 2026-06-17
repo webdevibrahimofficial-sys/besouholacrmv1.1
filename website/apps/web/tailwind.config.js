@@ -52,6 +52,13 @@ module.exports = {
           foreground: 'hsl(var(--card-foreground))',
         },
       },
+      fontSize: {
+        'section-title': ['clamp(2.25rem, 5vw, 3.75rem)', { lineHeight: '1.08', letterSpacing: '0' }],
+        'section-lead': ['clamp(1rem, 1.4vw, 1.125rem)', { lineHeight: '1.75', letterSpacing: '0' }],
+        'item-title': ['clamp(1.75rem, 3vw, 2.5rem)', { lineHeight: '1.18', letterSpacing: '0' }],
+        body: ['1rem', { lineHeight: '1.75', letterSpacing: '0' }],
+        label: ['1rem', { lineHeight: '1.5', letterSpacing: '0' }],
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

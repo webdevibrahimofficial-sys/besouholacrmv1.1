@@ -34,8 +34,8 @@ export default function Import() {
 
   const targetFields = useMemo(() => ({
     customers: ['id','name','phone','email','status'],
-    leads: ['id','name','phone','source','status'],
-    lead_history: ['name', 'phone', 'phone_country', 'stage', 'action_at', 'assigned_to', 'comment'],
+    leads: ['id','name','phone','source','status','priority','creation_date'],
+    lead_history: ['name', 'phone', 'phone_country', 'stage', 'action_type', 'action_at', 'assigned_to', 'comment'],
     products: ['id','name','sku','price','stock'],
     users: ['id','name','email','role'],
     projects: ['id','name','city','status'],

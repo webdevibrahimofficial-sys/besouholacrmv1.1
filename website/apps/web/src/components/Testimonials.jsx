@@ -82,9 +82,9 @@ const Testimonials = () => {
           ref={scrollContainerRef}
           className="flex flex-nowrap gap-8 pb-8 overflow-x-auto snap-x snap-mandatory scrollbar-hide"
         >
-          {testimonials.map((testimonial) => (
+          {testimonials.map((testimonial, index) => (
             <div
-              key={testimonial.id}
+              key={testimonial.id ?? `${testimonial.name || 'testimonial'}-${index}`}
               className="flex-shrink-0 w-[calc(100%-48px)] md:w-[calc(50%-16px)] snap-start"
             >
               <div className="bg-[#1E1E2A] p-8 rounded-2xl h-full flex flex-col border border-white/10">

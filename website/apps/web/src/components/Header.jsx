@@ -6,6 +6,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { trackCtaClick } from '@/lib/analytics';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import crmLogoMark from '@/assets/be-souhola-logo-dark.png';
+import { resolveImageFallback } from '@/lib/websiteAssets';
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -88,6 +89,7 @@ const Header = () => {
                 src={logoSrc}
                 alt={`${companyName} CRM logo`}
                 className="h-full w-full object-contain"
+                onError={(event) => resolveImageFallback(event, crmLogoMark)}
               />
             </div>
             <div className="text-base font-semibold tracking-tight text-white sm:text-[1.08rem]">
@@ -144,6 +146,7 @@ const Header = () => {
                       src={logoSrc}
                       alt={`${companyName} CRM logo`}
                       className="h-full w-full object-contain"
+                      onError={(event) => resolveImageFallback(event, crmLogoMark)}
                     />
                   </div>
                   <div className="text-lg font-semibold tracking-tight text-white">

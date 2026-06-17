@@ -585,7 +585,7 @@ if (!s) {
   }
 
   // Sorting rule (display + API): initial buckets by Creation Date desc,
-  // all other stages by Next Action Date asc (closest follow-up first).
+  // all other stages by Next Action Date desc (latest scheduled follow-up first).
   const deriveStageSortRule = useCallback((stageValues) => {
     const list = Array.isArray(stageValues) ? stageValues : []
     const normalized = list.map((s) => String(s || '').toLowerCase().trim()).filter(Boolean)
@@ -619,8 +619,37 @@ if (!s) {
 
   const getLeadNextActionTs = (lead) => {
     const action = lead?.latest_action || null
-    const dateRaw = action?.date || lead?.next_action_date || lead?.nextActionDate || lead?.next_action_at || ''
-    const timeRaw = action?.time || lead?.next_action_time || lead?.nextActionTime || ''
+    let details = action?.details || {}
+    if (typeof details === 'string') {
+      try { details = JSON.parse(details) } catch { details = {} }
+    }
+
+    const actionKeys = [
+      action?.type,
+      action?.action_type,
+      action?.next_action_type,
+      action?.stage,
+      details?.actionType,
+      details?.action_type,
+      details?.next_action_type,
+      details?.nextAction,
+      details?.stage,
+    ].map((value) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_'))
+    const isFinalAction = actionKeys.some((value) => [
+      'cancel',
+      'cancellation',
+      'cancelled',
+      'closing_deals',
+      'closing_deal',
+      'done_deal',
+      'done_deals',
+      'won',
+      'lost',
+    ].includes(value))
+    if (isFinalAction) return null
+
+    const dateRaw = action?.date || details?.date || lead?.next_action_date || lead?.nextActionDate || lead?.next_action_at || ''
+    const timeRaw = action?.time || details?.time || lead?.next_action_time || lead?.nextActionTime || ''
     const datePart = String(dateRaw || '').includes('T') ? String(dateRaw).split('T')[0] : String(dateRaw || '').trim()
     const timePart = String(timeRaw || '').trim()
     const composed = datePart ? `${datePart}${timePart ? ` ${String(timePart).slice(0, 8)}` : ''}` : ''
@@ -654,7 +683,7 @@ if (!s) {
       const bt = getLeadNextActionTs(b)
       const aHas = at != null
       const bHas = bt != null
-      if (aHas && bHas && at !== bt) return at - bt
+      if (aHas && bHas && at !== bt) return bt - at
       if (aHas && !bHas) return -1
       if (!aHas && bHas) return 1
 
@@ -1054,12 +1083,11 @@ if (!s) {
         customFields: lead.custom_field_values || []
       }});
 
-      const sortedLeads = applyStageSortRule(mappedLeads, stageFilter);
-      setLeads(sortedLeads);
-      setFilteredLeads(sortedLeads); // With server-side pagination, the current list IS the filtered list
+      setLeads(mappedLeads);
+      setFilteredLeads(mappedLeads); // With server-side pagination, the current list IS the filtered list
       setIsDataLoaded(true);
     }
-  }, [leadsQueryData, usersList, applyStageSortRule, stageFilter]);
+  }, [leadsQueryData, usersList, stageFilter]);
 
   // Filter Options Calculation
   const availableManagers = useMemo(() => {

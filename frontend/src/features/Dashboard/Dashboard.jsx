@@ -257,6 +257,7 @@ export const Dashboard = () => {
   const [delayLeadsCount, setDelayLeadsCount] = useState(0);
   const [commentsOpenMobile, setCommentsOpenMobile] = useState(true);
   const [recentCallsOpenMobile, setRecentCallsOpenMobile] = useState(true);
+  const [recentCallsCount, setRecentCallsCount] = useState(0);
   const [selectedStageFilter, setSelectedStageFilter] = useState('');
   const activeFilter = 'active';
   const yearFilter = '2025';
@@ -564,6 +565,8 @@ export const Dashboard = () => {
     pageIndex: 0,
     totalPages: 0,
   });
+  const isExportingLeadsAnalysis = exportingChartKey === 'leads-analysis';
+  const isExportingPipelineAnalysis = exportingChartKey === 'pipeline-analysis';
   
   useEffect(() => {
     let cancelled = false;
@@ -1218,7 +1221,12 @@ export const Dashboard = () => {
             </div>
             <div className="p-4 glass-panel rounded-lg shadow-md lg:col-span-1">
               <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
-                <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Recent Phone Calls')}</h3>
+                <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'} flex items-center gap-3`}>
+                  <span>{t('Recent Phone Calls')}</span>
+                  <span className="inline-flex items-center justify-center min-w-8 h-7 px-2 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 text-sm font-bold">
+                    {recentCallsCount}
+                  </span>
+                </h3>
                 <button onClick={() => setRecentCallsOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                     <path d="M6 9l6 6 6-6" />
@@ -1226,7 +1234,15 @@ export const Dashboard = () => {
                 </button>
               </div>
               <div className={`${recentCallsOpenMobile ? 'block' : 'hidden'} md:block`}>
-                <RecentPhoneCalls employee={effectiveEmployeeName} employeeIds={(isTeamLeader && subordinateSalespersonIds.length) ? subordinateSalespersonIds : ((effectiveEmployeeId && !showSalesLimited) ? [Number(effectiveEmployeeId)] : [])} dateFrom={dateFrom} dateTo={dateTo} stageFilter={selectedStageFilter} managerId={(isTeamLeader && !effectiveEmployeeId) ? Number(user?.id || 0) : undefined} />
+                <RecentPhoneCalls
+                  employee={effectiveEmployeeName}
+                  employeeIds={(isTeamLeader && subordinateSalespersonIds.length) ? subordinateSalespersonIds : ((effectiveEmployeeId && !showSalesLimited) ? [Number(effectiveEmployeeId)] : [])}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  stageFilter={selectedStageFilter}
+                  managerId={(isTeamLeader && !effectiveEmployeeId) ? Number(user?.id || 0) : undefined}
+                  onCountChange={setRecentCallsCount}
+                />
               </div>
             </div>
           </section>
@@ -1307,12 +1323,12 @@ export const Dashboard = () => {
                 <button
                   type="button"
                   onClick={() => handleExportDashboardPdf('leads-analysis')}
-                  disabled={!!exportingChartKey}
+                  disabled={isExportingLeadsAnalysis}
                   className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                   data-export-ignore="true"
                   title={i18n.language === 'ar' ? 'تصدير PDF' : 'Export PDF'}
                 >
-                  <ExportButtonContent label={exportingChartKey === 'leads-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : (i18n.language === 'ar' ? 'تصدير' : 'Export')} />
+                  <ExportButtonContent label={isExportingLeadsAnalysis ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : (i18n.language === 'ar' ? 'تصدير' : 'Export')} />
                 </button>
                 <button onClick={() => setLeadsAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
@@ -1418,12 +1434,12 @@ export const Dashboard = () => {
                   <button
                     type="button"
                     onClick={() => handleExportDashboardPdf('pipeline-analysis')}
-                    disabled={!!exportingChartKey}
+                    disabled={isExportingPipelineAnalysis}
                     className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                     data-export-ignore="true"
                   title={i18n.language === 'ar' ? 'تصدير PDF' : 'Export PDF'}
                   >
-                    <ExportButtonContent label={exportingChartKey === 'pipeline-analysis' ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : (i18n.language === 'ar' ? 'تصدير' : 'Export')} />
+                    <ExportButtonContent label={isExportingPipelineAnalysis ? (i18n.language === 'ar' ? 'جاري التصدير...' : 'Exporting...') : (i18n.language === 'ar' ? 'تصدير' : 'Export')} />
                   </button>
                   <button onClick={() => setPipelineAnalysisOpenMobile(v=>!v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">

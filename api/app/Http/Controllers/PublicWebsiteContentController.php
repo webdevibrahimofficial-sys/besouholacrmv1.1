@@ -52,7 +52,7 @@ class PublicWebsiteContentController extends Controller
             ->map(fn ($section) => [
                 'type' => $section->type,
                 'title' => $section->title,
-                'content' => $section->content ?? [],
+                'content' => $this->normalizeWebsiteAssetUrls($section->content ?? []),
             ])
             ->values();
 
@@ -73,6 +73,10 @@ class PublicWebsiteContentController extends Controller
                 'form_name',
                 'meta_title',
                 'meta_description',
+            ])
+            ->map(fn ($service) => [
+                ...$service->toArray(),
+                'image_url' => $this->normalizeWebsiteAssetUrl($service->image_url),
             ])
             ->values();
 
@@ -124,7 +128,7 @@ class PublicWebsiteContentController extends Controller
             ],
             'settings' => [
                 'company_name' => $settings->company_name,
-                'logo_url' => $settings->logo_url,
+                'logo_url' => $this->normalizeWebsiteAssetUrl($settings->logo_url),
                 'favicon_url' => $settings->favicon_url,
                 'phone' => $settings->phone,
                 'email' => $settings->email,
@@ -145,5 +149,57 @@ class PublicWebsiteContentController extends Controller
                 'roles' => $careerRoles,
             ],
         ]);
+    }
+
+    private function normalizeWebsiteAssetUrls(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                $value[$key] = $this->normalizeWebsiteAssetUrls($item);
+            }
+
+            return $value;
+        }
+
+        if (!is_string($value) || trim($value) === '') {
+            return $value;
+        }
+
+        return $this->normalizeWebsiteAssetUrl($value);
+    }
+
+    private function normalizeWebsiteAssetUrl(?string $url): ?string
+    {
+        $value = trim((string) $url);
+        if ($value === '') {
+            return null;
+        }
+
+        $tenantPath = $this->extractWebsiteTenantPath($value);
+        if ($tenantPath === null) {
+            return $value;
+        }
+
+        return url('/api/public-website-assets/' . ltrim($tenantPath, '/'));
+    }
+
+    private function extractWebsiteTenantPath(string $url): ?string
+    {
+        $parsedPath = parse_url($url, PHP_URL_PATH);
+        if (!is_string($parsedPath) || $parsedPath === '') {
+            return null;
+        }
+
+        $normalizedPath = ltrim($parsedPath, '/');
+
+        if (preg_match('/^\d+\/website(?:\/|$)/', $normalizedPath)) {
+            return $normalizedPath;
+        }
+
+        if (preg_match('#(?:api/)?files/(?P<tenantPath>\d+/website(?:/[^?#]+)?)$#', $normalizedPath, $matches)) {
+            return $matches['tenantPath'];
+        }
+
+        return null;
     }
 }

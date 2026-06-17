@@ -86,7 +86,7 @@ class SystemCompanyWebsiteController extends Controller
 
         if ($request->hasFile('logo')) {
             $upload = $this->tenantStorageService->upload($request->file('logo'), 'website/branding');
-            $validated['logo_url'] = $upload['url'];
+            $validated['logo_url'] = $this->publicWebsiteAssetUrl($upload['path']);
         }
 
         $settings->update($validated);
@@ -153,7 +153,7 @@ class SystemCompanyWebsiteController extends Controller
                 $request->file('primary_image'),
                 'website/about'
             );
-            $content['primary_image_url'] = $upload['url'];
+            $content['primary_image_url'] = $this->publicWebsiteAssetUrl($upload['path']);
         }
 
         if ($request->hasFile('secondary_image')) {
@@ -161,7 +161,7 @@ class SystemCompanyWebsiteController extends Controller
                 $request->file('secondary_image'),
                 'website/about'
             );
-            $content['secondary_image_url'] = $upload['url'];
+            $content['secondary_image_url'] = $this->publicWebsiteAssetUrl($upload['path']);
         }
 
         if ($section->type === 'portfolio') {
@@ -174,7 +174,7 @@ class SystemCompanyWebsiteController extends Controller
                         $request->file($field),
                         'website/portfolio'
                     );
-                    $cards[$index - 1]['image_url'] = $upload['url'];
+                    $cards[$index - 1]['image_url'] = $this->publicWebsiteAssetUrl($upload['path']);
                 }
             }
 
@@ -191,7 +191,7 @@ class SystemCompanyWebsiteController extends Controller
                         $request->file($field),
                         'website/testimonials'
                     );
-                    $testimonials[$index - 1]['avatar'] = $upload['url'];
+                    $testimonials[$index - 1]['avatar'] = $this->publicWebsiteAssetUrl($upload['path']);
                 }
             }
 
@@ -203,7 +203,7 @@ class SystemCompanyWebsiteController extends Controller
                 $request->file('app_slide_image'),
                 'website/lead-leak-detector'
             );
-            $content['app_image_url'] = $upload['url'];
+            $content['app_image_url'] = $this->publicWebsiteAssetUrl($upload['path']);
         }
 
         if (
@@ -227,6 +227,11 @@ class SystemCompanyWebsiteController extends Controller
         $section->update($validated);
 
         return response()->json($section->fresh());
+    }
+
+    private function publicWebsiteAssetUrl(string $path): string
+    {
+        return url('/api/public-website-assets/' . ltrim($path, '/'));
     }
 
     public function reorderSections(Request $request): JsonResponse

@@ -93,13 +93,14 @@ class LeadHistoryImportHandler implements ImportHandler
             }
 
             $stageRaw = trim((string) ($normalized['stage'] ?? ''));
+            $actionTypeRaw = trim((string) ($normalized['action_type'] ?? $normalized['actionType'] ?? $normalized['type'] ?? ''));
             $comment = trim((string) ($normalized['comment'] ?? ''));
             $salesRepRaw = trim((string) ($normalized['assigned_to'] ?? $normalized['sales_rep'] ?? ''));
             $actionAt = $this->parseActionAt(
                 $normalized['action_at'] ?? $normalized['follow_date'] ?? $normalized['date'] ?? null
             );
 
-            $hasActionPayload = $stageRaw !== '' || $comment !== '' || $salesRepRaw !== '' || $actionAt !== null;
+            $hasActionPayload = $stageRaw !== '' || $actionTypeRaw !== '' || $comment !== '' || $salesRepRaw !== '' || $actionAt !== null;
             if (!$hasActionPayload) {
                 $this->storeRow($job, [
                     'row_number' => $rowNumber,
@@ -183,6 +184,7 @@ class LeadHistoryImportHandler implements ImportHandler
             }
 
             $stageMeta = $this->mapHistoryStage($stageRaw);
+            $stageMeta['action_type'] = $this->resolveHistoryActionType($actionTypeRaw, (string) ($stageMeta['action_type'] ?? ''));
             $fingerprint = $this->historyFingerprint($lead, $stageRaw, $actionAt, $salesRepRaw, $comment);
 
             try {
@@ -287,17 +289,24 @@ class LeadHistoryImportHandler implements ImportHandler
     private function mapRow(array $rawRow, array $mapping): array
     {
         if (empty($mapping)) {
-            return $rawRow;
+            $out = $rawRow;
+        } else {
+            $out = [];
+            foreach ($mapping as $fileCol => $targetField) {
+                $targetField = trim((string) $targetField);
+                if ($targetField === '') {
+                    continue;
+                }
+                if (array_key_exists($fileCol, $rawRow)) {
+                    $out[$targetField] = $rawRow[$fileCol];
+                }
+            }
         }
 
-        $out = [];
-        foreach ($mapping as $fileCol => $targetField) {
-            $targetField = trim((string) $targetField);
-            if ($targetField === '') {
-                continue;
-            }
-            if (array_key_exists($fileCol, $rawRow)) {
-                $out[$targetField] = $rawRow[$fileCol];
+        foreach ($rawRow as $fileCol => $value) {
+            $targetField = $this->inferHistoryFieldFromHeader((string) $fileCol);
+            if ($targetField && !array_key_exists($targetField, $out)) {
+                $out[$targetField] = $value;
             }
         }
 
@@ -306,6 +315,9 @@ class LeadHistoryImportHandler implements ImportHandler
             'phone',
             'phone_country',
             'stage',
+            'action_type',
+            'actionType',
+            'type',
             'action_at',
             'follow_date',
             'date',
@@ -321,6 +333,22 @@ class LeadHistoryImportHandler implements ImportHandler
         }
 
         return $out;
+    }
+
+    private function inferHistoryFieldFromHeader(string $header): ?string
+    {
+        $key = $this->normalizeHistoryHeader($header);
+
+        return match ($key) {
+            'actiontype', 'type', 'نوعالاكشن', 'نوعالإجراء', 'الإجراء', 'الاجراء' => 'action_type',
+            default => null,
+        };
+    }
+
+    private function normalizeHistoryHeader(string $header): string
+    {
+        $normalized = mb_strtolower(trim($header), 'UTF-8');
+        return preg_replace('/[\s_\-\/:]+/u', '', $normalized) ?: '';
     }
 
     private function rowNumberFromOptions(array $options, int $index): int
@@ -551,10 +579,57 @@ class LeadHistoryImportHandler implements ImportHandler
         }
 
         return [
-            'action_type' => $normalized !== '' ? 'comment' : 'comment',
+            'action_type' => 'call',
             'operation' => null,
             'details' => [],
         ];
+    }
+
+    private function resolveHistoryActionType(string $actionTypeRaw, string $mappedActionType): string
+    {
+        $normalized = mb_strtolower(trim($actionTypeRaw), 'UTF-8');
+        $normalized = str_replace(['_', '-'], ' ', $normalized);
+        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?: $normalized;
+        $compact = str_replace(' ', '', $normalized);
+
+        $map = [
+            'call' => 'call',
+            'phone call' => 'call',
+            'phonecall' => 'call',
+            'مكالمة' => 'call',
+            'اتصال' => 'call',
+            'meeting' => 'meeting',
+            'اجتماع' => 'meeting',
+            'proposal' => 'proposal',
+            'عرض سعر' => 'proposal',
+            'reservation' => 'reservation',
+            'حجز' => 'reservation',
+            'rent' => 'rent',
+            'follow up' => 'follow_up',
+            'followup' => 'follow_up',
+            'متابعة' => 'follow_up',
+            'cancel' => 'cancel',
+            'cancellation' => 'cancel',
+            'cancelation' => 'cancel',
+            'cancelled' => 'cancel',
+            'إلغاء' => 'cancel',
+            'الغاء' => 'cancel',
+            'rotation' => 'rotation',
+            'تدوير' => 'rotation',
+            'check in' => 'check_in',
+            'checkin' => 'check_in',
+            'visit' => 'check_in',
+            'تشيك ان' => 'check_in',
+            'note' => 'note',
+            'comment' => 'comment',
+        ];
+
+        if ($normalized !== '') {
+            return $map[$normalized] ?? $map[$compact] ?? 'call';
+        }
+
+        $mappedActionType = trim($mappedActionType);
+        return $mappedActionType !== '' ? $mappedActionType : 'call';
     }
 
     private function historyFingerprint(

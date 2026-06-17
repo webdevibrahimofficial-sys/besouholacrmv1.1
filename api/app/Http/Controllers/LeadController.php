@@ -334,6 +334,36 @@ class LeadController extends Controller
             'import_job_id' => $meta['import_job_id'] ?? null,
         ], fn ($v) => $v !== null && $v !== '');
     }
+
+    /**
+     * Normalize a phone input into individual stored segments.
+     * Supports slash/comma/pipe/newline separated values from the edit modal.
+     *
+     * @return array<int, string>
+     */
+    private function normalizePhoneInputSegments(?string $rawPhone, ?string $countryHint = null): array
+    {
+        $rawPhone = trim((string) $rawPhone);
+        if ($rawPhone === '') {
+            return [];
+        }
+
+        $segments = preg_split('/[\/,;|\n\r]+/', $rawPhone) ?: [];
+        $normalized = [];
+        foreach ($segments as $segment) {
+            $segment = trim((string) $segment);
+            if ($segment === '') {
+                continue;
+            }
+
+            $phone = PhoneNormalizer::normalize($segment, $countryHint);
+            if ($phone !== '') {
+                $normalized[] = $phone;
+            }
+        }
+
+        return array_values(array_unique($normalized));
+    }
     
     protected function canViewDuplicates($user): bool
     {
@@ -1845,7 +1875,7 @@ class LeadController extends Controller
      * - Total Leads + New Leads + Duplicates + Pending + Cold Calls:
      *   sort by creation date (newest first).
      * - Other stages:
-     *   sort by Next Action Date (closest follow-up first).
+     *   sort by Next Action Date (latest scheduled follow-up first).
      */
     private function applyLeadsSmartOrdering($query, Request $request, $user): void
     {
@@ -1892,8 +1922,8 @@ class LeadController extends Controller
         $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 1 THEN 0 ELSE 1 END asc");
         $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 1 THEN leads.created_at END desc");
         $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN CASE WHEN {$dateExpr} IS NULL THEN 1 ELSE 0 END END asc");
-        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN {$dateExpr} END asc");
-        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN COALESCE({$timeExpr}, '') END asc");
+        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN {$dateExpr} END desc");
+        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN COALESCE({$timeExpr}, '') END desc");
         $query->orderBy('leads.created_at', 'desc');
     }
 
@@ -3023,7 +3053,10 @@ class LeadController extends Controller
 
             $rawPhone = isset($data['phone']) ? trim((string) $data['phone']) : '';
             if ($rawPhone !== '') {
-                $data['phone'] = PhoneNormalizer::normalize($rawPhone, $phoneCountryHint);
+                $phoneSegments = $this->normalizePhoneInputSegments($rawPhone, $phoneCountryHint);
+                $data['phone'] = !empty($phoneSegments)
+                    ? implode(' / ', $phoneSegments)
+                    : PhoneNormalizer::normalize($rawPhone, $phoneCountryHint);
             }
             
             // Check for duplicate leads on update
@@ -3034,7 +3067,9 @@ class LeadController extends Controller
                 $isDuplicate = false;
                 $duplicateOfId = null;
                 if (!empty($data['phone']) && $rawPhone !== '') {
-                    $variants = PhoneNormalizer::variantsForSearch($rawPhone, $phoneCountryHint);
+                    $phoneSegments = $this->normalizePhoneInputSegments($rawPhone, $phoneCountryHint);
+                    $primaryPhone = $phoneSegments[0] ?? $rawPhone;
+                    $variants = PhoneNormalizer::variantsForSearch($primaryPhone, $phoneCountryHint);
                     $variants = !empty($variants) ? $variants : [$data['phone']];
                     $tenantId = $request->user()?->tenant_id;
                     $base = Lead::query();

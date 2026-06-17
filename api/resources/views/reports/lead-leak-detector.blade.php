@@ -19,9 +19,10 @@
         .risk { background: #ede9fe; border-radius: 12px; color: #5b21b6; display: inline-block; font-size: 10px; font-weight: bold; margin-top: 6px; padding: 4px 9px; text-transform: uppercase; }
         .section { margin-top: 20px; }
         .leak { border-left: 4px solid #8b5cf6; margin-bottom: 9px; padding: 8px 10px; }
-        .answer-table { width: 100%; border-collapse: collapse; }
-        .answer-table th, .answer-table td { border-bottom: 1px solid #e2e8f0; padding: 7px 6px; text-align: left; vertical-align: top; }
-        .answer-table th { color: #475569; font-size: 10px; text-transform: uppercase; }
+        .advice { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; padding: 12px; }
+        .priority { background: #ecfeff; border-radius: 12px; color: #0f766e; display: inline-block; font-size: 9px; font-weight: bold; margin-left: 6px; padding: 3px 7px; text-transform: uppercase; }
+        .selling-grid { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 0 -8px; }
+        .selling-grid td { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 11px; vertical-align: top; width: 50%; }
         .footer { border-top: 1px solid #e2e8f0; color: #64748b; font-size: 9px; margin-top: 24px; padding-top: 10px; }
     </style>
 </head>
@@ -68,28 +69,38 @@
     </div>
 
     <div class="section">
-        <h2>Submitted Answers</h2>
-        <table class="answer-table">
-            <thead>
-                <tr><th>Question</th><th>Answer</th><th>Score</th></tr>
-            </thead>
-            <tbody>
-                @forelse ($diagnostic['answers'] as $question => $answer)
-                    <tr>
-                        <td>{{ str($question)->replace('_', ' ')->title() }}</td>
-                        <td>{{ is_array($answer) ? ($answer['label'] ?? '-') : $answer }}</td>
-                        <td>{{ is_array($answer) ? ($answer['score'] ?? '-') : '-' }}</td>
-                    </tr>
-                @empty
-                    <tr><td colspan="3" class="muted">No answers were recorded.</td></tr>
-                @endforelse
-            </tbody>
-        </table>
+        <h2>Personalized Recommendations Based on the Client's Responses</h2>
+        @forelse ($advice as $item)
+            <div class="advice">
+                <strong>{{ $item['title'] }}</strong>
+                <span class="priority">{{ $item['priority'] }}</span>
+                <p class="muted" style="margin-top: 4px;">Based on: {{ $item['answer'] }}</p>
+                <p style="margin-top: 7px;"><strong>Business impact:</strong> {{ $item['impact'] }}</p>
+                <p style="margin-top: 7px;"><strong>Recommended action:</strong> {{ $item['recommendation'] }}</p>
+                <p style="margin-top: 7px;"><strong>How Be Souhola helps:</strong> {{ $item['beSouholaFit'] }}</p>
+            </div>
+        @empty
+            <p class="muted">No personalized recommendations were recorded.</p>
+        @endforelse
     </div>
 
-    <div class="section card">
-        <h2>Suggested Sales Conversation Focus</h2>
-        <p>Start with the highest-risk leakage points above, then demonstrate the matching automation, follow-up, assignment, and reporting workflows inside Be Souhola CRM.</p>
+    <div class="section">
+        <h2>Why Be Souhola Is a Strong Fit</h2>
+        <table class="selling-grid">
+            @foreach (array_chunk($sellingPoints, 2) as $row)
+                <tr>
+                    @foreach ($row as $point)
+                        <td>
+                            <strong>{{ $point['title'] }}</strong>
+                            <p class="muted" style="margin-top: 5px;">{{ $point['detail'] }}</p>
+                        </td>
+                    @endforeach
+                    @if (count($row) === 1)
+                        <td></td>
+                    @endif
+                </tr>
+            @endforeach
+        </table>
     </div>
 
     <div class="footer">

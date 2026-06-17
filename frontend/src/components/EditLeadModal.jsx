@@ -3,18 +3,19 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../shared/context/ThemeProvider.jsx';
 import { api } from '../utils/api';
 import { useAppState } from '../shared/context/AppStateProvider.jsx';
-import { FaTimes, FaChevronDown, FaPaperclip, FaChevronUp } from 'react-icons/fa';
+import { FaTimes, FaPaperclip } from 'react-icons/fa';
 import SearchableSelect from './SearchableSelect';
 import DynamicFieldRenderer from './DynamicFieldRenderer';
 import { useStages } from '../hooks/useStages';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import CountryCodeSelect from './CountryCodeSelect';
+import { parsePhoneEntriesForEdit } from '../shared/utils/phoneDisplay';
 
 const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhone }) => {
   const { t, i18n } = useTranslation();
-  const { theme, resolvedTheme } = useTheme();
-  const { crmSettings, user: currentUser, company: tenantCompany } = useAppState();
+  const { resolvedTheme } = useTheme();
+  const { crmSettings, company: tenantCompany } = useAppState();
   const queryClient = useQueryClient();
   const isLight = resolvedTheme === 'light';
   const isRTL = i18n.language === 'ar';
@@ -42,8 +43,6 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('medium');
   const [dynamicValues, setDynamicValues] = useState({});
-  const [primaryCollapsed, setPrimaryCollapsed] = useState(false);
-
   // Lists
   const { stages } = useStages();
   const [usersList, setUsersList] = useState([]);
@@ -83,64 +82,8 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
         lead?.metaData?.phoneCountry ||
         crmSettings?.defaultCountryCode ||
         '+20';
-      if (phoneStr) {
-        const parsed = phoneStr
-          .split('/')
-          .map((p) => {
-            const trimmed = String(p || '').trim();
-            if (!trimmed) return null;
-
-            let matchedCode = defaultCode;
-            let numberPart = trimmed;
-
-            // 1) If it is "CODE NUMBER" and CODE is known, split it
-            const tokens = trimmed.split(/\s+/).filter(Boolean);
-            if (tokens.length >= 2) {
-              const maybeCodeRaw = tokens[0] || '';
-              const maybeCode =
-                maybeCodeRaw.startsWith('+')
-                  ? maybeCodeRaw
-                  : maybeCodeRaw.startsWith('00')
-                    ? '+' + maybeCodeRaw.slice(2)
-                    : maybeCodeRaw;
-
-              const isKnownCode = COUNTRY_CODES.some((c) => c.dialCode === maybeCode);
-              if (isKnownCode) {
-                matchedCode = maybeCode;
-                numberPart = tokens.slice(1).join('');
-              } else {
-                numberPart = tokens.join('');
-              }
-            } else if (trimmed.startsWith('+') || trimmed.startsWith('00')) {
-              // 2) If it starts with +/00, infer by prefix match
-              const normalized = trimmed.startsWith('00') ? '+' + trimmed.slice(2) : trimmed;
-              const codeMatch = COUNTRY_CODES.find((c) => normalized.startsWith(c.dialCode));
-              if (codeMatch) {
-                matchedCode = codeMatch.dialCode;
-                numberPart = normalized.slice(codeMatch.dialCode.length);
-              } else {
-                numberPart = normalized;
-              }
-            }
-
-            // Keep only digits in the number part
-            numberPart = String(numberPart || '').replace(/[^0-9]/g, '').trim();
-
-            // Backend normalizer stores Gulf numbers as 05xxxxxxxx (10 digits).
-            // UI validation expects Gulf numbers without the leading 0 (e.g., 5xxxxxxxx, 9 digits for +966/+971).
-            const rule = COUNTRY_CODES.find((c) => c.dialCode === matchedCode);
-            if (rule && numberPart.startsWith('0') && numberPart.length === rule.maxLen + 1) {
-              numberPart = numberPart.slice(1);
-            }
-
-            return { code: matchedCode || defaultCode || '+20', number: numberPart };
-          })
-          .filter(Boolean);
-
-        setMobileNumbers(parsed.length > 0 ? parsed : [{ code: defaultCode, number: '' }]);
-      } else {
-        setMobileNumbers([{ code: defaultCode, number: '' }]);
-      }
+      const parsed = parsePhoneEntriesForEdit(phoneStr, { defaultCountryCode: defaultCode });
+      setMobileNumbers(parsed.length > 0 ? parsed : [{ code: defaultCode, number: '' }]);
     }
   }, [lead, crmSettings?.defaultCountryCode, COUNTRY_CODES]);
 

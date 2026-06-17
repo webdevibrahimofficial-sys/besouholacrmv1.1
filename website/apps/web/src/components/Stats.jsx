@@ -41,7 +41,7 @@ const Stats = () => {
               <div className="text-5xl md:text-6xl font-bold text-accent-purple mb-3">
                 {stat.number}
               </div>
-              <div className="text-xl font-semibold text-white mb-2">{stat.label}</div>
+              <div className="text-label font-semibold text-white mb-2">{stat.label}</div>
               <p className="text-gray-400">{stat.description}</p>
             </motion.div>
           ))}

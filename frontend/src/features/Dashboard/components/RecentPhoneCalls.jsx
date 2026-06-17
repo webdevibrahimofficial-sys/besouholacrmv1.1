@@ -15,7 +15,7 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
   const [selectedLead, setSelectedLead] = useState(null);
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const [rangeMode, setRangeMode] = useState('today');
-  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode]);
+  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings]);
   const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings]);
   const rangeOptions = useMemo(() => ([
     { key: 'today', label: t('Today') },
@@ -50,10 +50,10 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
     return () => { cancelled = true; };
   }, [employeeIds, managerId, dateFrom, dateTo]);
 
-  const withDates = recentCalls.map((c, idx) => ({
-    ...c,
-    createdAt: new Date(Date.now() - (idx + 1) * 15 * 60 * 1000).toISOString()
-  }))
+  const callsWithDates = useMemo(() => recentCalls.map((call) => ({
+    ...call,
+    createdAt: call.createdAt || call.created_at || call.date || call.actionDate || null
+  })), [recentCalls])
 
   const isSameDay = (left, right) => {
     if (!left || !right) return false;
@@ -67,8 +67,9 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
 
   const matchesLocalRange = (iso) => {
     if (rangeMode === 'all') return true;
+    if (!iso) return false;
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return true;
+    if (Number.isNaN(d.getTime())) return false;
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -126,7 +127,7 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
     if (s === 'new') return true
     return true
   }
-  const displayCalls = withDates.filter(c => (
+  const displayCalls = callsWithDates.filter(c => (
     matchesStage(c) && (!employee || c.employeeName === employee) && inDateRange(c.createdAt) && matchesLocalRange(c.createdAt)
   ))
 

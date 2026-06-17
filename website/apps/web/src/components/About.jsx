@@ -30,7 +30,7 @@ const About = () => {
             viewport={{ once: true, amount: 0.3 }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
           >
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 leading-tight text-white uppercase">
+            <h2 className="text-section-title font-bold mb-6 text-white uppercase">
               {about.primary_title}{' '}
               <span className="text-accent-purple">{about.primary_title_accent}</span>
             </h2>
@@ -38,13 +38,13 @@ const About = () => {
             <div className="space-y-8">
               <div>
                 <h3 className="text-2xl font-bold text-white mb-3">{about.primary_card_one_title}</h3>
-                <p className="text-lg text-gray-400">
+                <p className="text-body text-gray-400">
                   {about.primary_card_one_body}
                 </p>
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-white mb-3">{about.primary_card_two_title}</h3>
-                <p className="text-lg text-gray-400">
+                <p className="text-body text-gray-400">
                   {about.primary_card_two_body}
                 </p>
               </div>
@@ -75,7 +75,7 @@ const About = () => {
             viewport={{ once: true, amount: 0.3 }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
           >
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 leading-tight text-white uppercase">
+            <h2 className="text-section-title font-bold mb-6 text-white uppercase">
               {about.secondary_title}{' '}
               <span className="text-accent-purple">{about.secondary_title_accent}</span>
             </h2>
@@ -83,13 +83,13 @@ const About = () => {
             <div className="space-y-8">
               <div>
                 <h3 className="text-2xl font-bold text-white mb-3">{about.secondary_card_one_title}</h3>
-                <p className="text-lg text-gray-400">
+                <p className="text-body text-gray-400">
                   {about.secondary_card_one_body}
                 </p>
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-white mb-3">{about.secondary_card_two_title}</h3>
-                <p className="text-lg text-gray-400">
+                <p className="text-body text-gray-400">
                   {about.secondary_card_two_body}
                 </p>
               </div>

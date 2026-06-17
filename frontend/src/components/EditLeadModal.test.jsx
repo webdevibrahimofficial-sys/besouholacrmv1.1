@@ -1,3 +1,5 @@
+/* global jest, describe, beforeEach, test, expect */
+
 import { render, screen, waitFor } from '@testing-library/react'
 import EditLeadModal from './EditLeadModal'
 
@@ -85,5 +87,30 @@ describe('EditLeadModal phone parsing', () => {
 
     expect(screen.getByDisplayValue('562131256')).toBeInTheDocument()
   })
-})
 
+  test('splits concatenated legacy Egyptian phones into separate edit rows', async () => {
+    render(
+      <EditLeadModal
+        isOpen={true}
+        onClose={jest.fn()}
+        onSave={jest.fn()}
+        canEditInfo={false}
+        canEditPhone={true}
+        lead={{
+          id: 2,
+          name: 'Legacy Lead',
+          source: 'Cold Call',
+          phone: '20015551439422001555143933',
+          meta_data: { phone_country: '+20' },
+        }}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByDisplayValue('+20')).toHaveLength(2)
+    })
+
+    expect(screen.getByDisplayValue('01555143942')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('01555143933')).toBeInTheDocument()
+  })
+})

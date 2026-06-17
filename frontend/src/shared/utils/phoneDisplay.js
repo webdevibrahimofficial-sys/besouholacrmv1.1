@@ -25,6 +25,13 @@ const splitConcatenatedLocalNumbers = (segment, defaultCountryCode) => {
     }
   }
 
+  if (country.iso2 === 'EG' && digits.length > 13 && digits.length % 13 === 0) {
+    const chunks = digits.match(/.{13}/g) || []
+    if (chunks.length > 1 && chunks.every((chunk) => /^20(?:0)?1[0125][0-9]{8}$/.test(chunk))) {
+      return chunks
+    }
+  }
+
   return [s]
 }
 
@@ -38,7 +45,7 @@ const splitPhoneSegments = (value, defaultCountryCode = '+20') => {
     : raw
 
   return countryAwareRaw
-    .split(/[\/,;|\n\r]+/)
+    .split(/[/,;|\n\r]+/)
     .map((s) => String(s || '').trim())
     .filter(Boolean)
     .flatMap((segment) => splitConcatenatedLocalNumbers(segment, defaultCountryCode))
@@ -138,6 +145,60 @@ function maskSegment(segment) {
   return maskDigits(s)
 }
 
+const parsePhoneSegmentForEdit = (segment, defaultCountryCode) => {
+  const s0 = stripMetaSuffix(segment)
+  const s = String(s0 || '').trim()
+  if (!s) return null
+
+  const countryCodes = COUNTRY_CODES || []
+  const fallbackCode = normalizeCountryCode(defaultCountryCode) || '+20'
+  let matchedCode = fallbackCode
+  let numberPart = s
+  const digits = String(s).replace(/[^0-9]/g, '')
+
+  const tokens = s.split(/\s+/).filter(Boolean)
+  if (tokens.length >= 2) {
+    const maybeCodeRaw = tokens[0] || ''
+    const maybeCode = maybeCodeRaw.startsWith('+')
+      ? maybeCodeRaw
+      : maybeCodeRaw.startsWith('00')
+        ? '+' + maybeCodeRaw.slice(2)
+        : maybeCodeRaw
+
+    if (countryCodes.some((c) => c.dialCode === maybeCode)) {
+      matchedCode = maybeCode
+      numberPart = tokens.slice(1).join('')
+    }
+  }
+
+  if (numberPart === s && (s.startsWith('+') || s.startsWith('00'))) {
+    const normalized = s.startsWith('00') ? '+' + s.slice(2) : s
+    const codeMatch = countryCodes.find((c) => normalized.startsWith(c.dialCode))
+    if (codeMatch) {
+      matchedCode = codeMatch.dialCode
+      numberPart = normalized.slice(codeMatch.dialCode.length)
+    } else {
+      numberPart = normalized
+    }
+  }
+
+  if (numberPart === s && digits) {
+    const ccDigits = String(matchedCode || '').replace(/[^0-9]/g, '')
+    if (ccDigits && digits.startsWith(ccDigits) && digits.length > ccDigits.length) {
+      numberPart = digits.slice(ccDigits.length)
+    }
+  }
+
+  numberPart = String(numberPart || '').replace(/[^0-9]/g, '').trim()
+
+  const rule = countryCodes.find((c) => c.dialCode === matchedCode)
+  if (rule && numberPart.startsWith('0') && numberPart.length === rule.maxLen + 1) {
+    numberPart = numberPart.slice(1)
+  }
+
+  return { code: matchedCode || fallbackCode, number: numberPart }
+}
+
 export const getPhoneDigits = (value, { defaultCountryCode = '+20' } = {}) => {
   const seg = splitPhoneSegments(value, defaultCountryCode)[0] || ''
   const normalized = normalizeSegmentForDisplay(seg, defaultCountryCode)
@@ -169,6 +230,13 @@ export const getPhoneLines = (value, { showFull = false, defaultCountryCode = '+
     const digits = getPhoneDigits(seg, { defaultCountryCode })
     return { display, digits }
   }).filter((x) => x.display)
+}
+
+export const parsePhoneEntriesForEdit = (value, { defaultCountryCode = '+20' } = {}) => {
+  const segments = splitPhoneSegments(value, defaultCountryCode)
+  return segments
+    .map((seg) => parsePhoneSegmentForEdit(seg, defaultCountryCode))
+    .filter((x) => x && (x.code || x.number))
 }
 
 export const maskPhoneForDisplay = (value) => {

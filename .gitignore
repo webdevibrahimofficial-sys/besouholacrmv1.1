@@ -2,6 +2,10 @@
 
 # Temp working files
 .tmp/
+*.tgz
+frontend-dist-*.zip
+*github-known-hosts
+docs/import-tests/~$*.xlsx
 
 # Frontend build output (Vite)
 frontend/dist/
@@ -16,6 +20,7 @@ dist_vs_src_modules_sources_report.txt
 # Backend runtime artifacts (Laravel)
 api/storage/framework/cache/
 api/storage/framework/sessions/
+api/storage/framework/testing/
 api/storage/framework/views/
 api/storage/logs/
 
@@ -35,6 +40,7 @@ website/dist/
 website/apps/web/vite-dev.log
 website/apps/web/vite-dev.err.log
 website/apps/web/deploy-dist/
+website/*.log
 
 api/storage/app/tenants/
 api/storage/app/public/

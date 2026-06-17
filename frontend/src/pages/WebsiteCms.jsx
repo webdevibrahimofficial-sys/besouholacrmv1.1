@@ -316,6 +316,31 @@ const normalizeWebsiteSettings = (value) => {
   }
 }
 
+const appendFormDataValue = (formData, key, value) => {
+  if (value == null) return
+
+  if (typeof value === 'boolean') {
+    formData.append(key, value ? '1' : '0')
+    return
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      appendFormDataValue(formData, `${key}[${index}]`, item)
+    })
+    return
+  }
+
+  if (typeof value === 'object' && !(value instanceof File) && !(value instanceof Blob)) {
+    Object.entries(value).forEach(([childKey, childValue]) => {
+      appendFormDataValue(formData, `${key}[${childKey}]`, childValue)
+    })
+    return
+  }
+
+  formData.append(key, value)
+}
+
 export default function WebsiteCms() {
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
@@ -678,16 +703,7 @@ export default function WebsiteCms() {
 
       if (hasLogoFile) {
         Object.entries(normalizedSettings || {}).forEach(([key, value]) => {
-          if (value == null) return
-          if (typeof value === 'boolean') {
-            payload.append(key, value ? '1' : '0')
-            return
-          }
-          if (typeof value === 'object') {
-            payload.append(key, JSON.stringify(value))
-          } else {
-            payload.append(key, value)
-          }
+          appendFormDataValue(payload, key, value)
         })
         payload.append('logo', brandingFiles.logo)
       }

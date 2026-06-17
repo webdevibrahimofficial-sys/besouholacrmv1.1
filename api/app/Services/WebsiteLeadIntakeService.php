@@ -55,7 +55,24 @@ class WebsiteLeadIntakeService
             'lead' => $processed['lead']->fresh(['creator:id,name', 'assignedAgent:id,name']),
             'status' => $processed['status'],
             'log_id' => $processed['log']?->id,
+            'report_url' => $processed['report_url'] ?? null,
+            'report_path' => $processed['report_path'] ?? null,
         ];
+    }
+
+    private function makeAbsoluteStorageUrl(Request $request, string $path): string
+    {
+        if (preg_match('#^tenants/(\d+)/leads/(\d+)/attachments/(lead-leak-report-\d+\.pdf)$#', $path, $matches)) {
+            return sprintf(
+                '%s/api/public/lead-leak-reports/%d/%d/%s',
+                rtrim($request->getSchemeAndHttpHost(), '/'),
+                (int) $matches[1],
+                (int) $matches[2],
+                $matches[3]
+            );
+        }
+
+        return rtrim($request->getSchemeAndHttpHost(), '/') . Storage::disk('public')->url($path);
     }
 
     private function createOrUpdateLead(int $tenantId, array $data, string $rawPhone): array
@@ -273,6 +290,78 @@ class WebsiteLeadIntakeService
         }
 
         return $metaData;
+    }
+
+    /**
+     * Persist a compact diagnostic snapshot as a lead attachment.
+     *
+     * This keeps the Sales Leakage Score visible in the lead attachments
+     * even if downstream PDF generation is skipped or the user prefers a
+     * machine-readable summary.
+     */
+    private function attachLeadLeakDiagnosticSnapshot(Lead $lead, array $diagnostic): ?string
+    {
+        $normalized = $this->leadLeakReportService->normalizeDiagnostic($diagnostic);
+
+        $path = sprintf(
+            'tenants/%d/leads/%d/attachments/lead-leak-summary-%d.json',
+            $lead->tenant_id,
+            $lead->id,
+            $lead->id
+        );
+
+        $payload = [
+            'lead_id' => $lead->id,
+            'lead_name' => $lead->name,
+            'generated_at' => now()->toIso8601String(),
+            'score' => $normalized['score'],
+            'risk_level' => $normalized['risk_level'],
+            'top_leaks' => $normalized['top_leaks'],
+            'answers' => $normalized['answers'],
+            'advice' => $normalized['advice'],
+            'cta_type' => $normalized['cta_type'],
+            'source_trigger' => $normalized['source_trigger'],
+        ];
+
+        Storage::disk('public')->put(
+            $path,
+            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+
+        $attachments = is_array($lead->attachments) ? $lead->attachments : [];
+        $attachments = array_values(array_filter(
+            $attachments,
+            fn ($attachment) => $attachment !== $path
+        ));
+        $attachments[] = $path;
+
+        $meta = is_array($lead->meta_data) ? $lead->meta_data : [];
+        $meta['lead_leak_detector'] = array_replace(
+            is_array($meta['lead_leak_detector'] ?? null) ? $meta['lead_leak_detector'] : [],
+            [
+                'score' => $normalized['score'],
+                'risk_level' => $normalized['risk_level'],
+                'top_leaks' => $normalized['top_leaks'],
+                'answers' => $normalized['answers'],
+                'advice' => $normalized['advice'],
+                'cta_type' => $normalized['cta_type'],
+                'source_trigger' => $normalized['source_trigger'],
+                'snapshot' => [
+                    'path' => $path,
+                    'name' => 'Sales Leakage Score Snapshot',
+                    'mime_type' => 'application/json',
+                    'type' => 'diagnostic_snapshot',
+                    'generated_at' => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        $lead->forceFill([
+            'attachments' => $attachments,
+            'meta_data' => $meta,
+        ])->save();
+
+        return $path;
     }
 
     private function extractLeadLeakDiagnostic(array $payload, array $meta): ?array
@@ -561,7 +650,7 @@ class WebsiteLeadIntakeService
     /**
      * @param array<string, mixed> $payload
      * @param array<string, mixed> $options
-     * @return array{lead: Lead, status: string, log: WebsiteIntakeLog|null, source_name: string}
+     * @return array{lead: Lead, status: string, log: WebsiteIntakeLog|null, source_name: string, report_url: string|null, report_path: string|null}
      */
     private function processResolvedConnection($connection, array $payload, Request $request, array $options = []): array
     {
@@ -572,7 +661,6 @@ class WebsiteLeadIntakeService
         $leadPayload = $this->buildLeadPayload($connection, $payload, $sourceName, $rawPhone);
 
         $result = null;
-        $generatedReportPath = null;
         $boundTenant = app()->bound('current_tenant_id');
         $previousTenantId = $boundTenant ? app('current_tenant_id') : null;
 
@@ -582,11 +670,6 @@ class WebsiteLeadIntakeService
             DB::beginTransaction();
 
             [$lead, $result] = $this->createOrUpdateLead($tenantId, $leadPayload, $rawPhone);
-
-            $diagnostic = data_get($leadPayload, 'meta_data.lead_leak_detector');
-            if (is_array($diagnostic)) {
-                $generatedReportPath = $this->leadLeakReportService->generateForLead($lead, $diagnostic);
-            }
 
             $connection->forceFill([
                 'last_used_at' => now(),
@@ -598,6 +681,23 @@ class WebsiteLeadIntakeService
 
             DB::commit();
 
+            $generatedReportPath = null;
+            $generatedReportUrl = null;
+            $diagnostic = data_get($leadPayload, 'meta_data.lead_leak_detector');
+            if (is_array($diagnostic)) {
+                try {
+                    $generatedReportPath = $this->leadLeakReportService->generateForLead($lead, $diagnostic);
+                    $this->attachLeadLeakDiagnosticSnapshot($lead->fresh(), $diagnostic);
+                    $generatedReportUrl = $this->makeAbsoluteStorageUrl($request, $generatedReportPath);
+                } catch (\Throwable $reportError) {
+                    \Illuminate\Support\Facades\Log::warning('Lead leak report generation failed after lead intake.', [
+                        'lead_id' => $lead->id ?? null,
+                        'tenant_id' => $tenantId,
+                        'message' => $reportError->getMessage(),
+                    ]);
+                }
+            }
+
             if ($dispatchNotifications) {
                 $this->notifyAfterCommit($lead, $result);
                 $this->notifyLeadCreated($lead, $result);
@@ -608,6 +708,8 @@ class WebsiteLeadIntakeService
                 'status' => $result,
                 'log' => $log,
                 'source_name' => $sourceName,
+                'report_path' => $generatedReportPath,
+                'report_url' => $generatedReportUrl,
             ];
         } catch (\Throwable $e) {
             DB::rollBack();

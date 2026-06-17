@@ -27,6 +27,7 @@ import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import { trackLeadLeakDetectorEvent } from '@/lib/analytics';
 import { submitWebsiteLead } from '@/lib/websiteLead';
 import appShowcaseImage from '@/assets/be-souhola-app-showcase.jpeg';
+import { resolveImageFallback } from '@/lib/websiteAssets';
 
 const defaultQuestions = [
   {
@@ -111,6 +112,161 @@ const defaultSolutions = {
   qualification: 'Structured intake forms and lead scoring',
 };
 
+const questionAdviceProfiles = {
+  first_contact: {
+    title: 'First-response speed is costing you intent',
+    signal: 'Your answer shows that new leads may wait too long before the first meaningful contact.',
+    impact:
+      'High-intent leads cool down quickly. When response time depends on manual checks, another competitor can reach the same prospect while your team is still deciding who should call.',
+    recommendation:
+      'Set a response SLA for new leads, trigger instant notifications, and route every enquiry to an owner within minutes. Managers should see overdue first-contact tasks without asking for updates.',
+    beSouholaFit:
+      'Be Souhola connects intake, assignment, reminders, and alerts so fresh leads move straight into an accountable follow-up flow.',
+  },
+  assignment: {
+    title: 'Ownership is not clear enough at the handoff point',
+    signal: 'Your answer suggests that lead assignment can still rely on people noticing, forwarding, or manually claiming leads.',
+    impact:
+      'Unclear ownership creates silent leakage: two salespeople may assume someone else is handling the lead, or the lead may sit in a shared channel without a next action.',
+    recommendation:
+      'Use automatic assignment rules, team capacity logic, and manager escalation for unassigned or delayed leads. Every lead should have one current owner and one visible next action.',
+    beSouholaFit:
+      'Be Souhola supports assignment ownership, rotation, notifications, and lead status tracking so accountability is visible from the first minute.',
+  },
+  followup: {
+    title: 'Follow-up consistency depends too much on individual habits',
+    signal: 'Your answer indicates that non-responsive leads may not always receive structured second and third attempts.',
+    impact:
+      'Most deals are not won on the first contact. Without scheduled follow-ups, the pipeline looks full but quietly loses leads that only needed timing, persistence, or a better channel.',
+    recommendation:
+      'Define follow-up cadences by stage, schedule next actions after every call, and use overdue reminders for leads with no recent activity.',
+    beSouholaFit:
+      'Be Souhola keeps next actions, comments, call outcomes, and reminders attached to the lead so follow-up becomes a process, not memory work.',
+  },
+  team_visibility: {
+    title: 'Management visibility is arriving too late',
+    signal: 'Your answer shows that performance may be reviewed after the fact rather than monitored live.',
+    impact:
+      'Weekly or manual reporting catches leakage after it has already happened. Managers need to spot slow response, stalled stages, and weak ownership while there is still time to act.',
+    recommendation:
+      'Track leads by source, stage, owner, response delay, and overdue actions. Review exceptions daily instead of waiting for manual reports.',
+    beSouholaFit:
+      'Be Souhola gives managers live pipeline views, lead analysis, team activity, and delay indicators so coaching can happen before revenue is lost.',
+  },
+  qualification: {
+    title: 'Qualification rules are not strict enough',
+    signal: 'Your answer suggests that lead quality depends on inconsistent questions or salesperson judgment.',
+    impact:
+      'Poor qualification wastes sales time on low-fit prospects and makes serious buyers harder to prioritize. It also weakens reporting because the team cannot separate demand from noise.',
+    recommendation:
+      'Standardize qualification fields, required questions, buyer intent signals, budget/source notes, and priority levels. Use these rules to decide who gets immediate attention.',
+    beSouholaFit:
+      'Be Souhola captures structured lead details, priorities, stages, custom fields, and source context so your team can qualify leads consistently.',
+  },
+  channels: {
+    title: 'Lead sources are fragmented across channels',
+    signal: 'Your answer points to leads entering from multiple places without one unified operating layer.',
+    impact:
+      'Disconnected channels make it hard to measure source quality, prevent duplicate follow-up, and ensure every enquiry receives the same level of service.',
+    recommendation:
+      'Centralize website forms, campaigns, social leads, WhatsApp, calls, and manual entries into one CRM flow with source tracking and unified ownership.',
+    beSouholaFit:
+      'Be Souhola is designed around connected intake, source visibility, campaign context, and CRM follow-up so every channel lands in one workflow.',
+  },
+  manager_answer: {
+    title: 'Pipeline bottlenecks are hard to explain quickly',
+    signal: 'Your answer shows that managers may need manual digging to understand where deals are stuck.',
+    impact:
+      'When bottlenecks are unclear, the team reacts late. The business cannot easily see whether the issue is source quality, sales activity, stage conversion, or delayed follow-up.',
+    recommendation:
+      'Build a management rhythm around live pipeline dashboards, stage aging, owner performance, and delayed action lists. Focus weekly meetings on exceptions, not data collection.',
+    beSouholaFit:
+      'Be Souhola combines stage tracking, reports, activity history, and team views so managers can diagnose pipeline friction without chasing spreadsheets.',
+  },
+};
+
+const beSouholaSellingPoints = [
+  {
+    title: 'One operating layer for every lead source',
+    detail:
+      'Website forms, campaigns, social leads, WhatsApp, calls, and manual entries can be managed in one CRM flow with source context attached.',
+  },
+  {
+    title: 'Clear ownership and faster response',
+    detail:
+      'Assignment, rotation, notifications, and lead status tracking help every enquiry move quickly to the right salesperson.',
+  },
+  {
+    title: 'Follow-up discipline built into daily work',
+    detail:
+      'Next actions, comments, call outcomes, reminders, and delay views keep the team from relying on memory or scattered notes.',
+  },
+  {
+    title: 'Management visibility without manual reporting',
+    detail:
+      'Dashboards and reports show source performance, pipeline movement, team activity, and delayed leads so managers can act earlier.',
+  },
+  {
+    title: 'Flexible enough for real estate and business teams',
+    detail:
+      'Projects, inventory, customers, marketing modules, tasks, users, and custom fields let the CRM match your actual workflow.',
+  },
+];
+
+const getQuestionAdviceKey = (question, index) => {
+  const prompt = String(question?.prompt || '').toLowerCase();
+  if (prompt.includes('first contact')) return 'first_contact';
+  if (prompt.includes('assigned')) return 'assignment';
+  if (prompt.includes('does not respond')) return 'followup';
+  if (prompt.includes('team performance')) return 'team_visibility';
+  if (prompt.includes('qualified')) return 'qualification';
+  if (prompt.includes('channels')) return 'channels';
+  if (prompt.includes('manager asks')) return 'manager_answer';
+
+  return ['first_contact', 'assignment', 'followup', 'team_visibility', 'qualification', 'channels', 'manager_answer'][index] || 'team_visibility';
+};
+
+const buildAnswerBasedAdvice = (questions, answers) => {
+  const items = questions
+    .map((question, index) => {
+      const answer = answers[index];
+      if (!answer) return null;
+
+      const score = Number(answer.score ?? 0);
+      if (score >= 82) return null;
+
+      const profile = questionAdviceProfiles[getQuestionAdviceKey(question, index)] || questionAdviceProfiles.team_visibility;
+      return {
+        ...profile,
+        question: question.prompt,
+        answer: answer.label,
+        score,
+        priority: score < 35 ? 'Critical' : score < 60 ? 'High' : 'Medium',
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 4);
+
+  if (items.length > 0) {
+    return items;
+  }
+
+  return [
+    {
+      ...questionAdviceProfiles.team_visibility,
+      question: 'Overall pipeline health',
+      answer: 'Strong answers across the audit',
+      score: 90,
+      priority: 'Optimization',
+      signal:
+        'Your answers show a generally healthy pipeline. The next opportunity is improving visibility, speed, and consistency at scale.',
+      recommendation:
+        'Use Be Souhola to standardize reporting, compare sources, and keep follow-up performance measurable as the team grows.',
+    },
+  ];
+};
+
 const mobileFeatureCards = [
   { icon: User2, label: 'Lead', sublabel: 'Management' },
   { icon: Building2, label: 'Real Estate', sublabel: 'Inventory' },
@@ -169,6 +325,7 @@ const LeadLeakDetector = () => {
   const [activeHeroPanelIndex, setActiveHeroPanelIndex] = useState(0);
   const [isHeroCarouselPaused, setIsHeroCarouselPaused] = useState(false);
   const [leadCaptureMode, setLeadCaptureMode] = useState(null);
+  const [appPreviewSrc, setAppPreviewSrc] = useState(appShowcaseImage);
   const [leadForm, setLeadForm] = useState({
     name: '',
     phone: '',
@@ -181,6 +338,7 @@ const LeadLeakDetector = () => {
     submitting: false,
     success: false,
     error: '',
+    reportUrl: '',
   });
 
   const content = useMemo(() => {
@@ -277,6 +435,10 @@ const LeadLeakDetector = () => {
       questions,
     };
   }, [leadLeakDetector]);
+
+  useEffect(() => {
+    setAppPreviewSrc(content.appImageUrl || appShowcaseImage);
+  }, [content.appImageUrl]);
 
   const progress = content.questions.length
     ? Math.round((answers.length / content.questions.length) * 100)
@@ -392,6 +554,7 @@ const LeadLeakDetector = () => {
       riskLabel,
       estimatedLoss,
       topLeaks,
+      advice: buildAnswerBasedAdvice(content.questions, answers),
     };
   }, [answers, content]);
 
@@ -416,6 +579,7 @@ const LeadLeakDetector = () => {
       riskLevel: String(result.riskLabel || '').toLowerCase(),
       topLeaks: result.topLeaks.map((item) => item.key),
       answers: answersMap,
+      advice: result.advice,
       sourceTrigger: openSource,
     };
   }, [answers, content.questions, openSource, result]);
@@ -511,6 +675,7 @@ const LeadLeakDetector = () => {
       submitting: false,
       success: false,
       error: '',
+      reportUrl: '',
     });
   };
 
@@ -555,6 +720,7 @@ const LeadLeakDetector = () => {
       submitting: false,
       success: false,
       error: '',
+      reportUrl: '',
     });
   };
 
@@ -565,6 +731,7 @@ const LeadLeakDetector = () => {
       viewing: true,
       error: '',
       success: false,
+      reportUrl: '',
     }));
 
     trackLeadLeakDetectorEvent(
@@ -649,6 +816,7 @@ const LeadLeakDetector = () => {
         risk_level: resultPayload.riskLevel,
         top_leaks: resultPayload.topLeaks,
         answers: resultPayload.answers,
+        advice: resultPayload.advice,
         cta_type: leadCaptureMode,
         source_trigger: resultPayload.sourceTrigger,
       },
@@ -669,7 +837,7 @@ const LeadLeakDetector = () => {
     });
 
     try {
-      await submitWebsiteLead({
+      const response = await submitWebsiteLead({
         name: leadForm.name,
         phone: leadForm.phone,
         email: leadForm.email,
@@ -690,6 +858,7 @@ const LeadLeakDetector = () => {
         submitting: false,
         success: true,
         error: '',
+        reportUrl: leadCaptureMode === 'full_report' ? response?.report_url || '' : '',
       });
 
       trackLeadLeakDetectorEvent('lead_leak_detector_lead_form_success', {
@@ -841,9 +1010,13 @@ const LeadLeakDetector = () => {
 
                           <div className="overflow-hidden rounded-[1.25rem] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(124,58,237,0.2),transparent_38%),#080b12] px-2 py-2">
                             <img
-                              src={content.appImageUrl}
+                              src={appPreviewSrc}
                               alt={heroPanels[activeHeroPanelIndex]?.title || 'Be Souhola mobile app showcase'}
                               className="pointer-events-none block h-[232px] w-full object-contain object-center select-none sm:h-[246px] lg:h-[258px]"
+                              onError={(event) => {
+                                resolveImageFallback(event, appShowcaseImage);
+                                setAppPreviewSrc(appShowcaseImage);
+                              }}
                             />
                           </div>
 
@@ -1109,13 +1282,13 @@ const LeadLeakDetector = () => {
                         {leadFormState.viewing ? (
                           <div className="mt-8 rounded-[1.75rem] border border-violet-400/20 bg-[linear-gradient(180deg,rgba(124,58,237,0.14),rgba(255,255,255,0.03))] p-5 sm:p-6">
                             {leadFormState.success ? (
-                              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-5 text-sm text-emerald-50">
+                              <div className="space-y-4 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-5 text-sm text-emerald-50">
                                 <div className="flex items-start gap-3">
                                   <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-300" />
                                   <div>
                                     <p className="font-semibold text-white">
                                       {leadCaptureMode === 'full_report'
-                                        ? 'Your report request is on its way.'
+                                        ? 'Your report is ready.'
                                         : 'Your tailored demo request has been sent.'}
                                     </p>
                                     <p className="mt-2 leading-7 text-emerald-100/90">
@@ -1123,6 +1296,87 @@ const LeadLeakDetector = () => {
                                     </p>
                                   </div>
                                 </div>
+
+                                {leadCaptureMode === 'full_report' ? (
+                                  <div className="overflow-hidden rounded-2xl border border-emerald-400/20 bg-[#0d1118]">
+                                    <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                      <div>
+                                        <p className="text-sm font-semibold text-white">Full report preview</p>
+                                        <p className="text-xs text-emerald-100/70">
+                                          The complete result is shown here and saved in the CRM attachments.
+                                        </p>
+                                      </div>
+                                      {leadFormState.reportUrl ? (
+                                        <a
+                                          href={leadFormState.reportUrl}
+                                          download={`sales-leakage-report-${result.score}.pdf`}
+                                          className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                                        >
+                                          Download report
+                                        </a>
+                                      ) : null}
+                                    </div>
+                                    <div className="grid gap-4 p-4 md:grid-cols-[0.9fr_1.1fr]">
+                                      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Sales Leakage Score</p>
+                                        <div className={`mt-3 text-5xl font-black ${result.tone.accent}`}>{result.score}/100</div>
+                                        <div className={`mt-3 inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${result.tone.chip}`}>
+                                          Risk level: {result.riskLabel}
+                                        </div>
+                                        <p className="mt-4 text-sm text-slate-300">
+                                          {content.estimatedLossLabel}: {result.estimatedLoss}
+                                        </p>
+                                      </div>
+
+                                      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Top leakage points</p>
+                                        <div className="mt-3 space-y-3">
+                                          {result.topLeaks.map((item, index) => (
+                                            <div key={`${item.key}-report-${index}`} className="rounded-xl border border-white/8 bg-[#10141d] px-4 py-3">
+                                              <p className="text-sm font-semibold text-white">{item.label}</p>
+                                              <p className="mt-1 text-xs leading-6 text-slate-400">{item.solution}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="border-t border-white/10 p-4">
+                                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Personalized recommendations</p>
+                                      <div className="mt-3 grid gap-3">
+                                        {result.advice.map((item, index) => (
+                                          <div key={`${item.title}-${index}`} className="rounded-2xl border border-white/8 bg-white/[0.04] p-4">
+                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                              <div>
+                                                <p className="text-sm font-semibold text-white">{item.title}</p>
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                  Based on: {item.answer}
+                                                </p>
+                                              </div>
+                                              <span className="w-fit rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                                                {item.priority}
+                                              </span>
+                                            </div>
+                                            <p className="mt-3 text-sm leading-6 text-slate-300">{item.impact}</p>
+                                            <p className="mt-3 text-sm leading-6 text-emerald-100/90">{item.recommendation}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    <div className="border-t border-white/10 p-4">
+                                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Why Be Souhola is a strong fit</p>
+                                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                        {beSouholaSellingPoints.map((item) => (
+                                          <div key={item.title} className="rounded-2xl border border-white/8 bg-[#10141d] p-4">
+                                            <p className="text-sm font-semibold text-white">{item.title}</p>
+                                            <p className="mt-2 text-sm leading-6 text-slate-400">{item.detail}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
                               </div>
                             ) : (
                               <form onSubmit={handleLeadSubmit} className="space-y-5">

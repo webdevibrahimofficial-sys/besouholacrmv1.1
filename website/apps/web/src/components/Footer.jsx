@@ -4,6 +4,7 @@ import { Facebook, Github, Instagram, Linkedin, Twitter } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import crmLogoMark from '@/assets/be-souhola-logo-dark.png';
+import { resolveImageFallback } from '@/lib/websiteAssets';
 
 const WhatsAppIcon = ({ size = 18, className = '' }) => (
   <svg
@@ -133,6 +134,7 @@ const Footer = () => {
                   src={logoSrc}
                   alt={`${companyName} CRM logo`}
                   className="h-full w-full object-contain"
+                  onError={(event) => resolveImageFallback(event, crmLogoMark)}
                 />
               </div>
               <div>

@@ -111,6 +111,7 @@ class LeadsImportHandler implements ImportHandler
                 'status' => $normalized['status'] ?? 'new',
                 'priority' => $normalized['priority'] ?? 'medium',
             ], $normalized);
+            $normalized['priority'] = $this->normalizeLeadPriority($normalized['priority'] ?? null);
 
             // Normalize phone early
             $rawPhone = isset($normalized['phone']) ? trim((string) $normalized['phone']) : '';
@@ -123,6 +124,20 @@ class LeadsImportHandler implements ImportHandler
                 $normalized['phone'] = '';
             }
 
+            $rawOtherPhone = trim((string) ($normalized['other_mobile'] ?? $normalized['otherMobile'] ?? ''));
+            if ($rawOtherPhone !== '') {
+                $normalizedOtherPhone = PhoneNormalizer::normalize($rawOtherPhone, $rowPhoneCountryHint);
+                if ($normalizedOtherPhone !== '') {
+                    if (array_key_exists('other_mobile', $allowedColumns)) {
+                        $normalized['other_mobile'] = $normalizedOtherPhone;
+                    } else {
+                        $meta = is_array($normalized['meta_data'] ?? null) ? ($normalized['meta_data'] ?? []) : [];
+                        $meta['other_mobile'] = $normalizedOtherPhone;
+                        $normalized['meta_data'] = $meta;
+                    }
+                }
+            }
+
             // Extract optional fields we may use after create.
             $assignedToRaw = trim((string) ($normalized['assignedTo'] ?? $normalized['assigned_to'] ?? ''));
             $nextActionDate = trim((string) ($normalized['next_action_date'] ?? $normalized['nextActionDate'] ?? ''));
@@ -131,6 +146,15 @@ class LeadsImportHandler implements ImportHandler
             $firstActionDateRaw = trim((string) ($normalized['first_action_date'] ?? $normalized['firstActionDate'] ?? $normalized['last_action_date'] ?? $normalized['lastActionDate'] ?? $normalized['action_date'] ?? $normalized['actionDate'] ?? ''));
             $comment = trim((string) ($normalized['comment'] ?? $normalized['comments'] ?? ''));
             $phoneCountry = trim((string) ($normalized['phone_country'] ?? ''));
+            $importAuditFields = array_filter([
+                'assignedTo' => $assignedToRaw !== '' ? $assignedToRaw : null,
+                'creation_date' => $creationDateRaw !== '' ? $creationDateRaw : null,
+                'first_action_date' => $firstActionDateRaw !== '' ? $firstActionDateRaw : null,
+                'next_action_date' => $nextActionDate !== '' ? $nextActionDate : null,
+                'next_action_time' => $nextActionTime !== '' ? $nextActionTime : null,
+                'comment' => $comment !== '' ? $comment : null,
+                'phone_country' => $phoneCountry !== '' ? $phoneCountry : null,
+            ], fn ($value) => $value !== null && $value !== '');
 
             // Required fields (match legacy bulk-import behavior): Name, Phone, Source, and (Project OR Item based on tenant type).
             $name = trim((string) ($normalized['name'] ?? ''));
@@ -305,7 +329,8 @@ class LeadsImportHandler implements ImportHandler
 
             $stageLabel = trim((string) ($normalized['stage'] ?? ''));
             $stageKey = strtolower(str_replace([' ', '-'], '', $stageLabel));
-            if ($stageKey === '' || !isset($availableStages[$stageKey])) {
+            $isDefaultImportStage = in_array($stageKey, ['new', 'newlead', 'fresh', 'coldcall', 'coldcalls'], true);
+            if ($stageKey === '' || (!isset($availableStages[$stageKey]) && !$isDefaultImportStage)) {
                 $this->storeRow($job, [
                     'row_number' => $rowNumber,
                     'status' => 'skipped',
@@ -320,7 +345,7 @@ class LeadsImportHandler implements ImportHandler
                 continue;
             }
 
-            $normalized['stage'] = $availableStages[$stageKey];
+            $normalized['stage'] = $availableStages[$stageKey] ?? $stageLabel;
 
             // Store common template fields inside meta_data (best-effort).
             $meta = is_array($normalized['meta_data'] ?? null) ? ($normalized['meta_data'] ?? []) : [];
@@ -407,6 +432,7 @@ class LeadsImportHandler implements ImportHandler
             // Strip fields that are not columns (best-effort).
             unset($normalized['custom_fields'], $normalized['attachments']);
             $normalized = $this->filterToAllowedColumns($normalized, $allowedColumns);
+            $normalizedForAudit = array_merge($normalized, $importAuditFields);
 
             try {
                 $isDuplicateRow = ($enableDup && ($isDbDup || $isInFileDup));
@@ -524,7 +550,8 @@ class LeadsImportHandler implements ImportHandler
                 if ($nextActionAt && !$shouldCollapseIntoOperationalAction) {
                     $time = $nextActionAt->format('H:i');
                     try {
-                        LeadAction::create([
+                        $actionCreatedAt = $firstActionDate ?: $creationDate ?: $nextActionAt;
+                        $action = new LeadAction([
                             'lead_id' => $lead->id,
                             'tenant_id' => $tenantId,
                             'user_id' => $lead->assigned_to ?: $uploaderId,
@@ -542,6 +569,11 @@ class LeadsImportHandler implements ImportHandler
                                 'stage_at_creation_name' => $importedStageName !== '' ? $importedStageName : null,
                             ], fn ($v) => $v !== null && $v !== ''),
                         ]);
+                        if ($actionCreatedAt) {
+                            $action->created_at = $actionCreatedAt->copy();
+                            $action->updated_at = $actionCreatedAt->copy();
+                        }
+                        $action->save();
                     } catch (\Throwable $e) {
                         $warnings[] = ['code' => 'next_action_failed', 'message' => "Failed to create next action ({$e->getMessage()}).", 'field' => 'next_action_date'];
                     }
@@ -617,7 +649,7 @@ class LeadsImportHandler implements ImportHandler
                     'reason_code' => $reasonCode,
                     'reason_message' => $reasonMessage,
                     'raw_data' => $rawRow,
-                    'normalized_data' => $normalized,
+                    'normalized_data' => $normalizedForAudit,
                     'warnings' => $warnings,
                     'entity_type' => 'leads',
                     'created_record_id' => $createdId ?: null,
@@ -636,7 +668,7 @@ class LeadsImportHandler implements ImportHandler
                     'reason_code' => 'exception',
                     'reason_message' => $e->getMessage(),
                     'raw_data' => $rawRow,
-                    'normalized_data' => $this->withFieldErrors($normalized, ['_row' => $e->getMessage()]),
+                    'normalized_data' => $this->withFieldErrors($normalizedForAudit, ['_row' => $e->getMessage()]),
                     'warnings' => $warnings,
                     'entity_type' => 'leads',
                     'duplicate_of_id' => $duplicateOfId ?: null,
@@ -663,17 +695,24 @@ class LeadsImportHandler implements ImportHandler
     private function mapRow(array $rawRow, array $mapping): array
     {
         if (empty($mapping)) {
-            return $rawRow;
+            $out = $rawRow;
+        } else {
+            $out = [];
+            foreach ($mapping as $fileCol => $targetField) {
+                $targetField = trim((string) $targetField);
+                if ($targetField === '') {
+                    continue;
+                }
+                if (array_key_exists($fileCol, $rawRow)) {
+                    $out[$targetField] = $rawRow[$fileCol];
+                }
+            }
         }
 
-        $out = [];
-        foreach ($mapping as $fileCol => $targetField) {
-            $targetField = trim((string) $targetField);
-            if ($targetField === '') {
-                continue;
-            }
-            if (array_key_exists($fileCol, $rawRow)) {
-                $out[$targetField] = $rawRow[$fileCol];
+        foreach ($rawRow as $fileCol => $value) {
+            $targetField = $this->inferLeadFieldFromHeader((string) $fileCol);
+            if ($targetField && !array_key_exists($targetField, $out)) {
+                $out[$targetField] = $value;
             }
         }
 
@@ -693,6 +732,8 @@ class LeadsImportHandler implements ImportHandler
             'company',
             'email',
             'phone',
+            'other_mobile',
+            'otherMobile',
             'name',
             'project',
             'item',
@@ -719,6 +760,38 @@ class LeadsImportHandler implements ImportHandler
         }
 
         return $out;
+    }
+
+    private function inferLeadFieldFromHeader(string $header): ?string
+    {
+        $key = $this->normalizeImportHeader($header);
+
+        return match ($key) {
+            'creationdate', 'createdat', 'created', 'datecreated',
+            'تاريخالإنشاء', 'تاريخالانشاء' => 'creation_date',
+            'priority', 'leadpriority', 'الأولوية', 'الاولوية', 'اولوية', 'بريورتي' => 'priority',
+            default => null,
+        };
+    }
+
+    private function normalizeImportHeader(string $header): string
+    {
+        $normalized = mb_strtolower(trim($header), 'UTF-8');
+        return preg_replace('/[\s_\-\/:]+/u', '', $normalized) ?: '';
+    }
+
+    private function normalizeLeadPriority($value): string
+    {
+        $raw = mb_strtolower(trim((string) $value), 'UTF-8');
+        $key = preg_replace('/[\s_\-\/:]+/u', '', $raw) ?: '';
+
+        return match ($key) {
+            'hot', 'veryhot', 'urgent', 'عاجل', 'ساخن', 'هوت', 'مهمجدا', 'هامجدا' => 'hot',
+            'high', 'عالي', 'عالية', 'مرتفع', 'مرتفعة', 'هام', 'هامة', 'مهم', 'مهمة' => 'high',
+            'low', 'cold', 'منخفض', 'منخفضة', 'قليل', 'قليلة' => 'low',
+            'medium', 'normal', 'متوسط', 'متوسطة', 'عادى', 'عادي', 'طبيعي', 'طبيعية' => 'medium',
+            default => in_array($raw, ['hot', 'high', 'medium', 'low'], true) ? $raw : 'medium',
+        };
     }
 
     private function rowNumberFromOptions(array $options, int $index): int
@@ -891,6 +964,14 @@ class LeadsImportHandler implements ImportHandler
         $raw = trim((string) $value);
         if ($raw === '') return null;
         try {
+            if (is_numeric($raw)) {
+                $serial = (float) $raw;
+                if ($serial > 0 && $serial < 100000) {
+                    $days = (int) floor($serial);
+                    $seconds = (int) round(($serial - $days) * 86400);
+                    return \Carbon\Carbon::create(1899, 12, 30)->addDays($days)->addSeconds($seconds);
+                }
+            }
             if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
                 return \Carbon\Carbon::createFromFormat('Y-m-d', $raw);
             }
@@ -965,10 +1046,11 @@ class LeadsImportHandler implements ImportHandler
     ): void {
         $importedComment = trim((string) ($supplementalDetails['imported_comment'] ?? ''));
         $description = $importedComment !== '' ? $importedComment : 'Auto-created from imported stage';
+        $resolvedActionType = $actionType === 'meeting' ? 'meeting' : 'call';
 
         $exists = LeadAction::query()
             ->where('lead_id', $lead->id)
-            ->where('action_type', $actionType)
+            ->where('action_type', $resolvedActionType)
             ->where('description', $description)
             ->exists();
 
@@ -980,10 +1062,10 @@ class LeadsImportHandler implements ImportHandler
             'lead_id' => $lead->id,
             'tenant_id' => $lead->tenant_id,
             'user_id' => $actorId,
-            'action_type' => $actionType,
+            'action_type' => $resolvedActionType,
             'description' => $description,
             'stage_id_at_creation' => null,
-            'next_action_type' => null,
+            'next_action_type' => $resolvedActionType,
             'details' => array_filter(array_merge([
                 'date' => $operationAt->toDateString(),
                 'time' => $operationAt->format('H:i'),
@@ -991,6 +1073,8 @@ class LeadsImportHandler implements ImportHandler
                 'source' => 'excel_import',
                 'auto_generated' => true,
                 'created_from_stage' => $lead->stage,
+                'imported_operational_type' => $actionType,
+                'original_action_type' => $actionType,
             ], $supplementalDetails), fn ($value) => $value !== null && $value !== ''),
         ]);
         $action->created_at = $operationAt->copy();

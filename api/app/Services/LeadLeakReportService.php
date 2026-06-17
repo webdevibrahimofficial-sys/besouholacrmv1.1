@@ -25,6 +25,29 @@ class LeadLeakReportService
         'qualification' => 'Structured intake forms and lead scoring',
     ];
 
+    private const SELLING_POINTS = [
+        [
+            'title' => 'One operating layer for every lead source',
+            'detail' => 'Website forms, campaigns, social leads, WhatsApp, calls, and manual entries can be managed in one CRM flow with source context attached.',
+        ],
+        [
+            'title' => 'Clear ownership and faster response',
+            'detail' => 'Assignment, rotation, notifications, and lead status tracking help every enquiry move quickly to the right salesperson.',
+        ],
+        [
+            'title' => 'Follow-up discipline built into daily work',
+            'detail' => 'Next actions, comments, call outcomes, reminders, and delay views keep the team from relying on memory or scattered notes.',
+        ],
+        [
+            'title' => 'Management visibility without manual reporting',
+            'detail' => 'Dashboards and reports show source performance, pipeline movement, team activity, and delayed leads so managers can act earlier.',
+        ],
+        [
+            'title' => 'Flexible enough for real estate and business teams',
+            'detail' => 'Projects, inventory, customers, marketing modules, tasks, users, and custom fields let the CRM match your actual workflow.',
+        ],
+    ];
+
     public function generateForLead(Lead $lead, array $diagnostic): string
     {
         $diagnostic = $this->normalizeDiagnostic($diagnostic);
@@ -41,6 +64,8 @@ class LeadLeakReportService
             'lead' => $lead,
             'diagnostic' => $diagnostic,
             'topLeaks' => $topLeaks,
+            'advice' => $diagnostic['advice'],
+            'sellingPoints' => self::SELLING_POINTS,
             'generatedAt' => now(),
         ])->render();
 
@@ -110,9 +135,47 @@ class LeadLeakReportService
             'risk_level' => $riskLevel,
             'top_leaks' => array_slice($topLeaks, 0, 3),
             'answers' => is_array($diagnostic['answers'] ?? null) ? $diagnostic['answers'] : [],
+            'advice' => $this->normalizeAdvice($diagnostic),
             'cta_type' => trim((string) ($diagnostic['cta_type'] ?? 'full_report')),
             'source_trigger' => trim((string) ($diagnostic['source_trigger'] ?? 'result_cta')),
             'submitted_at' => now()->toIso8601String(),
         ];
+    }
+
+    private function normalizeAdvice(array $diagnostic): array
+    {
+        $advice = $diagnostic['advice'] ?? null;
+        if (is_array($advice) && !empty($advice)) {
+            return array_values(array_filter(array_map(function ($item) {
+                if (!is_array($item)) {
+                    return null;
+                }
+
+                return [
+                    'title' => trim((string) ($item['title'] ?? 'Recommended sales improvement')),
+                    'priority' => trim((string) ($item['priority'] ?? 'High')),
+                    'answer' => trim((string) ($item['answer'] ?? 'Based on the audit response')),
+                    'impact' => trim((string) ($item['impact'] ?? 'This area can create avoidable leakage when it is not controlled consistently.')),
+                    'recommendation' => trim((string) ($item['recommendation'] ?? 'Standardize the workflow and make ownership, next action, and delay visible to managers.')),
+                    'beSouholaFit' => trim((string) ($item['beSouholaFit'] ?? 'Be Souhola CRM helps connect intake, follow-up, assignment, and reporting in one workflow.')),
+                ];
+            }, $advice)));
+        }
+
+        $topLeaks = is_array($diagnostic['top_leaks'] ?? null) ? $diagnostic['top_leaks'] : [];
+        $fallback = [];
+        foreach (array_slice($topLeaks, 0, 4) as $leak) {
+            $key = strtolower(trim((string) $leak));
+            $fallback[] = [
+                'title' => (self::LEAK_LABELS[$key] ?? str($key)->replace('_', ' ')->title()->toString()) . ' needs tighter control',
+                'priority' => 'High',
+                'answer' => 'Derived from the highest leakage areas',
+                'impact' => 'This weakness can slow down sales response, reduce accountability, or make management visibility arrive too late.',
+                'recommendation' => self::RECOMMENDATIONS[$key] ?? 'Standardize the workflow and track the next action for every lead.',
+                'beSouholaFit' => 'Be Souhola CRM helps turn this workflow into visible, trackable daily execution.',
+            ];
+        }
+
+        return $fallback;
     }
 }

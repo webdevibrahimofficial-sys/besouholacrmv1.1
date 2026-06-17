@@ -28,6 +28,20 @@ class WebsiteAnalyticsService
         'scroll_50',
         'scroll_75',
         'scroll_100',
+        'lead_leak_detector_card_view',
+        'lead_leak_detector_completed',
+        'lead_leak_detector_result_view',
+        'lead_leak_detector_open',
+        'lead_leak_detector_close',
+        'lead_leak_detector_start',
+        'lead_leak_detector_question_answered',
+        'lead_leak_detector_report_cta_click',
+        'lead_leak_detector_demo_cta_click',
+        'lead_leak_detector_lead_form_view',
+        'lead_leak_detector_lead_form_start',
+        'lead_leak_detector_lead_form_error',
+        'lead_leak_detector_lead_form_submit',
+        'lead_leak_detector_lead_form_success',
     ];
 
     public function recordEvent(string $tenantSlug, array $payload, Request $request): array
