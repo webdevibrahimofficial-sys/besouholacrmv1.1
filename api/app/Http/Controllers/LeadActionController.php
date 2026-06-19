@@ -153,6 +153,63 @@ class LeadActionController extends Controller
         return $details;
     }
 
+    private function decorateActionTimingState(LeadAction $leadAction): LeadAction
+    {
+        $details = $leadAction->details;
+        if (!is_array($details)) {
+            $details = json_decode($details, true) ?? [];
+        }
+
+        $status = strtolower(trim((string) ($details['status'] ?? '')));
+        $openStatuses = ['pending', 'in_progress', 'in-progress', 'in progress'];
+        if (!in_array($status, $openStatuses, true)) {
+            $details['action_state'] = $status ?: 'unknown';
+            $details['is_scheduled'] = false;
+            $details['is_delayed'] = false;
+            $leadAction->setAttribute('details', $details);
+            return $leadAction;
+        }
+
+        $date = trim((string) ($details['date'] ?? ''));
+        if ($date === '') {
+            $details['action_state'] = 'pending';
+            $details['is_scheduled'] = false;
+            $details['is_delayed'] = false;
+            $leadAction->setAttribute('details', $details);
+            return $leadAction;
+        }
+
+        $time = trim((string) ($details['time'] ?? ''));
+        if ($time === '') {
+            $time = '00:00';
+        }
+
+        try {
+            $scheduledAt = \Carbon\Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . substr($time, 0, 5), config('app.timezone'));
+        } catch (\Throwable $e) {
+            try {
+                $scheduledAt = \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $date . ' ' . $time, config('app.timezone'));
+            } catch (\Throwable $ex) {
+                $details['action_state'] = 'pending';
+                $details['is_scheduled'] = false;
+                $details['is_delayed'] = false;
+                $leadAction->setAttribute('details', $details);
+                return $leadAction;
+            }
+        }
+
+        $now = \Carbon\Carbon::now(config('app.timezone'));
+        $isScheduled = $scheduledAt->isFuture();
+        $isDelayed = $now->greaterThanOrEqualTo($scheduledAt->copy()->addMinute());
+
+        $details['action_state'] = $isScheduled ? 'scheduled' : ($isDelayed ? 'delayed' : 'pending');
+        $details['is_scheduled'] = $isScheduled;
+        $details['is_delayed'] = $isDelayed;
+
+        $leadAction->setAttribute('details', $details);
+        return $leadAction;
+    }
+
     private function writeMeetingAudit(LeadAction $leadAction, ?string $fromStatus, string $toStatus, ?int $userId): void
     {
         try {
@@ -769,7 +826,7 @@ class LeadActionController extends Controller
                         $this->writeMeetingAudit($existing, $oldStatus, 'scheduled', Auth::id());
                         return response()->json([
                             'message' => 'Lead action updated successfully',
-                            'action' => $existing->load('user')
+                            'action' => $this->decorateActionTimingState($existing->load('user'))
                         ], 200);
                     }
                 }
@@ -855,7 +912,7 @@ class LeadActionController extends Controller
 
                     return response()->json([
                         'message' => 'Lead action updated successfully',
-                        'action' => $existing->load('user')
+                        'action' => $this->decorateActionTimingState($existing->load('user'))
                     ], 200);
                 }
             }
@@ -914,7 +971,7 @@ class LeadActionController extends Controller
                     $this->writeMeetingAudit($existing, $oldStatus, $meetingStatus, Auth::id());
                     return response()->json([
                         'message' => 'Lead action updated successfully',
-                        'action' => $existing->load('user')
+                        'action' => $this->decorateActionTimingState($existing->load('user'))
                     ], 200);
                 }
             }
@@ -1125,10 +1182,7 @@ class LeadActionController extends Controller
         $now = now();
         $pastPendingActions = LeadAction::where('lead_id', $request->lead_id)
             ->where('id', '!=', $leadAction->id) // Exclude the new one
-            ->where(function($q) {
-                $q->where('details->status', 'pending')
-                  ->orWhere('details->status', 'in-progress');
-            })
+            ->whereIn('details->status', ['pending', 'in_progress', 'in-progress', 'in progress'])
             ->get();
 
         foreach ($pastPendingActions as $ppa) {
@@ -1197,7 +1251,7 @@ class LeadActionController extends Controller
 
         return response()->json([
             'message' => 'Lead action created successfully',
-            'action' => $leadAction->load('user')
+            'action' => $this->decorateActionTimingState($leadAction->load('user'))
         ], 201);
     }
 
@@ -1375,7 +1429,7 @@ class LeadActionController extends Controller
                         $leadAction->details = $merged;
                         $leadAction->save();
                         $this->writeMeetingAudit($leadAction, $oldStatus, $newStatus, $user->id);
-                        return response()->json(['message' => 'Updated', 'action' => $leadAction->fresh()->load('user')]);
+                        return response()->json(['message' => 'Updated', 'action' => $this->decorateActionTimingState($leadAction->fresh()->load('user'))]);
 
                         if (false && !$user->is_super_admin && in_array($oldStatus, ['done', 'no_show'], true)) {
                             return response()->json([
@@ -1387,7 +1441,7 @@ class LeadActionController extends Controller
                         $leadAction->details = $merged;
                         $leadAction->save();
                         $this->writeMeetingAudit($leadAction, $oldStatus, $newStatus, $user->id);
-                        return response()->json(['message' => 'Updated', 'action' => $leadAction->fresh()->load('user')]);
+                        return response()->json(['message' => 'Updated', 'action' => $this->decorateActionTimingState($leadAction->fresh()->load('user'))]);
                     }
                 }
             }
@@ -1478,7 +1532,7 @@ class LeadActionController extends Controller
 
         return response()->json([
             'message' => 'Lead action updated successfully',
-            'action' => $leadAction->load(['user', 'lead'])
+            'action' => $this->decorateActionTimingState($leadAction->load(['user', 'lead']))
         ]);
     }
 
