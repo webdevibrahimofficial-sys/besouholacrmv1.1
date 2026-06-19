@@ -483,12 +483,26 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   const getStageIdFromStageName = (stageName) => {
     if (!stageName || !Array.isArray(stages) || stages.length === 0) return null;
-    const normalized = String(stageName).trim().toLowerCase();
+    const normalizeStageKey = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+    const normalized = normalizeStageKey(stageName);
     if (!normalized) return null;
 
     const matched = stages.find((s) => {
-      const names = [s.name, s.name_en, s.title, s.display_name, s.key].filter(Boolean);
-      return names.some((n) => String(n).trim().toLowerCase() === normalized);
+      const names = [
+        s.name,
+        s.name_en,
+        s.nameEn,
+        s.name_ar,
+        s.nameAr,
+        s.title,
+        s.title_ar,
+        s.titleAr,
+        s.display_name,
+        s.displayName,
+        s.key,
+        s.type,
+      ].filter(Boolean);
+      return names.some((n) => normalizeStageKey(n) === normalized);
     });
 
     return matched ? String(matched.id) : null;
