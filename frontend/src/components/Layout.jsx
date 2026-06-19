@@ -75,7 +75,28 @@ useEffect(() => {
   
   // حل إضافي: إضافة class للـ body يساعد الـ CSS في الاستقرار
   document.body.dir = isRtl ? 'rtl' : 'ltr';
-}, [i18n.language]);
+  }, [i18n.language]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (typeof window === 'undefined') return;
+    if (!('Notification' in window)) return;
+
+    const permission = window.Notification.permission;
+    if (permission === 'denied') return;
+
+    let alreadySubscribed = false;
+    try {
+      alreadySubscribed = window.localStorage.getItem('webPushSubscribed') === 'true';
+    } catch {}
+
+    if (permission === 'granted' || !alreadySubscribed) {
+      const timer = window.setTimeout(() => {
+        registerWebPush().catch(() => {});
+      }, 1500);
+      return () => window.clearTimeout(timer);
+    }
+  }, [user?.id, registerWebPush]);
 
   useEffect(() => {
     const allowCollapse = !crmSettings || crmSettings.sidebarCollapsible !== false

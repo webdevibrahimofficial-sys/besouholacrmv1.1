@@ -6,10 +6,11 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use App\Traits\ChecksNotificationSettings;
 
 class SystemNotification extends Notification
 {
-    use Queueable;
+    use Queueable, ChecksNotificationSettings;
 
     protected $title;
     protected $message;
@@ -32,7 +33,7 @@ class SystemNotification extends Notification
      */
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return $this->determineChannels($notifiable, ['database']);
     }
 
     /**

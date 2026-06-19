@@ -247,12 +247,16 @@ export const useNotifications = (user) => {
 
             const convertedVapidKey = urlBase64ToUint8Array(vapidKey);
 
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: convertedVapidKey
-            });
+            let subscription = await registration.pushManager.getSubscription();
+            if (!subscription) {
+                subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: convertedVapidKey
+                });
+            }
 
             await api.post('/api/push/subscribe', subscription);
+            try { localStorage.setItem('webPushSubscribed', 'true'); } catch {}
             console.log('Web Push Subscribed successfully');
 
         } catch (error) {

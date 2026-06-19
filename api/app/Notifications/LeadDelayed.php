@@ -26,7 +26,7 @@ class LeadDelayed extends Notification implements ShouldBroadcast
     {
         // Delayed actions are critical and must always show in-app (database + broadcast),
         // regardless of quiet hours or app notification toggles.
-        return ['database', 'broadcast'];
+        return $this->withWebPushIfConfigured(['database', 'broadcast']);
     }
 
     public function toBroadcast($notifiable): BroadcastMessage

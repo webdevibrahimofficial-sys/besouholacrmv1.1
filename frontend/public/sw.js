@@ -3,18 +3,24 @@ self.addEventListener('push', function (event) {
         return;
     }
 
-    const data = event.data ? event.data.json() : {};
+    let data = {};
+    try {
+        data = event.data ? event.data.json() : {};
+    } catch (e) {
+        data = { title: 'Besouhola CRM', body: event.data ? event.data.text() : '' };
+    }
     const title = data.title || 'New Notification';
     const message = data.body || data.message || '';
-    const icon = data.icon || '/icon.png';
+    const icon = data.icon || '/favicon.svg';
     const tag = data.tag || 'general';
+    const url = data.url || data.action_url || data.link || '/notifications';
 
     event.waitUntil(
         self.registration.showNotification(title, {
             body: message,
             icon: icon,
             tag: tag,
-            data: data,
+            data: { ...data, url },
             actions: data.actions || []
         })
     );
@@ -23,7 +29,8 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
-    const urlToOpen = event.notification.data.url || '/';
+    const notificationData = event.notification.data || {};
+    const urlToOpen = notificationData.url || '/notifications';
 
     event.waitUntil(
         clients.matchAll({

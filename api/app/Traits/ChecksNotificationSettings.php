@@ -4,6 +4,8 @@ namespace App\Traits;
 
 use App\Models\NotificationSetting;
 use Carbon\Carbon;
+use NotificationChannels\WebPush\WebPushChannel;
+use NotificationChannels\WebPush\WebPushMessage;
 
 trait ChecksNotificationSettings
 {
@@ -77,7 +79,7 @@ trait ChecksNotificationSettings
                 // Suppress app channels if user disabled app notifications
                 if (($ns->app_notifications ?? true) === false) {
                     $selectedChannels = array_values(array_filter($selectedChannels, function ($ch) {
-                        return !in_array($ch, ['database', 'broadcast']);
+                        return !in_array($ch, ['database', 'broadcast', WebPushChannel::class], true);
                     }));
                 }
                 // Quiet hours: suppress in-app channels within time window
@@ -95,7 +97,7 @@ trait ChecksNotificationSettings
                     }
                     if ($inWindow) {
                         $selectedChannels = array_values(array_filter($selectedChannels, function ($ch) {
-                            return !in_array($ch, ['database', 'broadcast']);
+                            return !in_array($ch, ['database', 'broadcast', WebPushChannel::class], true);
                         }));
                     }
                 }
@@ -104,6 +106,53 @@ trait ChecksNotificationSettings
             // Fail-safe: ignore preference application errors
         }
 
+        if ($this->webPushConfigured() && (in_array('database', $selectedChannels, true) || in_array('broadcast', $selectedChannels, true))) {
+            $selectedChannels[] = WebPushChannel::class;
+        }
+
+        $selectedChannels = array_values(array_unique($selectedChannels));
+
         return $selectedChannels;
+    }
+
+    protected function webPushConfigured(): bool
+    {
+        return (bool) (
+            config('webpush.vapid.subject') &&
+            config('webpush.vapid.public_key') &&
+            (config('webpush.vapid.private_key') || config('webpush.vapid.pem_file'))
+        );
+    }
+
+    protected function withWebPushIfConfigured(array $channels): array
+    {
+        if ($this->webPushConfigured()) {
+            $channels[] = WebPushChannel::class;
+        }
+
+        return array_values(array_unique($channels));
+    }
+
+    public function toWebPush($notifiable, $notification = null)
+    {
+        $payload = method_exists($this, 'toArray') ? $this->toArray($notifiable) : [];
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        $title = (string) ($payload['title'] ?? $payload['subject'] ?? 'Besouhola CRM');
+        $body = (string) ($payload['message'] ?? $payload['body'] ?? 'You have a new notification.');
+        $url = (string) ($payload['link'] ?? $payload['url'] ?? '/notifications');
+
+        return (new WebPushMessage)
+            ->title($title)
+            ->body($body)
+            ->icon('/favicon.svg')
+            ->tag((string) ($payload['type'] ?? class_basename(static::class)))
+            ->data(array_merge($payload, [
+                'url' => $url,
+                'action_url' => $url,
+                'notification_id' => $notification?->id ?? null,
+            ]));
     }
 }

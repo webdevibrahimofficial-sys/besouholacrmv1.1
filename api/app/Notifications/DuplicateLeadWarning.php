@@ -5,9 +5,12 @@ namespace App\Notifications;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
 use App\Models\Lead;
+use App\Traits\ChecksNotificationSettings;
 
 class DuplicateLeadWarning extends Notification
 {
+    use ChecksNotificationSettings;
+
     public $duplicateLead;
     public $originalLead;
 
@@ -27,7 +30,7 @@ class DuplicateLeadWarning extends Notification
      */
     public function via(object $notifiable): array
     {
-        return ['database', 'broadcast'];
+        return $this->withWebPushIfConfigured(['database', 'broadcast']);
     }
 
     /**
