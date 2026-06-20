@@ -116,6 +116,8 @@ export default function Import() {
   const [summary, setSummary] = useState(null)
   const [jobId, setJobId] = useState(null)
   const [jobDetails, setJobDetails] = useState(null)
+  const [processingStartedAt, setProcessingStartedAt] = useState(null)
+  const [processingElapsedSeconds, setProcessingElapsedSeconds] = useState(0)
 
   const [showDetails, setShowDetails] = useState(false)
   const [jobRows, setJobRows] = useState([])
@@ -144,6 +146,23 @@ export default function Import() {
   const importJobsSupportedTargets = useMemo(() => new Set(['leads', 'lead_history']), [])
   const isTargetSupported = importJobsSupportedTargets.has(String(target || '').toLowerCase())
   const isLeadHistoryTarget = String(target || '').toLowerCase() === 'lead_history'
+  const isProcessing = status === 'processing'
+
+  useEffect(() => {
+    if (!isProcessing || !processingStartedAt) {
+      setProcessingElapsedSeconds(0)
+      return undefined
+    }
+
+    const tick = () => {
+      const seconds = Math.max(0, Math.floor((Date.now() - processingStartedAt) / 1000))
+      setProcessingElapsedSeconds(seconds)
+    }
+
+    tick()
+    const interval = window.setInterval(tick, 1000)
+    return () => window.clearInterval(interval)
+  }, [isProcessing, processingStartedAt])
 
   const parseWorkbookSheet = useCallback((wb, wsName) => {
     const ws = wb.Sheets[wsName]
@@ -268,9 +287,15 @@ export default function Import() {
   const onImportConfirm = async () => {
     try {
       setStatus('processing')
+      setProcessingStartedAt(Date.now())
+      setStep(4)
+      setSummary(null)
+      setJobId(null)
+      setJobDetails(null)
 
       if (!isTargetSupported) {
         setStatus('error')
+        setProcessingStartedAt(null)
         setSummary({ error: 'unsupported_module', message: 'This module is not supported yet by the new import-jobs flow.' })
         logImportEvent({
           module: target,
@@ -296,8 +321,10 @@ export default function Import() {
       setJobId(resp.data?.job_id ?? null)
       setStatus('success')
       setStep(4)
+      setProcessingStartedAt(null)
     } catch (e) {
       setStatus('error')
+      setProcessingStartedAt(null)
       const code = e?.response?.status
       const apiMessage = e?.response?.data?.message || e?.response?.data?.error || e?.message
       setSummary({
@@ -334,6 +361,8 @@ export default function Import() {
     setJobRowsPage(1)
     setSheetNames([])
     setSelectedSheet('')
+    setProcessingStartedAt(null)
+    setProcessingElapsedSeconds(0)
     setStatus('idle')
     setStep(1)
   }
@@ -350,6 +379,22 @@ export default function Import() {
       warning_rows: Number(counters?.warning_rows ?? 0) || 0,
     }
   }, [summary])
+
+  const processingLabel = useMemo(() => {
+    if (i18n.language === 'ar') {
+      return isLeadHistoryTarget ? 'جاري استيراد سجل الليدز...' : 'جاري استيراد الليدز...'
+    }
+
+    return isLeadHistoryTarget ? 'Importing lead history...' : 'Importing leads...'
+  }, [i18n.language, isLeadHistoryTarget])
+
+  const processingHint = useMemo(() => {
+    if (i18n.language === 'ar') {
+      return 'الملفات الكبيرة قد تستغرق بعض الوقت. برجاء عدم غلق الصفحة أو تحديثها حتى يكتمل الاستيراد.'
+    }
+
+    return 'Large files can take a while. Please keep this page open until the import finishes.'
+  }, [i18n.language])
 
   useEffect(() => {
     if (!jobId) return
@@ -577,10 +622,58 @@ export default function Import() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold">{t('Summary')}</h3>
               <div className="flex gap-2">
-                <button className="px-3 py-2 rounded bg-gray-700 text-white" onClick={clearFile}>{t('Start New')}</button>
+                <button
+                  className={`px-3 py-2 rounded text-white ${isProcessing ? 'bg-gray-600 cursor-not-allowed opacity-70' : 'bg-gray-700'}`}
+                  onClick={clearFile}
+                  disabled={isProcessing}
+                >
+                  {t('Start New')}
+                </button>
               </div>
             </div>
-            {status === 'processing' && <span className="text-sm text-blue-400">{t('import.processing')}</span>}
+            {status === 'processing' && (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-start gap-4">
+                      <div className="mt-0.5 h-11 w-11 shrink-0 rounded-full border-4 border-blue-200/30 border-t-blue-400 animate-spin" />
+                      <div className="space-y-2">
+                        <div className="text-lg font-semibold text-blue-100">{processingLabel}</div>
+                        <div className="text-sm text-blue-100/80">{processingHint}</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0">
+                      <div className="rounded-xl bg-white/5 px-4 py-3">
+                        <div className="text-xs text-blue-100/70">{i18n.language === 'ar' ? 'الملف' : 'File'}</div>
+                        <div className="text-sm font-medium text-white break-all">{file?.name || '-'}</div>
+                      </div>
+                      <div className="rounded-xl bg-white/5 px-4 py-3">
+                        <div className="text-xs text-blue-100/70">{i18n.language === 'ar' ? 'الصفوف' : 'Rows'}</div>
+                        <div className="text-sm font-medium text-white">{rows.length}</div>
+                      </div>
+                      <div className="rounded-xl bg-white/5 px-4 py-3">
+                        <div className="text-xs text-blue-100/70">{i18n.language === 'ar' ? 'الوقت المنقضي' : 'Elapsed'}</div>
+                        <div className="text-sm font-medium text-white">
+                          {processingElapsedSeconds < 60
+                            ? `${processingElapsedSeconds}s`
+                            : `${Math.floor(processingElapsedSeconds / 60)}m ${processingElapsedSeconds % 60}s`}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {[1, 2, 3].map((item) => (
+                    <div key={item} className="rounded-xl border border-white/10 bg-white/5 p-4 animate-pulse">
+                      <div className="h-3 w-20 rounded bg-white/10 mb-3" />
+                      <div className="h-8 w-24 rounded bg-white/10 mb-2" />
+                      <div className="h-3 w-28 rounded bg-white/10" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {status === 'error' && <span className="text-sm text-red-400">{t('Error')}</span>}
             {summary && (
               <div className="space-y-4">

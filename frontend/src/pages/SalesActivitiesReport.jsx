@@ -107,6 +107,7 @@ export default function SalesActivitiesReport() {
   const [stageFilter, setStageFilter] = useState([])
   const [sourceFilter, setSourceFilter] = useState([])
   const [projectFilter, setProjectFilter] = useState([])
+  const [actionTypeFilter, setActionTypeFilter] = useState([])
   
   const [assignDateFrom, setAssignDateFrom] = useState('')
   const [assignDateTo, setAssignDateTo] = useState('')
@@ -331,6 +332,25 @@ export default function SalesActivitiesReport() {
       .toLowerCase()
       .trim()
       .replace(/[\s-]+/g, '_')
+
+  const formatActionTypeLabel = (value) => String(value || '')
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+
+  const getActionTypeValue = (action) => {
+    const details = parseActionDetails(action?.details)
+    return normalizeActionTypeKey(
+      action?.action_type,
+      details?.actionType,
+      details?.action_type,
+      action?.type,
+      action?.next_action_type,
+      details?.next_action_type,
+      details?.nextAction
+    )
+  }
 
   const getLeadAssignedDate = (lead) => parseDateDetails(
     lead?.assigned_at ||
@@ -599,6 +619,19 @@ export default function SalesActivitiesReport() {
       .filter(o => o.label)
   }, [projectsList])
 
+  const actionTypeOptions = useMemo(() => {
+    const uniqueTypes = Array.from(new Set(
+      actions
+        .map((action) => getActionTypeValue(action))
+        .filter(Boolean)
+    ))
+
+    return uniqueTypes.map((type) => ({
+      value: type,
+      label: formatActionTypeLabel(type),
+    }))
+  }, [actions])
+
   const filteredActions = useMemo(() => {
     return actions.filter(action => {
       const lead = action.lead || {}
@@ -668,7 +701,12 @@ export default function SalesActivitiesReport() {
         ? true
         : projectFilter.includes(projectValue)
 
-      return bySales && byManager && byStage && bySource && byProject && matchesDateFilters(action)
+      const actionTypeValue = getActionTypeValue(action)
+      const byActionType = !Array.isArray(actionTypeFilter) || actionTypeFilter.length === 0
+        ? true
+        : actionTypeFilter.includes(actionTypeValue)
+
+      return bySales && byManager && byStage && bySource && byProject && byActionType && matchesDateFilters(action)
     })
   }, [
     actions,
@@ -678,6 +716,7 @@ export default function SalesActivitiesReport() {
     stageFilter,
     sourceFilter,
     projectFilter,
+    actionTypeFilter,
     assignDateFrom,
     assignDateTo,
     creationDateFrom,
@@ -928,6 +967,7 @@ export default function SalesActivitiesReport() {
     stageFilter,
     sourceFilter,
     projectFilter,
+    actionTypeFilter,
     assignDateFrom,
     assignDateTo,
     creationDateFrom,
@@ -1133,6 +1173,7 @@ export default function SalesActivitiesReport() {
     setStageFilter([])
     setSourceFilter([])
     setProjectFilter([])
+    setActionTypeFilter([])
     setAssignDateFrom('')
     setAssignDateTo('')
     setCreationDateFrom('')
@@ -1278,7 +1319,7 @@ export default function SalesActivitiesReport() {
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                       <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                      {isRTL ? 'الفترة' : 'Duration'}
+                     {isRTL ? 'تاريخ الإنشاء' : 'Creation Date'}
                     </label>
                <DateRangePicker
                  from={creationDateFrom}
@@ -1325,20 +1366,19 @@ export default function SalesActivitiesReport() {
              </div>
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                      <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                      {isRTL ? 'إلى تاريخ' : 'To Date'}
+                     <Activity size={12} className="text-blue-500 dark:text-blue-400" />
+                     {isRTL ? 'نوع الإجراء' : 'Action Type'}
                     </label>
-               <DateRangePicker
-                 from={proposalDateFrom}
-                 to={proposalDateTo}
-                 onChange={({ from, to }) => {
-                   setProposalDateFrom(from)
-                   setProposalDateTo(to)
-                 }}
-                 isRTL={isRTL}
-                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-               />
-              </div>
+              <SearchableSelect
+                options={actionTypeOptions}
+                value={actionTypeFilter}
+                onChange={setActionTypeFilter}
+                placeholder={isRTL ? 'اختر' : 'Select'}
+                multiple
+                isRTL={isRTL}
+                icon={<Activity size={16} />}
+              />
+             </div>
           </div>
         </div>
       </div>

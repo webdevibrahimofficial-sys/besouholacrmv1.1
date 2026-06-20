@@ -14,6 +14,9 @@ class WhatsappSettingController extends Controller
         if (!$user->tenant_id) {
             return response()->json(['message' => 'User does not belong to a tenant'], 403);
         }
+        if ($resp = $this->ensureWhatsappAdmin($user)) {
+            return $resp;
+        }
 
         $settings = WhatsappSetting::firstOrCreate(
             ['tenant_id' => $user->tenant_id],
@@ -23,7 +26,7 @@ class WhatsappSettingController extends Controller
             ]
         );
 
-        return response()->json($settings);
+        return response()->json($this->serializeSettings($settings));
     }
 
     public function update(Request $request)
@@ -31,6 +34,9 @@ class WhatsappSettingController extends Controller
         $user = Auth::user();
         if (!$user->tenant_id) {
             return response()->json(['message' => 'User does not belong to a tenant'], 403);
+        }
+        if ($resp = $this->ensureWhatsappAdmin($user)) {
+            return $resp;
         }
 
         $settings = WhatsappSetting::firstOrCreate(['tenant_id' => $user->tenant_id]);
@@ -52,8 +58,63 @@ class WhatsappSettingController extends Controller
             $validated['phone_number_id'] = $validated['api_secret'];
         }
 
+        foreach (['api_key', 'api_secret'] as $secretField) {
+            if (!array_key_exists($secretField, $validated)) {
+                continue;
+            }
+
+            $value = trim((string) ($validated[$secretField] ?? ''));
+            if ($value === '') {
+                unset($validated[$secretField]);
+            }
+        }
+
         $settings->update($validated);
 
-        return response()->json($settings);
+        return response()->json($this->serializeSettings($settings->fresh()));
+    }
+
+    private function serializeSettings(WhatsappSetting $settings): array
+    {
+        $data = $settings->toArray();
+
+        $apiKey = (string) ($settings->api_key ?? '');
+        $apiSecret = (string) ($settings->api_secret ?? '');
+
+        $data['api_key'] = null;
+        $data['api_secret'] = null;
+        $data['has_api_key'] = $apiKey !== '';
+        $data['has_api_secret'] = $apiSecret !== '';
+        $data['api_key_masked'] = $this->maskSecret($apiKey);
+        $data['api_secret_masked'] = $this->maskSecret($apiSecret);
+
+        return $data;
+    }
+
+    private function maskSecret(string $value): ?string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $suffix = substr($trimmed, -4);
+        return str_repeat('*', max(strlen($trimmed) - 4, 8)) . $suffix;
+    }
+
+    private function ensureWhatsappAdmin($user)
+    {
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $roleLower = strtolower(trim((string) ($user->role ?? $user->job_title ?? '')));
+        $isTenantAdmin = $user->is_super_admin || in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'owner'], true);
+
+        if ($isTenantAdmin) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Only tenant admins can manage WhatsApp settings.'], 403);
     }
 }

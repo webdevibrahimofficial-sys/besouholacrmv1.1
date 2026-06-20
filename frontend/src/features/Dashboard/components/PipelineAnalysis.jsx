@@ -579,13 +579,13 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
       )}
 
       {chartType === 'pie' && (
-        <div className="w-full h-56 sm:h-72">
+        <div className="w-full min-h-[26rem] sm:min-h-[30rem]">
           <Pie options={{
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-              legend: { position: isMobile ? 'bottom' : 'right', labels: { color: tickColor, font: { size: isMobile ? 10 : 13 } } },
-              title: { display: true, text: (lang === 'ar' ? `${t('Pipeline Analysis')} - ${measureDisplay} (حسب المرحلة)` : `${t('Pipeline Analysis')} - ${t(selectedMeasure)} (${t('by Stage')})`), color: tickColor, font: { size: isMobile ? 12 : 14, weight: 'bold' } }
+              legend: { position: 'bottom', labels: { color: tickColor, font: { size: isMobile ? 10 : 13 }, boxWidth: isMobile ? 12 : 18, padding: isMobile ? 10 : 14 } },
+              title: { display: false }
             }
           }} data={pieData} />
         </div>
@@ -649,3 +649,4 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
     </div>
   );
 };
+

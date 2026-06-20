@@ -30,8 +30,8 @@ export const deleteWhatsappTemplate = async (id) => {
   return res?.data
 }
 
-export const sendWhatsappTest = async ({ to, template, language = 'en' }) => {
-  const res = await api.post('/api/whatsapp/send-test', { to, template, language })
+export const sendWhatsappTest = async ({ api_key, phone_number_id }) => {
+  const res = await api.post('/api/whatsapp/send-test', { api_key, phone_number_id })
   return res?.data
 }
 
@@ -45,8 +45,8 @@ export const getLeadWhatsappMessages = async (leadId) => {
   return res?.data || []
 }
 
-export const sendWhatsappTemplate = async ({ recipient_number, template_name, variables }) => {
-  const res = await api.post('/api/v1/whatsapp/send-template', { recipient_number, template_name, variables })
+export const sendWhatsappTemplate = async ({ recipient_number, template_name, variables, language = 'en_US' }) => {
+  const res = await api.post('/api/v1/whatsapp/send-template', { recipient_number, template_name, variables, language })
   return res?.data
 }
 
@@ -71,13 +71,35 @@ export const whatsappService = {
     }
   },
   sendTestMessage: async (payload) => {
-    const to = payload?.to
-    const template = payload?.template?.name || 'hello_world'
-    const language = payload?.template?.language?.code?.slice(0,2) || 'en'
-    const j = await sendWhatsappTest({ to, template, language })
+    const j = await sendWhatsappTest({
+      api_key: payload?.api_key,
+      phone_number_id: payload?.phone_number_id,
+    })
     return j
   },
   getLeadWhatsappMessages,
   sendWhatsappTemplate,
   sendWhatsappText,
+}
+
+// WhatsApp Mirror microservice API helpers
+export const pairWhatsappMirror = async () => {
+  const res = await api.post('/api/whatsapp-mirror/pair')
+  return res?.data
+}
+
+export const getWhatsappMirrorStatus = async () => {
+  const res = await api.get('/api/whatsapp-mirror/status')
+  return res?.data
+}
+
+export const disconnectWhatsappMirror = async () => {
+  const res = await api.post('/api/whatsapp-mirror/disconnect')
+  return res?.data
+}
+
+export const whatsappMirrorService = {
+  pair: pairWhatsappMirror,
+  getStatus: getWhatsappMirrorStatus,
+  disconnect: disconnectWhatsappMirror,
 }

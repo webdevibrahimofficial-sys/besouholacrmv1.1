@@ -30,6 +30,8 @@ use App\Http\Controllers\PublicFileController;
 use App\Http\Controllers\PublicWebsiteAssetController;
 use App\Http\Controllers\MetaWebhookController;
 use App\Http\Controllers\MetaLeadFormController;
+use App\Http\Controllers\Internal\WhatsappMirrorWebhookController;
+use App\Http\Controllers\Api\WhatsappMirrorController;
 use App\Http\Controllers\ExcelImportController;
 use App\Http\Controllers\ImportJobController;
 use App\Http\Controllers\TenantConfigController;
@@ -104,9 +106,24 @@ Route::post('/facebook/data-deletion', function () {
 });
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'verify']);
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'receive']);
+// Internal webhook for WhatsApp Mirror microservice (protected by internal token)
+Route::post('/internal/whatsapp-mirror/webhook', [WhatsappMirrorWebhookController::class, 'handle']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/whatsapp/messages', [\App\Http\Controllers\WhatsappMessageController::class , 'index']);
     Route::post('/whatsapp/send-test', [\App\Http\Controllers\WhatsappMessageController::class , 'sendTest']);
+});
+
+// External/UI endpoints for Whatsapp Mirror (tenant context, authenticated)
+Route::middleware([
+    ResolveTenant::class,
+    'auth:sanctum',
+    InitializeTenancy::class,
+    SetTenantTimezone::class,
+    EnsureTenantSubscriptionActive::class,
+])->prefix('whatsapp-mirror')->group(function () {
+    Route::post('/pair', [WhatsappMirrorController::class, 'pair']);
+    Route::get('/status', [WhatsappMirrorController::class, 'status']);
+    Route::post('/disconnect', [WhatsappMirrorController::class, 'disconnect']);
 });
 
 // Secure File Serving (Signed URLs)

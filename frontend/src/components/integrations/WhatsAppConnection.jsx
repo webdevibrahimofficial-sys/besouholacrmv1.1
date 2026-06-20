@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getWhatsappSettings, updateWhatsappSettings } from '../../services/whatsappService'
+import { getWhatsappSettings, updateWhatsappSettings, sendWhatsappTest } from '../../services/whatsappService'
 import { toast } from 'react-hot-toast'
-import { Plug, Save, RefreshCw, Key, MessageSquare } from 'lucide-react'
+import { Plug, Save, CheckCircle, AlertCircle } from 'lucide-react'
 
 export default function WhatsAppConnection() {
   const { t } = useTranslation()
@@ -18,6 +18,11 @@ export default function WhatsAppConnection() {
     api_key: '',
     api_secret: ''
   })
+  const [secretHints, setSecretHints] = useState({
+    api_key_masked: '',
+    phone_number_id_masked: '',
+  })
+  const canTestConnection = Boolean(formData.api_key || secretHints.api_key_masked) && Boolean(formData.phone_number_id || secretHints.phone_number_id_masked)
 
   useEffect(() => {
     fetchSettings()
@@ -31,10 +36,14 @@ export default function WhatsAppConnection() {
         setFormData({
           provider: settings.provider || 'Meta API',
           business_number: settings.business_number || '',
-          phone_number_id: settings.phone_number_id || settings.api_secret || '',
+          phone_number_id: settings.phone_number_id || '',
           business_account_id: settings.business_account_id || settings.business_id || '',
           api_key: settings.api_key || '',
           api_secret: settings.api_secret || ''
+        })
+        setSecretHints({
+          api_key_masked: settings.api_key_masked || '',
+          phone_number_id_masked: settings.phone_number_id || '',
         })
       }
     } catch (error) {
@@ -68,17 +77,26 @@ export default function WhatsAppConnection() {
   const handleTestConnection = async () => {
     setTesting(true)
     setConnectionStatus('idle')
-    
-    setTimeout(() => {
-      if (formData.api_key) {
+
+    try {
+      const result = await sendWhatsappTest({
+        api_key: formData.api_key,
+        phone_number_id: formData.phone_number_id,
+      })
+
+      if (result?.ok) {
         setConnectionStatus('success')
         toast.success(t('Connection successful'))
       } else {
         setConnectionStatus('error')
-        toast.error(t('Connection failed: Missing credentials'))
+        toast.error(result?.response?.error?.message || t('Failed to establish connection. Please check your credentials.'))
       }
+    } catch (error) {
+      setConnectionStatus('error')
+      toast.error(error?.response?.data?.message || error?.response?.data?.error || t('Failed to establish connection. Please check your credentials.'))
+    } finally {
       setTesting(false)
-    }, 1500)
+    }
   }
 
   return (
@@ -139,6 +157,9 @@ export default function WhatsAppConnection() {
                 placeholder="••••••••••••••••••••"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-theme-text bg-transparent focus:ring-2 focus:ring-green-500 outline-none transition-all"
               />
+              {secretHints.api_key_masked && !formData.api_key && (
+                <p className="mt-1 text-xs opacity-70 text-theme-text">{t('Saved token')}: {secretHints.api_key_masked}</p>
+              )}
             </div>
 
             <div>
@@ -153,6 +174,9 @@ export default function WhatsAppConnection() {
                 placeholder="••••••••••••••••••••"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-theme-text bg-transparent focus:ring-2 focus:ring-green-500 outline-none transition-all"
               />
+              {secretHints.phone_number_id_masked && !formData.phone_number_id && (
+                <p className="mt-1 text-xs opacity-70 text-theme-text">{t('Saved phone number ID')}: {secretHints.phone_number_id_masked}</p>
+              )}
             </div>
           <div>
             <label className="block text-sm font-medium text-theme mb-2">
@@ -194,7 +218,7 @@ export default function WhatsAppConnection() {
             <button
               type="button"
               onClick={handleTestConnection}
-              disabled={testing || !formData.api_key}
+              disabled={testing || !canTestConnection}
               className={`btn btn-glass flex items-center gap-2 ${testing ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {testing ? (
@@ -223,3 +247,4 @@ export default function WhatsAppConnection() {
     </div>
   )
 }
+

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  GripVertical, ChevronDown, BarChart2, List, Link as LinkIcon
+  GripVertical, ChevronDown, BarChart2, List, Link as LinkIcon, AlertTriangle, X, Pencil, Trash2
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -193,6 +193,7 @@ function PipelineStagesManager() {
   const [iconInputMode, setIconInputMode] = useState('select') // 'select' | 'url'
   const [editingIndex, setEditingIndex] = useState(null)
   const [showNewStage, setShowNewStage] = useState(false)
+  const [deleteNotice, setDeleteNotice] = useState(null)
 
   const fetchStages = async () => {
     try {
@@ -251,6 +252,12 @@ function PipelineStagesManager() {
     fetchStages()
   }, [])
 
+  useEffect(() => {
+    if (!deleteNotice) return undefined
+    const timer = window.setTimeout(() => setDeleteNotice(null), 8000)
+    return () => window.clearTimeout(timer)
+  }, [deleteNotice])
+
   const headerClass = resolvedTheme === 'dark' ? 'bg-[#0b2b4f]' : 'bg-gray-100'
   const thBase = 'text-left p-2 border-b'
   const thTone = resolvedTheme === 'dark' ? ' border-gray-700 text-white/80' : ''
@@ -307,16 +314,80 @@ function PipelineStagesManager() {
   const handleDeleteStage = async (id) => {
     if (!window.confirm(t('Are you sure you want to delete this stage?'))) return
     try {
+      setDeleteNotice(null)
       await api.delete(`/api/stages/${id}`)
       await fetchStages()
     } catch (err) {
       console.error('Failed to delete stage', err)
-      alert(t('Failed to delete stage'))
+      const status = err?.response?.status
+      const linkedLeadsCount = Number(
+        err?.response?.data?.linked_leads_count
+        ?? err?.response?.data?.leads_count
+        ?? err?.response?.data?.count
+        ?? 0
+      )
+
+      if (status === 409 || linkedLeadsCount > 0) {
+        setDeleteNotice({
+          count: linkedLeadsCount,
+          message: t('Cannot delete this stage because {{count}} leads are linked to it. Please move these leads to another stage first.', { count: linkedLeadsCount })
+        })
+        return
+      }
+
+      setDeleteNotice({
+        count: null,
+        message: t('Cannot delete this stage now. Please move any linked leads to another stage first.')
+      })
     }
   }
 
   return (
     <div className="glass-panel rounded-2xl p-4 space-y-4">
+      {deleteNotice && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 shadow-sm ${
+            isLight
+              ? 'border-amber-200 bg-amber-50 text-amber-950'
+              : 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+          }`}
+          role="alert"
+        >
+          <div className="flex items-start gap-3">
+            <span className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+              isLight ? 'bg-amber-100 text-amber-700' : 'bg-amber-400/15 text-amber-200'
+            }`}>
+              <AlertTriangle size={20} />
+            </span>
+            <div className={isRtl ? 'text-right' : 'text-left'}>
+              <div className="flex flex-wrap items-center gap-2 font-semibold">
+                <span>{t('Stage cannot be deleted')}</span>
+                {Number(deleteNotice.count) > 0 ? (
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                    isLight ? 'bg-white text-amber-700 ring-1 ring-amber-200' : 'bg-white/10 text-amber-100 ring-1 ring-white/10'
+                  }`}>
+                    {t('{{count}} linked leads', { count: deleteNotice.count })}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-1 text-sm leading-6 opacity-90">{deleteNotice.message}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`rounded-full p-1 transition ${
+              isLight ? 'text-amber-700 hover:bg-amber-100' : 'text-amber-100 hover:bg-white/10'
+            }`}
+            aria-label={t('Close')}
+            onClick={() => setDeleteNotice(null)}
+          >
+            <X size={18} />
+          </button>
+        </motion.div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className={`inline-flex items-center gap-2 font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
           <span>{t('Pipeline Setup Stages')}</span>
@@ -564,6 +635,25 @@ function PipelineStagesManager() {
                   <span className="font-semibold">{t('Delay Time')}</span>
                   <span className="text-[var(--muted-text)]">{String(Number(s.delayTime || 0))}</span>
                 </div>
+              </div>
+
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+                  onClick={() => setEditingIndex(idx)}
+                >
+                  <Pencil size={16} />
+                  <span>{t('Edit')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+                  onClick={() => onDelete(s.id)}
+                >
+                  <Trash2 size={16} />
+                  <span>{t('Delete')}</span>
+                </button>
               </div>
             </div>
           ))

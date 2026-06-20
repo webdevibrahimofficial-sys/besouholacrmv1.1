@@ -15,10 +15,13 @@ class WhatsappWebhookController extends Controller
         $mode = $request->query('hub_mode') ?? $request->query('hub.mode');
         $token = $request->query('hub_verify_token') ?? $request->query('hub.verify_token');
         $challenge = $request->query('hub_challenge') ?? $request->query('hub.challenge');
-        if ($mode === 'subscribe' && $token==='tota') {
+        $expectedToken = (string) config('services.whatsapp.webhook_verify_token', '');
+
+        if ($mode === 'subscribe' && $expectedToken !== '' && hash_equals($expectedToken, (string) $token)) {
             return response($challenge, 200)->header('Content-Type', 'text/plain');
         }
-        return response()->json(['status' => 'ok']);
+
+        return response()->json(['message' => 'Invalid verification token'], 403);
     }
 
     public function receive(Request $request)
@@ -44,7 +47,8 @@ class WhatsappWebhookController extends Controller
             'messages_count' => count($messages),
         ]);
         foreach ($messages as $m) {
-            $saved = WhatsappMessage::create([
+            $messageId = $m['id'] ?? null;
+            $attributes = [
                 'tenant_id' => $setting->tenant_id,
                 'phone_number_id' => $phoneId,
                 'from' => $m['from'] ?? null,
@@ -52,27 +56,39 @@ class WhatsappWebhookController extends Controller
                 'type' => $m['type'] ?? null,
                 'status' => 'received',
                 'direction' => 'inbound',
-                'message_id' => $m['id'] ?? null,
+                'message_id' => $messageId,
                 'body' => data_get($m, 'text.body') ?? data_get($m, 'button.text') ?? null,
                 'raw' => $m,
-            ]);
+            ];
+
+            $saved = $messageId
+                ? WhatsappMessage::firstOrCreate(
+                    ['tenant_id' => $setting->tenant_id, 'message_id' => $messageId],
+                    $attributes
+                )
+                : WhatsappMessage::create($attributes);
+
             Log::info('WhatsApp message stored', [
                 'id' => $saved->id,
                 'from' => $saved->from,
                 'to' => $saved->to,
                 'body' => $saved->body,
+                'is_duplicate' => $messageId ? !$saved->wasRecentlyCreated : false,
             ]);
-            try {
-                event(new InboundWhatsappMessage((int)$setting->tenant_id, [
-                    'id' => $saved->id,
-                    'body' => $saved->body,
-                    'from' => $saved->from,
-                    'to' => $saved->to,
-                    'direction' => $saved->direction,
-                    'timestamp' => $saved->created_at?->toISOString(),
-                ]));
-            } catch (\Throwable $e) {
-                Log::warning('Failed to broadcast inbound WhatsApp message', ['error' => $e->getMessage()]);
+
+            if (!$messageId || $saved->wasRecentlyCreated) {
+                try {
+                    event(new InboundWhatsappMessage((int)$setting->tenant_id, [
+                        'id' => $saved->id,
+                        'body' => $saved->body,
+                        'from' => $saved->from,
+                        'to' => $saved->to,
+                        'direction' => $saved->direction,
+                        'timestamp' => $saved->created_at?->toISOString(),
+                    ]));
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to broadcast inbound WhatsApp message', ['error' => $e->getMessage()]);
+                }
             }
         }
         return response()->json(['status' => 'ok'], 200);

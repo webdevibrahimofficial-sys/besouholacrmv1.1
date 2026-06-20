@@ -8,7 +8,7 @@ import { PieChart } from '@shared/components/PieChart'
 
 
 
-export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, legendLabel = 'No. of Leads', exportMode = false }) => {
+export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, legendLabel = 'No. of Leads', exportMode = false, totalValue = null }) => {
   const { t, i18n } = useTranslation()
   const lang = i18n.language || 'en'
   const { theme, resolvedTheme } = useTheme()
@@ -420,7 +420,8 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   }
 
   const renderPieChart = () => {
-    const total = chartData.reduce((sum, item) => sum + (item.value || 0), 0)
+    const chartTotal = chartData.reduce((sum, item) => sum + (item.value || 0), 0)
+    const total = Number.isFinite(Number(totalValue)) && Number(totalValue) > 0 ? Number(totalValue) : chartTotal
     const palette = [
       '#2563eb', // blue-600
       '#06b6d4', // cyan-500
@@ -438,21 +439,28 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
       value: item.value || 0,
       color: palette[index % palette.length]
     }))
+    const useTwoColumnLegend = !isMobile && segments.length > 6
 
     return (
-      <div className={`flex items-center justify-center ${exportMode ? 'min-h-[420px]' : 'h-48'}`}>
+      <div className={`flex flex-col items-center justify-center gap-4 md:flex-row md:items-center ${exportMode ? 'min-h-[420px]' : 'h-auto min-h-48'}`}>
         <PieChart
           segments={segments}
           centerValue={total}
           centerLabel={t('Total Leads')}
           size={pieSize}
         />
-        <div className={`${exportMode ? 'ml-8' : 'ml-6'} space-y-2`}>
+        <div
+          className={`w-full md:w-auto ${exportMode ? 'md:ml-8' : 'md:ml-6'} ${
+            useTwoColumnLegend
+              ? 'grid grid-cols-2 gap-x-6 gap-y-2'
+              : 'space-y-2'
+          }`}
+        >
           {segments.map((seg, index) => (
-            <div key={index} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: seg.color }} />
-              <span className="text-sm" style={{ color: tickColor }}>{seg.label}</span>
-              <span className="text-sm font-medium" style={{ color: tickColor }}>{seg.value}</span>
+            <div key={index} className="flex items-center gap-2 min-w-0">
+              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
+              <span className="text-sm truncate" style={{ color: tickColor }}>{seg.label}</span>
+              <span className="text-sm font-medium shrink-0" style={{ color: tickColor }}>{seg.value}</span>
             </div>
           ))}
         </div>

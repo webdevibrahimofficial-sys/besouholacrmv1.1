@@ -85,7 +85,13 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
       const nextPath = isSuperAdmin ? '/system/dashboard' : '/dashboard';
       const encodedNext = encodeURIComponent(nextPath);
       const normalizeHost = (host) => String(host || '').replace(/^www\./i, '').toLowerCase();
+      const isLocalHost = ['localhost', '127.0.0.1'].includes(normalizeHost(window.location.hostname));
       let shouldHardRedirect = true;
+
+      if (isLocalHost) {
+        window.location.hash = `#${nextPath}`;
+        return { token, redirected: true, user, tenant: responseData?.tenant, subscription_plan: responseData?.subscription_plan };
+      }
 
       try {
         const redirectOrigin = new URL(redirectUrl).origin;

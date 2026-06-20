@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Stage;
+use App\Models\Lead;
 use Illuminate\Http\Request;
 
 class StageController extends Controller
@@ -89,6 +90,30 @@ class StageController extends Controller
      */
     public function destroy(Stage $stage)
     {
+        $stageNames = array_values(array_filter([
+            trim((string) $stage->name),
+            trim((string) $stage->name_ar),
+        ]));
+
+        $linkedLeadsCount = 0;
+
+        if (!empty($stageNames)) {
+            $linkedLeadsCount = Lead::query()
+                ->where(function ($query) use ($stageNames) {
+                    foreach ($stageNames as $stageName) {
+                        $query->orWhereRaw('LOWER(TRIM(stage)) = ?', [strtolower($stageName)]);
+                    }
+                })
+                ->count();
+        }
+
+        if ($linkedLeadsCount > 0) {
+            return response()->json([
+                'message' => 'Cannot delete this stage while leads are linked to it. Please move these leads to another stage first.',
+                'linked_leads_count' => $linkedLeadsCount,
+            ], 409);
+        }
+
         $stage->delete();
         return response()->json(null, 204);
     }

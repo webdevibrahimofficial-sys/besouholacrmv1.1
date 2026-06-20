@@ -1,11 +1,31 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+
+const rawProxyTarget =
+  process.env.VITE_API_PROXY_TARGET ||
+  process.env.VITE_API_URL ||
+  process.env.VITE_API_BASE ||
+  ''
+
+const proxyTarget = /^https?:\/\//i.test(String(rawProxyTarget || '').trim())
+  ? String(rawProxyTarget).trim().replace(/\/+$/, '')
+  : 'http://laravel_web'
+
 export default defineConfig({
   base: './',   // بدل '/'
   server: {
     host: '0.0.0.0',
     port: 5173,
+    // Proxy /api requests to local Laravel backend during development.
+    proxy: {
+      '/api': {
+        target: proxyTarget,
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api/, '/api'),
+      },
+    },
     // hmr: {
     //     host: 'crm.test'
     // }

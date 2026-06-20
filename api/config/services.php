@@ -58,6 +58,10 @@ return [
         'oauth_minimal_scopes' => env('META_OAUTH_MINIMAL_SCOPES', false),
     ],
 
+    'whatsapp' => [
+        'webhook_verify_token' => env('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
+    ],
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
@@ -70,6 +74,11 @@ return [
             'mock_failure_probability' => env('GOOGLE_ADS_MOCK_FAILURE_PROBABILITY', 0.0),
             'mock_token_expire_min' => env('GOOGLE_ADS_MOCK_TOKEN_EXPIRE_MIN', 60),
         ],
+    ],
+
+    'wa_mirror' => [
+        'url' => env('WA_MIRROR_SERVICE_URL', 'http://127.0.0.1:3000'),
+        'token' => env('WA_MIRROR_INTERNAL_TOKEN'),
     ],
 
 ];

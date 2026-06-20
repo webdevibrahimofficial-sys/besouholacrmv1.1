@@ -11,6 +11,7 @@ class WhatsappMessage extends Model
 
     protected $fillable = [
         'tenant_id',
+        'provider',
         'phone_number_id',
         'from',
         'to',

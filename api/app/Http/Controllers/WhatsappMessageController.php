@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Services\WhatsappSender;
 use App\Models\WhatsappMessage;
+use App\Services\Whatsapp\WhatsappProviderResolver;
 
 class WhatsappMessageController extends Controller
 {
@@ -17,16 +17,19 @@ class WhatsappMessageController extends Controller
         return response()->json($messages);
     }
 
-    public function sendTest(Request $request, WhatsappSender $sender)
+    public function sendTest(Request $request, WhatsappProviderResolver $providerResolver)
     {
         $user = Auth::user();
+        if ($resp = $this->ensureWhatsappAdmin($user)) {
+            return $resp;
+        }
         $validated = $request->validate([
-            'to' => 'required|string',
-            'template' => 'required|string',
-            'language' => 'nullable|string',
+            'api_key' => 'nullable|string',
+            'phone_number_id' => 'nullable|string',
         ]);
-        $language = $validated['language'] ?? 'en';
-        $result = $sender->sendTemplate((int)$user->tenant_id, $validated['to'], $validated['template'], $language);
+        $provider = $providerResolver->resolve((int) $user->tenant_id);
+        $result = $provider->testConnection((int) $user->tenant_id, $validated);
+
         return response()->json($result);
     }
 
@@ -34,12 +37,17 @@ class WhatsappMessageController extends Controller
     {
         $user = Auth::user();
         $lead = \App\Models\Lead::findOrFail($leadId);
-        // Use digits-only to match stored from/to values
-        $rawPhone = $lead->phone ?? $lead->mobile ?? '';
-        $digits = preg_replace('/\D+/', '', (string) $rawPhone);
+        $phoneVariants = $this->buildPhoneVariants((string) ($lead->phone ?? ''));
+
+        if (empty($phoneVariants)) {
+            return response()->json([]);
+        }
+
         $messages = WhatsappMessage::where('tenant_id', $user->tenant_id)
-            ->where(function($q) use ($digits) {
-                $q->where('from', $digits)->orWhere('to', $digits);
+            ->where(function($q) use ($phoneVariants) {
+                foreach ($phoneVariants as $variant) {
+                    $q->orWhere('from', $variant)->orWhere('to', $variant);
+                }
             })
             ->orderBy('created_at', 'asc')
             ->get()
@@ -56,19 +64,29 @@ class WhatsappMessageController extends Controller
         return response()->json($messages);
     }
 
-    public function sendTemplateV1(Request $request, WhatsappSender $sender)
+    public function sendTemplateV1(Request $request, WhatsappProviderResolver $providerResolver)
     {
         $user = Auth::user();
         $validated = $request->validate([
             'recipient_number' => 'required|string',
             'template_name' => 'required|string',
             'variables' => 'array',
+            'variables.*' => 'nullable',
+            'language' => 'nullable|string',
         ]);
-        $result = $sender->sendTemplate((int)$user->tenant_id, $validated['recipient_number'], $validated['template_name'], 'en_US');
+        $provider = $providerResolver->resolve((int) $user->tenant_id);
+        $result = $provider->sendTemplate(
+            (int) $user->tenant_id,
+            $validated['recipient_number'],
+            $validated['template_name'],
+            $validated['language'] ?? 'en_US',
+            $validated['variables'] ?? []
+        );
+
         return response()->json($result);
     }
 
-    public function sendTextV1(Request $request, WhatsappSender $sender)
+    public function sendTextV1(Request $request, WhatsappProviderResolver $providerResolver)
     {
         $user = Auth::user();
         $validated = $request->validate([
@@ -89,7 +107,9 @@ class WhatsappMessageController extends Controller
                 'message' => 'لا يمكن إرسال رسالة حرة. مر أكثر من 24 ساعة على آخر رسالة من العميل. الرجاء استخدام قالب لبدء محادثة جديدة.'
             ], 422);
         }
-        $result = $sender->sendText((int)$user->tenant_id, $digits, $validated['message_body']);
+        $provider = $providerResolver->resolve((int) $user->tenant_id);
+        $result = $provider->sendText((int) $user->tenant_id, $digits, $validated['message_body']);
+
         return response()->json($result);
     }
 
@@ -102,5 +122,54 @@ class WhatsappMessageController extends Controller
             case 'read': return 'read';
             default: return $status;
         }
+    }
+
+    private function ensureWhatsappAdmin($user)
+    {
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $roleLower = strtolower(trim((string) ($user->role ?? $user->job_title ?? '')));
+        $isTenantAdmin = $user->is_super_admin || in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'owner'], true);
+
+        if ($isTenantAdmin) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Only tenant admins can manage WhatsApp settings.'], 403);
+    }
+
+    private function buildPhoneVariants(string $rawPhone): array
+    {
+        $parts = preg_split('/[\/,\n\r|]+/', $rawPhone) ?: [];
+        $variants = [];
+
+        foreach ($parts as $part) {
+            $digits = preg_replace('/\D+/', '', trim($part));
+            if ($digits === '') {
+                continue;
+            }
+
+            $variants[] = $digits;
+
+            $withoutLeadingZeros = ltrim($digits, '0');
+            if ($withoutLeadingZeros !== '') {
+                $variants[] = $withoutLeadingZeros;
+            }
+
+            if (str_starts_with($digits, '20') && strlen($digits) > 2) {
+                $local = '0' . substr($digits, 2);
+                $variants[] = $local;
+                $variants[] = substr($digits, 2);
+            }
+
+            if (str_starts_with($digits, '0') && strlen($digits) > 1) {
+                $variants[] = '20' . substr($digits, 1);
+                $variants[] = substr($digits, 1);
+            }
+        }
+
+        return array_values(array_unique(array_filter($variants)));
     }
 }

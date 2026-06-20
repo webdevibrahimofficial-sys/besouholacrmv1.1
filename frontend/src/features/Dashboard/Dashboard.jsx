@@ -1420,6 +1420,7 @@ export const Dashboard = () => {
                 <LeadsAnalysisChart 
                   data={analysisData ? analysisData.monthly : null}
                   chartType={leadsChartType}
+                  totalValue={leadsStats.total}
                   filters={{ dataType: 'monthly', status: activeFilter, year: yearFilter, employee: selectedEmployee || selectedManager, dateFrom, dateTo }}
                 />
               </div>
