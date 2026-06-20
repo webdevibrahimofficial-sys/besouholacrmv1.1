@@ -3,6 +3,105 @@ import { useTranslation } from 'react-i18next'
 import * as XLSX from 'xlsx'
 import { api, logImportEvent } from '../../../utils/api'
 
+const normalizeHeaderKey = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/&/g, 'and')
+  .replace(/[()]/g, '')
+  .replace(/[^a-z0-9\u0600-\u06FF]+/g, '')
+
+const fieldAliases = {
+  leads: {
+    name: ['name', 'clientname', 'customername', 'fullname', 'full name'],
+    phone: ['phone', 'mobile', 'phone number', 'mobile number', 'telephone'],
+    source: ['source', 'channel'],
+    status: ['status', 'stage'],
+    priority: ['priority'],
+    creation_date: ['creation date', 'created at', 'created date'],
+  },
+  lead_history: {
+    name: ['name', 'client name', 'clientname', 'customer name', 'customername', 'full name', 'fullname'],
+    phone: ['phone', 'mobile', 'mobile number', 'phone number', 'telephone'],
+    phone_country: ['country code', 'countrycode', 'phone country', 'phonecountry', 'dial code', 'dialcode'],
+    stage: ['stage', 'last action', 'last action no action', 'lastactionnoaction', 'action stage', 'status'],
+    action_type: ['action type', 'actiontype', 'type'],
+    action_at: ['follow date', 'followdate', 'action date', 'actiondate', 'last action date', 'lastactiondate', 'date'],
+    assigned_to: ['sales rep', 'salesrep', 'sales person', 'salesperson', 'assigned to', 'assignedto'],
+    comment: ['comment', 'comments', 'last comment', 'lastcomment', 'notes', 'note'],
+  },
+}
+
+const inferTargetField = (target, columnName) => {
+  const aliases = fieldAliases[String(target || '').toLowerCase()] || {}
+  const normalizedColumn = normalizeHeaderKey(columnName)
+  if (!normalizedColumn) return ''
+
+  for (const [field, names] of Object.entries(aliases)) {
+    if (names.some((name) => normalizeHeaderKey(name) === normalizedColumn)) {
+      return field
+    }
+  }
+
+  return ''
+}
+
+const buildInitialMapping = (target, cols, fields, hasHeader) => {
+  const used = new Set()
+  const initMap = {}
+
+  cols.forEach((c, i) => {
+    const inferred = hasHeader ? inferTargetField(target, c) : ''
+    if (inferred && !used.has(inferred)) {
+      initMap[c] = inferred
+      used.add(inferred)
+      return
+    }
+
+    initMap[c] = hasHeader ? '' : (fields[i] || '')
+  })
+
+  return initMap
+}
+
+const getWorksheetPreview = (wb, wsName) => {
+  const ws = wb.Sheets[wsName]
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false })
+  const cols = (data[0] || []).map((c) => String(c || '').trim()).filter(Boolean)
+  return { cols, rowCount: Math.max(0, data.length - 1) }
+}
+
+const scoreSheetForTarget = (target, cols, rowCount) => {
+  const fields = new Set(cols.map((c) => inferTargetField(target, c)).filter(Boolean))
+  let score = fields.size * 100 + Math.min(rowCount, 10000) / 100
+
+  if (String(target || '').toLowerCase() === 'lead_history') {
+    const keys = new Set(cols.map(normalizeHeaderKey))
+    if (keys.has('followdate')) score += 180
+    if (keys.has('clientname')) score += 120
+    if (keys.has('comment')) score += 80
+  }
+
+  return score
+}
+
+const getPreferredSheetName = (wb, names, target) => {
+  if (!Array.isArray(names) || names.length === 0) return ''
+  if (names.length === 1) return names[0]
+
+  let bestName = names[0]
+  let bestScore = -1
+  names.forEach((name) => {
+    const { cols, rowCount } = getWorksheetPreview(wb, name)
+    const score = scoreSheetForTarget(target, cols, rowCount)
+    if (score > bestScore) {
+      bestScore = score
+      bestName = name
+    }
+  })
+
+  return bestName
+}
+
 export default function Import() {
   const { t, i18n } = useTranslation()
   const [file, setFile] = useState(null)
@@ -70,10 +169,7 @@ export default function Import() {
     }
     setColumns(cols)
     setRows(parsedRows)
-    // initialize mapping
-    const initMap = {}
-    cols.forEach((c, i) => { initMap[c] = targetFields[target][i] || '' })
-    setMapping(initMap)
+    setMapping(buildInitialMapping(target, cols, targetFields[target] || [], hasHeader))
     setStep(2)
   }, [hasHeader, target, targetFields])
 
@@ -93,7 +189,7 @@ export default function Import() {
 
         const activeSheet = selectedSheet && names.includes(selectedSheet)
           ? selectedSheet
-          : (names[0] || '')
+          : getPreferredSheetName(wb, names, target)
 
         if (!activeSheet) {
           throw new Error('No worksheet found')
