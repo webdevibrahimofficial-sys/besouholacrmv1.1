@@ -11,7 +11,7 @@ export default function WhatsAppConnection() {
   const [connectionStatus, setConnectionStatus] = useState('idle') // idle, success, error
 
   const [formData, setFormData] = useState({
-    provider: 'Meta API',
+    provider: 'meta',
     business_number: '',
     phone_number_id: '',
     business_account_id: '',
@@ -34,7 +34,7 @@ export default function WhatsAppConnection() {
       const settings = await getWhatsappSettings()
       if (settings) {
         setFormData({
-          provider: settings.provider || 'Meta API',
+          provider: settings.provider || 'meta',
           business_number: settings.business_number || '',
           phone_number_id: settings.phone_number_id || '',
           business_account_id: settings.business_account_id || settings.business_id || '',
@@ -124,10 +124,10 @@ export default function WhatsAppConnection() {
                 onChange={handleInputChange}
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-theme-text bg-transparent focus:ring-2 focus:ring-green-500 outline-none transition-all"
               >
-                <option value="Meta API">Meta API (Cloud API)</option>
-                <option value="Twilio">Twilio</option>
-                <option value="360Dialog">360Dialog</option>
-                <option value="WATI">WATI</option>
+                <option value="meta">{t('Meta API (Cloud API)')}</option>
+                <option value="twilio">Twilio</option>
+                <option value="360dialog">360Dialog</option>
+                <option value="wati">WATI</option>
               </select>
             </div>
 

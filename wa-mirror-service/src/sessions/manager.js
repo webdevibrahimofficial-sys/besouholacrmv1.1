@@ -33,11 +33,34 @@ function extractMessageBody(message) {
     return '';
   }
 
-  return (
+  const directText = (
     message.conversation
     || message.extendedTextMessage?.text
     || message.imageMessage?.caption
     || message.videoMessage?.caption
+    || message.documentMessage?.caption
+    || message.buttonsResponseMessage?.selectedDisplayText
+    || message.listResponseMessage?.title
+    || message.listResponseMessage?.singleSelectReply?.selectedRowId
+    || message.templateButtonReplyMessage?.selectedDisplayText
+    || message.templateButtonReplyMessage?.selectedId
+    || message.interactiveResponseMessage?.body?.text
+    || message.reactionMessage?.text
+    || ''
+  );
+
+  if (directText) {
+    return directText;
+  }
+
+  return (
+    extractMessageBody(message.ephemeralMessage?.message)
+    || extractMessageBody(message.viewOnceMessage?.message)
+    || extractMessageBody(message.viewOnceMessageV2?.message)
+    || extractMessageBody(message.viewOnceMessageV2Extension?.message)
+    || extractMessageBody(message.documentWithCaptionMessage?.message)
+    || extractMessageBody(message.editedMessage?.message)
+    || extractMessageBody(message.protocolMessage?.editedMessage)
     || ''
   );
 }
@@ -68,6 +91,51 @@ function extractRemotePhone(remoteJid) {
   }
 
   return remoteJid.split('@')[0].split(':')[0];
+}
+
+function normalizePhoneCandidate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+
+  const userPart = raw.split('@')[0]?.split(':')[0]?.trim() || '';
+  const digits = userPart.replace(/\D+/g, '');
+
+  if (digits.length < 7 || digits.length > 15) {
+    return null;
+  }
+
+  return digits;
+}
+
+function chooseBestPhoneCandidate(candidates) {
+  const normalized = candidates
+    .map((candidate) => normalizePhoneCandidate(candidate))
+    .filter(Boolean);
+
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  const nonLidSized = normalized.find((candidate) => candidate.length <= 15);
+  return nonLidSized || normalized[0];
+}
+
+function extractSenderPhone(msg) {
+  const key = msg?.key || {};
+
+  return chooseBestPhoneCandidate([
+    key.senderPn,
+    key.participantPn,
+    key.participant,
+    msg?.participant,
+    key.remoteJid,
+  ]);
 }
 
 /**
@@ -175,14 +243,31 @@ export async function initSession(tenantId) {
           continue;
         }
 
+        const extractedBody = extractMessageBody(msg.message);
+
+        if (!extractedBody) {
+          // Diagnostic: log the top-level message-type keys (not the full content,
+          // to avoid dumping media buffers/large payloads into logs) whenever we
+          // fail to extract text, so we can see exactly which WhatsApp message
+          // type extractMessageBody() doesn't handle yet.
+          console.log(
+            `[Empty Body] Tenant ${key} message_id=${msg.key?.id} keys=`,
+            Object.keys(msg.message || {})
+          );
+        }
+
         fireWebhook(key, {
           event: 'message_received',
           message: {
-            from: extractRemotePhone(msg.key.remoteJid),
+            from: extractSenderPhone(msg),
             pushName: msg.pushName || null,
-            body: extractMessageBody(msg.message),
+            body: extractedBody,
             timestamp: msg.messageTimestamp,
             message_id: msg.key.id,
+            sender_pn: msg.key?.senderPn || null,
+            participant_pn: msg.key?.participantPn || null,
+            participant: extractRemotePhone(msg.key?.participant) || null,
+            remote_jid: msg.key?.remoteJid || null,
           },
         });
       }

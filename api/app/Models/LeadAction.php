@@ -23,6 +23,8 @@ class LeadAction extends Model
 
     protected $casts = [
         'details' => 'array',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     public function lead()

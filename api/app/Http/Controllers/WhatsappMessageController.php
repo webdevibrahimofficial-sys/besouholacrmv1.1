@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\WhatsappMessage;
 use App\Services\Whatsapp\WhatsappProviderResolver;
+use App\Support\PhoneNormalizer;
 
 class WhatsappMessageController extends Controller
 {
@@ -74,16 +75,17 @@ class WhatsappMessageController extends Controller
             'variables.*' => 'nullable',
             'language' => 'nullable|string',
         ]);
+        $recipientNumber = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
         $provider = $providerResolver->resolve((int) $user->tenant_id);
         $result = $provider->sendTemplate(
             (int) $user->tenant_id,
-            $validated['recipient_number'],
+            $recipientNumber,
             $validated['template_name'],
             $validated['language'] ?? 'en_US',
             $validated['variables'] ?? []
         );
 
-        return response()->json($result);
+        return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
     }
 
     public function sendTextV1(Request $request, WhatsappProviderResolver $providerResolver)
@@ -93,24 +95,37 @@ class WhatsappMessageController extends Controller
             'recipient_number' => 'required|string',
             'message_body' => 'required|string',
         ]);
-        $digits = preg_replace('/\D+/', '', (string) $validated['recipient_number']);
-        // Enforce 24-hour rule: require last inbound within 24h
-        $lastInbound = WhatsappMessage::where('tenant_id', $user->tenant_id)
-            ->where('direction', 'inbound')
-            ->where('from', $digits)
-            ->orderBy('created_at', 'desc')
-            ->first();
-        if (!$lastInbound || now()->diffInHours($lastInbound->created_at) > 24) {
-            return response()->json([
-                'ok' => false,
-                'error' => 'outside_24h_window',
-                'message' => 'لا يمكن إرسال رسالة حرة. مر أكثر من 24 ساعة على آخر رسالة من العميل. الرجاء استخدام قالب لبدء محادثة جديدة.'
-            ], 422);
+        $digits = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
+
+        // Meta's WhatsApp Cloud API enforces a 24-hour customer-care window for
+        // free-form messages outside an approved template. This is a Meta-specific
+        // platform rule, not a WhatsApp protocol limitation — the Mirror provider
+        // (personal number via Baileys) has no such restriction, so we only
+        // enforce it when Meta is the tenant's active provider.
+        if ($providerResolver->activeProviderKey((int) $user->tenant_id) === 'meta') {
+            $phoneVariants = $this->buildPhoneVariants($digits);
+            $lastInbound = WhatsappMessage::where('tenant_id', $user->tenant_id)
+                ->where('direction', 'inbound')
+                ->where(function ($query) use ($phoneVariants) {
+                    foreach ($phoneVariants as $variant) {
+                        $query->orWhere('from', $variant);
+                    }
+                })
+                ->orderBy('created_at', 'desc')
+                ->first();
+            if (!$lastInbound || now()->diffInHours($lastInbound->created_at) > 24) {
+                return response()->json([
+                    'ok' => false,
+                    'error' => 'outside_24h_window',
+                    'message' => 'لا يمكن إرسال رسالة حرة. مر أكثر من 24 ساعة على آخر رسالة من العميل. الرجاء استخدام قالب لبدء محادثة جديدة.'
+                ], 422);
+            }
         }
+
         $provider = $providerResolver->resolve((int) $user->tenant_id);
         $result = $provider->sendText((int) $user->tenant_id, $digits, $validated['message_body']);
 
-        return response()->json($result);
+        return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
     }
 
     private function mapStatus(?string $status): string
@@ -171,5 +186,24 @@ class WhatsappMessageController extends Controller
         }
 
         return array_values(array_unique(array_filter($variants)));
+    }
+
+    private function normalizeRecipientNumber(string $rawPhone): string
+    {
+        $digits = preg_replace('/\D+/', '', trim($rawPhone));
+        if ($digits === '') {
+            return '';
+        }
+
+        $normalized = PhoneNormalizer::normalize($digits, '20');
+        if ($normalized !== '' && str_starts_with($normalized, '0') && strlen($normalized) > 1) {
+            return '20' . substr($normalized, 1);
+        }
+
+        if (str_starts_with($digits, '0') && strlen($digits) > 1) {
+            return '20' . substr($digits, 1);
+        }
+
+        return ltrim($digits, '+');
     }
 }

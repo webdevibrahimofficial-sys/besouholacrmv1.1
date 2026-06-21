@@ -10,6 +10,30 @@ let lastToken = null;
 const reverbEnabled = String(import.meta.env.VITE_REVERB_ENABLED || '').toLowerCase() === 'true';
 const appKey = import.meta.env.VITE_REVERB_APP_KEY;
 
+const getApiOriginForBroadcastAuth = () => {
+    const apiUrl = String(import.meta.env.VITE_API_URL || '').trim();
+    const apiBase = String(import.meta.env.VITE_API_BASE || '').trim();
+    const isAbsolute = (value) => /^[a-z]+:\/\//i.test(value);
+
+    if (isAbsolute(apiUrl)) {
+        return apiUrl.replace(/\/api\/?$/, '');
+    }
+
+    if (isAbsolute(apiBase)) {
+        return apiBase.replace(/\/api\/?$/, '');
+    }
+
+    if (apiUrl) {
+        return apiUrl.replace(/\/api\/?$/, '');
+    }
+
+    if (apiBase) {
+        return apiBase.replace(/\/api\/?$/, '');
+    }
+
+    return 'https://api.besouholacrm.net';
+};
+
 const getToken = () => {
     if (typeof window === 'undefined') return null;
     return window.localStorage.getItem('token') || window.sessionStorage.getItem('token');
@@ -43,7 +67,7 @@ export const ensureEcho = () => {
     }
 
     // Determine the auth endpoint base (using /api prefix as registered in api.php)
-    const baseUrl = (import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || 'https://api.besouholacrm.net').replace(/\/api\/?$/, '');
+    const baseUrl = getApiOriginForBroadcastAuth();
     const authEndpoint = `${baseUrl}/api/broadcasting/auth`;
 
     // Determine Tenant ID from subdomain

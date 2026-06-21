@@ -42,12 +42,12 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         ];
     }
 
-    public function sendTemplate(int $tenantId, string $to, string $templateName, string $languageCode, array $components = []): array
+    public function sendTemplate(int $tenantId, string $to, string $templateName, string $languageCode = 'en_US', array $components = []): array
     {
         throw new Exception("Templates are not supported on WhatsApp Mirror provider.");
     }
 
-    public function testConnection(int $tenantId): array
+    public function testConnection(int $tenantId, array $credentials = []): array
     {
         $response = $this->client->status($tenantId);
         $status = $response->json()['status'] ?? 'disconnected';

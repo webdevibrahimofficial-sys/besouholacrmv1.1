@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Internal;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\WhatsappMirrorSession;
+use App\Models\WhatsappSetting;
 use App\Jobs\ProcessIncomingMirrorMessage;
 
 class WhatsappMirrorWebhookController extends Controller
@@ -32,6 +33,19 @@ class WhatsappMirrorWebhookController extends Controller
                     'last_disconnected_at' => $payload['status'] === 'disconnected' ? now() : null,
                 ]
             );
+
+            // A confirmed Mirror connection is an explicit tenant choice to send via
+            // Mirror going forward. Without this, pairing a number via QR never
+            // actually switches WhatsappProviderResolver away from Meta.
+            // We deliberately do NOT revert provider back to 'meta' on disconnect:
+            // a disconnected Mirror should fail sends loudly rather than silently
+            // fall back to (possibly unconfigured) Meta credentials.
+            if ($payload['status'] === 'connected') {
+                WhatsappSetting::updateOrCreate(
+                    ['tenant_id' => $tenantId],
+                    ['provider' => 'mirror']
+                );
+            }
         }
 
         if (($payload['event'] ?? null) === 'message_received') {
