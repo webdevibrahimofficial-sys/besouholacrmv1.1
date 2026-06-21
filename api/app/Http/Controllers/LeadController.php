@@ -1366,6 +1366,39 @@ class LeadController extends Controller
             $this->applyMetaDataTextFilter($query, 'agency', (array) $request->agency);
         }
 
+        // Old Stage Filter
+        // Interprets "old stage" as any historical stage captured on lead actions via stage_id_at_creation.
+        if ($request->filled('old_stage')) {
+            $requestedOldStages = array_values(array_filter(
+                array_map(fn ($value) => trim((string) $value), (array) $request->old_stage),
+                fn ($value) => $value !== ''
+            ));
+
+            if (!empty($requestedOldStages)) {
+                $stageIds = \App\Models\Stage::query()
+                    ->when(!$user->is_super_admin, function ($stageQuery) use ($user) {
+                        $stageQuery->where(function ($tenantScope) use ($user) {
+                            $tenantScope->where('tenant_id', $user->tenant_id)
+                                ->orWhereNull('tenant_id');
+                        });
+                    })
+                    ->whereIn('name', $requestedOldStages)
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                if (empty($stageIds)) {
+                    $query->whereRaw('1 = 0');
+                } else {
+                    $query->whereHas('actions', function ($actionQuery) use ($stageIds) {
+                        $actionQuery->whereIn('lead_actions.stage_id_at_creation', $stageIds);
+                    });
+                }
+            }
+        }
+
         if ($user?->isAgencyScopedMarketingUser() && filled($user->agency_id)) {
             $this->applyMetaDataTextFilter($query, 'agency_id', [(string) $user->agency_id]);
         }
@@ -1457,10 +1490,34 @@ class LeadController extends Controller
             });
         }
 
+        // Action Type Filter (from Action History)
+        // Returns ALL leads that have ANY action matching the selected types.
+        if ($request->filled('action_type')) {
+            $actionTypes = array_values(array_filter((array) $request->action_type, fn ($value) => trim((string) $value) !== ''));
+            if (!empty($actionTypes)) {
+                $query->whereHas('actions', function ($actionQuery) use ($actionTypes) {
+                    $actionQuery->whereIn('lead_actions.action_type', $actionTypes);
+                });
+            }
+        }
+
         // Assigned Date Filter
         // Frontend sends: assigned_date_from / assigned_date_to
-        if ($request->filled('assigned_date_from')) $query->whereDate('leads.assigned_at', '>=', $request->assigned_date_from);
-        if ($request->filled('assigned_date_to')) $query->whereDate('leads.assigned_at', '<=', $request->assigned_date_to);
+        $assignedAtCol = null;
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasColumn('leads', 'assigned_at')) {
+                $assignedAtCol = 'assigned_at';
+            } elseif (\Illuminate\Support\Facades\Schema::hasColumn('leads', 'assigned_date')) {
+                $assignedAtCol = 'assigned_date';
+            }
+        } catch (\Throwable $e) {
+            $assignedAtCol = null;
+        }
+
+        if ($assignedAtCol) {
+            if ($request->filled('assigned_date_from')) $query->whereDate("leads.$assignedAtCol", '>=', $request->assigned_date_from);
+            if ($request->filled('assigned_date_to')) $query->whereDate("leads.$assignedAtCol", '<=', $request->assigned_date_to);
+        }
 
         // Optional: Closed date range (depends on DB schema, so guard by column existence).
         // Frontend sends: closed_from / closed_to
@@ -1480,6 +1537,76 @@ class LeadController extends Controller
         }
 
         return $query;
+    }
+
+    private function resolveLeadStageVisibilityContext(Request $request, User $user): array
+    {
+        $scopeUser = $user;
+        if ($request->filled('manager_id') && is_numeric($request->manager_id)) {
+            $managerId = (int) $request->manager_id;
+            $managerUser = \App\Models\User::query()
+                ->when(!$user->is_super_admin, fn($q) => $q->where('tenant_id', $user->tenant_id))
+                ->find($managerId);
+            if ($managerUser) {
+                $scopeUser = $managerUser;
+            }
+        }
+
+        $assignedToFilter = $request->input('assigned_to');
+        $hasSalesPersonFilter =
+            (is_array($assignedToFilter) && count(array_filter($assignedToFilter, fn($v) => $v !== null && $v !== '')) > 0)
+            || (!is_array($assignedToFilter) && $assignedToFilter !== null && $assignedToFilter !== '');
+
+        $viewType = $request->get('view_type', 'all_leads');
+        $roleLower = strtolower((string) ($scopeUser->role ?? ''));
+        $isManager = !in_array($roleLower, ['sales person', 'salesperson'], true);
+        $isAllLeadsView = $viewType === 'all_leads';
+
+        return [
+            'scopeUser' => $scopeUser,
+            'currentUserId' => (int) $scopeUser->id,
+            'hasSalesPersonFilter' => $hasSalesPersonFilter,
+            'isManager' => $isManager,
+            'isAllLeadsView' => $isAllLeadsView,
+            'virtualPendingFlag' => ($isAllLeadsView && $isManager) ? 1 : 0,
+        ];
+    }
+
+    private function buildLeadDisplayStageSql(array $context, string $table = 'leads'): string
+    {
+        if (!empty($context['hasSalesPersonFilter'])) {
+            return "
+                CASE
+                    WHEN {$table}.stage IS NULL OR {$table}.stage = '' THEN {$table}.status
+                    ELSE {$table}.stage
+                END
+            ";
+        }
+
+        $currentUserId = (int) ($context['currentUserId'] ?? 0);
+        $virtualPendingFlag = (int) ($context['virtualPendingFlag'] ?? 0);
+
+        return "
+            CASE
+                WHEN (lower({$table}.status) = 'pending' or lower({$table}.status) = 'in-progress')
+                     AND COALESCE({$table}.assigned_to, 0) > 0
+                     AND {$table}.assigned_to != {$currentUserId}
+                THEN 'pending'
+                WHEN {$virtualPendingFlag} = 1
+                     AND {$table}.assigned_to = {$currentUserId}
+                     AND (lower({$table}.stage) = 'new' or lower({$table}.stage) = 'new lead' or (lower({$table}.status) = 'new' and {$table}.stage is null))
+                THEN 'pending'
+                WHEN (lower({$table}.stage) = 'new' or lower({$table}.stage) = 'new lead' or (lower({$table}.status) = 'new' and {$table}.stage is null))
+                     AND COALESCE({$table}.assigned_to, 0) > 0
+                     AND {$table}.assigned_to != {$currentUserId}
+                THEN 'pending'
+                WHEN (lower({$table}.stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call'))
+                     AND COALESCE({$table}.assigned_to, 0) > 0
+                     AND ({$table}.assigned_to != {$currentUserId} OR {$virtualPendingFlag} = 1)
+                THEN 'pending'
+                ELSE {$table}.stage
+            END
+        ";
     }
 
     public function pipelineReport(Request $request)
@@ -1788,55 +1915,12 @@ class LeadController extends Controller
             $user = $request->user();
             $query = $this->buildFilteredLeadsQuery($request, $user);
 
-            $currentUserId = $user->id;
-            $viewType = $request->get('view_type', 'all_leads');
-            $isManager = !in_array(strtolower($user->role ?? ''), ['sales person', 'salesperson']);
-            $isAllLeadsView = $viewType === 'all_leads';
-            $assignedToFilter = $request->input('assigned_to');
-            $hasSalesPersonFilter =
-                (is_array($assignedToFilter) && count(array_filter($assignedToFilter, fn($v) => $v !== null && $v !== '')) > 0)
-                || (!is_array($assignedToFilter) && $assignedToFilter !== null && $assignedToFilter !== '');
+            $stageVisibility = $this->resolveLeadStageVisibilityContext($request, $user);
+            $displayStageSql = $this->buildLeadDisplayStageSql($stageVisibility);
 
             // Add virtual display_stage
             $query->select('leads.*');
-            if ($hasSalesPersonFilter) {
-                $query->selectRaw("
-                    CASE
-                        WHEN leads.stage IS NULL OR leads.stage = '' THEN leads.status
-                        ELSE leads.stage
-                    END as display_stage
-                ");
-            } else {
-                $query->selectRaw("
-                    CASE 
-                        /* Case 0: Assigned lead is Pending (status) for non-owner viewers */
-                        WHEN (lower(leads.status) = 'pending' or lower(leads.status) = 'in-progress')
-                             AND COALESCE(leads.assigned_to, 0) > 0
-                             AND leads.assigned_to != $currentUserId
-                        THEN 'pending'
-    
-                        /* Case 1: Manager viewing All Leads - their own New leads appear as Pending */
-                        WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 
-                             AND leads.assigned_to = $currentUserId 
-                             AND (lower(leads.stage) = 'new' or lower(leads.stage) = 'new lead' or (lower(leads.status) = 'new' and leads.stage is null)) 
-                        THEN 'pending'
-                        
-                        /* Case 2: Standard Logic - New lead assigned to someone else appears as Pending */
-                        WHEN (lower(leads.stage) = 'new' or lower(leads.stage) = 'new lead' or (lower(leads.status) = 'new' and leads.stage is null))
-                             AND COALESCE(leads.assigned_to, 0) > 0 
-                             AND leads.assigned_to != $currentUserId
-                        THEN 'pending'
-    
-                        /* Case 3: Assigned Cold Calls appear as Pending (computed) */
-                        WHEN (lower(leads.stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call'))
-                             AND COALESCE(leads.assigned_to, 0) > 0
-                             AND (leads.assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1)
-                        THEN 'pending'
-                        
-                        ELSE leads.stage
-                    END as display_stage
-                ");
-            }
+            $query->selectRaw("{$displayStageSql} as display_stage");
 
             // Eager loading
             $query->with([
@@ -2052,28 +2136,8 @@ class LeadController extends Controller
 
             // Short TTL avoids stale card counts after rapid lead reassignment/stage changes.
             $data = Cache::remember($cacheKey, 30, function () use ($query, $user, $request) {
-                $scopeUser = $user;
-                if ($request->filled('manager_id') && is_numeric($request->manager_id)) {
-                    $managerId = (int) $request->manager_id;
-                    $managerUser = \App\Models\User::query()
-                        ->when(!$user->is_super_admin, fn($q) => $q->where('tenant_id', $user->tenant_id))
-                        ->find($managerId);
-                    if ($managerUser) {
-                        $scopeUser = $managerUser;
-                    }
-                }
-
-                $currentUserId = $scopeUser->id;
-                $viewType = $request->get('view_type', 'all_leads');
-                
-                // Virtual Stage Logic: If in 'all_leads' view, leads assigned to the current user (if manager/admin)
-                // should appear in 'pending' stage.
-                $isManager = !in_array(strtolower($scopeUser->role ?? ''), ['sales person', 'salesperson']);
-                $isAllLeadsView = $viewType === 'all_leads';
-                $assignedToFilter = $request->input('assigned_to');
-                $hasSalesPersonFilter =
-                    (is_array($assignedToFilter) && count(array_filter($assignedToFilter, fn($v) => $v !== null && $v !== '')) > 0)
-                    || (!is_array($assignedToFilter) && $assignedToFilter !== null && $assignedToFilter !== '');
+                $stageVisibility = $this->resolveLeadStageVisibilityContext($request, $user);
+                $displayStageSql = $this->buildLeadDisplayStageSql($stageVisibility);
                 
                 // Business rule: Duplicate leads should not be counted in Total Leads or pipeline stages.
                 // Important: use COALESCE to avoid NULL tri-state logic (NOT(NULL) => NULL => filters out everything).
@@ -2081,75 +2145,12 @@ class LeadController extends Controller
                 $nonDupQuery = (clone $query)->whereRaw("NOT ($dupPredicate)");
                 $dupQuery = (clone $query)->whereRaw($dupPredicate);
 
-                if ($hasSalesPersonFilter) {
-                    $counts = (clone $nonDupQuery)->selectRaw("
-                        count(*) as total,
-                        count(case when (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and (stage is null or stage = '')))
-                        then 1 end) as new_count,
-                        0 as pending_count,
-                        count(case when lower(stage) in ('coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call')
-                        then 1 end) as cold_call_count
-                    ")->first();
-                } else {
-                    $counts = (clone $nonDupQuery)->selectRaw("
-                        count(*) as total,
-                        count(case when (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) 
-                            AND (
-                                (assigned_to IS NULL) OR 
-                                (assigned_to = $currentUserId AND " . ($isAllLeadsView && $isManager ? "0" : "1") . ")
-                            )
-                            AND (lower(status) is null or (lower(status) != 'pending' and lower(status) != 'in-progress'))
-                        then 1 end) as new_count,
-                        count(case when (
-                            CASE
-                                WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
-                                     AND COALESCE(assigned_to, 0) > 0
-                                THEN 'pending'
-                                WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null))
-                                THEN 'pending'
-                                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId
-                                THEN 'pending'
-                                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1)
-                                THEN 'pending'
-                                ELSE stage
-                            END
-                        ) = 'pending' then 1 end) as pending_count,
-                        count(case when lower(stage) in ('coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call')
-                            AND assigned_to IS NULL
-                            AND (lower(status) is null or (lower(status) != 'pending' and lower(status) != 'in-progress'))
-                        then 1 end) as cold_call_count
-                    ")->first();
-                }
-
                 $duplicateCount = (int) (clone $dupQuery)->count();
 
-                if ($hasSalesPersonFilter) {
-                    $byStage = (clone $nonDupQuery)->select(DB::raw("
-                          CASE
-                              WHEN stage IS NULL OR stage = '' THEN status
-                              ELSE stage
-                          END as display_stage
-                      "), DB::raw('count(*) as count'))
-                        ->groupBy('display_stage')
-                        ->get()
-                        ->pluck('count', 'display_stage');
-                } else {
-                    $byStage = (clone $nonDupQuery)->select(DB::raw("
-                          CASE 
-                              WHEN (lower(status) = 'pending' or lower(status) = 'in-progress')
-                                   AND COALESCE(assigned_to, 0) > 0
-                                   AND assigned_to != $currentUserId
-                              THEN 'pending'
-                              WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) THEN 'pending'
-                              WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId THEN 'pending'
-                              WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) THEN 'pending'
-                              ELSE stage
-                          END as display_stage
-                      "), DB::raw('count(*) as count'))
-                        ->groupBy('display_stage')
-                        ->get()
-                        ->pluck('count', 'display_stage');
-                }
+                $byStage = (clone $nonDupQuery)->select(DB::raw("{$displayStageSql} as display_stage"), DB::raw('count(*) as count'))
+                    ->groupBy('display_stage')
+                    ->get()
+                    ->pluck('count', 'display_stage');
 
                 $normalizedByStage = [];
                 foreach ($byStage as $stageKey => $stageCount) {
@@ -2198,7 +2199,7 @@ class LeadController extends Controller
                 return [
                     'total' => $totalFromByStage,
                     'new' => $newFromByStage,
-                    'pending' => $hasSalesPersonFilter ? 0 : $pendingFromByStage,
+                    'pending' => !empty($stageVisibility['hasSalesPersonFilter']) ? 0 : $pendingFromByStage,
                     'coldCall' => $coldCallsFromByStage,
                     'duplicate' => $duplicateCount,
                     'closedDeals' => $closedDealsCount,
@@ -4422,7 +4423,19 @@ class LeadController extends Controller
 
             // Calculate Stats based on aggregated data
             $totalReassigned = collect($filteredTransactions)->sum('quantity');
-            $unassignedCount = collect($filteredTransactions)->where('to_user.id', null)->sum('quantity');
+
+            // "Current" unassigned leads should reflect the current leads table,
+            // not historical reassignment transactions that temporarily ended unassigned.
+            $currentSnapshotRequest = Request::create('/api/leads', 'GET', []);
+            $currentUnassignedQuery = $this->buildFilteredLeadsQuery($currentSnapshotRequest, $user, false);
+            $unassignedCount = (clone $currentUnassignedQuery)
+                ->where(function ($q) {
+                    $q->whereNull('leads.assigned_to')
+                      ->orWhere('leads.assigned_to', '')
+                      ->orWhere('leads.assigned_to', '0')
+                      ->orWhere('leads.assigned_to', 0);
+                })
+                ->count();
 
             $receivers = collect($filteredTransactions)
                 ->whereNotNull('to_user.id')

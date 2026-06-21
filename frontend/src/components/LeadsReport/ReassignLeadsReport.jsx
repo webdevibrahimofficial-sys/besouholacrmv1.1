@@ -4,6 +4,7 @@ import { api } from '../../utils/api';
 import { UserMinus, ArrowRight, Filter, ChevronDown, Calendar, User, Users, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import SearchableSelect from '../SearchableSelect';
+import DateRangePicker from '../../shared/components/DateRangePicker';
 import { useTheme } from '@shared/context/ThemeProvider'
 
 const StatCard = ({ title, value, sub, icon: Icon, color, bgColor }) => {
@@ -210,10 +211,14 @@ const ReassignLeadsReport = ({ users = [] }) => {
 
   // Prepare Filter Options
   const managerOptions = useMemo(() => {
-    const managers = users.filter(u => {
-      const role = String(u.role || '').toLowerCase();
-      return !role.includes('sales person') && !role.includes('salesperson');
-    });
+    const managerIds = new Set(
+      users
+        .map(u => u.manager_id)
+        .filter(v => v !== null && v !== undefined && String(v).trim() !== '')
+        .map(v => String(v))
+    );
+
+    const managers = users.filter(u => managerIds.has(String(u.id)));
     return [
       { value: '', label: isRTL ? 'الكل' : 'All Managers' },
       ...managers.map(m => ({ value: String(m.id), label: m.name }))
@@ -221,10 +226,7 @@ const ReassignLeadsReport = ({ users = [] }) => {
   }, [users, isRTL]);
 
   const salesOptions = useMemo(() => {
-    const sales = users.filter(u => {
-      const role = String(u.role || '').toLowerCase();
-      return role.includes('sales person') || role.includes('salesperson');
-    });
+    const sales = users.filter(u => String(u?.name || '').trim() !== '');
     return [
       { value: '', label: isRTL ? 'الكل' : 'All Sales Persons' },
       ...sales.map(s => ({ value: String(s.id), label: s.name }))
@@ -278,8 +280,28 @@ const ReassignLeadsReport = ({ users = [] }) => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 transition-all duration-300">
+          <div className="space-y-1 md:col-span-2 lg:col-span-2">
+            <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+              <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+              {isRTL ? 'تاريخ التعيين' : 'Assign Date'}
+            </label>
+            <DateRangePicker
+              from={dateFrom}
+              to={dateTo}
+              onChange={({ from, to }) => {
+                setDateFrom(from || '');
+                setDateTo(to || '');
+              }}
+              isRTL={isRTL}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+                isLight
+                  ? 'border-blue-200/90 bg-white text-slate-700 placeholder:text-slate-400'
+                  : 'border-gray-700 bg-transparent text-white placeholder:text-gray-400'
+              }`}
+            />
+          </div>
           {/* Date From */}
-          <div className="space-y-1">
+          <div className="hidden">
             <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
               <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
               {isRTL ? 'من تاريخ' : 'Date From'}
@@ -296,7 +318,7 @@ const ReassignLeadsReport = ({ users = [] }) => {
             />
           </div>
           {/* Date To */}
-          <div className="space-y-1">
+          <div className="hidden">
             <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
               <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
               {isRTL ? 'إلى تاريخ' : 'Date To'}

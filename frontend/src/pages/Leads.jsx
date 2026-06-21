@@ -746,6 +746,7 @@ if (!s) {
         created_to: filters.createdTo,
         last_action_from: filters.lastActionFrom,
         last_action_to: filters.lastActionTo,
+        action_type: filters.actionType.length > 0 ? filters.actionType : null,
         action_date_from: filters.actionDateFrom,
         action_date_to: filters.actionDateTo,
         assigned_date_from: filters.assignedFrom,
@@ -782,6 +783,7 @@ if (!s) {
           createdTo: creationDateTo,
           lastActionFrom: lastActionFrom,
           lastActionTo: lastActionTo,
+          actionType: actionTypeFilter,
           actionDateFrom: actionDateFrom,
           actionDateTo: actionDateTo,
           assignedFrom: assignDateFrom,
@@ -908,6 +910,7 @@ if (!s) {
       created_to: filters.createdTo,
       last_action_from: filters.lastActionFrom,
       last_action_to: filters.lastActionTo,
+      action_type: filters.actionType.length > 0 ? filters.actionType : null,
       action_date_from: filters.actionDateFrom,
       action_date_to: filters.actionDateTo,
       assigned_date_from: filters.assignedFrom,
@@ -950,6 +953,7 @@ if (!s) {
         createdTo: creationDateTo,
         lastActionFrom: lastActionFrom,
         lastActionTo: lastActionTo,
+        actionType: actionTypeFilter,
         actionDateFrom: actionDateFrom,
         actionDateTo: actionDateTo,
         assignedFrom: assignDateFrom,
@@ -982,11 +986,14 @@ if (!s) {
     campaignFilter,
     salesPersonFilter,
     createdByFilter,
+    actionTypeFilter,
     sortBy,
     sortOrder,
     // Date ranges
     assignDateFrom,
     assignDateTo,
+    actionDateFrom,
+    actionDateTo,
     lastActionFrom,
     lastActionTo,
     creationDateFrom,
@@ -2257,7 +2264,8 @@ if (!s) {
         return filter.some(f => String(f).toLowerCase() === v);
       }
 
-      // Server handled: search, stage, source, priority, campaign, assignedTo (salesPerson), sort
+      // Server handled: search, stage, source, priority, campaign, assignedTo (salesPerson),
+      // date ranges that exist in the API, and sort.
       // We remove these from client-side filtering/sorting to prevent conflicts.
       
       const matchesProject = matchesMulti(projectFilter, lead.project)
@@ -2285,18 +2293,18 @@ if (!s) {
       })();
 
       const matchesCreatedBy = matchesMulti(canShowCreator ? createdByFilter : [], lead.createdBy)
-      const matchesOldStage = matchesMulti(oldStageFilter, lead.oldStage)
+      const matchesOldStage = true
       const matchesCountry = matchesMulti(countryFilter, lead.country)
       const matchesWhatsappIntents = matchesMulti(whatsappIntentsFilter, lead.whatsappIntents)
-      const matchesActionType = matchesMulti(actionTypeFilter, lead.actionType)
+      const matchesActionType = true
       const matchesDuplicateStatus = matchesMulti(duplicateStatusFilter, lead.duplicateStatus)
       
       // Date filters (From/To)
-      const matchesAssignDate = _inDateRange(lead.assignDate, assignDateFrom, assignDateTo)
-      const matchesLastActionDate = _inDateRange(lead.lastContact, lastActionFrom, lastActionTo)
-      const matchesActionDate = _inDateRange(lead.actionDate, actionDateFrom, actionDateTo)
-      const matchesCreationDate = _inDateRange(lead.createdAt, creationDateFrom, creationDateTo)
-      const matchesClosedDate = _inDateRange(lead.closedDate, closedDateFrom, closedDateTo)
+      const matchesAssignDate = true
+      const matchesLastActionDate = true
+      const matchesActionDate = true
+      const matchesCreationDate = true
+      const matchesClosedDate = true
       
       // Text filters
       // Email is partially covered by server search, but if specific email filter is used, keep it.
@@ -2878,6 +2886,7 @@ if (!s) {
       created_to: creationDateTo,
       last_action_from: lastActionFrom,
       last_action_to: lastActionTo,
+      action_type: actionTypeFilter.length > 0 ? actionTypeFilter : null,
       action_date_from: actionDateFrom,
       action_date_to: actionDateTo,
       assigned_date_from: assignDateFrom,

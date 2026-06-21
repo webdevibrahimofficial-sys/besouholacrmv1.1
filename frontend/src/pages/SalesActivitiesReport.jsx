@@ -240,6 +240,25 @@ export default function SalesActivitiesReport() {
     )
   }
 
+  const getActionActorId = (action) => {
+    const rawId = action?.user?.id ?? action?.user_id ?? ''
+    const value = String(rawId || '').trim()
+    return value || ''
+  }
+
+  const getLeadOwnerId = (action) => {
+    const lead = action?.lead || {}
+    const rawId =
+      lead?.assigned_agent?.id ??
+      lead?.assignedAgent?.id ??
+      lead?.assigned_to ??
+      lead?.assignedTo ??
+      ''
+
+    const value = String(rawId || '').trim()
+    return value || ''
+  }
+
   const getRevenueAmount = (action) => {
     const details = action?.details || {}
     const valueRaw =
@@ -581,9 +600,15 @@ export default function SalesActivitiesReport() {
       }
     }
 
-    const names = candidates.map(u => u.name).filter(Boolean)
-    const unique = Array.from(new Set(names))
-    return unique.map(n => ({ value: n, label: n }))
+    const unique = Array.from(
+      new Map(
+        candidates
+          .filter(u => String(u?.name || '').trim() !== '')
+          .map(u => [String(u.id), { value: String(u.id), label: u.name }])
+      ).values()
+    )
+
+    return unique
   }, [usersList, managerFilter])
 
   const managerOptions = useMemo(() => {
@@ -649,10 +674,11 @@ export default function SalesActivitiesReport() {
       const lead = action.lead || {}
       const details = action.details || {}
       const salesperson = (action.user && action.user.name) || ''
+      const salespersonId = getActionActorId(action)
 
       const bySales = !Array.isArray(salesPersonFilter) || salesPersonFilter.length === 0
         ? true
-        : salesperson && salesPersonFilter.includes(salesperson)
+        : salespersonId && salesPersonFilter.includes(salespersonId)
 
       const byManager = (() => {
         if (!usersList.length || !Array.isArray(managerFilter) || managerFilter.length === 0) return true
@@ -689,9 +715,9 @@ export default function SalesActivitiesReport() {
           candidates = Array.from(map.values())
         }
 
-        const names = new Set(candidates.map(u => u.name).filter(Boolean))
-        if (!names.size) return true
-        return !salesperson || names.has(salesperson)
+        const candidateIds = new Set(candidates.map(u => String(u.id)).filter(Boolean))
+        if (!candidateIds.size) return true
+        return !salespersonId || candidateIds.has(salespersonId)
       })()
 
       const stageName = getActionStageName(action)
@@ -808,7 +834,7 @@ export default function SalesActivitiesReport() {
     }
 
     if (Array.isArray(salesPersonFilter) && salesPersonFilter.length > 0) {
-      eligibleUsers = eligibleUsers.filter(u => salesPersonFilter.includes(u.name))
+      eligibleUsers = eligibleUsers.filter(u => salesPersonFilter.includes(String(u.id)))
     }
 
     eligibleUsers.forEach(u => {
@@ -880,8 +906,8 @@ export default function SalesActivitiesReport() {
       }
 
       // Attribute Lead to Owner
-      const ownerName = 
-        getLeadOwnerName(action)
+      const ownerName = getLeadOwnerName(action)
+      const ownerId = getLeadOwnerId(action)
         
       const leadId = action.lead_id || lead.id
       if (ownerName && leadId) {
@@ -892,7 +918,7 @@ export default function SalesActivitiesReport() {
       }
 
       const revenueAmount = getRevenueAmount(action)
-      if (ownerName && revenueAmount > 0) {
+      if ((ownerId || ownerName) && revenueAmount > 0) {
         revenueBySalesCurrent.set(
           ownerName,
           (revenueBySalesCurrent.get(ownerName) || 0) + revenueAmount
@@ -1246,7 +1272,7 @@ export default function SalesActivitiesReport() {
       <div className="mb-6">
         <BackButton to="/reports" />
         <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'}  mb-2`}>{isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Activities Report'}</h1>
-        <p className={`${isLight ? 'text-black' : 'text-white'} text-sm`}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â© Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â£ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Monitor your sales team activities and performance'}</p>
+        <p className={`${isLight ? 'text-black' : 'text-white'} text-sm`}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â© Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Monitor sales activities and performance'}</p>
       </div>
 
       {/* Filter Panel */}
@@ -1286,7 +1312,7 @@ export default function SalesActivitiesReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Users size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Ø§Ù„Ù…Ø¯ÙŠØ± Ø£Ùˆ Ø§Ù„ÙØ±ÙŠÙ‚' : 'Manager or team'}
+                {isRTL ? 'المدير' : 'Manager'}
               </label>
               <SearchableSelect options={managerOptions} value={managerFilter} onChange={setManagerFilter} placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Select'} multiple isRTL={isRTL} icon={<Users size={16} />} />
             </div>

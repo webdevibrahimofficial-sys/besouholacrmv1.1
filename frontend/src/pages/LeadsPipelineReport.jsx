@@ -121,21 +121,25 @@ export default function LeadsPipelineReport() {
     ]
   }, [users, isRTL])
 
+  const getDescendants = (rootId, allUsers) => {
+    let descendants = []
+    const direct = allUsers.filter(u => String(u.manager_id || '') === String(rootId))
+    direct.forEach(u => {
+      descendants.push(u)
+      descendants = [...descendants, ...getDescendants(u.id, allUsers)]
+    })
+    return descendants
+  }
+
   const salesPersonOptions = useMemo(() => {
     const selectedManagerId = managerFilter ? parseInt(managerFilter, 10) : null
 
-    let candidates = users.filter(u => {
-      const role = String(u.role || '').toLowerCase()
-      return (
-        role.includes('sales person') ||
-        role.includes('salesperson') ||
-        role.includes('sales') ||
-        role.includes('account manager')
-      )
-    })
+    let candidates = [...users]
 
     if (selectedManagerId) {
-      candidates = candidates.filter(u => u.manager_id === selectedManagerId)
+      const validIds = new Set([String(selectedManagerId)])
+      getDescendants(selectedManagerId, users).forEach(u => validIds.add(String(u.id)))
+      candidates = candidates.filter(u => validIds.has(String(u.id)))
     }
 
     const uniqueSales = Array.from(new Map(candidates.map(s => [s.id, s])).values())
@@ -149,7 +153,7 @@ export default function LeadsPipelineReport() {
           .map(name => ({ value: name, label: name }))
 
     const resolvedOptions = uniqueSales.length
-      ? uniqueSales.map(s => ({ value: s.name, label: s.name || `#${s.id}` }))
+      ? uniqueSales.map(s => ({ value: String(s.id), label: s.name || `#${s.id}` }))
       : fallbackSales
 
     const dedupedOptions = Array.from(
