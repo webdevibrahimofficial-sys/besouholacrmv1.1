@@ -92,19 +92,27 @@ trait ResolvesNotificationRecipients
             'custom_user_ids' => [],
         ];
 
-        if ($notificationKey === 'notify_task_assigned') {
-            $baseRecipients['owner'] = true;
-        }
-
-        if ($notificationKey === 'notify_assigned_leads') {
-            $baseRecipients['manager'] = true;
-            $baseRecipients['assigner'] = true;
-        }
-
         $recipientsFlags = $baseRecipients;
         if ($notifConfig && isset($notifConfig['recipients']) && is_array($notifConfig['recipients'])) {
             $recipientsFlags = array_merge($recipientsFlags, $notifConfig['recipients']);
         }
+
+        $recipientsFlags = array_merge($baseRecipients, [
+            'owner' => false,
+            'assignee' => true,
+            'manager' => false,
+            'assigner' => false,
+            'previous_owner' => false,
+            'team_leader' => false,
+            'director' => false,
+            'operations_manager' => false,
+            'sales_admin' => false,
+            'sales_manager' => false,
+            'branch_manager' => false,
+            'marketing_manager' => false,
+            'marketing_moderator' => false,
+            'custom_user_ids' => [],
+        ]);
 
         $owner = $options['owner'] ?? null;
         $assignee = $options['assignee'] ?? $baseUser;

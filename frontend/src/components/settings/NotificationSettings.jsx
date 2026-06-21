@@ -72,6 +72,33 @@ const DEFAULT_RECIPIENTS = {
   custom_user_ids: []
 };
 
+const ASSIGNEE_ONLY_RECIPIENTS = {
+  ...DEFAULT_RECIPIENTS,
+  assignee: true,
+  custom_user_ids: []
+};
+
+const normalizeRecipientsToAssigneeOnly = recipients => ({
+  ...ASSIGNEE_ONLY_RECIPIENTS,
+  assignee: true,
+  custom_user_ids: [],
+  ...(recipients || {}),
+  owner: false,
+  manager: false,
+  assigner: false,
+  previous_owner: false,
+  team_leader: false,
+  director: false,
+  operations_manager: false,
+  sales_admin: false,
+  sales_manager: false,
+  branch_manager: false,
+  marketing_manager: false,
+  marketing_moderator: false,
+  assignee: true,
+  custom_user_ids: []
+});
+
 const getTeamLeaderLabel = (t, moduleKey) => {
   switch (moduleKey) {
     case 'customers':
@@ -186,30 +213,17 @@ const NotificationSettings = () => {
     const moduleMeta = getModuleMeta(moduleKey);
     const notifications = Array.isArray(moduleMeta.notifications) ? moduleMeta.notifications : [];
     const found = notifications.find(n => n.key === notifKey);
-    const baseRecipients =
-      notifKey === 'notify_assigned_leads'
-        ? {
-            ...DEFAULT_RECIPIENTS,
-            manager: true,
-            assigner: true
-          }
-        : notifKey === 'notify_task_assigned'
-          ? {
-              ...DEFAULT_RECIPIENTS,
-              owner: true
-            }
-        : DEFAULT_RECIPIENTS;
     if (found) {
       return {
         enabled: typeof found.enabled === 'boolean' ? found.enabled : true,
         channels: { ...DEFAULT_CHANNELS, ...(found.channels || {}) },
-        recipients: { ...baseRecipients, ...(found.recipients || {}) }
+        recipients: normalizeRecipientsToAssigneeOnly(found.recipients)
       };
     }
     return {
       enabled: true,
       channels: { ...DEFAULT_CHANNELS },
-      recipients: { ...baseRecipients }
+      recipients: { ...ASSIGNEE_ONLY_RECIPIENTS }
     };
   };
 
@@ -268,38 +282,19 @@ const NotificationSettings = () => {
   };
 
   const handleRecipientToggle = (moduleKey, notifKey, field, checked) => {
+    if (field === 'assignee') {
+      return;
+    }
+
     updateNotificationMeta(moduleKey, notifKey, current => {
-      const baseRecipients =
-        notifKey === 'notify_assigned_leads'
-          ? {
-              ...DEFAULT_RECIPIENTS,
-              manager: true,
-              assigner: true
-            }
-          : notifKey === 'notify_task_assigned'
-            ? {
-                ...DEFAULT_RECIPIENTS,
-                owner: true
-              }
-          : DEFAULT_RECIPIENTS;
-      const recipients = { ...baseRecipients, ...(current.recipients || {}) };
-      recipients[field] = checked;
+      const recipients = normalizeRecipientsToAssigneeOnly(current.recipients);
       return { ...current, recipients };
     });
   };
 
   const handleCustomUsersChange = (moduleKey, notifKey, ids) => {
     updateNotificationMeta(moduleKey, notifKey, current => {
-      const baseRecipients =
-        notifKey === 'notify_assigned_leads'
-          ? {
-              ...DEFAULT_RECIPIENTS,
-              manager: true,
-              assigner: true
-            }
-          : DEFAULT_RECIPIENTS;
-      const recipients = { ...baseRecipients, ...(current.recipients || {}) };
-      recipients.custom_user_ids = ids;
+      const recipients = normalizeRecipientsToAssigneeOnly(current.recipients);
       return { ...current, recipients };
     });
   };
@@ -738,8 +733,10 @@ const RecipientsModal = ({
   onCustomUsersChange
 }) => {
   const selectedIds = meta.recipients.custom_user_ids || [];
+  const lockedToAssigneeOnly = true;
 
   const handleUserToggle = id => {
+    if (lockedToAssigneeOnly) return;
     const exists = selectedIds.includes(id);
     const next = exists ? selectedIds.filter(x => x !== id) : [...selectedIds, id];
     onCustomUsersChange(moduleKey, notifKey, next);
@@ -766,11 +763,15 @@ const RecipientsModal = ({
               <div className="font-medium text-theme-text">
                 {t('Default Recipients')}
               </div>
+              <div className="text-xs text-[var(--muted-text)]">
+                {t('Temporarily, notifications are sent to the Assigned User only.')}
+              </div>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     checked={meta.recipients.owner}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e => onToggleRecipient(moduleKey, notifKey, 'owner', e.target.checked)}
                   />
                   <span>{t('Owner')}</span>
@@ -779,6 +780,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.assignee}
+                    disabled
                     onChange={e => onToggleRecipient(moduleKey, notifKey, 'assignee', e.target.checked)}
                   />
                   <span>{t('Assigned User')}</span>
@@ -787,6 +789,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.manager}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e => onToggleRecipient(moduleKey, notifKey, 'manager', e.target.checked)}
                   />
                   <span>{t("Assignee's Manager")}</span>
@@ -795,6 +798,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.assigner}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e => onToggleRecipient(moduleKey, notifKey, 'assigner', e.target.checked)}
                   />
                   <span>{t('Assigner')}</span>
@@ -803,6 +807,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.previous_owner}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e =>
                       onToggleRecipient(moduleKey, notifKey, 'previous_owner', e.target.checked)
                     }
@@ -814,6 +819,7 @@ const RecipientsModal = ({
                     <input
                       type="checkbox"
                       checked={meta.recipients.team_leader}
+                      disabled={lockedToAssigneeOnly}
                       onChange={e =>
                         onToggleRecipient(moduleKey, notifKey, 'team_leader', e.target.checked)
                       }
@@ -825,6 +831,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.director}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e => onToggleRecipient(moduleKey, notifKey, 'director', e.target.checked)}
                   />
                   <span>{t('Director')}</span>
@@ -833,6 +840,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.operations_manager}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e =>
                       onToggleRecipient(moduleKey, notifKey, 'operations_manager', e.target.checked)
                     }
@@ -843,6 +851,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.sales_admin}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e => onToggleRecipient(moduleKey, notifKey, 'sales_admin', e.target.checked)}
                   />
                   <span>{t('Sales Admin')}</span>
@@ -851,6 +860,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.sales_manager}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e => onToggleRecipient(moduleKey, notifKey, 'sales_manager', e.target.checked)}
                   />
                   <span>{t('Sales Manager')}</span>
@@ -859,6 +869,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.branch_manager}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e =>
                       onToggleRecipient(moduleKey, notifKey, 'branch_manager', e.target.checked)
                     }
@@ -869,6 +880,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.marketing_manager}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e =>
                       onToggleRecipient(moduleKey, notifKey, 'marketing_manager', e.target.checked)
                     }
@@ -879,6 +891,7 @@ const RecipientsModal = ({
                   <input
                     type="checkbox"
                     checked={meta.recipients.marketing_moderator}
+                    disabled={lockedToAssigneeOnly}
                     onChange={e =>
                       onToggleRecipient(
                         moduleKey,
@@ -901,7 +914,7 @@ const RecipientsModal = ({
               </div>
             </div>
           </div>
-          <div className="border border-gray-200 dark:border-gray-700 rounded-xl max-h-64 overflow-y-auto">
+          <div className={`border border-gray-200 dark:border-gray-700 rounded-xl max-h-64 overflow-y-auto ${lockedToAssigneeOnly ? 'opacity-60 pointer-events-none' : ''}`}>
             {users.length === 0 && (
               <div className="p-4 text-xs text-[var(--muted-text)]">
                 {t('No users available')}
