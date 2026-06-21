@@ -84,6 +84,10 @@ class AppServiceProvider extends ServiceProvider
             $this->app['request']->server->set('HTTPS', 'on');
         }
 
+        // Register Observers
+        \App\Models\Lead::observe(\App\Observers\LeadObserver::class);
+        \App\Models\LeadAction::observe(\App\Observers\LeadActionObserver::class);
+
         Event::listen(NotificationSent::class, SendFcmNotificationForDatabaseChannel::class);
 
         RateLimiter::for('api', function (Request $request) {

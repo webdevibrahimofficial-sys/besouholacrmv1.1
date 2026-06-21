@@ -100,7 +100,7 @@ const AddLeadModal = ({ isOpen, onClose, onSave }) => {
         campaign: r.campaign || '',
         assignedTo: r.assignedTo?.trim() || 'Unassigned',
         createdAt: new Date().toISOString(),
-        lastContact: new Date().toISOString(),
+        lastContact: '',
         estimatedValue: isNaN(parseFloat(r.estimatedValue)) ? 0 : parseFloat(r.estimatedValue),
         notes: r.notes?.trim() || ''
       }));

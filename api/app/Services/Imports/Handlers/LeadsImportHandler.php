@@ -484,6 +484,7 @@ class LeadsImportHandler implements ImportHandler
                 $firstActionDate = $this->parseYmdDate($firstActionDateRaw);
                 if ($firstActionDate && !$upsertedExistingDuplicate) {
                     $lead->forceFill([
+                        'last_action_at' => $firstActionDate->copy(),
                         'last_contact' => $firstActionDate->copy(),
                     ])->save();
                 }

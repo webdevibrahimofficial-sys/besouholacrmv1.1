@@ -14,7 +14,7 @@ import { useStages } from '@hooks/useStages';
 import { saveRequest as saveRealEstateRequest } from '../../data/realEstateRequests';
 import { saveRequest as saveInventoryRequest } from '../../data/inventoryRequests';
 import { api } from '../../utils/api';
-import echo from '../../echo';
+import { ensureEcho, getEcho } from '../../echo';
 import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, getWhatsappTemplates } from '../../services/whatsappService';
 import { getLeadEmailMessages, sendEmailText } from '../../services/emailService';
 import { getEmailTemplates } from '../../services/emailTemplateService';
@@ -174,18 +174,26 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       .catch(() => { });
   }, [isOpen, activeTab, lead?.id]);
   useEffect(() => {
-    if (!isOpen || !company?.id) return;
-    const channelName = `tenant-${company.id}-whatsapp`;
+    if (!isOpen) return;
+    const tenantId = user?.tenant_id || company?.tenant_id || company?.tenantId || company?.id;
+    if (!tenantId) return;
+    const channelName = `tenant-${tenantId}-whatsapp`;
+    const echoInstance = getEcho() || ensureEcho() || window.Echo;
     try {
-      if (echo) {
-        const ch = echo.channel(channelName);
+      if (echoInstance) {
+        const ch = echoInstance.channel(channelName);
         ch.listen('InboundWhatsappMessage', (e) => {
           const m = e?.message;
           if (!m) return;
           const raw = lead?.phone || lead?.mobile || '';
-          const digits = String(raw).replace(/[^0-9]/g, '');
-          const fromMatch = String(m.from || '').replace(/[^0-9]/g, '') === digits;
-          const toMatch = String(m.to || '').replace(/[^0-9]/g, '') === digits;
+          const digits = getPhoneDigits(raw, {
+            defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
+          });
+          const messageDigits = [m.from, m.to].map((value) => String(value || '').replace(/[^0-9]/g, ''));
+          const localDigits = digits.startsWith('20') ? `0${digits.slice(2)}` : digits;
+          const trimmedDigits = digits.startsWith('20') ? digits.slice(2) : digits;
+          const fromMatch = messageDigits.some((value) => value && [digits, localDigits, trimmedDigits].includes(value));
+          const toMatch = fromMatch;
           if (fromMatch || toMatch) {
             setWaMessages(prev => [...prev, {
               body: m.body,
@@ -204,16 +212,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     } catch { }
     return () => {
       try {
-        if (echo) {
-          echo.leave(channelName);
+        if (echoInstance) {
+          echoInstance.leave(channelName);
         }
       } catch { }
     };
-  }, [isOpen, company?.id, lead?.phone, activeTab]);
+  }, [isOpen, user?.tenant_id, company?.id, company?.tenant_id, company?.tenantId, lead?.phone, lead?.mobile, activeTab]);
   useEffect(() => {
     if (!isOpen || activeTab !== 'communication' || !lead?.id) return;
     let timer = null;
-    const shouldPoll = !echo;
+    const shouldPoll = !(getEcho() || window.Echo);
     if (shouldPoll) {
       const run = async () => {
         try {
@@ -232,7 +240,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isOpen, activeTab, lead?.id, echo]);
+  }, [isOpen, activeTab, lead?.id]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [expandedComments, setExpandedComments] = useState({});
@@ -2816,7 +2824,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                                 </span>
                               </div>
                               <div className="flex items-center gap-1 min-w-0">
-                                <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'تاريخ الانشاء:' : 'Creation Date:'}</span>
+                                <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'تاريخ الإجراء:' : 'Action Date:'}</span>
                                 <span className={`${isLight ? 'text-slate-800' : 'text-slate-300'} whitespace-nowrap`}>
                                   {(() => {
                                     if (!action.created_at) return '-';
@@ -3067,7 +3075,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     {waMessages.map((m) => (
                       <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`${m.direction === 'outbound' ? 'bg-green-500 text-white' : 'bg-white text-gray-800'} max-w-[75%] rounded-xl px-3 py-2 border ${m.direction === 'outbound' ? 'border-green-600' : 'border-gray-200'} shadow-sm`}>
-                          <div className="text-sm">{m.body || '-'}</div>
+                          <div className="text-sm">{m.body || (m.direction === 'inbound' ? (isArabic ? '[رسالة وسائط بدون نص]' : '[Media message, no text]') : (isArabic ? '[بدون نص]' : '[No text]'))}</div>
                           <div className="mt-1 text-[10px] opacity-70 flex items-center gap-2">
                             <span>{new Date(m.timestamp).toLocaleString(isArabic ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</span>
                             <span>{m.status}</span>
@@ -3099,7 +3107,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                         onClick={async () => {
                           if (sendingText) return;
                           const raw = lead?.phone || lead?.mobile || '';
-                          const digits = String(raw).replace(/[^0-9]/g, '');
+                          const digits = getPhoneDigits(raw, {
+                            defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
+                          });
                           const inbound = [...waMessages].filter(x => x.direction === 'inbound').pop();
                           if (!inbound || (Date.now() - new Date(inbound.timestamp).getTime()) > 24 * 60 * 60 * 1000) {
                             alert(isArabic ? 'لا يمكن إرسال رسالة حرة. مر أكثر من 24 ساعة على آخر رسالة من العميل. الرجاء استخدام قالب لبدء محادثة جديدة.' : 'Cannot send free-form. More than 24 hours since last customer message. Use a template.');
@@ -3108,7 +3118,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                           setSendingText(true);
                           try {
                             const res = await sendWhatsappText({ recipient_number: digits, message_body: textBody.trim() });
-                            const ok = !!res?.ok;
+                            const ok = !!(res?.ok || res?.success);
                             setWaMessages(prev => [...prev, {
                               body: textBody.trim(),
                               direction: 'outbound',
@@ -3153,11 +3163,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                             disabled={sendingTpl === t.name}
                             onClick={async () => {
                               const raw = lead?.phone || lead?.mobile || '';
-                              const digits = String(raw).replace(/[^0-9]/g, '');
+                              const digits = getPhoneDigits(raw, {
+                                defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
+                              });
                               setSendingTpl(t.name);
                               try {
                                 const res = await sendWhatsappTemplate({ recipient_number: digits, template_name: t.name, variables: {} });
-                                const ok = !!res?.ok;
+                                const ok = !!(res?.ok || res?.success);
                                 setWaMessages(prev => [...prev, {
                                   body: t.body || t.name,
                                   direction: 'outbound',

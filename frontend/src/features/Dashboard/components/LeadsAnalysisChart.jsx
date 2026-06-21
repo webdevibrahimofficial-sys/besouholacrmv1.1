@@ -26,6 +26,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   const containerHeightPx = exportMode ? 420 : 192
   const chartHeightClass = exportMode ? 'h-[420px]' : 'h-40 sm:h-48'
   const pieSize = exportMode ? 260 : 192
+  const monthLabelsEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
   const translateMonthLabel = (label) => {
     if (!label || lang !== 'ar') return label
@@ -59,6 +60,43 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
 
     const normalizedLabel = String(label).trim()
     return monthMap[normalizedLabel.toLowerCase()] || label
+  }
+
+  const buildCompleteMonthlySeries = (rawMonthlyData) => {
+    const normalizedYear = Number(filters?.year) || new Date().getFullYear()
+    const byMonth = new Map()
+
+    ;(Array.isArray(rawMonthlyData) ? rawMonthlyData : []).forEach((item) => {
+      const monthKey = String(item?.month || '').trim()
+      const monthIndex = /^\d{4}-\d{2}$/.test(monthKey)
+        ? Number(monthKey.slice(5, 7)) - 1
+        : monthLabelsEn.findIndex((label) => label.toLowerCase() === String(item?.label || '').trim().toLowerCase())
+
+      if (monthIndex < 0 || monthIndex > 11) return
+
+      byMonth.set(monthIndex, {
+        ...item,
+        month: `${normalizedYear}-${String(monthIndex + 1).padStart(2, '0')}`,
+        label: monthLabelsEn[monthIndex],
+        value: Number(item?.value || 0),
+        revenue: Number(item?.revenue || 0),
+        converted: Number(item?.converted || 0),
+        lost: Number(item?.lost || 0),
+        inProgress: Number(item?.inProgress || 0),
+      })
+    })
+
+    return monthLabelsEn.map((label, monthIndex) => (
+      byMonth.get(monthIndex) || {
+        month: `${normalizedYear}-${String(monthIndex + 1).padStart(2, '0')}`,
+        label,
+        value: 0,
+        revenue: 0,
+        converted: 0,
+        lost: 0,
+        inProgress: 0,
+      }
+    ))
   }
 
   // Advanced search states
@@ -240,22 +278,6 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
       )
     }
 
-    if (mergedFrom) {
-      filteredData = filteredData.filter(item => {
-        const itemDate = new Date(item.date)
-        const fromDate = new Date(mergedFrom)
-        return itemDate >= fromDate
-      })
-    }
-
-    if (mergedTo) {
-      filteredData = filteredData.filter(item => {
-        const itemDate = new Date(item.date)
-        const toDate = new Date(mergedTo)
-        return itemDate <= toDate
-      })
-    }
-
     if (advancedFilters.valueMin) {
       filteredData = filteredData.filter(item => item.value >= parseFloat(advancedFilters.valueMin))
     }
@@ -281,7 +303,10 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   }
 
   useEffect(() => {
-    const rawData = data || sampleData[filters.dataType || 'monthly']
+    const incomingData = data || sampleData[filters.dataType || 'monthly']
+    const rawData = filters.dataType === 'monthly'
+      ? buildCompleteMonthlySeries(incomingData)
+      : incomingData
     const filteredData = applyFilters(rawData).map(item => ({
       ...item,
       label: translateMonthLabel(item.label),
@@ -439,7 +464,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
       value: item.value || 0,
       color: palette[index % palette.length]
     }))
-    const useTwoColumnLegend = !isMobile && segments.length > 6
+    const useFourColumnLegend = !isMobile && segments.length > 4
 
     return (
       <div className={`flex flex-col items-center justify-center gap-4 md:flex-row md:items-center ${exportMode ? 'min-h-[420px]' : 'h-auto min-h-48'}`}>
@@ -451,8 +476,8 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
         />
         <div
           className={`w-full md:w-auto ${exportMode ? 'md:ml-8' : 'md:ml-6'} ${
-            useTwoColumnLegend
-              ? 'grid grid-cols-2 gap-x-6 gap-y-2'
+            useFourColumnLegend
+              ? 'grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2'
               : 'space-y-2'
           }`}
         >

@@ -260,7 +260,15 @@ export const Dashboard = () => {
   const [recentCallsCount, setRecentCallsCount] = useState(0);
   const [selectedStageFilter, setSelectedStageFilter] = useState('');
   const activeFilter = 'active';
-  const yearFilter = '2025';
+  const currentYear = new Date().getFullYear();
+  const [leadsAnalysisYear, setLeadsAnalysisYear] = useState(String(currentYear));
+  const normalizedLeadsAnalysisYear = /^\d{4}$/.test(String(leadsAnalysisYear))
+    ? String(leadsAnalysisYear)
+    : String(currentYear);
+  const leadsAnalysisDateRange = useMemo(() => ({
+    from: `${normalizedLeadsAnalysisYear}-01-01`,
+    to: `${normalizedLeadsAnalysisYear}-12-31`,
+  }), [normalizedLeadsAnalysisYear]);
   const [stageDefs, setStageDefs] = useState([]);
   const refreshTrigger = 0;
   const [managerOptions, setManagerOptions] = useState([]);
@@ -555,6 +563,12 @@ export const Dashboard = () => {
 
   // Fetch Leads Analysis Data
   const [analysisData, setAnalysisData] = useState(null);
+  const leadsAnalysisTotal = useMemo(
+    () => (Array.isArray(analysisData?.monthly)
+      ? analysisData.monthly.reduce((sum, item) => sum + Number(item?.value || 0), 0)
+      : 0),
+    [analysisData]
+  );
   const pipelineAnalysisChartRef = useRef(null);
   const leadsAnalysisExportRef = useRef(null);
   const [exportingChartKey, setExportingChartKey] = useState(null);
@@ -573,8 +587,8 @@ export const Dashboard = () => {
     const fetchAnalysis = async () => {
       try {
         const params = {
-          created_from: dateFrom,
-          created_to: dateTo,
+          created_from: leadsAnalysisDateRange.from,
+          created_to: leadsAnalysisDateRange.to,
           assigned_to: selectedEmployee,
           manager_id: selectedManager || undefined,
           _t: Date.now() // Cache buster
@@ -589,13 +603,15 @@ export const Dashboard = () => {
     };
     fetchAnalysis();
     return () => { cancelled = true; };
-  }, [dateFrom, dateTo, selectedEmployee, selectedManager, refreshTrigger]);
+  }, [leadsAnalysisDateRange, selectedEmployee, selectedManager, refreshTrigger]);
 
   const handleExportDashboardPdf = async (chartKey = 'all') => {
     if (exportingChartKey) return;
     try {
       setExportingChartKey(chartKey);
-      const dateRangeLabel = dateFrom && dateTo
+      const dateRangeLabel = chartKey === 'leads-analysis'
+        ? `${leadsAnalysisDateRange.from} - ${leadsAnalysisDateRange.to}`
+        : dateFrom && dateTo
         ? `${dateFrom} → ${dateTo}`
         : dateFrom
           ? `${dateFrom} → ${i18n.language === 'ar' ? 'الآن' : 'Now'}`
@@ -1320,6 +1336,27 @@ export const Dashboard = () => {
             <div className="col-span-1 p-4 glass-panel rounded-lg shadow-md">
               <div className="section-header flex items-center w-full justify-between gap-2 mb-3">
                 <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Leads Analysis')}</h3>
+                <div className="flex items-center gap-2" data-export-ignore="true">
+                  <label htmlFor="leads-analysis-year" className={`text-sm font-semibold ${isLight ? 'text-gray-700' : 'text-gray-200'}`}>
+                    {t('Year')}
+                  </label>
+                  <input
+                    id="leads-analysis-year"
+                    type="number"
+                    min="2000"
+                    max="2100"
+                    step="1"
+                    value={leadsAnalysisYear}
+                    onChange={(event) => setLeadsAnalysisYear(event.target.value)}
+                    onBlur={() => setLeadsAnalysisYear(normalizedLeadsAnalysisYear)}
+                    className={`h-10 w-24 rounded-lg border px-3 text-sm font-semibold outline-none transition-colors ${
+                      isLight
+                        ? 'border-gray-300 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+                        : 'border-gray-600 bg-gray-800 text-white focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20'
+                    }`}
+                    aria-label={t('Leads analysis year')}
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => handleExportDashboardPdf('leads-analysis')}
@@ -1420,8 +1457,8 @@ export const Dashboard = () => {
                 <LeadsAnalysisChart 
                   data={analysisData ? analysisData.monthly : null}
                   chartType={leadsChartType}
-                  totalValue={leadsStats.total}
-                  filters={{ dataType: 'monthly', status: activeFilter, year: yearFilter, employee: selectedEmployee || selectedManager, dateFrom, dateTo }}
+                  totalValue={leadsAnalysisTotal}
+                  filters={{ dataType: 'monthly', status: activeFilter, year: normalizedLeadsAnalysisYear, employee: selectedEmployee || selectedManager, dateFrom: leadsAnalysisDateRange.from, dateTo: leadsAnalysisDateRange.to }}
                 />
               </div>
           </div>
@@ -1480,7 +1517,7 @@ export const Dashboard = () => {
                 <LeadsAnalysisChart
                   data={dashboardExportState.pageData}
                   chartType={leadsChartType}
-                  filters={{ dataType: 'monthly', status: activeFilter, year: yearFilter, employee: selectedEmployee || selectedManager, dateFrom, dateTo }}
+                  filters={{ dataType: 'monthly', status: activeFilter, year: normalizedLeadsAnalysisYear, employee: selectedEmployee || selectedManager, dateFrom: leadsAnalysisDateRange.from, dateTo: leadsAnalysisDateRange.to }}
                   exportMode
                 />
               </div>

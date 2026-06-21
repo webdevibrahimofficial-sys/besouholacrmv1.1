@@ -311,6 +311,8 @@ export const Leads = () => {
   const [assignDateTo, setAssignDateTo] = useState('')
   const [lastActionFrom, setLastActionFrom] = useState('')
   const [lastActionTo, setLastActionTo] = useState('')
+  const [actionDateFrom, setActionDateFrom] = useState('')
+  const [actionDateTo, setActionDateTo] = useState('')
   const [creationDateFrom, setCreationDateFrom] = useState('')
   const [creationDateTo, setCreationDateTo] = useState('')
   const [oldStageFilter, setOldStageFilter] = useState([])
@@ -553,16 +555,6 @@ if (!s) {
     return lower
   }
 
-  const setStageFilterNormalized = (next) => {
-    const arr = Array.isArray(next) ? next : (next ? [next] : [])
-    const normalized = arr.map(normalizeStageFilterValue).filter(Boolean)
-    setSelectedLeads([])
-    setShowBulkDuplicateMenu(false)
-    setShowBulkDuplicateTransferModal(false)
-    setShowBulkAssignModal(false)
-    setStageFilter(normalized)
-  }
-
   // Expand canonical stage filters into backend variants so the table matches the stats logic.
   // Example: "cold calls" stats include values like "cold-call", "coldcalls", "cold_call", etc.
   const expandStageFilterForApi = (stageValues) => {
@@ -584,25 +576,26 @@ if (!s) {
     return [...new Set(expanded)]
   }
 
-  // Sorting rule (display + API): initial buckets by Creation Date desc,
-  // all other stages by Next Action Date desc (latest scheduled follow-up first).
+  // Stage cards should reset to the page default sort.
+  // The API decides the default ordering based on the active stage filter.
   const deriveStageSortRule = useCallback((stageValues) => {
-    const list = Array.isArray(stageValues) ? stageValues : []
-    const normalized = list.map((s) => String(s || '').toLowerCase().trim()).filter(Boolean)
-
-    // "Total Leads" is when no specific stage filter is applied.
-    const isTotal = normalized.length === 0
-    const isCreationSortedStage = isTotal || normalized.some((s) => (
-      s === 'new lead' ||
-      s === 'duplicate' ||
-      s === 'pending' ||
-      s === 'cold calls'
-    ))
-
-    return isCreationSortedStage
-      ? { sortBy: 'createdAt', sortOrder: 'desc' }
-      : { sortBy: 'nextActionDate', sortOrder: 'asc' }
+    return { sortBy: '', sortOrder: 'desc' }
   }, [])
+
+  const setStageFilterNormalized = (next) => {
+    const arr = Array.isArray(next) ? next : (next ? [next] : [])
+    const normalized = arr.map(normalizeStageFilterValue).filter(Boolean)
+    const nextSortRule = deriveStageSortRule(normalized)
+
+    setSelectedLeads([])
+    setShowBulkDuplicateMenu(false)
+    setShowBulkDuplicateTransferModal(false)
+    setShowBulkAssignModal(false)
+    setCurrentPage(1)
+    setSortBy(nextSortRule.sortBy)
+    setSortOrder(nextSortRule.sortOrder)
+    setStageFilter(normalized)
+  }
 
   const parseComparableDate = (value) => {
     if (!value) return null
@@ -658,22 +651,21 @@ if (!s) {
 
   const creationSortedStageValues = ['new lead', 'duplicate', 'pending', 'cold calls', 'in-progress']
 
-  const isCreationSortedStage = useCallback((lead) => {
-    const stageValue = lead?.display_stage || lead?.stage || lead?.status || ''
-    return creationSortedStageValues.includes(normalizeStageFilterValue(stageValue))
-  }, [])
-
   const applyStageSortRule = useCallback((rows) => {
     const list = Array.isArray(rows) ? [...rows] : []
     if (list.length <= 1) return list
 
-    // Bucket 0: creation-sorted stages, Bucket 1: the rest of the pipeline.
-    list.sort((a, b) => {
-      const aBucket = isCreationSortedStage(a) ? 0 : 1
-      const bBucket = isCreationSortedStage(b) ? 0 : 1
-      if (aBucket !== bBucket) return aBucket - bBucket
+    const normalizedFilters = (Array.isArray(stageFilter) ? stageFilter : [])
+      .map(normalizeStageFilterValue)
+      .filter(Boolean)
 
-      if (aBucket === 0) {
+    const isTotalView = normalizedFilters.length === 0
+    const isCreationOnlyView = !isTotalView && normalizedFilters.every((value) => (
+      creationSortedStageValues.includes(value)
+    ))
+
+    list.sort((a, b) => {
+      if (isTotalView || isCreationOnlyView) {
         const ac = getLeadCreationTs(a) ?? -Infinity
         const bc = getLeadCreationTs(b) ?? -Infinity
         return bc - ac
@@ -692,7 +684,7 @@ if (!s) {
       return bc - ac
     })
     return list
-  }, [isCreationSortedStage])
+  }, [stageFilter])
    
   const tableHeaderBgClass = 'bg-theme-sidebar dark:bg-gray-900/95'
   const buttonBase = 'text-sm font-semibold rounded-lg transition-all duration-200 ease-out'
@@ -754,6 +746,8 @@ if (!s) {
         created_to: filters.createdTo,
         last_action_from: filters.lastActionFrom,
         last_action_to: filters.lastActionTo,
+        action_date_from: filters.actionDateFrom,
+        action_date_to: filters.actionDateTo,
         assigned_date_from: filters.assignedFrom,
         assigned_date_to: filters.assignedToDate,
         closed_from: filters.closedFrom,
@@ -788,6 +782,8 @@ if (!s) {
           createdTo: creationDateTo,
           lastActionFrom: lastActionFrom,
           lastActionTo: lastActionTo,
+          actionDateFrom: actionDateFrom,
+          actionDateTo: actionDateTo,
           assignedFrom: assignDateFrom,
           assignedToDate: assignDateTo,
           closedFrom: closedDateFrom,
@@ -912,6 +908,8 @@ if (!s) {
       created_to: filters.createdTo,
       last_action_from: filters.lastActionFrom,
       last_action_to: filters.lastActionTo,
+      action_date_from: filters.actionDateFrom,
+      action_date_to: filters.actionDateTo,
       assigned_date_from: filters.assignedFrom,
       assigned_date_to: filters.assignedToDate,
       closed_from: filters.closedFrom,
@@ -952,6 +950,8 @@ if (!s) {
         createdTo: creationDateTo,
         lastActionFrom: lastActionFrom,
         lastActionTo: lastActionTo,
+        actionDateFrom: actionDateFrom,
+        actionDateTo: actionDateTo,
         assignedFrom: assignDateFrom,
         assignedToDate: assignDateTo,
         closedFrom: closedDateFrom,
@@ -1074,20 +1074,23 @@ if (!s) {
         manager: managerName,
         managerId: managerId,
         createdAt: lead.created_at || lead.createdAt,
-        lastContact: lead.last_contact || lead.lastContact,
+        lastContact: lead.last_action_at || lead.lastActionAt || null,
+        lastActionAt: lead.last_action_at || lead.lastActionAt || null,
         // Normalize date fields used by the filters UI
         assignDate: lead.assignDate || lead.assigned_at || lead.assignedAt || lead.assigned_date || lead.assign_date || null,
-        actionDate: lead.actionDate || lead.last_contact || lead.lastContact || null,
+        actionDate: lead.actionDate || lead.latest_action?.created_at || lead.latest_action?.createdAt || null,
         closedDate: lead.closedDate || lead.closed_at || lead.closedAt || lead.closed_date || null,
         estimatedValue: lead.estimated_value || lead.estimatedValue,
         customFields: lead.custom_field_values || []
       }});
 
+      const defaultSortedLeads = sortBy ? mappedLeads : applyStageSortRule(mappedLeads)
+
       setLeads(mappedLeads);
-      setFilteredLeads(mappedLeads); // With server-side pagination, the current list IS the filtered list
+      setFilteredLeads(defaultSortedLeads); // With server-side pagination, the current list IS the filtered list
       setIsDataLoaded(true);
     }
-  }, [leadsQueryData, usersList, stageFilter]);
+  }, [leadsQueryData, usersList, stageFilter, sortBy, applyStageSortRule]);
 
   // Filter Options Calculation
   const availableManagers = useMemo(() => {
@@ -1183,6 +1186,14 @@ if (!s) {
           if (params.has('created_to')) {
             const v = String(params.get('created_to') || '').trim();
             setCreationDateTo(prev => (String(prev || '') === v ? prev : v));
+          }
+          if (params.has('action_date_from')) {
+            const v = String(params.get('action_date_from') || '').trim();
+            setActionDateFrom(prev => (String(prev || '') === v ? prev : v));
+          }
+          if (params.has('action_date_to')) {
+            const v = String(params.get('action_date_to') || '').trim();
+            setActionDateTo(prev => (String(prev || '') === v ? prev : v));
           }
         } else {
           setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []))
@@ -2282,7 +2293,8 @@ if (!s) {
       
       // Date filters (From/To)
       const matchesAssignDate = _inDateRange(lead.assignDate, assignDateFrom, assignDateTo)
-      const matchesActionDate = _inDateRange(lead.actionDate, lastActionFrom, lastActionTo)
+      const matchesLastActionDate = _inDateRange(lead.lastContact, lastActionFrom, lastActionTo)
+      const matchesActionDate = _inDateRange(lead.actionDate, actionDateFrom, actionDateTo)
       const matchesCreationDate = _inDateRange(lead.createdAt, creationDateFrom, creationDateTo)
       const matchesClosedDate = _inDateRange(lead.closedDate, closedDateFrom, closedDateTo)
       
@@ -2293,16 +2305,16 @@ if (!s) {
       
       return matchesProject && matchesManager && matchesCreatedBy && matchesOldStage && 
              matchesCountry && matchesWhatsappIntents && matchesActionType && matchesDuplicateStatus &&
-             matchesAssignDate && matchesActionDate && matchesCreationDate && matchesClosedDate &&
+             matchesAssignDate && matchesLastActionDate && matchesActionDate && matchesCreationDate && matchesClosedDate &&
              matchesEmail && matchesExpectedRevenue
     })
 
-    setFilteredLeads(filtered)
+    setFilteredLeads(sortBy ? filtered : applyStageSortRule(filtered))
   }, [leads, projectFilter, managerFilter, createdByFilter, oldStageFilter, countryFilter, 
       whatsappIntentsFilter, actionTypeFilter, duplicateStatusFilter, assignDateFrom, assignDateTo,
-      lastActionFrom, lastActionTo, creationDateFrom, creationDateTo, closedDateFrom, closedDateTo,
+      lastActionFrom, lastActionTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo, closedDateFrom, closedDateTo,
       emailFilter, expectedRevenueFilter, 
-      isAdminOrManager, canShowCreator])
+      isAdminOrManager, canShowCreator, sortBy, applyStageSortRule])
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -2866,6 +2878,8 @@ if (!s) {
       created_to: creationDateTo,
       last_action_from: lastActionFrom,
       last_action_to: lastActionTo,
+      action_date_from: actionDateFrom,
+      action_date_to: actionDateTo,
       assigned_date_from: assignDateFrom,
       assigned_date_to: assignDateTo,
       closed_from: closedDateFrom,
@@ -3046,7 +3060,7 @@ if (!s) {
         }
         case 'lastActionDate': {
           if (hideOldActionFromSales) return '-';
-          const iso = latestAction?.created_at || latestAction?.createdAt || '';
+          const iso = lead?.lastActionAt || lead?.last_action_at || lead?.lastContact || '';
           const v = formatLocalDateTime(iso) || String(iso).trim();
           return v || '-';
         }
@@ -3264,6 +3278,8 @@ if (!s) {
                 setAssignDateTo('')
                 setLastActionFrom('')
                 setLastActionTo('')
+                setActionDateFrom('')
+                setActionDateTo('')
                 setCreationDateFrom('')
                 setCreationDateTo('')
                 setOldStageFilter([])
@@ -3692,6 +3708,38 @@ if (!s) {
                     }}
                     isClearable={true}
                     placeholderText={isRtl ? 'من - إلى' : 'From - To'}
+                    className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} text-xs font-medium dark:placeholder-white focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
+                    wrapperClassName="w-full"
+                    dateFormat="yyyy-MM-dd"
+                  />
+                </div>
+              </div>
+
+              {/* Action Date Filter */}
+              <div className="space-y-1">
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                  <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  {t('Action Date')}
+                </label>
+                <div className="w-full">
+                  <DatePicker
+                    popperContainer={({ children }) => createPortal(children, document.body)}
+                    selectsRange={true}
+                    startDate={actionDateFrom ? new Date(actionDateFrom) : null}
+                    endDate={actionDateTo ? new Date(actionDateTo) : null}
+                    showMonthDropdown
+                    showYearDropdown
+                    dropdownMode="select"
+                    yearDropdownItemNumber={12}
+                    onChange={(update) => {
+                      const [start, end] = update
+                      setActionDateFrom(formatYmdLocal(start))
+                      setActionDateTo(formatYmdLocal(end))
+                    }}
+                    isClearable={true}
+                    placeholderText={isRtl ? 'Ù…Ù† - Ø¥Ù„Ù‰' : 'From - To'}
                     className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} text-xs font-medium dark:placeholder-white focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                     wrapperClassName="w-full"
                     dateFormat="yyyy-MM-dd"
@@ -4487,7 +4535,7 @@ if (!s) {
                               const hideOldActionFromSales = isOwner && hiddenBefore > 0 && latestId > 0 && latestId <= hiddenBefore;
                               if (hideOldActionFromSales) return '-'
 
-                              const iso = lead.latest_action?.created_at || lead.latest_action?.createdAt || ''
+                              const iso = lead.lastActionAt || lead.last_action_at || lead.lastContact || ''
                               if (!iso) return '-'
                               try {
                                 const d = new Date(iso)
@@ -5213,6 +5261,7 @@ if (!s) {
                 updatedLead.actions = [actionEntry, ...updatedLead.actions];
                 updatedLead.lastAction = actionEntry;
                 updatedLead.lastContact = new Date().toISOString();
+                updatedLead.lastActionAt = updatedLead.lastContact;
                 hasChanges = true;
 
                 if (hasChanges) {

@@ -66,6 +66,9 @@ class Lead extends Model
         'actions_data' => 'array',
         'meta_data' => 'array',
         'is_organic' => 'boolean',
+        'assigned_at' => 'datetime',
+        'last_action_at' => 'datetime',
+        'last_contact' => 'datetime',
     ];
 
     public function actions()

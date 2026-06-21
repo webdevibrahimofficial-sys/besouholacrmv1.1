@@ -851,10 +851,18 @@ class LeadController extends Controller
         if ($request->filled('assigned_to')) $query->whereIn('leads.assigned_to', (array)$request->assigned_to);
         if ($request->filled('manager_id')) $query->whereIn('leads.manager_id', (array)$request->manager_id);
         
-        // Dates
+        // Date Filters for Referrals
         if ($request->filled('assign_date')) $query->whereDate('lr.created_at', $request->assign_date);
         if ($request->filled('creation_date')) $query->whereDate('leads.created_at', $request->creation_date);
         if ($request->filled('closed_date')) $query->whereDate('leads.closed_at', $request->closed_date);
+        
+        // Lead's assigned_at date filter
+        if ($request->filled('assigned_date_from')) $query->whereDate('leads.assigned_at', '>=', $request->assigned_date_from);
+        if ($request->filled('assigned_date_to')) $query->whereDate('leads.assigned_at', '<=', $request->assigned_date_to);
+        
+        // Lead's actual last action timestamp filter
+        if ($request->filled('last_action_date_from')) $query->whereDate('leads.last_action_at', '>=', $request->last_action_date_from);
+        if ($request->filled('last_action_date_to')) $query->whereDate('leads.last_action_at', '<=', $request->last_action_date_to);
 
         // Action Type Filter
         if ($request->filled('action_type')) {
@@ -1422,28 +1430,37 @@ class LeadController extends Controller
         }
 
         // 8. Date Range Filters
+        // Creation Date Filter
         if ($request->filled('created_from')) $query->whereDate('leads.created_at', '>=', $request->created_from);
         if ($request->filled('created_to')) $query->whereDate('leads.created_at', '<=', $request->created_to);
         
-        if ($request->filled('last_action_from')) $query->whereDate('leads.last_contact', '>=', $request->last_action_from);
-        if ($request->filled('last_action_to')) $query->whereDate('leads.last_contact', '<=', $request->last_action_to);
+        // Last Action Date Filter
+        // Uses last_action_at which is populated only from real lead_actions.
+        // Support both parameter names: last_action_from/to (legacy) and last_action_date_from/to (frontend)
+        $lastActionFrom = $request->filled('last_action_date_from') ? $request->last_action_date_from : $request->last_action_from;
+        $lastActionTo = $request->filled('last_action_date_to') ? $request->last_action_date_to : $request->last_action_to;
+        
+        if ($lastActionFrom) $query->whereDate('leads.last_action_at', '>=', $lastActionFrom);
+        if ($lastActionTo) $query->whereDate('leads.last_action_at', '<=', $lastActionTo);
 
-        // Optional: Assigned date range (depends on DB schema, so guard by column existence).
-        // Frontend sends: assigned_date_from / assigned_date_to
-        $assignedCol = null;
-        foreach (['assigned_at', 'assigned_date', 'assign_date'] as $c) {
-            try {
-                if (\Illuminate\Support\Facades\Schema::hasColumn('leads', $c)) {
-                    $assignedCol = $c;
-                    break;
+        // Action Date Filter (from Action History)
+        // Returns ALL leads that have ANY action within the date range
+        // NOT filtered by last action - searches full action history
+        if ($request->filled('action_date_from') || $request->filled('action_date_to')) {
+            $query->whereHas('actions', function ($actionQuery) use ($request) {
+                if ($request->filled('action_date_from')) {
+                    $actionQuery->whereDate('lead_actions.created_at', '>=', $request->action_date_from);
                 }
-            } catch (\Throwable $e) {
-            }
+                if ($request->filled('action_date_to')) {
+                    $actionQuery->whereDate('lead_actions.created_at', '<=', $request->action_date_to);
+                }
+            });
         }
-        if ($assignedCol) {
-            if ($request->filled('assigned_date_from')) $query->whereDate("leads.$assignedCol", '>=', $request->assigned_date_from);
-            if ($request->filled('assigned_date_to')) $query->whereDate("leads.$assignedCol", '<=', $request->assigned_date_to);
-        }
+
+        // Assigned Date Filter
+        // Frontend sends: assigned_date_from / assigned_date_to
+        if ($request->filled('assigned_date_from')) $query->whereDate('leads.assigned_at', '>=', $request->assigned_date_from);
+        if ($request->filled('assigned_date_to')) $query->whereDate('leads.assigned_at', '<=', $request->assigned_date_to);
 
         // Optional: Closed date range (depends on DB schema, so guard by column existence).
         // Frontend sends: closed_from / closed_to
@@ -1478,16 +1495,17 @@ class LeadController extends Controller
                 $query->whereIn('project', (array) $request->project);
             }
 
+            // Use last_action_at so the report only includes real actions
             $hasLastActionRange = $request->filled('last_action_date_from') || $request->filled('last_action_date_to');
             if ($hasLastActionRange) {
                 if ($request->filled('last_action_date_from')) {
-                    $query->whereDate('updated_at', '>=', $request->last_action_date_from);
+                    $query->whereDate('leads.last_action_at', '>=', $request->last_action_date_from);
                 }
                 if ($request->filled('last_action_date_to')) {
-                    $query->whereDate('updated_at', '<=', $request->last_action_date_to);
+                    $query->whereDate('leads.last_action_at', '<=', $request->last_action_date_to);
                 }
             } elseif ($request->filled('last_action_date')) {
-                $query->whereDate('updated_at', $request->last_action_date);
+                $query->whereDate('leads.last_action_at', $request->last_action_date);
             }
 
             $isRTL = $request->get('lang') === 'ar';
@@ -1879,10 +1897,6 @@ class LeadController extends Controller
      */
     private function applyLeadsSmartOrdering($query, Request $request, $user): void
     {
-        $driver = DB::connection()->getDriverName();
-        [$dateExpr, $timeExpr] = $this->buildNextActionExtractExpr($driver, 'la');
-
-        $stageExpr = "LOWER(TRIM(COALESCE(leads.stage, leads.status, '')))";
         $creationStages = [
             'new',
             'new lead',
@@ -1901,8 +1915,19 @@ class LeadController extends Controller
             'cold_calls',
             'cold call',
         ];
-        $creationStageList = "('" . implode("','", array_map(fn($v) => str_replace("'", "''", $v), $creationStages)) . "')";
-        $isCreationStageExpr = "CASE WHEN {$stageExpr} IN {$creationStageList} THEN 1 ELSE 0 END";
+
+        $requestedStages = collect($request->input('stage', []))
+            ->map(fn($stage) => strtolower(trim((string) $stage)))
+            ->filter()
+            ->values();
+
+        if ($requestedStages->isEmpty() || $requestedStages->every(fn($stage) => in_array($stage, $creationStages, true))) {
+            $query->orderBy('leads.created_at', 'desc');
+            return;
+        }
+
+        $driver = DB::connection()->getDriverName();
+        [$dateExpr, $timeExpr] = $this->buildNextActionExtractExpr($driver, 'la');
 
         $latestActionIds = DB::table('lead_actions as la')
             ->selectRaw('MAX(la.id) as id, la.lead_id')
@@ -1918,12 +1943,9 @@ class LeadController extends Controller
         });
         $query->leftJoin('lead_actions as la', 'la.id', '=', 'la_latest.id');
 
-        // Bucket 0: creation-based stages, Bucket 1: other stages.
-        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 1 THEN 0 ELSE 1 END asc");
-        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 1 THEN leads.created_at END desc");
-        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN CASE WHEN {$dateExpr} IS NULL THEN 1 ELSE 0 END END asc");
-        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN {$dateExpr} END desc");
-        $query->orderByRaw("CASE WHEN {$isCreationStageExpr} = 0 THEN COALESCE({$timeExpr}, '') END desc");
+        $query->orderByRaw("CASE WHEN {$dateExpr} IS NULL THEN 1 ELSE 0 END asc");
+        $query->orderByRaw("{$dateExpr} desc");
+        $query->orderByRaw("COALESCE({$timeExpr}, '') desc");
         $query->orderBy('leads.created_at', 'desc');
     }
 
@@ -2205,21 +2227,23 @@ class LeadController extends Controller
             // Exclude referral leads (kept for analysis semantics).
             $query->whereDoesntHave('referralUsers');
 
+            if (!$request->filled('created_from') && !$request->filled('created_to')) {
+                $query->whereYear('leads.created_at', now()->year);
+            }
+
             // Clone query for different aggregations
             $monthlyQuery = clone $query;
             $sourceQuery = clone $query;
             $statusQuery = clone $query;
 
-            // 1. Monthly (Last 6 months)
+            // 1. Monthly for the requested date range
             $monthly = $monthlyQuery->selectRaw('DATE_FORMAT(created_at, "%Y-%m") as month, DATE_FORMAT(created_at, "%M") as label, count(*) as value, sum(estimated_value) as revenue')
                 ->selectRaw('sum(case when status="converted" then 1 else 0 end) as converted')
                 ->selectRaw('sum(case when status="lost" then 1 else 0 end) as lost')
                 ->selectRaw('sum(case when status not in ("converted", "lost") then 1 else 0 end) as inProgress')
                 ->groupBy('month', 'label')
-                ->orderBy('month', 'desc')
-                ->limit(6)
+                ->orderBy('month', 'asc')
                 ->get()
-                ->reverse()
                 ->values();
 
             // 2. By Source

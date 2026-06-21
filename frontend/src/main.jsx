@@ -80,3 +80,56 @@ createRoot(document.getElementById('root')).render(
     </I18nextProvider>
   </StrictMode>,
 )
+const normalizeDateLabels = (root) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const originalText = node.nodeValue ?? "";
+
+    if (originalText.includes("Created Date")) {
+      node.nodeValue = originalText.replaceAll("Created Date", "Creation Date");
+      continue;
+    }
+
+    if (/^Comments(\s*\(|$)/.test(node.nodeValue?.trim() ?? "")) {
+      node.nodeValue = node.nodeValue.replace("Comments", "Post Comments");
+    }
+
+    if (node.nodeValue?.includes("[Media message, no text]")) {
+      node.nodeValue = node.nodeValue.replaceAll("[Media message, no text]", "Media message");
+    }
+  }
+};
+
+normalizeDateLabels(document.documentElement);
+
+new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    mutation.addedNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE && node.nodeValue?.includes("Created Date")) {
+        node.nodeValue = node.nodeValue.replaceAll("Created Date", "Creation Date");
+      }
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        const originalText = node.nodeValue ?? "";
+
+        if (originalText.includes("Created Date")) {
+          node.nodeValue = originalText.replaceAll("Created Date", "Creation Date");
+          return;
+        }
+      }
+
+      if (node.nodeType === Node.TEXT_NODE && node.nodeValue?.includes("[Media message, no text]")) {
+        node.nodeValue = node.nodeValue.replaceAll("[Media message, no text]", "Media message");
+      }
+
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        normalizeDateLabels(node);
+      }
+    });
+  });
+}).observe(document.documentElement, {
+  childList: true,
+  subtree: true,
+});
