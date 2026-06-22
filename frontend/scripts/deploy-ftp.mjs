@@ -2,6 +2,19 @@ import fs from "fs";
 import path from "path";
 import { Client } from "basic-ftp";
 
+function getBuiltAssetNames(localDir) {
+  const assetsDir = path.join(localDir, "assets");
+  if (!fs.existsSync(assetsDir)) {
+    return { jsFiles: [], cssFiles: [] };
+  }
+
+  const assetNames = fs.readdirSync(assetsDir);
+  return {
+    jsFiles: assetNames.filter((name) => name.endsWith(".js")),
+    cssFiles: assetNames.filter((name) => name.endsWith(".css")),
+  };
+}
+
 async function main() {
   const configPath = path.resolve(".vscode", "sftp.json");
   const raw = fs.readFileSync(configPath, "utf8");
@@ -27,6 +40,7 @@ async function main() {
       remote = path.posix.join(remote, domainDir.name);
     }
     const localDir = path.resolve("dist");
+    const { jsFiles, cssFiles } = getBuiltAssetNames(localDir);
     await client.uploadFromDir(localDir);
     const items = await client.list();
     const names = items.map((i) => i.name);
@@ -35,7 +49,10 @@ async function main() {
     if (ok) {
       await client.cd("assets");
       const a = await client.list();
-      assetsOk = a.some((i) => i.name === "index-gt7p0948.js");
+      const remoteAssetNames = a.map((item) => item.name);
+      assetsOk =
+        jsFiles.every((name) => remoteAssetNames.includes(name)) &&
+        cssFiles.every((name) => remoteAssetNames.includes(name));
       const pingPath = path.resolve(".ping.txt");
       fs.writeFileSync(pingPath, "pong");
       await client.uploadFrom(pingPath, "_ping.txt");
@@ -45,8 +62,12 @@ async function main() {
         await client.send("SITE CHMOD 644 index.html");
         await client.send("SITE CHMOD 755 assets");
         await client.cd("assets");
-        await client.send("SITE CHMOD 644 index-gt7p0948.js");
-        await client.send("SITE CHMOD 644 index-OqmFydND.css");
+        for (const jsFile of jsFiles) {
+          await client.send(`SITE CHMOD 644 ${jsFile}`);
+        }
+        for (const cssFile of cssFiles) {
+          await client.send(`SITE CHMOD 644 ${cssFile}`);
+        }
         await client.send("SITE CHMOD 644 _ping.txt");
       } catch {}
       await client.cd("..");
@@ -70,8 +91,12 @@ async function main() {
         try {
           await client.send("SITE CHMOD 755 assets");
           await client.cd("assets");
-          await client.send("SITE CHMOD 644 index-gt7p0948.js");
-          await client.send("SITE CHMOD 644 index-OqmFydND.css");
+          for (const jsFile of jsFiles) {
+            await client.send(`SITE CHMOD 644 ${jsFile}`);
+          }
+          for (const cssFile of cssFiles) {
+            await client.send(`SITE CHMOD 644 ${cssFile}`);
+          }
           await client.cd("..");
         } catch {}
         await client.cd(remote);

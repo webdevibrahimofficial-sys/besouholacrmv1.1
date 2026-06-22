@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { api as axios } from '../../utils/api';
+import { api as axios, logExportEvent } from '../../utils/api';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { useAppState } from '@shared/context/AppStateProvider';
@@ -570,15 +570,8 @@ export const Dashboard = () => {
     [analysisData]
   );
   const pipelineAnalysisChartRef = useRef(null);
-  const leadsAnalysisExportRef = useRef(null);
+  const leadsAnalysisChartRef = useRef(null);
   const [exportingChartKey, setExportingChartKey] = useState(null);
-  const [dashboardExportState, setDashboardExportState] = useState({
-    active: false,
-    chartKey: null,
-    pageData: [],
-    pageIndex: 0,
-    totalPages: 0,
-  });
   const isExportingLeadsAnalysis = exportingChartKey === 'leads-analysis';
   const isExportingPipelineAnalysis = exportingChartKey === 'pipeline-analysis';
   
@@ -608,7 +601,9 @@ export const Dashboard = () => {
   const handleExportDashboardPdf = async (chartKey = 'all') => {
     if (exportingChartKey) return;
     try {
-      setExportingChartKey(chartKey);
+      flushSync(() => {
+        setExportingChartKey(chartKey);
+      });
       const dateRangeLabel = chartKey === 'leads-analysis'
         ? `${leadsAnalysisDateRange.from} - ${leadsAnalysisDateRange.to}`
         : dateFrom && dateTo
@@ -623,26 +618,7 @@ export const Dashboard = () => {
         ...(chartKey === 'all' || chartKey === 'leads-analysis' ? [{
           key: 'leads-analysis',
           title: t('Leads Analysis'),
-          ref: leadsAnalysisExportRef,
-          monthlyData: Array.isArray(analysisData?.monthly) ? analysisData.monthly : [],
-          preparePage: async ({ pageData, pageIndex, totalPages }) => {
-            setDashboardExportState({
-              active: true,
-              chartKey: 'leads-analysis',
-              pageData: pageData || [],
-              pageIndex,
-              totalPages,
-            });
-          },
-          cleanup: async () => {
-            setDashboardExportState({
-              active: false,
-              chartKey: null,
-              pageData: [],
-              pageIndex: 0,
-              totalPages: 0,
-            });
-          },
+          ref: leadsAnalysisChartRef,
         }] : []),
         ...(chartKey === 'all' || chartKey === 'pipeline-analysis' ? [{
           key: 'pipeline-analysis',
@@ -654,10 +630,21 @@ export const Dashboard = () => {
       await exportDashboardChartsToPdf({
         title: i18n.language === 'ar' ? 'تقرير رسوم الداشبورد' : 'Dashboard Charts Report',
         dateRange: dateRangeLabel,
+        reportYear: chartKey === 'leads-analysis' ? normalizedLeadsAnalysisYear : undefined,
         userName: user?.name || user?.email || 'Unknown',
         fileName: `${chartKey === 'pipeline-analysis' ? 'pipeline-analysis' : chartKey === 'leads-analysis' ? 'leads-analysis' : 'dashboard-charts'}-${new Date().toISOString().slice(0, 10)}.pdf`,
         maxMonthsPerPage: 12,
         charts: chartsToExport,
+      });
+      await logExportEvent({
+        module:
+          chartKey === 'pipeline-analysis'
+            ? 'Dashboard Pipeline Analysis'
+            : chartKey === 'leads-analysis'
+              ? 'Dashboard Leads Analysis'
+              : 'Dashboard Charts',
+        fileName: `${chartKey === 'pipeline-analysis' ? 'pipeline-analysis' : chartKey === 'leads-analysis' ? 'leads-analysis' : 'dashboard-charts'}-${new Date().toISOString().slice(0, 10)}.pdf`,
+        format: 'pdf',
       });
     } catch (error) {
       console.error('Failed to export dashboard charts PDF', error);
@@ -1333,7 +1320,7 @@ export const Dashboard = () => {
           </div>
           {/* Leads Analysis Section (Toolbar style like screenshot) */}
           <div className="grid grid-cols-1 gap-4 mb-12">
-            <div className="col-span-1 p-4 glass-panel rounded-lg shadow-md">
+            <div ref={leadsAnalysisChartRef} className="col-span-1 p-4 glass-panel rounded-lg shadow-md">
               <div className="section-header flex items-center w-full justify-between gap-2 mb-3">
                 <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Leads Analysis')}</h3>
                 <div className="flex items-center gap-2" data-export-ignore="true">
@@ -1375,7 +1362,7 @@ export const Dashboard = () => {
               </div>
 
               {/* Top toolbar (chart type only) */}
-              <div className={`${leadsAnalysisOpenMobile ? 'flex' : 'hidden'} md:flex flex-wrap items-center gap-2 mb-3 justify-end`}>
+              <div data-export-ignore="true" className={`${leadsAnalysisOpenMobile ? 'flex' : 'hidden'} md:flex flex-wrap items-center gap-2 mb-3 justify-end`}>
                 <span className={`${isLight ? 'text-blue-700 font-semibold' : 'dark:text-gray-300'} text-sm`}>
                   {leadsChartType === 'bar'
                     ? (i18n.language === 'ar' ? 'رسم بياني عمودي' : 'Bar Chart')
@@ -1495,34 +1482,6 @@ export const Dashboard = () => {
           
           
           {/* Leads Trend Analysis Section removed per request */}
-          
-          <div
-            aria-hidden="true"
-            className="fixed top-0 left-[-20000px] pointer-events-none"
-            style={{ width: 1600, opacity: 1 }}
-          >
-            {dashboardExportState.active && dashboardExportState.chartKey === 'leads-analysis' ? (
-              <div
-                ref={leadsAnalysisExportRef}
-                dir={i18n.dir()}
-                className={`rounded-2xl border p-6 shadow-xl bg-white border-gray-200 text-gray-900`}
-                style={{ width: 1600 }}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-2xl font-bold text-gray-900">{t('Leads Analysis')}</h3>
-                  <span className="text-sm font-medium text-gray-500">
-                    {dashboardExportState.totalPages > 1 ? `${dashboardExportState.pageIndex + 1}/${dashboardExportState.totalPages}` : ''}
-                  </span>
-                </div>
-                <LeadsAnalysisChart
-                  data={dashboardExportState.pageData}
-                  chartType={leadsChartType}
-                  filters={{ dataType: 'monthly', status: activeFilter, year: normalizedLeadsAnalysisYear, employee: selectedEmployee || selectedManager, dateFrom: leadsAnalysisDateRange.from, dateTo: leadsAnalysisDateRange.to }}
-                  exportMode
-                />
-              </div>
-            ) : null}
-          </div>
           
     </>
   )

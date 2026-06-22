@@ -119,6 +119,37 @@ export default function ReservationsReport() {
     fetchSources()
   }, [])
 
+  const resolveHandledBy = (item) => {
+    const meta = item?.meta_data || item?.metaData || {}
+
+    const preferredName =
+      meta?.sales_person_name ||
+      meta?.sales_rep_name ||
+      meta?.sales_person ||
+      meta?.assigned_to_name ||
+      meta?.created_by_name
+
+    if (preferredName) return preferredName
+
+    const assignedValue = item?.assigned_to
+    if (assignedValue !== null && assignedValue !== undefined && assignedValue !== '') {
+      const assignedString = String(assignedValue).trim()
+      const matchedUser = usersList.find(
+        (u) => String(u.id) === assignedString || String(u.name).trim() === assignedString
+      )
+
+      return matchedUser?.name || assignedString
+    }
+
+    const actorId = meta?.sales_person_id || meta?.assigned_to_id || meta?.created_by_id
+    if (actorId !== null && actorId !== undefined && actorId !== '') {
+      const matchedUser = usersList.find((u) => String(u.id) === String(actorId))
+      if (matchedUser?.name) return matchedUser.name
+    }
+
+    return ''
+  }
+
   const fetchData = async () => {
     try {
       const LIMIT = 1000
@@ -147,7 +178,7 @@ export default function ReservationsReport() {
         type: item.type || 'Booking',
         status: item.status || '',
         value: typeof item.amount === 'number' ? item.amount : parseFloat(item.amount || '0') || 0,
-        handledBy: (item.meta_data && (item.meta_data.created_by_name || item.meta_data.sales_person)) || '',
+        handledBy: resolveHandledBy(item),
         manager: '',
         createdOn: item.created_at || '',
         lastAction: item.updated_at || item.date || '',
@@ -160,16 +191,16 @@ export default function ReservationsReport() {
         id: `INV-${item.id}`,
         leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
         customer: item.customer_name || '',
-        contact: '',
+        contact: item.phone || item.customer_phone || item.meta_data?.customer_phone || item.metaData?.customer_phone || '',
         reservationDateTime: item.created_at || '',
         type: item.type || '',
         status: item.status || '',
         value: 0,
-        handledBy: item.assigned_to || '',
+        handledBy: resolveHandledBy(item),
         manager: '',
         createdOn: item.created_at || '',
         lastAction: item.updated_at || '',
-        source: item.source || '',
+        source: item.source || item.meta_data?.source || item.metaData?.source || '',
         project: item.product || item.property_unit || '',
         meta_data: item.meta_data || null
       })) : []
@@ -198,7 +229,7 @@ export default function ReservationsReport() {
       window.removeEventListener('real-estate-requests-updated', handleRealEstateUpdate)
       window.removeEventListener('inventory-requests-updated', handleInventoryUpdate)
     }
-  }, [companyType])
+  }, [companyType, usersList])
 
   const getReservationApiTarget = (reservation) => {
     const rawId = String(reservation?.id || '')
@@ -395,7 +426,7 @@ export default function ReservationsReport() {
       [isRTL ? 'العميل' : 'Customer']: r.customer,
       [isRTL ? 'رقم الهاتف' : 'Contact']: r.contact,
       [isRTL ? 'المصدر' : 'Source']: r.source,
-      [isRTL ? 'المشروع' : 'Project']: r.project,
+      [projectColumnLabel]: r.project,
       [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: r.handledBy,
       [isRTL ? 'نوع الحجز' : 'Reservation Type']: r.type,
       [isRTL ? 'القيمة' : 'Amount']: r.value,
@@ -431,7 +462,7 @@ export default function ReservationsReport() {
         isRTL ? 'القيمة' : "Value",
         isRTL ? 'المسؤول' : "Handled By",
         isRTL ? 'المصدر' : "Source",
-        isRTL ? 'المشروع' : "Project"
+        projectColumnLabel
       ]
       
       const tableRows = []
@@ -642,6 +673,8 @@ export default function ReservationsReport() {
     }
   }, [filtered, projectLabels, isRTL])
 
+  const projectColumnLabel = isRealEstate ? (isRTL ? 'المشروع' : 'Project') : (isRTL ? 'الصنف' : 'Item')
+
   const barOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -657,7 +690,7 @@ export default function ReservationsReport() {
       x: {
         title: {
           display: true,
-          text: isRTL ? 'المشاريع' : 'Projects'
+          text: isRealEstate ? (isRTL ? 'المشاريع' : 'Projects') : (isRTL ? 'الصنف' : 'Item')
         }
       }
     }
@@ -879,7 +912,12 @@ export default function ReservationsReport() {
             </div>
           </div>
           <div className="group relative backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
-            <div className="text-sm font-semibold mb-2">{isRTL ? 'تحليل الحجوزات حسب المشروع' : 'Reservations by Project Analysis'}</div>
+            <div className="text-sm font-semibold mb-2">
+              {isRTL
+                ? (isRealEstate ? 'تحليل الحجوزات حسب المشروع' : 'تحليل الحجوزات حسب الصنف')
+                : (isRealEstate ? 'Reservations by Project Analysis' : 'Reservations by Item Analysis')
+              }
+            </div>
             <div className="flex-1 mt-6 w-full min-h-[200px]">
               <Bar data={reservationsByProjectData} options={barOptions} />
             </div>
@@ -991,7 +1029,7 @@ export default function ReservationsReport() {
                   <th className="py-2 px-3">{isRTL ? 'اسم العميل' : 'Lead Name'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'رقم الهاتف' : 'Contact'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'المصدر' : 'Source'}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'المشروع' : 'Project'}</th>
+                  <th className="py-2 px-3 hidden md:table-cell">{projectColumnLabel}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'نوع الحجز' : 'Reservation Type'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'القيمة' : 'Amount'}</th>
@@ -1104,7 +1142,7 @@ export default function ReservationsReport() {
                                 <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.source}</span>
                              </div>
                              <div className="flex flex-col gap-1">
-                                <span className="text-[var(--muted-text)]">{isRTL ? 'المشروع' : 'Project'}</span>
+                                <span className="text-[var(--muted-text)]">{projectColumnLabel}</span>
                                 <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.project}</span>
                              </div>
                           </div>

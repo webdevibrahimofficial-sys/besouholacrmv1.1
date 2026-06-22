@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '@shared/context/ThemeProvider'
-import { api } from '../utils/api'
+import { api, logExportEvent } from '../utils/api'
 import { FaDownload, FaFilter, FaChevronDown, FaSearch } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import NewTaskModal from '../components/NewTaskModal'
@@ -308,6 +308,11 @@ export default function Tasks() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+      logExportEvent({
+        module: 'Tasks',
+        fileName: 'tasks.csv',
+        format: 'csv',
+      })
     } catch (err) {
       console.error('Export failed', err)
       alert('Export failed')

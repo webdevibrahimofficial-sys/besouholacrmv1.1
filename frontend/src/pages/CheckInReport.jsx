@@ -7,6 +7,7 @@ import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '../utils/api'
 import BackButton from '../components/BackButton'
+import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -34,6 +35,8 @@ export default function CheckInReport() {
   }, [user, controlModulePerms]);
 
   const [data, setData] = useState([])
+  const [users, setUsers] = useState([])
+  const [brokers, setBrokers] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [, setError] = useState(null)
 
@@ -41,14 +44,24 @@ export default function CheckInReport() {
     const fetchVisits = async () => {
       setIsLoading(true)
       try {
-        const res = await api.get('/api/visits')
+        const [res, usersRes, brokersRes] = await Promise.all([
+          api.get('/api/visits'),
+          api.get('/api/users'),
+          api.get('/api/brokers'),
+        ])
         const visits = res.data.data || res.data || []
+        const usersData = usersRes.data.data || usersRes.data || []
+        const brokersData = brokersRes.data.data || brokersRes.data || []
         setData(Array.isArray(visits) ? visits : [])
+        setUsers(Array.isArray(usersData) ? usersData : [])
+        setBrokers(Array.isArray(brokersData) ? brokersData : [])
       } catch (err) {
         console.error('Failed to fetch visits', err)
         setError('Failed to load visits')
         // Fallback to empty array
         setData([])
+        setUsers([])
+        setBrokers([])
       } finally {
         setIsLoading(false)
       }
@@ -62,6 +75,7 @@ export default function CheckInReport() {
   const [actionDateFrom, setActionDateFrom] = useState('')
   const [actionDateTo, setActionDateTo] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [brokerFilter, setBrokerFilter] = useState('')
   const [_selectedItems] = useState([])
   const [, setShowAllFilters] = useState(false)
@@ -153,33 +167,103 @@ export default function CheckInReport() {
      alert("PDF Export coming soon")
   }
 
+  const salesPersonOptions = useMemo(() => {
+    const fromUsers = (Array.isArray(users) ? users : [])
+      .filter((u) => String(u?.name || '').trim() !== '')
+      .map((u) => ({ value: String(u.id), label: u.name }))
+
+    const fromVisits = Array.from(
+      new Map(
+        (Array.isArray(data) ? data : [])
+          .filter((item) => item.salesPersonId && item.salesPerson)
+          .map((item) => [String(item.salesPersonId), { value: String(item.salesPersonId), label: item.salesPerson }])
+      ).values()
+    )
+
+    return Array.from(new Map([...fromUsers, ...fromVisits].map((opt) => [String(opt.value), opt])).values())
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [users, data])
+
+  const brokerOptions = useMemo(() => {
+    const fromBrokers = (Array.isArray(brokers) ? brokers : [])
+      .filter((b) => String(b?.name || '').trim() !== '')
+      .map((b) => ({ value: String(b.name), label: b.name }))
+
+    const fromVisits = Array.from(
+      new Map(
+        (Array.isArray(data) ? data : [])
+          .filter((item) => item.brokerName)
+          .map((item) => [String(item.brokerName), { value: String(item.brokerName), label: item.brokerName }])
+      ).values()
+    )
+
+    return Array.from(new Map([...fromBrokers, ...fromVisits].map((opt) => [String(opt.value), opt])).values())
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [brokers, data])
+
+  const typeOptions = useMemo(() => ([
+    { value: 'task', label: t('Task') },
+    { value: 'lead', label: t('Lead') },
+    { value: 'broker', label: t('Broker') },
+  ]), [t])
+
+  const statusOptions = useMemo(() => ([
+    { value: 'pending', label: t('Pending') },
+    { value: 'submitted', label: t('Submitted') },
+    { value: 'accepted', label: t('Accepted') },
+    { value: 'rejected', label: t('Rejected') },
+  ]), [t])
+
+  const getStatusMeta = (status) => {
+    switch (status) {
+      case 'accepted':
+        return {
+          label: t('Accepted'),
+          className: 'bg-green-100/80 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+        }
+      case 'rejected':
+        return {
+          label: t('Rejected'),
+          className: 'bg-red-100/80 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+        }
+      case 'submitted':
+        return {
+          label: t('Submitted'),
+          className: 'bg-blue-100/80 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+        }
+      default:
+        return {
+          label: t('Pending'),
+          className: 'bg-yellow-100/80 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+        }
+    }
+  }
+
   // Filter Logic
   const filteredData = useMemo(() => {
-    const fromDate = actionDateFrom ? new Date(actionDateFrom) : null
-    const toDate = actionDateTo ? new Date(actionDateTo) : null
-
     return data
       .filter(item => {
-        if (salesPersonFilter && !item.salesPerson.toLowerCase().includes(salesPersonFilter.toLowerCase())) return false
+        if (salesPersonFilter && String(item.salesPersonId || '') !== String(salesPersonFilter)) return false
         if (typeFilter && item.type !== typeFilter) return false
-        if (brokerFilter && !String(item.brokerName || '').toLowerCase().includes(brokerFilter.toLowerCase())) return false
+        if (statusFilter && item.status !== statusFilter) return false
+        if (brokerFilter && String(item.brokerName || '') !== String(brokerFilter)) return false
 
-        if (fromDate || toDate) {
+        if (actionDateFrom || actionDateTo) {
           if (!item.checkInDate) return false
-          const current = new Date(item.checkInDate)
-          if (Number.isNaN(current.getTime())) return false
-          if (fromDate && current < fromDate) return false
-          if (toDate && current > toDate) return false
+          const currentDate = String(item.checkInDate).slice(0, 10)
+          if (!currentDate) return false
+          if (actionDateFrom && currentDate < actionDateFrom) return false
+          if (actionDateTo && currentDate > actionDateTo) return false
         }
 
         return true
       })
       .sort((a, b) => new Date(b.checkInDate) - new Date(a.checkInDate))
-  }, [data, salesPersonFilter, actionDateFrom, actionDateTo, typeFilter, brokerFilter])
+  }, [data, salesPersonFilter, actionDateFrom, actionDateTo, typeFilter, statusFilter, brokerFilter])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [salesPersonFilter, actionDateFrom, actionDateTo, typeFilter, brokerFilter])
+  }, [salesPersonFilter, actionDateFrom, actionDateTo, typeFilter, statusFilter, brokerFilter])
 
   const totalRecords = filteredData.length
   const pageCount = Math.ceil(totalRecords / entriesPerPage)
@@ -262,6 +346,7 @@ export default function CheckInReport() {
                 setActionDateFrom('')
                 setActionDateTo('')
                 setTypeFilter('')
+                setStatusFilter('')
                 setBrokerFilter('')
                 setShowAllFilters(false)
               }}
@@ -271,24 +356,21 @@ export default function CheckInReport() {
             </button>
           </div>
         </div>
-
         <div className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Sales Person */}
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <User size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Sales Person')}
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={salesPersonFilter}
-                  onChange={(e) => setSalesPersonFilter(e.target.value)}
-                  placeholder={isRTL ? 'عبد الحميد' : 'Abdelhamid'}
-                  className={`w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${isLight ? 'text-black' : 'text-white'}`}
-                />
-              </div>
+              <SearchableSelect
+                options={salesPersonOptions}
+                value={salesPersonFilter}
+                onChange={setSalesPersonFilter}
+                placeholder={t('Sales Person')}
+                isRTL={isRTL}
+              />
             </div>
 
             {/* Action Date Filter (From - To) */}
@@ -315,37 +397,41 @@ export default function CheckInReport() {
                 <Filter size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Type')}
               </label>
-              <div className="relative">
-                <select
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className={`w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm appearance-none bg-transparent ${isLight ? 'text-black' : 'text-white'}`}
-                >
-                  <option value="">{t('All')}</option>
-                  <option value="task">{t('Task')}</option>
-                  <option value="lead">{t('Lead')}</option>
-                  <option value="broker">{isRTL ? 'وسيط' : 'Broker'}</option>
-                </select>
-                <div className={`absolute ${isRTL ? 'left-3' : 'right-3'} top-1/2 transform -translate-y-1/2 pointer-events-none ${isLight ? 'text-black' : 'text-white'}`}>
-                  <ChevronDown size={14} />
-                </div>
-              </div>
+              <SearchableSelect
+                options={typeOptions}
+                value={typeFilter}
+                onChange={setTypeFilter}
+                placeholder={t('Type')}
+                isRTL={isRTL}
+              />
             </div>
 
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Users size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Broker' : 'Broker'}
+                {t('Broker')}
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={brokerFilter}
-                  onChange={(e) => setBrokerFilter(e.target.value)}
-                  placeholder={isRTL ? 'اسم الوسيط...' : 'Broker name...'}
-                  className={`w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${isLight ? 'text-black' : 'text-white'}`}
-                />
-              </div>
+              <SearchableSelect
+                options={brokerOptions}
+                value={brokerFilter}
+                onChange={setBrokerFilter}
+                placeholder={t('Broker')}
+                isRTL={isRTL}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <CheckCircle size={12} className="text-blue-500 dark:text-blue-400" />
+                {t('Status')}
+              </label>
+              <SearchableSelect
+                options={statusOptions}
+                value={statusFilter}
+                onChange={setStatusFilter}
+                placeholder={t('Status')}
+                isRTL={isRTL}
+              />
             </div>
           </div>
         </div>
@@ -355,7 +441,7 @@ export default function CheckInReport() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           {
-            title: t('sales person '),
+            title: t('Check In'),
             value: totalCheckIns,
             sub: t('(Total)'),
             icon: MapPin,
@@ -387,9 +473,9 @@ export default function CheckInReport() {
             bgColor: 'bg-red-50 dark:bg-red-900/20',
           },
           {
-            title: isRTL ? 'Broker Visits' : 'Broker Visits',
+            title: t('Broker Visits'),
             value: totalBrokerVisits,
-            sub: isRTL ? '(Brokers)' : '(Brokers)',
+            sub: '(Brokers)',
             icon: Users,
             color: 'text-purple-600 dark:text-purple-400',
             bgColor: 'bg-purple-50 dark:bg-purple-900/20',
@@ -441,7 +527,7 @@ export default function CheckInReport() {
                 onClick={() => setShowExportMenu(!showExportMenu)} 
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >
-                <FaFileExport /> {isRTL ? 'تصدير' : 'Export'}
+                <FaFileExport /> {t('Export')}
                 <ChevronDown className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`} size={16} />
               </button>
 
@@ -455,7 +541,7 @@ export default function CheckInReport() {
                     className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-3 transition-colors ${isLight ? 'text-black' : 'text-white'}`}
                   >
                     <FaFileExcel className="text-green-600" size={18} />
-                    <span>{isRTL ? 'تصدير كـ Excel' : 'Export to Excel'}</span>
+                    <span>Export to Excel</span>
                   </button>
                   <button
                     onClick={() => {
@@ -465,7 +551,7 @@ export default function CheckInReport() {
                     className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-3 transition-colors border-t border-gray-100 dark:border-gray-700 ${isLight ? 'text-black' : 'text-white'}`}
                   >
                     <FaFilePdf className="text-red-500" size={18} />
-                    <span>{isRTL ? 'تصدير كـ PDF' : 'Export to PDF'}</span>
+                    <span>Export to PDF</span>
                   </button>
                 </div>
               )}
@@ -493,31 +579,28 @@ export default function CheckInReport() {
                     </div>
                     {item.checkOutDate && (
                         <div className={`flex items-center gap-2 text-sm ${isLight ? 'text-black' : 'text-white'}`}>
-                            <span className="opacity-70 text-xs">{t('Check Out')}:</span>
+                            <span className="opacity-70 text-xs">Check Out:</span>
                             <span className="dir-ltr">{formatDateTime(item.checkOutDate)}</span>
                         </div>
                     )}
                   </div>
                 </div>
                 <div>
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${
-                        item.status === 'accepted' 
-                          ? 'bg-green-100/80 text-green-800 dark:bg-green-900/30 dark:text-green-300' 
-                          : item.status === 'rejected'
-                            ? 'bg-red-100/80 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                            : 'bg-yellow-100/80 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-                      }`}>
-                        {item.status === 'accepted' ? t('Accepted') : 
-                         item.status === 'rejected' ? t('Rejected') : 
-                         t('Pending')}
+                  {(() => {
+                    const statusMeta = getStatusMeta(item.status)
+                    return (
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${statusMeta.className}`}>
+                        {statusMeta.label}
                       </span>
+                    )
+                  })()}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 text-sm">
                 {item.type === 'broker' && (
                   <div className="flex justify-between items-center">
-                    <span className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Broker' : 'Broker'}</span>
+                    <span className={`${isLight ? 'text-black' : 'text-white'}`}>{t('Broker')}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{item.brokerName || '-'}</span>
                   </div>
                 )}
@@ -527,7 +610,7 @@ export default function CheckInReport() {
                         {item.type === 'task' ? (
                           t('Task')
                         ) : item.type === 'broker' ? (
-                          isRTL ? 'Broker' : 'Broker'
+                          t('Broker')
                         ) : item.type === 'lead' ? (
                           <button 
                             onClick={() => handleLeadClick(item)}
@@ -552,7 +635,7 @@ export default function CheckInReport() {
                     </button>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Duration' : 'Duration'}</span>
+                  <span className={`${isLight ? 'text-black' : 'text-white'}`}>{t('Duration')}</span>
                   <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                     {item.durationMinutes != null ? `${item.durationMinutes} min` : '-'}
                   </span>
@@ -601,7 +684,7 @@ export default function CheckInReport() {
           ))}
           {paginatedData.length === 0 && (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                {isRTL ? 'لا توجد بيانات' : 'No check-ins found'}
+                No check-ins found
             </div>
           )}
         </div>
@@ -614,14 +697,14 @@ export default function CheckInReport() {
                 <th className={`px-6 py-4 text-left dark:text-right text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider w-1/4`}>
                   <div className="flex items-center gap-3">
   
-                    {t('sales  person ')}
+                    {t('Sales Person')}
                   </div>
                 </th>
                 <th className={`px-6 py-4 text-left dark:text-right text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
-                  {t('Check-In Date')}
+                  {t('Check In Date')}
                 </th>
                 <th className={`px-6 py-4 text-left dark:text-right text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
-                  {isRTL ? 'تاريخ الخروج' : 'Check-Out Date'}
+                  Check-Out Date
                 </th>
                 <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
                   {t('Location')}
@@ -630,10 +713,10 @@ export default function CheckInReport() {
                   {t('Type')}
                 </th>
                 <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
-                  {isRTL ? 'Broker' : 'Broker'}
+                  {t('Broker')}
                 </th>
                 <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
-                  {isRTL ? 'Duration' : 'Duration'}
+                  {t('Duration')}
                 </th>
                 <th className={`px-6 py-4 text-center text-xs font-medium ${isLight ? 'text-black' : 'text-white'} uppercase tracking-wider`}>
                   {t('Status')}
@@ -678,7 +761,7 @@ export default function CheckInReport() {
                     {item.type === 'task' ? (
                       t('Task')
                     ) : item.type === 'broker' ? (
-                      isRTL ? 'Broker' : 'Broker'
+                      t('Broker')
                     ) : item.type === 'lead' ? (
                       <button 
                         onClick={() => handleLeadClick(item)}
@@ -697,17 +780,14 @@ export default function CheckInReport() {
                     {item.durationMinutes != null ? `${item.durationMinutes} min` : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
-                     <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${
-                        item.status === 'accepted' 
-                          ? 'bg-green-100/80 text-green-800 dark:bg-green-900/30 dark:text-green-300' 
-                          : item.status === 'rejected'
-                            ? 'bg-red-100/80 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                            : 'bg-yellow-100/80 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-                      }`}>
-                        {item.status === 'accepted' ? t('Accepted') : 
-                         item.status === 'rejected' ? t('Rejected') : 
-                         t('Pending')}
-                      </span>
+                    {(() => {
+                      const statusMeta = getStatusMeta(item.status)
+                      return (
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${statusMeta.className}`}>
+                          {statusMeta.label}
+                        </span>
+                      )
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <div className="flex items-center justify-center gap-2">
@@ -716,7 +796,7 @@ export default function CheckInReport() {
                         const canModerate = canApproveCheckInOut && item.status !== 'accepted' && item.status !== 'rejected'
 
                         if (!canSubmit && !canModerate) {
-                          return <span className="text-xs text-[var(--muted-text)]">—</span>
+                          return <span className="text-xs text-[var(--muted-text)]">-</span>
                         }
 
                         return (
@@ -759,7 +839,7 @@ export default function CheckInReport() {
               {paginatedData.length === 0 && (
                 <tr>
                   <td colSpan={9} className={`px-6 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
-                    {isRTL ? 'لا توجد بيانات' : 'No check-ins found'}
+                    No check-ins found
                   </td>
                 </tr>
               )}
@@ -841,3 +921,4 @@ export default function CheckInReport() {
     </div>
   )
 }
+

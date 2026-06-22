@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api } from '../../../utils/api'
+import { api, logExportEvent } from '../../../utils/api'
 
 export default function Export() {
   const [dataset, setDataset] = useState('customers')
@@ -23,6 +23,11 @@ export default function Export() {
         setDownloadUrl(url)
         // Trigger browser download
         window.open(url, '_blank')
+        await logExportEvent({
+          module: `Data Management Export - ${dataset}`,
+          fileName: `${dataset}_export.${format}`,
+          format,
+        })
       }
       setStatus('success')
     } catch (e) {

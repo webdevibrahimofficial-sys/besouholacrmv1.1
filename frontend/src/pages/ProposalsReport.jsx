@@ -17,12 +17,15 @@ import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 export default function ProposalsReport() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
-  const isRTL = i18n.language === 'ar'
-  const { user } = useAppState()
+  const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
+  const { user, company } = useAppState()
   const canExport = canExportReport(user, 'Proposals Report')
+  const companyType = String(company?.company_type || '').toLowerCase()
+  const isRealEstate = companyType === 'real estate'
+  const projectLabel = isRealEstate ? t('Project') : t('Item')
 
   const isAdminOrManager = useMemo(() => {
     if (!user) return false;
@@ -30,6 +33,25 @@ export default function ProposalsReport() {
     const role = (user.role || '').toLowerCase();
     return ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager', 'sales manager', 'branch manager'].includes(role);
   }, [user]);
+
+  const isSuperManagerRole = (role) => {
+    const r = String(role || '').toLowerCase()
+    return (
+      r === 'admin' ||
+      r === 'tenant admin' ||
+      r === 'tenant-admin' ||
+      r === 'operation manager' ||
+      r === 'sales admin' ||
+      r === 'director' ||
+      r === 'branch manager'
+    )
+  }
+
+  const normalizeDate = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    return raw.slice(0, 10)
+  }
 
   const [proposals, setProposals] = useState([])
   const [usersList, setUsersList] = useState([])
@@ -66,22 +88,9 @@ export default function ProposalsReport() {
 
     const loadProposals = async () => {
       try {
-        const [byNext, byType] = await Promise.all([
-          api.get('/api/lead-actions', { params: { next_action_type: 'proposal' } }),
-          api.get('/api/lead-actions', { params: { type: 'proposal' } })
-        ])
+        const res = await api.get('/api/lead-actions', { params: { type: 'proposal' } })
 
-        const extract = res =>
-          Array.isArray(res.data) ? res.data : (res.data?.data || [])
-
-        const combined = [...extract(byNext), ...extract(byType)]
-        const uniqueMap = new Map()
-        combined.forEach(action => {
-          if (action && !uniqueMap.has(action.id)) {
-            uniqueMap.set(action.id, action)
-          }
-        })
-        const unique = Array.from(uniqueMap.values())
+        const unique = Array.isArray(res.data) ? res.data : (res.data?.data || [])
 
         const mapped = unique.map(action => {
           const details = action.details || {}
@@ -104,7 +113,7 @@ export default function ProposalsReport() {
             action.date ||
             action.created_at
 
-          const proposalDate = dateRaw ? String(dateRaw).slice(0, 10) : ''
+          const proposalDate = normalizeDate(dateRaw)
 
           const leadName =
             lead.name || lead.fullName || lead.company || ''
@@ -116,8 +125,18 @@ export default function ProposalsReport() {
             (action.user && action.user.name) ||
             lead.sales_person ||
             lead.salesperson ||
-            lead.assigned_to ||
+            (lead.assigned_agent && lead.assigned_agent.name) ||
+            (lead.assignedAgent && lead.assignedAgent.name) ||
             ''
+
+          const salespersonId =
+            lead.assigned_to ??
+            lead.assignedTo ??
+            (lead.assigned_agent && lead.assigned_agent.id) ??
+            (lead.assignedAgent && lead.assignedAgent.id) ??
+            action.user_id ??
+            (action.user && action.user.id) ??
+            null
 
           const source = lead.source || lead.channel || ''
           const project = lead.project || details.project || ''
@@ -131,6 +150,9 @@ export default function ProposalsReport() {
             project,
             value,
             salesperson,
+            salespersonId: salespersonId !== null && salespersonId !== undefined && salespersonId !== ''
+              ? String(salespersonId)
+              : '',
             proposalDate
           }
         })
@@ -177,22 +199,32 @@ export default function ProposalsReport() {
   }, [proposals])
 
   useEffect(() => {
-    const fetchProjects = async () => {
+    const fetchProjectsOrItems = async () => {
       try {
-        const res = await api.get('/api/projects')
-        const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
-        const names = data.map(p => p.name || p.name_ar || p.title).filter(Boolean)
+        let names = []
+        if (companyType === 'real estate') {
+          const res = await api.get('/api/projects')
+          const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          names = data.map(p => p.name || p.name_ar || p.title).filter(Boolean)
+        } else if (companyType === 'general') {
+          const res = await api.get('/api/items?all=1')
+          const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          names = data.map(it => it.name || it.product || it.title).filter(Boolean)
+        } else {
+          names = Array.from(new Set(proposals.map(p => p.project).filter(Boolean)))
+        }
+
         const unique = Array.from(new Set(names))
         setProjectOptions(['all', ...unique])
       } catch (e) {
-        console.error('Failed to fetch projects for proposals report', e)
+        console.error('Failed to fetch projects/items for proposals report', e)
         const set = new Set(proposals.map(p => p.project).filter(Boolean))
         setProjectOptions(['all', ...Array.from(set)])
       }
     }
 
-    fetchProjects()
-  }, [proposals])
+    fetchProjectsOrItems()
+  }, [companyType, proposals])
 
   const toggleRow = (id) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
@@ -211,40 +243,97 @@ export default function ProposalsReport() {
   const [entriesPerPage, setEntriesPerPage] = useState(10)
 
   const salesPersonOptions = useMemo(() => {
-    const fromUsers = usersList.map(u => u.name).filter(Boolean)
-    const fromData = proposals.map(p => p.salesperson).filter(Boolean)
-
-    if (usersList.length && managerFilter !== 'all') {
-      const mgr = usersList.find(u => String(u.id) === String(managerFilter))
-      if (mgr) {
-        const team = [mgr, ...getDescendants(mgr.id, usersList)]
-        const names = team.map(u => u.name).filter(Boolean)
-        const set = new Set(names)
-        return ['all', ...Array.from(set)]
-      }
+    if (!usersList || usersList.length === 0) {
+      const unique = Array.from(
+        new Map(
+          proposals
+            .filter(p => p.salespersonId && p.salesperson)
+            .map(p => [String(p.salespersonId), { value: String(p.salespersonId), label: p.salesperson }])
+        ).values()
+      )
+      return [{ value: 'all', label: t('All') }, ...unique]
     }
 
-    const set = new Set([...fromUsers, ...fromData])
-    return ['all', ...Array.from(set)]
-  }, [usersList, proposals, managerFilter])
+    if (!managerFilter || managerFilter === 'all') {
+      const uniqueUsers = Array.from(new Map(usersList.map(u => [u.id, u])).values())
+      return [
+        { value: 'all', label: t('All') },
+        ...uniqueUsers
+          .filter(u => String(u?.name || '').trim() !== '')
+          .map(u => ({ value: String(u.id), label: u.name }))
+      ]
+    }
+
+    const selectedManagers = usersList.filter(u => String(u.id) === String(managerFilter))
+    const hasSuperManager = selectedManagers.some(u => isSuperManagerRole(u.role))
+
+    let candidates
+    if (hasSuperManager) {
+      candidates = usersList
+    } else {
+      const all = []
+      selectedManagers.forEach(m => {
+        all.push(m)
+        const subs = getDescendants(m.id, usersList)
+        subs.forEach(s => all.push(s))
+      })
+      const map = new Map()
+      all.forEach(u => {
+        if (!map.has(u.id)) map.set(u.id, u)
+      })
+      candidates = Array.from(map.values())
+    }
+
+    return [
+      { value: 'all', label: t('All') },
+      ...Array.from(
+        new Map(
+          candidates
+            .filter(u => String(u?.name || '').trim() !== '')
+            .map(u => [String(u.id), { value: String(u.id), label: u.name }])
+        ).values()
+      )
+    ]
+  }, [usersList, managerFilter, proposals, t])
 
   const managerOptions = useMemo(() => {
-    const uniqueUsers = Array.from(
-      new Map(usersList.map(u => [u.id, u])).values()
-    )
-    return [{ id: 'all', name: isRTL ? 'الكل' : 'All' }, ...uniqueUsers]
-  }, [usersList, isRTL])
+    if (!usersList || usersList.length === 0) {
+      return [{ value: 'all', label: t('All') }]
+    }
+    const directManagerIds = new Set(usersList.map(u => Number(u.manager_id)).filter(Number.isFinite))
+    const managers = usersList.filter(u => {
+      const role = String(u.role || '').toLowerCase()
+      const isSalesPerson = role.includes('sales person') || role.includes('salesperson')
+      return !isSalesPerson && (directManagerIds.has(Number(u.id)) || isSuperManagerRole(role))
+    })
+    const uniqueManagers = Array.from(new Map(managers.map(m => [String(m.id), m])).values())
+    return [
+      { value: 'all', label: t('All') },
+      ...uniqueManagers.map(m => ({
+        value: String(m.id),
+        label: m.role ? `${m.name || `#${m.id}`} (${m.role})` : (m.name || `#${m.id}`)
+      }))
+    ]
+  }, [usersList, t])
+
+  const sourceSelectOptions = useMemo(() => (
+    sourceOptions.map(s => ({ value: s, label: s === 'all' ? t('All') : s }))
+  ), [sourceOptions, t])
+
+  const projectSelectOptions = useMemo(() => (
+    projectOptions.map(p => ({ value: p, label: p === 'all' ? t('All') : p }))
+  ), [projectOptions, t])
 
   const filtered = useMemo(() => {
     return proposals.filter(p => {
-      const bySales = salesPersonFilter === 'all' || p.salesperson === salesPersonFilter
+      const bySales = salesPersonFilter === 'all' || String(p.salespersonId || '') === String(salesPersonFilter)
       const byManager = (() => {
         if (!usersList.length || managerFilter === 'all') return true
         const mgr = usersList.find(u => String(u.id) === String(managerFilter))
         if (!mgr) return true
         const all = [mgr, ...getDescendants(mgr.id, usersList)]
-        const salesNames = new Set(all.map(u => u.name).filter(Boolean))
-        return !p.salesperson || salesNames.has(p.salesperson)
+        const salesIds = new Set(all.map(u => String(u.id)).filter(Boolean))
+        return !p.salespersonId || salesIds.has(String(p.salespersonId))
       })()
       const bySource = sourceFilter === 'all' || p.source === sourceFilter
       const byProject = projectFilter === 'all' || p.project === projectFilter
@@ -281,7 +370,7 @@ export default function ProposalsReport() {
   const proposalsByChannelSegments = useMemo(() => {
     const map = new Map()
     filtered.forEach(p => {
-      const key = p.source || (isRTL ? 'غير معروف' : 'Unknown')
+      const key = p.source || t('Unknown')
       map.set(key, (map.get(key) || 0) + 1)
     })
     const baseColors = ['#3b82f6', '#10b981', '#f97316', '#a855f7', '#ef4444', '#22c55e']
@@ -295,7 +384,7 @@ export default function ProposalsReport() {
   const proposalsByProjectSegments = useMemo(() => {
     const map = new Map()
     filtered.forEach(p => {
-      const key = p.project || (isRTL ? 'غير معروف' : 'Unknown')
+      const key = p.project || t('Unknown')
       map.set(key, (map.get(key) || 0) + 1)
     })
     const baseColors = ['#8b5cf6', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#22c55e']
@@ -309,7 +398,7 @@ export default function ProposalsReport() {
   const leaderboard = useMemo(() => {
     const map = new Map()
     filtered.forEach(p => {
-      const key = p.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
+      const key = p.salesperson || t('Unknown')
       if (!map.has(key)) {
         map.set(key, { name: key, proposals: 0, value: 0 })
       }
@@ -326,13 +415,13 @@ export default function ProposalsReport() {
   const handleExportExcel = () => {
     if (!canExport) return
     const rows = filtered.map(p => ({
-      [isRTL ? 'اسم العميل' : 'Lead Name']: p.leadName,
-      [isRTL ? 'رقم الهاتف' : 'Contact']: p.contact,
-      [isRTL ? 'المصدر' : 'Source']: p.source,
-      [isRTL ? 'المشروع' : 'Project']: p.project,
-      [isRTL ? 'قيمة العرض' : 'Proposal Revenue']: p.value,
-      [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: p.salesperson,
-      [isRTL ? 'تاريخ العرض' : 'Proposal Date']: p.proposalDate
+      [t('Lead Name')]: p.leadName,
+      [t('Contact')]: p.contact,
+      [t('Source')]: p.source,
+      [projectLabel]: p.project,
+      [t('Proposal Revenue')]: p.value,
+      [t('Sales Person')]: p.salesperson,
+      [t('Proposal Date')]: p.proposalDate
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -355,13 +444,13 @@ export default function ProposalsReport() {
       const doc = new jsPDF()
       
       const tableColumn = [
-        isRTL ? 'اسم العميل' : "Lead Name",
-        isRTL ? 'رقم الهاتف' : "Contact",
-        isRTL ? 'المصدر' : "Source",
-        isRTL ? 'المشروع' : "Project",
-        isRTL ? 'قيمة العرض' : "Proposal Revenue",
-        isRTL ? 'مسؤول المبيعات' : "Sales Person",
-        isRTL ? 'تاريخ العرض' : "Proposal Date"
+        t('Lead Name'),
+        t('Contact'),
+        t('Source'),
+        projectLabel,
+        t('Proposal Revenue'),
+        t('Sales Person'),
+        t('Proposal Date')
       ]
       
       const tableRows = []
@@ -379,7 +468,7 @@ export default function ProposalsReport() {
         tableRows.push(rowData)
       })
 
-      doc.text(isRTL ? 'تقرير العروض' : "Proposals Report", 14, 15)
+      doc.text(t('Proposals Report'), 14, 15)
       autoTable.default(doc, {
         head: [tableColumn],
         body: tableRows,
@@ -435,7 +524,7 @@ export default function ProposalsReport() {
             segments={data}
             size={170}
             centerValue={total}
-            centerLabel={isRTL ? 'الإجمالي' : 'Total'}
+            centerLabel={t('Total')}
           />
         </div>
         <div className="mt-4 flex flex-wrap justify-center gap-3">
@@ -457,10 +546,10 @@ export default function ProposalsReport() {
       <div>
         <BackButton to="/reports" />
         <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'} mb-2`}>
-          {isRTL ? 'تقارير العروض' : 'Proposals Report'}
+          {t('Proposals Report')}
         </h1>
         <p className={`${isLight ? 'text-black' : 'text-white'} text-sm`}>
-          {isRTL ? 'تحليل أداء العروض والإيرادات' : 'Analyze your proposals performance and revenue'}
+          {t('Detailed analysis of sent proposals and conversion rates')}
         </p>
       </div>
 
@@ -468,14 +557,14 @@ export default function ProposalsReport() {
         <div className="flex justify-between items-center mb-3">
           <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} font-semibold`}>
             <Filter size={20} className="text-blue-400" />
-            <h3>{isRTL ? 'تصفية' : 'Filter'}</h3>
+            <h3>{t('Filter')}</h3>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAllFilters(prev => !prev)}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
             >
-              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'عرض الكل' : 'Show All')}
+              {showAllFilters ? t('Hide') : t('Show All')}
               <FaChevronDown
                 size={12}
                 className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`}
@@ -485,7 +574,7 @@ export default function ProposalsReport() {
               onClick={clearFilters}
               className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
             >
-              {isRTL ? 'إعادة تعيين' : 'Reset'}
+              {t('Reset')}
             </button>
           </div>
         </div>
@@ -495,54 +584,30 @@ export default function ProposalsReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <User size={12} className="text-blue-400" />
-                {isRTL ? 'مسؤول المبيعات' : 'Sales Person'}
+                {t('Sales Person')}
               </label>
-              <SearchableSelect value={salesPersonFilter} onChange={v => setSalesPersonFilter(v)}>
-                {salesPersonOptions.map(s => (
-                  <option key={s} value={s}>
-                    {s === 'all' ? (isRTL ? 'الكل' : 'All') : s}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect options={salesPersonOptions} value={salesPersonFilter} onChange={v => setSalesPersonFilter(v)} placeholder={t('Sales Person')} isRTL={isRTL} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Users size={12} className="text-blue-400" />
-                {isRTL ? 'المدير' : 'Manager'}
+                {t('Manager')}
               </label>
-              <SearchableSelect value={managerFilter} onChange={v => setManagerFilter(v)}>
-                {managerOptions.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.id === 'all' ? (isRTL ? 'الكل' : 'All') : m.name}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect options={managerOptions} value={managerFilter} onChange={v => setManagerFilter(v)} placeholder={t('Manager')} isRTL={isRTL} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Tag size={12} className="text-blue-400" />
-                {isRTL ? 'المصدر' : 'Source'}
+                {t('Source')}
               </label>
-              <SearchableSelect value={sourceFilter} onChange={v => setSourceFilter(v)}>
-                {sourceOptions.map(s => (
-                  <option key={s} value={s}>
-                    {s === 'all' ? (isRTL ? 'الكل' : 'All') : s}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect options={sourceSelectOptions} value={sourceFilter} onChange={v => setSourceFilter(v)} placeholder={t('Source')} isRTL={isRTL} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Briefcase size={12} className="text-blue-400" />
-                {isRTL ? 'المشروع' : 'Project'}
+                {projectLabel}
               </label>
-              <SearchableSelect value={projectFilter} onChange={v => setProjectFilter(v)}>
-                {projectOptions.map(p => (
-                  <option key={p} value={p}>
-                    {p === 'all' ? (isRTL ? 'الكل' : 'All') : p}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect options={projectSelectOptions} value={projectFilter} onChange={v => setProjectFilter(v)} placeholder={projectLabel} isRTL={isRTL} />
             </div>
           </div>
 
@@ -554,7 +619,7 @@ export default function ProposalsReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Calendar size={12} className="text-blue-400" />
-                {isRTL ? 'تاريخ العرض' : 'Proposal Date'}
+                {t('Proposal Date')}
               </label>
               <DateRangePicker
                 from={proposalDateFrom}
@@ -573,9 +638,9 @@ export default function ProposalsReport() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: isRTL ? 'إجمالي العروض' : 'Total Proposals', value: totalProposals, accent: 'bg-emerald-500' },
-          { label: isRTL ? 'إجمالي العملاء المحتملين' : 'Total Leads', value: totalLeads, accent: 'bg-indigo-500' },
-          { label: isRTL ? 'إيرادات العروض' : 'Proposals Revenue', value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-blue-500' }
+          { label: t('Total Proposals'), value: totalProposals, accent: 'bg-emerald-500' },
+          { label: t('Total Leads'), value: totalLeads, accent: 'bg-indigo-500' },
+          { label: t('Proposals Revenue'), value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-blue-500' }
         ].map(card => (
           <div
             key={card.label}
@@ -591,20 +656,20 @@ export default function ProposalsReport() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {renderPieCard(isRTL ? 'العروض حسب القناة' : 'Proposals by channel', proposalsByChannelSegments)}
-        {renderPieCard(isRTL ? 'العروض حسب المشروع' : 'Proposals by project', proposalsByProjectSegments)}
+        {renderPieCard('Proposals by channel', proposalsByChannelSegments)}
+        {renderPieCard(isRealEstate ? 'Proposals by project' : 'Proposals by item', proposalsByProjectSegments)}
         <div className="group relative  backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
             <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100 dark:border-gray-700/50">
               <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg text-yellow-400">
                 <Trophy size={20} />
               </div>
-              <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الأفضل أداءً' : 'Top Performers'}</div>
+              <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'} `}>{t('Top Performers')}</div>
             </div>
 
             <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
               <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
                 {leaderboard.length === 0 && (
-                  <li className={`text-xs ${isLight ? 'text-black' : 'text-white'} text-center py-4`}>{isRTL ? 'لا توجد بيانات' : 'No data'}</li>
+                  <li className={`text-xs ${isLight ? 'text-black' : 'text-white'} text-center py-4`}>{t('No data')}</li>
                 )}
                 {leaderboard.map((item, index) => {
                   let rankColor = `bg-gray-700 ${isLight ? 'text-black' : 'text-white'}`
@@ -638,7 +703,7 @@ export default function ProposalsReport() {
                           {item.name}
                         </span>
                         <span className={`text-[10px] ${isLight ? 'text-black' : 'text-white'}`}>
-                          {isRTL ? 'العروض' : 'Proposals'}: {item.proposals} • {isRTL ? 'الإيرادات' : 'Revenue'}: {item.value.toLocaleString()} EGP
+                          {t('Proposals')}: {item.proposals} - {t('Revenue')}: {item.value.toLocaleString()} EGP
                         </span>
                       </div>
                     </div>
@@ -652,7 +717,7 @@ export default function ProposalsReport() {
 
       <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden">
         <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
-          <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نظرة عامة على العروض' : 'Proposals Overview'}</h2>
+          <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{t('Proposals Overview')}</h2>
           {canExport && (
             <div className="relative">
               <button
@@ -660,7 +725,7 @@ export default function ProposalsReport() {
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >
                 <FaFileExport />
-                {isRTL ? 'تصدير' : 'Export'}
+                {t('Export')}
                 <FaChevronDown
                   className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`}
                   size={12}
@@ -672,13 +737,13 @@ export default function ProposalsReport() {
                     onClick={handleExportExcel}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                   >
-                    <FaFileExcel className="text-green-600" /> {isRTL ? 'تصدير كـ Excel' : 'Export to Excel'}
+                    <FaFileExcel className="text-green-600" /> {t('Export to Excel')}
                   </button>
                   <button
                     onClick={exportToPdf}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                   >
-                    <FaFilePdf className="text-red-600" /> {isRTL ? 'تصدير كـ PDF' : 'Export to PDF'}
+                    <FaFilePdf className="text-red-600" /> {t('Export to PDF')}
                   </button>
                 </div>
               )}
@@ -689,14 +754,14 @@ export default function ProposalsReport() {
           <table className="w-full text-sm text-left">
             <thead className={`text-xs uppercase  ${isLight ? 'text-black' : 'text-white'} hidden md:table-header-group`}>
               <tr>
-                <th className="px-4 py-3">{isRTL ? 'اسم العميل' : 'Lead Name'}</th>
-                <th className="px-4 py-3">{isRTL ? 'رقم الهاتف' : 'Contact'}</th>
-                <th className="px-4 py-3">{isRTL ? 'المصدر' : 'Source'}</th>
-                <th className="px-4 py-3">{isRTL ? 'المشروع' : 'Project'}</th>
-                <th className="px-4 py-3 text-center">{isRTL ? 'قيمة العرض' : 'Proposal Revenue'}</th>
-                <th className="px-4 py-3">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
-                <th className="px-4 py-3">{isRTL ? 'تاريخ العرض' : 'Proposal Date'}</th>
-                <th className="px-4 py-3 text-center">{isRTL ? 'إجراءات' : 'Actions'}</th>
+                <th className="px-4 py-3">{t('Lead Name')}</th>
+                <th className="px-4 py-3">{t('Contact')}</th>
+                <th className="px-4 py-3">{t('Source')}</th>
+                <th className="px-4 py-3">{projectLabel}</th>
+                <th className="px-4 py-3 text-center">{t('Proposal Revenue')}</th>
+                <th className="px-4 py-3">{t('Sales Person')}</th>
+                <th className="px-4 py-3">{t('Proposal Date')}</th>
+                <th className="px-4 py-3 text-center">{t('Actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
@@ -715,7 +780,7 @@ export default function ProposalsReport() {
                       </div>
                       {/* Mobile-only info preview */}
                       <div className={`md:hidden text-xs ${isLight ? 'text-black' : 'text-white'} opacity-70 mt-1`}>
-                        {proposal.value.toLocaleString()} EGP • {proposal.salesperson}
+                        {proposal.value.toLocaleString()} EGP - {proposal.salesperson}
                       </div>
                     </td>
                     <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} hidden md:table-cell`}>{proposal.contact}</td>
@@ -731,7 +796,7 @@ export default function ProposalsReport() {
                         <button
                           onClick={() => handlePreview(proposal)}
                           className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-                          title={isRTL ? 'معاينة' : 'Preview'}
+                          title={t('Preview')}
                         >
                           <Eye size={16} />
                         </button>
@@ -739,7 +804,7 @@ export default function ProposalsReport() {
                           <button
                             onClick={() => handleDelete(proposal.id)}
                             className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-                            title={isRTL ? 'حذف' : 'Delete'}
+                            title={t('Delete')}
                           >
                             <Trash2 size={16} />
                           </button>
@@ -754,27 +819,27 @@ export default function ProposalsReport() {
                       <td colSpan={8} className="px-4 py-3">
                         <div className="grid grid-cols-2 gap-3 text-xs">
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)]">{isRTL ? 'رقم الهاتف' : 'Contact'}</span>
+                            <span className="text-[var(--muted-text)]">{t('Contact')}</span>
                             <span className={`${isLight ? 'text-black' : 'text-white'} font-medium`}>{proposal.contact}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)]">{isRTL ? 'المصدر' : 'Source'}</span>
+                            <span className="text-[var(--muted-text)]">{t('Source')}</span>
                             <span className={`${isLight ? 'text-black' : 'text-white'} font-medium`}>{proposal.source}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)]">{isRTL ? 'المشروع' : 'Project'}</span>
+                            <span className="text-[var(--muted-text)]">{projectLabel}</span>
                             <span className={`${isLight ? 'text-black' : 'text-white'} font-medium`} >{proposal.project}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)]">{isRTL ? 'قيمة العرض' : 'Proposal Revenue'}</span>
+                            <span className="text-[var(--muted-text)]">{t('Proposal Revenue')}</span>
                             <span className={`${isLight ? 'text-black' : 'text-white'} font-medium`}>{proposal.value.toLocaleString()} EGP</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)]">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</span>
+                            <span className="text-[var(--muted-text)]">{t('Sales Person')}</span>
                             <span className={`${isLight ? 'text-black' : 'text-white'} font-medium`}>{proposal.salesperson}</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[var(--muted-text)]">{isRTL ? 'تاريخ العرض' : 'Proposal Date'}</span>
+                            <span className="text-[var(--muted-text)]">{t('Proposal Date')}</span>
                             <span className={`${isLight ? 'text-black' : 'text-white'} font-medium`}>{proposal.proposalDate}</span>
                           </div>
                         </div>
@@ -786,7 +851,7 @@ export default function ProposalsReport() {
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={8} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'} `}>
-                    {isRTL ? 'لا توجد عروض' : 'No proposals found'}
+                    {t('No proposals found')}
                   </td>
                 </tr>
               )}
@@ -795,17 +860,16 @@ export default function ProposalsReport() {
         </div>
         <div className="px-6 py-3 bg-theme-bg border-t border-theme-border dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className={`text-[11px] sm:text-xs ${isLight ? 'text-black' : 'text-white'}`}>
-            {isRTL
-              ? `إظهار ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} من ${totalRecords}`
-              : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} of ${totalRecords}`}
+            {`Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} of ${totalRecords}`}
           </div>
+
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                title={isRTL ? 'السابق' : 'Prev'}
+                title={t('Prev')}
               >
                 {isRTL ? (
                   <ChevronRight className="w-4 h-4" />
@@ -814,15 +878,14 @@ export default function ProposalsReport() {
                 )}
               </button>
               <span className="text-sm whitespace-nowrap">
-                {isRTL
-                  ? `الصفحة ${currentPage} من ${pageCount}`
-                  : `Page ${currentPage} of ${pageCount}`}
+                {`Page ${currentPage} of ${pageCount}`}
               </span>
+
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                 disabled={currentPage === pageCount}
-                title={isRTL ? 'التالي' : 'Next'}
+                title={t('Next')}
               >
                 {isRTL ? (
                   <ChevronLeft className="w-4 h-4" />
@@ -833,7 +896,7 @@ export default function ProposalsReport() {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
-                {isRTL ? 'لكل صفحة:' : 'Per page:'}
+                {t('Per page:')}
               </span>
               <select
                 className="input w-24 text-sm py-0 px-2 h-8"

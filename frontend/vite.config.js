@@ -10,7 +10,7 @@ const rawProxyTarget =
 
 const proxyTarget = /^https?:\/\//i.test(String(rawProxyTarget || '').trim())
   ? String(rawProxyTarget).trim().replace(/\/+$/, '')
-  : 'http://laravel_web'
+  : 'http://web'
 
 export default defineConfig({
   base: './',   // بدل '/'

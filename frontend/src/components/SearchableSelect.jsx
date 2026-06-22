@@ -3,7 +3,20 @@ import { createPortal } from 'react-dom'
 import * as LucideIcons from 'lucide-react'
 import { FaSearch, FaTimes, FaChevronDown } from 'react-icons/fa'
 
-export default function SearchableSelect({ options, value, onChange, placeholder, label, isRTL, icon: Icon, multiple = false, className = '', showAllOption = true, dropdownZIndex = 20050, placement = 'auto' }) {
+export default function SearchableSelect({
+  options,
+  value,
+  onChange,
+  placeholder,
+  label,
+  isRTL,
+  icon: Icon,
+  multiple = false,
+  className = '',
+  showAllOption = true,
+  dropdownZIndex = 20050,
+  placement = 'auto',
+}) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, maxHeight: 280 })
@@ -38,19 +51,17 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     const aboveSpace = Math.max(0, aboveBottom - margin)
 
     const clampMaxHeight = (h) => Math.max(0, Math.min(280, h))
-
     const minUsableHeight = 160
+
     const wantTop = placement === 'top'
     const wantBottom = placement === 'bottom'
 
     let openDirection = 'bottom'
     if (wantTop) openDirection = 'top'
     else if (wantBottom) openDirection = 'bottom'
-    else {
-      if (belowSpace >= minUsableHeight) openDirection = 'bottom'
-      else if (aboveSpace >= minUsableHeight) openDirection = 'top'
-      else openDirection = belowSpace >= aboveSpace ? 'bottom' : 'top'
-    }
+    else if (belowSpace >= minUsableHeight) openDirection = 'bottom'
+    else if (aboveSpace >= minUsableHeight) openDirection = 'top'
+    else openDirection = belowSpace >= aboveSpace ? 'bottom' : 'top'
 
     let top = belowTop
     let maxHeight = clampMaxHeight(belowSpace)
@@ -60,7 +71,6 @@ export default function SearchableSelect({ options, value, onChange, placeholder
       top = rect.top - gap - Math.min(dropdownHeight, maxHeight || dropdownHeight)
     }
 
-    // Keep dropdown within viewport while still staying close to the trigger
     const maxTop = Math.max(margin, viewportHeight - margin - Math.max(0, maxHeight))
     top = Math.min(Math.max(top, margin), maxTop)
 
@@ -68,12 +78,12 @@ export default function SearchableSelect({ options, value, onChange, placeholder
   }
 
   const renderIcon = (icon) => {
-    if (!icon) return null;
-    if (typeof icon !== 'string') return icon;
-    const LucideIcon = LucideIcons[icon];
-    if (LucideIcon) return <LucideIcon size={14} />;
-    return icon;
-  };
+    if (!icon) return null
+    if (typeof icon !== 'string') return icon
+    const LucideIcon = LucideIcons[icon]
+    if (LucideIcon) return <LucideIcon size={14} />
+    return icon
+  }
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -86,39 +96,25 @@ export default function SearchableSelect({ options, value, onChange, placeholder
 
     function handleScroll(event) {
       if (!isOpen) return
-      // If the scroll happened inside the dropdown itself, don't close
+
       const target = event?.target
-      const insideDropdown = target && dropdownRef.current && (dropdownRef.current === target || dropdownRef.current.contains(target))
+      const insideDropdown =
+        target && dropdownRef.current && (dropdownRef.current === target || dropdownRef.current.contains(target))
+
       if (insideDropdown) return
 
-      // If scrolling happens outside (e.g. window or parent container), we might want to update position or close.
-      // Usually, closing on outside scroll is good UX for select menus.
-      // But if user wants to scroll the page while menu is open, it might be annoying if it closes.
-      // Given the requirement "don't close on scroll inside list", the above check handles it.
-      // However, to fix "menu closes on ANY scroll", we should be careful.
-      // The previous logic closed it if not inside wrapper AND not inside dropdown.
-      
-      const insideWrapper = target && wrapperRef.current && (wrapperRef.current === target || wrapperRef.current.contains(target))
-      
-      // If we are using Portal, wrapperRef scroll won't trigger this usually unless wrapper itself scrolls.
-      // The issue is likely window scroll or parent scroll.
-      // If we want it to STICK to the element, we need to update coords on scroll.
-      // If we want it to close, we keep it as is.
-      // The user complaint "when I scroll the menu closes alone" implies scrolling THE MENU content closes it.
-      // So 'insideDropdown' check is critical.
-      
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       rafRef.current = requestAnimationFrame(() => updatePosition())
     }
 
-    document.addEventListener("mousedown", handleClickOutside)
-    window.addEventListener("scroll", handleScroll, true)
-    window.addEventListener("resize", handleScroll)
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('scroll', handleScroll, true)
+    window.addEventListener('resize', handleScroll)
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside)
-      window.removeEventListener("scroll", handleScroll, true)
-      window.removeEventListener("resize", handleScroll)
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('scroll', handleScroll, true)
+      window.removeEventListener('resize', handleScroll)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
   }, [isOpen])
@@ -135,55 +131,84 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     setIsOpen(false)
   }
 
-  const filteredOptions = (options || []).filter(opt => {
-    if (!opt) return false;
-    const label = (typeof opt === 'object' && opt !== null && 'label' in opt) ? opt.label : String(opt)
-    return String(label).toLowerCase().includes(search.toLowerCase())
-  })
-
   const getOptionValue = (opt) => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt)
+  const getOptionLabel = (opt) => (typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : String(opt))
   const normalizeComparableValue = (val) => (val === undefined || val === null ? '' : String(val))
+
+  const allSentinelValues = new Set(['', 'all', 'All', 'الكل'])
+  const hasEmbeddedAllOption = (options || []).some((opt) =>
+    allSentinelValues.has(normalizeComparableValue(getOptionValue(opt)))
+  )
+  const shouldRenderBuiltInAllOption = showAllOption && !hasEmbeddedAllOption
+
+  const filteredOptions = (options || []).filter((opt) => {
+    if (!opt) return false
+    return String(getOptionLabel(opt)).toLowerCase().includes(search.toLowerCase())
+  })
 
   const isSelected = (opt) => {
     const val = getOptionValue(opt)
     return multiple
-      ? Array.isArray(value) && value.some((selectedValue) => normalizeComparableValue(selectedValue) === normalizeComparableValue(val))
+      ? Array.isArray(value) &&
+          value.some((selectedValue) => normalizeComparableValue(selectedValue) === normalizeComparableValue(val))
       : normalizeComparableValue(value) === normalizeComparableValue(val)
   }
-  
-  const clearValue = () => multiple ? onChange([]) : onChange('')
-  const allOptionValues = multiple && showAllOption
-    ? Array.from(new Set((options || []).map(getOptionValue).filter(v => v !== undefined && v !== null && v !== '')))
-    : []
+
+  const clearValue = () => (multiple ? onChange([]) : onChange(''))
+
+  const allOptionValues =
+    multiple && shouldRenderBuiltInAllOption
+      ? Array.from(
+          new Set((options || []).map(getOptionValue).filter((v) => v !== undefined && v !== null && v !== ''))
+        )
+      : []
+
   const allSelected =
     multiple &&
-    showAllOption &&
+    shouldRenderBuiltInAllOption &&
     Array.isArray(value) &&
     allOptionValues.length > 0 &&
-    allOptionValues.every(v => value.some(selectedValue => normalizeComparableValue(selectedValue) === normalizeComparableValue(v)))
+    allOptionValues.every((v) =>
+      value.some((selectedValue) => normalizeComparableValue(selectedValue) === normalizeComparableValue(v))
+    )
+
+  const isSingleAllValue = !multiple && allSentinelValues.has(normalizeComparableValue(value))
 
   const isEmpty = multiple
-    ? !Array.isArray(value) || value.length === 0 || (showAllOption && allSelected)
-    : !value
+    ? !Array.isArray(value) || value.length === 0 || (shouldRenderBuiltInAllOption && allSelected)
+    : !value || isSingleAllValue
 
   const getDisplayValue = () => {
     if (multiple) {
-      if (showAllOption && allSelected) return (isRTL ? 'الكل' : 'All')
+      if (shouldRenderBuiltInAllOption && allSelected) return isRTL ? 'الكل' : 'All'
+
       if (Array.isArray(value) && value.length > 0) {
-        return value.map(v => {
-          const opt = (options || []).find(o => normalizeComparableValue(typeof o === 'object' && o !== null && 'value' in o ? o.value : o) === normalizeComparableValue(v))
-          return opt ? (typeof opt === 'object' && 'label' in opt ? opt.label : opt) : v
-        }).join(', ')
+        return value
+          .map((v) => {
+            const opt = (options || []).find(
+              (o) => normalizeComparableValue(getOptionValue(o)) === normalizeComparableValue(v)
+            )
+            return opt ? getOptionLabel(opt) : v
+          })
+          .join(', ')
       }
-      return placeholder || (showAllOption ? (isRTL ? 'الكل' : 'All') : '')
+
+      return placeholder || (shouldRenderBuiltInAllOption ? (isRTL ? 'الكل' : 'All') : '')
     }
-    if (!value) return placeholder || (showAllOption ? (isRTL ? 'الكل' : 'All') : '')
-    const opt = (options || []).find(o => normalizeComparableValue(typeof o === 'object' && o !== null && 'value' in o ? o.value : o) === normalizeComparableValue(value))
-    return opt ? (typeof opt === 'object' && 'label' in opt ? opt.label : opt) : value
+
+    if (!value) {
+      return placeholder || (shouldRenderBuiltInAllOption ? (isRTL ? 'الكل' : 'All') : '')
+    }
+
+    const opt = (options || []).find(
+      (o) => normalizeComparableValue(getOptionValue(o)) === normalizeComparableValue(value)
+    )
+
+    return opt ? getOptionLabel(opt) : value
   }
 
   const dropdownContent = (
-    <div 
+    <div
       ref={dropdownRef}
       data-searchable-select-dropdown="true"
       style={{
@@ -192,14 +217,17 @@ export default function SearchableSelect({ options, value, onChange, placeholder
         left: coords.left,
         width: coords.width,
         zIndex: dropdownZIndex,
-        maxHeight: coords.maxHeight
+        maxHeight: coords.maxHeight,
       }}
       className="rounded-xl shadow-xl bg-[var(--card-bg)] border border-[var(--panel-border)] backdrop-blur-md overflow-hidden flex flex-col"
       dir={isRTL ? 'rtl' : 'ltr'}
     >
       <div className="p-2 border-b border-[var(--panel-border)]/70">
         <div className="relative">
-          <FaSearch className={`absolute top-1/2 -translate-y-1/2 text-[var(--theme-text)] ${isRTL ? 'right-3' : 'left-3'}`} size={12} />
+          <FaSearch
+            className={`absolute top-1/2 -translate-y-1/2 text-[var(--theme-text)] ${isRTL ? 'right-3' : 'left-3'}`}
+            size={12}
+          />
           <input
             autoFocus
             type="text"
@@ -211,41 +239,45 @@ export default function SearchableSelect({ options, value, onChange, placeholder
           />
         </div>
       </div>
+
       <div className="overflow-y-auto py-1 scrollbar-thin-blue" style={{ maxHeight: Math.max(0, coords.maxHeight - 58) }}>
-          {showAllOption && (
-            <div
-              className={`mx-1 rounded-lg px-3 py-2 cursor-pointer text-sm transition-colors ${(!multiple && value === '') || (multiple && allSelected) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`}
-              onClick={() => {
-                if (multiple) {
-                  onChange(allSelected ? [] : allOptionValues)
-                  setIsOpen(false)
-                } else {
-                  clearValue()
-                  setIsOpen(false)
-                }
-                setSearch('')
-              }}
-            >
-              {isRTL ? 'الكل' : 'All'}
-            </div>
-          )}
+        {shouldRenderBuiltInAllOption && (
+          <div
+            className={`mx-1 rounded-lg px-3 py-2 cursor-pointer text-sm transition-colors ${(!multiple && value === '') || (multiple && allSelected) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`}
+            onClick={() => {
+              if (multiple) {
+                onChange(allSelected ? [] : allOptionValues)
+              } else {
+                clearValue()
+              }
+              setIsOpen(false)
+              setSearch('')
+            }}
+          >
+            {isRTL ? 'الكل' : 'All'}
+          </div>
+        )}
+
         {filteredOptions.length > 0 ? (
           filteredOptions.map((opt, idx) => {
-            const label = typeof opt === 'object' && opt !== null && 'label' in opt ? opt.label : opt
-            const val = typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt
+            const labelValue = getOptionLabel(opt)
+            const val = getOptionValue(opt)
             const color = typeof opt === 'object' && opt !== null && 'color' in opt ? opt.color : null
-            const icon = typeof opt === 'object' && opt !== null && 'icon' in opt ? opt.icon : null
+            const iconValue = typeof opt === 'object' && opt !== null && 'icon' in opt ? opt.icon : null
+
             return (
               <div
                 key={idx}
                 className={`mx-1 rounded-lg px-3 py-2 cursor-pointer text-sm transition-colors ${isSelected(opt) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`}
                 onClick={() => {
                   if (multiple) {
-                    const cur = Array.isArray(value) ? value : []
-                    const exists = cur.some(v => normalizeComparableValue(v) === normalizeComparableValue(val))
+                    const current = Array.isArray(value) ? value : []
+                    const exists = current.some(
+                      (v) => normalizeComparableValue(v) === normalizeComparableValue(val)
+                    )
                     const next = exists
-                      ? cur.filter(v => normalizeComparableValue(v) !== normalizeComparableValue(val))
-                      : [...cur, val]
+                      ? current.filter((v) => normalizeComparableValue(v) !== normalizeComparableValue(val))
+                      : [...current, val]
                     onChange(next)
                   } else {
                     onChange(val)
@@ -255,9 +287,9 @@ export default function SearchableSelect({ options, value, onChange, placeholder
                 }}
               >
                 <div className="flex items-center gap-2">
-                   {icon && <span className="shrink-0">{renderIcon(icon)}</span>}
-                   {color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }}></span>}
-                   {label}
+                  {iconValue && <span className="shrink-0">{renderIcon(iconValue)}</span>}
+                  {color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }}></span>}
+                  {labelValue}
                 </div>
               </div>
             )
@@ -272,7 +304,7 @@ export default function SearchableSelect({ options, value, onChange, placeholder
   )
 
   return (
-  <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={wrapperRef}>
+    <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={wrapperRef}>
       <div
         className={`input w-full flex items-center justify-between cursor-pointer bg-[var(--card-bg)] border border-[var(--panel-border)] text-[var(--theme-text)] ${className}`}
         onClick={toggleOpen}
@@ -281,17 +313,17 @@ export default function SearchableSelect({ options, value, onChange, placeholder
           {getDisplayValue()}
         </span>
         <div className="flex items-center gap-2">
-          {(!multiple && value && value !== 'All' && value !== 'الكل') || (multiple && Array.isArray(value) && value.length > 0) ? (
-             <FaTimes 
-               className="text-[var(--theme-text)] hover:text-red-500 z-10" 
-               size={12}
-               onClick={(e) => {
-                 e.stopPropagation()
-                 clearValue()
-               }}
-             />
-           ) : null}
-           <FaChevronDown className={`text-[var(--theme-text)] transition-transform ${isOpen ? 'rotate-180' : ''}`} size={10} />
+          {((!multiple && value && !isSingleAllValue) || (multiple && Array.isArray(value) && value.length > 0)) ? (
+            <FaTimes
+              className="text-[var(--theme-text)] hover:text-red-500 z-10"
+              size={12}
+              onClick={(e) => {
+                e.stopPropagation()
+                clearValue()
+              }}
+            />
+          ) : null}
+          <FaChevronDown className={`text-[var(--theme-text)] transition-transform ${isOpen ? 'rotate-180' : ''}`} size={10} />
         </div>
       </div>
 
@@ -299,4 +331,3 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     </div>
   )
 }
-

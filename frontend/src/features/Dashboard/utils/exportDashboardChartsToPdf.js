@@ -128,7 +128,7 @@ const captureNodeAsPng = async (node) => {
   }
 }
 
-const drawHeader = ({ doc, pageWidth, margin, title, chartTitle, dateRange, exportedAt, userName, isRTL, pageLabel }) => {
+const drawHeader = ({ doc, pageWidth, margin, title, chartTitle, dateRange, reportYear, exportedAt, userName, isRTL, pageLabel }) => {
   const x = isRTL ? pageWidth - margin : margin
   const align = isRTL ? 'right' : 'left'
 
@@ -143,8 +143,11 @@ const drawHeader = ({ doc, pageWidth, margin, title, chartTitle, dateRange, expo
   doc.setFontSize(10)
   doc.setTextColor(75, 85, 99)
   doc.text(`${isRTL ? 'الفترة' : 'Date Range'}: ${dateRange}`, x, 70, { align })
-  doc.text(`${isRTL ? 'تاريخ التصدير' : 'Exported At'}: ${exportedAt}`, x, 84, { align })
-  doc.text(`${isRTL ? 'المستخدم' : 'User'}: ${userName || '-'}`, x, 98, { align })
+  if (reportYear) {
+    doc.text(`${isRTL ? 'سنة التقرير' : 'Report Year'}: ${reportYear}`, x, 84, { align })
+  }
+  doc.text(`${isRTL ? 'تاريخ التصدير' : 'Exported At'}: ${exportedAt}`, x, reportYear ? 98 : 84, { align })
+  doc.text(`${isRTL ? 'المستخدم' : 'User'}: ${userName || '-'}`, x, reportYear ? 112 : 98, { align })
 
   if (pageLabel) {
     const pageX = isRTL ? margin : pageWidth - margin
@@ -160,6 +163,7 @@ export async function exportDashboardChartsToPdf({
   charts,
   title,
   dateRange,
+  reportYear,
   userName,
   fileName,
   maxMonthsPerPage = 12,
@@ -239,6 +243,7 @@ export async function exportDashboardChartsToPdf({
         title,
         chartTitle: chartPageTitle,
         dateRange: rangeText,
+        reportYear,
         exportedAt,
         userName,
         isRTL,

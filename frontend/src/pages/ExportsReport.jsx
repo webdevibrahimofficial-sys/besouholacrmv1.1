@@ -55,10 +55,10 @@ const ExportsReport = () => {
   const [datePreset, setDatePreset] = useState('year')
 
   const dateOptions = [
-    { value: 'today', label: isRTL ? 'اليوم' : 'Today' },
-    { value: 'week', label: isRTL ? 'أسبوعيًا' : 'Weekly' },
-    { value: 'month', label: isRTL ? 'شهريًا' : 'Monthly' },
-    { value: 'year', label: isRTL ? 'سنويًا' : 'Yearly' },
+    { value: 'today', label: isRTL ? 'Ã˜Â§Ã™â€žÃ™Å Ã™Ë†Ã™â€¦' : 'Today' },
+    { value: 'week', label: isRTL ? 'Ã˜Â£Ã˜Â³Ã˜Â¨Ã™Ë†Ã˜Â¹Ã™Å Ã™â€¹Ã˜Â§' : 'Weekly' },
+    { value: 'month', label: isRTL ? 'Ã˜Â´Ã™â€¡Ã˜Â±Ã™Å Ã™â€¹Ã˜Â§' : 'Monthly' },
+    { value: 'year', label: isRTL ? 'Ã˜Â³Ã™â€ Ã™Ë†Ã™Å Ã™â€¹Ã˜Â§' : 'Yearly' },
   ]
 
   const [exportsData, setExportsData] = useState([])
@@ -268,12 +268,12 @@ const ExportsReport = () => {
   const exportExcel = () => {
     if (!canExport) return
     const rows = filtered.map(r => ({
-      [isRTL ? 'اسم الملف' : 'File Name']: r.fileName,
-      [isRTL ? 'القسم' : 'Department']: r.department,
-      [isRTL ? 'نفّذ بواسطة' : 'Performed By']: r.performedBy,
-      [isRTL ? 'التاريخ والوقت' : 'Date & Time']: r.timestamp.toLocaleString(),
-      [isRTL ? 'الحالة' : 'Status']: r.status,
-      [isRTL ? 'اخطاء' : 'error']: r.error || '',
+      [isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name']: r.fileName,
+      [isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department']: r.department,
+      [isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By']: r.performedBy,
+      [isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â® Ã™Ë†Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Date & Time']: r.timestamp.toLocaleString(),
+      [isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â©' : 'Status']: r.status,
+      [isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error']: r.error || '',
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -293,12 +293,12 @@ const ExportsReport = () => {
     const doc = new jsPDF('l', 'pt', 'a4')
     
     const tableColumn = [
-      isRTL ? 'اسم الملف' : 'File Name',
-      isRTL ? 'القسم' : 'Department',
-      isRTL ? 'نفّذ بواسطة' : 'Performed By',
-      isRTL ? 'التاريخ والوقت' : 'Date & Time',
-      isRTL ? 'الحالة' : 'Status',
-      isRTL ? 'اخطاء' : 'error'
+      isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name',
+      isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department',
+      isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By',
+      isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â® Ã™Ë†Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Date & Time',
+      isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â©' : 'Status',
+      isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error'
     ]
     
     const tableRows = filtered.map(r => [
@@ -310,7 +310,7 @@ const ExportsReport = () => {
       r.error || ''
     ])
 
-    doc.text(isRTL ? 'تقرير التصدير' : 'Exports Report', 40, 40)
+    doc.text(isRTL ? 'Ã˜ÂªÃ™â€šÃ˜Â±Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports Report', 40, 40)
     doc.autoTable({
       head: [tableColumn],
       body: tableRows,
@@ -333,7 +333,7 @@ const ExportsReport = () => {
   // UI helpers
   const StatusBadge = ({ status }) => {
     const isSuccess = status === 'Success'
-    const label = isRTL ? (isSuccess ? 'ناجحة' : 'فاشلة') : status
+    const label = isRTL ? (isSuccess ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Ã™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©') : status
     const ring = isSuccess ? 'ring-emerald-200' : 'ring-rose-200'
     const bg = isSuccess ? 'bg-emerald-100' : 'bg-rose-100'
     const text = isSuccess ? 'text-emerald-700' : 'text-rose-700'
@@ -387,21 +387,21 @@ const ExportsReport = () => {
 
   const kpiCards = [
     {
-      title: isRTL ? 'إجمالي الصادرات' : 'Total Exports',
+      title: isRTL ? 'Ã˜Â¥Ã˜Â¬Ã™â€¦Ã˜Â§Ã™â€žÃ™Å  Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¯Ã˜Â±Ã˜Â§Ã˜Âª' : 'Total Exports',
       value: kpiData.total,
       icon: FileText,
       color: 'text-blue-600 dark:text-blue-400',
       bgColor: 'bg-blue-50 dark:bg-blue-900/20'
     },
     {
-      title: isRTL ? 'الصادرات الناجحة' : 'Successful Exports',
+      title: isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¯Ã˜Â±Ã˜Â§Ã˜Âª Ã˜Â§Ã™â€žÃ™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Successful Exports',
       value: kpiData.success,
       icon: CheckCircle2,
       color: 'text-emerald-600 dark:text-emerald-400',
       bgColor: 'bg-emerald-50 dark:bg-emerald-900/20'
     },
     {
-      title: isRTL ? 'الصادرات الفاشلة' : 'Failed Exports',
+      title: isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¯Ã˜Â±Ã˜Â§Ã˜Âª Ã˜Â§Ã™â€žÃ™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Failed Exports',
       value: kpiData.failed,
       icon: XCircle,
       color: 'text-red-600 dark:text-red-400',
@@ -415,10 +415,10 @@ const ExportsReport = () => {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'} mb-2`}>
-              {isRTL ? 'تقرير التصدير' : 'Exports Report'}
+              {isRTL ? 'Ã˜ÂªÃ™â€šÃ˜Â±Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports Report'}
             </h1>
             <p className={`${isLight ? 'text-black' : 'text-white'} text-sm opacity-70`}>
-              {isRTL ? 'راقب كل عمليات تصدير البيانات ومشاكلها' : 'Monitor all data export operations and issues'}
+              {isRTL ? 'Ã˜Â±Ã˜Â§Ã™â€šÃ˜Â¨ Ã™Æ’Ã™â€ž Ã˜Â¹Ã™â€¦Ã™â€žÃ™Å Ã˜Â§Ã˜Âª Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª Ã™Ë†Ã™â€¦Ã˜Â´Ã˜Â§Ã™Æ’Ã™â€žÃ™â€¡Ã˜Â§' : 'Monitor all data export operations and issues'}
             </p>
           </div>
         </div>
@@ -428,7 +428,7 @@ const ExportsReport = () => {
         <div className="flex justify-between items-center mb-3">
           <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} font-semibold`}>
             <Filter size={20} className="text-blue-500 dark:text-blue-400" />
-            <h3>{isRTL ? 'تصفية' : 'Filter'}</h3>
+            <h3>{t('Filter')}</h3>
           </div>
 
           <div className="flex items-center gap-2">
@@ -437,7 +437,7 @@ const ExportsReport = () => {
               onClick={clearFilters}
               className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
             >
-              {isRTL ? 'إعادة تعيين' : 'Reset'}
+              {t('Reset')}
             </button>
           </div>
         </div>
@@ -446,7 +446,7 @@ const ExportsReport = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                {isRTL ? 'مسؤول المبيعات' : 'Sales Person'}
+                {isRTL ? 'ØªÙ… Ø¨ÙˆØ§Ø³Ø·Ø©' : 'Performed By'}
               </label>
               <select
                 value={selectedManager}
@@ -456,7 +456,7 @@ const ExportsReport = () => {
                 }}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-transparent`}
               >
-                <option value="All">{isRTL ? 'الكل' : 'All'}</option>
+                <option value="All">{t('All')}</option>
                 {managerOptions.map((m) => (
                   <option key={m} value={m}>
                     {m}
@@ -467,7 +467,7 @@ const ExportsReport = () => {
             
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                {isRTL ? 'الحالة' : 'Status'}
+                {t('Status')}
               </label>
               <select
                 value={statusFilter}
@@ -477,13 +477,13 @@ const ExportsReport = () => {
                 }}
                 className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-transparent`}
               >
-                <option value="All">{isRTL ? 'الكل' : 'All'}</option>
+                <option value="All">{t('All')}</option>
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>
                     {status === 'Success'
-                      ? isRTL ? 'ناجح' : 'Success'
+                      ? isRTL ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­' : 'Success'
                       : status === 'Failed'
-                        ? isRTL ? 'فشل' : 'Failed'
+                        ? isRTL ? 'Ã™ÂÃ˜Â´Ã™â€ž' : 'Failed'
                         : status}
                   </option>
                 ))}
@@ -493,7 +493,7 @@ const ExportsReport = () => {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'تاريخ الإجراء' : 'Action Date'}
+                {t('Action Date')}
               </label>
               <select
                 value={datePreset}
@@ -547,14 +547,14 @@ const ExportsReport = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
         <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm p-4 rounded-2xl">
-          <div className={`font-semibold mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'كمية التصدير لكل مسؤول مبيعات' : 'Exports Quantity per Sales Person'}</div>
+          <div className={`font-semibold mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'عدد عمليات التصدير حسب المستخدم' : 'Exports Quantity per User'}</div>
           <div className="h-[260px]">
             <Bar
               data={{
                 labels: Array.from(exportsPerManager.keys()),
                 datasets: [
                   {
-                    label: isRTL ? 'التصدير' : 'Exports',
+                    label: t('Exports'),
                     data: Array.from(exportsPerManager.values()),
                     backgroundColor: 'rgba(59, 130, 246, 0.7)',
                     borderRadius: 6,
@@ -577,7 +577,7 @@ const ExportsReport = () => {
                     },
                     title: {
                       display: true,
-                      text: isRTL ? 'مسؤول المبيعات' : 'Sales Person',
+                      text: isRTL ? 'ØªÙ… Ø¨ÙˆØ§Ø³Ø·Ø©' : 'Performed By',
                     },
                   },
                   y: {
@@ -589,7 +589,7 @@ const ExportsReport = () => {
                     },
                     title: {
                       display: true,
-                      text: isRTL ? 'التصدير' : 'Exports',
+                      text: isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports',
                     },
                   },
                 },
@@ -598,24 +598,24 @@ const ExportsReport = () => {
           </div>
         </div>
         <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm p-4 rounded-2xl">
-          <div className={`text-sm font-medium mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الناجحة / الفاشلة' : 'Success & Fail'}</div>
+          <div className={`text-sm font-medium mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã˜Â§Ã™â€žÃ™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â© / Ã˜Â§Ã™â€žÃ™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Success & Fail'}</div>
           <div className="h-[260px] flex flex-col items-center justify-center">
             <div className="flex-1 flex items-center justify-center">
               <PieChart
                 segments={[
-                  { label: isRTL ? 'ناجحة' : 'Success', value: kpiData.success, color: '#10b981' },
-                  { label: isRTL ? 'فاشلة' : 'Failed', value: kpiData.failed, color: '#ef4444' },
+                  { label: isRTL ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Success', value: kpiData.success, color: '#10b981' },
+                  { label: isRTL ? 'Ã™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Failed', value: kpiData.failed, color: '#ef4444' },
                 ]}
                 size={170}
                 centerValue={kpiData.total}
-                centerLabel={isRTL ? 'إجمالي التصدير' : 'Total Exports'}
+                centerLabel={isRTL ? 'Ã˜Â¥Ã˜Â¬Ã™â€¦Ã˜Â§Ã™â€žÃ™Å  Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Total Exports'}
               />
             </div>
             <div className="mt-4 w-full flex items-center justify-between gap-4 text-xs md:text-sm">
               <div className="inline-flex items-center gap-2">
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
                 <span className={`text-[var(--content-text)] ${isLight ? 'text-black' : 'text-white'}`}>
-                  {isRTL ? 'ناجحة' : 'Success'}: {kpiData.success}
+                  {isRTL ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Success'}: {kpiData.success}
                   {kpiData.total > 0 && (
                     <> ({Math.round((kpiData.success / kpiData.total) * 100)}%)</>
                   )}
@@ -624,7 +624,7 @@ const ExportsReport = () => {
               <div className="inline-flex items-center gap-2">
                 <span className="inline-block w-2 h-2 rounded-full bg-rose-500" />
                 <span className={`text-[var(--content-text)] ${isLight ? 'text-black' : 'text-white'}`}>
-                  {isRTL ? 'فاشلة' : 'Failed'}: {kpiData.failed}
+                  {isRTL ? 'Ã™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Failed'}: {kpiData.failed}
                   {kpiData.total > 0 && (
                     <> ({Math.round((kpiData.failed / kpiData.total) * 100)}%)</>
                   )}
@@ -638,7 +638,7 @@ const ExportsReport = () => {
       <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden mb-4">
         <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
           <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>
-            {isRTL ? 'قائمة التصدير' : 'Exports List'}
+            {isRTL ? 'Ã™â€šÃ˜Â§Ã˜Â¦Ã™â€¦Ã˜Â© Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports List'}
           </h2>
           {canExport && (
             <div className="relative" ref={exportMenuRef}>
@@ -646,7 +646,7 @@ const ExportsReport = () => {
                 onClick={() => setShowExportMenu(!showExportMenu)}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >
-                <FaFileExport /> {isRTL ? 'تصدير' : 'Export'}
+                <FaFileExport /> {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Export'}
                 <ChevronDown
                   className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`}
                   size={12}
@@ -660,13 +660,13 @@ const ExportsReport = () => {
                     onClick={exportExcel}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                   >
-                    <FaFileExcel className="text-green-600" /> {isRTL ? 'تصدير كـ Excel' : 'Export to Excel'}
+                    <FaFileExcel className="text-green-600" /> {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã™Æ’Ã™â‚¬ Excel' : 'Export to Excel'}
                   </button>
                   <button
                     onClick={exportPDF}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                   >
-                    <FaFilePdf className="text-red-600" /> {isRTL ? 'تصدير كـ PDF' : 'Export to PDF'}
+                    <FaFilePdf className="text-red-600" /> {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã™Æ’Ã™â‚¬ PDF' : 'Export to PDF'}
                   </button>
                 </div>
               )}
@@ -690,16 +690,16 @@ const ExportsReport = () => {
                 
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نفّذ بواسطة' : 'Performed By'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{row.performedBy}</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'التاريخ' : 'Date'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â®' : 'Date'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">{row.timestamp.toLocaleString()}</span>
                   </div>
                   <div className="col-span-2 flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'اخطاء' : 'error'}</span>
-                    <span className={`font-medium ${isLight ? 'text-black' : 'text-white'} truncate`}>{row.error || '—'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error'}</span>
+                    <span className={`font-medium ${isLight ? 'text-black' : 'text-white'} truncate`}>{row.error || '-'}</span>
                   </div>
                 </div>
 
@@ -709,7 +709,7 @@ const ExportsReport = () => {
                     className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm font-medium"
                   >
                     <Eye size={16} />
-                    {isRTL ? 'معاينة' : 'Preview'}
+                    {isRTL ? 'Ã™â€¦Ã˜Â¹Ã˜Â§Ã™Å Ã™â€ Ã˜Â©' : 'Preview'}
                   </button>
                   {canExport && (
                     <button
@@ -717,7 +717,7 @@ const ExportsReport = () => {
                       className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors text-sm font-medium"
                     >
                       <Download size={16} />
-                      {isRTL ? 'تحميل' : 'Download'}
+                      {isRTL ? 'Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž' : 'Download'}
                     </button>
                   )}
                 </div>
@@ -726,7 +726,7 @@ const ExportsReport = () => {
           })}
           {paginatedRows.length === 0 && (
             <div className={`text-center py-8 ${isLight ? 'text-black' : 'text-white'}`}>
-              {isRTL ? 'لا توجد بيانات' : 'No data available'}
+              {isRTL ? 'Ã™â€žÃ˜Â§ Ã˜ÂªÃ™Ë†Ã˜Â¬Ã˜Â¯ Ã˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª' : 'No data available'}
             </div>
           )}
         </div>
@@ -736,13 +736,13 @@ const ExportsReport = () => {
           <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
             <thead className={`text-xs ${isLight ? 'text-black' : 'text-white'} uppercase  dark:bg-gray-700/50`}>
               <tr>
-                <th className="px-4 py-3 text-start">{isRTL ? 'اسم الملف' : 'File Name'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'الحالة' : 'Status'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'القسم' : 'Department'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'نفّذ بواسطة' : 'Performed By'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'التاريخ والوقت' : 'Date & Time'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'اخطاء' : 'error'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'الإجراء' : 'Action'}</th>
+                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name'}</th>
+                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â©' : 'Status'}</th>
+                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department'}</th>
+                <th className="px-4 py-3 text-start">{isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By'}</th>
+                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â® Ã™Ë†Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Date & Time'}</th>
+                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error'}</th>
+                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â¥Ã˜Â¬Ã˜Â±Ã˜Â§Ã˜Â¡' : 'Action'}</th>
               </tr>
             </thead>
             <tbody>
@@ -762,15 +762,15 @@ const ExportsReport = () => {
                       <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">
                         {row.timestamp.toLocaleString()}
                       </td>
-                      <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} max-w-xs truncate`} title={row.error}>
-                        {row.error || '—'}
+                      <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'} max-w-xs truncate`} title={row.error || ''}>
+                        {row.error || '-'}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setPreviewItem(row)}
                             className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded text-blue-600 dark:text-blue-400 transition-colors"
-                            title={isRTL ? 'معاينة' : 'Preview'}
+                            title={isRTL ? 'Ã™â€¦Ã˜Â¹Ã˜Â§Ã™Å Ã™â€ Ã˜Â©' : 'Preview'}
                           >
                             <Eye size={16} />
                           </button>
@@ -778,7 +778,7 @@ const ExportsReport = () => {
                             <button
                               onClick={() => handleDownloadRowCSV(row)}
                               className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded text-blue-600 dark:text-blue-400 transition-colors"
-                              title={isRTL ? 'تحميل' : 'Download'}
+                              title={isRTL ? 'Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž' : 'Download'}
                             >
                               <Download size={16} />
                             </button>
@@ -791,7 +791,7 @@ const ExportsReport = () => {
               ) : (
                 <tr>
                   <td colSpan={7} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
-                    {isRTL ? 'لا توجد بيانات' : 'No data available'}
+                    {isRTL ? 'Ã™â€žÃ˜Â§ Ã˜ÂªÃ™Ë†Ã˜Â¬Ã˜Â¯ Ã˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª' : 'No data available'}
                   </td>
                 </tr>
               )}
@@ -802,7 +802,7 @@ const ExportsReport = () => {
         <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
             {isRTL
-              ? `إظهار ${Math.min((currentPage - 1) * entriesPerPage + 1, totalExports)}-${Math.min(currentPage * entriesPerPage, totalExports)} من ${totalExports}`
+              ? `Ã˜Â¥Ã˜Â¸Ã™â€¡Ã˜Â§Ã˜Â± ${Math.min((currentPage - 1) * entriesPerPage + 1, totalExports)}-${Math.min(currentPage * entriesPerPage, totalExports)} Ã™â€¦Ã™â€  ${totalExports}`
               : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalExports)}-${Math.min(currentPage * entriesPerPage, totalExports)} of ${totalExports}`}
           </div>
           <div className="flex items-center gap-4">
@@ -811,7 +811,7 @@ const ExportsReport = () => {
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                title={isRTL ? 'السابق' : 'Prev'}
+                title={isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â³Ã˜Â§Ã˜Â¨Ã™â€š' : 'Prev'}
               >
                 {isRTL ? (
                   <ChevronRight className="w-4 h-4" />
@@ -821,14 +821,14 @@ const ExportsReport = () => {
               </button>
               <span className="text-sm whitespace-nowrap">
                 {isRTL
-                  ? `الصفحة ${currentPage} من ${pageCount}`
+                  ? `Ã˜Â§Ã™â€žÃ˜ÂµÃ™ÂÃ˜Â­Ã˜Â© ${currentPage} Ã™â€¦Ã™â€  ${pageCount}`
                   : `Page ${currentPage} of ${pageCount}`}
               </span>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                 disabled={currentPage === pageCount}
-                title={isRTL ? 'التالي' : 'Next'}
+                title={isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã™â€žÃ™Å ' : 'Next'}
               >
                 {isRTL ? (
                   <ChevronLeft className="w-4 h-4" />
@@ -839,7 +839,7 @@ const ExportsReport = () => {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className={`text-[10px] sm:text-xs ${isLight ? 'text-black' : 'text-white'} whitespace-nowrap`}>
-                {isRTL ? 'لكل صفحة:' : 'Per page:'}
+                {isRTL ? 'Ã™â€žÃ™Æ’Ã™â€ž Ã˜ÂµÃ™ÂÃ˜Â­Ã˜Â©:' : 'Per page:'}
               </span>
               <select
                 className={`input w-24 text-sm py-0 px-2 h-8 ${isLight ? 'text-black' : 'text-white'}`}
@@ -870,7 +870,7 @@ const ExportsReport = () => {
             <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
               <h2 className={`text-lg font-bold text-gray-900 ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2`}>
                 <Eye size={20} className="text-blue-500" />
-                {isRTL ? 'تفاصيل الملف' : 'File Details'}
+                {isRTL ? 'Ã˜ÂªÃ™ÂÃ˜Â§Ã˜ÂµÃ™Å Ã™â€ž Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Details'}
               </h2>
               <button
                 onClick={() => setPreviewItem(null)}
@@ -902,7 +902,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <Building2 size={16} />
-                    {isRTL ? 'القسم' : 'Department'}
+                    {isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`}>
                     {previewItem.department}
@@ -911,7 +911,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <User size={16} />
-                    {isRTL ? 'نفّذ بواسطة' : 'Performed By'}
+                    {isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`}>
                     {previewItem.performedBy}
@@ -920,7 +920,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <Calendar size={16} />
-                    {isRTL ? 'التاريخ' : 'Date'}
+                    {isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â®' : 'Date'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">
                     {previewItem.timestamp.toLocaleDateString()}
@@ -929,7 +929,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-400 flex items-center gap-2">
                     <Clock size={16} />
-                    {isRTL ? 'الوقت' : 'Time'}
+                    {isRTL ? 'Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Time'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">
                     {previewItem.timestamp.toLocaleTimeString()}
@@ -951,7 +951,7 @@ const ExportsReport = () => {
                 onClick={() => setPreviewItem(null)}
                 className={`${canExport ? 'flex-1' : 'w-full'} px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-sm transition-colors`}
               >
-                {isRTL ? 'إغلاق' : 'Close'}
+                {isRTL ? 'Ã˜Â¥Ã˜ÂºÃ™â€žÃ˜Â§Ã™â€š' : 'Close'}
               </button>
               {canExport && (
                 <button
@@ -962,7 +962,7 @@ const ExportsReport = () => {
                   className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
                 >
                   <Download size={18} />
-                  {isRTL ? 'تحميل' : 'Download'}
+                  {isRTL ? 'Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž' : 'Download'}
                 </button>
               )}
             </div>
@@ -979,7 +979,7 @@ const ExportsReport = () => {
           <div className="relative z-50 glass-panel rounded-xl p-4 w-[560px] max-w-[95vw] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-3">
               <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
-                {isRTL ? 'تصدير جديد' : 'New Export'}
+                {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã˜Â¬Ã˜Â¯Ã™Å Ã˜Â¯' : 'New Export'}
               </h2>
               <button
                 className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
@@ -991,7 +991,7 @@ const ExportsReport = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className={`${isLight ? 'text-black' : 'text-white'} label`} >
-                  {isRTL ? 'اسم الملف' : 'File Name'}
+                  {isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name'}
                 </label>
                 <input
                   className={`input w-full dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:border-gray-600`}
@@ -1004,7 +1004,7 @@ const ExportsReport = () => {
               </div>
               <div>
                 <label className="label dark:text-white">
-                  {isRTL ? 'القسم' : 'Department'}
+                  {isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department'}
                 </label>
                 <select
                   className="input w-full dark:bg-gray-700 dark:text-white dark:border-gray-600"
@@ -1028,10 +1028,10 @@ const ExportsReport = () => {
                 className={`px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700  ${isLight ? 'text-black' : 'text-white'} transition-colors`}
                 onClick={() => setShowExportModal(false)}
               >
-                {isRTL ? 'إلغاء' : 'Cancel'}
+                {isRTL ? 'Ã˜Â¥Ã™â€žÃ˜ÂºÃ˜Â§Ã˜Â¡' : 'Cancel'}
               </button>
               <button className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors" onClick={performExport}>
-                {isRTL ? 'تنفيذ التصدير' : 'Perform Export'}
+                {isRTL ? 'Ã˜ÂªÃ™â€ Ã™ÂÃ™Å Ã˜Â° Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Perform Export'}
               </button>
             </div>
           </div>

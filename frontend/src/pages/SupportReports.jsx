@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api } from '../utils/api'
+import { api, logExportEvent } from '../utils/api'
 import { PieChart } from '../shared/components/PieChart'
 import { useAppState } from '../shared/context/AppStateProvider'
 import DateRangePicker from '../shared/components/DateRangePicker'
@@ -231,6 +231,11 @@ export default function SupportReports() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url; a.download = fileName || 'export.csv'; a.click(); URL.revokeObjectURL(url)
+      logExportEvent({
+        module: 'Support Reports',
+        fileName: fileName || 'export.csv',
+        format: 'csv',
+      })
     }
     return <button className="btn btn-outline btn-xs" onClick={onExport}>{t('Export CSV')}</button>
   }

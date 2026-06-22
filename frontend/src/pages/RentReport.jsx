@@ -23,16 +23,116 @@ export default function RentReport() {
   const isLight = theme === 'light'
   const { user } = useAppState()
   const canExport = canExportReport(user, 'Rent Report')
-  const isRTL = i18n.dir() === 'rtl'
+  const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
+
+  const isSuperManagerRole = (role) => {
+    const r = String(role || '').toLowerCase()
+    return (
+      r === 'admin' ||
+      r === 'tenant admin' ||
+      r === 'tenant-admin' ||
+      r === 'operation manager' ||
+      r === 'sales admin' ||
+      r === 'director' ||
+      r === 'branch manager'
+    )
+  }
+
+  const normalizeDate = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    return raw.slice(0, 10)
+  }
+
+  const normalizeText = (value) => String(value || '').trim().toLowerCase()
+
+  const firstFilled = (...values) => {
+    for (const value of values) {
+      if (value === null || value === undefined) continue
+      if (typeof value === 'string' && value.trim() === '') continue
+      return value
+    }
+    return ''
+  }
+
+  const toLabel = (value) => {
+    if (value === null || value === undefined) return ''
+    if (typeof value === 'string' || typeof value === 'number') return String(value).trim()
+    if (typeof value === 'object') {
+      return String(
+        value.name ||
+        value.label ||
+        value.title ||
+        value.unit_name ||
+        value.name_en ||
+        value.value ||
+        ''
+      ).trim()
+    }
+    return ''
+  }
+
+  const isTruthyFlag = (value) => {
+    if (value === true || value === 1) return true
+    const normalized = normalizeText(value)
+    return ['true', '1', 'yes', 'renewed', 'done'].includes(normalized)
+  }
+
+  const buildLookupMaps = (sourcesList = [], propertiesList = []) => {
+    const sourceById = new Map()
+    const sourceByName = new Map()
+
+    sourcesList.forEach((source) => {
+      const id = String(source?.id ?? '').trim()
+      const name = toLabel(source?.name || source?.title || source?.value)
+      if (id && name) sourceById.set(id, name)
+      if (name) sourceByName.set(normalizeText(name), name)
+    })
+
+    const propertyById = new Map()
+    const propertyByName = new Map()
+
+    propertiesList.forEach((property) => {
+      const id = String(property?.id ?? '').trim()
+      const propertyName = toLabel(
+        firstFilled(property?.name, property?.title, property?.unit_code, property?.project)
+      )
+      const propertyType = toLabel(
+        firstFilled(
+          property?.property_type,
+          property?.propertyType,
+          property?.type,
+          property?.unit_type,
+          property?.unitType
+        )
+      )
+
+      const normalizedNames = [
+        property?.name,
+        property?.title,
+        property?.unit_code,
+      ]
+        .map((value) => normalizeText(value))
+        .filter(Boolean)
+
+      const entry = { ...property, resolvedName: propertyName, resolvedType: propertyType }
+
+      if (id) propertyById.set(id, entry)
+      normalizedNames.forEach((nameKey) => propertyByName.set(nameKey, entry))
+    })
+
+    return { sourceById, sourceByName, propertyById, propertyByName }
+  }
 
   const [rentUnits, setRentUnits] = useState([])
   const [usersList, setUsersList] = useState([])
+  const [sourcesList, setSourcesList] = useState([])
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
 
   const getDescendants = (rootId, allUsers) => {
     let descendants = []
-    const direct = allUsers.filter(u => u.manager_id === rootId)
+    const direct = allUsers.filter(u => String(u.manager_id) === String(rootId))
     direct.forEach(u => {
       descendants.push(u)
       descendants = descendants.concat(getDescendants(u.id, allUsers))
@@ -57,13 +157,23 @@ export default function RentReport() {
 
     const loadRents = async () => {
       try {
-        const [byNext, byType] = await Promise.all([
+        const [byNext, byType, sourcesRes, propertiesRes] = await Promise.all([
           api.get('/api/lead-actions', { params: { next_action_type: 'rent' } }),
-          api.get('/api/lead-actions', { params: { type: 'rent' } })
+          api.get('/api/lead-actions', { params: { type: 'rent' } }),
+          api.get('/api/sources'),
+          api.get('/api/properties', { params: { all: 1 } }),
         ])
 
         const extract = res =>
           Array.isArray(res.data) ? res.data : (res.data?.data || [])
+
+        const sourcesList = extract(sourcesRes)
+        const propertiesList = extract(propertiesRes)
+        const { sourceById, sourceByName, propertyById, propertyByName } = buildLookupMaps(sourcesList, propertiesList)
+
+        if (isMounted) {
+          setSourcesList(sourcesList)
+        }
 
         const combined = [...extract(byNext), ...extract(byType)]
         const uniqueMap = new Map()
@@ -103,50 +213,130 @@ export default function RentReport() {
             details.rent_end_date ||
             details.endDate
 
-          const startDate = startRaw ? String(startRaw).slice(0, 10) : ''
-          const endDate = endRaw ? String(endRaw).slice(0, 10) : ''
+          const startDate = normalizeDate(startRaw)
+          const endDate = normalizeDate(endRaw)
 
           let status = 'active'
           if (endDate && endDate < today) {
             status = 'expired'
           }
 
+          const renewed = isTruthyFlag(
+            firstFilled(
+              details.renewed,
+              details.isRenewed,
+              details.is_renewed,
+              details.renewal,
+              details.renewal_status
+            )
+          )
+
+          if (renewed) {
+            status = 'renewed'
+          }
+
           const salesPerson =
-            (action.user && action.user.name) ||
+            (lead.assigned_agent && lead.assigned_agent.name) ||
+            (lead.assignedAgent && lead.assignedAgent.name) ||
             lead.sales_person ||
             lead.salesperson ||
-            lead.assigned_to ||
+            (action.user && action.user.name) ||
             ''
 
-          const source = lead.source || lead.channel || ''
+          const salesPersonId =
+            lead.assigned_to ??
+            lead.assignedTo ??
+            (lead.assigned_agent && lead.assigned_agent.id) ??
+            (lead.assignedAgent && lead.assignedAgent.id) ??
+            action.user_id ??
+            (action.user && action.user.id) ??
+            null
+
+          const rawSource = firstFilled(
+            lead.source,
+            lead.source_id,
+            lead.channel,
+            details.source,
+            details.channel,
+            action.source
+          )
+
+          const rawSourceKey = String(rawSource ?? '').trim()
+          const source =
+            sourceById.get(rawSourceKey) ||
+            sourceByName.get(normalizeText(rawSourceKey)) ||
+            toLabel(rawSource)
+
           const clientName =
-            lead.name || lead.fullName || lead.company || ''
+            toLabel(firstFilled(lead.name, lead.fullName, lead.company))
           const contact =
-            lead.phone || lead.mobile || lead.whatsapp || ''
+            toLabel(firstFilled(lead.phone, lead.mobile, lead.whatsapp))
+
+          const rawUnitId = firstFilled(
+            details.rentUnit,
+            details.rent_unit,
+            details.unit_id,
+            details.unitId,
+            details.property_id,
+            details.propertyId
+          )
+
+          const propertyFromId = rawUnitId ? propertyById.get(String(rawUnitId).trim()) : null
 
           const propertyName =
-            details.unitName ||
-            details.unit_name ||
-            details.property ||
-            details.propertyName ||
-            details.unit ||
-            ''
+            toLabel(
+              firstFilled(
+                propertyFromId?.resolvedName,
+                details.unitName,
+                details.unit_name,
+                details.property,
+                details.propertyName,
+                details.unit,
+                details.rentUnitName,
+                propertyByName.get(normalizeText(details.unitName))?.resolvedName,
+                propertyByName.get(normalizeText(details.unit_name))?.resolvedName,
+                propertyByName.get(normalizeText(details.property))?.resolvedName,
+                propertyByName.get(normalizeText(details.propertyName))?.resolvedName,
+                propertyByName.get(normalizeText(details.unit))?.resolvedName,
+                propertyByName.get(normalizeText(details.rentUnitName))?.resolvedName,
+                lead.project,
+                lead.item,
+                lead.product
+              )
+            )
+
+          const propertyByResolvedName = propertyByName.get(normalizeText(propertyName))
+
+          const unitType = toLabel(
+            firstFilled(
+              propertyFromId?.resolvedType,
+              propertyByResolvedName?.resolvedType,
+              details.unitType,
+              details.unit_type,
+              details.propertyType,
+              details.property_type,
+              lead.type
+            )
+          )
 
           return {
             id: action.id,
             leadId: lead.id,
-            property: propertyName || (lead.project || ''),
+            property: propertyName,
             clientName,
             contact,
             startDate,
             endDate,
             rentAmount,
             salesPerson,
+            salesPersonId: salesPersonId !== null && salesPersonId !== undefined && salesPersonId !== ''
+              ? String(salesPersonId)
+              : '',
             manager: '',
             source,
             status,
-            unitType: details.unitType || '',
-            renewed: false
+            unitType,
+            renewed
           }
         })
 
@@ -155,6 +345,7 @@ export default function RentReport() {
       } catch (e) {
         if (!isMounted) return
         console.error('Failed to load rent actions', e)
+        setSourcesList([])
         setRentUnits([])
       }
     }
@@ -174,28 +365,6 @@ export default function RentReport() {
     }
   }, [])
 
-  const salesPersonOptions = useMemo(
-    () => ['all', ...Array.from(new Set(rentUnits.map(p => p.salesPerson).filter(Boolean)))],
-    [rentUnits]
-  )
-
-  const managerOptions = useMemo(() => {
-    const uniqueUsers = Array.from(
-      new Map(usersList.map(u => [u.id, u])).values()
-    )
-    return [{ id: 'all', name: t('All') }, ...uniqueUsers]
-  }, [usersList, t])
-
-  const sourceOptions = useMemo(
-    () => ['all', ...Array.from(new Set(rentUnits.map(p => p.source).filter(Boolean)))],
-    [rentUnits]
-  )
-  const statusOptions = ['all', 'active', 'expired', 'renewed']
-  const unitTypeOptions = useMemo(
-    () => ['all', ...Array.from(new Set(rentUnits.map(p => p.unitType).filter(Boolean)))],
-    [rentUnits]
-  )
-
   // Filter States
   const [salesPersonFilter, setSalesPersonFilter] = useState('all')
   const [managerFilter, setManagerFilter] = useState('all')
@@ -207,28 +376,144 @@ export default function RentReport() {
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
 
+  const salesPersonOptions = useMemo(() => {
+    if (!usersList || usersList.length === 0) {
+      const unique = Array.from(
+        new Map(
+          rentUnits
+            .filter(p => p.salesPersonId && p.salesPerson)
+            .map(p => [String(p.salesPersonId), { value: String(p.salesPersonId), label: p.salesPerson }])
+        ).values()
+      )
+      return [{ value: 'all', label: t('All') }, ...unique]
+    }
+
+    if (!managerFilter || managerFilter === 'all') {
+      const rentUserOptions = rentUnits
+        .filter(p => p.salesPersonId && p.salesPerson)
+        .map(p => [String(p.salesPersonId), { id: String(p.salesPersonId), name: p.salesPerson }])
+
+      return [
+        { value: 'all', label: t('All') },
+        ...Array.from(new Map([
+          ...usersList.map(u => [String(u.id), u]),
+          ...rentUserOptions
+        ]).values())
+          .filter(u => String(u?.name || '').trim() !== '')
+          .map(u => ({ value: String(u.id), label: u.name }))
+      ]
+    }
+
+    const selectedManagers = usersList.filter(u => String(u.id) === String(managerFilter))
+    const hasSuperManager = selectedManagers.some(u => isSuperManagerRole(u.role))
+
+    let candidates
+    if (hasSuperManager) {
+      candidates = usersList
+    } else {
+      const all = []
+      selectedManagers.forEach(m => {
+        all.push(m)
+        getDescendants(m.id, usersList).forEach(s => all.push(s))
+      })
+      candidates = Array.from(new Map(all.map(u => [String(u.id), u])).values())
+    }
+
+    return [
+      { value: 'all', label: t('All') },
+      ...candidates
+        .filter(u => String(u?.name || '').trim() !== '')
+        .map(u => ({ value: String(u.id), label: u.name }))
+    ]
+  }, [usersList, rentUnits, managerFilter, t])
+
+  const managerOptions = useMemo(() => {
+    if (!usersList || usersList.length === 0) {
+      return [{ value: 'all', label: t('All') }]
+    }
+
+    const directManagerIds = new Set(usersList.map(u => Number(u.manager_id)).filter(Number.isFinite))
+    const managers = usersList.filter(u => {
+      const role = String(u.role || '').toLowerCase()
+      const isSalesPerson = role.includes('sales person') || role.includes('salesperson')
+      return !isSalesPerson && (directManagerIds.has(Number(u.id)) || isSuperManagerRole(role))
+    })
+
+    return [
+      { value: 'all', label: t('All') },
+      ...Array.from(new Map(managers.map(m => [String(m.id), m])).values()).map(m => ({
+        value: String(m.id),
+        label: m.role ? `${m.name || `#${m.id}`} (${m.role})` : (m.name || `#${m.id}`)
+      }))
+    ]
+  }, [usersList, t])
+
+  const sourceOptions = useMemo(() => {
+    const dbOptions = Array.from(
+      new Map(
+        (sourcesList || [])
+          .map((source) => {
+            const label = toLabel(source?.name || source?.title || source?.value)
+            return label ? [normalizeText(label), { value: label, label }] : null
+          })
+          .filter(Boolean)
+      ).values()
+    )
+
+    if (dbOptions.length > 0) {
+      return [{ value: 'all', label: t('All') }, ...dbOptions]
+    }
+
+    return [
+      { value: 'all', label: t('All') },
+      ...Array.from(
+        new Map(
+          rentUnits
+            .map((p) => p.source)
+            .filter(Boolean)
+            .map((s) => [normalizeText(s), { value: String(s).trim(), label: String(s).trim() }])
+        ).values()
+      ),
+    ]
+  }, [sourcesList, rentUnits, t])
+
+  const statusOptions = useMemo(() => (
+    [
+      { value: 'all', label: t('All') },
+      { value: 'active', label: t('Active') },
+      { value: 'expired', label: t('Expired') },
+      { value: 'renewed', label: t('Renewed') }
+    ]
+  ), [t])
+
+  const unitTypeOptions = useMemo(() => (
+    [{ value: 'all', label: t('All') }, ...Array.from(new Set(rentUnits.map(p => p.unitType).filter(Boolean))).map(u => ({ value: u, label: u }))]
+  ), [rentUnits, t])
+
   const filtered = useMemo(() => {
     return rentUnits.filter(p => {
       const bySales =
-        salesPersonFilter === 'all' || p.salesPerson === salesPersonFilter
+        salesPersonFilter === 'all' || String(p.salesPersonId || '') === String(salesPersonFilter)
 
       const byManager = (() => {
         if (!usersList.length || managerFilter === 'all') return true
+        if (!p.salesPersonId) return false
         const mgr = usersList.find(
           u => String(u.id) === String(managerFilter)
         )
         if (!mgr) return true
+        if (isSuperManagerRole(mgr.role)) return true
         const all = [mgr, ...getDescendants(mgr.id, usersList)]
-        const salesNames = new Set(
-          all.map(u => u.name).filter(Boolean)
+        const salesIds = new Set(
+          all.map(u => String(u.id)).filter(Boolean)
         )
-        return !p.salesPerson || salesNames.has(p.salesPerson)
+        return !p.salesPersonId || salesIds.has(String(p.salesPersonId))
       })()
 
-      const bySource = sourceFilter === 'all' || p.source === sourceFilter
+      const bySource = sourceFilter === 'all' || normalizeText(p.source) === normalizeText(sourceFilter)
       const byStatus = statusFilter === 'all' || p.status === statusFilter
       const byUnitType =
-        unitTypeFilter === 'all' || p.unitType === unitTypeFilter
+        unitTypeFilter === 'all' || normalizeText(p.unitType) === normalizeText(unitTypeFilter)
 
       const fromDate = dateFromFilter ? new Date(dateFromFilter) : null
       const toDate = dateToFilter ? new Date(dateToFilter) : null
@@ -266,6 +551,14 @@ export default function RentReport() {
   useEffect(() => {
     setCurrentPage(1)
   }, [rentUnits, salesPersonFilter, managerFilter, sourceFilter, statusFilter, unitTypeFilter, dateFromFilter, dateToFilter])
+
+  useEffect(() => {
+    if (salesPersonFilter === 'all') return
+    const stillExists = salesPersonOptions.some(option => option.value === salesPersonFilter)
+    if (!stillExists) {
+      setSalesPersonFilter('all')
+    }
+  }, [salesPersonFilter, salesPersonOptions])
 
   // KPI Calculations
   const totalRentUnits = filtered.length
@@ -425,7 +718,7 @@ export default function RentReport() {
       <div>
         <BackButton to="/reports" />
         <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'} mb-2`}>
-          {t(' Rent')}
+          {t('Rent Report')}
         </h1>
       </div>
 
@@ -440,7 +733,7 @@ export default function RentReport() {
               onClick={() => setShowAllFilters(prev => !prev)}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
             >
-              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'عرض الكل' : 'Show All')}
+              {showAllFilters ? t('Hide') : t('Show All')}
               <FaChevronDown
                 size={12}
                 className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`}
@@ -462,40 +755,28 @@ export default function RentReport() {
                 <User size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Sales Person')}
               </label>
-              <SearchableSelect value={salesPersonFilter} onChange={v => setSalesPersonFilter(v)}>
-                {salesPersonOptions.map(s => <option key={s} value={s}>{s === 'all' ? t('All') : s}</option>)}
-              </SearchableSelect>
+              <SearchableSelect options={salesPersonOptions} value={salesPersonFilter} onChange={v => setSalesPersonFilter(v)} placeholder={t('Sales Person')} isRTL={isRTL} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Users size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Manager')}
               </label>
-              <SearchableSelect value={managerFilter} onChange={v => setManagerFilter(v)}>
-                {managerOptions.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.id === 'all' ? t('All') : (m.name || `#${m.id}`)}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect options={managerOptions} value={managerFilter} onChange={v => setManagerFilter(v)} placeholder={t('Manager')} isRTL={isRTL} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Tag size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Source')}
               </label>
-              <SearchableSelect value={sourceFilter} onChange={v => setSourceFilter(v)}>
-                {sourceOptions.map(s => <option key={s} value={s}>{s === 'all' ? t('All') : s}</option>)}
-              </SearchableSelect>
+              <SearchableSelect options={sourceOptions} value={sourceFilter} onChange={v => setSourceFilter(v)} placeholder={t('Source')} isRTL={isRTL} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Layers size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Rent Status')}
               </label>
-              <SearchableSelect value={statusFilter} onChange={v => setStatusFilter(v)}>
-                {statusOptions.map(s => <option key={s} value={s}>{t(s.charAt(0).toUpperCase() + s.slice(1))}</option>)}
-              </SearchableSelect>
+              <SearchableSelect options={statusOptions} value={statusFilter} onChange={v => setStatusFilter(v)} placeholder={t('Rent Status')} isRTL={isRTL} />
             </div>
           </div>
 
@@ -525,9 +806,7 @@ export default function RentReport() {
                 <Home size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Unit Type')}
               </label>
-              <SearchableSelect value={unitTypeFilter} onChange={v => setUnitTypeFilter(v)}>
-                {unitTypeOptions.map(u => <option key={u} value={u}>{u === 'all' ? t('All') : u}</option>)}
-              </SearchableSelect>
+              <SearchableSelect options={unitTypeOptions} value={unitTypeFilter} onChange={v => setUnitTypeFilter(v)} placeholder={t('Unit Type')} isRTL={isRTL} />
             </div>
           </div>
         </div>
@@ -725,9 +1004,7 @@ export default function RentReport() {
 
         <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
-            {isRTL
-              ? `إظهار ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} من ${totalRentUnits}`
-              : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} of ${totalRentUnits}`}
+            {`Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} of ${totalRentUnits}`}
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -735,7 +1012,7 @@ export default function RentReport() {
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                title={isRTL ? 'السابق' : 'Prev'}
+                title={t('Prev')}
               >
                 {isRTL ? (
                   <ChevronRight className="w-4 h-4" />
@@ -744,15 +1021,13 @@ export default function RentReport() {
                 )}
               </button>
               <span className="text-sm whitespace-nowrap">
-                {isRTL
-                  ? `الصفحة ${currentPage} من ${pageCount}`
-                  : `Page ${currentPage} of ${pageCount}`}
+                {`Page ${currentPage} of ${pageCount}`}
               </span>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                 disabled={currentPage === pageCount}
-                title={isRTL ? 'التالي' : 'Next'}
+                title={t('Next')}
               >
                 {isRTL ? (
                   <ChevronLeft className="w-4 h-4" />
@@ -763,7 +1038,7 @@ export default function RentReport() {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
-                {isRTL ? 'لكل صفحة:' : 'Per page:'}
+                {t('Per page:')}
               </span>
               <select
                 className="input w-24 text-sm py-0 px-2 h-8"

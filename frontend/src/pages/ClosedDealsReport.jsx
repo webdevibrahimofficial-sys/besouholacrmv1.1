@@ -26,11 +26,16 @@ export default function ClosedDealsReport() {
   const canExport = canExportReport(user, 'Closed Deals')
   const companyType = String(company?.company_type || '').toLowerCase()
   const isRealEstate = companyType === 'real estate'
+  const projectLabel = isRealEstate ? t('Project') : t('Item')
+  const closedByProjectTitle = isRealEstate
+    ? t('Closed Deals by Project')
+    : (isRTL ? 'الصفقات المغلقة حسب المنتج' : 'Closed Deals by Item')
 
   const [deals, setDeals] = useState([])
   const [usersList, setUsersList] = useState([])
   const [sourceOptions, setSourceOptions] = useState(['all'])
   const [projectOptions, setProjectOptions] = useState(['all'])
+  const [itemsList, setItemsList] = useState([])
 
   const [salesPersonFilter, setSalesPersonFilter] = useState('all')
   const [managerFilter, setManagerFilter] = useState('all')
@@ -66,6 +71,32 @@ export default function ClosedDealsReport() {
       descendants = descendants.concat(getDescendants(u.id, allUsers))
     })
     return descendants
+  }
+
+  const normalizeDate = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    return raw.slice(0, 10)
+  }
+
+  const resolveProjectOrItem = (lead) => {
+    if (isRealEstate) {
+      return (
+        lead.project ||
+        lead.project_name ||
+        (lead.projectRelation && (lead.projectRelation.name || lead.projectRelation.name_ar)) ||
+        ''
+      )
+    }
+
+    return (
+      (lead.item && (lead.item.name || lead.item.title || lead.item.product)) ||
+      lead.item_name ||
+      (lead.meta_data && (lead.meta_data.lead_item_name || lead.meta_data.item_name)) ||
+      itemsList.find(it => String(it.id) === String(lead.item_id || ''))?.name ||
+      lead.project ||
+      ''
+    )
   }
 
   useEffect(() => {
@@ -110,9 +141,23 @@ export default function ClosedDealsReport() {
 
           const lead = a.lead || {}
           const salesperson =
-            (a.user && a.user.name) ||
+            (lead.assigned_agent && lead.assigned_agent.name) ||
+            (lead.assignedAgent && lead.assignedAgent.name) ||
             lead.sales_person ||
             lead.salesperson ||
+            (a.user && a.user.name) ||
+            ''
+          const salespersonId =
+            lead.assigned_to ??
+            lead.assignedTo ??
+            (lead.assigned_agent && lead.assigned_agent.id) ??
+            (lead.assignedAgent && lead.assignedAgent.id) ??
+            a.user_id ??
+            (a.user && a.user.id) ??
+            null
+          const lastActionDateRaw =
+            lead.last_action_at ||
+            lead.lastActionAt ||
             ''
 
           return {
@@ -122,12 +167,14 @@ export default function ClosedDealsReport() {
             contact: lead.phone || '',
             value,
             dealType: a.next_action_type || a.action_type || '',
-            project: lead.project || '',
+            project: resolveProjectOrItem(lead),
             source: lead.source || '',
-            closedDate: typeof closedDateRaw === 'string'
-              ? closedDateRaw.slice(0, 10)
+            closedDate: normalizeDate(closedDateRaw),
+            lastActionDate: normalizeDate(lastActionDateRaw),
+            salesperson,
+            salespersonId: salespersonId !== null && salespersonId !== undefined && salespersonId !== ''
+              ? String(salespersonId)
               : '',
-            salesperson
           }
         })
         setDeals(mapped)
@@ -137,7 +184,27 @@ export default function ClosedDealsReport() {
       }
     }
     fetchDeals()
-  }, [])
+  }, [itemsList, isRealEstate])
+
+  useEffect(() => {
+    const fetchItems = async () => {
+      if (companyType !== 'general') {
+        setItemsList([])
+        return
+      }
+
+      try {
+        const res = await api.get('/api/items?all=1')
+        const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+        setItemsList(data)
+      } catch (e) {
+        console.error('Failed to fetch items for closed deals report', e)
+        setItemsList([])
+      }
+    }
+
+    fetchItems()
+  }, [companyType])
 
   useEffect(() => {
     const fetchSources = async () => {
@@ -184,13 +251,24 @@ export default function ClosedDealsReport() {
 
   const salesPersonOptions = useMemo(() => {
     if (!usersList || usersList.length === 0) {
-      const set = new Set(deals.map(d => d.salesperson).filter(Boolean))
-      return ['all', ...Array.from(set)]
+      const unique = Array.from(
+        new Map(
+          deals
+            .filter(d => d.salespersonId && d.salesperson)
+            .map(d => [String(d.salespersonId), { value: String(d.salespersonId), label: d.salesperson }])
+        ).values()
+      )
+      return [{ value: 'all', label: t('All') }, ...unique]
     }
 
     if (!managerFilter || managerFilter === 'all') {
       const uniqueUsers = Array.from(new Map(usersList.map(u => [u.id, u])).values())
-      return ['all', ...uniqueUsers.map(u => u.name).filter(Boolean)]
+      return [
+        { value: 'all', label: t('All') },
+        ...uniqueUsers
+          .filter(u => String(u?.name || '').trim() !== '')
+          .map(u => ({ value: String(u.id), label: u.name }))
+      ]
     }
 
     const selectedManagers = usersList.filter(u => String(u.id) === String(managerFilter))
@@ -218,46 +296,60 @@ export default function ClosedDealsReport() {
       candidates = Array.from(map.values())
     }
 
-    const names = candidates.map(u => u.name).filter(Boolean)
-    return ['all', ...Array.from(new Set(names))]
-  }, [usersList, managerFilter, deals])
+    return [
+      { value: 'all', label: t('All') },
+      ...Array.from(new Map(
+        candidates
+          .filter(u => String(u?.name || '').trim() !== '')
+          .map(u => [String(u.id), { value: String(u.id), label: u.name }])
+      ).values())
+    ]
+  }, [usersList, managerFilter, deals, t])
 
   const managerOptions = useMemo(() => {
     if (!usersList || usersList.length === 0) {
-      return [{ id: 'all', name: 'all', role: '' }]
+      return [{ value: 'all', label: t('All') }]
     }
+    const directManagerIds = new Set(usersList.map(u => Number(u.manager_id)).filter(Number.isFinite))
     const managers = usersList.filter(u => {
       const role = String(u.role || '').toLowerCase()
       const isSalesPerson = role.includes('sales person') || role.includes('salesperson')
-      return !isSalesPerson
+      return !isSalesPerson && (directManagerIds.has(Number(u.id)) || isSuperManagerRole(role))
     })
-    const uniqueManagers = Array.from(new Map(managers.map(m => [m.id, m])).values())
+    const uniqueManagers = Array.from(new Map(managers.map(m => [String(m.id), m])).values())
     return [
-      { id: 'all', name: 'all', role: '' },
+      { value: 'all', label: t('All') },
       ...uniqueManagers.map(m => ({
-        id: String(m.id),
-        name: m.name || `#${m.id}`,
-        role: m.role || ''
+        value: String(m.id),
+        label: m.role ? `${m.name || `#${m.id}`} (${m.role})` : (m.name || `#${m.id}`)
       }))
     ]
-  }, [usersList])
+  }, [usersList, t])
+
+  const sourceSelectOptions = useMemo(() => (
+    sourceOptions.map(s => ({ value: s, label: s === 'all' ? t('All') : s }))
+  ), [sourceOptions, t])
+
+  const projectSelectOptions = useMemo(() => (
+    projectOptions.map(p => ({ value: p, label: p === 'all' ? t('All') : p }))
+  ), [projectOptions, t])
 
   const filtered = useMemo(() => {
     return deals.filter(d => {
-      const bySales = salesPersonFilter === 'all' ? true : d.salesperson === salesPersonFilter
+      const bySales = salesPersonFilter === 'all' ? true : String(d.salespersonId || '') === String(salesPersonFilter)
       const byManager = (() => {
         if (!usersList || managerFilter === 'all') return true
         const mgr = usersList.find(u => String(u.id) === String(managerFilter))
         if (!mgr) return true
         const all = [mgr, ...getDescendants(mgr.id, usersList)]
-        const salesNames = new Set(all.map(u => u.name).filter(Boolean))
-        return !d.salesperson || salesNames.has(d.salesperson)
+        const salesIds = new Set(all.map(u => String(u.id)).filter(Boolean))
+        return !d.salespersonId || salesIds.has(String(d.salespersonId))
       })()
       const bySource = sourceFilter === 'all' ? true : d.source === sourceFilter
       const byProject = projectFilter === 'all' ? true : d.project === projectFilter
       const byLastAction = (() => {
         if (!lastActionDateFrom && !lastActionDateTo) return true
-        const d0 = d.closedDate || ''
+        const d0 = d.lastActionDate || ''
         if (!d0) return false
         if (lastActionDateFrom && d0 < lastActionDateFrom) return false
         if (lastActionDateTo && d0 > lastActionDateTo) return false
@@ -300,7 +392,7 @@ export default function ClosedDealsReport() {
     let relevantUsers = []
 
     if (salesPersonFilter !== 'all') {
-      const u = usersList.find(user => user.name === salesPersonFilter)
+      const u = usersList.find(user => String(user.id) === String(salesPersonFilter))
       if (u) relevantUsers = [u]
     } else if (managerFilter !== 'all') {
        const mgr = usersList.find(u => String(u.id) === String(managerFilter))
@@ -390,7 +482,7 @@ export default function ClosedDealsReport() {
       [t('Lead Name')]: d.leadName,
       [t('Contact')]: d.contact,
       [t('Source')]: d.source,
-      [t('Project')]: d.project,
+      [projectLabel]: d.project,
       [t('Deal Type')]: d.dealType,
       [t('Deal Value')]: d.value,
       [t('Sales Person')]: d.salesperson,
@@ -520,60 +612,56 @@ export default function ClosedDealsReport() {
                 <User size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Sales Person')}
               </label>
-              <SearchableSelect value={salesPersonFilter} onChange={v => setSalesPersonFilter(v)}>
-                {salesPersonOptions.map(s => (
-                  <option key={s} value={s}>
-                    {s === 'all' ? t('All') : s}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect
+                options={salesPersonOptions}
+                value={salesPersonFilter}
+                onChange={v => setSalesPersonFilter(v)}
+                placeholder={t('Sales Person')}
+                isRTL={isRTL}
+                icon={<User size={16} />}
+              />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Users size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Manager')}
               </label>
-              <SearchableSelect value={managerFilter} onChange={v => setManagerFilter(v)}>
-                {managerOptions.map(m => {
-                  const roleLabel = m.id === 'all' ? '' : (m.role || '')
-                  const text = m.id === 'all'
-                    ? t('All')
-                    : roleLabel
-                      ? `${m.name || `#${m.id}`} (${roleLabel})`
-                      : (m.name || `#${m.id}`)
-                  return (
-                    <option key={m.id} value={m.id}>
-                      {text}
-                    </option>
-                  )
-                })}
-              </SearchableSelect>
+              <SearchableSelect
+                options={managerOptions}
+                value={managerFilter}
+                onChange={v => setManagerFilter(v)}
+                placeholder={t('Manager')}
+                isRTL={isRTL}
+                icon={<Users size={16} />}
+              />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Tag size={12} className="text-blue-500 dark:text-blue-400" />
                 {t('Source')}
               </label>
-              <SearchableSelect value={sourceFilter} onChange={v => setSourceFilter(v)}>
-                {sourceOptions.map(s => (
-                  <option key={s} value={s}>
-                    {s === 'all' ? t('All') : s}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect
+                options={sourceSelectOptions}
+                value={sourceFilter}
+                onChange={v => setSourceFilter(v)}
+                placeholder={t('Source')}
+                isRTL={isRTL}
+                icon={<Tag size={16} />}
+              />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? (isRealEstate ? 'المشروع' : 'المنتج') : (isRealEstate ? t('Project') : t('Item'))}
+                {isRTL ? (isRealEstate ? 'المشروع' : 'المنتج') : projectLabel}
               </label>
-              <SearchableSelect value={projectFilter} onChange={v => setProjectFilter(v)}>
-                {projectOptions.map(p => (
-                  <option key={p} value={p}>
-                    {p === 'all' ? t('All') : p}
-                  </option>
-                ))}
-              </SearchableSelect>
+              <SearchableSelect
+                options={projectSelectOptions}
+                value={projectFilter}
+                onChange={v => setProjectFilter(v)}
+                placeholder={projectLabel}
+                isRTL={isRTL}
+                icon={<Briefcase size={16} />}
+              />
             </div>
           </div>
 
@@ -640,7 +728,7 @@ export default function ClosedDealsReport() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {renderPieCard(t('Closed Deals by Channels'), closedByChannelSegments)}
-        {renderPieCard(t('Closed Deals by Project'), closedByProjectSegments)}
+        {renderPieCard(closedByProjectTitle, closedByProjectSegments)}
         <div className="group relative backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
           <div className="flex items-center gap-2 mb-4">
             <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
@@ -708,7 +796,7 @@ export default function ClosedDealsReport() {
               
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="space-y-1">
-                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Project')}</p>
+                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{projectLabel}</p>
                   <p className="font-medium dark:text-gray-200">{deal.project}</p>
                 </div>
                 <div className="space-y-1">
@@ -758,7 +846,7 @@ export default function ClosedDealsReport() {
                 <th className="px-4 py-3">{t('Lead Name')}</th>
                 <th className="px-4 py-3">{t('Contact')}</th>
                 <th className="px-4 py-3">{t('Source')}</th>
-                <th className="px-4 py-3">{t('Project')}</th>
+                <th className="px-4 py-3">{projectLabel}</th>
                 <th className="px-4 py-3">{t('Deal Type')}</th>
                 <th className="px-4 py-3 text-center">{t('Deal Value')}</th>
                 <th className="px-4 py-3">{t('Sales Person')}</th>

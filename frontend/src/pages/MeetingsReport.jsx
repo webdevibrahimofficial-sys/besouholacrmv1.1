@@ -21,6 +21,12 @@ export default function MeetingsReport() {
   const isLight = theme === 'light'
   const { company, user } = useAppState()
   const canExport = canExportReport(user, 'Meetings Report')
+  const companyType = String(company?.company_type || '').toLowerCase()
+  const isRealEstate = companyType === 'real estate'
+  const projectLabel = isRTL ? (isRealEstate ? 'المشروع' : 'المنتج') : (isRealEstate ? 'Project' : 'Item')
+  const meetingsByProjectLabel = isRTL
+    ? (isRealEstate ? 'تحليل الاجتماعات حسب المشروع' : 'تحليل الاجتماعات حسب المنتج')
+    : (isRealEstate ? 'Meetings by Project Analysis' : 'Meetings by Item Analysis')
 
   const isAdminOrManager = useMemo(() => {
     if (!user) return false;
@@ -46,6 +52,7 @@ export default function MeetingsReport() {
   const [meetingDateTo, setMeetingDateTo] = useState('')
   const [users, setUsers] = useState([])
   const [projects, setProjects] = useState([])
+  const [sources, setSources] = useState([])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -96,10 +103,11 @@ export default function MeetingsReport() {
   useEffect(() => {
     const fetchMeta = async () => {
       try {
-        const [usersRes, projectsRes, itemsRes] = await Promise.all([
+        const [usersRes, projectsRes, itemsRes, sourcesRes] = await Promise.all([
           api.get('/api/users'),
           api.get('/api/projects'),
-          api.get('/api/items')
+          api.get('/api/items'),
+          api.get('/api/sources?active=1')
         ])
 
         const rawUsers = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || [])
@@ -113,9 +121,10 @@ export default function MeetingsReport() {
 
         const rawProjects = Array.isArray(projectsRes.data) ? projectsRes.data : (projectsRes.data.data || [])
         const rawItems = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data.data || [])
+        const rawSources = Array.isArray(sourcesRes.data) ? sourcesRes.data : (sourcesRes.data?.data || [])
+        setSources(rawSources)
 
-        const type = String(company?.company_type || '').toLowerCase()
-        if (type === 'real estate') {
+        if (companyType === 'real estate') {
           setProjects(rawProjects)
         } else {
           setProjects(rawItems)
@@ -124,10 +133,11 @@ export default function MeetingsReport() {
         console.error('Failed to fetch metadata', e)
         setUsers([])
         setProjects([])
+        setSources([])
       }
     }
     fetchMeta()
-  }, [company?.company_type])
+  }, [companyType])
 
   // Data Loading with Server-side Filtering
   useEffect(() => {
@@ -204,8 +214,24 @@ export default function MeetingsReport() {
 
   // Options for Filters
   const salesPersonOptions = useMemo(() => {
-    return users.map(u => ({ value: u.id, label: u.name || `#${u.id}` }))
-  }, [users])
+    let candidates = [...users]
+
+    if (Array.isArray(managerFilter) && managerFilter.length > 0) {
+      const selectedIds = new Set(managerFilter.map((id) => String(id)))
+      const scoped = []
+      users.forEach((u) => {
+        if (selectedIds.has(String(u.id))) {
+          scoped.push(u)
+          getDescendants(u.id, users).forEach((child) => scoped.push(child))
+        }
+      })
+      candidates = Array.from(new Map(scoped.map((u) => [String(u.id), u])).values())
+    }
+
+    return candidates
+      .filter((u) => String(u?.name || '').trim() !== '')
+      .map((u) => ({ value: u.id, label: u.name || `#${u.id}` }))
+  }, [users, managerFilter])
 
   const managerOptions = useMemo(() => {
     if (!users.length) return []
@@ -231,9 +257,13 @@ export default function MeetingsReport() {
   }, [users])
 
   const sourceOptions = useMemo(() => {
-    const values = Array.from(new Set(meetings.map(m => m.source).filter(Boolean)))
-    return values.map(v => ({ value: v, label: v }))
-  }, [meetings])
+    return sources
+      .map((s) => {
+        const label = s.name || s.title || `#${s.id}`
+        return { value: label, label }
+      })
+      .filter((o) => o.label)
+  }, [sources])
 
   const projectOptions = useMemo(() => {
     return projects.map(p => {
@@ -332,7 +362,7 @@ export default function MeetingsReport() {
         isRTL ? 'لم يحضر' : "Missed",
         isRTL ? 'الجدية' : "Score",
         isRTL ? 'المصدر' : "Source", 
-        isRTL ? 'المشروع' : "Project", 
+        projectLabel,
         isRTL ? 'مسؤول المبيعات' : "Sales Person",
         isRTL ? 'تاريخ الاجتماع' : "Meeting Date"
       ]
@@ -439,7 +469,7 @@ export default function MeetingsReport() {
               />
             </div>
             <div className="space-y-1">
-              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}><Briefcase size={12} className="text-blue-500 dark:text-blue-400" />{isRTL ? 'المشروع' : 'Project'}</label>
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}><Briefcase size={12} className="text-blue-500 dark:text-blue-400" />{projectLabel}</label>
               <SearchableSelect options={projectOptions} value={projectFilter} onChange={setProjectFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<Briefcase size={16} />} />
             </div>
           </div>
@@ -480,7 +510,7 @@ export default function MeetingsReport() {
       {/* Charts & Best Performers */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {renderPieChart(isRTL ? 'تحليل الاجتماعات حسب القناة' : 'Meeting by Channel Analysis', channelData)}
-        {renderPieChart(isRTL ? 'تحليل الاجتماعات حسب المشروع' : 'Meetings by Project Analysis', projectSegments)}
+        {renderPieChart(meetingsByProjectLabel, projectSegments)}
 
         <div className="backdrop-blur-md rounded-2xl shadow-sm border border-theme-border dark:border-gray-700/50 p-4 flex flex-col transition-all duration-300 hover:-translate-y-1">
           <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100 dark:border-gray-700/50">
@@ -543,7 +573,7 @@ export default function MeetingsReport() {
                 <th className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-center">{isRTL ? 'لم يحضر' : 'Missed'}</th>
                 <th className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-center">{isRTL ? 'الجدية' : 'Score'}</th>
                 <th className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'المصدر' : 'Source'}</th>
-                <th className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'المشروع' : 'Project'}</th>
+                <th className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50">{projectLabel}</th>
                 <th className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
                 <th className="hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50">{isRTL ? 'تاريخ الاجتماع' : 'Date'}</th>
                 <th className="px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-center">{isRTL ? 'الإجراءات' : 'Actions'}</th>
@@ -598,7 +628,7 @@ export default function MeetingsReport() {
                             <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700">M: {meeting.missedCount}</span>
                           </div></div>
                           <div className="flex flex-col"><span>{isRTL ? 'المصدر' : 'Source'}</span><span className={`${isLight ? 'text-black' : 'text-white'}`}>{meeting.source}</span></div>
-                          <div className="flex flex-col"><span>{isRTL ? 'المشروع' : 'Project'}</span><span className={`${isLight ? 'text-black' : 'text-white'}`}>{meeting.project}</span></div>
+                          <div className="flex flex-col"><span>{projectLabel}</span><span className={`${isLight ? 'text-black' : 'text-white'}`}>{meeting.project}</span></div>
                         </div>
                       </td>
                     </tr>

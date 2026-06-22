@@ -163,6 +163,21 @@ export default function SalesActivitiesReport() {
     return map
   }, [storedStages, stagesList])
 
+  const stageNameMap = useMemo(() => {
+    const map = new Map()
+
+    const addStageName = (stageLike) => {
+      if (!stageLike?.id) return
+      const label = stageLike.name || stageLike.nameAr || stageLike.name_ar || stageLike.type || ''
+      if (!label) return
+      map.set(String(stageLike.id), label)
+    }
+
+    storedStages.forEach(addStageName)
+    stagesList.forEach(addStageName)
+    return map
+  }, [storedStages, stagesList])
+
   const isSuperManagerRole = (role) => {
     const r = String(role || '').toLowerCase()
     return (
@@ -195,38 +210,45 @@ export default function SalesActivitiesReport() {
       }
     }
 
-    const stageObj = action.stage || details.stage
+    const stageObj =
+      action.stageAtCreation ||
+      action.stage_at_creation ||
+      action.stage ||
+      details.stage
+
+    if (typeof stageObj === 'string' && stageObj.trim()) {
+      return stageObj.trim()
+    }
+
     if (stageObj && (stageObj.name || stageObj.nameAr || stageObj.name_ar)) {
       return stageObj.name || stageObj.nameAr || stageObj.name_ar
     }
 
-    const rawType = String(
-      action.next_action_type ||
-      details.nextAction ||
-      details.next_action_type ||
-      details.actionType ||
-      details.action_type ||
-      action.action_type ||
-      action.type ||
+    const stageId =
+      action.stage_id_at_creation ??
+      action.stageIdAtCreation ??
+      details.stage_id_at_creation ??
+      details.stage_id ??
       ''
-    ).toLowerCase().trim()
 
-    const hasCancelReason =
-      rawType === 'cancel' ||
-      details?.cancelReason ||
-      details?.cancel_reason ||
-      (Array.isArray(details?.comments) &&
-        details.comments.some((comment) => String(comment?.kind || '').toLowerCase() === 'cancel_reason'))
-
-    if (rawType === 'comment' || rawType === 'note') {
-      return hasCancelReason ? 'cancel' : ''
+    if (stageId) {
+      const mappedStageName = stageNameMap.get(String(stageId))
+      if (mappedStageName) {
+        return mappedStageName
+      }
     }
 
-    if (hasCancelReason) {
-      return 'cancel'
+    const leadStage =
+      action?.lead?.stage ||
+      details.lead_stage ||
+      details.leadStage ||
+      ''
+
+    if (typeof leadStage === 'string' && leadStage.trim()) {
+      return leadStage.trim()
     }
 
-    return rawType
+    return ''
   }
 
   const getLeadOwnerName = (action) => {
