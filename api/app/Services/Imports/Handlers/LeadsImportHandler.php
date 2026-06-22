@@ -546,20 +546,26 @@ class LeadsImportHandler implements ImportHandler
                 $importedStageName = trim((string) ($normalized['stage'] ?? ''));
 
                 // Next action creation (optional, best-effort).
-                // If the row already contains a comment, collapse both into one action
-                // so the timeline shows a single actionable record instead of Call + Comment.
-                if ($nextActionAt && !$shouldCollapseIntoOperationalAction) {
+                // Create a next action only when the imported stage maps to a known operational type.
+                if ($nextActionAt && $importedOperationalType !== null && !$shouldCollapseIntoOperationalAction) {
                     $time = $nextActionAt->format('H:i');
                     try {
                         $actionCreatedAt = $firstActionDate ?: $creationDate ?: $nextActionAt;
+                        $nextActionType = match ($importedOperationalType) {
+                            'meeting' => 'meeting',
+                            'proposal' => 'proposal',
+                            'reservation' => 'reservation',
+                            'rent' => 'rent',
+                            default => 'call',
+                        };
                         $action = new LeadAction([
                             'lead_id' => $lead->id,
                             'tenant_id' => $tenantId,
                             'user_id' => $lead->assigned_to ?: $uploaderId,
-                            'action_type' => 'call',
+                            'action_type' => $nextActionType,
                             'description' => $comment !== '' ? $comment : 'Imported next action',
                             'stage_id_at_creation' => null,
-                            'next_action_type' => 'call',
+                            'next_action_type' => $nextActionType,
                             'details' => array_filter([
                                 'date' => $nextActionAt->toDateString(),
                                 'time' => $time,
@@ -1047,7 +1053,12 @@ class LeadsImportHandler implements ImportHandler
     ): void {
         $importedComment = trim((string) ($supplementalDetails['imported_comment'] ?? ''));
         $description = $importedComment !== '' ? $importedComment : 'Auto-created from imported stage';
-        $resolvedActionType = $actionType === 'meeting' ? 'meeting' : 'call';
+        $resolvedActionType = match ($actionType) {
+            'meeting'   => 'meeting',
+            'proposal'  => 'proposal',
+            'rent'      => 'rent',
+            default     => 'call',
+        };
 
         $exists = LeadAction::query()
             ->where('lead_id', $lead->id)
@@ -1114,6 +1125,7 @@ class LeadsImportHandler implements ImportHandler
                 'description' => 'Auto-created from imported stage',
                 'assigned_to' => (string) ($lead->sales_person ?? ''),
                 'payment_plan' => null,
+                'source' => $lead->source ?? null,
                 'meta_data' => array_merge($meta, [
                     'customer_phone' => $lead->phone,
                     'created_by_id' => $actorId,

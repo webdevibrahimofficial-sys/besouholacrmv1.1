@@ -48,12 +48,87 @@ class RealEstateRequestController extends Controller
             }
         }
 
-        return $query->paginate($request->input('per_page', 10));
+        $paginated = $query->paginate($request->input('per_page', 10));
+        $this->appendLeadSourceToRequests($paginated, $user->tenant_id);
+
+        return $paginated;
     }
 
     /**
      * Store a newly created resource in storage.
      */
+    private function appendLeadSourceToRequests($paginated, ?int $tenantId): void
+    {
+        if (!$paginated || !method_exists($paginated, 'items')) {
+            return;
+        }
+
+        $items = $paginated->items();
+        if (!is_array($items) || empty($items)) {
+            return;
+        }
+
+        $leadIds = array_values(array_unique(array_filter(array_map(function ($item) {
+            if (isset($item->lead_id)) {
+                return (int) $item->lead_id;
+            }
+            if (isset($item->leadId)) {
+                return (int) $item->leadId;
+            }
+
+            $metaData = $item->meta_data ?? $item->metaData ?? null;
+            if (is_string($metaData) && $metaData !== '') {
+                $metaData = json_decode($metaData, true) ?: [];
+            }
+            if (!is_array($metaData)) {
+                return null;
+            }
+            return isset($metaData['lead_id']) ? (int) $metaData['lead_id'] : null;
+        }, $items), fn($value) => !empty($value))));
+
+        if (empty($leadIds)) {
+            return;
+        }
+
+        $leads = Lead::whereIn('id', $leadIds)
+            ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->get()
+            ->keyBy('id');
+
+        foreach ($items as $item) {
+            $itemSource = trim((string) ($item->source ?? ''));
+            if ($itemSource !== '') {
+                continue;
+            }
+
+            $leadId = null;
+            if (isset($item->lead_id)) {
+                $leadId = (int) $item->lead_id;
+            } elseif (isset($item->leadId)) {
+                $leadId = (int) $item->leadId;
+            } else {
+                $metaData = $item->meta_data ?? $item->metaData ?? null;
+                if (is_string($metaData) && $metaData !== '') {
+                    $metaData = json_decode($metaData, true) ?: [];
+                }
+                if (is_array($metaData) && isset($metaData['lead_id'])) {
+                    $leadId = (int) $metaData['lead_id'];
+                }
+            }
+            if (!$leadId || !isset($leads[$leadId])) {
+                continue;
+            }
+            if (!$leadId || !isset($leads[$leadId])) {
+                continue;
+            }
+
+            $lead = $leads[$leadId];
+            if (!empty(trim((string) ($lead->source ?? '')))) {
+                $item->source = $lead->source;
+            }
+        }
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [

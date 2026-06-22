@@ -438,7 +438,11 @@ class LeadActionController extends Controller
             abort(401, 'Unauthorized');
         }
 
-        $query = LeadAction::query()->with(['user', 'lead.assignedAgent']);
+        $query = LeadAction::query()->with([
+            'user',
+            'lead.assignedAgent',
+            'stageAtCreation:id,name,name_ar,color',
+        ]);
 
         // Handle History Visibility (assign_as_new)
         // Manager-only history should be visible to admin and manager-like roles,

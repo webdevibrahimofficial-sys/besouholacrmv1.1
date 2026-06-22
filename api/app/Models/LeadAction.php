@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Traits\BelongsToTenant;
+use App\Models\Stage;
 
 class LeadAction extends Model
 {
@@ -41,5 +42,10 @@ class LeadAction extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function stageAtCreation()
+    {
+        return $this->belongsTo(Stage::class, 'stage_id_at_creation');
     }
 }

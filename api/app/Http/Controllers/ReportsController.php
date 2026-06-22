@@ -175,7 +175,7 @@ class ReportsController extends Controller
         // 6. Rent Report
         $rentStats = $getStats(LeadAction::class, 'created_at', ['action_type' => 'rent']);
 
-        // 7. Proposals Report
+        // 7. Proposals Report — count actions where action_type = 'proposal'
         $proposalsStats = $getStats(LeadAction::class, 'created_at', ['action_type' => 'proposal']);
 
         // 8. Check In Report

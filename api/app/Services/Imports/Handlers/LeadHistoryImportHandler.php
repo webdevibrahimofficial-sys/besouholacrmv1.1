@@ -759,6 +759,7 @@ class LeadHistoryImportHandler implements ImportHandler
                 'description' => 'Imported from lead history',
                 'assigned_to' => (string) ($lead->sales_person ?? ''),
                 'payment_plan' => null,
+                'source' => $lead->source ?? null,
                 'meta_data' => array_merge($meta, [
                     'customer_phone' => $lead->phone,
                     'created_by_id' => $actorId,
