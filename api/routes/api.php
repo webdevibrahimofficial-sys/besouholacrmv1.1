@@ -108,6 +108,7 @@ Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'receive']);
 // Internal webhook for WhatsApp Mirror microservice (protected by internal token)
 Route::post('/internal/whatsapp-mirror/webhook', [WhatsappMirrorWebhookController::class, 'handle']);
+Route::post('/internal/whatsapp-mirror/history-sync', [WhatsappMirrorWebhookController::class, 'historySync']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/whatsapp/messages', [\App\Http\Controllers\WhatsappMessageController::class , 'index']);
     Route::post('/whatsapp/send-test', [\App\Http\Controllers\WhatsappMessageController::class , 'sendTest']);

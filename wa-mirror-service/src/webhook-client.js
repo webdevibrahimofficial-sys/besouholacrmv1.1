@@ -1,13 +1,25 @@
 import axios from 'axios';
 
-/**
- * Push session events and inbound messages to Laravel immediately.
- */
-export async function notifyLaravel(tenantId, payload) {
-  const url = process.env.LARAVEL_INTERNAL_URL;
-  const token = process.env.INTERNAL_SHARED_SECRET;
+const BASE_URL = process.env.LARAVEL_INTERNAL_URL;
+const HISTORY_SYNC_URL = process.env.LARAVEL_INTERNAL_HISTORY_SYNC_URL || BASE_URL?.replace(/\/webhook$/, '/history-sync');
+const TOKEN = process.env.INTERNAL_SHARED_SECRET;
 
-  if (!url || !token) {
+function buildPayload(tenantId, payload) {
+  return {
+    tenant_id: tenantId,
+    ...payload,
+  };
+}
+
+function buildHeaders() {
+  return {
+    'X-Internal-Token': TOKEN,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function post(url, tenantId, payload) {
+  if (!url || !TOKEN) {
     console.error('[Webhook Error] LARAVEL_INTERNAL_URL or INTERNAL_SHARED_SECRET is missing.');
     return;
   }
@@ -15,19 +27,27 @@ export async function notifyLaravel(tenantId, payload) {
   try {
     await axios.post(
       url,
+      buildPayload(tenantId, payload),
       {
-        tenant_id: tenantId,
-        ...payload,
-      },
-      {
-        headers: {
-          'X-Internal-Token': token,
-          'Content-Type': 'application/json',
-        },
+        headers: buildHeaders(),
         timeout: 3000,
       }
     );
   } catch (error) {
     console.error(`[Webhook Error] Tenant ${tenantId}:`, error.message);
   }
+}
+
+/**
+ * Push session events and inbound/outbound messages to Laravel immediately.
+ */
+export async function notifyLaravel(tenantId, payload) {
+  await post(BASE_URL, tenantId, payload);
+}
+
+/**
+ * Push history-sync batches to Laravel.
+ */
+export async function notifyLaravelHistorySync(tenantId, payload) {
+  await post(HISTORY_SYNC_URL, tenantId, payload);
 }

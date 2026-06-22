@@ -12,6 +12,7 @@ class WhatsappMessage extends Model
     protected $fillable = [
         'tenant_id',
         'provider',
+        'source',
         'phone_number_id',
         'from',
         'to',
@@ -21,6 +22,7 @@ class WhatsappMessage extends Model
         'conversation_id',
         'message_id',
         'body',
+        'lead_id',
         'raw',
     ];
 
@@ -31,5 +33,10 @@ class WhatsappMessage extends Model
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function lead()
+    {
+        return $this->belongsTo(Lead::class);
     }
 }

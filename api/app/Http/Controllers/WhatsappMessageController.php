@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\WhatsappMessage;
 use App\Services\Whatsapp\WhatsappProviderResolver;
+use App\Support\LeadPhoneMatcher;
 use App\Support\PhoneNormalizer;
 
 class WhatsappMessageController extends Controller
@@ -38,7 +39,7 @@ class WhatsappMessageController extends Controller
     {
         $user = Auth::user();
         $lead = \App\Models\Lead::findOrFail($leadId);
-        $phoneVariants = $this->buildPhoneVariants((string) ($lead->phone ?? ''));
+        $phoneVariants = LeadPhoneMatcher::buildPhoneVariants((string) ($lead->phone ?? ''));
 
         if (empty($phoneVariants)) {
             return response()->json([]);
@@ -97,13 +98,8 @@ class WhatsappMessageController extends Controller
         ]);
         $digits = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
 
-        // Meta's WhatsApp Cloud API enforces a 24-hour customer-care window for
-        // free-form messages outside an approved template. This is a Meta-specific
-        // platform rule, not a WhatsApp protocol limitation — the Mirror provider
-        // (personal number via Baileys) has no such restriction, so we only
-        // enforce it when Meta is the tenant's active provider.
         if ($providerResolver->activeProviderKey((int) $user->tenant_id) === 'meta') {
-            $phoneVariants = $this->buildPhoneVariants($digits);
+            $phoneVariants = LeadPhoneMatcher::buildPhoneVariants($digits);
             $lastInbound = WhatsappMessage::where('tenant_id', $user->tenant_id)
                 ->where('direction', 'inbound')
                 ->where(function ($query) use ($phoneVariants) {
@@ -153,39 +149,6 @@ class WhatsappMessageController extends Controller
         }
 
         return response()->json(['message' => 'Only tenant admins can manage WhatsApp settings.'], 403);
-    }
-
-    private function buildPhoneVariants(string $rawPhone): array
-    {
-        $parts = preg_split('/[\/,\n\r|]+/', $rawPhone) ?: [];
-        $variants = [];
-
-        foreach ($parts as $part) {
-            $digits = preg_replace('/\D+/', '', trim($part));
-            if ($digits === '') {
-                continue;
-            }
-
-            $variants[] = $digits;
-
-            $withoutLeadingZeros = ltrim($digits, '0');
-            if ($withoutLeadingZeros !== '') {
-                $variants[] = $withoutLeadingZeros;
-            }
-
-            if (str_starts_with($digits, '20') && strlen($digits) > 2) {
-                $local = '0' . substr($digits, 2);
-                $variants[] = $local;
-                $variants[] = substr($digits, 2);
-            }
-
-            if (str_starts_with($digits, '0') && strlen($digits) > 1) {
-                $variants[] = '20' . substr($digits, 1);
-                $variants[] = substr($digits, 1);
-            }
-        }
-
-        return array_values(array_unique(array_filter($variants)));
     }
 
     private function normalizeRecipientNumber(string $rawPhone): string

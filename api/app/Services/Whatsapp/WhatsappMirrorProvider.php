@@ -4,6 +4,7 @@ namespace App\Services\Whatsapp;
 
 use App\Contracts\WhatsappProviderInterface;
 use App\Models\WhatsappMessage;
+use App\Support\LeadPhoneMatcher;
 use Exception;
 
 class WhatsappMirrorProvider implements WhatsappProviderInterface
@@ -25,14 +26,18 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
 
         $data = $response->json();
 
+        $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
+
         $message = WhatsappMessage::create([
             'tenant_id' => $tenantId,
             'provider' => 'mirror',
+            'source' => 'crm_send',
             'direction' => 'outbound',
             'to' => $to,
             'body' => $body,
             'message_id' => $data['messageId'] ?? null,
             'status' => 'sent',
+            'lead_id' => $lead?->id,
         ]);
 
         return [

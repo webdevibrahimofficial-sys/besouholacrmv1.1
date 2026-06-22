@@ -3,12 +3,14 @@
 namespace App\Jobs;
 
 use App\Events\InboundWhatsappMessage;
+use App\Models\WhatsappMessage;
+use App\Models\WhatsappMirrorSession;
+use App\Support\LeadPhoneMatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use App\Models\WhatsappMessage;
 use Illuminate\Support\Facades\Log;
 
 class ProcessIncomingMirrorMessage implements ShouldQueue
@@ -29,13 +31,28 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         $tenantId = $this->tenantId;
         $msgData = (array) ($this->payload['message'] ?? []);
 
-        if (!$tenantId || empty($msgData['from'])) {
-            Log::warning('[Mirror Job Warning] Missing tenant_id or sender number.', [
+        // Support both new 'counterpart_phone' field and legacy 'from' field
+        $counterpartPhone = $msgData['counterpart_phone'] ?? $msgData['from'] ?? null;
+
+        if (!$tenantId || empty($counterpartPhone)) {
+            Log::warning('[Mirror Job Warning] Missing tenant_id or counterpart number.', [
                 'tenant_id' => $tenantId,
                 'payload' => $this->payload,
             ]);
             return;
         }
+
+        $fromMe = $msgData['from_me'] ?? false;
+        $direction = $fromMe ? 'outbound' : 'inbound';
+
+        $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
+        $ownNumber = $session?->connected_phone_number;
+
+        $from = $direction === 'inbound' ? $counterpartPhone : $ownNumber;
+        $to = $direction === 'outbound' ? $counterpartPhone : $ownNumber;
+
+        $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $counterpartPhone);
+        $resolvedLeadId = $lead?->id;
 
         try {
             $message = WhatsappMessage::firstOrCreate(
@@ -46,13 +63,15 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
                 [
                     'tenant_id' => $tenantId,
                     'provider' => 'mirror',
-                    'direction' => 'inbound',
-                    'from' => $msgData['from'],
-                    'to' => $msgData['to'] ?? null,
+                    'source' => 'live',
+                    'direction' => $direction,
+                    'from' => $from,
+                    'to' => $to,
                     'type' => $msgData['type'] ?? 'text',
-                    'status' => 'received',
+                    'status' => $direction === 'outbound' ? 'sent' : 'received',
                     'message_id' => $msgData['message_id'] ?? null,
                     'body' => $msgData['body'] ?? '',
+                    'lead_id' => $resolvedLeadId,
                     'raw' => $this->payload,
                 ]
             );
@@ -67,7 +86,6 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
                     'timestamp' => $message->created_at?->toISOString(),
                 ]));
             }
-
         } catch (\Exception $e) {
             Log::error("[Mirror Job Error] Tenant {$tenantId}: " . $e->getMessage());
         }

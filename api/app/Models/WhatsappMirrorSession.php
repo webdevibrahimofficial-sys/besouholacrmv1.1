@@ -13,11 +13,13 @@ class WhatsappMirrorSession extends Model
         'connected_phone_number',
         'last_connected_at',
         'last_disconnected_at',
+        'history_synced_at',
     ];
 
     protected $casts = [
         'last_connected_at' => 'datetime',
         'last_disconnected_at' => 'datetime',
+        'history_synced_at' => 'datetime',
     ];
 
     public function tenant(): BelongsTo

@@ -7,7 +7,7 @@ import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { notifyLaravel } from '../webhook-client.js';
+import { notifyLaravel, notifyLaravelHistorySync } from '../webhook-client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -164,7 +164,7 @@ export async function initSession(tenantId) {
       auth: state,
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      syncFullHistory: false,
+      syncFullHistory: true,
       markOnlineOnConnect: false,
     });
 
@@ -233,25 +233,48 @@ export async function initSession(tenantId) {
       }
     });
 
+    sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
+      if (!messages || messages.length === 0) return;
+
+      const relevantMessages = messages
+        .filter((m) => m.message && !m.key?.remoteJid?.endsWith('@g.us'))
+        .map((m) => ({
+          from_me: !!m.key.fromMe,
+          phone: extractRemotePhone(m.key.remoteJid) || extractSenderPhone(m),
+          body: extractMessageBody(m.message),
+          timestamp: m.messageTimestamp,
+          message_id: m.key.id,
+        }))
+        .filter((m) => m.phone);
+
+      if (relevantMessages.length === 0) return;
+
+      console.log('[history-sync] tenant=%s batch=%d', key, relevantMessages.length);
+
+      notifyLaravelHistorySync(key, {
+        event: 'history_sync_batch',
+        is_latest: !!isLatest,
+        messages: relevantMessages,
+      });
+    });
+
     sock.ev.on('messages.upsert', async (event) => {
       if (event.type !== 'notify') {
         return;
       }
 
       for (const msg of event.messages) {
-        if (msg.key.fromMe) {
-          continue;
-        }
+        if (!msg.message) continue;
+        if (msg.key.remoteJid?.endsWith('@g.us')) continue;
 
+        const isFromMe = !!msg.key.fromMe;
         const extractedBody = extractMessageBody(msg.message);
 
         if (!extractedBody) {
-          // Diagnostic: log the top-level message-type keys (not the full content,
-          // to avoid dumping media buffers/large payloads into logs) whenever we
-          // fail to extract text, so we can see exactly which WhatsApp message
-          // type extractMessageBody() doesn't handle yet.
           console.log(
-            `[Empty Body] Tenant ${key} message_id=${msg.key?.id} keys=`,
+            '[Empty Body] Tenant %s message_id=%s keys=%o',
+            key,
+            msg.key?.id,
             Object.keys(msg.message || {})
           );
         }
@@ -259,6 +282,7 @@ export async function initSession(tenantId) {
         fireWebhook(key, {
           event: 'message_received',
           message: {
+            from_me: isFromMe,
             from: extractSenderPhone(msg),
             pushName: msg.pushName || null,
             body: extractedBody,

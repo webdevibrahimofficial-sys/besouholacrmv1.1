@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\WhatsappMirrorSession;
 use App\Models\WhatsappSetting;
 use App\Jobs\ProcessIncomingMirrorMessage;
+use App\Jobs\ProcessHistorySyncBatch;
 
 class WhatsappMirrorWebhookController extends Controller
 {
@@ -34,12 +35,6 @@ class WhatsappMirrorWebhookController extends Controller
                 ]
             );
 
-            // A confirmed Mirror connection is an explicit tenant choice to send via
-            // Mirror going forward. Without this, pairing a number via QR never
-            // actually switches WhatsappProviderResolver away from Meta.
-            // We deliberately do NOT revert provider back to 'meta' on disconnect:
-            // a disconnected Mirror should fail sends loudly rather than silently
-            // fall back to (possibly unconfigured) Meta credentials.
             if ($payload['status'] === 'connected') {
                 WhatsappSetting::updateOrCreate(
                     ['tenant_id' => $tenantId],
@@ -53,5 +48,35 @@ class WhatsappMirrorWebhookController extends Controller
         }
 
         return response()->json(['success' => true]);
+    }
+
+    public function historySync(Request $request)
+    {
+        if ($request->header('X-Internal-Token') !== config('services.wa_mirror.token')) {
+            return response()->json(['error' => 'Unauthorized Internal Token'], 401);
+        }
+
+        $payload = $request->all();
+        $tenantId = (int) ($payload['tenant_id'] ?? 0);
+
+        if (!$tenantId) {
+            return response()->json(['error' => 'Missing tenant_id'], 400);
+        }
+
+        $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
+
+        // Guard against re-running: skip if history was already synced more than 5 minutes ago.
+        if ($session?->history_synced_at && now()->diffInMinutes($session->history_synced_at) > 5) {
+            return response()->json(['success' => true, 'skipped' => true]);
+        }
+
+        $messages = (array) ($payload['messages'] ?? []);
+        $isLatest = (bool) ($payload['is_latest'] ?? false);
+
+        // Process synchronously to avoid Spatie multitenancy queue issues.
+        // Once the job is properly tenant-aware, this should be switched to ::dispatch().
+        (new ProcessHistorySyncBatch($tenantId, $messages, $isLatest))->handle();
+
+        return response()->json(['success' => true, 'processed' => count($messages)]);
     }
 }
