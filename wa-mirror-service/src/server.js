@@ -6,6 +6,7 @@ import pairRoutes from './routes/pair.js';
 import statusRoutes from './routes/status.js';
 import sendRoutes from './routes/send.js';
 import disconnectRoutes from './routes/disconnect.js';
+import { restorePersistedSessions } from './sessions/manager.js';
 
 const app = express();
 
@@ -27,4 +28,7 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`WhatsApp Mirror Service running on port ${PORT}`);
+  restorePersistedSessions().catch((error) => {
+    console.error('[Session Restore Fatal]', error.message);
+  });
 });

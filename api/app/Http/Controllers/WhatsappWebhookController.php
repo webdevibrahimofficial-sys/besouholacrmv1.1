@@ -5,8 +5,12 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\WhatsappSetting;
 use Illuminate\Support\Facades\Log;
+use App\Models\Lead;
 use App\Models\WhatsappMessage;
 use App\Events\InboundWhatsappMessage;
+use App\Services\Whatsapp\WhatsappInboundNotificationService;
+use App\Support\LeadPhoneMatcher;
+use Illuminate\Support\Facades\Schema;
 
 class WhatsappWebhookController extends Controller
 {
@@ -60,6 +64,10 @@ class WhatsappWebhookController extends Controller
                 'body' => data_get($m, 'text.body') ?? data_get($m, 'button.text') ?? null,
                 'raw' => $m,
             ];
+            $lead = LeadPhoneMatcher::findLeadByPhone((int) $setting->tenant_id, (string) ($m['from'] ?? ''));
+            if ($lead && Schema::hasColumn('whatsapp_messages', 'lead_id')) {
+                $attributes['lead_id'] = $lead->id;
+            }
 
             $saved = $messageId
                 ? WhatsappMessage::firstOrCreate(
@@ -67,6 +75,20 @@ class WhatsappWebhookController extends Controller
                     $attributes
                 )
                 : WhatsappMessage::create($attributes);
+
+            if (
+                $lead
+                && Schema::hasColumn('whatsapp_messages', 'lead_id')
+                && (int) ($saved->lead_id ?? 0) !== (int) $lead->id
+            ) {
+                $saved->forceFill(['lead_id' => $lead->id])->save();
+                $saved->refresh();
+            }
+
+            if (($messageId === null || $saved->wasRecentlyCreated) && $lead instanceof Lead) {
+                app(WhatsappInboundNotificationService::class)
+                    ->notifyAssignedSales($lead, $saved);
+            }
 
             Log::info('WhatsApp message stored', [
                 'id' => $saved->id,
@@ -80,10 +102,14 @@ class WhatsappWebhookController extends Controller
                 try {
                     event(new InboundWhatsappMessage((int)$setting->tenant_id, [
                         'id' => $saved->id,
+                        'lead_id' => $saved->lead_id ?? null,
+                        'message_id' => $saved->message_id,
                         'body' => $saved->body,
                         'from' => $saved->from,
                         'to' => $saved->to,
                         'direction' => $saved->direction,
+                        'status' => $saved->status,
+                        'type' => $saved->type,
                         'timestamp' => $saved->created_at?->toISOString(),
                     ]));
                 } catch (\Throwable $e) {

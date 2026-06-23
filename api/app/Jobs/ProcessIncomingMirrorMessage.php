@@ -3,15 +3,18 @@
 namespace App\Jobs;
 
 use App\Events\InboundWhatsappMessage;
+use App\Models\Lead;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
 use App\Support\LeadPhoneMatcher;
+use App\Services\Whatsapp\WhatsappInboundNotificationService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class ProcessIncomingMirrorMessage implements ShouldQueue
 {
@@ -55,34 +58,77 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         $resolvedLeadId = $lead?->id;
 
         try {
+            $attributes = [
+                'tenant_id' => $tenantId,
+                'provider' => 'mirror',
+                'direction' => $direction,
+                'from' => $from,
+                'to' => $to,
+                'type' => $msgData['type'] ?? 'text',
+                'status' => $direction === 'outbound' ? 'sent_to_session' : 'received',
+                'message_id' => $msgData['message_id'] ?? null,
+                'body' => $msgData['body'] ?? '',
+                'raw' => $this->payload,
+            ];
+
+            if (Schema::hasColumn('whatsapp_messages', 'source')) {
+                $attributes['source'] = 'live';
+            }
+
+            if (Schema::hasColumn('whatsapp_messages', 'lead_id')) {
+                $attributes['lead_id'] = $resolvedLeadId;
+            }
+
             $message = WhatsappMessage::firstOrCreate(
                 [
                     'tenant_id' => $tenantId,
                     'message_id' => $msgData['message_id'] ?? null,
                 ],
-                [
-                    'tenant_id' => $tenantId,
-                    'provider' => 'mirror',
-                    'source' => 'live',
-                    'direction' => $direction,
-                    'from' => $from,
-                    'to' => $to,
-                    'type' => $msgData['type'] ?? 'text',
-                    'status' => $direction === 'outbound' ? 'sent' : 'received',
-                    'message_id' => $msgData['message_id'] ?? null,
-                    'body' => $msgData['body'] ?? '',
-                    'lead_id' => $resolvedLeadId,
-                    'raw' => $this->payload,
-                ]
+                $attributes
             );
+
+            $updates = [];
+            foreach (['from', 'to', 'body', 'direction', 'status', 'type'] as $field) {
+                if (($message->{$field} ?? null) !== ($attributes[$field] ?? null)) {
+                    $updates[$field] = $attributes[$field] ?? null;
+                }
+            }
+
+            if (
+                $resolvedLeadId
+                && Schema::hasColumn('whatsapp_messages', 'lead_id')
+                && (int) ($message->lead_id ?? 0) !== (int) $resolvedLeadId
+            ) {
+                $updates['lead_id'] = $resolvedLeadId;
+            }
+
+            if (!empty($updates)) {
+                $message->forceFill($updates)->save();
+                $message->refresh();
+            }
+
+            if ($message->wasRecentlyCreated && $resolvedLeadId) {
+                $leadModel = $lead instanceof Lead
+                    ? $lead
+                    : Lead::query()->where('tenant_id', $tenantId)->find($resolvedLeadId);
+
+                if ($leadModel) {
+                    app(WhatsappInboundNotificationService::class)
+                        ->notifyAssignedSales($leadModel, $message);
+                }
+            }
 
             if ($message->wasRecentlyCreated) {
                 event(new InboundWhatsappMessage($tenantId, [
                     'id' => $message->id,
+                    'lead_id' => $message->lead_id,
+                    'message_id' => $message->message_id,
                     'body' => $message->body,
                     'from' => $message->from,
                     'to' => $message->to,
                     'direction' => $message->direction,
+                    'status' => $message->status,
+                    'type' => $message->type,
                     'timestamp' => $message->created_at?->toISOString(),
                 ]));
             }

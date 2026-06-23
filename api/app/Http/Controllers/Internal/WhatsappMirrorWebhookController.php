@@ -25,13 +25,20 @@ class WhatsappMirrorWebhookController extends Controller
         }
 
         if (($payload['event'] ?? null) === 'status_change') {
+            $existingSession = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
+
             WhatsappMirrorSession::updateOrCreate(
                 ['tenant_id' => $tenantId],
                 [
                     'status' => $payload['status'],
-                    'connected_phone_number' => $payload['connected_phone_number'] ?? null,
-                    'last_connected_at' => $payload['status'] === 'connected' ? now() : null,
-                    'last_disconnected_at' => $payload['status'] === 'disconnected' ? now() : null,
+                    'connected_phone_number' => $payload['connected_phone_number']
+                        ?? $existingSession?->connected_phone_number,
+                    'last_connected_at' => $payload['status'] === 'connected'
+                        ? now()
+                        : $existingSession?->last_connected_at,
+                    'last_disconnected_at' => $payload['status'] === 'disconnected'
+                        ? now()
+                        : $existingSession?->last_disconnected_at,
                 ]
             );
 
@@ -45,6 +52,13 @@ class WhatsappMirrorWebhookController extends Controller
 
         if (($payload['event'] ?? null) === 'message_received') {
             (new ProcessIncomingMirrorMessage($payload))->handle();
+        }
+
+        if (($payload['event'] ?? null) === 'message_status_update') {
+            \App\Models\WhatsappMessage::query()
+                ->where('tenant_id', $tenantId)
+                ->where('message_id', $payload['message_id'] ?? null)
+                ->update(['status' => $payload['status'] ?? 'sent_to_session']);
         }
 
         return response()->json(['success' => true]);

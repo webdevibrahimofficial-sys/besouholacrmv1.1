@@ -3,11 +3,14 @@
 namespace App\Services\Whatsapp;
 
 use App\Contracts\WhatsappProviderInterface;
+use App\Events\InboundWhatsappMessage;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappSetting;
+use App\Support\LeadPhoneMatcher;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class MetaCloudApiProvider implements WhatsappProviderInterface
@@ -46,7 +49,8 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
                 'response' => $response->json(),
             ]);
         }
-        WhatsappMessage::create([
+        $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
+        $message = WhatsappMessage::create($this->buildMessageAttributes([
             'tenant_id' => $tenantId,
             'provider' => 'meta',
             'phone_number_id' => $phoneId,
@@ -58,10 +62,34 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
             'message_id' => data_get($response->json(), 'messages.0.id'),
             'body' => null,
             'raw' => ['request' => $payload, 'response' => $response->json()],
-        ]);
+        ], $lead?->id));
+
+        if (
+            $lead?->id
+            && Schema::hasColumn('whatsapp_messages', 'lead_id')
+            && (int) ($message->lead_id ?? 0) !== (int) $lead->id
+        ) {
+            $message->forceFill(['lead_id' => $lead->id])->save();
+            $message->refresh();
+        }
+
+        event(new InboundWhatsappMessage($tenantId, [
+            'id' => $message->id,
+            'lead_id' => $message->lead_id,
+            'message_id' => $message->message_id,
+            'body' => $message->body,
+            'from' => $message->from,
+            'to' => $message->to,
+            'direction' => $message->direction,
+            'status' => $message->status,
+            'type' => $message->type,
+            'timestamp' => $message->created_at?->toISOString(),
+        ]));
 
         return [
             'ok' => $response->successful(),
+            'message_id' => $message->message_id,
+            'db_id' => $message->id,
             'request' => $payload,
             'response' => $response->json(),
             'status' => $response->status(),
@@ -96,7 +124,8 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
                 'response' => $response->json(),
             ]);
         }
-        WhatsappMessage::create([
+        $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
+        $message = WhatsappMessage::create($this->buildMessageAttributes([
             'tenant_id' => $tenantId,
             'provider' => 'meta',
             'phone_number_id' => $phoneId,
@@ -108,10 +137,34 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
             'message_id' => data_get($response->json(), 'messages.0.id'),
             'body' => $body,
             'raw' => ['request' => $payload, 'response' => $response->json()],
-        ]);
+        ], $lead?->id));
+
+        if (
+            $lead?->id
+            && Schema::hasColumn('whatsapp_messages', 'lead_id')
+            && (int) ($message->lead_id ?? 0) !== (int) $lead->id
+        ) {
+            $message->forceFill(['lead_id' => $lead->id])->save();
+            $message->refresh();
+        }
+
+        event(new InboundWhatsappMessage($tenantId, [
+            'id' => $message->id,
+            'lead_id' => $message->lead_id,
+            'message_id' => $message->message_id,
+            'body' => $message->body,
+            'from' => $message->from,
+            'to' => $message->to,
+            'direction' => $message->direction,
+            'status' => $message->status,
+            'type' => $message->type,
+            'timestamp' => $message->created_at?->toISOString(),
+        ]));
 
         return [
             'ok' => $response->successful(),
+            'message_id' => $message->message_id,
+            'db_id' => $message->id,
             'request' => $payload,
             'response' => $response->json(),
             'status' => $response->status(),
@@ -181,6 +234,15 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
             'type' => 'body',
             'parameters' => $parameters,
         ]];
+    }
+
+    private function buildMessageAttributes(array $attributes, ?int $leadId): array
+    {
+        if (Schema::hasColumn('whatsapp_messages', 'lead_id')) {
+            $attributes['lead_id'] = $leadId;
+        }
+
+        return $attributes;
     }
 
     /**

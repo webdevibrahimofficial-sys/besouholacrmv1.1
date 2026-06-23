@@ -3,9 +3,25 @@
 namespace App\Support;
 
 use App\Models\Lead;
+use Illuminate\Support\Facades\Schema;
 
 class LeadPhoneMatcher
 {
+    protected static ?array $leadPhoneColumns = null;
+
+    protected const EXTRA_LEAD_PHONE_KEYS = [
+        'other_mobile',
+        'otherMobile',
+        'other_phone',
+        'otherPhone',
+        'phone2',
+        'phone_2',
+        'mobile2',
+        'mobile_2',
+        'whatsapp_phone',
+        'whatsappPhone',
+    ];
+
     /**
      * Build all phone-number variants from a raw phone string (handles
      * multi-number fields separated by / , \n \r | and common Egypt/Gulf
@@ -44,6 +60,17 @@ class LeadPhoneMatcher
         return array_values(array_unique(array_filter($variants)));
     }
 
+    public static function buildLeadPhoneVariants(Lead $lead): array
+    {
+        $variants = [];
+
+        foreach (self::extractLeadPhoneCandidates($lead) as $value) {
+            $variants = array_merge($variants, self::buildPhoneVariants((string) $value));
+        }
+
+        return array_values(array_unique(array_filter($variants)));
+    }
+
     /**
      * Find the first Lead in a tenant whose phone or mobile matches the
      * given phone number (using the same variant-matching logic as
@@ -66,20 +93,23 @@ class LeadPhoneMatcher
             return null;
         }
 
+        $phoneColumns = self::leadPhoneColumns();
+        if (empty($phoneColumns)) {
+            return null;
+        }
+
         $leads = Lead::where('tenant_id', $tenantId)
-            ->where(function ($q) use ($significantVariants) {
+            ->where(function ($q) use ($significantVariants, $phoneColumns) {
                 foreach ($significantVariants as $variant) {
-                    $q->orWhere('phone', 'like', "%{$variant}%")
-                      ->orWhere('mobile', 'like', "%{$variant}%");
+                    foreach ($phoneColumns as $column) {
+                        $q->orWhere($column, 'like', "%{$variant}%");
+                    }
                 }
             })
             ->get();
 
         foreach ($leads as $lead) {
-            $leadVariants = array_merge(
-                self::buildPhoneVariants((string) ($lead->phone ?? '')),
-                self::buildPhoneVariants((string) ($lead->mobile ?? ''))
-            );
+            $leadVariants = self::buildLeadPhoneVariants($lead);
 
             if (array_intersect($searchVariants, $leadVariants)) {
                 return $lead;
@@ -87,5 +117,49 @@ class LeadPhoneMatcher
         }
 
         return null;
+    }
+
+    protected static function leadPhoneColumns(): array
+    {
+        if (self::$leadPhoneColumns !== null) {
+            return self::$leadPhoneColumns;
+        }
+
+        $columns = [];
+        foreach (array_unique(array_merge(['phone', 'mobile'], self::EXTRA_LEAD_PHONE_KEYS)) as $column) {
+            if (Schema::hasColumn('leads', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        self::$leadPhoneColumns = $columns;
+
+        return self::$leadPhoneColumns;
+    }
+
+    protected static function extractLeadPhoneCandidates(Lead $lead): array
+    {
+        $values = [];
+
+        foreach (self::leadPhoneColumns() as $column) {
+            $values[] = $lead->{$column} ?? null;
+        }
+
+        $metaData = is_array($lead->meta_data ?? null) ? $lead->meta_data : [];
+        foreach (self::EXTRA_LEAD_PHONE_KEYS as $key) {
+            $values[] = $metaData[$key] ?? null;
+        }
+
+        $notesPhoneMatch = preg_match(
+            '/(?:^|\n)\s*Other phones?\s*:\s*([^\n]+)/i',
+            (string) ($lead->notes ?? $lead->note ?? ''),
+            $matches
+        );
+
+        if ($notesPhoneMatch === 1) {
+            $values[] = $matches[1] ?? null;
+        }
+
+        return array_values(array_filter($values, fn ($value) => filled($value)));
     }
 }

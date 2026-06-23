@@ -11,12 +11,31 @@ import { notifyLaravel, notifyLaravelHistorySync } from '../webhook-client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const authBaseDir = path.resolve(process.env.WA_AUTH_PATH || path.join(__dirname, '../auth-state'));
 
 const sessions = new Map();
 const initializing = new Map();
 
 function authDirForTenant(tenantId) {
-  return path.join(__dirname, '../auth-state', `session-${tenantId}`);
+  return path.join(authBaseDir, `session-${tenantId}`);
+}
+
+function lidMapFileForTenant(tenantId) {
+  return path.join(authDirForTenant(tenantId), 'lid-map.json');
+}
+
+function persistedSessionDirs() {
+  if (!fs.existsSync(authBaseDir)) {
+    return [];
+  }
+
+  return fs.readdirSync(authBaseDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('session-'))
+    .map((entry) => entry.name);
+}
+
+export function hasPersistedSession(tenantId) {
+  return fs.existsSync(authDirForTenant(String(tenantId)));
 }
 
 function extractPhoneNumber(sock) {
@@ -26,6 +45,26 @@ function extractPhoneNumber(sock) {
   }
 
   return userId.split(':')[0].split('@')[0];
+}
+
+function normalizeLid(value) {
+  if (!value) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+
+  const userPart = raw.split('@')[0]?.split(':')[0]?.trim() || '';
+  const digits = userPart.replace(/\D+/g, '');
+
+  if (!digits) {
+    return null;
+  }
+
+  return digits;
 }
 
 function extractMessageBody(message) {
@@ -69,6 +108,60 @@ function fireWebhook(tenantId, payload) {
   notifyLaravel(tenantId, payload).catch((error) => {
     console.error(`[Webhook Error] Tenant ${tenantId}:`, error.message);
   });
+}
+
+function summarizeConnectionUpdate(update = {}) {
+  return {
+    connection: update.connection || null,
+    hasQr: !!update.qr,
+    isNewLogin: update.isNewLogin ?? null,
+    receivedPendingNotifications: update.receivedPendingNotifications ?? null,
+    lastDisconnectStatusCode: update.lastDisconnect?.error?.output?.statusCode ?? null,
+    lastDisconnectMessage: update.lastDisconnect?.error?.message ?? null,
+  };
+}
+
+function mapReceiptStatus(rawStatus) {
+  if (rawStatus === null || rawStatus === undefined) {
+    return null;
+  }
+
+  if (typeof rawStatus === 'string') {
+    const normalized = rawStatus.trim().toLowerCase();
+    if (['delivery_ack', 'delivered', 'received'].includes(normalized)) {
+      return 'delivered';
+    }
+
+    if (['read', 'read_ack', 'played', 'played_ack'].includes(normalized)) {
+      return 'read';
+    }
+
+    if (['error', 'failed'].includes(normalized)) {
+      return 'failed';
+    }
+
+    if (['server_ack', 'sent', 'pending'].includes(normalized)) {
+      return 'sent_to_session';
+    }
+
+    return normalized;
+  }
+
+  if (typeof rawStatus === 'number') {
+    if (rawStatus >= 3) {
+      return 'read';
+    }
+
+    if (rawStatus === 2) {
+      return 'delivered';
+    }
+
+    if (rawStatus === 0 || rawStatus === 1) {
+      return 'sent_to_session';
+    }
+  }
+
+  return null;
 }
 
 async function resolveBaileysVersion() {
@@ -126,6 +219,61 @@ function chooseBestPhoneCandidate(candidates) {
   return nonLidSized || normalized[0];
 }
 
+function rememberLidPhoneMapping(sock, lid, phone) {
+  const normalizedLid = normalizeLid(lid);
+  const normalizedPhone = normalizePhoneCandidate(phone);
+
+  if (!normalizedLid || !normalizedPhone) {
+    return;
+  }
+
+  if (!sock.lidToPhoneMap) {
+    sock.lidToPhoneMap = new Map();
+  }
+
+  sock.lidToPhoneMap.set(normalizedLid, normalizedPhone);
+  console.log('[LID Map Remember] Tenant %s lid=%s phone=%s', sock?.tenantId || 'unknown', normalizedLid, normalizedPhone);
+  persistLidPhoneMap(sock);
+}
+
+function resolveMappedPhone(sock, candidate) {
+  const normalized = normalizePhoneCandidate(candidate) || normalizeLid(candidate);
+  if (!normalized || !sock?.lidToPhoneMap) {
+    return null;
+  }
+
+  return sock.lidToPhoneMap.get(normalized) || null;
+}
+
+function loadPersistedLidPhoneMap(tenantId) {
+  const file = lidMapFileForTenant(String(tenantId));
+
+  if (!fs.existsSync(file)) {
+    return new Map();
+  }
+
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    const data = JSON.parse(raw);
+    const map = new Map(Object.entries(data || {}));
+    console.log('[LID Map Load] Tenant %s size=%d', tenantId, map.size);
+    return map;
+  } catch (error) {
+    console.error(`[LID Map Load Error] Tenant ${tenantId}:`, error.message);
+    return new Map();
+  }
+}
+
+function persistLidPhoneMap(sock) {
+  try {
+    const file = lidMapFileForTenant(String(sock?.tenantId || ''));
+    const data = Object.fromEntries(sock?.lidToPhoneMap || []);
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+  } catch (error) {
+    console.error(`[LID Map Save Error] Tenant ${sock?.tenantId || 'unknown'}:`, error.message);
+  }
+}
+
 function extractSenderPhone(msg) {
   const key = msg?.key || {};
 
@@ -157,6 +305,12 @@ export async function initSession(tenantId) {
     fs.mkdirSync(authDir, { recursive: true });
 
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    console.log(`[Session Init] Tenant ${key}`, {
+      authDir,
+      registered: !!state?.creds?.registered,
+      meId: state?.creds?.me?.id || null,
+    });
+
     const version = await resolveBaileysVersion();
 
     const sock = makeWASocket({
@@ -171,6 +325,7 @@ export async function initSession(tenantId) {
     sock.tenantId = key;
     sock.qrCode = null;
     sock.connectionStatus = 'disconnected';
+    sock.lidToPhoneMap = loadPersistedLidPhoneMap(key);
 
     sessions.set(key, sock);
 
@@ -178,6 +333,7 @@ export async function initSession(tenantId) {
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
+      console.log(`[Connection Update] Tenant ${key}`, summarizeConnectionUpdate(update));
 
       if (qr) {
         sock.qrCode = qr;
@@ -188,6 +344,11 @@ export async function initSession(tenantId) {
       if (connection === 'open') {
         sock.qrCode = null;
         sock.connectionStatus = 'connected';
+        console.log(`[Session Open] Tenant ${key}`, {
+          user: sock.user || null,
+          registered: !!state?.creds?.registered,
+          connectedPhoneNumber: extractPhoneNumber(sock),
+        });
         fireWebhook(key, {
           event: 'status_change',
           status: 'connected',
@@ -220,16 +381,20 @@ export async function initSession(tenantId) {
           return;
         }
 
-        sock.connectionStatus = statusCode === DisconnectReason.restartRequired
-          ? 'pending_qr'
-          : 'disconnected';
-        fireWebhook(key, { event: 'status_change', status: sock.connectionStatus });
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired
+          || statusCode === 515;
+
+        sock.connectionStatus = 'disconnected';
+        fireWebhook(key, { event: 'status_change', status: 'disconnected' });
+
+        const reconnectDelay = isRestartRequired ? 1500 : 5000;
+        console.log(`[Reconnect] Tenant ${key} reconnecting in ${reconnectDelay}ms (statusCode=${statusCode})`);
 
         setTimeout(() => {
           initSession(key).catch((error) => {
             console.error(`[Reconnect Error] Tenant ${key}:`, error.message);
           });
-        }, statusCode === DisconnectReason.restartRequired ? 0 : 3000);
+        }, reconnectDelay);
       }
     });
 
@@ -259,7 +424,7 @@ export async function initSession(tenantId) {
     });
 
     sock.ev.on('messages.upsert', async (event) => {
-      if (event.type !== 'notify') {
+      if (event.type !== 'notify' && event.type !== 'append') {
         return;
       }
 
@@ -269,6 +434,23 @@ export async function initSession(tenantId) {
 
         const isFromMe = !!msg.key.fromMe;
         const extractedBody = extractMessageBody(msg.message);
+        // For outbound (fromMe) messages the counterpart is the remoteJid.
+        // remoteJid can be a LID (e.g. "195893592608918@lid") instead of a real
+        // E.164 number. Detect @lid and fall back to senderPn/participantPn.
+        const remoteJidRaw = msg.key?.remoteJid || '';
+        const isLid = remoteJidRaw.endsWith('@lid');
+        const directCandidate = isFromMe
+          ? (isLid ? null : normalizePhoneCandidate(remoteJidRaw)) || extractSenderPhone(msg)
+          : extractSenderPhone(msg);
+
+        const mappedCandidate = resolveMappedPhone(sock, remoteJidRaw)
+          || resolveMappedPhone(sock, msg.key?.senderPn)
+          || resolveMappedPhone(sock, msg.key?.participantPn)
+          || resolveMappedPhone(sock, msg.key?.participant)
+          || resolveMappedPhone(sock, msg?.participant)
+          || resolveMappedPhone(sock, directCandidate);
+
+        let counterpartPhone = mappedCandidate || directCandidate;
 
         if (!extractedBody) {
           console.log(
@@ -279,11 +461,22 @@ export async function initSession(tenantId) {
           );
         }
 
+        console.log('[Live Message] Tenant %s %o', key, {
+          eventType: event.type,
+          messageId: msg.key?.id || null,
+          fromMe: isFromMe,
+          counterpartPhone,
+          remoteJid: msg.key?.remoteJid || null,
+          pushName: msg.pushName || null,
+          bodyPreview: extractedBody ? extractedBody.slice(0, 80) : '',
+          messageKeys: Object.keys(msg.message || {}),
+        });
+
         fireWebhook(key, {
           event: 'message_received',
           message: {
             from_me: isFromMe,
-            from: extractSenderPhone(msg),
+            from: counterpartPhone,
             pushName: msg.pushName || null,
             body: extractedBody,
             timestamp: msg.messageTimestamp,
@@ -293,6 +486,23 @@ export async function initSession(tenantId) {
             participant: extractRemotePhone(msg.key?.participant) || null,
             remote_jid: msg.key?.remoteJid || null,
           },
+        });
+      }
+    });
+
+    sock.ev.on('messages.update', async (updates = []) => {
+      for (const item of updates) {
+        const messageId = item?.key?.id;
+        const status = mapReceiptStatus(item?.update?.status);
+
+        if (!messageId || !status) {
+          continue;
+        }
+
+        fireWebhook(key, {
+          event: 'message_status_update',
+          message_id: messageId,
+          status,
         });
       }
     });
@@ -309,8 +519,47 @@ export async function initSession(tenantId) {
   }
 }
 
+export async function restorePersistedSessions() {
+  const dirs = persistedSessionDirs();
+
+  for (const dir of dirs) {
+    const tenantId = dir.replace(/^session-/, '');
+    if (!tenantId) {
+      continue;
+    }
+
+    try {
+      console.log(`[Session Restore] Bootstrapping tenant ${tenantId} from ${dir}`);
+      await initSession(tenantId);
+    } catch (error) {
+      console.error(`[Session Restore Error] Tenant ${tenantId}:`, error.message);
+    }
+  }
+}
+
 export function getSession(tenantId) {
   return sessions.get(String(tenantId));
+}
+
+export function registerLidPhoneMappings(tenantId, pairs = []) {
+  const sock = sessions.get(String(tenantId));
+  if (!sock) {
+    return;
+  }
+
+  for (const pair of pairs) {
+    rememberLidPhoneMapping(sock, pair?.lid, pair?.phone);
+  }
+}
+
+export function getSessionDebug() {
+  return [...sessions.entries()].map(([id, sock]) => ({
+    tenantId: id,
+    status: sock?.connectionStatus || null,
+    hasQr: !!sock?.qrCode,
+    user: sock?.user?.id || null,
+    lidMapSize: sock?.lidToPhoneMap?.size || 0,
+  }));
 }
 
 export async function deleteSession(tenantId) {

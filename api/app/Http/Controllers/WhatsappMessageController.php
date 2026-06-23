@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\WhatsappMessage;
+use App\Models\Lead;
 use App\Services\Whatsapp\WhatsappProviderResolver;
 use App\Support\LeadPhoneMatcher;
 use App\Support\PhoneNormalizer;
+use Illuminate\Support\Facades\Schema;
 
 class WhatsappMessageController extends Controller
 {
@@ -38,29 +40,47 @@ class WhatsappMessageController extends Controller
     public function leadMessages(Request $request, $leadId)
     {
         $user = Auth::user();
-        $lead = \App\Models\Lead::findOrFail($leadId);
-        $phoneVariants = LeadPhoneMatcher::buildPhoneVariants((string) ($lead->phone ?? ''));
+        $lead = Lead::where('tenant_id', $user->tenant_id)->findOrFail($leadId);
+        $phoneVariants = LeadPhoneMatcher::buildLeadPhoneVariants($lead);
 
         if (empty($phoneVariants)) {
-            return response()->json([]);
+            if (!Schema::hasColumn('whatsapp_messages', 'lead_id')) {
+                return response()->json([]);
+            }
         }
 
         $messages = WhatsappMessage::where('tenant_id', $user->tenant_id)
-            ->where(function($q) use ($phoneVariants) {
+            ->where(function ($q) use ($phoneVariants, $lead) {
+                if (Schema::hasColumn('whatsapp_messages', 'lead_id')) {
+                    $q->orWhere('lead_id', $lead->id);
+                }
+
                 foreach ($phoneVariants as $variant) {
                     $q->orWhere('from', $variant)->orWhere('to', $variant);
                 }
             })
             ->orderBy('created_at', 'asc')
             ->get()
-            ->map(function(WhatsappMessage $m) {
+            ->map(function (WhatsappMessage $m) {
+                $normalizedStatus = $this->mapStatus($m->status, $m->direction);
+
+                if (
+                    $m->direction === 'outbound'
+                    && in_array($normalizedStatus, ['sent_to_baileys', 'sent_to_session'], true)
+                    && $m->created_at
+                    && $m->created_at->lt(now()->subSeconds(120))
+                ) {
+                    $normalizedStatus = 'unstable';
+                }
+
                 return [
                     'body' => $m->body,
                     'direction' => $m->direction,
                     'timestamp' => $m->created_at?->toISOString(),
-                    'status' => $this->mapStatus($m->status),
+                    'status' => $normalizedStatus,
                     'type' => $m->type,
                     'id' => $m->id,
+                    'message_id' => $m->message_id,
                 ];
             });
         return response()->json($messages);
@@ -98,40 +118,30 @@ class WhatsappMessageController extends Controller
         ]);
         $digits = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
 
-        if ($providerResolver->activeProviderKey((int) $user->tenant_id) === 'meta') {
-            $phoneVariants = LeadPhoneMatcher::buildPhoneVariants($digits);
-            $lastInbound = WhatsappMessage::where('tenant_id', $user->tenant_id)
-                ->where('direction', 'inbound')
-                ->where(function ($query) use ($phoneVariants) {
-                    foreach ($phoneVariants as $variant) {
-                        $query->orWhere('from', $variant);
-                    }
-                })
-                ->orderBy('created_at', 'desc')
-                ->first();
-            if (!$lastInbound || now()->diffInHours($lastInbound->created_at) > 24) {
-                return response()->json([
-                    'ok' => false,
-                    'error' => 'outside_24h_window',
-                    'message' => 'لا يمكن إرسال رسالة حرة. مر أكثر من 24 ساعة على آخر رسالة من العميل. الرجاء استخدام قالب لبدء محادثة جديدة.'
-                ], 422);
-            }
-        }
-
         $provider = $providerResolver->resolve((int) $user->tenant_id);
         $result = $provider->sendText((int) $user->tenant_id, $digits, $validated['message_body']);
 
         return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
     }
 
-    private function mapStatus(?string $status): string
+    private function mapStatus(?string $status, ?string $direction = null): string
     {
-        if (!$status) return 'sent';
+        if (!$status) {
+            return $direction === 'outbound' ? 'sent_to_baileys' : 'received';
+        }
+
         switch ($status) {
-            case 'accepted': return 'sent';
-            case 'received': return 'delivered';
-            case 'read': return 'read';
-            default: return $status;
+            case 'accepted':
+            case 'sent':
+            case 'sent_to_session':
+            case 'sent_to_baileys':
+                return $direction === 'outbound' ? 'sent_to_baileys' : 'sent';
+            case 'received':
+                return 'delivered';
+            case 'read':
+                return 'read';
+            default:
+                return $status;
         }
     }
 

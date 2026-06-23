@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Events\InboundWhatsappMessage;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
 use App\Support\LeadPhoneMatcher;
@@ -87,17 +86,6 @@ class ProcessHistorySyncBatch implements ShouldQueue
                     ]
                 );
 
-                if ($message->wasRecentlyCreated) {
-                    event(new InboundWhatsappMessage($tenantId, [
-                        'id' => $message->id,
-                        'body' => $message->body,
-                        'from' => $message->from,
-                        'to' => $message->to,
-                        'direction' => $message->direction,
-                        'timestamp' => $message->created_at?->toISOString(),
-                    ]));
-                }
-
                 $processedCount++;
             } catch (\Exception $e) {
                 Log::error("[History Sync Batch Error] Tenant {$tenantId}: " . $e->getMessage());
@@ -106,7 +94,7 @@ class ProcessHistorySyncBatch implements ShouldQueue
 
         Log::info("[History Sync] Tenant {$tenantId} processed {$processedCount} messages, skipped {$skippedCount} (no lead match).");
 
-        if ($this->isLatest && $session) {
+        if ($session && ($this->isLatest || (!$session->history_synced_at && !empty($this->messages)))) {
             $session->update(['history_synced_at' => now()]);
         }
     }

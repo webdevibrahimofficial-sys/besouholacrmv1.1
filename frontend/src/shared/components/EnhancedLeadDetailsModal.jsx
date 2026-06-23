@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../context/ThemeProvider';
 import { useAppState } from '../context/AppStateProvider';
-import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt, FaCopy } from 'react-icons/fa';
+import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt, FaCopy, FaSyncAlt } from 'react-icons/fa';
 
 import AddActionModal from '../../components/AddActionModal';
 import EditLeadModal from '../../components/EditLeadModal';
@@ -15,7 +15,7 @@ import { saveRequest as saveRealEstateRequest } from '../../data/realEstateReque
 import { saveRequest as saveInventoryRequest } from '../../data/inventoryRequests';
 import { api } from '../../utils/api';
 import { ensureEcho, getEcho } from '../../echo';
-import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, getWhatsappTemplates } from '../../services/whatsappService';
+import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, getWhatsappTemplates, getWhatsappMirrorStatus } from '../../services/whatsappService';
 import { getLeadEmailMessages, sendEmailText } from '../../services/emailService';
 import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
@@ -35,6 +35,25 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [convertCustomerLoading, setConvertCustomerLoading] = useState(false);
   const [uploadingLeadAttachments, setUploadingLeadAttachments] = useState(false);
   const leadAttachmentInputRef = useRef(null);
+
+  const reloadWhatsappMessages = useCallback(async (leadId) => {
+    if (!leadId) return;
+    try {
+      const data = await getLeadWhatsappMessages(leadId);
+      setWaMessages(Array.isArray(data) ? data : []);
+    } catch {
+      setWaMessages([]);
+    }
+  }, []);
+
+  const loadWhatsappMirrorStatus = useCallback(async () => {
+    try {
+      const data = await getWhatsappMirrorStatus();
+      setWaMirrorStatus(data || null);
+    } catch {
+      setWaMirrorStatus({ status: 'unknown' });
+    }
+  }, []);
 
   const formatCoordinatePair = (location) => {
     const lat = Number(location?.lat);
@@ -143,14 +162,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   useEffect(() => {
     if (!isOpen || activeTab !== 'communication' || !lead?.id) return;
     setWaLoading(true);
-    getLeadWhatsappMessages(lead.id)
-      .then(data => {
-        setWaMessages(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {
-        setWaMessages([]);
-      })
+    reloadWhatsappMessages(lead.id)
       .finally(() => setWaLoading(false));
+    loadWhatsappMirrorStatus();
     setEmailLoading(true);
     getLeadEmailMessages(lead.id)
       .then(data => {
@@ -172,7 +186,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     getEmailTemplates()
       .then(list => setEmailTemplates(Array.isArray(list) ? list : []))
       .catch(() => { });
-  }, [isOpen, activeTab, lead?.id]);
+  }, [isOpen, activeTab, lead?.id, loadWhatsappMirrorStatus, reloadWhatsappMessages]);
   useEffect(() => {
     if (!isOpen) return;
     const tenantId = user?.tenant_id || company?.tenant_id || company?.tenantId || company?.id;
@@ -185,24 +199,36 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         ch.listen('InboundWhatsappMessage', (e) => {
           const m = e?.message;
           if (!m) return;
-          const raw = lead?.phone || lead?.mobile || '';
-          const digits = getPhoneDigits(raw, {
+          if (lead?.id && m.lead_id && String(m.lead_id) === String(lead.id)) {
+            reloadWhatsappMessages(lead.id);
+            if (activeTab !== 'communication') {
+              setUnreadComm(c => c + 1);
+            }
+            return;
+          }
+          const rawPhones = [lead?.phone, lead?.mobile].filter(Boolean).join('\n');
+          const digitsCandidates = getPhoneLines(rawPhones, {
+            showFull: true,
             defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
-          });
+          })
+            .map((line) => String(line?.digits || '').trim())
+            .filter(Boolean);
           const messageDigits = [m.from, m.to].map((value) => String(value || '').replace(/[^0-9]/g, ''));
-          const localDigits = digits.startsWith('20') ? `0${digits.slice(2)}` : digits;
-          const trimmedDigits = digits.startsWith('20') ? digits.slice(2) : digits;
-          const fromMatch = messageDigits.some((value) => value && [digits, localDigits, trimmedDigits].includes(value));
-          const toMatch = fromMatch;
-          if (fromMatch || toMatch) {
-            setWaMessages(prev => [...prev, {
-              body: m.body,
-              direction: m.direction || 'inbound',
-              timestamp: m.timestamp || new Date().toISOString(),
-              status: 'delivered',
-              type: 'text',
-              id: m.id || Math.random().toString(36).slice(2),
-            }]);
+          const normalizedLeadDigits = digitsCandidates.flatMap((digits) => {
+            const variants = [digits];
+            if (digits.startsWith('20') && digits.length > 2) {
+              variants.push(`0${digits.slice(2)}`, digits.slice(2));
+            }
+            if (digits.startsWith('0') && digits.length > 1) {
+              variants.push(`20${digits.slice(1)}`, digits.slice(1));
+            }
+            return variants;
+          });
+          const hasPhoneMatch = messageDigits.some((value) => value && normalizedLeadDigits.includes(value));
+          if (hasPhoneMatch) {
+            if (lead?.id) {
+              reloadWhatsappMessages(lead.id);
+            }
             if (activeTab !== 'communication') {
               setUnreadComm(c => c + 1);
             }
@@ -217,7 +243,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         }
       } catch { }
     };
-  }, [isOpen, user?.tenant_id, company?.id, company?.tenant_id, company?.tenantId, lead?.phone, lead?.mobile, activeTab]);
+  }, [isOpen, user?.tenant_id, company?.id, company?.tenant_id, company?.tenantId, lead?.id, lead?.phone, lead?.mobile, activeTab, reloadWhatsappMessages]);
   useEffect(() => {
     if (!isOpen || activeTab !== 'communication' || !lead?.id) return;
     let timer = null;
@@ -225,10 +251,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     if (shouldPoll) {
       const run = async () => {
         try {
-          const data = await getLeadWhatsappMessages(lead.id);
-          if (Array.isArray(data)) {
-            setWaMessages(data);
-          }
+          await reloadWhatsappMessages(lead.id);
           const edata = await getLeadEmailMessages(lead.id);
           if (Array.isArray(edata)) {
             setEmailMessages(edata);
@@ -240,7 +263,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isOpen, activeTab, lead?.id]);
+  }, [isOpen, activeTab, lead?.id, reloadWhatsappMessages]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [expandedComments, setExpandedComments] = useState({});
@@ -318,6 +341,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [showPaymentPlanModal, setShowPaymentPlanModal] = useState(false);
   const [waMessages, setWaMessages] = useState([]);
   const [waLoading, setWaLoading] = useState(false);
+  const [waMirrorStatus, setWaMirrorStatus] = useState(null);
   const [emailMessages, setEmailMessages] = useState([]);
   const [emailLoading, setEmailLoading] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -333,9 +357,46 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [showCreateRequestModal, setShowCreateRequestModal] = useState(false);
   const [actionType, setActionType] = useState('call');
   const [commFilter, setCommFilter] = useState('all');
+  const refreshWhatsappChat = useCallback(async () => {
+    if (!lead?.id || waLoading) return;
+    setWaLoading(true);
+    try {
+      await Promise.all([
+        reloadWhatsappMessages(lead.id),
+        loadWhatsappMirrorStatus(),
+      ]);
+    } finally {
+      setWaLoading(false);
+    }
+  }, [lead?.id, loadWhatsappMirrorStatus, reloadWhatsappMessages, waLoading]);
   const showWhatsAppSection = commFilter !== 'email';
   const showEmailSection = commFilter !== 'whatsapp';
   const showBothCommPanels = showWhatsAppSection && showEmailSection;
+  const waMirrorIsConnected = waMirrorStatus?.status === 'connected';
+  const waMirrorWarning =
+    waMirrorStatus && !waMirrorIsConnected
+      ? (isArabic
+        ? 'جلسة واتساب غير مستقرة حالياً. قد يسجل الـ CRM الرسالة لكن بدون تأكيد تسليم فعلي من واتساب.'
+        : 'WhatsApp session is currently unstable. The CRM may record the message before WhatsApp confirms real delivery.')
+      : null;
+  const getWhatsappStatusLabel = (status) => {
+    switch (status) {
+      case 'sent_to_baileys':
+        return isArabic ? 'تم الإرسال إلى الجلسة' : 'sent to session';
+      case 'delivered':
+        return isArabic ? 'تم التسليم' : 'delivered';
+      case 'read':
+        return isArabic ? 'تمت القراءة' : 'read';
+      case 'received':
+        return isArabic ? 'مستلمة' : 'received';
+      case 'failed':
+        return isArabic ? 'فشل الإرسال' : 'failed';
+      case 'unstable':
+        return isArabic ? 'غير مؤكدة / الجلسة غير مستقرة' : 'unstable / not confirmed';
+      default:
+        return status || (isArabic ? 'غير معروف' : 'unknown');
+    }
+  };
   const [showCompose, setShowCompose] = useState(false);
   const [composeChannel, setComposeChannel] = useState('whatsapp');
   const [composeSubject, setComposeSubject] = useState('');
@@ -3069,8 +3130,25 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                 <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'} ${showBothCommPanels ? 'md:col-span-2' : ''}`}>
                   <div className="flex justify-between items-center mb-4">
                     <h4 className={`text-lg font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isArabic ? 'سجل واتساب' : 'WhatsApp Chat'}</h4>
-                    <div className="text-sm">{waLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : ''}</div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-sm">{waLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : ''}</div>
+                      <button
+                        type="button"
+                        onClick={refreshWhatsappChat}
+                        disabled={waLoading || !lead?.id}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors ${waLoading || !lead?.id ? 'opacity-60 cursor-not-allowed' : ''} ${isLight ? 'border-gray-200 text-gray-700 hover:bg-gray-50' : 'border-slate-700 text-white hover:bg-slate-800/80'}`}
+                        title={isArabic ? 'تحديث الرسائل' : 'Refresh messages'}
+                      >
+                        <FaSyncAlt className={waLoading ? 'animate-spin' : ''} />
+                        <span>{isArabic ? 'تحديث' : 'Refresh'}</span>
+                      </button>
+                    </div>
                   </div>
+                  {waMirrorWarning && (
+                    <div className={`mb-4 rounded-xl border px-3 py-2 text-sm ${isLight ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-amber-500/40 bg-amber-500/10 text-amber-100'}`}>
+                      {waMirrorWarning}
+                    </div>
+                  )}
                   <div className={`${waMessages.length > 3 ? 'max-h-64 overflow-y-auto pr-1' : ''} space-y-3`}>
                     {waMessages.map((m) => (
                       <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
@@ -3078,7 +3156,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                           <div className="text-sm">{m.body || (m.direction === 'inbound' ? (isArabic ? '[رسالة وسائط بدون نص]' : '[Media message, no text]') : (isArabic ? '[بدون نص]' : '[No text]'))}</div>
                           <div className="mt-1 text-[10px] opacity-70 flex items-center gap-2">
                             <span>{new Date(m.timestamp).toLocaleString(isArabic ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</span>
-                            <span>{m.status}</span>
+                            <span>{getWhatsappStatusLabel(m.status)}</span>
                           </div>
                         </div>
                       </div>
@@ -3110,24 +3188,14 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                           const digits = getPhoneDigits(raw, {
                             defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
                           });
-                          const inbound = [...waMessages].filter(x => x.direction === 'inbound').pop();
-                          if (!inbound || (Date.now() - new Date(inbound.timestamp).getTime()) > 24 * 60 * 60 * 1000) {
-                            alert(isArabic ? 'لا يمكن إرسال رسالة حرة. مر أكثر من 24 ساعة على آخر رسالة من العميل. الرجاء استخدام قالب لبدء محادثة جديدة.' : 'Cannot send free-form. More than 24 hours since last customer message. Use a template.');
-                            return;
-                          }
                           setSendingText(true);
                           try {
                             const res = await sendWhatsappText({ recipient_number: digits, message_body: textBody.trim() });
                             const ok = !!(res?.ok || res?.success);
-                            setWaMessages(prev => [...prev, {
-                              body: textBody.trim(),
-                              direction: 'outbound',
-                              timestamp: new Date().toISOString(),
-                              status: ok ? 'sent' : 'failed',
-                              type: 'text',
-                              id: Math.random().toString(36).slice(2),
-                            }]);
-                            setTextBody('');
+                            if (ok && lead?.id) {
+                              await reloadWhatsappMessages(lead.id);
+                              setTextBody('');
+                            }
                           } catch {
                           } finally {
                             setSendingText(false);
@@ -3166,21 +3234,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                               const digits = getPhoneDigits(raw, {
                                 defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
                               });
-                              setSendingTpl(t.name);
-                              try {
-                                const res = await sendWhatsappTemplate({ recipient_number: digits, template_name: t.name, variables: {} });
-                                const ok = !!(res?.ok || res?.success);
-                                setWaMessages(prev => [...prev, {
-                                  body: t.body || t.name,
-                                  direction: 'outbound',
-                                  timestamp: new Date().toISOString(),
-                                  status: ok ? 'sent' : 'failed',
-                                  type: 'template',
-                                  id: Math.random().toString(36).slice(2),
-                                }]);
-                              } catch { }
-                              setSendingTpl('');
-                            }}
+                                setSendingTpl(t.name);
+                                try {
+                                  const res = await sendWhatsappTemplate({ recipient_number: digits, template_name: t.name, variables: {} });
+                                  const ok = !!(res?.ok || res?.success);
+                                  if (ok && lead?.id) {
+                                    await reloadWhatsappMessages(lead.id);
+                                  }
+                                } catch { }
+                                setSendingTpl('');
+                              }}
                             className={`px-3 py-1 rounded-md text-xs ${isLight ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-500 text-white'}`}
                           >
                             {sendingTpl === t.name ? (isArabic ? 'جاري الإرسال...' : 'Sending...') : (isArabic ? 'إرسال' : 'Send')}
@@ -3430,3 +3493,4 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 };
 
 export default EnhancedLeadDetailsModal;
+

@@ -129,6 +129,10 @@ services:
     working_dir: /app
     env_file:
       - ../wa-mirror-service/.env
+    environment:
+      PORT: "3000"
+      WA_AUTH_PATH: "/app/src/auth-state"
+      LARAVEL_INTERNAL_URL: "http://laravel_web/api/internal/whatsapp-mirror/webhook"
     ports:
       - "3001:3000"
     volumes:

@@ -1,10 +1,19 @@
 import { Router } from 'express';
-import { getSession } from '../sessions/manager.js';
+import { getSession, hasPersistedSession, initSession } from '../sessions/manager.js';
 
 const router = Router();
 
-router.get('/sessions/:tenantId/status', (req, res) => {
-  const sock = getSession(req.params.tenantId);
+router.get('/sessions/:tenantId/status', async (req, res) => {
+  const tenantId = req.params.tenantId;
+  let sock = getSession(tenantId);
+
+  if (!sock && hasPersistedSession(tenantId)) {
+    try {
+      sock = await initSession(tenantId);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
 
   if (!sock) {
     return res.json({ status: 'disconnected', qr: null });

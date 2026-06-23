@@ -30,9 +30,10 @@ async function post(url, tenantId, payload) {
       buildPayload(tenantId, payload),
       {
         headers: buildHeaders(),
-        timeout: 3000,
+        timeout: 8000,
       }
     );
+    console.log('[Webhook OK] Tenant %s event=%s url=%s', tenantId, payload?.event || 'unknown', url);
   } catch (error) {
     console.error(`[Webhook Error] Tenant ${tenantId}:`, error.message);
   }
