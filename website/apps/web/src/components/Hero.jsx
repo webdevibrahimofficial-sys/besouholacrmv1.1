@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   Sparkles,
@@ -15,7 +16,6 @@ import {
 import { Button } from '@/components/ui/button';
 import AnimatedHeroBackground from '@/components/AnimatedHeroBackground';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
-import DemoRequestModal from '@/components/DemoRequestModal';
 
 const PIPELINE_STAGES = [
   {
@@ -222,11 +222,11 @@ const Hero = () => {
   };
 
   return (
-    <section className="relative flex min-h-screen items-start justify-center overflow-visible pt-[3.85rem] sm:pt-[4.1rem]">
+    <section className="relative flex min-h-screen items-start justify-center overflow-visible pt-[4.65rem] sm:pt-[4.9rem]">
       <AnimatedHeroBackground />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_32%),linear-gradient(135deg,rgba(7,8,13,0.84),rgba(7,8,13,0.97))]" />
 
-      <div className="relative z-10 mx-auto w-full max-w-[1450px] px-4 py-6 sm:px-5 sm:py-8 lg:px-6 lg:py-10 xl:px-7 xl:py-12 2xl:px-8">
+      <div className="relative z-10 mx-auto w-full max-w-[1450px] px-4 py-7 sm:px-5 sm:py-8 lg:px-6 lg:py-10 xl:px-7 xl:py-12 2xl:px-8">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.85fr)] lg:items-start lg:gap-8 xl:gap-10 2xl:gap-12">
           <div className="max-w-2xl lg:max-w-[38rem] lg:pt-2 xl:pt-4">
             <motion.div
@@ -266,21 +266,16 @@ const Hero = () => {
               transition={{ duration: 0.8, delay: 0.5 }}
               className="flex flex-col gap-3 sm:flex-row"
             >
-              <DemoRequestModal
-                location="hero"
-                formName="Hero Demo Modal"
-                title={hero.form_title || 'Book Your Free CRM Demo'}
-                description={hero.form_subtitle || "Tell us about your business and we'll contact you within 24 hours."}
-                trigger={
-                  <Button
-                    size="lg"
-                    className="rounded-full bg-accent-purple px-8 py-4 text-base font-semibold text-white shadow-[0_14px_38px_rgba(147,114,255,0.35)] hover:bg-accent-purple/90"
-                  >
-                    {hero.primary_cta || 'Book Free Demo'}
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                }
-              />
+              <Button
+                asChild
+                size="lg"
+                className="rounded-full bg-accent-purple px-8 py-4 text-base font-semibold text-white shadow-[0_14px_38px_rgba(147,114,255,0.35)] hover:bg-accent-purple/90"
+              >
+                <Link to="/contact">
+                  {hero.primary_cta || 'Book Free Demo'}
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Link>
+              </Button>
 
               <Button
                 onClick={handleExploreFeaturesClick}
@@ -300,10 +295,10 @@ const Hero = () => {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8, delay: 0.4 }}
             id="hero-demo-panel"
-            className="lg:sticky lg:top-24 lg:ml-auto lg:max-w-[760px] xl:top-28"
+            className="lg:sticky lg:top-28 lg:ml-auto lg:max-w-[760px] xl:top-32"
           >
             <div className="space-y-4">
-              <div className="origin-top-right scale-[0.9] lg:-mb-12">
+              <div className="origin-top-right scale-[0.9] lg:-mb-12 lg:mt-4">
                 <DashboardPanel />
               </div>
 

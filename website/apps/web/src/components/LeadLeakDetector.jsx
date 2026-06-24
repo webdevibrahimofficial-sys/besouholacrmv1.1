@@ -3,10 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Activity,
   ArrowRight,
-  BarChart3,
   Building2,
   CheckCircle2,
-  ClipboardList,
   Layers3,
   Loader2,
   Mail,
@@ -267,39 +265,6 @@ const buildAnswerBasedAdvice = (questions, answers) => {
   ];
 };
 
-const mobileFeatureCards = [
-  {
-    icon: User2,
-    label: 'Leads',
-    sublabel: 'Follow-up pipeline',
-    description: 'Assign leads instantly, log every touchpoint, and keep reps moving from first contact to close.',
-  },
-  {
-    icon: ClipboardList,
-    label: 'Tasks',
-    sublabel: 'Daily execution',
-    description: 'See what is due today, who owns it, and which callbacks or reminders need immediate action.',
-  },
-  {
-    icon: Building2,
-    label: 'Projects',
-    sublabel: 'Inventory tracking',
-    description: 'Open inventory, track project details, and connect opportunities to the right unit or property.',
-  },
-  {
-    icon: BarChart3,
-    label: 'Reports',
-    sublabel: 'Manager visibility',
-    description: 'Check team performance, delayed follow-up, and pipeline progress without waiting for office reports.',
-  },
-];
-
-const mobileAppBenefits = [
-  'Follow up from anywhere',
-  'Assign leads instantly',
-  'Manage projects on the go',
-];
-
 const slugifyQuestion = (value, index) =>
   String(value || `question_${index + 1}`)
     .toLowerCase()
@@ -336,6 +301,42 @@ const scoreTone = (score) => {
   };
 };
 
+const integrationTeamPreview = [
+  { name: 'Ahmed Mohamed', newLeads: 2 },
+  { name: 'Mona Adel', newLeads: 1 },
+  { name: 'Omar Mostafa', newLeads: 3 },
+];
+
+const getIntegrationSourceMeta = (label) => {
+  const value = String(label || '').toLowerCase();
+
+  if (value.includes('meta')) {
+    return { icon: Megaphone, accent: 'from-sky-500/30 to-cyan-400/10', chip: 'text-sky-100' };
+  }
+
+  if (value.includes('form') || value.includes('website')) {
+    return { icon: Building2, accent: 'from-cyan-500/25 to-teal-400/10', chip: 'text-cyan-100' };
+  }
+
+  if (value.includes('chat')) {
+    return { icon: PlugZap, accent: 'from-teal-500/25 to-cyan-400/10', chip: 'text-teal-100' };
+  }
+
+  if (value.includes('google') || value.includes('ads')) {
+    return { icon: Target, accent: 'from-amber-500/25 to-orange-400/10', chip: 'text-amber-100' };
+  }
+
+  if (value.includes('whatsapp')) {
+    return { icon: Phone, accent: 'from-emerald-500/25 to-green-400/10', chip: 'text-emerald-100' };
+  }
+
+  if (value.includes('email')) {
+    return { icon: Mail, accent: 'from-violet-500/25 to-fuchsia-400/10', chip: 'text-violet-100' };
+  }
+
+  return { icon: PlugZap, accent: 'from-cyan-500/25 to-slate-400/10', chip: 'text-cyan-100' };
+};
+
 const LeadLeakDetector = () => {
   const { leadLeakDetector } = useWebsiteContent();
   const [isOpen, setIsOpen] = useState(false);
@@ -345,7 +346,8 @@ const LeadLeakDetector = () => {
   const [answers, setAnswers] = useState([]);
   const [openSource, setOpenSource] = useState('hero_card');
   const [activeHeroPanelIndex, setActiveHeroPanelIndex] = useState(0);
-  const [activeMobileFeatureIndex, setActiveMobileFeatureIndex] = useState(0);
+  const [activeIntegrationIndex, setActiveIntegrationIndex] = useState(0);
+  const [isIntegrationFlowPaused, setIsIntegrationFlowPaused] = useState(false);
   const [isHeroCarouselPaused, setIsHeroCarouselPaused] = useState(false);
   const [leadCaptureMode, setLeadCaptureMode] = useState(null);
   const [appPreviewSrc, setAppPreviewSrc] = useState(appShowcaseImage);
@@ -410,20 +412,20 @@ const LeadLeakDetector = () => {
         leadLeakDetector?.integration_headline || 'Plug every lead source into one CRM flow',
       integrationDescription:
         leadLeakDetector?.integration_description ||
-        'Show that Meta, website forms, chat, ads, WhatsApp, and notifications all land inside one connected operating layer for your sales team.',
+        'Show that Meta, website forms, ads, and WhatsApp all land inside one connected operating layer for your sales team.',
       integrationHighlights:
         Array.isArray(leadLeakDetector?.integration_highlights) &&
         leadLeakDetector.integration_highlights.length > 0
           ? leadLeakDetector.integration_highlights
-          : ['Unified lead intake', 'Live source visibility', 'Faster follow-up handoff'],
+          : ['Unified lead intake', 'Instant assignment', 'Faster follow-up'],
       integrationTitle: leadLeakDetector?.integration_title || 'Live Integration Badge',
       integrationSubtitle:
         leadLeakDetector?.integration_subtitle ||
-        'Show that every lead source, chat, and notification flow can live inside one connected CRM engine.',
+        'Show that every lead source can live inside one connected CRM engine.',
       integrationItems:
         Array.isArray(leadLeakDetector?.integration_items) && leadLeakDetector.integration_items.length > 0
           ? leadLeakDetector.integration_items
-          : ['Meta Leads', 'Website Forms', 'Website Chat', 'Google Ads', 'WhatsApp', 'Email Notifications'],
+          : ['Meta Leads', 'Website Forms', 'Google Ads', 'WhatsApp'],
       integrationButtonText:
         leadLeakDetector?.integration_button_text || 'See integrations in action',
       resultCtaText: leadLeakDetector?.result_cta_text || 'Book a result-based demo',
@@ -463,10 +465,6 @@ const LeadLeakDetector = () => {
     setAppPreviewSrc(content.appImageUrl || appShowcaseImage);
   }, [content.appImageUrl]);
 
-  useEffect(() => {
-    setActiveMobileFeatureIndex(0);
-  }, [activeHeroPanelIndex]);
-
   const progress = content.questions.length
     ? Math.round((answers.length / content.questions.length) * 100)
     : 0;
@@ -477,7 +475,7 @@ const LeadLeakDetector = () => {
         key: 'mobile_app',
         eyebrow: content.appEyebrow,
         headline: content.appHeadline,
-        description: content.appDescription,
+        description: [content.appDescription, content.appSubtitle].filter(Boolean).join(' '),
         highlights: content.appHighlights,
         title: content.appTitle,
         subtitle: content.appSubtitle,
@@ -534,7 +532,21 @@ const LeadLeakDetector = () => {
   );
 
   const activeHeroPanel = heroPanels[activeHeroPanelIndex] || heroPanels[0];
-  const activeMobileFeature = mobileFeatureCards[activeMobileFeatureIndex] || mobileFeatureCards[0];
+  const isIntegrationPanel = activeHeroPanel?.key === 'integrations';
+  const integrationSources = useMemo(
+    () =>
+      content.integrationItems
+        .filter((item) => !/chat|email notifications/i.test(String(item)))
+        .slice(0, 4)
+        .map((item) => ({
+          label: item,
+          ...getIntegrationSourceMeta(item),
+        })),
+    [content.integrationItems]
+  );
+  const activeIntegrationSource = integrationSources[activeIntegrationIndex] || integrationSources[0];
+  const activeIntegrationAssignee =
+    integrationTeamPreview[activeIntegrationIndex % integrationTeamPreview.length] || integrationTeamPreview[0];
 
   const currentQuestion = content.questions[currentQuestionIndex];
 
@@ -625,6 +637,22 @@ const LeadLeakDetector = () => {
 
     return () => window.clearInterval(timer);
   }, [heroPanels.length, isHeroCarouselPaused]);
+
+  useEffect(() => {
+    if (activeHeroPanel?.key !== 'integrations' || integrationSources.length <= 1 || isIntegrationFlowPaused) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setActiveIntegrationIndex((currentIndex) => (currentIndex + 1) % integrationSources.length);
+    }, 2000);
+
+    return () => window.clearInterval(timer);
+  }, [activeHeroPanel?.key, integrationSources.length, isIntegrationFlowPaused]);
+
+  useEffect(() => {
+    setActiveIntegrationIndex(0);
+  }, [activeHeroPanel?.key]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -918,16 +946,17 @@ const LeadLeakDetector = () => {
 
   return (
     <>
-      <section id="lead-leak-detector" className="px-6 py-12 sm:px-8 sm:py-14 lg:px-12 lg:py-24">
+      <section id="lead-leak-detector" className="px-6 py-10 sm:px-8 sm:py-12 lg:px-12 lg:py-20">
         <div className="mx-auto max-w-7xl">
           <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a0c12] px-5 py-5 shadow-[0_24px_70px_rgba(0,0,0,0.32)] sm:px-6 sm:py-6 lg:px-7 lg:py-7">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(65,217,173,0.1),transparent_26%)]" />
             <div
-              className="relative z-10 grid gap-4 lg:grid-cols-[minmax(0,0.98fr)_minmax(400px,1.02fr)] lg:items-center"
+              className={`relative z-10 grid gap-4 ${isIntegrationPanel ? 'lg:grid-cols-1 lg:items-start' : 'lg:grid-cols-[minmax(0,0.98fr)_minmax(400px,1.02fr)] lg:items-center'}`}
               onMouseEnter={() => setIsHeroCarouselPaused(true)}
               onMouseLeave={() => setIsHeroCarouselPaused(false)}
             >
-              <div className="max-w-[44rem] lg:-translate-y-4">
+              {!isIntegrationPanel ? (
+                <div className="max-w-[44rem] lg:-translate-y-4">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-200">
                   <Sparkles className="h-3.5 w-3.5" />
                   {activeHeroPanel?.eyebrow}
@@ -949,7 +978,7 @@ const LeadLeakDetector = () => {
                   </motion.div>
                 </AnimatePresence>
                 {activeHeroPanel?.variant === 'showcase' ? (
-                  <div className="mt-5 space-y-4">
+                  <div className="mt-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                       <button
                         type="button"
@@ -960,40 +989,32 @@ const LeadLeakDetector = () => {
                         <ArrowRight className="h-4 w-4" />
                       </button>
                     </div>
-
-                    <div className="space-y-3 pt-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-[12px] font-medium uppercase tracking-[0.18em] text-slate-400">
-                          Mobile workspace for your team
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col gap-2 text-[13px] text-slate-300">
-                        {mobileAppBenefits.map((benefit) => (
-                          <div key={benefit} className="flex items-center gap-2">
-                            <CheckCircle2 className="h-4 w-4 text-violet-300" />
-                            <span>{benefit}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
                   </div>
                 ) : (
                   <div className="mt-4 flex flex-wrap gap-2">
                     {(activeHeroPanel?.highlights || []).map((item) => (
                       <span
                         key={item}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-[18px] py-3 text-[11px] text-slate-200"
+                        className={`inline-flex items-center gap-2 rounded-full border text-slate-200 ${
+                          activeHeroPanel?.key === 'integrations'
+                            ? 'border-cyan-400/15 bg-cyan-500/10 px-3.5 py-2 text-[10px]'
+                            : 'border-white/10 bg-white/5 px-[18px] py-3 text-[11px]'
+                        }`}
                       >
-                        <CheckCircle2 className="h-3 w-3 text-violet-300" />
+                        <CheckCircle2
+                          className={`h-3 w-3 ${
+                            activeHeroPanel?.key === 'integrations' ? 'text-cyan-200' : 'text-violet-300'
+                          }`}
+                        />
                         {item}
                       </span>
                     ))}
                   </div>
                 )}
-              </div>
+                </div>
+              ) : null}
 
-              <div className="lg:ml-auto lg:w-full lg:max-w-[41rem]">
+              <div className={isIntegrationPanel ? 'lg:mx-auto lg:w-full lg:max-w-[1100px]' : 'lg:ml-auto lg:w-full lg:max-w-[41rem]'}>
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={heroPanels[activeHeroPanelIndex]?.key}
@@ -1003,13 +1024,9 @@ const LeadLeakDetector = () => {
                     transition={{ duration: 0.28 }}
                   >
                     {heroPanels[activeHeroPanelIndex]?.variant === 'showcase' ? (
-                      <div className="space-y-3">
-                        <div className="rounded-[1.25rem] border border-white/[0.06] bg-[radial-gradient(circle_at_top,rgba(124,58,237,0.08),transparent_36%),rgba(8,11,18,0.94)] p-3 shadow-[0_8px_18px_rgba(59,130,246,0.05)]">
-                          <div className="mb-2.5 flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-[13px] font-semibold text-white sm:text-sm">{heroPanels[activeHeroPanelIndex]?.title}</p>
-                              <p className="text-[11px] leading-5 text-slate-400">{heroPanels[activeHeroPanelIndex]?.subtitle}</p>
-                            </div>
+                      <div className="space-y-2.5">
+                        <div className="rounded-[1.25rem] border border-white/[0.06] bg-[radial-gradient(circle_at_top,rgba(124,58,237,0.08),transparent_36%),rgba(8,11,18,0.94)] p-2.5 shadow-[0_8px_18px_rgba(59,130,246,0.05)]">
+                          <div className="mb-2 flex items-center justify-end gap-3">
                             <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
                               Live Demo
                             </span>
@@ -1019,73 +1036,167 @@ const LeadLeakDetector = () => {
                             <img
                               src={appPreviewSrc}
                               alt={heroPanels[activeHeroPanelIndex]?.title || 'Be Souhola mobile app showcase'}
-                              className="pointer-events-none mx-auto block h-[230px] w-[85%] object-contain object-center select-none sm:h-[255px] lg:h-[285px]"
+                              className="pointer-events-none mx-auto block h-[180px] w-[82%] object-contain object-center select-none sm:h-[200px] lg:h-[220px]"
                               onError={(event) => {
                                 resolveImageFallback(event, appShowcaseImage);
                                 setAppPreviewSrc(appShowcaseImage);
                               }}
                             />
                           </div>
-
                         </div>
-
-                        <p className="px-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">
-                          {content.appAvailabilityText}
-                        </p>
                       </div>
                     ) : (
                       <>
-                        <div className="mb-4 flex items-center gap-3">
-                          <div className={`rounded-2xl border p-3 ${heroPanels[activeHeroPanelIndex]?.iconTone}`}>
-                            {React.createElement(heroPanels[activeHeroPanelIndex]?.icon || Activity, {
-                              className: 'h-5 w-5',
-                            })}
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold text-white">{heroPanels[activeHeroPanelIndex]?.title}</p>
-                            <p className="text-xs text-slate-400">{heroPanels[activeHeroPanelIndex]?.subtitle}</p>
-                          </div>
-                        </div>
-
                         {heroPanels[activeHeroPanelIndex]?.key === 'integrations' ? (
-                          <div className="space-y-4">
-                            <div className="rounded-[1.2rem] border border-cyan-400/10 bg-white/[0.03] p-4">
-                              <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
-                                <div className="flex flex-wrap gap-2">
-                                  {heroPanels[activeHeroPanelIndex]?.bullets?.slice(0, 4).map((bullet) => (
-                                    <span
-                                      key={bullet.label}
-                                      className="rounded-full border border-cyan-400/15 bg-cyan-500/10 px-3 py-2 text-[11px] text-cyan-100"
-                                    >
-                                      {bullet.label}
-                                    </span>
-                                  ))}
-                                </div>
-                                <div className="hidden justify-center text-cyan-200 sm:flex">
-                                  <ArrowRight className="h-4 w-4" />
-                                </div>
-                                <div className="rounded-2xl border border-violet-400/20 bg-violet-500/10 px-4 py-4 text-center">
-                                  <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/20 text-violet-200">
-                                    <Layers3 className="h-5 w-5" />
+                          <div className="space-y-3">
+                            <div className="rounded-[1.35rem] border border-cyan-400/10 bg-[radial-gradient(circle_at_top,rgba(45,212,191,0.08),transparent_36%),rgba(255,255,255,0.03)] p-4 sm:p-5">
+                              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_auto_minmax(0,0.85fr)_auto_minmax(0,1.1fr)] lg:items-center">
+                                <div className="space-y-2">
+                                  <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60">Lead Sources</p>
+                                  <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1">
+                                    {integrationSources.map((source, index) => {
+                                      const isActive = index === activeIntegrationIndex;
+                                      const Icon = source.icon;
+
+                                      return (
+                                        <motion.button
+                                          key={source.label}
+                                          type="button"
+                                          onMouseEnter={() => {
+                                            setActiveIntegrationIndex(index);
+                                            setIsIntegrationFlowPaused(true);
+                                          }}
+                                          onMouseLeave={() => setIsIntegrationFlowPaused(false)}
+                                          className={`relative h-15 overflow-hidden rounded-2xl border px-3 py-2 text-left transition ${
+                                            isActive
+                                              ? 'border-cyan-300/35 bg-cyan-500/14 shadow-[0_12px_30px_rgba(34,211,238,0.12)]'
+                                              : 'border-cyan-400/12 bg-[#0f2027]/88 hover:border-cyan-300/20 hover:bg-[#11262f]'
+                                          }`}
+                                          animate={
+                                            isActive
+                                              ? { y: [0, -2, 0], boxShadow: ['0 0 0 rgba(0,0,0,0)', '0 12px 30px rgba(34,211,238,0.12)', '0 0 0 rgba(0,0,0,0)'] }
+                                              : { y: 0, boxShadow: '0 0 0 rgba(0,0,0,0)' }
+                                          }
+                                          transition={{ duration: 1.2, repeat: isActive ? Infinity : 0, ease: 'easeInOut' }}
+                                        >
+                                          <div className={`absolute inset-0 bg-gradient-to-r ${source.accent} ${isActive ? 'opacity-100' : 'opacity-0'} transition-opacity`} />
+                                          <div className="relative z-10 flex h-full items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3">
+                                              <div className={`flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 ${source.chip}`}>
+                                                <Icon className="h-3.5 w-3.5" />
+                                              </div>
+                                              <div>
+                                                <p className="text-[0.88rem] font-semibold leading-tight text-white">{source.label}</p>
+                                              </div>
+                                            </div>
+                                            <span className={`h-2.5 w-2.5 rounded-full ${isActive ? 'bg-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.8)]' : 'bg-slate-600'}`} />
+                                          </div>
+                                        </motion.button>
+                                      );
+                                    })}
                                   </div>
-                                  <p className="text-sm font-semibold text-white">Be Souhola CRM</p>
-                                  <p className="mt-1 text-[11px] text-slate-300">All sources in one live pipeline</p>
                                 </div>
-                                <div className="hidden justify-center text-violet-200 sm:flex">
-                                  <ArrowRight className="h-4 w-4" />
-                                </div>
-                                <div className="rounded-2xl border border-emerald-400/15 bg-emerald-500/10 px-4 py-4 text-center">
-                                  <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-200">
-                                    <Users className="h-5 w-5" />
+
+                                <div className="flex items-center justify-center">
+                                  <div className="relative h-28 w-px bg-gradient-to-b from-cyan-300/0 via-cyan-300/70 to-violet-300/0">
+                                    <motion.div
+                                      className="absolute left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(103,232,249,0.9)]"
+                                      animate={{ y: [0, 104, 0], opacity: [0, 1, 0] }}
+                                      transition={{ duration: 1.15, repeat: Infinity, ease: 'easeInOut' }}
+                                    />
                                   </div>
-                                  <p className="text-sm font-semibold text-white">Sales Team</p>
-                                  <p className="mt-1 text-[11px] text-slate-300">Assigned instantly and ready to follow up</p>
                                 </div>
+
+                                <div className="space-y-2">
+                                  <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-violet-100/60">Be Souhola CRM</p>
+                                  <motion.div
+                                    className="relative overflow-hidden rounded-[1.4rem] border border-violet-300/20 bg-[radial-gradient(circle_at_top,rgba(139,92,246,0.24),transparent_42%),rgba(54,37,86,0.72)] px-4 py-3.5 text-center shadow-[0_22px_60px_rgba(91,33,182,0.22)]"
+                                    animate={{
+                                      scale: [1, 1.012, 1],
+                                      boxShadow: [
+                                        '0 14px 38px rgba(91,33,182,0.16)',
+                                        '0 20px 60px rgba(91,33,182,0.24)',
+                                        '0 14px 38px rgba(91,33,182,0.16)',
+                                      ],
+                                    }}
+                                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                                  >
+                                    <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-violet-200/70 to-transparent" />
+                                    <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-[1.1rem] border border-violet-200/10 bg-violet-500/20 text-violet-100 shadow-[0_0_20px_rgba(167,139,250,0.25)]">
+                                      <Layers3 className="h-5 w-5" />
+                                    </div>
+                                    <p className="text-[1.18rem] font-black tracking-tight text-white sm:text-[1.34rem]">Be Souhola CRM</p>
+                                    <p className="mt-1 text-[0.8rem] text-violet-100/85">Assign / Notify / Track</p>
+                                  </motion.div>
+                                </div>
+
+                                <div className="flex items-center justify-center">
+                                  <div className="relative h-28 w-px bg-gradient-to-b from-violet-300/0 via-violet-300/70 to-emerald-300/0">
+                                    <motion.div
+                                      className="absolute left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-violet-300 shadow-[0_0_20px_rgba(196,181,253,0.9)]"
+                                      animate={{ y: [0, 104, 0], opacity: [0, 1, 0] }}
+                                      transition={{ duration: 1.15, delay: 0.55, repeat: Infinity, ease: 'easeInOut' }}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-emerald-100/60">Sales Team</p>
+                                  <div className="grid gap-2 sm:grid-cols-3">
+                                    {integrationTeamPreview.map((member) => {
+                                      const isActive = member.name === activeIntegrationAssignee?.name;
+                                      const shortName = member.name.split(' ')[0];
+                                      const leadCountLabel = `${member.newLeads} Lead${member.newLeads > 1 ? 's' : ''}`;
+
+                                      return (
+                                        <motion.div
+                                          key={member.name}
+                                          className={`rounded-2xl border px-2 py-2 transition ${
+                                            isActive
+                                              ? 'border-emerald-300/25 bg-emerald-500/14 shadow-[0_14px_34px_rgba(16,185,129,0.12)]'
+                                              : 'border-emerald-400/10 bg-[#10231f]/86'
+                                          }`}
+                                          animate={isActive ? { scale: [1, 1.01, 1] } : { scale: 1 }}
+                                          transition={{ duration: 1.15, repeat: isActive ? Infinity : 0, ease: 'easeInOut' }}
+                                        >
+                                          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+                                            <div className="flex h-7 w-7 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-emerald-100">
+                                              <User2 className="h-3 w-3" />
+                                            </div>
+                                            <p className="min-w-0 truncate text-[0.82rem] font-semibold leading-none text-white">
+                                              {shortName}
+                                            </p>
+                                            <div className="text-right">
+                                              <p className="whitespace-nowrap text-[0.74rem] font-bold leading-none text-emerald-100">
+                                                {leadCountLabel}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </motion.div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="sr-only">Sources to CRM to Sales Team flow</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="mb-4 flex items-center gap-3">
+                              <div className={`rounded-2xl border p-3 ${heroPanels[activeHeroPanelIndex]?.iconTone}`}>
+                                {React.createElement(heroPanels[activeHeroPanelIndex]?.icon || Activity, {
+                                  className: 'h-5 w-5',
+                                })}
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-white">{heroPanels[activeHeroPanelIndex]?.title}</p>
+                                <p className="text-xs text-slate-400">{heroPanels[activeHeroPanelIndex]?.subtitle}</p>
                               </div>
                             </div>
 
                             <div className="space-y-3 text-sm text-slate-300">
-                              {heroPanels[activeHeroPanelIndex]?.bullets?.slice(4, 6).map((bullet) => (
+                              {heroPanels[activeHeroPanelIndex]?.bullets?.map((bullet) => (
                                 <div key={bullet.label} className="flex items-center gap-2">
                                   {React.createElement(bullet.icon || CheckCircle2, {
                                     className: `h-4 w-4 ${bullet.tone || 'text-violet-300'}`,
@@ -1094,23 +1205,13 @@ const LeadLeakDetector = () => {
                                 </div>
                               ))}
                             </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-3 text-sm text-slate-300">
-                            {heroPanels[activeHeroPanelIndex]?.bullets?.map((bullet) => (
-                              <div key={bullet.label} className="flex items-center gap-2">
-                                {React.createElement(bullet.icon || CheckCircle2, {
-                                  className: `h-4 w-4 ${bullet.tone || 'text-violet-300'}`,
-                                })}
-                                {bullet.label}
-                              </div>
-                            ))}
-                          </div>
+                          </>
                         )}
                       </>
                     )}
 
-                    {heroPanels[activeHeroPanelIndex]?.variant === 'showcase' ? null : (
+                    {heroPanels[activeHeroPanelIndex]?.variant === 'showcase' ||
+                    heroPanels[activeHeroPanelIndex]?.key === 'integrations' ? null : (
                       <button
                         type="button"
                         onClick={heroPanels[activeHeroPanelIndex]?.onClick}
@@ -1125,9 +1226,9 @@ const LeadLeakDetector = () => {
 
                 {heroPanels.length > 1 ? (
                   <div className="mt-3 flex flex-col items-center gap-2">
-                    <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-slate-500">
-                      Explore More
-                    </span>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                      Explore more
+                    </p>
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       {heroPanels.map((panel, index) => (
                         <button

@@ -6,7 +6,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import crmLogoMark from '@/assets/be-souhola-logo-mark.png';
 import { resolveImageFallback } from '@/lib/websiteAssets';
-import DemoRequestModal from '@/components/DemoRequestModal';
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -106,15 +105,11 @@ const Header = () => {
           </nav>
 
           <div className="ml-auto hidden md:flex items-center gap-4">
-            <DemoRequestModal
-              location="header"
-              formName="Header Demo Modal"
-              trigger={
-                <Button className="group rounded-full bg-accent-purple px-4 py-2 text-sm text-white shadow-[0_10px_30px_rgba(147,114,255,0.35)] hover:bg-accent-purple/90">
-                  Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
-                </Button>
-              }
-            />
+            <Button asChild className="group rounded-full bg-accent-purple px-4 py-2 text-sm text-white shadow-[0_10px_30px_rgba(147,114,255,0.35)] hover:bg-accent-purple/90">
+              <Link to="/contact">
+                Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
+              </Link>
+            </Button>
           </div>
 
           <div className="md:hidden">
@@ -173,15 +168,11 @@ const Header = () => {
               </nav>
 
               <div className="py-8 flex flex-col gap-4">
-                <DemoRequestModal
-                  location="header-mobile"
-                  formName="Mobile Header Demo Modal"
-                  trigger={
-                    <Button className="bg-accent-purple text-white hover:bg-accent-purple/90 group w-full text-lg py-6 rounded-full">
-                      Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
-                    </Button>
-                  }
-                />
+                <Button asChild className="bg-accent-purple text-white hover:bg-accent-purple/90 group w-full text-lg py-6 rounded-full">
+                  <Link to="/contact" onClick={() => setIsOpen(false)}>
+                    Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
+                  </Link>
+                </Button>
               </div>
             </div>
           </motion.div>

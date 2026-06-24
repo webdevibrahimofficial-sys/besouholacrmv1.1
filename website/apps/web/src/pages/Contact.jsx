@@ -40,13 +40,13 @@ const ContactInfoBlock = ({
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.5, delay }}
-    className="flex gap-4"
+    className="flex gap-3"
   >
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-purple/10">
-      <Icon className="h-5 w-5 text-accent-purple" />
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-purple/10">
+      <Icon className="h-4 w-4 text-accent-purple" />
     </div>
     <div>
-      <h3 className="uppercase text-sm text-gray-400 mb-2 tracking-widest">{title}</h3>
+      <h3 className="mb-1.5 text-sm uppercase tracking-widest text-gray-400">{title}</h3>
       <div className="space-y-1">
         {isLink ? (
           <a
@@ -54,13 +54,13 @@ const ContactInfoBlock = ({
             onClick={onClick}
             target={href.startsWith('http') ? '_blank' : undefined}
             rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
-            className="text-lg text-gray-200 hover:text-accent-purple transition-colors duration-300"
+            className="text-[1rem] text-gray-200 transition-colors duration-300 hover:text-accent-purple"
           >
             {lines[0]}
           </a>
         ) : (
           lines.map((line, index) => (
-            <p key={index} className="text-lg text-gray-200">
+            <p key={index} className="text-[1rem] text-gray-200">
               {line}
             </p>
           ))
@@ -114,23 +114,23 @@ const Contact = () => {
         />
       </Helmet>
 
-      <section className="bg-[#0C0D0D] text-white py-24 sm:py-32">
+      <section className="bg-[#0C0D0D] text-white pt-16 pb-8 sm:pt-20 sm:pb-10 lg:min-h-[calc(100dvh-4.1rem)] lg:pt-14 lg:pb-6 xl:pt-16 xl:pb-8">
         <div className="container mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+          <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-start lg:gap-10 xl:gap-12">
             <motion.div
               initial={{ opacity: 0, x: -30 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
             >
-              <h1 className="text-5xl md:text-7xl font-bold text-white uppercase mb-6 leading-tight">
+              <h1 className="mb-4 max-w-[10ch] text-[clamp(2.7rem,6vw,4.7rem)] font-bold uppercase leading-[0.92] text-white">
                 {contactPageContent.headline}{' '}
                 <span className="text-accent-purple">{contactPageContent.headline_accent}</span>
               </h1>
-              <p className="text-xl text-gray-400 max-w-md mb-12">
+              <p className="mb-6 max-w-[34rem] text-[1rem] leading-[1.55] text-gray-400">
                 {contactPageContent.description}
               </p>
 
-              <div className="space-y-8 mb-12">
+              <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
                 <ContactInfoBlock
                   icon={Mail}
                   title={contactPageContent.sales_label || 'Sales & Demos'}
@@ -176,7 +176,7 @@ const Contact = () => {
               </div>
 
               <motion.div
-                className="flex items-center gap-8"
+                className="flex items-center gap-6"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.5, delay: 0.8 }}
@@ -186,7 +186,7 @@ const Contact = () => {
                     href={settings.social_links.facebook}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-lg text-gray-300 hover:text-accent-purple transition-colors duration-300"
+                    className="text-[0.95rem] text-gray-300 transition-colors duration-300 hover:text-accent-purple"
                   >
                     {contactPageContent.social_label || 'Facebook'}
                   </a>
@@ -201,10 +201,10 @@ const Contact = () => {
               transition={{ duration: 0.8, delay: 0.3 }}
               className="scroll-mt-28"
             >
-              <h2 className="text-2xl font-bold text-white uppercase mb-2">
+              <h2 className="mb-2 text-[1.4rem] font-bold uppercase text-white md:text-[1.55rem]">
                 {contactPageContent.form_title || 'Book Your Free CRM Demo'}
               </h2>
-              <p className="text-gray-400 mb-6">
+              <p className="mb-4 max-w-[34rem] text-[0.95rem] leading-[1.5] text-gray-400">
                 {contactPageContent.form_subtitle || "Tell us about your business and we'll contact you within 24 hours."}
               </p>
               <LeadForm

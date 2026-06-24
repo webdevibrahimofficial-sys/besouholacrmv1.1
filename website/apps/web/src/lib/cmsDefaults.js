@@ -267,13 +267,13 @@ export const defaultWebsiteContent = {
       integration_description:
         'Show that Meta, website forms, chat, ads, WhatsApp, and notifications all land inside one connected operating layer for your sales team.',
       integration_highlights: [
-        'Unified lead intake',
-        'Live source visibility',
-        'Faster follow-up handoff',
+        'All leads in one place',
+        'Instant assignment',
+        'Faster follow-up',
       ],
-      integration_title: 'Live Integration Badge',
+      integration_title: '',
       integration_subtitle:
-        'Show that every lead source, chat, and notification flow can live inside one connected CRM engine.',
+        '',
       integration_items: [
         'Meta Leads',
         'Website Forms',
@@ -282,7 +282,7 @@ export const defaultWebsiteContent = {
         'WhatsApp',
         'Email Notifications',
       ],
-      integration_button_text: 'See the audit in action',
+      integration_button_text: '',
       result_cta_text: 'Book a result-based demo',
       result_secondary_text: 'See how Be Souhola closes these leaks',
       modal_title: 'Lead Leak Detector',
