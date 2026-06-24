@@ -613,9 +613,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     });
   };
 
-  // Auto-grant for Sales Person: Leads.addAction (hidden in UI).
+  // Auto-grant Leads.addAction for every user (hidden in UI).
   useEffect(() => {
-    if (!isSalesPersonRole(form.role)) return;
     setCustomPerms((prev) => {
       const next = { ...(prev || {}) };
       const leads = Array.isArray(next.Leads) ? next.Leads : [];
@@ -762,10 +761,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       (allowedSources.length ? allowedSources : ['']).forEach(value => formData.append('allowed_sources[]', value));
       (allowedProjects.length ? allowedProjects : ['']).forEach(value => formData.append('allowed_projects[]', value));
 
-      // Auto-grant for Sales Person: Leads.addAction (not user-configurable in UI).
-      if (isSalesPersonRole(form.role)) {
-        formData.append('permissions[Leads][]', 'addAction');
-      }
+      formData.append('permissions[Leads][]', 'addAction');
 
       Object.entries(customPerms || {}).forEach(([group, perms]) => {
         const baseAllowed = group === 'Reports' ? null : (PERMISSIONS[group] || []);
@@ -775,7 +771,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
           : roleFilteredAllowed;
         (perms || []).forEach((perm) => {
           if (allowed && !allowed.includes(perm)) return;
-          if (isSalesPersonRole(form.role) && group === 'Leads' && perm === 'addAction') return;
+          if (group === 'Leads' && perm === 'addAction') return;
           formData.append(`permissions[${group}][]`, perm);
         });
       });
@@ -1360,8 +1356,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     })
                     .map(([group, perms]) => {
                     const groupPerms = customPerms[group] || [];
-                    const lockedPerms = (isSalesPersonRole(form.role) && group === 'Leads') ? ['addAction'] : [];
-                    const baseUiPerms = (isSalesPersonRole(form.role) && group === 'Leads')
+                    const lockedPerms = [];
+                    const baseUiPerms = group === 'Leads'
                       ? perms.filter(p => p !== 'addAction')
                       : perms;
                     const uiPerms = getRoleFilteredPermissions(group, baseUiPerms, form.role);
@@ -1411,11 +1407,6 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                               );
                             })}
                           </div>
-                          {isSalesPersonRole(form.role) && group === 'Leads' && (
-                            <div className="mt-3 text-xs text-base-content/60">
-                              {isArabic ? 'صلاحية إضافة إجراء يتم تفعيلها تلقائياً لمندوب المبيعات.' : 'Add Action is enabled automatically for Sales Person.'}
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>

@@ -50,6 +50,7 @@ export function getLeadModulePermissions(user) {
 export function hasLeadPermission(user, permissionKey) {
   if (!permissionKey) return false
   if (isPrivilegedLeadUser(user)) return true
+  if (permissionKey === 'addAction') return true
   return getLeadModulePermissions(user).includes(permissionKey)
 }
 

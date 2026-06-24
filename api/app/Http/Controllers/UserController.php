@@ -685,30 +685,21 @@ class UserController extends Controller
 
         $permissions = $request->input('permissions');
 
-        // Auto-grant: Sales Person users always get Leads.addAction (hidden in UI).
-        // This must not affect other roles.
+        // Auto-grant: every user always gets Leads.addAction (hidden in UI).
         $roleName = (string) ($request->input('role') ?? $user->job_title ?? $user->role ?? '');
         $roleNorm = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $roleName))));
-        $isSalesPerson = $roleNorm === 'sales person' || $roleNorm === 'salesperson';
         $isAccountant = $roleNorm === 'accountant';
 
-        // If permissions were not sent, do nothing for most users.
-        // For Sales Person / Accountant, preserve existing permissions and ensure defaults exist.
         if (!is_array($permissions)) {
-            if (!$isSalesPerson && !$isAccountant) {
-                return;
-            }
             $permissions = $current;
         }
 
-        if ($isSalesPerson) {
-            $leadPerms = $permissions['Leads'] ?? [];
-            $leadPerms = is_array($leadPerms) ? $leadPerms : [];
-            if (!in_array('addAction', $leadPerms, true)) {
-                $leadPerms[] = 'addAction';
-            }
-            $permissions['Leads'] = array_values(array_unique($leadPerms));
+        $leadPerms = $permissions['Leads'] ?? [];
+        $leadPerms = is_array($leadPerms) ? $leadPerms : [];
+        if (!in_array('addAction', $leadPerms, true)) {
+            $leadPerms[] = 'addAction';
         }
+        $permissions['Leads'] = array_values(array_unique($leadPerms));
 
         // Auto-grant: Accountant users get Contract & Collections core permissions by default.
         if ($isAccountant) {

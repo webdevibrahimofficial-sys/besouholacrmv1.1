@@ -81,7 +81,7 @@ describe('lead module permission helpers', () => {
   test('does not grant role-only access without explicit permission', () => {
     const user = { role: 'Sales Person', meta_data: { module_permissions: { Leads: [] } } }
     expect(hasLeadPermission(user, 'addLead')).toBe(false)
-    expect(hasLeadPermission(user, 'addAction')).toBe(false)
+    expect(hasLeadPermission(user, 'addAction')).toBe(true)
   })
 
   test('returns lead flags from explicit module permissions', () => {
