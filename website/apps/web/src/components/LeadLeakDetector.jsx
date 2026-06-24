@@ -268,14 +268,36 @@ const buildAnswerBasedAdvice = (questions, answers) => {
 };
 
 const mobileFeatureCards = [
-  { icon: User2, label: 'Lead', sublabel: 'Management' },
-  { icon: Building2, label: 'Real Estate', sublabel: 'Inventory' },
-  { icon: Package, label: 'Store', sublabel: 'Inventory' },
-  { icon: Users, label: 'Managing', sublabel: 'Teams' },
-  { icon: ClipboardList, label: 'Tasks', sublabel: 'Management' },
-  { icon: User2, label: 'Customers', sublabel: 'Module' },
-  { icon: Megaphone, label: 'Marketing', sublabel: 'Module' },
-  { icon: BarChart3, label: 'Reports &', sublabel: 'Analytics' },
+  {
+    icon: User2,
+    label: 'Leads',
+    sublabel: 'Follow-up pipeline',
+    description: 'Assign leads instantly, log every touchpoint, and keep reps moving from first contact to close.',
+  },
+  {
+    icon: ClipboardList,
+    label: 'Tasks',
+    sublabel: 'Daily execution',
+    description: 'See what is due today, who owns it, and which callbacks or reminders need immediate action.',
+  },
+  {
+    icon: Building2,
+    label: 'Projects',
+    sublabel: 'Inventory tracking',
+    description: 'Open inventory, track project details, and connect opportunities to the right unit or property.',
+  },
+  {
+    icon: BarChart3,
+    label: 'Reports',
+    sublabel: 'Manager visibility',
+    description: 'Check team performance, delayed follow-up, and pipeline progress without waiting for office reports.',
+  },
+];
+
+const mobileAppBenefits = [
+  'Follow up from anywhere',
+  'Assign leads instantly',
+  'Manage projects on the go',
 ];
 
 const slugifyQuestion = (value, index) =>
@@ -323,6 +345,7 @@ const LeadLeakDetector = () => {
   const [answers, setAnswers] = useState([]);
   const [openSource, setOpenSource] = useState('hero_card');
   const [activeHeroPanelIndex, setActiveHeroPanelIndex] = useState(0);
+  const [activeMobileFeatureIndex, setActiveMobileFeatureIndex] = useState(0);
   const [isHeroCarouselPaused, setIsHeroCarouselPaused] = useState(false);
   const [leadCaptureMode, setLeadCaptureMode] = useState(null);
   const [appPreviewSrc, setAppPreviewSrc] = useState(appShowcaseImage);
@@ -402,7 +425,7 @@ const LeadLeakDetector = () => {
           ? leadLeakDetector.integration_items
           : ['Meta Leads', 'Website Forms', 'Website Chat', 'Google Ads', 'WhatsApp', 'Email Notifications'],
       integrationButtonText:
-        leadLeakDetector?.integration_button_text || 'See the audit in action',
+        leadLeakDetector?.integration_button_text || 'See integrations in action',
       resultCtaText: leadLeakDetector?.result_cta_text || 'Book a result-based demo',
       resultSecondaryText:
         leadLeakDetector?.result_secondary_text || 'See how Be Souhola closes these leaks',
@@ -439,6 +462,10 @@ const LeadLeakDetector = () => {
   useEffect(() => {
     setAppPreviewSrc(content.appImageUrl || appShowcaseImage);
   }, [content.appImageUrl]);
+
+  useEffect(() => {
+    setActiveMobileFeatureIndex(0);
+  }, [activeHeroPanelIndex]);
 
   const progress = content.questions.length
     ? Math.round((answers.length / content.questions.length) * 100)
@@ -507,6 +534,7 @@ const LeadLeakDetector = () => {
   );
 
   const activeHeroPanel = heroPanels[activeHeroPanelIndex] || heroPanels[0];
+  const activeMobileFeature = mobileFeatureCards[activeMobileFeatureIndex] || mobileFeatureCards[0];
 
   const currentQuestion = content.questions[currentQuestionIndex];
 
@@ -890,16 +918,16 @@ const LeadLeakDetector = () => {
 
   return (
     <>
-      <section id="lead-leak-detector" className="px-6 py-6 sm:px-8 sm:py-7 lg:px-12 lg:py-8">
+      <section id="lead-leak-detector" className="px-6 py-12 sm:px-8 sm:py-14 lg:px-12 lg:py-24">
         <div className="mx-auto max-w-7xl">
           <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a0c12] px-5 py-5 shadow-[0_24px_70px_rgba(0,0,0,0.32)] sm:px-6 sm:py-6 lg:px-7 lg:py-7">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(65,217,173,0.1),transparent_26%)]" />
             <div
-              className="relative z-10 grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)] lg:items-center"
+              className="relative z-10 grid gap-4 lg:grid-cols-[minmax(0,0.98fr)_minmax(400px,1.02fr)] lg:items-center"
               onMouseEnter={() => setIsHeroCarouselPaused(true)}
               onMouseLeave={() => setIsHeroCarouselPaused(false)}
             >
-              <div className="max-w-[48rem] lg:-translate-y-5">
+              <div className="max-w-[44rem] lg:-translate-y-4">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-200">
                   <Sparkles className="h-3.5 w-3.5" />
                   {activeHeroPanel?.eyebrow}
@@ -912,7 +940,7 @@ const LeadLeakDetector = () => {
                     exit={{ opacity: 0, y: -12 }}
                     transition={{ duration: 0.28 }}
                   >
-                    <h2 className="max-w-[13ch] text-[1.85rem] font-black leading-[0.98] tracking-tight text-white sm:text-[2.25rem] lg:text-[2.55rem]">
+                    <h2 className="max-w-[19ch] text-[1.8rem] font-black leading-[1.04] tracking-tight text-white sm:max-w-[18ch] sm:text-[2.1rem] lg:max-w-[18ch] lg:text-[2.22rem]">
                       {activeHeroPanel?.headline}
                     </h2>
                     <p className="mt-3 max-w-[38rem] text-[13px] leading-6 text-slate-300 sm:text-[14px] sm:leading-6">
@@ -922,52 +950,31 @@ const LeadLeakDetector = () => {
                 </AnimatePresence>
                 {activeHeroPanel?.variant === 'showcase' ? (
                   <div className="mt-5 space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {mobileFeatureCards.map((item) => (
-                        <div
-                          key={`${item.label}-${item.sublabel}`}
-                          className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2.5"
-                        >
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-500/10 text-violet-300">
-                            <item.icon className="h-4.5 w-4.5" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[13px] font-medium text-white">{item.label}</p>
-                            <p className="text-[13px] text-slate-300">{item.sublabel}</p>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                      <button
+                        type="button"
+                        onClick={activeHeroPanel?.onClick}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-blue-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_35px_rgba(79,70,229,0.32)] transition hover:translate-y-[-1px]"
+                      >
+                        {activeHeroPanel?.buttonText}
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
                     </div>
 
                     <div className="space-y-3 pt-1">
-                      <div className="flex items-center gap-3">
-                        <span className="shrink-0 text-[13px] font-medium text-slate-100">Available on</span>
-                        <div className="h-px flex-1 bg-white/20" />
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[12px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                          Mobile workspace for your team
+                        </span>
                       </div>
 
-                      <div className="flex flex-wrap gap-4">
-                        <div className="flex min-w-[190px] items-center gap-3 rounded-xl border border-white/18 bg-black px-4 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
-                          <svg viewBox="0 0 24 24" className="h-9 w-9 shrink-0 fill-white" aria-hidden="true">
-                            <path d="M16.37 12.73c.03 3.23 2.84 4.31 2.87 4.32-.02.08-.45 1.56-1.49 3.08-.9 1.31-1.84 2.62-3.31 2.65-1.44.03-1.91-.86-3.56-.86-1.66 0-2.18.83-3.54.89-1.42.05-2.5-1.42-3.41-2.73C2.07 17.39.63 12.5 2.52 9.21c.94-1.64 2.62-2.68 4.44-2.71 1.38-.03 2.69.93 3.56.93.87 0 2.51-1.15 4.22-.98.72.03 2.74.29 4.03 2.18-.1.06-2.4 1.4-2.4 4.1ZM13.77 4.67c.75-.91 1.26-2.18 1.12-3.44-1.08.04-2.38.72-3.16 1.63-.7.81-1.31 2.11-1.15 3.35 1.2.09 2.43-.61 3.19-1.54Z" />
-                          </svg>
-                          <div>
-                            <p className="text-[10px] font-medium leading-none text-white/75">Download on the</p>
-                            <p className="mt-1 text-[1.6rem] font-semibold leading-none text-white">App Store</p>
+                      <div className="flex flex-col gap-2 text-[13px] text-slate-300">
+                        {mobileAppBenefits.map((benefit) => (
+                          <div key={benefit} className="flex items-center gap-2">
+                            <CheckCircle2 className="h-4 w-4 text-violet-300" />
+                            <span>{benefit}</span>
                           </div>
-                        </div>
-
-                        <div className="flex min-w-[210px] items-center gap-3 rounded-xl border border-white/18 bg-black px-4 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
-                          <div className="relative h-9 w-9 shrink-0">
-                            <span className="absolute left-0 top-1/2 h-0 w-0 -translate-y-1/2 border-b-[12px] border-l-[20px] border-t-[12px] border-b-transparent border-t-transparent border-l-[#34a853]" />
-                            <span className="absolute left-[7px] top-[2px] h-0 w-0 border-b-[9px] border-l-[13px] border-t-[9px] border-b-transparent border-t-transparent border-l-[#4285f4] opacity-95" />
-                            <span className="absolute bottom-[2px] left-[7px] h-0 w-0 border-b-[9px] border-l-[13px] border-t-[9px] border-b-transparent border-t-transparent border-l-[#fbbc05] opacity-95" />
-                            <span className="absolute left-[14px] top-1/2 h-0 w-0 -translate-y-1/2 border-b-[7px] border-l-[10px] border-t-[7px] border-b-transparent border-t-transparent border-l-[#ea4335]" />
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-medium leading-none text-white/75">GET IT ON</p>
-                            <p className="mt-1 text-[1.45rem] font-semibold leading-none text-white">Google Play</p>
-                          </div>
-                        </div>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -976,7 +983,7 @@ const LeadLeakDetector = () => {
                     {(activeHeroPanel?.highlights || []).map((item) => (
                       <span
                         key={item}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-slate-200"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-[18px] py-3 text-[11px] text-slate-200"
                       >
                         <CheckCircle2 className="h-3 w-3 text-violet-300" />
                         {item}
@@ -986,7 +993,7 @@ const LeadLeakDetector = () => {
                 )}
               </div>
 
-              <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm lg:ml-auto lg:w-full lg:max-w-[46rem]">
+              <div className="lg:ml-auto lg:w-full lg:max-w-[41rem]">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={heroPanels[activeHeroPanelIndex]?.key}
@@ -996,23 +1003,23 @@ const LeadLeakDetector = () => {
                     transition={{ duration: 0.28 }}
                   >
                     {heroPanels[activeHeroPanelIndex]?.variant === 'showcase' ? (
-                      <div className="space-y-2.5">
-                        <div className="rounded-[1.35rem] border border-violet-400/15 bg-[linear-gradient(180deg,rgba(124,58,237,0.14),rgba(10,12,18,0.98))] p-3 shadow-[0_20px_50px_rgba(59,130,246,0.12)]">
+                      <div className="space-y-3">
+                        <div className="rounded-[1.25rem] border border-white/[0.06] bg-[radial-gradient(circle_at_top,rgba(124,58,237,0.08),transparent_36%),rgba(8,11,18,0.94)] p-3 shadow-[0_8px_18px_rgba(59,130,246,0.05)]">
                           <div className="mb-2.5 flex items-center justify-between gap-3">
                             <div>
                               <p className="text-[13px] font-semibold text-white sm:text-sm">{heroPanels[activeHeroPanelIndex]?.title}</p>
                               <p className="text-[11px] leading-5 text-slate-400">{heroPanels[activeHeroPanelIndex]?.subtitle}</p>
                             </div>
                             <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
-                              Live
+                              Live Demo
                             </span>
                           </div>
 
-                          <div className="overflow-hidden rounded-[1.25rem] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(124,58,237,0.2),transparent_38%),#080b12] px-2 py-2">
+                          <div className="overflow-hidden rounded-[1rem] border border-white/[0.06]">
                             <img
                               src={appPreviewSrc}
                               alt={heroPanels[activeHeroPanelIndex]?.title || 'Be Souhola mobile app showcase'}
-                              className="pointer-events-none block h-[232px] w-full object-contain object-center select-none sm:h-[246px] lg:h-[258px]"
+                              className="pointer-events-none mx-auto block h-[230px] w-[85%] object-contain object-center select-none sm:h-[255px] lg:h-[285px]"
                               onError={(event) => {
                                 resolveImageFallback(event, appShowcaseImage);
                                 setAppPreviewSrc(appShowcaseImage);
@@ -1020,16 +1027,6 @@ const LeadLeakDetector = () => {
                             />
                           </div>
 
-                          <div className="mt-2.5 flex flex-wrap gap-2">
-                            {(heroPanels[activeHeroPanelIndex]?.items || []).slice(0, 4).map((item) => (
-                              <span
-                                key={item}
-                                className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-slate-200"
-                              >
-                                {item}
-                              </span>
-                            ))}
-                          </div>
                         </div>
 
                         <p className="px-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">
@@ -1050,49 +1047,117 @@ const LeadLeakDetector = () => {
                           </div>
                         </div>
 
-                        <div className="space-y-3 text-sm text-slate-300">
-                          {heroPanels[activeHeroPanelIndex]?.bullets?.map((bullet) => (
-                            <div key={bullet.label} className="flex items-center gap-2">
-                              {React.createElement(bullet.icon || CheckCircle2, {
-                                className: `h-4 w-4 ${bullet.tone || 'text-violet-300'}`,
-                              })}
-                              {bullet.label}
+                        {heroPanels[activeHeroPanelIndex]?.key === 'integrations' ? (
+                          <div className="space-y-4">
+                            <div className="rounded-[1.2rem] border border-cyan-400/10 bg-white/[0.03] p-4">
+                              <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
+                                <div className="flex flex-wrap gap-2">
+                                  {heroPanels[activeHeroPanelIndex]?.bullets?.slice(0, 4).map((bullet) => (
+                                    <span
+                                      key={bullet.label}
+                                      className="rounded-full border border-cyan-400/15 bg-cyan-500/10 px-3 py-2 text-[11px] text-cyan-100"
+                                    >
+                                      {bullet.label}
+                                    </span>
+                                  ))}
+                                </div>
+                                <div className="hidden justify-center text-cyan-200 sm:flex">
+                                  <ArrowRight className="h-4 w-4" />
+                                </div>
+                                <div className="rounded-2xl border border-violet-400/20 bg-violet-500/10 px-4 py-4 text-center">
+                                  <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/20 text-violet-200">
+                                    <Layers3 className="h-5 w-5" />
+                                  </div>
+                                  <p className="text-sm font-semibold text-white">Be Souhola CRM</p>
+                                  <p className="mt-1 text-[11px] text-slate-300">All sources in one live pipeline</p>
+                                </div>
+                                <div className="hidden justify-center text-violet-200 sm:flex">
+                                  <ArrowRight className="h-4 w-4" />
+                                </div>
+                                <div className="rounded-2xl border border-emerald-400/15 bg-emerald-500/10 px-4 py-4 text-center">
+                                  <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-200">
+                                    <Users className="h-5 w-5" />
+                                  </div>
+                                  <p className="text-sm font-semibold text-white">Sales Team</p>
+                                  <p className="mt-1 text-[11px] text-slate-300">Assigned instantly and ready to follow up</p>
+                                </div>
+                              </div>
                             </div>
-                          ))}
-                        </div>
+
+                            <div className="space-y-3 text-sm text-slate-300">
+                              {heroPanels[activeHeroPanelIndex]?.bullets?.slice(4, 6).map((bullet) => (
+                                <div key={bullet.label} className="flex items-center gap-2">
+                                  {React.createElement(bullet.icon || CheckCircle2, {
+                                    className: `h-4 w-4 ${bullet.tone || 'text-violet-300'}`,
+                                  })}
+                                  {bullet.label}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3 text-sm text-slate-300">
+                            {heroPanels[activeHeroPanelIndex]?.bullets?.map((bullet) => (
+                              <div key={bullet.label} className="flex items-center gap-2">
+                                {React.createElement(bullet.icon || CheckCircle2, {
+                                  className: `h-4 w-4 ${bullet.tone || 'text-violet-300'}`,
+                                })}
+                                {bullet.label}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={heroPanels[activeHeroPanelIndex]?.onClick}
-                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-blue-500 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_16px_35px_rgba(79,70,229,0.32)] transition hover:translate-y-[-1px]"
-                    >
-                      {heroPanels[activeHeroPanelIndex]?.buttonText}
-                      <ArrowRight className="h-4 w-4" />
-                    </button>
+                    {heroPanels[activeHeroPanelIndex]?.variant === 'showcase' ? null : (
+                      <button
+                        type="button"
+                        onClick={heroPanels[activeHeroPanelIndex]?.onClick}
+                        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-blue-500 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_16px_35px_rgba(79,70,229,0.32)] transition hover:translate-y-[-1px]"
+                      >
+                        {heroPanels[activeHeroPanelIndex]?.buttonText}
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    )}
                   </motion.div>
                 </AnimatePresence>
 
                 {heroPanels.length > 1 ? (
                   <div className="mt-3 flex flex-col items-center gap-2">
                     <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-slate-500">
-                      Feature {activeHeroPanelIndex + 1} of {heroPanels.length}
+                      Explore More
                     </span>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      {heroPanels.map((panel, index) => (
+                        <button
+                          key={`${panel.key}-label`}
+                          type="button"
+                          onClick={() => setActiveHeroPanelIndex(index)}
+                          className={`rounded-full border px-3 py-1 text-[10px] font-medium transition ${
+                            activeHeroPanelIndex === index
+                              ? 'border-violet-300/40 bg-violet-500/20 text-white'
+                              : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {panel.eyebrow}
+                        </button>
+                      ))}
+                    </div>
                     <div className="flex items-center justify-center gap-2">
-                    {heroPanels.map((panel, index) => (
-                      <button
-                        key={panel.key}
-                        type="button"
-                        aria-label={`Show ${panel.title}`}
-                        onClick={() => setActiveHeroPanelIndex(index)}
-                        className={`h-2.5 rounded-full transition-all ${
-                          activeHeroPanelIndex === index
-                            ? 'w-8 bg-violet-300 shadow-[0_0_18px_rgba(167,139,250,0.65)]'
-                            : 'w-2.5 bg-white/25 hover:bg-white/40'
-                        }`}
-                      />
-                    ))}
+                      {heroPanels.map((panel, index) => (
+                        <button
+                          key={panel.key}
+                          type="button"
+                          aria-label={`Show ${panel.title}`}
+                          onClick={() => setActiveHeroPanelIndex(index)}
+                          className={`h-2.5 rounded-full transition-all ${
+                            activeHeroPanelIndex === index
+                              ? 'w-8 bg-violet-300 shadow-[0_0_18px_rgba(167,139,250,0.65)]'
+                              : 'w-2.5 bg-white/25 hover:bg-white/40'
+                          }`}
+                        />
+                      ))}
                     </div>
                   </div>
                 ) : null}

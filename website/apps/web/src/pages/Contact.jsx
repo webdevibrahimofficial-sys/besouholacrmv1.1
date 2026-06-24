@@ -202,12 +202,23 @@ const Contact = () => {
               className="scroll-mt-28"
             >
               <h2 className="text-2xl font-bold text-white uppercase mb-2">
-                {contactPageContent.form_title || 'Request a demo'}
+                {contactPageContent.form_title || 'Book Your Free CRM Demo'}
               </h2>
               <p className="text-gray-400 mb-6">
-                {contactPageContent.form_subtitle || 'Complete the form below and our team will get back to you shortly.'}
+                {contactPageContent.form_subtitle || "Tell us about your business and we'll contact you within 24 hours."}
               </p>
-              <LeadForm formName="Contact Page Form" serviceOptions={leadServiceOptions} />
+              <LeadForm
+                formName="Contact Page Form"
+                serviceOptions={leadServiceOptions}
+                showCompanyField
+                requireService
+                companyLabel="Company Name"
+                companyPlaceholder="Your company"
+                emailLabel="Email (optional)"
+                serviceLabel="Business Type *"
+                messageLabel="Notes (optional)"
+                submitLabel="Request Free Demo"
+              />
             </motion.div>
           </div>
         </div>

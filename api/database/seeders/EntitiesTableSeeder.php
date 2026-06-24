@@ -12,17 +12,7 @@ class EntitiesTableSeeder extends Seeder
      */
     public function run(): void
     {
-        $entities = [
-            'leads',
-            'customers',
-            'items',
-            'brokers',
-            'properties',
-            'requests',
-            'realEstateRequests',
-        ];
-
-        foreach ($entities as $key) {
+        foreach (Entity::supportedKeys() as $key) {
             Entity::firstOrCreate(['key' => $key]);
         }
     }

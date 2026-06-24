@@ -74,25 +74,9 @@ const ReassignLeadsReport = ({ users = [] }) => {
     return role.includes('sales person') || role.includes('salesperson');
   }, [currentUser]);
 
-  const formatDate = (date) => {
-    const d = new Date(date);
-    let month = '' + (d.getMonth() + 1);
-    let day = '' + d.getDate();
-    const year = d.getFullYear();
-
-    if (month.length < 2) month = '0' + month;
-    if (day.length < 2) day = '0' + day;
-
-    return [year, month, day].join('-');
-  }
-
   // Filters State
-  const [dateFrom, setDateFrom] = useState(() => {
-    const date = new Date();
-    date.setDate(1);
-    return formatDate(date);
-  });
-  const [dateTo, setDateTo] = useState(() => formatDate(new Date()));
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [fromManager, setFromManager] = useState('');
   const [toManager, setToManager] = useState('');
   const [fromSales, setFromSales] = useState('');
@@ -259,10 +243,8 @@ const ReassignLeadsReport = ({ users = [] }) => {
             </button>
             <button
                 onClick={() => {
-                    const d = new Date();
-                    d.setDate(1);
-                    setDateFrom(formatDate(d));
-                    setDateTo(formatDate(new Date()));
+                    setDateFrom('');
+                    setDateTo('');
                     setFromManager('');
                     setToManager('');
                     setFromSales('');

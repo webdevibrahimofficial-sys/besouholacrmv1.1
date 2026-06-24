@@ -31,6 +31,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
   const [project, setProject] = useState('');
   const [item, setItem] = useState('');
   const [company, setCompany] = useState('');
+  const [country, setCountry] = useState('');
   const [type, setType] = useState('');
   const [tags, setTags] = useState('');
   const [expectedRevenue, setExpectedRevenue] = useState('');
@@ -50,6 +51,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
   const [sourcesList, setSourcesList] = useState([]);
   const [campaignsList, setCampaignsList] = useState([]);
   const [projectsList, setProjectsList] = useState([]);
+  const [countriesList, setCountriesList] = useState([]);
 
   // Initialization
   useEffect(() => {
@@ -60,6 +62,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
       setProject(lead.project || '');
       setItem(lead.item_id || lead.item || '');
       setCompany(lead.company || '');
+      setCountry(lead.country || lead.country_name || lead.countryName || lead?.meta_data?.country || lead?.metaData?.country || '');
       setType(lead.type || '');
       setTags(lead.tags || '');
       setExpectedRevenue(lead.estimatedValue || lead.estimated_value || '');
@@ -107,6 +110,28 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
     fetchData();
   }, []);
 
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await api.get('/api/countries?active=1');
+        setCountriesList(Array.isArray(res.data) ? res.data : (res.data?.data || []));
+      } catch {
+        setCountriesList([]);
+      }
+    };
+    fetchCountries();
+  }, []);
+
+  useEffect(() => {
+    if (!lead || countriesList.length === 0) return;
+    const current = String(country || '').trim();
+    if (!current) return;
+    const match = countriesList.find(c => c?.name_en === current || c?.name_ar === current);
+    if (match?.name_en && match.name_en !== current) {
+      setCountry(match.name_en);
+    }
+  }, [lead, countriesList, country]);
+
   // Fetch items/projects
   useEffect(() => {
     const compType = String(tenantCompany?.company_type || '').toLowerCase();
@@ -137,6 +162,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
   const itemOptions = useMemo(() => itemsList.map(i => ({ value: i.id, label: i.name })), [itemsList]);
   const userOptions = useMemo(() => usersList.map(u => ({ value: u.id, label: u.name })), [usersList]);
   const stageOptions = useMemo(() => stages.map(s => ({ value: s.name, label: isRTL ? (s.nameAr || s.name) : s.name })), [stages, isRTL]);
+  const countryOptions = useMemo(() => countriesList.map(c => ({ value: c.name_en, label: isRTL ? (c.name_ar || c.name_en) : c.name_en })).filter(o => o.value && o.label), [countriesList, isRTL]);
   
   const typeOptions = useMemo(() => [
     { value: 'Company', label: t('Company') },
@@ -215,6 +241,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
         payload.name = nameTrimmed;
         payload.email = email.trim();
         payload.company = company.trim() || project.trim() || '';
+        payload.country = country || '';
         payload.type = type || ((company.trim() || project.trim()) ? 'Company' : 'Individual');
         payload.stage = stage;
         payload.status = status;
@@ -377,6 +404,20 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
                             onChange={(e) => setCompany(e.target.value)}
                             className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
                             disabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Country */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Country')}</label>
+                        <SearchableSelect
+                            options={countryOptions}
+                            value={country}
+                            onChange={setCountry}
+                            placeholder={t('Select')}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                            isDisabled={!canEditInfo}
                         />
                      </div>
 

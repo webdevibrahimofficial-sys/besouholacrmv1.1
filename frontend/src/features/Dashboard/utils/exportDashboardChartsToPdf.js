@@ -121,6 +121,8 @@ const captureNodeAsPng = async (node) => {
       cacheBust: true,
       pixelRatio: 3,
       backgroundColor: '#ffffff',
+      // Avoid reading cross-origin cssRules from Google Fonts during export.
+      skipFonts: true,
       filter: (domNode) => !(domNode?.dataset?.exportIgnore === 'true'),
     })
   } finally {

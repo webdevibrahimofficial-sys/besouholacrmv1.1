@@ -24,7 +24,6 @@ import TransferSalesModal from '../components/TransferSalesModal'
 import LeadModal from '../components/LeadModal'
 import LeadHoverTooltip from '../components/LeadHoverTooltip'
 import { useDynamicFields } from '../hooks/useDynamicFields'
-import { countriesData } from '../data/countriesData'
 import { getLeadModulePermissions, getLeadPermissionFlags } from '../services/leadPermissions'
 import { normalizeColumnOrder, getFavoriteColumnOrder } from '../utils/columnPreferences'
 import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/utils/phoneDisplay'
@@ -56,6 +55,7 @@ export const Leads = () => {
   const isRtl = String(i18n.language || '').startsWith('ar')
 
   const maskPhoneNumber = (phone, phoneCountry) => formatPhoneForDisplay(phone, { showFull: !maskMobileNumber, defaultCountryCode: phoneCountry || defaultDialCode })
+
   const getLeadDefaultCountryCode = (lead) =>
     lead?.phone_country ||
     lead?.phoneCountry ||
@@ -421,7 +421,20 @@ export const Leads = () => {
   const [projectsList, setProjectsList] = useState([])
   const [stagesList, setStagesList] = useState([])
   const [campaignsList, setCampaignsList] = useState([])
+  const [countriesList, setCountriesList] = useState([])
   const [usersList, setUsersList] = useState([])
+
+  const resolveCountryLabel = useCallback((raw) => {
+    const value = String(raw || '').trim()
+    if (!value) return '-'
+    const match = countriesList.find(c =>
+      String(c?.name_en || '').trim() === value ||
+      String(c?.name_ar || '').trim() === value ||
+      String(c?.code || '').trim() === value
+    )
+    if (!match) return value
+    return isRtl ? (match.name_ar || match.name_en) : match.name_en
+  }, [countriesList, isRtl])
 
   // Fetch Sources & Stages & Campaigns
   useEffect(() => {
@@ -452,6 +465,19 @@ export const Leads = () => {
       }
     }
     fetchOptions()
+  }, [])
+
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await api.get('/api/countries?active=1')
+        const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+        setCountriesList(data)
+      } catch {
+        setCountriesList([])
+      }
+    }
+    fetchCountries()
   }, [])
 
   // Fetch Projects or Items based on company type
@@ -1442,6 +1468,7 @@ if (!s) {
     contact: t('Contact'),
     source: t('Source'),
     project: isGeneralTenant ? t('Item') : t('Project'),
+    country: t('Country'),
     salesPerson: t('Sales Person'),
     createdBy: t('Created By'),
     lastComment: t('Last Comment'),
@@ -1460,6 +1487,7 @@ if (!s) {
     contact: labels.contact,
     source: labels.source,
     project: labels.project,
+    country: labels.country,
     salesPerson: labels.salesPerson,
     createdBy: labels.createdBy,
     lastComment: labels.lastComment,
@@ -2095,6 +2123,7 @@ if (!s) {
     contact: true,
     source: true,
     project: true,
+    country: true,
     salesPerson: true,
     createdBy: true,
     lastComment: true,
@@ -2110,7 +2139,7 @@ if (!s) {
   const [columnOrder, setColumnOrder] = useState(() => {
     // Default order: Lead, Contact, Actions, Source, Project, Sales Person, Last Comment, Stage, Expected Revenue, Priority
     // Note: Actions is 3rd (index 2)
-    const defaults = ['lead', 'contact', 'actions', 'source', 'project', 'salesPerson', 'createdBy', 'lastComment', 'notes', 'stage', 'expectedRevenue', 'priority', 'creationDate']
+    const defaults = ['lead', 'contact', 'actions', 'source', 'project', 'country', 'salesPerson', 'createdBy', 'lastComment', 'notes', 'stage', 'expectedRevenue', 'priority', 'creationDate']
     const allKeys = Object.keys(allColumns)
     // Merge any other keys that might exist in allColumns but not in defaults
     const remaining = allKeys.filter(k => !defaults.includes(k))
@@ -2910,7 +2939,7 @@ if (!s) {
     const keys = (Array.isArray(columnOrder) ? columnOrder : [])
       .filter(k => visibleColumns?.[k])
       .filter(k => k !== 'actions');
-    return keys.length ? keys : ['lead', 'contact', 'source', 'project', 'salesPerson', 'createdBy', 'lastComment', 'notes', 'nextActionDate', 'lastActionDate', 'stage', 'expectedRevenue', 'priority'];
+    return keys.length ? keys : ['lead', 'contact', 'source', 'project', 'country', 'salesPerson', 'createdBy', 'lastComment', 'notes', 'nextActionDate', 'lastActionDate', 'stage', 'expectedRevenue', 'priority'];
   };
 
   const mapLeadToExportRow = (lead, exportKeys) => {
@@ -3009,6 +3038,8 @@ if (!s) {
           const byId = projectsList.find(p => p.id === lead?.project_id)?.name;
           return String(lead?.project_name || byId || lead?.project || '').trim() || '-';
         }
+        case 'country':
+          return resolveCountryLabel(lead?.country);
         case 'salesPerson': {
           const explicit = String(lead?.sales_person || '').trim();
           if (explicit) return explicit;
@@ -3183,6 +3214,7 @@ if (!s) {
   const columnMinWidths = {
     source: 140,
     project: 140,
+    country: 140,
     salesPerson: 140,
     createdBy: 140,
     lastComment: 220,
@@ -3570,7 +3602,7 @@ if (!s) {
                 value={countryFilter}
                 multiple={true}
                 onChange={setCountryFilter}
-                  options={countriesData.map(c => ({ value: c.nameEn, label: isRtl ? c.nameAr : c.nameEn }))}
+                  options={countriesList.map(c => ({ value: c.name_en, label: isRtl ? (c.name_ar || c.name_en) : c.name_en })).filter(o => o.value && o.label)}
                   placeholder={t('All ')}
                   isRTL={isRtl}
                 />
@@ -4372,6 +4404,13 @@ if (!s) {
                                 return lead.project_name || byId || lead.project || '-';
                               }
                             })()}
+                          </td>
+                        );
+
+                      case 'country':
+                        return (
+                          <td key="country" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'}`} style={{ minWidth: `${columnMinWidths.country}px` }}>
+                            {resolveCountryLabel(lead.country)}
                           </td>
                         );
 

@@ -3,10 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Link } from 'react-router-dom';
-import { trackCtaClick } from '@/lib/analytics';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
-import crmLogoMark from '@/assets/be-souhola-logo-dark.png';
+import crmLogoMark from '@/assets/be-souhola-logo-mark.png';
 import { resolveImageFallback } from '@/lib/websiteAssets';
+import DemoRequestModal from '@/components/DemoRequestModal';
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -65,14 +65,6 @@ const Header = () => {
     }
   };
 
-  const handleCTA = () => {
-    trackCtaClick('Book Free Demo', { meta: { location: 'header' } });
-    navigate('/contact#lead-form');
-    if (isOpen) {
-      setIsOpen(false);
-    }
-  };
-
   return (
     <>
       <motion.header
@@ -93,7 +85,8 @@ const Header = () => {
               />
             </div>
             <div className="text-base font-semibold tracking-tight text-white sm:text-[1.08rem]">
-              {companyName.split(' ')[0] || 'Be'} <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
+              <span className="text-accent-purple">{companyName.split(' ')[0] || 'Be'}</span>{' '}
+              <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
               <span className="text-white/72">CRM</span>
             </div>
           </Link>
@@ -113,12 +106,15 @@ const Header = () => {
           </nav>
 
           <div className="ml-auto hidden md:flex items-center gap-4">
-            <Button
-              className="group rounded-full bg-accent-purple px-4 py-2 text-sm text-white shadow-[0_10px_30px_rgba(147,114,255,0.35)] hover:bg-accent-purple/90"
-              onClick={handleCTA}
-            >
-              Book Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
-            </Button>
+            <DemoRequestModal
+              location="header"
+              formName="Header Demo Modal"
+              trigger={
+                <Button className="group rounded-full bg-accent-purple px-4 py-2 text-sm text-white shadow-[0_10px_30px_rgba(147,114,255,0.35)] hover:bg-accent-purple/90">
+                  Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
+                </Button>
+              }
+            />
           </div>
 
           <div className="md:hidden">
@@ -150,7 +146,8 @@ const Header = () => {
                     />
                   </div>
                   <div className="text-lg font-semibold tracking-tight text-white">
-                    {companyName.split(' ')[0] || 'Be'} <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
+                    <span className="text-accent-purple">{companyName.split(' ')[0] || 'Be'}</span>{' '}
+                    <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
                     <span className="text-white/72">CRM</span>
                   </div>
                 </Link>
@@ -176,12 +173,15 @@ const Header = () => {
               </nav>
 
               <div className="py-8 flex flex-col gap-4">
-                <Button
-                  className="bg-accent-purple text-white hover:bg-accent-purple/90 group w-full text-lg py-6 rounded-full"
-                  onClick={handleCTA}
-                >
-                  Book Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
-                </Button>
+                <DemoRequestModal
+                  location="header-mobile"
+                  formName="Mobile Header Demo Modal"
+                  trigger={
+                    <Button className="bg-accent-purple text-white hover:bg-accent-purple/90 group w-full text-lg py-6 rounded-full">
+                      Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
+                    </Button>
+                  }
+                />
               </div>
             </div>
           </motion.div>

@@ -2466,6 +2466,7 @@ class LeadController extends Controller
             'phone' => 'nullable|string|max:255',
             'company' => 'nullable|string|max:255',
             'campaign' => 'nullable|string|max:255',
+            'country' => 'nullable|string|max:255',
             // ... add other standard validations as needed
         ]);
 

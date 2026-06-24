@@ -60,7 +60,11 @@ return new class extends Migration
                 })
                 ->update([
                     'assigned_at' => DB::raw(
-                        "(SELECT MIN(created_at) FROM lead_actions WHERE lead_actions.lead_id = leads.id)"
+                        "CASE " .
+                        "WHEN (SELECT MIN(created_at) FROM lead_actions WHERE lead_actions.lead_id = leads.id) < created_at " .
+                        "THEN created_at " .
+                        "ELSE (SELECT MIN(created_at) FROM lead_actions WHERE lead_actions.lead_id = leads.id) " .
+                        "END"
                     )
                 ]);
 

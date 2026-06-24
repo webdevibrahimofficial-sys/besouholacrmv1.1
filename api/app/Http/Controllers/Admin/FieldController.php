@@ -7,7 +7,6 @@ use App\Models\Entity;
 use App\Models\Field;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class FieldController extends Controller
@@ -21,7 +20,7 @@ class FieldController extends Controller
             'entity' => 'required|string',
         ]);
 
-        $entity = Entity::where('key', $request->entity)->first();
+        $entity = Entity::ensureSupported($request->entity);
         if (!$entity) {
             return response()->json([]);
         }
@@ -37,14 +36,15 @@ class FieldController extends Controller
      */
     public function store(Request $request)
     {
+        $entity = Entity::ensureSupported((string) $request->input('entity_key'));
+
         $request->validate([
-            'entity_key' => 'required|exists:entities,key',
+            'entity_key' => ['required', 'string', Rule::in(Entity::supportedKeys())],
             'key' => [
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('fields')->where(function ($query) use ($request) {
-                    $entity = Entity::where('key', $request->entity_key)->first();
+                Rule::unique('fields')->where(function ($query) use ($entity) {
                     return $query->where('entity_id', $entity ? $entity->id : null)
                                  ->where('tenant_id', Auth::user()->tenant_id);
                 }),
@@ -64,8 +64,6 @@ class FieldController extends Controller
             'is_exportable' => 'boolean',
             'options' => 'nullable|array',
         ]);
-
-        $entity = Entity::where('key', $request->entity_key)->firstOrFail();
 
         // Field model's boot method will automatically set tenant_id
         $field = $entity->fields()->create($request->all());

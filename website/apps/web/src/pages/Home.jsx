@@ -1,6 +1,6 @@
 import React from 'react';
 import { Helmet } from 'react-helmet';
-import Hero from '@/components/Hero';
+import Hero from '@/components/HeroSection';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import TrustedClients from '@/components/TrustedClients';
 import LeadLeakDetector from '@/components/LeadLeakDetector.jsx';
@@ -11,6 +11,7 @@ import Testimonials from '@/components/Testimonials';
 import Stats from '@/components/Stats';
 import CTA from '@/components/CTA';
 import SectionAnimator from '@/components/SectionAnimator';
+import defaultLogoMark from '@/assets/be-souhola-logo-mark.png';
 
 const siteUrl = 'https://besouhola.com';
 
@@ -25,7 +26,7 @@ const Home = () => {
     '@type': 'Organization',
     name: settings.company_name || 'Be Souhola',
     url: siteUrl,
-    logo: settings.logo_url || undefined,
+    logo: settings.logo_url || defaultLogoMark,
     sameAs: Object.values(settings.social_links || {}).filter(Boolean),
   };
   const softwareSchema = {

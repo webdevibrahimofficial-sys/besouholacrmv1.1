@@ -8,7 +8,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { api } from '../utils/api';
 import { FaChevronDown, FaChevronUp, FaTimes, FaPaperclip } from 'react-icons/fa';
 import SearchableSelect from '../components/SearchableSelect';
-import { useDynamicFields } from '../hooks/useDynamicFields';
 import DynamicFieldRenderer from '../components/DynamicFieldRenderer';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import CountryCodeSelect from '../components/CountryCodeSelect';
@@ -28,6 +27,7 @@ export const AddNewLead = () => {
   const [campaign, setCampaign] = useState('');
   const [project, setProject] = useState('');
   const [company, setCompany] = useState('');
+  const [country, setCountry] = useState('');
   const [type, setType] = useState('');
   const [tags, setTags] = useState('');
   const [expectedRevenue, setExpectedRevenue] = useState('');
@@ -55,6 +55,7 @@ export const AddNewLead = () => {
   const [itemsList, setItemsList] = useState([]);
   const [sourcesList, setSourcesList] = useState([]);
   const [campaignsList, setCampaignsList] = useState([]);
+  const [countriesList, setCountriesList] = useState([]);
   const [item, setItem] = useState('');
 
   // Fetch sources & campaigns
@@ -73,6 +74,18 @@ export const AddNewLead = () => {
       }
     };
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await api.get('/api/countries?active=1');
+        setCountriesList(Array.isArray(res.data) ? res.data : (res.data?.data || []));
+      } catch (e) {
+        console.error('Failed to fetch countries', e);
+      }
+    };
+    fetchCountries();
   }, []);
 
   // Fetch items or projects based on company type
@@ -164,6 +177,11 @@ export const AddNewLead = () => {
     label: p.name || p.companyName || p
   })), [projectsList]);
 
+  const countryOptions = useMemo(() => countriesList.map(c => ({
+    value: c.name_en,
+    label: isRTL ? (c.name_ar || c.name_en) : c.name_en
+  })).filter(o => o.value && o.label), [countriesList, isRTL]);
+
   const itemOptions = useMemo(() => itemsList.map(i => ({
     value: i.id,
     label: i.name
@@ -226,6 +244,7 @@ export const AddNewLead = () => {
         mobileNumbers: [{ code: mobileNumbers[0]?.code || '', number: '' }],
         email: '',
         assignedTo: isSalesPerson ? (currentUser?.name || '') : '',
+        country: '',
         stage: '',
         status: '',
         priority: 'medium',
@@ -460,6 +479,7 @@ export const AddNewLead = () => {
       formData.append('phone', primaryPhone.phone);
       if (primaryPhone.phoneCountry) formData.append('phone_country', primaryPhone.phoneCountry);
       formData.append('company', company.trim() || project.trim() || '');
+      if (country) formData.append('country', country);
       formData.append('type', type || ((company.trim() || project.trim()) ? 'Company' : 'Individual'));
       formData.append('stage', stage || 'New');
       formData.append('status', status || '');
@@ -510,6 +530,7 @@ export const AddNewLead = () => {
           extraFormData.append('phone', extraPrimaryPhone.phone);
           if (extraPrimaryPhone.phoneCountry) extraFormData.append('phone_country', extraPrimaryPhone.phoneCountry);
           extraFormData.append('company', l.company?.trim() || l.project?.trim() || '');
+          if (l.country) extraFormData.append('country', l.country);
           extraFormData.append('type', l.type || ((l.company || l.project) ? 'Company' : 'Individual'));
           extraFormData.append('stage', l.stage || 'New');
           extraFormData.append('status', l.status || '');
@@ -707,6 +728,19 @@ export const AddNewLead = () => {
                       onChange={(e) => setCompany(e.target.value)}
                       className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
                       placeholder={t('Company')}
+                    />
+                  </div>
+
+                  {/* Country */}
+                  <div>
+                    <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Country')}</label>
+                    <SearchableSelect
+                      options={countryOptions}
+                      value={country}
+                      onChange={setCountry}
+                      placeholder={t('Select')}
+                      isRTL={isRTL}
+                      showAllOption={false}
                     />
                   </div>
 
@@ -1001,6 +1035,17 @@ export const AddNewLead = () => {
                         <div>
                           <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Company')}</label>
                           <input type="text" value={l.company || ''} onChange={(e) => updateExtraLeadField(i, 'company', e.target.value)} className={`w-full rounded-md border px-3 py-2 ${inputTone}`} />
+                        </div>
+                        <div>
+                          <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Country')}</label>
+                          <SearchableSelect
+                            options={countryOptions}
+                            value={l.country || ''}
+                            onChange={(val) => updateExtraLeadField(i, 'country', val)}
+                            placeholder={t('Select')}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                          />
                         </div>
                         <div>
                           <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Expected Revenue')}</label>

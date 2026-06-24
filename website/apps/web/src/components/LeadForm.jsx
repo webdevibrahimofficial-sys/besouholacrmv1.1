@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Phone,
   ShieldCheck,
+  Building2,
   User2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,10 +61,14 @@ const LeadForm = ({
   namePlaceholder = 'John Doe',
   phoneLabel = 'Phone number *',
   phonePlaceholder = '+20 100 000 0000',
+  showCompanyField = false,
+  companyLabel = 'Company name',
+  companyPlaceholder = 'Your company',
   emailLabel = 'Email address',
   emailPlaceholder = 'you@company.com',
-  serviceLabel = 'Service interested in',
+  serviceLabel = 'Business type *',
   servicePlaceholder = 'Select your business type',
+  requireService = false,
   messageLabel,
   messagePlaceholder,
   privacyNote = 'Your data stays private and is only used to contact you.',
@@ -90,6 +95,7 @@ const LeadForm = ({
     defaultValues: {
       name: '',
       phone: '',
+      company: '',
       email: '',
       service: '',
       message: '',
@@ -124,6 +130,7 @@ const LeadForm = ({
 
       await submitWebsiteLead({
         ...values,
+        companyName: values.company,
         service: selectedService?.label || values.service,
         itemId: selectedService?.itemId ?? null,
         formName,
@@ -236,6 +243,27 @@ const LeadForm = ({
           {errors.phone && <p className="text-sm text-red-400">{errors.phone.message}</p>}
         </div>
 
+        {showCompanyField ? (
+          <div className="space-y-2">
+            <Label htmlFor={`${formName}-company`} className={cn('text-gray-300', compact && 'text-[0.92rem]')}>
+              {companyLabel}
+            </Label>
+            <div className="relative">
+              <Building2 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+              <Input
+                id={`${formName}-company`}
+                placeholder={companyPlaceholder}
+                autoComplete="organization"
+                className={cn(
+                  'rounded-2xl border-white/10 bg-black/25 pl-11 text-white placeholder:text-white/35 focus-visible:ring-accent-purple/60',
+                  compact ? 'h-[3rem] text-[0.95rem]' : 'h-[3.25rem] md:h-14'
+                )}
+                {...fieldHandlers(register('company'))}
+              />
+            </div>
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           <Label htmlFor={`${formName}-email`} className={cn('text-gray-300', compact && 'text-[0.92rem]')}>
             {emailLabel}
@@ -275,7 +303,9 @@ const LeadForm = ({
                 'w-full appearance-none rounded-2xl border border-white/10 bg-black/25 px-4 pr-12 text-white focus:border-accent-purple/50 focus:outline-none',
                 compact ? 'h-[3rem] text-[0.95rem]' : 'h-[3.25rem] md:h-14'
               )}
-              {...fieldHandlers(register('service'))}
+              {...fieldHandlers(
+                register('service', requireService ? { required: 'Business type is required' } : {})
+              )}
             >
               <option value="" className="bg-[#12151f] text-white/70">
                 {servicePlaceholder}
@@ -288,6 +318,7 @@ const LeadForm = ({
             </select>
             <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/45" />
           </div>
+          {errors.service && <p className="text-sm text-red-400">{errors.service.message}</p>}
         </div>
 
         <div className="space-y-2 md:col-span-2">

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Facebook, Github, Instagram, Linkedin, Twitter } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
-import crmLogoMark from '@/assets/be-souhola-logo-dark.png';
+import crmLogoMark from '@/assets/be-souhola-logo-mark.png';
 import { resolveImageFallback } from '@/lib/websiteAssets';
 
 const WhatsAppIcon = ({ size = 18, className = '' }) => (
@@ -139,7 +139,8 @@ const Footer = () => {
               </div>
               <div>
                 <div className="text-lg font-semibold tracking-tight text-white">
-                  {companyName.split(' ')[0] || 'Be'} <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
+                  <span className="text-accent-purple">{companyName.split(' ')[0] || 'Be'}</span>{' '}
+                  <span className="text-accent-purple">{companyName.split(' ').slice(1).join(' ') || 'Souhola'}</span>{' '}
                   <span className="text-white/72">CRM</span>
                 </div>
                 <div className="text-sm text-white/45">

@@ -35,6 +35,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [convertCustomerLoading, setConvertCustomerLoading] = useState(false);
   const [uploadingLeadAttachments, setUploadingLeadAttachments] = useState(false);
   const leadAttachmentInputRef = useRef(null);
+  const [countriesList, setCountriesList] = useState([]);
 
   const reloadWhatsappMessages = useCallback(async (leadId) => {
     if (!leadId) return;
@@ -109,6 +110,17 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       setFetchedLead(null);
     }
   }, [isOpen, lead?.id]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    api.get('/api/countries?active=1')
+      .then((res) => {
+        setCountriesList(Array.isArray(res?.data) ? res.data : (res?.data?.data || []));
+      })
+      .catch(() => {
+        setCountriesList([]);
+      });
+  }, [isOpen]);
 
   const showToast = (type, message) => {
     try {
@@ -589,6 +601,14 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const effectiveLead = fetchedLead || lead || {};
   const leadLeakDiagnostic = effectiveLead?.meta_data?.lead_leak_detector;
   const permissions = effectiveLead.permissions || {};
+  const companyTypeLower = String(
+    company?.company_type ||
+    company?.companyType ||
+    effectiveLead?.company_type ||
+    effectiveLead?.companyType ||
+    ''
+  ).toLowerCase().trim();
+  const isRealEstateTenant = companyTypeLower === 'real estate' || companyTypeLower === 'real_estate' || companyTypeLower === 'realestate';
   
   // Lead Ownership Logic
   const currentUserId = user?.id;
@@ -942,6 +962,92 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       return isArabic ? 'غير محدد' : 'Unassigned';
     })()
   };
+
+  const leadProjectValue =
+    effectiveLead?.project?.name ||
+    effectiveLead?.project_name ||
+    effectiveLead?.projectName ||
+    effectiveLead?.project ||
+    effectiveLead?.meta_data?.project_name ||
+    effectiveLead?.metaData?.project_name ||
+    '-';
+
+  const leadItemValue =
+    effectiveLead?.item?.name ||
+    effectiveLead?.item_name ||
+    effectiveLead?.itemName ||
+    effectiveLead?.item ||
+    effectiveLead?.meta_data?.item_name ||
+    effectiveLead?.metaData?.item_name ||
+    '-';
+
+  const resolveCountryLabel = useCallback((raw) => {
+    const value = String(raw || '').trim();
+    if (!value) return isArabic ? 'غير محدد' : 'Not specified';
+    const match = countriesList.find(c =>
+      String(c?.name_en || '').trim() === value ||
+      String(c?.name_ar || '').trim() === value ||
+      String(c?.code || '').trim() === value
+    );
+    if (!match) return value;
+    return isArabic ? (match.name_ar || match.name_en) : match.name_en;
+  }, [countriesList, isArabic]);
+
+  const leadCountryRaw =
+    effectiveLead?.country?.name ||
+    effectiveLead?.country_name ||
+    effectiveLead?.countryName ||
+    effectiveLead?.country ||
+    effectiveLead?.meta_data?.country ||
+    effectiveLead?.metaData?.country ||
+    '';
+
+  const leadCountryValue = resolveCountryLabel(leadCountryRaw);
+
+  const leadInformationRows = [
+    {
+      key: isRealEstateTenant ? 'project' : 'item',
+      label: isRealEstateTenant
+        ? (isArabic ? 'المشروع:' : 'Project:')
+        : (isArabic ? 'الصنف:' : 'Item:'),
+      value: isRealEstateTenant ? leadProjectValue : leadItemValue,
+    },
+    {
+      key: 'source',
+      label: isArabic ? 'المصدر:' : 'Source:',
+      value: leadData.source || '-',
+    },
+    {
+      key: 'sales-person',
+      label: isArabic ? 'موظف المبيعات:' : 'Sales Person:',
+      value: leadData.salesPerson || (isArabic ? 'غير محدد' : 'Unassigned'),
+    },
+    ...(canShowCreatorPermission
+      ? [{
+          key: 'created-by',
+          label: isArabic ? 'تم الإنشاء بواسطة:' : 'Created By:',
+          value: leadData.createdBy || (isArabic ? 'غير محدد' : 'Not specified'),
+        }]
+      : []),
+    {
+      key: 'creation-date',
+      label: isArabic ? 'تاريخ الإنشاء:' : 'Creation Date:',
+      value: leadData.createdDate || '-',
+    },
+    {
+      key: 'country',
+      label: isArabic ? 'الدولة:' : 'Country:',
+      value: leadCountryValue,
+    },
+    {
+      key: 'notes',
+      label: isArabic ? 'ملاحظات:' : 'Notes:',
+      value: leadData.notes && String(leadData.notes).trim() !== ''
+        ? leadData.notes
+        : '-',
+      multiline: true,
+    },
+  ];
 
   const getLeadDefaultCountryCode = (leadItem) =>
     leadItem?.phone_country ||
@@ -2430,54 +2536,21 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     {isArabic ? 'بيانات العميل' : 'Lead Information'}
                   </h3>
                   <div className={`space-y-2 sm:space-y-4 p-2 sm:p-4 rounded-lg ${isLight ? 'bg-white border border-gray-200' : 'bg-slate-700'}`}>
-                    <div className="flex justify-between items-center">
-                      <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm`}>
-                        {isArabic ? 'الشركة:' : 'Company:'}
-                      </span>
-                      <span className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm font-medium text-right`}>{leadData.company}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm`}>
-                        {isArabic ? 'الموقع:' : 'Location:'}
-                      </span>
-                      <span className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm`}>{leadData.location}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm`}>
-                        {isArabic ? 'المصدر:' : 'Source:'}
-                      </span>
-                      <span className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm`}>{leadData.source}</span>
-                    </div>
-                    {canShowCreatorPermission && (
-                      <div className="flex justify-between items-center">
-                      <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm`}>
-                        {isArabic ? 'تم الإنشاء بواسطة:' : 'Created By:'}
-                      </span>
-                      <span className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm`}>{leadData.createdBy}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center">
-                      <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm`}>
-                        {isArabic ? 'موظف المبيعات:' : 'Sales Person:'}
-                      </span>
-                      <span className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm`}>{leadData.salesPerson}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm`}>
-                        {isArabic ? 'تاريخ الإنشاء:' : 'Created Date:'}
-                      </span>
-                      <span className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm`}>{leadData.createdDate}</span>
-                    </div>
-                    {leadData.notes && String(leadData.notes).trim() !== '' && (
-                      <div className="flex justify-between items-start gap-3">
-                        <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm whitespace-nowrap`}>
-                          {isArabic ? 'ملاحظات:' : 'Notes:'}
+                    {leadInformationRows.map((row) => (
+                      <div
+                        key={row.key}
+                        className={`flex justify-between gap-3 ${row.multiline ? 'items-start' : 'items-center'}`}
+                      >
+                        <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm ${row.multiline ? 'whitespace-nowrap' : ''}`}>
+                          {row.label}
                         </span>
-                        <span className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm text-right whitespace-pre-line break-words`}>
-                          {leadData.notes}
+                        <span
+                          className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm text-right ${row.multiline ? 'whitespace-pre-line break-words' : ''} ${row.key === 'project' || row.key === 'item' ? 'font-medium' : ''}`}
+                        >
+                          {row.value}
                         </span>
                       </div>
-                    )}
+                    ))}
                   </div>
 
 

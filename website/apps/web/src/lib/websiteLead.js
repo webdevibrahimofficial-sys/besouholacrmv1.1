@@ -30,6 +30,7 @@ export const submitWebsiteLead = async ({
   name,
   phone,
   email,
+  companyName,
   message,
   service,
   itemId,
@@ -57,6 +58,7 @@ export const submitWebsiteLead = async ({
         browser: analyticsContext.browser,
         referrer: analyticsContext.referrer,
       }),
+      company_name: companyName?.trim() || undefined,
       ...metaOverrides,
     },
   };

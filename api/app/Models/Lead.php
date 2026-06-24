@@ -71,6 +71,10 @@ class Lead extends Model
         'last_contact' => 'datetime',
     ];
 
+    protected $appends = [
+        'custom_fields',
+    ];
+
     public function actions()
     {
         return $this->hasMany(LeadAction::class);
@@ -86,14 +90,39 @@ class Lead extends Model
      */
     public function customFieldValues()
     {
-        // We can't use a simple hasMany because FieldValue doesn't have a direct 'lead_id'.
-        // It has 'record_id'.
-        // And we only want values for fields that belong to 'leads' entity.
-        // But since record_id is just an ID, it could clash if we had multiple tables sharing IDs.
-        // However, usually we filter by field_id which is unique to the entity.
-        // So: FieldValue where record_id = this->id AND field_id IN (fields for leads)
-        
-        return $this->hasMany(FieldValue::class, 'record_id');
+        return $this->hasMany(FieldValue::class, 'record_id')
+            ->whereHas('field.entity', function ($query) {
+                $query->where('key', 'leads');
+            });
+    }
+
+    public function getCustomFieldsAttribute(): array
+    {
+        if (!$this->relationLoaded('customFieldValues')) {
+            return [];
+        }
+
+        return $this->customFieldValues
+            ->filter(fn ($fieldValue) => filled($fieldValue?->field?->key))
+            ->mapWithKeys(function ($fieldValue) {
+                return [$fieldValue->field->key => $fieldValue->value];
+            })
+            ->all();
+    }
+
+    public function getCountryAttribute($value): ?string
+    {
+        if (filled($value)) {
+            return $value;
+        }
+
+        $customCountry = $this->custom_fields['country'] ?? null;
+        if (filled($customCountry)) {
+            return (string) $customCountry;
+        }
+
+        $metaCountry = is_array($this->meta_data ?? null) ? ($this->meta_data['country'] ?? null) : null;
+        return filled($metaCountry) ? (string) $metaCountry : $value;
     }
 
     public function referral()
