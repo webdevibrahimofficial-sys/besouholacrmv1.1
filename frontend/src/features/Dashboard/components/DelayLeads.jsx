@@ -472,6 +472,40 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     return <span className={`inline-flex items-center text-[11px] font-semibold px-1.5 py-[2px] rounded-md ${clsDark}`}>{label}</span>
   }
 
+  const renderUnifiedStageBadge = (pipelineStage) => {
+    const s = String(pipelineStage || '').toLowerCase();
+    const dynamicStage = (stages || []).find(
+      ds => String(ds.name).toLowerCase().replace(/[\s_]+/g, '-') === s
+    );
+
+    const label = dynamicStage
+      ? ((i18n.language === 'ar' && dynamicStage.nameAr) ? dynamicStage.nameAr : dynamicStage.name)
+      : s === 'new' ? t('New')
+      : s === 'duplicate' ? t('Duplicate')
+      : s === 'pending' ? t('Pending')
+      : s === 'coldcalls' ? t('Cold Calls')
+      : s === 'followup' ? t('Follow up')
+      : (pipelineStage || '-');
+
+    if (isLight) {
+      const clsLight = s === 'new' ? 'bg-green-100/60 text-green-700 border border-green-300'
+        : s === 'duplicate' ? 'bg-red-100/60 text-red-700 border border-red-300'
+        : s === 'pending' ? 'bg-yellow-100/60 text-yellow-700 border border-yellow-300'
+        : s === 'coldcalls' ? 'bg-orange-100/60 text-orange-700 border border-orange-300'
+        : s === 'followup' ? 'bg-purple-100/60 text-purple-700 border border-purple-300'
+        : 'bg-gray-100 text-gray-700 border border-gray-300';
+      return <span className={`inline-flex items-center text-[11px] font-semibold px-1.5 py-[2px] rounded-md ${clsLight}`}>{label}</span>;
+    }
+
+    const clsDark = s === 'new' ? 'dark:bg-green-500/20 dark:text-green-200 dark:border dark:border-green-500'
+      : s === 'duplicate' ? 'dark:bg-red-500/20 dark:text-red-200 dark:border dark:border-red-500'
+      : s === 'pending' ? 'dark:bg-yellow-500/20 dark:text-yellow-200 dark:border dark:border-yellow-500'
+      : s === 'coldcalls' ? 'dark:bg-orange-500/20 dark:text-orange-200 dark:border dark:border-orange-500'
+      : s === 'followup' ? 'dark:bg-purple-500/20 dark:text-purple-200 dark:border dark:border-purple-500'
+      : 'dark:bg-gray-500/20 dark:text-gray-200 dark:border dark:border-gray-500';
+    return <span className={`inline-flex items-center text-[11px] font-semibold px-1.5 py-[2px] rounded-md ${clsDark}`}>{label}</span>;
+  }
+
   // Helper: parse and compare dates safely
   const inDateRange = (leadDateStr) => {
     // If no range provided, include all
@@ -675,7 +709,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                         {lead.nextDelayedAction.date} {String(lead.nextDelayedAction.time || '').slice(0,5)}
                     </div>
                   )}
-                  <div className="mt-1">{renderStageBadge(lead.pipelineStage)}</div>
+                  <div className="mt-1">{renderUnifiedStageBadge(lead.pipelineStage)}</div>
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">{formatDateSafe(lead.actionDate)}</div>
               </div>
@@ -827,7 +861,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                       </button>
                     </div>
                   </td>
-                  <td className={`px-6 py-4 ${isLight ? 'stage-cell' : ''}`}>{renderStageBadge(lead.pipelineStage)}</td>
+                  <td className={`px-6 py-4 ${isLight ? 'stage-cell' : ''}`}>{renderUnifiedStageBadge(lead.pipelineStage)}</td>
                   <td className={`px-6 py-4`}>{lead.source || '-'}</td>
                   <td className={`px-6 py-4`}>{lead.lastComment}</td>
                   <td className="px-6 py-4">
