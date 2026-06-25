@@ -80,8 +80,6 @@ const ASSIGNEE_ONLY_RECIPIENTS = {
 
 const normalizeRecipientsToAssigneeOnly = recipients => ({
   ...ASSIGNEE_ONLY_RECIPIENTS,
-  assignee: true,
-  custom_user_ids: [],
   ...(recipients || {}),
   owner: false,
   manager: false,
