@@ -281,6 +281,89 @@ class LeadActionController extends Controller
 
         return false;
     }
+
+    private function decodeUserMetaData($user): array
+    {
+        try {
+            if (is_array($user?->meta_data)) {
+                return $user->meta_data;
+            }
+            if (is_string($user?->meta_data)) {
+                $decoded = json_decode($user->meta_data, true);
+                return is_array($decoded) ? $decoded : [];
+            }
+        } catch (\Throwable $e) {
+        }
+
+        return [];
+    }
+
+    private function getControlModulePerms($user): array
+    {
+        $meta = $this->decodeUserMetaData($user);
+        $modulePerms = is_array($meta['module_permissions'] ?? null) ? ($meta['module_permissions'] ?? []) : [];
+        $controlPerms = $modulePerms['Control'] ?? [];
+        return is_array($controlPerms) ? $controlPerms : [];
+    }
+
+    private function isTenantAdminLike($user): bool
+    {
+        if (!$user) return false;
+        if ($user->is_super_admin ?? false) return true;
+
+        $roleLower = strtolower(trim((string) ($user->role ?? $user->job_title ?? '')));
+        return in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin'], true);
+    }
+
+    private function hasTenantWideActionScope($user): bool
+    {
+        if (!$user) return false;
+        if ($this->isTenantAdminLike($user)) return true;
+
+        $roleLower = strtolower(trim((string) ($user->role ?? $user->job_title ?? '')));
+        return in_array($roleLower, ['director', 'operation manager', 'operations manager'], true);
+    }
+
+    private function hasControlModulePermission($user, string $permissionKey): bool
+    {
+        return in_array($permissionKey, $this->getControlModulePerms($user), true);
+    }
+
+    private function canActOnTeamLead($user, Lead $lead): bool
+    {
+        if (!$user) return false;
+        if ($user->is_super_admin) return true;
+        if (!$this->hasControlModulePermission($user, 'allowActionOnTeam')) return false;
+
+        if ($this->hasTenantWideActionScope($user)) {
+            return (int) ($lead->tenant_id ?? 0) === (int) ($user->tenant_id ?? 0);
+        }
+
+        $assignedTo = (int) ($lead->assigned_to ?? 0);
+        if ($assignedTo <= 0) return false;
+
+        $viewableUserIds = $this->getViewableUserIds($user);
+        if ($viewableUserIds === null) return false;
+
+        $viewableUserIds = array_map('intval', $viewableUserIds);
+        return in_array($assignedTo, $viewableUserIds, true);
+    }
+
+    private function canAddActionToLead($user, Lead $lead): bool
+    {
+        if (!$user) return false;
+        if ($this->isReferralSupervisor($user, $lead->id)) return false;
+
+        if ((string) ($lead->assigned_to ?? '') === (string) ($user->id ?? '')) {
+            return true;
+        }
+
+        if ($user->is_super_admin) {
+            return true;
+        }
+
+        return $this->canActOnTeamLead($user, $lead);
+    }
     use ResolvesNotificationRecipients;
 
     private function handleBase64Attachment($data, $folder = 'lead_actions/attachments')
@@ -630,19 +713,20 @@ class LeadActionController extends Controller
         }
 
         $isOwner = $lead->assigned_to == $user->id;
+        $canAddActionToLead = $this->canAddActionToLead($user, $lead);
 
-        // Strict Rule: Only Lead Owner can perform actions.
-        // Managers/Admins can only add comments/notes.
-        if (!$isOwner && !$user->is_super_admin) {
+        // Backend remains the source of truth:
+        // - Lead owner can always act.
+        // - Team managers with Control.allowActionOnTeam can act on visible team leads.
+        // - Others are limited to comments/notes only.
+        if (!$canAddActionToLead) {
             $allowedTypes = ['comment', 'note', 'internal_comment'];
-            // Check if it's a comment/note
             if (!in_array($request->type, $allowedTypes)) {
-                 return response()->json(['message' => 'Only the Lead Owner can perform actions. Managers/Admins can only add comments or notes.'], 403);
+                 return response()->json(['message' => 'Only the Lead Owner or an authorized team manager can perform actions. Others can only add comments or notes.'], 403);
             }
-            
-            // Managers cannot change stage - explicitly block any stage update attempt
+
             if ($request->has('stage_id') || $request->has('stage')) {
-                 return response()->json(['message' => 'Managers cannot change the lead stage. Only Lead Owner can change stage.'], 403);
+                 return response()->json(['message' => 'Comments or notes cannot change the lead stage.'], 403);
             }
         }
 

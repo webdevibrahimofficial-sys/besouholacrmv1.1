@@ -446,7 +446,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage'],
         Customers: ['convertFromLead', 'addCustomer', 'showModule'],
         Support: ['showModule'],
-        Control: ['addRegions','addArea','addSource','userManagement','allowActionOnTeam','assignLeads','checkInOutApprovals','showReports','addDepartment']
+        Control: ['addRegions','addArea','addSource','userManagement','assignLeads','checkInOutApprovals','showReports','addDepartment']
       })
     } else if (form.role === 'Operation Manager') {
       setCustomPerms({
@@ -455,7 +455,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Marketing: [],
         Customers: ['editInfo','showModule'],
         Support: ['showModule','addTickets','sla','reports'],
-        Control: ['allowActionOnTeam','checkInOutApprovals','showReports','addDepartment']
+        Control: ['checkInOutApprovals','showReports','addDepartment']
       })
     } else if (form.role === 'Branch Manager') {
       setCustomPerms({
@@ -463,7 +463,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Inventory: ['addCategory','addItems'],
         Customers: ['addCustomer','editInfo','showModule'],
         Support: ['showModule'],
-        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
+        Control: ['assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Director') {
       setCustomPerms({
@@ -484,7 +484,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       setCustomPerms({
         Leads: ['addLead','importLeads','addAction'],
         Customers: ['editInfo','showModule'],
-        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
+        Control: ['assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Sales Person') {
       setCustomPerms({

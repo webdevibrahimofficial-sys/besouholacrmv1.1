@@ -497,12 +497,12 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const controlModulePerms = Array.isArray(modulePermissions.Control) ? modulePermissions.Control : []
   const effectiveControlPerms = controlModulePerms.length ? controlModulePerms : (() => {
-    if (role === 'Sales Admin') return ['addRegions', 'addArea', 'addSource', 'userManagement', 'allowActionOnTeam', 'assignLeads', 'showReports', 'addDepartment']
-    if (role === 'Operation Manager') return ['allowActionOnTeam', 'showReports', 'addDepartment']
-    if (role === 'Branch Manager') return ['allowActionOnTeam', 'assignLeads', 'showReports']
+    if (role === 'Sales Admin') return ['addRegions', 'addArea', 'addSource', 'userManagement', 'assignLeads', 'showReports', 'addDepartment']
+    if (role === 'Operation Manager') return ['showReports', 'addDepartment']
+    if (role === 'Branch Manager') return ['assignLeads', 'showReports']
     if (role === 'Director') return ['userManagement', 'assignLeads', 'exportLeads', 'showReports', 'multiAction', 'salesComment']
     if (role === 'Sales Manager') return ['assignLeads', 'showReports']
-    if (role === 'Team Leader') return ['allowActionOnTeam', 'assignLeads', 'showReports']
+    if (role === 'Team Leader') return ['assignLeads', 'showReports']
     if (role === 'Sales Person') return ['showReports']
     if (role === 'Customer Manager') return ['showReports']
     if (role === 'Support Manager') return ['showReports']

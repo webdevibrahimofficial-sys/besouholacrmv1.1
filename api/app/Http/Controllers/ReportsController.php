@@ -110,7 +110,63 @@ class ReportsController extends Controller
         $activitiesStats = $getStats(LeadAction::class);
 
         // 3. Meetings Report
-        $meetingsStats = $getStats(LeadAction::class, 'created_at', ['action_type' => 'meeting']);
+        // Keep this aligned with LeadController::meetingsReport():
+        // count meeting actions based on the lead assignee visibility, not the action creator.
+        $getMeetingsStats = function () use ($user, $startOfMonth, $endOfMonth, $startOfLastMonth, $endOfLastMonth) {
+            $roleLower = strtolower($user->role ?? '');
+            $isAdminOrDirector = $user->is_super_admin ||
+                in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager']);
+
+            $buildQuery = function () use ($user, $isAdminOrDirector) {
+                $query = DB::table('leads')
+                    ->join('lead_actions', 'lead_actions.lead_id', '=', 'leads.id')
+                    ->where('lead_actions.action_type', 'meeting')
+                    ->whereNull('leads.deleted_at');
+
+                if ($user->tenant_id) {
+                    $query->where('leads.tenant_id', $user->tenant_id);
+                }
+
+                if (!$isAdminOrDirector) {
+                    $viewableUserIds = $this->getViewableUserIds($user);
+                    if ($viewableUserIds !== null) {
+                        $query->whereIn('leads.assigned_to', $viewableUserIds);
+                    } else {
+                        $query->where('leads.assigned_to', $user->id);
+                    }
+                }
+
+                return $query;
+            };
+
+            $countForRange = function ($from, $to) use ($buildQuery) {
+                return (clone $buildQuery())
+                    ->whereBetween(
+                        DB::raw("DATE(JSON_UNQUOTE(JSON_EXTRACT(lead_actions.details, '$.date')))"),
+                        [$from->toDateString(), $to->toDateString()]
+                    )
+                    ->count('lead_actions.id');
+            };
+
+            $totalValue = (clone $buildQuery())->count('lead_actions.id');
+            $currentValue = $countForRange($startOfMonth, $endOfMonth);
+            $lastMonthValue = $countForRange($startOfLastMonth, $endOfLastMonth);
+
+            $trend = 0;
+            if ($lastMonthValue > 0) {
+                $trend = (($currentValue - $lastMonthValue) / $lastMonthValue) * 100;
+            } elseif ($currentValue > 0) {
+                $trend = 100;
+            }
+
+            return [
+                'value' => $totalValue,
+                'trend' => round($trend, 1),
+                'trendUp' => $trend >= 0,
+            ];
+        };
+
+        $meetingsStats = $getMeetingsStats();
 
         // 4. Reservations Report
         $getReservationStats = function () use ($user, $companyType, $startOfMonth, $endOfMonth, $startOfLastMonth, $endOfLastMonth) {

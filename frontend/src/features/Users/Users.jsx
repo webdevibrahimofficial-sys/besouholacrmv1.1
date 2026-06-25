@@ -179,12 +179,12 @@ export default function UserManagementUsers() {
   const controlModulePerms = Array.isArray(modulePermissions.Control) ? modulePermissions.Control : [];
   const effectiveControlPerms = controlModulePerms.length ? controlModulePerms : (() => {
     const role = user?.role || '';
-    if (role === 'Sales Admin') return ['addRegions','addArea','addSource','userManagement','allowActionOnTeam','assignLeads','checkInOutApprovals','showReports','addDepartment'];
-    if (role === 'Operation Manager') return ['allowActionOnTeam','checkInOutApprovals','showReports','addDepartment'];
-    if (role === 'Branch Manager') return ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports'];
+    if (role === 'Sales Admin') return ['addRegions','addArea','addSource','userManagement','assignLeads','checkInOutApprovals','showReports','addDepartment'];
+    if (role === 'Operation Manager') return ['checkInOutApprovals','showReports','addDepartment'];
+    if (role === 'Branch Manager') return ['assignLeads','checkInOutApprovals','showReports'];
     if (role === 'Director') return ['userManagement','assignLeads','checkInOutApprovals','exportLeads','showReports','multiAction','salesComment'];
     if (role === 'Sales Manager') return ['assignLeads','checkInOutApprovals','showReports'];
-    if (role === 'Team Leader') return ['allowActionOnTeam','assignLeads','checkInOutApprovals'];
+    if (role === 'Team Leader') return ['assignLeads','checkInOutApprovals'];
     if (role === 'Customer Manager') return ['showReports'];
     return [];
   })();

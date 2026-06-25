@@ -40,6 +40,7 @@ export default function ReservationsReport() {
   const [sourceList, setSourceList] = useState(['all'])
   const [projectList, setProjectList] = useState(['all'])
   const [usersList, setUsersList] = useState([])
+  const [leadOwnerNames, setLeadOwnerNames] = useState({})
   const [deletingReservationId, setDeletingReservationId] = useState(null)
 
   const isAdminOrManager = useMemo(() => {
@@ -122,15 +123,6 @@ export default function ReservationsReport() {
   const resolveHandledBy = (item) => {
     const meta = item?.meta_data || item?.metaData || {}
 
-    const preferredName =
-      meta?.sales_person_name ||
-      meta?.sales_rep_name ||
-      meta?.sales_person ||
-      meta?.assigned_to_name ||
-      meta?.created_by_name
-
-    if (preferredName) return preferredName
-
     const assignedValue = item?.assigned_to
     if (assignedValue !== null && assignedValue !== undefined && assignedValue !== '') {
       const assignedString = String(assignedValue).trim()
@@ -141,7 +133,23 @@ export default function ReservationsReport() {
       return matchedUser?.name || assignedString
     }
 
-    const actorId = meta?.sales_person_id || meta?.assigned_to_id || meta?.created_by_id
+    if (meta?.assigned_to_name) return meta.assigned_to_name
+
+    const assignedMetaId = meta?.assigned_to_id
+    if (assignedMetaId !== null && assignedMetaId !== undefined && assignedMetaId !== '') {
+      const matchedUser = usersList.find((u) => String(u.id) === String(assignedMetaId))
+      if (matchedUser?.name) return matchedUser.name
+    }
+
+    const preferredActorName =
+      meta?.sales_person_name ||
+      meta?.sales_rep_name ||
+      meta?.sales_person ||
+      meta?.created_by_name
+
+    if (preferredActorName) return preferredActorName
+
+    const actorId = meta?.sales_person_id || meta?.created_by_id
     if (actorId !== null && actorId !== undefined && actorId !== '') {
       const matchedUser = usersList.find((u) => String(u.id) === String(actorId))
       if (matchedUser?.name) return matchedUser.name
@@ -427,7 +435,7 @@ export default function ReservationsReport() {
       [isRTL ? 'رقم الهاتف' : 'Contact']: r.contact,
       [isRTL ? 'المصدر' : 'Source']: r.source,
       [projectColumnLabel]: r.project,
-      [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: r.handledBy,
+      [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: resolveSalesPersonDisplay(r),
       [isRTL ? 'نوع الحجز' : 'Reservation Type']: r.type,
       [isRTL ? 'القيمة' : 'Amount']: r.value,
       [isRTL ? 'تاريخ الحجز' : 'Reservation Date']: new Date(r.reservationDateTime).toLocaleString(),
@@ -475,7 +483,7 @@ export default function ReservationsReport() {
           r.type,
           r.status,
           r.value,
-          r.handledBy,
+          resolveSalesPersonDisplay(r),
           r.source,
           r.project
         ]
@@ -630,6 +638,66 @@ export default function ReservationsReport() {
     return filtered.slice(start, start + entriesPerPage)
   }, [filtered, currentPage, entriesPerPage])
 
+  useEffect(() => {
+    const visibleLeadIds = Array.from(new Set(
+      paginatedRows
+        .map((row) => row?.leadId)
+        .filter((leadId) => leadId !== null && leadId !== undefined && leadId !== '')
+        .map((leadId) => String(leadId))
+    ));
+
+    const missingLeadIds = visibleLeadIds.filter((leadId) => !leadOwnerNames[leadId]);
+    if (missingLeadIds.length === 0) return;
+
+    let isMounted = true;
+
+    const loadLeadOwners = async () => {
+      try {
+        const entries = await Promise.all(
+          missingLeadIds.map(async (leadId) => {
+            try {
+              const res = await api.get(`/api/leads/${encodeURIComponent(leadId)}`);
+              const lead = res.data?.data || res.data;
+              const ownerName =
+                lead?.assignedAgent?.name ||
+                lead?.assigned_agent?.name ||
+                lead?.assigned_to_name ||
+                lead?.sales_person_name ||
+                lead?.sales_person ||
+                (typeof lead?.assigned_to === 'object' ? lead.assigned_to?.name : '') ||
+                '';
+              return [String(leadId), ownerName];
+            } catch {
+              return [String(leadId), ''];
+            }
+          })
+        );
+
+        if (!isMounted) return;
+        setLeadOwnerNames((prev) => {
+          const next = { ...prev };
+          entries.forEach(([leadId, ownerName]) => {
+            next[String(leadId)] = ownerName || prev[String(leadId)] || '';
+          });
+          return next;
+        });
+      } catch (e) {
+        console.warn('Failed to resolve lead owners for reservations report', e);
+      }
+    };
+
+    loadLeadOwners();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [paginatedRows, leadOwnerNames]);
+
+  const resolveSalesPersonDisplay = (row) => {
+    const ownerName = leadOwnerNames[String(row?.leadId ?? '')];
+    return ownerName || row?.handledBy || '';
+  }
+
   // KPIs
   const totalReservations = filtered.length
   const totalRevenue = filtered.reduce((sum, r) => sum + (r.value || 0), 0)
@@ -699,7 +767,7 @@ export default function ReservationsReport() {
   const leaderboard = useMemo(() => {
     const map = new Map()
     filtered.forEach(r => {
-      const key = r.handledBy || (isRTL ? 'غير معروف' : 'Unknown')
+      const key = resolveSalesPersonDisplay(r) || (isRTL ? 'غير معروف' : 'Unknown')
       if (!map.has(key)) {
         map.set(key, { name: key, reservations: 0, value: 0 })
       }
@@ -1077,7 +1145,7 @@ export default function ReservationsReport() {
                       </td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.source}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.project}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.handledBy}</td>
+                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.type}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{new Date(r.reservationDateTime).toLocaleString()}</td>
@@ -1135,7 +1203,7 @@ export default function ReservationsReport() {
                              </div>
                              <div className="flex flex-col gap-1">
                                 <span className="text-[var(--muted-text)]">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</span>
-                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.handledBy}</span>
+                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</span>
                              </div>
                              <div className="flex flex-col gap-1">
                                 <span className="text-[var(--muted-text)]">{isRTL ? 'المصدر' : 'Source'}</span>

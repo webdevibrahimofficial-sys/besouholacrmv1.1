@@ -775,9 +775,12 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   // Owner is derived only from assignment id (or the safe Sales-Person creator fallback for legacy data).
   const isOwner = Boolean(isOwnerById || isOwnerByName || isOwnerByCreatorFallback);
 
-  // Permission rule (per requirements): Only the assigned Sales Person (Lead Owner) can add actions / reopen leads.
-  // Do not expand this to creator/manager/direct manager fallbacks.
-  const canAddAction = isOwner;
+  // Backend is the source of truth for action authorization.
+  // Fallback to owner-only logic only when the permission payload is not present yet.
+  const canAddAction =
+    typeof lead?.permissions?.can_add_action === 'boolean'
+      ? lead.permissions.can_add_action
+      : isOwner;
   const filteredActionTypes = canAddAction ? actionTypes : [];
 
   const callSubTypes = [
@@ -1347,7 +1350,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             <div className="p-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-center">
               <FaTimes className="mx-auto text-red-500 mb-3 text-2xl" />
               <p className="text-red-600 dark:text-red-400 font-medium">
-                {isArabic ? 'غير مسموح لك بإضافة إجراء لهذا العميل. الصلاحية متاحة فقط للمسؤول عن العميل.' : 'You are not authorized to add actions to this lead. Only the assigned user can perform actions.'}
+                {isArabic ? 'غير مسموح لك بإضافة إجراء لهذا العميل حسب الصلاحيات الحالية.' : 'You are not authorized to add actions to this lead under the current permissions.'}
               </p>
             </div>
           ) : (
@@ -1652,7 +1655,17 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'قيمة الحجز' : 'Reservation Amount'}</label>
-                    <input name="reservationAmount" type="text" value={formatDisplayNumber(actionData.reservationAmount)} readOnly {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                    <input
+                      name="reservationAmount"
+                      type="text"
+                      value={formatDisplayNumber(actionData.reservationAmount)}
+                      onChange={(e) => {
+                        const rawValue = parseDisplayNumber(e.target.value);
+                        setActionData(prev => ({ ...prev, reservationAmount: rawValue }));
+                      }}
+                      {...numericFieldProps}
+                      className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                    />
                   </div>
                 </div>
               ) : (

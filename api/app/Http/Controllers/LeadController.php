@@ -10,6 +10,7 @@ use App\Models\CrmSetting;
 use App\Models\User;
 use App\Models\Activity;
 use App\Models\Project;
+use App\Models\Tenant;
 use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -454,6 +455,14 @@ class LeadController extends Controller
         return is_array($leadPerms) ? $leadPerms : [];
     }
 
+    protected function getControlModulePerms($user): array
+    {
+        $meta = $this->decodeUserMetaData($user);
+        $modulePerms = is_array($meta['module_permissions'] ?? null) ? ($meta['module_permissions'] ?? []) : [];
+        $controlPerms = $modulePerms['Control'] ?? [];
+        return is_array($controlPerms) ? $controlPerms : [];
+    }
+
     protected function isTenantAdminLike($user): bool
     {
         if (!$user) return false;
@@ -463,10 +472,79 @@ class LeadController extends Controller
         return in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin'], true);
     }
 
+    protected function hasTenantWideActionScope($user): bool
+    {
+        if (!$user) return false;
+        if ($this->isTenantAdminLike($user)) return true;
+
+        $roleLower = strtolower(trim((string)($user->role ?? $user->job_title ?? '')));
+        return in_array($roleLower, ['director', 'operation manager', 'operations manager'], true);
+    }
+
     protected function hasLeadModulePermission($user, string $permissionKey): bool
     {
         if ($this->isTenantAdminLike($user)) return true;
         return in_array($permissionKey, $this->getLeadModulePerms($user), true);
+    }
+
+    protected function hasControlModulePermission($user, string $permissionKey): bool
+    {
+        return in_array($permissionKey, $this->getControlModulePerms($user), true);
+    }
+
+    protected function canActOnTeamLead($user, $lead): bool
+    {
+        if (!$user || !$lead) return false;
+        if ($user->is_super_admin) return true;
+        if (!$this->hasControlModulePermission($user, 'allowActionOnTeam')) return false;
+
+        if ($this->hasTenantWideActionScope($user)) {
+            return (int) ($lead->tenant_id ?? 0) === (int) ($user->tenant_id ?? 0);
+        }
+
+        $assignedTo = (int) ($lead->assigned_to ?? 0);
+        if ($assignedTo <= 0) return false;
+
+        $viewableUserIds = $this->getViewableUserIds($user);
+        if ($viewableUserIds === null) return false;
+
+        $viewableUserIds = array_map('intval', $viewableUserIds);
+        return in_array($assignedTo, $viewableUserIds, true);
+    }
+
+    protected function canAddActionToLead($user, $lead): bool
+    {
+        if (!$user || !$lead) return false;
+        if ($this->isReferralSupervisor($user, $lead)) return false;
+
+        if ((string) ($lead->assigned_to ?? '') === (string) ($user->id ?? '')) {
+            return true;
+        }
+
+        if ($user->is_super_admin) {
+            return true;
+        }
+
+        return $this->canActOnTeamLead($user, $lead);
+    }
+
+    protected function appendLeadPermissionsForList($paginatedLeads, $user)
+    {
+        if (!$paginatedLeads || !method_exists($paginatedLeads, 'getCollection')) {
+            return $paginatedLeads;
+        }
+
+        $paginatedLeads->getCollection()->transform(function ($lead) use ($user) {
+            $existingPermissions = is_array($lead->permissions ?? null) ? $lead->permissions : [];
+            $lead->permissions = array_merge($existingPermissions, [
+                'can_add_action' => $this->canAddActionToLead($user, $lead),
+                'is_referral_supervisor' => $this->isReferralSupervisor($user, $lead),
+            ]);
+
+            return $lead;
+        });
+
+        return $paginatedLeads;
     }
 
     
@@ -1323,6 +1401,10 @@ class LeadController extends Controller
                                  });
                            });
                     });
+                })->whereNotExists(function ($aq) {
+                    $aq->select(DB::raw(1))
+                        ->from('lead_actions')
+                        ->whereColumn('lead_actions.lead_id', 'leads.id');
                 });
             } elseif (in_array('new', $stages) || in_array('new lead', $stages)) {
                 $currentUserId = $user->id;
@@ -1591,18 +1673,22 @@ class LeadController extends Controller
                 WHEN (lower({$table}.status) = 'pending' or lower({$table}.status) = 'in-progress')
                      AND COALESCE({$table}.assigned_to, 0) > 0
                      AND {$table}.assigned_to != {$currentUserId}
+                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
                 THEN 'pending'
                 WHEN {$virtualPendingFlag} = 1
                      AND {$table}.assigned_to = {$currentUserId}
                      AND (lower({$table}.stage) = 'new' or lower({$table}.stage) = 'new lead' or (lower({$table}.status) = 'new' and {$table}.stage is null))
+                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
                 THEN 'pending'
                 WHEN (lower({$table}.stage) = 'new' or lower({$table}.stage) = 'new lead' or (lower({$table}.status) = 'new' and {$table}.stage is null))
                      AND COALESCE({$table}.assigned_to, 0) > 0
                      AND {$table}.assigned_to != {$currentUserId}
+                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
                 THEN 'pending'
                 WHEN (lower({$table}.stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call'))
                      AND COALESCE({$table}.assigned_to, 0) > 0
                      AND ({$table}.assigned_to != {$currentUserId} OR {$virtualPendingFlag} = 1)
+                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
                 THEN 'pending'
                 ELSE {$table}.stage
             END
@@ -1698,12 +1784,16 @@ class LeadController extends Controller
                     CASE
                         WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
                              AND COALESCE(assigned_to, 0) > 0
+                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
                         THEN 'pending'
                         WHEN ? = 1 AND assigned_to = ? AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null))
+                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
                         THEN 'pending'
                         WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != ?
+                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
                         THEN 'pending'
                         WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != ? OR ? = 1)
+                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
                         THEN 'pending'
                         ELSE stage
                     END
@@ -1963,7 +2053,9 @@ class LeadController extends Controller
                 }
             }
 
-            return $query->paginate($request->get('per_page', 10));
+            $results = $query->paginate($request->get('per_page', 10));
+
+            return $this->appendLeadPermissionsForList($results, $user);
 
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Leads Index Error: ' . $e->getMessage());
@@ -2403,10 +2495,11 @@ class LeadController extends Controller
             CASE 
                 WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
                      AND COALESCE(assigned_to, 0) > 0
+                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
                 THEN 'pending'
-                WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) THEN 'pending'
-                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId THEN 'pending'
-                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) THEN 'pending'
+                WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id) THEN 'pending'
+                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id) THEN 'pending'
+                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id) THEN 'pending'
                 ELSE stage
             END
         ";
@@ -2883,7 +2976,7 @@ class LeadController extends Controller
         $permissions = [
             'can_edit' => $user->can('update', $lead) && !$isReferral,
             'can_delete' => $user->can('delete', $lead) && !$isReferral,
-            'can_add_action' => !$isReferral, // Referral supervisors cannot add actions
+            'can_add_action' => $this->canAddActionToLead($user, $lead),
             'is_referral_supervisor' => $isReferral,
         ];
         $lead->permissions = $permissions;
@@ -4212,8 +4305,15 @@ class LeadController extends Controller
                 abort(401, 'Unauthorized');
             }
 
-            $dateFrom = $request->input('date_from', now()->startOfMonth());
-            $dateTo = $request->input('date_to', now()->endOfDay());
+            $tenantStartDate = null;
+            if ($user->tenant_id) {
+                $tenant = Tenant::query()->find($user->tenant_id);
+                $tenantStartDate = $tenant?->start_date?->startOfDay()
+                    ?? $tenant?->created_at?->startOfDay();
+            }
+
+            $dateFrom = $request->input('date_from') ?: ($tenantStartDate?->toDateString() ?? now()->startOfMonth()->toDateString());
+            $dateTo = $request->input('date_to') ?: now()->endOfDay()->toDateString();
 
             $query = Activity::query()
                 ->where('subject_type', Lead::class)
@@ -5081,6 +5181,11 @@ class LeadController extends Controller
                         ->orWhereIn('leads.stage', ['pending', 'in-progress'])
                         ->orWhereIn('leads.status', ['pending', 'in-progress']);
                     }
+                    $sub->whereNotExists(function ($aq) {
+                        $aq->select(DB::raw(1))
+                            ->from('lead_actions')
+                            ->whereColumn('lead_actions.lead_id', 'leads.id');
+                    });
                 };
                 $hasCondition ? $q->orWhere($condition) : $q->where($condition);
                 $hasCondition = true;
@@ -5113,20 +5218,7 @@ class LeadController extends Controller
                                 $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
                             }
                         })
-                            ->where(function ($mask) use ($user) {
-                                $mask->whereRaw("lower(coalesce(leads.status,'')) not in ('pending','in-progress')")
-                                     ->orWhereRaw('COALESCE(leads.assigned_to, 0) <= 0')
-                                     ->orWhere('leads.assigned_to', $user->id);
-                            });
-
-                        if ($requiresColdCallsFilter) {
-                            $sub->where(function ($cold) use ($coldStageValues) {
-                                $cold->whereNotIn(DB::raw("lower(trim(coalesce(leads.stage, '')))"), $coldStageValues)
-                                     ->orWhereNull('leads.assigned_to');
-                            });
-                        }
-
-                        $sub->where(function ($k) use ($descendantIds) {
+                            ->where(function ($k) use ($descendantIds) {
                             $k->whereIn('leads.assigned_to', $descendantIds)
                               ->orWhereIn('leads.manager_id', $descendantIds);
                         });
@@ -5139,19 +5231,7 @@ class LeadController extends Controller
                              if ($requiresColdCallsFilter) {
                                  $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
                              }
-                         })
-                             ->where(function ($mask) use ($user) {
-                                 $mask->whereRaw("lower(coalesce(leads.status,'')) not in ('pending','in-progress')")
-                                      ->orWhereRaw('COALESCE(leads.assigned_to, 0) <= 0')
-                                      ->orWhere('leads.assigned_to', $user->id);
-                             });
-
-                        if ($requiresColdCallsFilter) {
-                            $sub->where(function ($cold) use ($coldStageValues) {
-                                $cold->whereNotIn(DB::raw("lower(trim(coalesce(leads.stage, '')))"), $coldStageValues)
-                                     ->orWhereNull('leads.assigned_to');
-                            });
-                        }
+                         });
                     };
                     $hasCondition ? $q->orWhere($condition) : $q->where($condition);
                 }

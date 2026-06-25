@@ -4304,6 +4304,9 @@ if (!s) {
                           user?.is_super_admin ||
                           (leadAssignedToId && String(leadAssignedToId) === String(user?.id)) ||
                           (!leadAssignedToId && leadAssignedToName && user?.name && normalizeName(leadAssignedToName) === normalizeName(user?.name));
+                        const canUseActionControls = typeof lead?.permissions?.can_add_action === 'boolean'
+                          ? lead.permissions.can_add_action
+                          : canPerformActions;
                         
                         return (
                           <td key="actions" className={`px-6 py-3 whitespace-nowrap text-xs font-medium ${activeRowId === lead.id ? `sticky ${i18n.language === 'ar' ? 'right-0' : 'left-0'} z-20 bg-gray-50 dark:bg-slate-900/25 border border-theme-border dark:border-slate-700/40 shadow-sm` : ''} `}>
@@ -4315,7 +4318,7 @@ if (!s) {
                               >
                                 <FaEye size={16} className={`${theme === 'light' ? 'text-indigo-300' : 'text-indigo-300'}`} />
                               </button>
-                              {canPerformActions && canAddAction && (
+                              {canUseActionControls && canAddAction && (
                                 <button
                                   title={t('Add Action')}
                                   onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); setShowAddActionModal(true) }}
@@ -4349,7 +4352,7 @@ if (!s) {
                                   </button>
                                 </div>
                               )}
-                              {canPerformActions && (
+                              {canUseActionControls && (
                                 <button
                                   title={t('Call')}
                                   onClick={(e) => {
@@ -4363,7 +4366,7 @@ if (!s) {
                                 </button>
                               )}
 
-                              {canPerformActions && (
+                              {canUseActionControls && (
                                 <button
                                   title={t('Email')}
                                   onClick={(e) => { e.stopPropagation(); if (lead.email) window.open(`mailto:${lead.email}`); }}
@@ -4372,7 +4375,7 @@ if (!s) {
                                   <FaEnvelope size={16} />
                                 </button>
                               )}
-                              {canPerformActions && (
+                              {canUseActionControls && (
                                 <button
                                   title="Google Meet"
                                   onClick={(e) => { e.stopPropagation(); window.open('https://meet.google.com/', '_blank'); }}
@@ -4602,30 +4605,8 @@ if (!s) {
                         );
 
                       case 'stage':
-                        // Use virtual stage from backend if available, otherwise fallback to standard logic
-                        let displayStage = lead.display_stage || lead.stage;
-                        
-                        const dbAssignedTo = lead.assigned_to || (typeof lead.assignedTo === 'object' ? lead.assignedTo?.id : lead.assignedTo);
-                        const assignedNum = Number(dbAssignedTo);
-                        const isActuallyAssigned = Number.isFinite(assignedNum) ? assignedNum > 0 : Boolean(String(dbAssignedTo || '').trim());
-                        const currentUserId = user?.id;
-                        const isOwner = dbAssignedTo == currentUserId;
-                        const leadStatus = String(lead.status || '').toLowerCase();
-                        const salesFilterActive = Array.isArray(salesPersonFilter) ? salesPersonFilter.length > 0 : Boolean(salesPersonFilter);
-
-                        // Hard rule: if lead is Pending and viewer is NOT the owner -> show Pending
-                        // (even if backend sent display_stage)
-                        if (!salesFilterActive && leadStatus === 'pending' && isActuallyAssigned && !isOwner) {
-                          displayStage = 'Pending';
-                        }
-
-                        // Backward compatibility: some flows mark assigned New Lead as stage=New Lead without status=pending.
-                        // In that case, non-owner should still see Pending.
-                        const isNewLead = ['new', 'new lead'].includes(String(lead.stage || '').toLowerCase());
-                        const isUnassigned = !isActuallyAssigned;
-                        if (!salesFilterActive && !isOwner && isNewLead && !isUnassigned) {
-                          displayStage = 'Pending';
-                        }
+                        // Backend is the source of truth for display stage.
+                        const displayStage = lead.display_stage || lead.stage;
 
                         return (
                           <td key="stage" className={`px-6 py-4 whitespace-nowrap text-sm ${isLight ? 'text-black' : 'text-white'} `} style={{ minWidth: `${columnMinWidths.stage}px` }}>

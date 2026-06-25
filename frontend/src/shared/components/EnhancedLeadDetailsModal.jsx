@@ -707,14 +707,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     const parentAllowsAction = propCanAddAction !== false;
     if (!parentAllowsAction) return false;
 
-    // Requirement: Only the assigned Sales Person (Lead Owner) can add actions / reopen leads.
-    if (!isOwner) return false;
+    // Backend is the source of truth for action authorization.
+    if (typeof permissions?.can_add_action === 'boolean') {
+      return permissions.can_add_action;
+    }
 
-    // Referral supervisors cannot add actions (backend rule), keep UI consistent.
-    if (permissions?.is_referral_supervisor || permissions?.can_add_action === false) return false;
-
-    return true;
-  }, [showAddActionModal, propCanAddAction, isOwner, permissions]);
+    return false;
+  }, [showAddActionModal, propCanAddAction, permissions]);
 
   const AddActionIconButton = ({ visible, onClick }) => {
     if (!visible) return null;
@@ -2950,11 +2949,15 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                               </div>
                               <div className="flex items-center gap-1 min-w-0">
                                 <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'قام بالإجراء:' : 'Action By:'}</span>
-                                <span className={`${isLight ? 'text-slate-800' : 'text-slate-300'} max-w-[200px] break-words`}>
-                                  {action.user}
-                                  {(action.userRole && (action.userRole.toLowerCase().includes('manager') || action.userRole.toLowerCase().includes('admin'))) && (
-                                    <span className="text-xs text-gray-500 mx-1">({isArabic ? 'كمدير' : 'as manager'})</span>
-                                  )}
+                                <span className={`${isLight ? 'text-slate-800' : 'text-slate-300'} max-w-[260px] break-words`}>
+                                  {(() => {
+                                    const actorName = String(action.user || '').trim();
+                                    const actorRole = String(action.userRole || '').trim();
+                                    if (!actorRole) return actorName;
+                                    if (!actorName) return actorRole;
+                                    if (actorName.toLowerCase() === actorRole.toLowerCase()) return actorName;
+                                    return `${actorName} (${actorRole})`;
+                                  })()}
                                 </span>
                               </div>
                               <div className="flex items-center gap-1 min-w-0">
