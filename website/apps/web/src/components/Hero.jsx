@@ -5,8 +5,6 @@ import {
   ArrowRight,
   Sparkles,
   Clock3,
-  BarChart3,
-  Zap,
   Users,
   PhoneCall,
   Copy,
@@ -92,12 +90,6 @@ const RANKING_DEFAULT = [
   { name: 'Ahmed Mohamed', actions: 128 },
   { name: 'Mona Adel', actions: 96 },
   { name: 'Omar Mostafa', actions: 74 },
-];
-
-const OUTER_STATS_DEFAULT = [
-  { icon: Users, value: '500+', label: 'Businesses trust us' },
-  { icon: Zap, value: '24h', label: 'Avg response time' },
-  { icon: BarChart3, value: '38%', label: 'Faster deal closing' },
 ];
 
 const normalizeStage = (stage, index) => {
@@ -245,14 +237,9 @@ const Hero = () => {
     ? dashboardPanel.ranking
     : RANKING_DEFAULT;
   const delayCount = dashboardPanel.delay_leads_count || '18';
-  const outerStatsRaw = Array.isArray(hero?.outer_stats) && hero.outer_stats.length > 0
-    ? hero.outer_stats
-    : OUTER_STATS_DEFAULT;
-  const outerStats = outerStatsRaw.map((item, index) => ({
-    icon: item.icon || OUTER_STATS_DEFAULT[index]?.icon || Users,
-    value: item.value || OUTER_STATS_DEFAULT[index]?.value || '',
-    label: item.label || OUTER_STATS_DEFAULT[index]?.label || '',
-  }));
+  const trustPoints = Array.isArray(hero?.benefit_points) && hero.benefit_points.length > 0
+    ? hero.benefit_points
+    : ['No credit card required', 'Setup support included', 'Response within 24 hours'];
 
   const handleExploreFeaturesClick = () => {
     const servicesSection = document.getElementById('services');
@@ -266,14 +253,14 @@ const Hero = () => {
       <AnimatedHeroBackground />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_32%),linear-gradient(135deg,rgba(7,8,13,0.84),rgba(7,8,13,0.97))]" />
 
-      <div className="relative z-10 mx-auto w-full max-w-[1450px] px-4 py-7 sm:px-5 sm:py-8 lg:px-6 lg:py-10 xl:px-7 xl:py-12 2xl:px-8">
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.85fr)] lg:items-start lg:gap-8 xl:gap-10 2xl:gap-12">
-          <div className="max-w-2xl lg:max-w-[38rem] lg:pt-2 xl:pt-4">
+      <div className="relative z-10 mx-auto w-full max-w-[1450px] px-4 py-8 sm:px-5 sm:py-9 lg:px-6 lg:py-10 xl:px-7 xl:py-12 2xl:px-8">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,0.98fr)_minmax(500px,1.02fr)] lg:items-start lg:gap-6 xl:gap-8 2xl:gap-10">
+          <div className="max-w-2xl lg:max-w-[39rem] lg:pt-10 xl:pt-14">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}
-              className="mb-4 inline-flex items-center gap-2 rounded-full border border-accent-purple/20 bg-accent-purple/10 px-3.5 py-1.5 shadow-[0_10px_40px_rgba(147,114,255,0.14)]"
+              className="mb-7 inline-flex items-center gap-2 rounded-full border border-accent-purple/20 bg-accent-purple/10 px-4 py-2 shadow-[0_10px_40px_rgba(147,114,255,0.14)]"
             >
               <Sparkles className="h-4 w-4 text-accent-purple" />
               <span className="text-[0.72rem] uppercase tracking-[0.28em] text-[#c5b8ff]">
@@ -285,7 +272,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
-              className="mb-4 max-w-[9.5ch] text-[clamp(2.55rem,11vw,3.9rem)] font-bold uppercase leading-[0.98] text-white sm:max-w-[10ch] sm:text-[clamp(3rem,9vw,4.2rem)] lg:max-w-4xl lg:text-[3.45rem] xl:text-[3.8rem] 2xl:text-[4.15rem]"
+              className="mb-5 max-w-[8.8ch] text-[clamp(2.7rem,10vw,4rem)] font-bold uppercase leading-[0.97] text-white sm:max-w-[9.2ch] sm:text-[clamp(3.1rem,8vw,4.3rem)] lg:max-w-[8.8ch] lg:text-[4rem] xl:text-[4.3rem] 2xl:text-[4.55rem]"
             >
               <span className="text-gradient">{hero.headline}</span>
               {hero.headline_accent ? <span className="block text-white">{hero.headline_accent}</span> : null}
@@ -295,7 +282,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.35 }}
-              className="mb-7 max-w-xl text-[1rem] leading-[1.6] text-gray-300 md:text-[1.05rem]"
+              className="mb-8 max-w-[34rem] text-[1.02rem] leading-[1.55] text-gray-300 md:text-[1.08rem]"
             >
               {hero.subtitle || 'Capture leads, automate follow-ups, manage your team, and close deals faster with one intelligent CRM.'}
             </motion.p>
@@ -304,7 +291,7 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.5 }}
-              className="flex flex-col gap-3 sm:flex-row"
+              className="flex flex-col gap-3 sm:flex-row sm:items-center"
             >
               <Button
                 asChild
@@ -327,6 +314,20 @@ const Hero = () => {
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.6 }}
+              className="mt-7 flex flex-col gap-2.5 text-sm text-gray-300 sm:flex-row sm:flex-wrap sm:gap-x-7 sm:gap-y-2"
+            >
+              {trustPoints.map((point) => (
+                <div key={point} className="flex items-center gap-2">
+                  <span className="text-[1rem] font-semibold text-accent-purple">✓</span>
+                  <span>{point}</span>
+                </div>
+              ))}
+            </motion.div>
           </div>
 
           <motion.div
@@ -334,10 +335,10 @@ const Hero = () => {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8, delay: 0.4 }}
             id="hero-demo-panel"
-            className="lg:sticky lg:top-28 lg:ml-auto lg:max-w-[760px] xl:top-32"
+            className="lg:sticky lg:top-24 lg:ml-auto lg:max-w-[900px] xl:top-28"
           >
-            <div className="space-y-4">
-              <div className="origin-top-right scale-[0.9] lg:-mb-12 lg:mt-4">
+            <div>
+              <div className="origin-top-right scale-[0.9] lg:mt-1 xl:scale-[0.92] 2xl:scale-[0.95]">
                 <DashboardPanel
                   title={dashboardPanel.title || 'Dashboard'}
                   demoCtaText={dashboardPanel.demo_cta_text || 'See how it works'}
@@ -353,28 +354,6 @@ const Hero = () => {
                   rankingCtaText={dashboardPanel.ranking_cta_text || 'View full ranking ->'}
                 />
               </div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.65 }}
-                className="grid gap-3 sm:grid-cols-3"
-              >
-                {outerStats.map(({ icon: Icon, value, label }) => (
-                  <div
-                    key={`${value}-${label}`}
-                    className="flex items-center gap-3 rounded-[2rem] border border-white/10 bg-white/5 px-5 py-4 backdrop-blur-sm"
-                  >
-                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-accent-purple/15">
-                      <Icon className="h-5 w-5 text-accent-purple" />
-                    </div>
-                    <div>
-                      <div className="text-[1.05rem] font-bold text-white">{value}</div>
-                      <div className="text-[0.82rem] text-gray-400">{label}</div>
-                    </div>
-                  </div>
-                ))}
-              </motion.div>
             </div>
           </motion.div>
         </div>

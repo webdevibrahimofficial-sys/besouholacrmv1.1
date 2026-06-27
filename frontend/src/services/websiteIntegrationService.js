@@ -31,8 +31,16 @@ const isValidOrigin = (value) => {
 const getWebsiteIntakeEndpoint = (apiKey) => {
   if (!apiKey) return ''
 
-  const rawApiBase = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || window.location.origin).trim()
-  const endpointBase = rawApiBase.replace(/\/+$/, '').replace(/\/api$/, '')
+  const rawApiBase = (
+    import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_API_BASE ||
+    import.meta.env.VITE_BACKEND_URL ||
+    'http://localhost'
+  ).trim()
+
+  const endpointBase = rawApiBase.startsWith('/')
+    ? 'http://localhost'
+    : rawApiBase.replace(/\/+$/, '').replace(/\/api$/, '')
   return `${endpointBase}/api/intake/website/${apiKey}`
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MessageCircleMore } from 'lucide-react';
+import { MessageCircle } from 'lucide-react';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import { trackWhatsappClick } from '@/lib/analytics';
 
@@ -50,7 +50,7 @@ const WhatsAppFloat = () => {
       onClick={trackWhatsappClick}
       className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-3 rounded-full border border-emerald-300/20 bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(16,185,129,0.35)] transition-transform duration-300 hover:scale-[1.02] hover:bg-emerald-400"
     >
-      <MessageCircleMore className="h-5 w-5" />
+      <MessageCircle className="h-5 w-5" />
       <span className="hidden sm:inline">{floatSettings.tooltip || 'Chat with us'}</span>
     </a>
   );

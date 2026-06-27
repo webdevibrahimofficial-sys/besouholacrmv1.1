@@ -208,8 +208,20 @@ class PublicWebsiteContentController extends Controller
             return $normalizedPath;
         }
 
-        if (preg_match('#(?:api/)?files/(?P<tenantPath>\d+/website(?:/[^?#]+)?)$#', $normalizedPath, $matches)) {
-            return $matches['tenantPath'];
+        if (str_starts_with($normalizedPath, 'api/files/')) {
+            $candidatePath = substr($normalizedPath, strlen('api/files/'));
+
+            if (preg_match('/^\d+\/website(?:\/[^?#]+)?$/', $candidatePath)) {
+                return $candidatePath;
+            }
+        }
+
+        if (str_starts_with($normalizedPath, 'files/')) {
+            $candidatePath = substr($normalizedPath, strlen('files/'));
+
+            if (preg_match('/^\d+\/website(?:\/[^?#]+)?$/', $candidatePath)) {
+                return $candidatePath;
+            }
         }
 
         return null;

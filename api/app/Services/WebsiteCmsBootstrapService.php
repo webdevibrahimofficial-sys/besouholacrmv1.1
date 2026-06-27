@@ -7,10 +7,18 @@ use App\Models\WebsiteCareerRole;
 use App\Models\WebsiteHomepageSection;
 use App\Models\WebsiteService;
 use App\Models\WebsiteSetting;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
 class WebsiteCmsBootstrapService
 {
+    private function websiteBaseUrl(): string
+    {
+        return app()->environment('local')
+            ? 'http://besouhola.localhost'
+            : 'https://besouhola.com';
+    }
+
     private function homepageSections(): array
     {
         return [
@@ -458,113 +466,7 @@ class WebsiteCmsBootstrapService
 
     public function ensureForTenant(int $tenantId): void
     {
-        if (!WebsiteSetting::withoutGlobalScopes()->where('tenant_id', $tenantId)->exists()) {
-            WebsiteSetting::withoutGlobalScopes()->create([
-                'tenant_id' => $tenantId,
-                'company_name' => 'Be Souhola',
-                'logo_url' => null,
-                'phone' => '+1 (555) 234-5678',
-                'email' => 'sales@besouhola.com',
-                'whatsapp' => null,
-                'address' => '200 Tech Boulevard, Suite 400, Innovation City, CA 94102',
-                'website_url' => 'https://besouhola.com',
-                'social_links' => [
-                    'facebook' => 'https://www.facebook.com/profile.php?id=61587661674565',
-                    'whatsapp' => null,
-                ],
-                'contact_page_content' => [
-                    'headline' => "Let's",
-                    'headline_accent' => 'connect',
-                    'description' => 'Schedule a demo, get support, or learn how Be Souhola can transform your business operations.',
-                    'sales_label' => 'Sales & Demos',
-                    'phone_label' => 'Phone',
-                    'whatsapp_label' => 'WhatsApp',
-                    'address_label' => 'Our Office',
-                    'website_label' => 'Website',
-                    'website_text' => 'besouhola.com',
-                    'website_url' => 'https://besouhola.com',
-                    'social_label' => 'Facebook',
-                    'form_title' => 'Request a demo',
-                    'form_subtitle' => 'Complete the form below and our team will get back to you shortly.',
-                ],
-                'nav_links' => [
-                    ['name' => 'Services', 'href' => '/#services'],
-                    ['name' => 'About', 'href' => '/#about'],
-                    ['name' => 'Portfolio', 'href' => '/#portfolio'],
-                    ['name' => 'Testimonials', 'href' => '/#testimonials'],
-                    ['name' => 'Careers', 'href' => '/career'],
-                ],
-                'nav_cta_text' => 'Book Free Demo',
-                'nav_cta_href' => '/contact',
-                'footer_sections' => [
-                    [
-                        'title' => 'Company',
-                        'links' => [
-                            ['name' => 'Contact', 'href' => '/contact', 'external' => false],
-                            ['name' => 'Careers', 'href' => '/career', 'external' => false],
-                            ['name' => 'Privacy Policy', 'href' => '/privacy', 'external' => false],
-                            ['name' => 'Terms & Conditions', 'href' => '/terms', 'external' => false],
-                            ['name' => 'Data Processing & Security', 'href' => '/data-processing-security', 'external' => false],
-                        ],
-                    ],
-                    [
-                        'title' => 'Quick Links',
-                        'links' => [
-                            ['name' => 'Visit Main Site', 'href' => '{main_website}', 'external' => true],
-                        ],
-                    ],
-                ],
-                'footer_quick_links' => [
-                    ['name' => 'Services', 'href' => '/#services'],
-                    ['name' => 'About', 'href' => '/#about'],
-                    ['name' => 'Portfolio', 'href' => '/#portfolio'],
-                    ['name' => 'Testimonials', 'href' => '/#testimonials'],
-                ],
-                'footer_tagline' => 'Built for better follow-up, clearer pipelines, and smarter growth.',
-                'footer_description' => 'Be Souhola is a CRM platform designed for real estate teams and ambitious businesses that need clearer pipelines, faster follow-up, and better visibility across operations.',
-                'whatsapp_float' => [
-                    'enabled' => false,
-                    'message' => "Hi, I'd like to learn more about Be Souhola CRM.",
-                    'tooltip' => 'Chat with us',
-                ],
-                'pages_seo' => [
-                    'home' => [
-                        'title' => 'Be Souhola - CRM Platform for Real Estate & Business',
-                        'description' => 'Be Souhola is a leading CRM platform designed for real estate professionals and businesses.',
-                        'canonical' => 'https://besouhola.com',
-                    ],
-                    'contact' => [
-                        'title' => 'Contact Be Souhola - Schedule Your Demo',
-                        'description' => 'Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations.',
-                        'canonical' => 'https://besouhola.com/contact',
-                    ],
-                    'career' => [
-                        'title' => 'Careers at Be Souhola CRM',
-                        'description' => 'Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams.',
-                        'canonical' => 'https://besouhola.com/career',
-                    ],
-                    'privacy' => [
-                        'title' => 'Privacy Policy | Be Souhola CRM',
-                        'description' => 'This Privacy Policy governs how Be Souhola CRM collects, uses, processes, stores, and protects personal and business-related information.',
-                        'canonical' => 'https://besouhola.com/privacy',
-                    ],
-                    'terms' => [
-                        'title' => 'Terms & Conditions | Be Souhola CRM',
-                        'description' => 'These Terms & Conditions govern the use of the Be Souhola CRM mobile application, web application, and related services provided by Be Souhola.',
-                        'canonical' => 'https://besouhola.com/terms',
-                    ],
-                    'data_processing_security' => [
-                        'title' => 'Data Processing & Security Statement | Be Souhola CRM',
-                        'description' => 'This statement describes the general principles applied by Be Souhola CRM in connection with data processing, confidentiality, hosting, and security.',
-                        'canonical' => 'https://besouhola.com/data-processing-security',
-                    ],
-                ],
-                'primary_color' => '#9372FF',
-                'seo_title' => 'Be Souhola - CRM Platform for Real Estate & Business',
-                'seo_description' => 'Be Souhola is a leading CRM platform designed for real estate professionals and businesses.',
-                'is_published' => true,
-            ]);
-        }
+        $this->ensureWebsiteSettingRow($tenantId);
 
         foreach ($this->homepageSections() as $section) {
             $exists = WebsiteHomepageSection::withoutGlobalScopes()
@@ -820,6 +722,129 @@ class WebsiteCmsBootstrapService
                     'is_active' => true,
                 ]);
             }
+        }
+    }
+
+    private function ensureWebsiteSettingRow(int $tenantId): void
+    {
+        $defaults = [
+            'company_name' => 'Be Souhola',
+            'logo_url' => null,
+            'phone' => '+1 (555) 234-5678',
+            'email' => 'sales@besouhola.com',
+            'whatsapp' => null,
+            'address' => '200 Tech Boulevard, Suite 400, Innovation City, CA 94102',
+            'website_url' => $this->websiteBaseUrl(),
+            'social_links' => [
+                'facebook' => 'https://www.facebook.com/profile.php?id=61587661674565',
+                'whatsapp' => null,
+            ],
+            'contact_page_content' => [
+                'headline' => "Let's",
+                'headline_accent' => 'connect',
+                'description' => 'Schedule a demo, get support, or learn how Be Souhola can transform your business operations.',
+                'sales_label' => 'Sales & Demos',
+                'phone_label' => 'Phone',
+                'whatsapp_label' => 'WhatsApp',
+                'address_label' => 'Our Office',
+                'website_label' => 'Website',
+                'website_text' => 'besouhola.com',
+                'website_url' => $this->websiteBaseUrl(),
+                'social_label' => 'Facebook',
+                'form_title' => 'Request a demo',
+                'form_subtitle' => 'Complete the form below and our team will get back to you shortly.',
+            ],
+            'nav_links' => [
+                ['name' => 'Services', 'href' => '/#services'],
+                ['name' => 'About', 'href' => '/#about'],
+                ['name' => 'Portfolio', 'href' => '/#portfolio'],
+                ['name' => 'Testimonials', 'href' => '/#testimonials'],
+                ['name' => 'Careers', 'href' => '/career'],
+            ],
+            'nav_cta_text' => 'Book Free Demo',
+            'nav_cta_href' => '/contact',
+            'footer_sections' => [
+                [
+                    'title' => 'Company',
+                    'links' => [
+                        ['name' => 'Contact', 'href' => '/contact', 'external' => false],
+                        ['name' => 'Careers', 'href' => '/career', 'external' => false],
+                        ['name' => 'Privacy Policy', 'href' => '/privacy', 'external' => false],
+                        ['name' => 'Terms & Conditions', 'href' => '/terms', 'external' => false],
+                        ['name' => 'Data Processing & Security', 'href' => '/data-processing-security', 'external' => false],
+                    ],
+                ],
+                [
+                    'title' => 'Quick Links',
+                    'links' => [
+                        ['name' => 'Visit Main Site', 'href' => '{main_website}', 'external' => true],
+                    ],
+                ],
+            ],
+            'footer_quick_links' => [
+                ['name' => 'Services', 'href' => '/#services'],
+                ['name' => 'About', 'href' => '/#about'],
+                ['name' => 'Portfolio', 'href' => '/#portfolio'],
+                ['name' => 'Testimonials', 'href' => '/#testimonials'],
+            ],
+            'footer_tagline' => 'Built for better follow-up, clearer pipelines, and smarter growth.',
+            'footer_description' => 'Be Souhola is a CRM platform designed for real estate teams and ambitious businesses that need clearer pipelines, faster follow-up, and better visibility across operations.',
+            'whatsapp_float' => [
+                'enabled' => false,
+                'message' => "Hi, I'd like to learn more about Be Souhola CRM.",
+                'tooltip' => 'Chat with us',
+            ],
+            'pages_seo' => [
+                'home' => [
+                    'title' => 'Be Souhola - CRM Platform for Real Estate & Business',
+                    'description' => 'Be Souhola is a leading CRM platform designed for real estate professionals and businesses.',
+                    'canonical' => $this->websiteBaseUrl(),
+                ],
+                'contact' => [
+                    'title' => 'Contact Be Souhola - Schedule Your Demo',
+                    'description' => 'Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations.',
+                    'canonical' => $this->websiteBaseUrl() . '/contact',
+                ],
+                'career' => [
+                    'title' => 'Careers at Be Souhola CRM',
+                    'description' => 'Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams.',
+                    'canonical' => $this->websiteBaseUrl() . '/career',
+                ],
+                'privacy' => [
+                    'title' => 'Privacy Policy | Be Souhola CRM',
+                    'description' => 'This Privacy Policy governs how Be Souhola CRM collects, uses, processes, stores, and protects personal and business-related information.',
+                    'canonical' => $this->websiteBaseUrl() . '/privacy',
+                ],
+                'terms' => [
+                    'title' => 'Terms & Conditions | Be Souhola CRM',
+                    'description' => 'These Terms & Conditions govern the use of the Be Souhola CRM mobile application, web application, and related services provided by Be Souhola.',
+                    'canonical' => $this->websiteBaseUrl() . '/terms',
+                ],
+                'data_processing_security' => [
+                    'title' => 'Data Processing & Security Statement | Be Souhola CRM',
+                    'description' => 'This statement describes the general principles applied by Be Souhola CRM in connection with data processing, confidentiality, hosting, and security.',
+                    'canonical' => $this->websiteBaseUrl() . '/data-processing-security',
+                ],
+            ],
+            'primary_color' => '#9372FF',
+            'seo_title' => 'Be Souhola - CRM Platform for Real Estate & Business',
+            'seo_description' => 'Be Souhola is a leading CRM platform designed for real estate professionals and businesses.',
+            'is_published' => true,
+        ];
+
+        try {
+            WebsiteSetting::withoutGlobalScopes()->firstOrCreate(
+                ['tenant_id' => $tenantId],
+                $defaults
+            );
+        } catch (QueryException $exception) {
+            if ((string) $exception->getCode() !== '23000') {
+                throw $exception;
+            }
+
+            WebsiteSetting::withoutGlobalScopes()
+                ->where('tenant_id', $tenantId)
+                ->firstOrFail();
         }
     }
 }
