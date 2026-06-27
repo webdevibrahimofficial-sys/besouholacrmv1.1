@@ -95,6 +95,7 @@ const Privacy = () => {
       title="Privacy Policy"
       accent="Policy"
       canonicalPath="/privacy"
+      seoKey="privacy"
       effectiveDate="June 2026"
       description="This Privacy Policy governs how Be Souhola CRM collects, uses, processes, stores, and protects personal and business-related information."
       sections={sections}

@@ -15,6 +15,11 @@ class WebsiteSetting extends Model
     protected $casts = [
         'social_links' => 'array',
         'contact_page_content' => 'array',
+        'nav_links' => 'array',
+        'footer_sections' => 'array',
+        'footer_quick_links' => 'array',
+        'whatsapp_float' => 'array',
+        'pages_seo' => 'array',
         'is_published' => 'boolean',
     ];
 }

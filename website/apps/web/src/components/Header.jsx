@@ -7,6 +7,14 @@ import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import crmLogoMark from '@/assets/be-souhola-logo-mark.png';
 import { resolveImageFallback } from '@/lib/websiteAssets';
 
+const DEFAULT_NAV_LINKS = [
+  { name: 'Services', href: '/#services' },
+  { name: 'About', href: '/#about' },
+  { name: 'Portfolio', href: '/#portfolio' },
+  { name: 'Testimonials', href: '/#testimonials' },
+  { name: 'Careers', href: '/career' },
+];
+
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -14,13 +22,12 @@ const Header = () => {
   const { settings } = useWebsiteContent();
   const logoSrc = settings?.logo_url || crmLogoMark;
   const companyName = settings?.company_name || 'Be Souhola';
-  const navLinks = [
-    { name: 'Services', href: '/#services' },
-    { name: 'About', href: '/#about' },
-    { name: 'Portfolio', href: '/#portfolio' },
-    { name: 'Testimonials', href: '/#testimonials' },
-    { name: 'Careers', href: '/career' }
-  ];
+  const navLinks =
+    Array.isArray(settings?.nav_links) && settings.nav_links.length > 0
+      ? settings.nav_links
+      : DEFAULT_NAV_LINKS;
+  const navCtaText = settings?.nav_cta_text || 'Book Free Demo';
+  const navCtaHref = settings?.nav_cta_href || '/contact';
 
   const handleScroll = () => {
     if (window.scrollY > 10) {
@@ -106,8 +113,8 @@ const Header = () => {
 
           <div className="ml-auto hidden md:flex items-center gap-4">
             <Button asChild className="group rounded-full bg-accent-purple px-4 py-2 text-sm text-white shadow-[0_10px_30px_rgba(147,114,255,0.35)] hover:bg-accent-purple/90">
-              <Link to="/contact">
-                Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
+              <Link to={navCtaHref}>
+                {navCtaText} <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
               </Link>
             </Button>
           </div>
@@ -169,8 +176,8 @@ const Header = () => {
 
               <div className="py-8 flex flex-col gap-4">
                 <Button asChild className="bg-accent-purple text-white hover:bg-accent-purple/90 group w-full text-lg py-6 rounded-full">
-                  <Link to="/contact" onClick={() => setIsOpen(false)}>
-                    Book Free Demo <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
+                  <Link to={navCtaHref} onClick={() => setIsOpen(false)}>
+                    {navCtaText} <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
                   </Link>
                 </Button>
               </div>

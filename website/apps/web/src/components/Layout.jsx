@@ -4,6 +4,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Toaster } from '@/components/ui/toaster';
 import CustomCursor from '@/components/CustomCursor';
+import WhatsAppFloat from '@/components/WhatsAppFloat';
 import { WebsiteContentProvider } from '@/context/WebsiteContentContext';
 
 const Layout = () => {
@@ -16,6 +17,7 @@ const Layout = () => {
           <Outlet />
         </main>
         <Footer />
+        <WhatsAppFloat />
         <Toaster />
       </div>
     </WebsiteContentProvider>

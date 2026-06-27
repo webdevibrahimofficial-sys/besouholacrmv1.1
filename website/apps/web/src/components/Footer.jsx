@@ -6,6 +6,30 @@ import { useWebsiteContent } from '@/context/WebsiteContentContext';
 import crmLogoMark from '@/assets/be-souhola-logo-mark.png';
 import { resolveImageFallback } from '@/lib/websiteAssets';
 
+const DEFAULT_FOOTER_SECTIONS = [
+  {
+    title: 'Company',
+    links: [
+      { name: 'Contact', href: '/contact', external: false },
+      { name: 'Careers', href: '/career', external: false },
+      { name: 'Privacy Policy', href: '/privacy', external: false },
+      { name: 'Terms & Conditions', href: '/terms', external: false },
+      { name: 'Data Processing & Security', href: '/data-processing-security', external: false },
+    ],
+  },
+  {
+    title: 'Quick Links',
+    links: [{ name: 'Visit Main Site', href: '{main_website}', external: true }],
+  },
+];
+
+const DEFAULT_QUICK_LINKS = [
+  { name: 'Services', href: '/#services' },
+  { name: 'About', href: '/#about' },
+  { name: 'Portfolio', href: '/#portfolio' },
+  { name: 'Testimonials', href: '/#testimonials' },
+];
+
 const WhatsAppIcon = ({ size = 18, className = '' }) => (
   <svg
     viewBox="0 0 24 24"
@@ -29,15 +53,10 @@ const normalizeSocialHref = (name, href) => {
     }
 
     const digits = value.replace(/[^\d]/g, '');
-    if (!digits) return '';
-    return `https://wa.me/${digits}`;
+    return digits ? `https://wa.me/${digits}` : '';
   }
 
-  if (value.startsWith('http://') || value.startsWith('https://')) {
-    return value;
-  }
-
-  return '';
+  return value.startsWith('http://') || value.startsWith('https://') ? value : '';
 };
 
 const Footer = () => {
@@ -55,65 +74,64 @@ const Footer = () => {
     facebook: Facebook,
     whatsapp: WhatsAppIcon,
   };
+
   const socialLinks = Object.entries(settings?.social_links || {})
-  .map(([name, href]) => ({
-    name,
-    href: normalizeSocialHref(name.toLowerCase(), href),
-    icon: socialIconMap[name.toLowerCase()],
-  }))
+    .map(([name, href]) => ({
+      name,
+      href: normalizeSocialHref(name.toLowerCase(), href),
+      icon: socialIconMap[name.toLowerCase()],
+    }))
     .filter((social) => social.icon && social.href && social.href !== '#');
+
+  const footerSections =
+    Array.isArray(settings?.footer_sections) && settings.footer_sections.length > 0
+      ? settings.footer_sections.map((section) => ({
+          ...section,
+          links: Array.isArray(section.links)
+            ? section.links.map((link) => ({
+                ...link,
+                href: link.href === '{main_website}' ? mainWebsiteUrl : link.href,
+              }))
+            : [],
+        }))
+      : DEFAULT_FOOTER_SECTIONS.map((section) => ({
+          ...section,
+          links: section.links.map((link) => ({
+            ...link,
+            href: link.href === '{main_website}' ? mainWebsiteUrl : link.href,
+          })),
+        }));
+  const quickLinks =
+    Array.isArray(settings?.footer_quick_links) && settings.footer_quick_links.length > 0
+      ? settings.footer_quick_links
+      : DEFAULT_QUICK_LINKS;
 
   const handleNavClick = (e) => {
     e.preventDefault();
     const href = e.currentTarget.getAttribute('href');
-    const [path, id] = href.split('#');
+    const [path, id] = String(href || '').split('#');
 
     if (path && path !== '/' && path !== '') {
       navigate(path);
-      if (id) {
-        setTimeout(() => {
-          const targetElement = document.getElementById(id);
-          if (targetElement) {
-            targetElement.scrollIntoView({ behavior: 'smooth' });
-          }
-        }, 100);
-      } else {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
+      window.setTimeout(() => {
+        if (id) {
+          document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }, 100);
       return;
     }
 
     navigate('/');
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (id) {
-        const targetElement = document.getElementById(id);
-        if (targetElement) {
-          targetElement.scrollIntoView({ behavior: 'smooth' });
-        }
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
       } else {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }, 100);
   };
-
-  const footerSections = [
-    {
-      title: 'Company',
-      links: [
-        { name: 'Contact', href: '/contact' },
-        { name: 'Careers', href: '/career' },
-        { name: 'Privacy Policy', href: '/privacy' },
-        { name: 'Terms & Conditions', href: '/terms' },
-        { name: 'Data Processing & Security', href: '/data-processing-security' },
-      ],
-    },
-    {
-      title: 'Quick Links',
-      links: [
-        { name: 'Visit Main Site', href: mainWebsiteUrl, external: true },
-      ],
-    },
-  ];
 
   return (
     <footer className="relative overflow-hidden border-t border-white/10 bg-[#0C0D0D] pt-12 pb-8">
@@ -144,7 +162,7 @@ const Footer = () => {
                   <span className="text-white/72">CRM</span>
                 </div>
                 <div className="text-sm text-white/45">
-                  CRM for growth, follow-up, and smarter operations
+                  {settings?.footer_tagline || 'CRM for growth, follow-up, and smarter operations'}
                 </div>
               </div>
             </Link>
@@ -152,25 +170,16 @@ const Footer = () => {
 
           <div className="flex flex-col gap-4 lg:items-end">
             <div className="flex flex-wrap gap-2 lg:justify-end">
-              {['Services', 'About', 'Portfolio', 'Testimonials'].map((label) => {
-                const hrefMap = {
-                  Services: '/#services',
-                  About: '/#about',
-                  Portfolio: '/#portfolio',
-                  Testimonials: '/#testimonials',
-                };
-
-                return (
-                  <a
-                    key={label}
-                    href={hrefMap[label]}
-                    onClick={handleNavClick}
-                    className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-white/70 transition-colors duration-300 hover:border-accent-purple/35 hover:text-white"
-                  >
-                    {label}
-                  </a>
-                );
-              })}
+              {quickLinks.map((link) => (
+                <a
+                  key={link.name}
+                  href={link.href}
+                  onClick={handleNavClick}
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-white/70 transition-colors duration-300 hover:border-accent-purple/35 hover:text-white"
+                >
+                  {link.name}
+                </a>
+              ))}
             </div>
           </div>
         </motion.div>
@@ -184,10 +193,11 @@ const Footer = () => {
             className="max-w-2xl pr-0 lg:pr-8"
           >
             <h3 className="text-xl font-semibold tracking-tight text-white">
-              Built for better follow-up, clearer pipelines, and smarter growth.
+              {settings?.footer_tagline || 'Built for better follow-up, clearer pipelines, and smarter growth.'}
             </h3>
             <p className="mt-4 max-w-[36rem] text-[15px] leading-8 text-gray-400">
-              Be Souhola is a CRM platform designed for real estate teams and ambitious businesses that need clearer pipelines, faster follow-up, and better visibility across operations.
+              {settings?.footer_description ||
+                'Be Souhola is a CRM platform designed for real estate teams and ambitious businesses that need clearer pipelines, faster follow-up, and better visibility across operations.'}
             </p>
           </motion.div>
 
@@ -200,37 +210,37 @@ const Footer = () => {
               transition={{ duration: 0.5, delay: 0.08 + index * 0.04 }}
               className="min-w-0"
             >
-                <p className="mb-5 text-[1.05rem] font-semibold text-white">{section.title}</p>
-                <ul className="space-y-3.5">
-                  {section.links.map((link) => (
-                    <li key={link.name}>
-                      <a
-                        href={link.href}
-                        target={link.external ? '_blank' : undefined}
-                        rel={link.external ? 'noopener noreferrer' : undefined}
-                        onClick={(e) => {
-                          if (!link.external) {
-                            if (link.href === '/contact') {
-                              e.preventDefault();
-                              navigate('/contact#lead-form');
-                            } else if (link.href.includes('#') || link.href === '/') {
-                              handleNavClick(e);
-                            }
+              <p className="mb-5 text-[1.05rem] font-semibold text-white">{section.title}</p>
+              <ul className="space-y-3.5">
+                {section.links.map((link) => (
+                  <li key={link.name}>
+                    <a
+                      href={link.href}
+                      target={link.external ? '_blank' : undefined}
+                      rel={link.external ? 'noopener noreferrer' : undefined}
+                      onClick={(e) => {
+                        if (!link.external) {
+                          if (link.href === '/contact') {
+                            e.preventDefault();
+                            navigate('/contact#lead-form');
+                          } else if (link.href.includes('#') || link.href === '/') {
+                            handleNavClick(e);
                           }
-                        }}
-                        className="inline-flex text-gray-400 transition-colors duration-300 hover:text-accent-purple"
-                      >
-                        {link.name}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
+                        }
+                      }}
+                      className="inline-flex text-gray-400 transition-colors duration-300 hover:text-accent-purple"
+                    >
+                      {link.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
             </motion.div>
           ))}
         </div>
 
         <div className="mt-6 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <p className="text-gray-500 text-center md:text-left">
+          <p className="text-center text-gray-500 md:text-left">
             &copy; {new Date().getFullYear()} Be Souhola. All Rights Reserved.
           </p>
 

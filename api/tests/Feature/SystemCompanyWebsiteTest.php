@@ -100,6 +100,7 @@ class SystemCompanyWebsiteTest extends TestCase
 
         $response = $this->getJson('/api/public/website/besouhola');
         $response->assertOk()
+            ->assertJsonPath('fromCms', true)
             ->assertJsonPath('tenant.slug', 'besouhola')
             ->assertJsonPath('settings.company_name', 'Be Souhola');
     }

@@ -17,10 +17,8 @@ import { Button } from '@/components/ui/button';
 import AnimatedHeroBackground from '@/components/AnimatedHeroBackground';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
 
-const PIPELINE_STAGES = [
-  {
-    label: 'TOTAL LEADS',
-    value: '248',
+const STAGE_STYLE_MAP = {
+  blue: {
     cardStyle: {
       background: 'linear-gradient(180deg, #d8e7fb 0%, #cfe0f7 100%)',
       border: '1.5px solid #4d9cff',
@@ -32,9 +30,7 @@ const PIPELINE_STAGES = [
     },
     icon: Users,
   },
-  {
-    label: 'NEW',
-    value: '86',
+  green: {
     cardStyle: {
       background: 'linear-gradient(180deg, #dcf5de 0%, #d0f0d4 100%)',
       border: '1.5px solid #18d970',
@@ -46,9 +42,7 @@ const PIPELINE_STAGES = [
     },
     icon: Sparkles,
   },
-  {
-    label: 'DUPLICATE',
-    value: '32',
+  red: {
     cardStyle: {
       background: 'linear-gradient(180deg, #ffe4e4 0%, #ffdada 100%)',
       border: '1.5px solid #ff6767',
@@ -60,9 +54,7 @@ const PIPELINE_STAGES = [
     },
     icon: Copy,
   },
-  {
-    label: 'PENDING',
-    value: '98',
+  yellow: {
     cardStyle: {
       background: 'linear-gradient(180deg, #fff8cf 0%, #fff3ba 100%)',
       border: '1.5px solid #ffc61c',
@@ -74,9 +66,7 @@ const PIPELINE_STAGES = [
     },
     icon: Clock3,
   },
-  {
-    label: 'COLD CALLS',
-    value: '32',
+  orange: {
     cardStyle: {
       background: 'linear-gradient(180deg, #ffedd8 0%, #ffe7cd 100%)',
       border: '1.5px solid #ff9728',
@@ -88,21 +78,54 @@ const PIPELINE_STAGES = [
     },
     icon: PhoneCall,
   },
+};
+
+const PIPELINE_STAGES_DEFAULT = [
+  { label: 'TOTAL LEADS', value: '248', color: 'blue' },
+  { label: 'NEW', value: '86', color: 'green' },
+  { label: 'DUPLICATE', value: '32', color: 'red' },
+  { label: 'PENDING', value: '98', color: 'yellow' },
+  { label: 'COLD CALLS', value: '32', color: 'orange' },
 ];
 
-const RANKING = [
+const RANKING_DEFAULT = [
   { name: 'Ahmed Mohamed', actions: 128 },
   { name: 'Mona Adel', actions: 96 },
   { name: 'Omar Mostafa', actions: 74 },
 ];
 
-const OUTER_STATS = [
+const OUTER_STATS_DEFAULT = [
   { icon: Users, value: '500+', label: 'Businesses trust us' },
   { icon: Zap, value: '24h', label: 'Avg response time' },
   { icon: BarChart3, value: '38%', label: 'Faster deal closing' },
 ];
 
-const DashboardPanel = () => (
+const normalizeStage = (stage, index) => {
+  const fallbackStage = PIPELINE_STAGES_DEFAULT[index] || PIPELINE_STAGES_DEFAULT[0];
+  const color = stage?.color || fallbackStage.color;
+  const palette = STAGE_STYLE_MAP[color] || STAGE_STYLE_MAP[fallbackStage.color] || STAGE_STYLE_MAP.blue;
+
+  return {
+    label: stage?.label || fallbackStage.label,
+    value: stage?.value || fallbackStage.value,
+    ...palette,
+  };
+};
+
+const DashboardPanel = ({
+  title,
+  demoCtaText,
+  pipelineTitle,
+  pipelineStages,
+  delayCount,
+  delayTitle,
+  delayDescription,
+  delayHelperText,
+  ranking,
+  rankingTitle,
+  rankingActionsLabel,
+  rankingCtaText,
+}) => (
   <div
     className="hero-form-shell rounded-[1.75rem] border border-white/10 bg-[#0a0b10]/82 p-3.5 shadow-[0_32px_100px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
     style={{ isolation: 'isolate' }}
@@ -114,20 +137,20 @@ const DashboardPanel = () => (
             <div key={i} className={`h-2.5 w-2.5 rounded-sm bg-accent-purple/${90 - i * 18}`} />
           ))}
         </div>
-        <span className="text-[0.92rem] font-semibold text-white">Dashboard</span>
+        <span className="text-[0.92rem] font-semibold text-white">{title}</span>
       </div>
       <button className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[0.72rem] text-gray-300 transition-colors hover:bg-white/10">
         <Play className="h-3 w-3" />
-        See how it works
+        {demoCtaText}
       </button>
     </div>
 
     <div className="mb-3">
       <p className="mb-2 text-[0.62rem] font-medium uppercase tracking-[0.18em] text-gray-500">
-        Pipeline stages
+        {pipelineTitle}
       </p>
       <div className="grid grid-cols-5 gap-1.5">
-        {PIPELINE_STAGES.map(({ label, value, cardStyle, iconStyle, icon: Icon }) => (
+        {pipelineStages.map(({ label, value, cardStyle, iconStyle, icon: Icon }) => (
           <div
             key={label}
             className="rounded-[1.15rem] p-2.5"
@@ -170,13 +193,13 @@ const DashboardPanel = () => (
       <div className="rounded-xl border border-white/8 bg-white/4 p-3">
         <div className="flex items-center gap-1.5 text-gray-400">
           <Clock3 className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Delay Leads</span>
+          <span className="text-xs font-medium">{delayTitle}</span>
         </div>
         <div className="mt-2 flex items-end justify-between gap-3">
           <div>
-            <div className="text-[2rem] font-bold leading-none text-accent-purple">18</div>
-            <div className="mt-1 text-[0.72rem] text-gray-400">Leads need follow-up</div>
-            <div className="text-[0.64rem] text-gray-500">Take action to close more deals</div>
+            <div className="text-[2rem] font-bold leading-none text-accent-purple">{delayCount}</div>
+            <div className="mt-1 text-[0.72rem] text-gray-400">{delayDescription}</div>
+            <div className="text-[0.64rem] text-gray-500">{delayHelperText}</div>
           </div>
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-purple/15">
             <Users className="h-4 w-4 text-accent-purple" />
@@ -187,10 +210,10 @@ const DashboardPanel = () => (
       <div className="rounded-xl border border-white/8 bg-white/4 p-3">
         <div className="flex items-center gap-1.5 text-gray-400">
           <Trophy className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Ranking</span>
+          <span className="text-xs font-medium">{rankingTitle}</span>
         </div>
         <div className="mt-2 space-y-2">
-          {RANKING.map(({ name, actions }, index) => (
+          {ranking.map(({ name, actions }, index) => (
             <div key={name} className="flex items-center gap-2">
               <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-accent-purple/20 text-[0.6rem] font-bold text-accent-purple">
                 {index + 1}
@@ -198,13 +221,13 @@ const DashboardPanel = () => (
               <span className="flex-1 truncate text-[0.76rem] font-medium text-gray-200">{name}</span>
               <div className="text-right">
                 <div className="text-[0.82rem] font-bold text-accent-purple">{actions}</div>
-                <div className="text-[0.55rem] text-gray-500">Actions</div>
+                <div className="text-[0.55rem] text-gray-500">{rankingActionsLabel}</div>
               </div>
             </div>
           ))}
         </div>
         <button className="mt-2 text-[0.64rem] text-accent-purple hover:underline">
-          View full ranking →
+          {rankingCtaText}
         </button>
       </div>
     </div>
@@ -213,6 +236,23 @@ const DashboardPanel = () => (
 
 const Hero = () => {
   const { hero } = useWebsiteContent();
+  const dashboardPanel = hero?.dashboard_panel || {};
+  const pipelineStagesRaw = Array.isArray(dashboardPanel.pipeline_stages)
+    ? dashboardPanel.pipeline_stages
+    : PIPELINE_STAGES_DEFAULT;
+  const pipelineStages = pipelineStagesRaw.map(normalizeStage);
+  const ranking = Array.isArray(dashboardPanel.ranking) && dashboardPanel.ranking.length > 0
+    ? dashboardPanel.ranking
+    : RANKING_DEFAULT;
+  const delayCount = dashboardPanel.delay_leads_count || '18';
+  const outerStatsRaw = Array.isArray(hero?.outer_stats) && hero.outer_stats.length > 0
+    ? hero.outer_stats
+    : OUTER_STATS_DEFAULT;
+  const outerStats = outerStatsRaw.map((item, index) => ({
+    icon: item.icon || OUTER_STATS_DEFAULT[index]?.icon || Users,
+    value: item.value || OUTER_STATS_DEFAULT[index]?.value || '',
+    label: item.label || OUTER_STATS_DEFAULT[index]?.label || '',
+  }));
 
   const handleExploreFeaturesClick = () => {
     const servicesSection = document.getElementById('services');
@@ -257,7 +297,7 @@ const Hero = () => {
               transition={{ duration: 0.8, delay: 0.35 }}
               className="mb-7 max-w-xl text-[1rem] leading-[1.6] text-gray-300 md:text-[1.05rem]"
             >
-              Capture leads, automate follow-ups, manage your team, and close deals faster with one intelligent CRM.
+              {hero.subtitle || 'Capture leads, automate follow-ups, manage your team, and close deals faster with one intelligent CRM.'}
             </motion.p>
 
             <motion.div
@@ -287,7 +327,6 @@ const Hero = () => {
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </motion.div>
-
           </div>
 
           <motion.div
@@ -299,7 +338,20 @@ const Hero = () => {
           >
             <div className="space-y-4">
               <div className="origin-top-right scale-[0.9] lg:-mb-12 lg:mt-4">
-                <DashboardPanel />
+                <DashboardPanel
+                  title={dashboardPanel.title || 'Dashboard'}
+                  demoCtaText={dashboardPanel.demo_cta_text || 'See how it works'}
+                  pipelineTitle={dashboardPanel.pipeline_title || 'Pipeline stages'}
+                  pipelineStages={pipelineStages}
+                  delayCount={delayCount}
+                  delayTitle={dashboardPanel.delay_leads_title || 'Delay Leads'}
+                  delayDescription={dashboardPanel.delay_leads_description || 'Leads need follow-up'}
+                  delayHelperText={dashboardPanel.delay_leads_helper_text || 'Take action to close more deals'}
+                  ranking={ranking}
+                  rankingTitle={dashboardPanel.ranking_title || 'Ranking'}
+                  rankingActionsLabel={dashboardPanel.ranking_actions_label || 'Actions'}
+                  rankingCtaText={dashboardPanel.ranking_cta_text || 'View full ranking ->'}
+                />
               </div>
 
               <motion.div
@@ -308,9 +360,9 @@ const Hero = () => {
                 transition={{ duration: 0.8, delay: 0.65 }}
                 className="grid gap-3 sm:grid-cols-3"
               >
-                {OUTER_STATS.map(({ icon: Icon, value, label }) => (
+                {outerStats.map(({ icon: Icon, value, label }) => (
                   <div
-                    key={value}
+                    key={`${value}-${label}`}
                     className="flex items-center gap-3 rounded-[2rem] border border-white/10 bg-white/5 px-5 py-4 backdrop-blur-sm"
                   >
                     <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-accent-purple/15">

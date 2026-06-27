@@ -72,6 +72,7 @@ const ContactInfoBlock = ({
 
 const Contact = () => {
   const { settings, leadServiceOptions, contactPageContent } = useWebsiteContent();
+  const pageSeo = settings?.pages_seo?.contact || {};
   const emailHref = `mailto:${settings.email || 'sales@besouhola.com'}`;
   const phoneHref = `tel:${String(settings.phone || '+1 (555) 234-5678').replace(/[^\d+]/g, '')}`;
   const whatsappHref = normalizeWhatsAppHref(settings.whatsapp);
@@ -94,23 +95,32 @@ const Contact = () => {
       transition={pageTransition}
     >
       <Helmet>
-        <title>Contact Be Souhola - Schedule Your Demo</title>
+        <title>{pageSeo.title || 'Contact Be Souhola - Schedule Your Demo'}</title>
         <meta
           name="description"
-          content="Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations."
+          content={
+            pageSeo.description ||
+            'Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations.'
+          }
         />
-        <link rel="canonical" href={`${siteUrl}/contact`} />
-        <meta property="og:title" content="Contact Be Souhola - Schedule Your Demo" />
+        <link rel="canonical" href={pageSeo.canonical || `${siteUrl}/contact`} />
+        <meta property="og:title" content={pageSeo.title || 'Contact Be Souhola - Schedule Your Demo'} />
         <meta
           property="og:description"
-          content="Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations."
+          content={
+            pageSeo.description ||
+            'Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations.'
+          }
         />
-        <meta property="og:url" content={`${siteUrl}/contact`} />
+        <meta property="og:url" content={pageSeo.canonical || `${siteUrl}/contact`} />
         <meta property="og:type" content="website" />
-        <meta name="twitter:title" content="Contact Be Souhola - Schedule Your Demo" />
+        <meta name="twitter:title" content={pageSeo.title || 'Contact Be Souhola - Schedule Your Demo'} />
         <meta
           name="twitter:description"
-          content="Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations."
+          content={
+            pageSeo.description ||
+            'Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations.'
+          }
         />
       </Helmet>
 

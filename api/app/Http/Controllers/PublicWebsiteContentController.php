@@ -121,6 +121,7 @@ class PublicWebsiteContentController extends Controller
             ->values();
 
         return response()->json([
+            'fromCms' => true,
             'tenant' => [
                 'id' => $tenant->id,
                 'slug' => $tenant->slug,
@@ -134,7 +135,18 @@ class PublicWebsiteContentController extends Controller
                 'email' => $settings->email,
                 'whatsapp' => $settings->whatsapp,
                 'address' => $settings->address,
+                'website_url' => $settings->website_url,
                 'social_links' => $settings->social_links ?? [],
+                'contact_page_content' => $settings->contact_page_content ?? [],
+                'nav_links' => $settings->nav_links ?? [],
+                'nav_cta_text' => $settings->nav_cta_text,
+                'nav_cta_href' => $settings->nav_cta_href,
+                'footer_sections' => $settings->footer_sections ?? [],
+                'footer_quick_links' => $settings->footer_quick_links ?? [],
+                'footer_tagline' => $settings->footer_tagline,
+                'footer_description' => $settings->footer_description,
+                'whatsapp_float' => $settings->whatsapp_float ?? [],
+                'pages_seo' => $settings->pages_seo ?? [],
                 'primary_color' => $settings->primary_color,
                 'seo_title' => $settings->seo_title,
                 'seo_description' => $settings->seo_description,

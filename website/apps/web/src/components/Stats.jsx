@@ -1,35 +1,24 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-
-const stats = [
-  {
-    number: '12,000+',
-    label: 'Active Users',
-    description: 'Businesses trust Be Souhola'
-  },
-  {
-    number: '50+',
-    label: 'Industries/Businesses',
-    description: 'Across real estate and enterprise sectors'
-  },
-  {
-    number: '99.9%',
-    label: 'Uptime',
-    description: 'Reliable performance you can count on'
-  },
-  {
-    number: '24/7',
-    label: 'Real-time Processing',
-    description: 'Instant data synchronization'
-  }
-];
+import { useWebsiteContent } from '@/context/WebsiteContentContext';
 
 const Stats = () => {
+  const { stats: statsSection } = useWebsiteContent();
+  const items = Array.isArray(statsSection?.items) ? statsSection.items : [];
+
   return (
     <section className="py-24 bg-[#0C0D0D]">
       <div className="container mx-auto px-6">
+        {statsSection?.title ? (
+          <div className="mb-16">
+            <h2 className="text-section-title font-bold text-white uppercase">
+              {statsSection.title}{' '}
+              <span className="text-accent-purple">{statsSection.title_accent}</span>
+            </h2>
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
-          {stats.map((stat, index) => (
+          {items.map((stat, index) => (
             <motion.div
               key={stat.label}
               initial={{ opacity: 0, y: 20 }}

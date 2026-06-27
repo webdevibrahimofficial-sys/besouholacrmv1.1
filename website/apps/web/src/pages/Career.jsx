@@ -12,12 +12,14 @@ const siteUrl = 'https://besouhola.com';
 
 const Career = () => {
   const {
+    settings,
     careersPage,
     careerHighlights,
     careerValues,
     careerBenefits,
     careerRoles,
   } = useWebsiteContent();
+  const pageSeo = settings?.pages_seo?.career || {};
   const [activeFilter, setActiveFilter] = React.useState('All');
   const [isGeneralApplicationOpen, setIsGeneralApplicationOpen] = React.useState(false);
 
@@ -50,23 +52,32 @@ const Career = () => {
       transition={{ duration: 0.45 }}
     >
       <Helmet>
-        <title>Careers at Be Souhola CRM</title>
+        <title>{pageSeo.title || 'Careers at Be Souhola CRM'}</title>
         <meta
           name="description"
-          content="Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams."
+          content={
+            pageSeo.description ||
+            'Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams.'
+          }
         />
-        <link rel="canonical" href={`${siteUrl}/career`} />
-        <meta property="og:title" content="Careers at Be Souhola CRM" />
+        <link rel="canonical" href={pageSeo.canonical || `${siteUrl}/career`} />
+        <meta property="og:title" content={pageSeo.title || 'Careers at Be Souhola CRM'} />
         <meta
           property="og:description"
-          content="Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams."
+          content={
+            pageSeo.description ||
+            'Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams.'
+          }
         />
-        <meta property="og:url" content={`${siteUrl}/career`} />
+        <meta property="og:url" content={pageSeo.canonical || `${siteUrl}/career`} />
         <meta property="og:type" content="website" />
-        <meta name="twitter:title" content="Careers at Be Souhola CRM" />
+        <meta name="twitter:title" content={pageSeo.title || 'Careers at Be Souhola CRM'} />
         <meta
           name="twitter:description"
-          content="Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams."
+          content={
+            pageSeo.description ||
+            'Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams.'
+          }
         />
       </Helmet>
 

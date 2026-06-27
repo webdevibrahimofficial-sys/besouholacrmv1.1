@@ -6,9 +6,87 @@ export const defaultWebsiteContent = {
     email: 'sales@besouhola.com',
     whatsapp: null,
     address: '200 Tech Boulevard, Suite 400, Innovation City, CA 94102',
+    website_url: 'https://besouhola.com',
     social_links: {
       facebook: 'https://www.facebook.com/profile.php?id=61587661674565',
       whatsapp: null,
+    },
+    nav_links: [
+      { name: 'Services', href: '/#services' },
+      { name: 'About', href: '/#about' },
+      { name: 'Portfolio', href: '/#portfolio' },
+      { name: 'Testimonials', href: '/#testimonials' },
+      { name: 'Careers', href: '/career' },
+    ],
+    nav_cta_text: 'Book Free Demo',
+    nav_cta_href: '/contact',
+    footer_sections: [
+      {
+        title: 'Company',
+        links: [
+          { name: 'Contact', href: '/contact', external: false },
+          { name: 'Careers', href: '/career', external: false },
+          { name: 'Privacy Policy', href: '/privacy', external: false },
+          { name: 'Terms & Conditions', href: '/terms', external: false },
+          { name: 'Data Processing & Security', href: '/data-processing-security', external: false },
+        ],
+      },
+      {
+        title: 'Quick Links',
+        links: [{ name: 'Visit Main Site', href: '{main_website}', external: true }],
+      },
+    ],
+    footer_quick_links: [
+      { name: 'Services', href: '/#services' },
+      { name: 'About', href: '/#about' },
+      { name: 'Portfolio', href: '/#portfolio' },
+      { name: 'Testimonials', href: '/#testimonials' },
+    ],
+    footer_tagline: 'Built for better follow-up, clearer pipelines, and smarter growth.',
+    footer_description:
+      'Be Souhola is a CRM platform designed for real estate teams and ambitious businesses that need clearer pipelines, faster follow-up, and better visibility across operations.',
+    whatsapp_float: {
+      enabled: false,
+      message: "Hi, I'd like to learn more about Be Souhola CRM.",
+      tooltip: 'Chat with us',
+    },
+    pages_seo: {
+      home: {
+        title: 'Be Souhola - CRM Platform for Real Estate & Business',
+        description:
+          'Be Souhola is a leading CRM platform designed for real estate professionals and businesses.',
+        canonical: 'https://besouhola.com',
+      },
+      contact: {
+        title: 'Contact Be Souhola - Schedule Your Demo',
+        description:
+          'Get in touch with Be Souhola to schedule a demo, request support, or learn how our CRM platform can transform your business operations.',
+        canonical: 'https://besouhola.com/contact',
+      },
+      career: {
+        title: 'Careers at Be Souhola CRM',
+        description:
+          'Explore career opportunities at Be Souhola CRM and help build a smarter growth platform for ambitious teams.',
+        canonical: 'https://besouhola.com/career',
+      },
+      privacy: {
+        title: 'Privacy Policy | Be Souhola CRM',
+        description:
+          'This Privacy Policy governs how Be Souhola CRM collects, uses, processes, stores, and protects personal and business-related information.',
+        canonical: 'https://besouhola.com/privacy',
+      },
+      terms: {
+        title: 'Terms & Conditions | Be Souhola CRM',
+        description:
+          'These Terms & Conditions govern the use of the Be Souhola CRM mobile application, web application, and related services provided by Be Souhola.',
+        canonical: 'https://besouhola.com/terms',
+      },
+      data_processing_security: {
+        title: 'Data Processing & Security Statement | Be Souhola CRM',
+        description:
+          'This statement describes the general principles applied by Be Souhola CRM in connection with data processing, confidentiality, hosting, and security.',
+        canonical: 'https://besouhola.com/data-processing-security',
+      },
     },
     contact_page_content: {
       headline: "Let's",
@@ -40,6 +118,35 @@ export const defaultWebsiteContent = {
         'Capture leads, automate follow-ups, and close deals faster.',
       primary_cta: 'Book Free Demo',
       secondary_cta: 'Explore Features',
+      dashboard_panel: {
+        title: 'Dashboard',
+        demo_cta_text: 'See how it works',
+        pipeline_title: 'Pipeline stages',
+        pipeline_stages: [
+          { label: 'TOTAL LEADS', value: '248', color: 'blue' },
+          { label: 'NEW', value: '86', color: 'green' },
+          { label: 'DUPLICATE', value: '32', color: 'red' },
+          { label: 'PENDING', value: '98', color: 'yellow' },
+          { label: 'COLD CALLS', value: '32', color: 'orange' },
+        ],
+        delay_leads_count: '18',
+        delay_leads_title: 'Delay Leads',
+        delay_leads_description: 'Leads need follow-up',
+        delay_leads_helper_text: 'Take action to close more deals',
+        ranking: [
+          { name: 'Ahmed Mohamed', actions: 128 },
+          { name: 'Mona Adel', actions: 96 },
+          { name: 'Omar Mostafa', actions: 74 },
+        ],
+        ranking_title: 'Ranking',
+        ranking_actions_label: 'Actions',
+        ranking_cta_text: 'View full ranking ->',
+      },
+      outer_stats: [
+        { value: '500+', label: 'Businesses trust us' },
+        { value: '24h', label: 'Avg response time' },
+        { value: '38%', label: 'Faster deal closing' },
+      ],
       form_title: 'Book Your Free CRM Demo',
       form_subtitle: "Tell us about your business and we'll contact you within 24 hours.",
       form_badge: 'CRM Demo',
@@ -219,6 +326,20 @@ export const defaultWebsiteContent = {
           avatar:
             'https://images.unsplash.com/photo-1517841905240-472988babdf9?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
         },
+      ],
+    },
+    stats: {
+      title: 'Numbers that',
+      title_accent: 'speak for themselves',
+      items: [
+        { number: '12,000+', label: 'Active Users', description: 'Businesses trust Be Souhola' },
+        {
+          number: '50+',
+          label: 'Industries/Businesses',
+          description: 'Across real estate and enterprise sectors',
+        },
+        { number: '99.9%', label: 'Uptime', description: 'Reliable performance you can count on' },
+        { number: '24/7', label: 'Real-time Processing', description: 'Instant data synchronization' },
       ],
     },
     services_intro: {
@@ -405,6 +526,38 @@ export const defaultWebsiteContent = {
         'Boost conversion rates by up to 38%',
         'Go live in days, not months',
         'Dedicated onboarding support',
+      ],
+    },
+    faq: {
+      eyebrow: 'Common questions',
+      title: 'Everything you need',
+      title_accent: 'to know',
+      items: [
+        {
+          question: 'How long does it take to set up Be Souhola?',
+          answer:
+            'Most teams are fully onboarded within 2-3 business days with guided setup support included.',
+        },
+        {
+          question: 'Can I import my existing leads from Excel or another CRM?',
+          answer:
+            'Yes. Be Souhola supports bulk lead import via Excel/CSV, and our team can help map your existing data fields.',
+        },
+        {
+          question: 'Does Be Souhola work for non-real-estate businesses?',
+          answer:
+            'Absolutely. The platform is customizable for sales-driven businesses across consulting, healthcare, education, and more.',
+        },
+        {
+          question: 'Is WhatsApp integration included in all plans?',
+          answer:
+            'WhatsApp support depends on your setup and plan configuration, and our team can help you choose the right rollout.',
+        },
+        {
+          question: 'Can I control which features my team sees?',
+          answer:
+            'Yes. Role-based access control helps define exactly what each user can see and do inside the platform.',
+        },
       ],
     },
   },

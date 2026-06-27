@@ -47,7 +47,15 @@ class SystemCompanyWebsiteController extends Controller
         $tenantId = $this->ownerTenantResolver->bindTenantContext();
         $this->bootstrapService->ensureForTenant($tenantId);
 
-        foreach (['social_links', 'contact_page_content'] as $field) {
+        foreach ([
+            'social_links',
+            'contact_page_content',
+            'nav_links',
+            'footer_sections',
+            'footer_quick_links',
+            'whatsapp_float',
+            'pages_seo',
+        ] as $field) {
             $payload = $request->input($field);
             if (is_string($payload)) {
                 $decoded = json_decode($payload, true);
@@ -66,8 +74,18 @@ class SystemCompanyWebsiteController extends Controller
             'email' => ['nullable', 'email', 'max:255'],
             'whatsapp' => ['nullable', 'string', 'max:50'],
             'address' => ['nullable', 'string', 'max:1000'],
+            'website_url' => ['nullable', 'string', 'max:2048'],
             'social_links' => ['nullable', 'array'],
             'contact_page_content' => ['nullable', 'array'],
+            'nav_links' => ['nullable', 'array'],
+            'nav_cta_text' => ['nullable', 'string', 'max:100'],
+            'nav_cta_href' => ['nullable', 'string', 'max:2048'],
+            'footer_sections' => ['nullable', 'array'],
+            'footer_quick_links' => ['nullable', 'array'],
+            'footer_tagline' => ['nullable', 'string', 'max:255'],
+            'footer_description' => ['nullable', 'string', 'max:4000'],
+            'whatsapp_float' => ['nullable', 'array'],
+            'pages_seo' => ['nullable', 'array'],
             'primary_color' => ['nullable', 'string', 'max:20', self::HEX_COLOR_RULE],
             'seo_title' => ['nullable', 'string', 'max:255'],
             'seo_description' => ['nullable', 'string', 'max:2000'],

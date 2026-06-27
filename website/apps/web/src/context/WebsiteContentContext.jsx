@@ -45,6 +45,14 @@ export const WebsiteContentProvider = ({ children }) => {
       ...defaultWebsiteContent.settings.social_links,
       ...(content?.settings?.social_links || {}),
     };
+    settings.whatsapp_float = {
+      ...defaultWebsiteContent.settings.whatsapp_float,
+      ...(content?.settings?.whatsapp_float || {}),
+    };
+    settings.pages_seo = {
+      ...defaultWebsiteContent.settings.pages_seo,
+      ...(content?.settings?.pages_seo || {}),
+    };
     const contactPageContent = {
       ...defaultWebsiteContent.settings.contact_page_content,
       ...(settings.contact_page_content || {}),
@@ -74,6 +82,10 @@ export const WebsiteContentProvider = ({ children }) => {
       Array.isArray(content?.careers?.roles) && content.careers.roles.length > 0
         ? content.careers.roles.map((role) => ({
             ...role,
+            slug:
+              role.slug ||
+              role.title?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ||
+              `role-${role.id}`,
             workType: role.workType || role.work_type || '',
             employmentType: role.employmentType || role.employment_type || '',
             experienceLevel: role.experienceLevel || role.experience_level || '',
@@ -99,11 +111,13 @@ export const WebsiteContentProvider = ({ children }) => {
         'testimonials',
         defaultWebsiteContent.sections.testimonials
       ),
+      stats: getSectionContent(sections, 'stats', defaultWebsiteContent.sections.stats),
       servicesIntro: getSectionContent(
         sections,
         'services_intro',
         defaultWebsiteContent.sections.services_intro
       ),
+      faq: getSectionContent(sections, 'faq', defaultWebsiteContent.sections.faq),
       leadLeakDetector:
         leadLeakDetectorSection?.content ||
         defaultWebsiteContent.sections.lead_leak_detector ||

@@ -105,6 +105,7 @@ const DataProcessingSecurity = () => {
       title="Data Processing & Security Statement"
       accent="Statement"
       canonicalPath="/data-processing-security"
+      seoKey="data_processing_security"
       effectiveDate="June 2026"
       description="This statement describes the general principles applied by Be Souhola CRM in connection with data processing, confidentiality, hosting, and security."
       sections={sections}
