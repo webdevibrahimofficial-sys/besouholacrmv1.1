@@ -533,6 +533,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     // Reports Routes
     Route::get('/reports/dashboard-stats', [\App\Http\Controllers\ReportsController::class, 'dashboardStats']);
     Route::get('/reports/team-stats', [\App\Http\Controllers\ReportsController::class, 'teamStats']);
+    Route::get('/reports/cancellation', [\App\Http\Controllers\ReportsController::class, 'cancellationReport']);
     Route::get('reports/campaigns/dashboard', [\App\Http\Controllers\CampaignReportController::class , 'dashboard']);
     Route::get('reports/campaigns/duration', [\App\Http\Controllers\CampaignReportController::class , 'duration']);
     Route::get('reports/campaigns/summary', [\App\Http\Controllers\CampaignReportController::class , 'summary']);

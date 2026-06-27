@@ -109,6 +109,7 @@ const ReportPlaceholder = lazy(() => import('../pages/ReportPlaceholder'))
 const CampaignDurationReport = lazy(() => import('../pages/CampaignDurationReport'))
 const ABCampaignComparison = lazy(() => import('../pages/ABCampaignComparison'))
 const ResponseTimeReport = lazy(() => import('../pages/ResponseTimeReport'))
+const CancellationReport = lazy(() => import('../pages/CancellationReport'))
 
 // --- Settings ---
 const ProfileSettings = lazy(() => import('../pages/settings/profile/ProfileSettings'))
@@ -383,6 +384,7 @@ export default function AppRouter() {
               <Route path="/reports/sales/meetings" element={<MeetingsReport />} />
               <Route path="/reports/sales/proposals" element={<ProposalsReport />} />
               <Route path="/reports/sales/revenue" element={<RevenueReport />} />
+              <Route path="/reports/sales/cancellation" element={<CancellationReport />} />
               <Route path="/reports/leads" element={<LeadsReport />} />
               <Route path="/reports/team" element={<TeamPerformanceReport />} />
               <Route path="/reports/sms" element={<ReportPlaceholder titleKey="Sms Report" descKey="reports.sms.desc" />} />

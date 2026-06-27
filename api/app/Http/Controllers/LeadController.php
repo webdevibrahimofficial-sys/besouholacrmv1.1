@@ -1433,7 +1433,7 @@ class LeadController extends Controller
                       ->orWhere('leads.status', 'duplicate');
                 });
             } else {
-                $this->applyStageFilter($query, $stages, $user);
+                $this->applyStageFilter($query, $stages, $user, $request);
             }
         }
 
@@ -5076,7 +5076,7 @@ class LeadController extends Controller
         return str_contains($roleLower, 'team leader');
     }
 
-    private function applyStageFilter($query, $stages, $user)
+    private function applyStageFilter($query, $stages, $user, ?Request $request = null)
     {
         // Manager Visibility Logic (including Team Leader):
         // - Can see leads assigned to themselves (as Sales Person) -> "New Lead"
@@ -5097,7 +5097,12 @@ class LeadController extends Controller
         
         $stages = (array)$stages;
         
-        return $query->where(function($q) use ($stages, $user, $isBranchManager, $isSalesAdmin, $isSalesManager, $isTeamLeader, $isSalesPerson) {
+        $request ??= request();
+        $stageVisibility = $this->resolveLeadStageVisibilityContext($request, $user);
+        $displayStageSql = $this->buildLeadDisplayStageSql($stageVisibility);
+        $normalizedDisplayStageExpr = DB::raw("lower(trim(coalesce(({$displayStageSql}), '')))");
+
+        return $query->where(function($q) use ($stages, $user, $isBranchManager, $isSalesAdmin, $isSalesManager, $isTeamLeader, $isSalesPerson, $normalizedDisplayStageExpr) {
             $isNewRequested = false;
             $isPendingRequested = false;
             $otherStages = [];
@@ -5122,9 +5127,10 @@ class LeadController extends Controller
             // Remove duplicates
             $otherStages = array_unique($otherStages);
 
-            $coldStageValues = ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'];
-            $normalizedStageExpr = DB::raw("lower(trim(coalesce(leads.stage, '')))");
-            $requiresColdCallsFilter = count(array_intersect(array_map('strtolower', $otherStages), $coldStageValues)) > 0;
+            $normalizedOtherStages = array_values(array_unique(array_map(
+                fn($stage) => strtolower(trim((string) $stage)),
+                $otherStages
+            )));
 
             $hasCondition = false;
             
@@ -5194,15 +5200,12 @@ class LeadController extends Controller
             // 3. Other Stages
             if (!empty($otherStages)) {
                 if ($isSalesPerson) {
-                     // Sales Person: Only assigned to self
-                    $condition = function($sub) use ($otherStages, $user, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
-                         $sub->where(function ($stageMatch) use ($otherStages, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
-                             $stageMatch->whereIn('leads.stage', $otherStages);
-                             if ($requiresColdCallsFilter) {
-                                 $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
-                             }
-                         })
-                              ->where('leads.assigned_to', $user->id);
+                    // Sales Person: Only assigned to self.
+                    // Match against the same display-stage logic used by stats/cards so
+                    // assigned leads stay Pending until the first action after assignment.
+                    $condition = function($sub) use ($normalizedOtherStages, $user, $normalizedDisplayStageExpr) {
+                        $sub->whereIn($normalizedDisplayStageExpr, $normalizedOtherStages)
+                            ->where('leads.assigned_to', $user->id);
                      };
                      $hasCondition ? $q->orWhere($condition) : $q->where($condition);
                          
@@ -5211,27 +5214,17 @@ class LeadController extends Controller
                     $descendantIds = $user->descendants()->pluck('id')->toArray();
                     $descendantIds[] = $user->id;
                     
-                    $condition = function($sub) use ($otherStages, $descendantIds, $user, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
-                        $sub->where(function ($stageMatch) use ($otherStages, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
-                            $stageMatch->whereIn('leads.stage', $otherStages);
-                            if ($requiresColdCallsFilter) {
-                                $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
-                            }
-                        })
+                    $condition = function($sub) use ($normalizedOtherStages, $descendantIds, $normalizedDisplayStageExpr) {
+                        $sub->whereIn($normalizedDisplayStageExpr, $normalizedOtherStages)
                             ->where(function ($k) use ($descendantIds) {
-                            $k->whereIn('leads.assigned_to', $descendantIds)
-                              ->orWhereIn('leads.manager_id', $descendantIds);
-                        });
+                                $k->whereIn('leads.assigned_to', $descendantIds)
+                                    ->orWhereIn('leads.manager_id', $descendantIds);
+                            });
                     };
                      $hasCondition ? $q->orWhere($condition) : $q->where($condition);
                  } else {
-                     $condition = function($sub) use ($otherStages, $user, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
-                         $sub->where(function ($stageMatch) use ($otherStages, $requiresColdCallsFilter, $coldStageValues, $normalizedStageExpr) {
-                             $stageMatch->whereIn('leads.stage', $otherStages);
-                             if ($requiresColdCallsFilter) {
-                                 $stageMatch->orWhereIn($normalizedStageExpr, $coldStageValues);
-                             }
-                         });
+                     $condition = function($sub) use ($normalizedOtherStages, $normalizedDisplayStageExpr) {
+                         $sub->whereIn($normalizedDisplayStageExpr, $normalizedOtherStages);
                     };
                     $hasCondition ? $q->orWhere($condition) : $q->where($condition);
                 }

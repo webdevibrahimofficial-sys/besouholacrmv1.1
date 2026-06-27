@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { 
   Filter, Activity, Calendar, Bookmark, CheckCircle, 
-  Key, FileText, MapPin, Users, DollarSign, Download, Upload, TrendingUp, TrendingDown, ArrowRight
+  Key, FileText, MapPin, Users, DollarSign, Download, Upload, TrendingUp, TrendingDown, ArrowRight, CircleX
 } from 'lucide-react'
 import { api } from '../utils/api'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -22,6 +22,7 @@ const REPORT_PERMISSION_MODULE_BY_KEY = {
   targets_revenue: 'Targets & Revenue',
   imports_report: 'Imports Report',
   export_report: 'Exports Report',
+  cancellation_report: 'Cancellation Report',
 }
 
 
@@ -30,6 +31,8 @@ const ReportsDashboard = () => {
   const { theme } = useTheme()
   const { user } = useAppState()
   const isLight = theme === 'light'
+  const isRTL = String(i18n.language || '').toLowerCase().startsWith('ar')
+  const localize = (ar, en) => (isRTL ? ar : en)
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -51,11 +54,11 @@ const ReportsDashboard = () => {
   const reports = [
     { 
       key: 'leads_pipeline',
-      name: 'Leads Pipeline', 
+      name: localize('خط سير العملاء', 'Leads Pipeline'),
       route: '/reports/sales/pipeline',
       icon: Filter,
       value: '1,245',
-      label: 'Total Leads',
+      label: localize('إجمالي الليدز', 'Total Leads'),
       trend: '+12%',
       trendUp: true,
       color: 'text-blue-600 dark:text-blue-400',
@@ -65,11 +68,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'sales_activities',
-      name: 'Sales Activities', 
+      name: localize('أنشطة المبيعات', 'Sales Activities'),
       route: '/reports/sales/activities',
       icon: Activity,
       value: '850',
-      label: 'Activities',
+      label: localize('الأنشطة', 'Activities'),
       trend: '+5%',
       trendUp: true,
       color: 'text-indigo-600 dark:text-indigo-400',
@@ -79,11 +82,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'meetings_report',
-      name: 'Meetings Report', 
+      name: localize('تقرير الاجتماعات', 'Meetings Report'),
       route: '/reports/sales/meetings',
       icon: Calendar,
       value: '42',
-      label: 'Scheduled',
+      label: localize('مجدولة', 'Scheduled'),
       trend: '+8%',
       trendUp: true,
       color: 'text-purple-600 dark:text-purple-400',
@@ -93,11 +96,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'reservations_report',
-      name: 'Reservations Report', 
+      name: localize('تقرير الحجوزات', 'Reservations Report'),
       route: '/reports/sales/reservations',
       icon: Bookmark,
       value: '18',
-      label: 'Reservations',
+      label: localize('حجوزات', 'Reservations'),
       trend: '-2%',
       trendUp: false,
       color: 'text-pink-600 dark:text-pink-400',
@@ -107,11 +110,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'closed_deals',
-      name: 'Closed Deals', 
+      name: localize('الصفقات المغلقة', 'Closed Deals'),
       route: '/reports/sales/closed-deals',
       icon: CheckCircle,
       value: '156',
-      label: 'Deals',
+      label: localize('صفقات', 'Deals'),
       trend: '+24%',
       trendUp: true,
       color: 'text-emerald-600 dark:text-emerald-400',
@@ -120,12 +123,26 @@ const ReportsDashboard = () => {
       borderColor: 'border-emerald-600 dark:border-emerald-400'
     },
     { 
+      key: 'cancellation_report',
+      name: localize('تقرير الإلغاءات', 'Cancellation Report'),
+      route: '/reports/sales/cancellation',
+      icon: CircleX,
+      value: '0',
+      label: localize('الليدز الملغية', 'Cancelled Leads'),
+      trend: '',
+      trendUp: false,
+      color: 'text-red-600 dark:text-red-400',
+      bgColor: 'bg-red-50 dark:bg-red-900/20',
+      hoverColor: 'group-hover:bg-red-600 dark:group-hover:bg-red-500',
+      borderColor: 'border-red-600 dark:border-red-400'
+    },
+    { 
       key: 'rent_report',
-      name: 'Rent Report', 
+      name: localize('تقرير الإيجار', 'Rent Report'),
       route: '/reports/sales/rent',
       icon: Key,
       value: '34',
-      label: 'Active Rent',
+      label: localize('الإيجار النشط', 'Active Rent'),
       trend: '0%',
       trendUp: true,
       color: 'text-orange-600 dark:text-orange-400',
@@ -135,11 +152,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'proposals_report',
-      name: 'Proposals Report', 
+      name: localize('تقرير العروض', 'Proposals Report'),
       route: '/reports/sales/proposals',
       icon: FileText,
       value: '89',
-      label: 'Sent',
+      label: localize('مرسلة', 'Sent'),
       trend: '+15%',
       trendUp: true,
       color: 'text-cyan-600 dark:text-cyan-400',
@@ -149,11 +166,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'check_in_report',
-      name: 'Check In Report', 
+      name: localize('تقرير الزيارات', 'Check In Report'),
       route: '/reports/sales/check-in',
       icon: MapPin,
       value: '210',
-      label: 'Check-ins',
+      label: localize('الزيارات', 'Check-ins'),
       trend: '+6%',
       trendUp: true,
       color: 'text-teal-600 dark:text-teal-400',
@@ -163,11 +180,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'customers_report',
-      name: 'Customers Report', 
+      name: localize('تقرير العملاء', 'Customers Report'),
       route: '/reports/sales/customers',
       icon: Users,
       value: '4,521',
-      label: 'Customers',
+      label: localize('عملاء', 'Customers'),
       trend: '+3%',
       trendUp: true,
       color: 'text-blue-500 dark:text-blue-400',
@@ -177,7 +194,7 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'targets_revenue',
-      name: 'Targets & Revenue', 
+      name: localize('الأهداف والإيرادات', 'Targets & Revenue'),
       route: '/reports/sales/revenue',
       icon: DollarSign,
       value: '$1.2M',
@@ -191,11 +208,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'imports_report',
-      name: 'Imports Report', 
+      name: localize('تقرير الاستيراد', 'Imports Report'),
       route: '/reports/sales/imports',
       icon: Download,
       value: '12k',
-      label: 'Records',
+      label: localize('السجلات', 'Records'),
       trend: '',
       trendUp: true,
       color: `${isLight ? 'text-black' : 'text-white'}`,
@@ -205,11 +222,11 @@ const ReportsDashboard = () => {
     },
     { 
       key: 'export_report',
-      name: 'Export Report', 
+      name: localize('تقرير التصدير', 'Export Report'),
       route: '/reports/sales/exports',
       icon: Upload,
       value: '45',
-      label: 'Generated',
+      label: localize('مُنشأة', 'Generated'),
       trend: '',
       trendUp: true,
       color: `${isLight ? 'text-black' : 'text-white'}`,

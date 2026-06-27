@@ -82,6 +82,7 @@ export const REPORT_MODULES = [
   'Sales Activities',
   'Meetings Report',
   'Reservations Report',
+  'Cancellation Report',
   'Closed Deals',
   'Rent Report',
   'Proposals Report',

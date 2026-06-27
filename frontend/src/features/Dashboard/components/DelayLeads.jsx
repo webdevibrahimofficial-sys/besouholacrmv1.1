@@ -782,6 +782,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 <th scope="col" className="px-6 py-3">{t('Lead Name')}</th>
                 <th scope="col" className="px-6 py-3">{t('Mobile')}</th>
                 <th scope="col" className="px-6 py-3">{t('Actions')}</th>
+                <th scope="col" className="px-6 py-3">{t('Sales Person')}</th>
                 <th scope="col" className="px-6 py-3">{t('Stage')}</th>
                 <th scope="col" className="px-6 py-3">{t('Source')}</th>
                 <th scope="col" className="px-6 py-3">{t('Last Comment')}</th>
@@ -792,7 +793,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
             <tbody>
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  <td colSpan={9} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     {t('No data available')}
                   </td>
                 </tr>
@@ -861,6 +862,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                       </button>
                     </div>
                   </td>
+                  <td className="px-6 py-4">{lead.employeeName || lead.sales_person || '-'}</td>
                   <td className={`px-6 py-4 ${isLight ? 'stage-cell' : ''}`}>{renderUnifiedStageBadge(lead.pipelineStage)}</td>
                   <td className={`px-6 py-4`}>{lead.source || '-'}</td>
                   <td className={`px-6 py-4`}>{lead.lastComment}</td>

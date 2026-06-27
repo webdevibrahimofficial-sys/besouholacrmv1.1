@@ -11,6 +11,7 @@ export const REPORT_PERMISSION_MODULE_BY_KEY = {
   'Targets & Revenue': 'Targets & Revenue',
   'Imports Report': 'Imports Report',
   'Exports Report': 'Exports Report',
+  'Cancellation Report': 'Cancellation Report',
 };
 
 export function getReportPermissions(user) {

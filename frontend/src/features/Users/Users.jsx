@@ -216,6 +216,42 @@ export default function UserManagementUsers() {
   const canChangeUsersPassword = canManageUsers || effectiveControlPerms.includes('changeUserPassword');
   const canDeleteUsers = canManageUsers || effectiveControlPerms.includes('deleteUsers');
   const canRunMultiAction = canManageUsers || effectiveControlPerms.includes('multiAction');
+  const canModifyAdminUsers = canManageUsers;
+
+  const isProtectedAdminUser = (targetUser) => {
+    const targetRole = String(targetUser?.role || '').trim().toLowerCase();
+    return targetRole === 'admin' || targetRole === 'tenant admin' || targetRole === 'tenant-admin';
+  };
+
+  const getUserActionPermissions = (targetUser) => {
+    if (isProtectedAdminUser(targetUser) && !canModifyAdminUsers) {
+      return {
+        canEdit: false,
+        canChangePassword: false,
+        canToggleStatus: false,
+        canDelete: false,
+        canManageRotation: false,
+      };
+    }
+
+    if (isProtectedAdminUser(targetUser)) {
+      return {
+        canEdit: canEditUsers,
+        canChangePassword: canChangeUsersPassword,
+        canToggleStatus: false,
+        canDelete: canDeleteUsers,
+        canManageRotation: canRunMultiAction,
+      };
+    }
+
+    return {
+      canEdit: canEditUsers,
+      canChangePassword: canChangeUsersPassword,
+      canToggleStatus: canToggleUsers,
+      canDelete: canDeleteUsers,
+      canManageRotation: canRunMultiAction,
+    };
+  };
 
   if (!canViewUsers) {
     return (
@@ -1217,6 +1253,9 @@ export default function UserManagementUsers() {
               ) : (
                 <>
                   {sortedAndPaginated.map((u) => (
+                    (() => {
+                      const actionPerms = getUserActionPermissions(u);
+                      return (
                     <tr key={u.id} className="group hover:bg-gray-800/50 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0">
                       <td className="p-3">
                         {canUseBulkSelection && (
@@ -1254,11 +1293,11 @@ export default function UserManagementUsers() {
                       <td className="p-3">
                         <UserActions
                           user={u}
-                          canEdit={canEditUsers}
-                          canChangePassword={canChangeUsersPassword}
-                          canToggleStatus={canToggleUsers}
-                          canDelete={canDeleteUsers}
-                          canManageRotation={canRunMultiAction}
+                          canEdit={actionPerms.canEdit}
+                          canChangePassword={actionPerms.canChangePassword}
+                          canToggleStatus={actionPerms.canToggleStatus}
+                          canDelete={actionPerms.canDelete}
+                          canManageRotation={actionPerms.canManageRotation}
                           isRotationAssigned={assignedRotationUserIds.has(Number(u.id))}
                           isDelayRotation={delayedRotationUserIds.has(Number(u.id))}
                           onPreview={() => handlePreviewUser(u)}
@@ -1273,6 +1312,8 @@ export default function UserManagementUsers() {
                         />
                       </td>
                     </tr>
+                      );
+                    })()
                   ))}
                   {sortedAndPaginated.length === 0 && (
                     <tr>
@@ -1304,6 +1345,9 @@ export default function UserManagementUsers() {
              ))
           ) : (
              sortedAndPaginated.map((u) => (
+               (() => {
+                 const actionPerms = getUserActionPermissions(u);
+                 return (
                <div key={u.id} className=" p-4 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm relative group">
                  <div className="absolute top-4 right-4 rtl:left-4 rtl:right-auto">
                     {canUseBulkSelection && (
@@ -1357,11 +1401,11 @@ export default function UserManagementUsers() {
                      <div className="flex justify-end gap-1">
                         <UserActions
                           user={u}
-                          canEdit={canEditUsers}
-                          canChangePassword={canChangeUsersPassword}
-                          canToggleStatus={canToggleUsers}
-                          canDelete={canDeleteUsers}
-                          canManageRotation={canRunMultiAction}
+                          canEdit={actionPerms.canEdit}
+                          canChangePassword={actionPerms.canChangePassword}
+                          canToggleStatus={actionPerms.canToggleStatus}
+                          canDelete={actionPerms.canDelete}
+                          canManageRotation={actionPerms.canManageRotation}
                           isRotationAssigned={assignedRotationUserIds.has(Number(u.id))}
                           isDelayRotation={delayedRotationUserIds.has(Number(u.id))}
                           onPreview={() => handlePreviewUser(u)}
@@ -1377,6 +1421,8 @@ export default function UserManagementUsers() {
                     </div>
                  </div>
                </div>
+                 );
+               })()
              ))
           )}
           {sortedAndPaginated.length === 0 && !isLoading && (
