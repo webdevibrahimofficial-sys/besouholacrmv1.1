@@ -109,6 +109,10 @@ const LeadForm = ({
     }
   }, [formName]);
 
+  useEffect(() => {
+    autoResizeTextarea(textareaRef.current);
+  }, [compact]);
+
   const handleFieldFocus = () => {
     if (!hasTrackedStart.current) {
       hasTrackedStart.current = true;
@@ -185,10 +189,6 @@ const LeadForm = ({
       fieldRegister.onFocus?.(event);
     },
   });
-
-  useEffect(() => {
-    autoResizeTextarea(textareaRef.current);
-  }, [compact]);
 
   return (
     <form
