@@ -9,9 +9,7 @@ use App\Models\User;
 use App\Models\WebsiteIntakeLog;
 use App\Notifications\DuplicateLeadWarning;
 use App\Notifications\LeadCreated;
-use App\Notifications\LeadAssigned;
 use App\Support\PhoneNormalizer;
-use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -19,8 +17,6 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class WebsiteLeadIntakeService
 {
-    use ResolvesNotificationRecipients;
-
     public function __construct(
         private readonly WebsiteApiKeyService $apiKeyService,
         private readonly WebsiteSourceResolver $sourceResolver,
@@ -165,37 +161,6 @@ class WebsiteLeadIntakeService
         return [$lead, $duplicateOfId ? 'created_duplicate' : 'created'];
     }
 
-    private function notifyAfterCommit(Lead $lead, string $result): void
-    {
-        if (!$lead->assigned_to || !in_array($result, ['created', 'created_duplicate'], true)) {
-            return;
-        }
-
-        $assignee = User::with(['manager', 'team.leader', 'notificationSettings'])->find($lead->assigned_to);
-        if (!$assignee) {
-            return;
-        }
-
-        $notification = new LeadAssigned($lead->fresh(), 'Website Intake');
-        $recipients = $this->buildNotificationRecipients(
-            $assignee,
-            [
-                'assignee' => $assignee,
-                'manager' => $assignee->manager,
-                'team_leader' => $assignee->team?->leader,
-            ],
-            'leads',
-            'notify_assigned_leads'
-        );
-
-        foreach ($recipients as $recipient) {
-            try {
-                $recipient->notify($notification);
-            } catch (\Throwable) {
-            }
-        }
-    }
-
     private function notifyLeadCreated(Lead $lead, string $result): void
     {
         if (!in_array($result, ['created', 'created_duplicate'], true)) {
@@ -207,40 +172,26 @@ class WebsiteLeadIntakeService
             return;
         }
 
-        $recipients = [];
+        $tenantId = (int) $leadFresh->tenant_id;
+        $recipients = User::where('tenant_id', $tenantId)
+            ->whereHas('roles', function ($query) {
+                $query->whereIn('name', [
+                    'Admin',
+                    'Tenant Admin',
+                    'Sales Admin',
+                    'Director',
+                    'Operation Manager',
+                ]);
+            })
+            ->get();
 
-        if ($leadFresh->assigned_to) {
-            $assignee = User::with(['manager', 'team.leader'])->find($leadFresh->assigned_to);
-            if ($assignee) {
-                $recipients[$assignee->id] = $assignee;
-                if ($assignee->manager) {
-                    $recipients[$assignee->manager->id] = $assignee->manager;
-                }
-                $teamLeader = $assignee->team?->leader;
-                if ($teamLeader) {
-                    $recipients[$teamLeader->id] = $teamLeader;
-                }
-            }
-        } else {
-            $tenantId = (int) $leadFresh->tenant_id;
-            $admins = User::where('tenant_id', $tenantId)
-                ->whereHas('roles', function ($query) {
-                    $query->whereIn('name', ['Admin', 'Tenant Admin', 'Sales Manager', 'Branch Manager']);
-                })
-                ->get();
-
-            foreach ($admins as $admin) {
-                $recipients[$admin->id] = $admin;
-            }
-        }
-
-        if (empty($recipients)) {
+        if ($recipients->isEmpty()) {
             return;
         }
 
         $notification = new LeadCreated($leadFresh, 'Website Intake');
 
-        foreach (array_values($recipients) as $recipient) {
+        foreach ($recipients as $recipient) {
             try {
                 $recipient->notify($notification);
             } catch (\Throwable) {
@@ -699,7 +650,6 @@ class WebsiteLeadIntakeService
             }
 
             if ($dispatchNotifications) {
-                $this->notifyAfterCommit($lead, $result);
                 $this->notifyLeadCreated($lead, $result);
             }
 

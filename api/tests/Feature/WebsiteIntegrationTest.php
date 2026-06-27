@@ -10,9 +10,12 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WebsiteConnection;
 use App\Models\WebsiteIntakeLog;
+use App\Notifications\LeadCreated;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class WebsiteIntegrationTest extends TestCase
@@ -123,6 +126,53 @@ class WebsiteIntegrationTest extends TestCase
         $connection = WebsiteConnection::withoutGlobalScopes()->findOrFail($connectionId);
         $this->assertSame(1, (int) $connection->requests_count);
         $this->assertNotNull($connection->last_used_at);
+    }
+
+    public function test_website_lead_notifications_only_go_to_admin_director_and_operations_roles(): void
+    {
+        Notification::fake();
+        setPermissionsTeamId($this->tenant->id);
+
+        $roleNames = [
+            'Admin',
+            'Tenant Admin',
+            'Sales Admin',
+            'Director',
+            'Operation Manager',
+            'Sales Person',
+            'Sales Manager',
+        ];
+
+        $users = collect($roleNames)->mapWithKeys(function (string $roleName) {
+            $role = Role::create([
+                'name' => $roleName,
+                'guard_name' => 'web',
+                'tenant_id' => $this->tenant->id,
+            ]);
+            $user = User::factory()->create(['tenant_id' => $this->tenant->id]);
+            $user->assignRole($role);
+
+            return [$roleName => $user];
+        });
+
+        $lead = Lead::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Website Notification Lead',
+            'phone' => '01000000001',
+            'assigned_to' => $users['Sales Person']->id,
+        ]);
+
+        $service = app(\App\Services\WebsiteLeadIntakeService::class);
+        $method = new \ReflectionMethod($service, 'notifyLeadCreated');
+        $method->invoke($service, $lead, 'created');
+
+        foreach (['Admin', 'Tenant Admin', 'Sales Admin', 'Director', 'Operation Manager'] as $roleName) {
+            Notification::assertSentTo($users[$roleName], LeadCreated::class);
+        }
+
+        foreach (['Sales Person', 'Sales Manager'] as $roleName) {
+            Notification::assertNotSentTo($users[$roleName], LeadCreated::class);
+        }
     }
 
     public function test_lead_leak_detector_submission_generates_and_attaches_pdf_report(): void
