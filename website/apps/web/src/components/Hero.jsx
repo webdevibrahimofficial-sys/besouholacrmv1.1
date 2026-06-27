@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
@@ -240,6 +240,11 @@ const Hero = () => {
   const trustPoints = Array.isArray(hero?.benefit_points) && hero.benefit_points.length > 0
     ? hero.benefit_points
     : ['No credit card required', 'Setup support included', 'Response within 24 hours'];
+  const isDefaultHeadline =
+    hero?.headline === 'One Intelligent CRM' && hero?.headline_accent === 'Built for Your Growth';
+  const headlineLines = isDefaultHeadline
+    ? ['One Intelligent', 'CRM Built for', 'Your Growth']
+    : [hero?.headline, hero?.headline_accent].filter(Boolean);
 
   const handleExploreFeaturesClick = () => {
     const servicesSection = document.getElementById('services');
@@ -248,22 +253,36 @@ const Hero = () => {
     }
   };
 
+  const [panelZoom, setPanelZoom] = useState(0.9);
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      if (w >= 1536) setPanelZoom(0.93);
+      else if (w >= 1280) setPanelZoom(0.89);
+      else if (w >= 1024) setPanelZoom(0.84);
+      else setPanelZoom(0.9);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
   return (
-    <section className="relative flex min-h-screen items-start justify-center overflow-visible pt-[4.65rem] sm:pt-[4.9rem]">
+    <section className="relative flex flex-col justify-center overflow-visible pt-[4.65rem] pb-16 sm:pt-[4.9rem] sm:pb-20 lg:pt-[4.9rem] lg:pb-24 min-h-screen">
       <AnimatedHeroBackground />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(147,114,255,0.18),transparent_32%),linear-gradient(135deg,rgba(7,8,13,0.84),rgba(7,8,13,0.97))]" />
 
-      <div className="relative z-10 mx-auto w-full max-w-[1450px] px-4 py-8 sm:px-5 sm:py-9 lg:px-6 lg:py-10 xl:px-7 xl:py-12 2xl:px-8">
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,0.98fr)_minmax(500px,1.02fr)] lg:items-start lg:gap-6 xl:gap-8 2xl:gap-10">
-          <div className="max-w-2xl lg:max-w-[39rem] lg:pt-10 xl:pt-14">
+      <div className="relative z-10 mx-auto flex w-full max-w-[1450px] items-center px-4 py-6 sm:px-5 sm:py-7 lg:px-6 lg:py-8 xl:px-7 xl:py-10 2xl:px-8">
+        <div className="grid w-full grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(520px,0.92fr)] lg:items-center lg:gap-6 xl:gap-8 2xl:gap-10 py-4 lg:py-0">
+          <div className="max-w-2xl lg:max-w-[42rem] lg:pt-0">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.1 }}
-              className="mb-7 inline-flex items-center gap-2 rounded-full border border-accent-purple/20 bg-accent-purple/10 px-4 py-2 shadow-[0_10px_40px_rgba(147,114,255,0.14)]"
+              className="mb-8 inline-flex items-center gap-3 rounded-full border border-accent-purple/25 bg-accent-purple/10 px-5 py-2.5 shadow-[0_10px_40px_rgba(147,114,255,0.14)]"
             >
               <Sparkles className="h-4 w-4 text-accent-purple" />
-              <span className="text-[0.72rem] uppercase tracking-[0.28em] text-[#c5b8ff]">
+              <span className="text-[0.78rem] uppercase tracking-[0.32em] text-[#c5b8ff] sm:text-[0.82rem]">
                 {hero.badge}
               </span>
             </motion.div>
@@ -272,19 +291,25 @@ const Hero = () => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
-              className="mb-5 max-w-[8.8ch] text-[clamp(2.7rem,10vw,4rem)] font-bold uppercase leading-[0.97] text-white sm:max-w-[9.2ch] sm:text-[clamp(3.1rem,8vw,4.3rem)] lg:max-w-[8.8ch] lg:text-[4rem] xl:text-[4.3rem] 2xl:text-[4.55rem]"
+              className="mb-6 max-w-[15ch] text-[clamp(1.8rem,3.8vw,2.4rem)] font-black uppercase leading-[1.0] tracking-[-0.02em] text-white lg:text-[2.6rem] xl:text-[2.9rem] 2xl:text-[3.1rem]"
             >
-              <span className="text-gradient">{hero.headline}</span>
-              {hero.headline_accent ? <span className="block text-white">{hero.headline_accent}</span> : null}
+              {headlineLines.map((line, index) => (
+                <span
+                  key={line}
+                  className="block text-gradient"
+                >
+                  {line}
+                </span>
+              ))}
             </motion.h1>
 
             <motion.p
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.35 }}
-              className="mb-8 max-w-[34rem] text-[1.02rem] leading-[1.55] text-gray-300 md:text-[1.08rem]"
+              className="mb-9 text-[0.95rem] leading-[1.6] text-gray-300 lg:text-[1rem]"
             >
-              {hero.subtitle || 'Capture leads, automate follow-ups, manage your team, and close deals faster with one intelligent CRM.'}
+              {hero.subtitle || 'Capture leads, automate follow-ups, and close deals faster with one intelligent CRM.'}
             </motion.p>
 
             <motion.div
@@ -323,7 +348,7 @@ const Hero = () => {
             >
               {trustPoints.map((point) => (
                 <div key={point} className="flex items-center gap-2">
-                  <span className="text-[1rem] font-semibold text-accent-purple">✓</span>
+                  <span className="text-[1rem] font-semibold text-accent-purple">{'\u2713'}</span>
                   <span>{point}</span>
                 </div>
               ))}
@@ -335,13 +360,12 @@ const Hero = () => {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8, delay: 0.4 }}
             id="hero-demo-panel"
-            className="lg:sticky lg:top-24 lg:ml-auto lg:max-w-[900px] xl:top-28"
+            className="lg:ml-auto lg:max-w-[860px]"
           >
-            <div>
-              <div className="origin-top-right scale-[0.9] lg:mt-1 xl:scale-[0.92] 2xl:scale-[0.95]">
+            <div style={{ zoom: panelZoom }}>
                 <DashboardPanel
                   title={dashboardPanel.title || 'Dashboard'}
-                  demoCtaText={dashboardPanel.demo_cta_text || 'See how it works'}
+                  demoCtaText={dashboardPanel.demo_cta_text || 'Watch Demo'}
                   pipelineTitle={dashboardPanel.pipeline_title || 'Pipeline stages'}
                   pipelineStages={pipelineStages}
                   delayCount={delayCount}
@@ -353,7 +377,6 @@ const Hero = () => {
                   rankingActionsLabel={dashboardPanel.ranking_actions_label || 'Actions'}
                   rankingCtaText={dashboardPanel.ranking_cta_text || 'View full ranking ->'}
                 />
-              </div>
             </div>
           </motion.div>
         </div>
