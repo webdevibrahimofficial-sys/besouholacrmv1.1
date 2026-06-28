@@ -162,10 +162,13 @@ const MatchingSettings = lazy(() => import('../pages/settings/operations/Matchin
 const RentConfiguration = lazy(() => import('../pages/settings/operations/RentConfiguration'))
 
 // --- System Admin ---
-const SystemAdminDashboard = lazy(() => import('../pages/SystemAdminDashboard'))
-const TenantSetup = lazy(() => import('../pages/settings/TenantSetup'))
-const SystemIntegrations = lazy(() => import('../pages/SystemIntegrations'))
-const SystemErrorLog = lazy(() => import('../pages/SystemErrorLog'))
+const SystemAdminDashboard  = lazy(() => import('../pages/SystemAdminDashboard'))
+const TenantSetup           = lazy(() => import('../pages/settings/TenantSetup'))
+const SystemSubscriptions   = lazy(() => import('../pages/SystemSubscriptions'))
+const SystemModules         = lazy(() => import('../pages/SystemModules'))
+const SystemSettings        = lazy(() => import('../pages/SystemSettings'))
+const SystemIntegrations    = lazy(() => import('../pages/SystemIntegrations'))
+const SystemErrorLog        = lazy(() => import('../pages/SystemErrorLog'))
 
 // --- User Management ---
 const UserManagementUsers = lazy(() => import('@features/Users/Users.jsx'))
@@ -236,7 +239,6 @@ function SuperAdminRoute() {
     roleLower.includes('super admin') ||
     roleLower.includes('superadmin') ||
     emailLower === 'system@besouhoula.com' ||
-    emailLower === 'admin@example.com' ||
     emailLower === 'admin@besouhoula.com'
 
   if (!isSuperAdmin) {
@@ -485,10 +487,10 @@ export default function AppRouter() {
               <Route path="/system/dashboard" element={<SystemAdminDashboard />} />
               <Route path="/system/tenants" element={<TenantSetup />} />
               
-              {/* Mapped Routes for Sidebar Items */}
-              <Route path="/system/subscriptions" element={<TenantSetup section="subscriptions" />} />
-              <Route path="/system/modules" element={<TenantSetup section="modules" />} />
-              <Route path="/system/settings" element={<TenantSetup section="admin-settings" />} />
+              {/* Dedicated Super Admin pages (Phase 3) */}
+              <Route path="/system/subscriptions" element={<SystemSubscriptions />} />
+              <Route path="/system/modules"       element={<SystemModules />} />
+              <Route path="/system/settings"      element={<SystemSettings />} />
               
               <Route path="/system/integrations" element={<SystemIntegrations />} />
               <Route path="/system/website" element={<WebsiteCms />} />

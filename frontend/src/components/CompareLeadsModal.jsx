@@ -391,6 +391,16 @@ function getFieldValueForKey(lead, key) {
   if (key === 'notes') return lead.last_comment || lead.lastComment || lead.notes || lead.description
   if (key === 'phone') return lead.phone || lead.mobile
   if (key === 'name') return lead.name || lead.fullName
+  if (key === 'project') {
+    return (
+      lead.project_name ||
+      lead.projectName ||
+      lead.project?.name ||
+      lead.project?.name_ar ||
+      lead.project ||
+      null
+    )
+  }
   if (key === 'stage') {
     const status = String(lead.status || '').toLowerCase()
     const stage = String(lead.stage || lead.Stage || '').trim()

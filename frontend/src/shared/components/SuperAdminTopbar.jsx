@@ -33,20 +33,19 @@ const FlagEG = () => (
 )
 
 export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) {
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
   const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const navigate = useNavigate();
   const { user, logout } = useAppState();
-  
+
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
-  
+
   const profileRef = useRef(null);
   const languageRef = useRef(null);
 
-  // Close dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(event) {
       if (profileRef.current && !profileRef.current.contains(event.target)) {
@@ -56,50 +55,54 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
         setIsLanguageOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const headerTone = isLight ? 'bg-white border-b border-gray-200' : 'bg-[#0f172a] border-b border-gray-800';
   const iconBtnClass = `p-2 rounded-lg transition-colors duration-200 ${isLight ? 'hover:bg-gray-100 text-gray-600' : 'hover:bg-gray-800 text-gray-300'}`;
+  const userInitials = String(user?.name || 'Super Admin')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
-    <header className={`sticky top-0 z-40 h-16 flex items-center justify-between px-4 md:px-6 ${headerTone}`}>
-      {/* Left: Mobile Toggle & Title */}
-      <div className="flex items-center gap-4">
+    <header className={`sticky top-0 z-40 h-14 flex items-center justify-between px-5 md:px-8 xl:px-10 ${headerTone}`}>
+      <div className="flex items-center gap-4 min-w-0">
         <button
           onClick={onMobileToggle}
           className="md:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
         >
           {mobileSidebarOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
-        
-        <h1 className="text-lg font-bold truncate">
+
+        <h1 className="text-base md:text-lg font-bold truncate">
           {t('Super Admin Panel')}
         </h1>
       </div>
 
-      {/* Right: Actions */}
-      <div className="flex items-center gap-3">
-        {/* Language Switcher */}
+      <div className="flex items-center gap-2 md:gap-3">
         <div className="relative" ref={languageRef}>
-          <button 
+          <button
             onClick={() => setIsLanguageOpen(!isLanguageOpen)}
             className={iconBtnClass}
             title={t('Change Language')}
           >
             {i18n.language === 'ar' ? <FlagEG /> : <FlagUS />}
           </button>
-          
+
           {isLanguageOpen && (
             <div className={`absolute top-12 ${isRTL ? 'left-0' : 'right-0'} w-40 py-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50`}>
-              <button 
+              <button
                 onClick={() => { i18n.changeLanguage('en'); setIsLanguageOpen(false); }}
                 className="flex items-center gap-3 w-full px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-left"
               >
                 <FlagUS /> <span>English</span>
               </button>
-              <button 
+              <button
                 onClick={() => { i18n.changeLanguage('ar'); setIsLanguageOpen(false); }}
                 className="flex items-center gap-3 w-full px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-left"
               >
@@ -109,7 +112,6 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
           )}
         </div>
 
-        {/* Theme Toggle */}
         <button
           onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
           className={iconBtnClass}
@@ -118,14 +120,14 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
           {resolvedTheme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
-        {/* Profile Menu */}
         <div className="relative" ref={profileRef}>
           <button
             onClick={() => setIsProfileOpen(!isProfileOpen)}
             className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            title={user?.name || 'Super Admin'}
           >
             <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
-              SA
+              {userInitials || 'SA'}
             </div>
           </button>
 
@@ -135,7 +137,7 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
                 <p className="text-sm font-medium truncate">{user?.name || 'Super Admin'}</p>
                 <p className="text-xs text-gray-500 truncate">{user?.email || 'system@besouhoula.com'}</p>
               </div>
-              
+
               <div className="py-1">
                 <button
                   onClick={() => navigate('/system/profile')}

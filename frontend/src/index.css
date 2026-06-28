@@ -29,6 +29,7 @@ body {
   font-family: "Inter", "Cairo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Noto Sans", sans-serif;
   background: var(--app-bg);
   color: var(--theme-text); /* Updated primary text color */
+  overflow-x: hidden;
 }
 /* Stage color swatch variables used by Settings palette */
 :root {

@@ -337,6 +337,25 @@ class LeadController extends Controller
     }
 
     /**
+     * Keep the user's real pre-duplicate stage only.
+     * "Duplicate" is an internal system stage and should never be stored
+     * as the business stage the user selected before duplicate detection.
+     */
+    private function sanitizeDuplicateEnteredStage($stage): ?string
+    {
+        $stage = trim((string) $stage);
+        if ($stage === '') {
+            return null;
+        }
+
+        if (strtolower($stage) === 'duplicate') {
+            return null;
+        }
+
+        return $stage;
+    }
+
+    /**
      * Normalize a phone input into individual stored segments.
      * Supports slash/comma/pipe/newline separated values from the edit modal.
      *
@@ -534,6 +553,8 @@ class LeadController extends Controller
             return $paginatedLeads;
         }
 
+        $this->appendLeadDisplayLabels($paginatedLeads->getCollection());
+
         $paginatedLeads->getCollection()->transform(function ($lead) use ($user) {
             $existingPermissions = is_array($lead->permissions ?? null) ? $lead->permissions : [];
             $lead->permissions = array_merge($existingPermissions, [
@@ -545,6 +566,63 @@ class LeadController extends Controller
         });
 
         return $paginatedLeads;
+    }
+
+    /**
+     * Populate display labels like project_name/item_name when only foreign keys exist.
+     */
+    private function appendLeadDisplayLabels($leads): void
+    {
+        $collection = collect($leads instanceof \Illuminate\Support\Collection ? $leads->all() : [$leads])
+            ->filter(fn ($lead) => $lead instanceof Lead);
+
+        if ($collection->isEmpty()) {
+            return;
+        }
+
+        $projectIds = $collection->pluck('project_id')->filter()->unique()->values();
+        $itemIds = $collection->pluck('item_id')->filter()->unique()->values();
+
+        $projectsById = $projectIds->isEmpty()
+            ? collect()
+            : Project::query()
+                ->whereIn('id', $projectIds)
+                ->get(['id', 'name', 'name_ar'])
+                ->keyBy('id');
+
+        $itemSelectColumns = ['id'];
+        foreach (['name', 'title'] as $column) {
+            if (\Illuminate\Support\Facades\Schema::hasColumn('items', $column)) {
+                $itemSelectColumns[] = $column;
+            }
+        }
+
+        $itemsById = $itemIds->isEmpty()
+            ? collect()
+            : \App\Models\Item::query()
+                ->whereIn('id', $itemIds)
+                ->get($itemSelectColumns)
+                ->keyBy('id');
+
+        foreach ($collection as $lead) {
+            $projectName = trim((string) ($lead->project_name ?? ''));
+            if ($projectName === '' && !empty($lead->project_id)) {
+                $project = $projectsById->get($lead->project_id);
+                $projectName = trim((string) ($project?->name ?? $project?->name_ar ?? ''));
+            }
+            if ($projectName !== '') {
+                $lead->setAttribute('project_name', $projectName);
+            }
+
+            $itemName = trim((string) ($lead->item_name ?? ''));
+            if ($itemName === '' && !empty($lead->item_id)) {
+                $item = $itemsById->get($lead->item_id);
+                $itemName = trim((string) ($item?->name ?? $item?->title ?? ''));
+            }
+            if ($itemName !== '') {
+                $lead->setAttribute('item_name', $itemName);
+            }
+        }
     }
 
     
@@ -2677,10 +2755,10 @@ class LeadController extends Controller
                 }
                 
                 if ($isDuplicate) {
-                    $enteredStage = (string) ($data['stage'] ?? '');
+                    $enteredStage = $this->sanitizeDuplicateEnteredStage($data['stage'] ?? null);
                     $meta = is_array($data['meta_data'] ?? null) ? ($data['meta_data'] ?? []) : [];
-                    if (trim($enteredStage) !== '') {
-                        $meta['entered_stage'] = trim($enteredStage);
+                    if ($enteredStage !== null) {
+                        $meta['entered_stage'] = $enteredStage;
                     }
                     $data['meta_data'] = $meta;
 
@@ -2980,6 +3058,7 @@ class LeadController extends Controller
             'is_referral_supervisor' => $isReferral,
         ];
         $lead->permissions = $permissions;
+        $this->appendLeadDisplayLabels($lead);
 
         return response()->json($lead);
     }
@@ -3741,7 +3820,7 @@ class LeadController extends Controller
 
                 $stage = $availableStages[$stageKey];
 
-                $enteredStage = $stage;
+                $enteredStage = $this->sanitizeDuplicateEnteredStage($stage);
                 $status = 'new';
                 
                 // 4. Duplicate Logic Check
@@ -3821,8 +3900,8 @@ class LeadController extends Controller
                 if ($duplicateOfId) {
                     $metaData['duplicate_of'] = $duplicateOfId;
                 }
-                if ($status === 'duplicate' && trim((string) $enteredStage) !== '') {
-                    $metaData['entered_stage'] = trim((string) $enteredStage);
+                if ($status === 'duplicate' && $enteredStage !== null) {
+                    $metaData['entered_stage'] = $enteredStage;
                 }
 
                 $lead = null;
@@ -4676,9 +4755,12 @@ class LeadController extends Controller
                 }
             });
             
+            $freshLead = $originalLead->fresh(['actions', 'activities', 'assignedAgent:id,name', 'creator:id,name']);
+            $this->appendLeadDisplayLabels($freshLead);
+
             return response()->json([
                 'message' => 'Duplicate lead resolved successfully',
-                'lead' => $originalLead->fresh(['actions', 'activities', 'assignedAgent:id,name', 'creator:id,name'])
+                'lead' => $freshLead
             ]);
             
         } catch (\Exception $e) {

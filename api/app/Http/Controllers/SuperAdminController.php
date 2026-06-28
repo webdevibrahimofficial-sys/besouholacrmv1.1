@@ -287,6 +287,127 @@ class SuperAdminController extends Controller
     }
 
     /**
+     * High-level platform stats for the Super Admin Dashboard.
+     * Reads only from the landlord DB — zero impact on tenant data.
+     */
+    public function stats(Request $request)
+    {
+        $this->authorizeSuperAdmin($request);
+
+        $now           = now();
+        $thirtyDaysAgo = $now->copy()->subDays(30);
+
+        $totalTenants   = Tenant::count();
+        $activeTenants  = Tenant::where('status', 'active')->count();
+        $expiredTenants = Tenant::where('status', 'expired')->count();
+        $cancelledTenants = Tenant::where('status', 'cancelled')->count();
+        $newLast30      = Tenant::where('created_at', '>=', $thirtyDaysAgo)->count();
+
+        // Tenants expiring within the next 30 days (active, non-lifetime)
+        $expiringIn30 = Tenant::where('status', 'active')
+            ->whereNotNull('end_date')
+            ->whereBetween('end_date', [$now, $now->copy()->addDays(30)])
+            ->count();
+
+        // Monthly new tenants — last 6 months (for bar chart)
+        $selectedYear = (int) $request->integer('year', $now->year);
+        if ($selectedYear < 2000 || $selectedYear > ($now->year + 5)) {
+            $selectedYear = $now->year;
+        }
+
+        $monthlyNew = [];
+        for ($monthNumber = 1; $monthNumber <= 12; $monthNumber++) {
+            $month = $now->copy()->setYear($selectedYear)->setMonth($monthNumber)->startOfMonth();
+            $monthlyNew[] = [
+                'month' => $month->format('M'),
+                'label' => $month->format('M Y'),
+                'count' => Tenant::whereYear('created_at', $month->year)
+                                 ->whereMonth('created_at', $month->month)
+                                 ->count(),
+            ];
+        }
+
+        $yearRange = Tenant::selectRaw('MIN(YEAR(created_at)) as min_year, MAX(YEAR(created_at)) as max_year')->first();
+        $firstYear = (int) ($yearRange?->min_year ?: $now->year);
+        $lastYear  = max((int) ($yearRange?->max_year ?: $now->year), $now->year);
+        $availableYears = [];
+        for ($year = $lastYear; $year >= $firstYear; $year--) {
+            $availableYears[] = $year;
+        }
+
+        // Plan distribution (for legend)
+        $planDistribution = Tenant::selectRaw("COALESCE(subscription_plan, 'none') as plan, count(*) as count")
+            ->groupBy('subscription_plan')
+            ->orderByDesc('count')
+            ->get()
+            ->map(fn ($row) => ['plan' => $row->plan, 'count' => (int) $row->count]);
+
+        // Status breakdown
+        $statusBreakdown = Tenant::selectRaw("COALESCE(status, 'unknown') as status, count(*) as count")
+            ->groupBy('status')
+            ->get()
+            ->map(fn ($row) => ['status' => $row->status, 'count' => (int) $row->count]);
+
+        // Recent tenants — last 5 created
+        $recentTenants = Tenant::latest()
+            ->limit(5)
+            ->get()
+            ->map(fn ($t) => [
+                'id'                => $t->id,
+                'name'              => $t->name,
+                'domain'            => $t->domain,
+                'status'            => $t->status ?? 'unknown',
+                'subscription_plan' => $t->subscription_plan ?? 'none',
+                'created_at'        => $t->created_at?->toDateString(),
+                'end_date'          => $t->end_date?->toDateString(),
+            ]);
+
+        // Expiring soon — active tenants expiring in next 30 days, ordered soonest first
+        $expiringSoon = Tenant::where('status', 'active')
+            ->whereNotNull('end_date')
+            ->whereBetween('end_date', [$now, $now->copy()->addDays(30)])
+            ->orderBy('end_date')
+            ->limit(10)
+            ->get()
+            ->map(fn ($t) => [
+                'id'      => $t->id,
+                'name'    => $t->name,
+                'domain'  => $t->domain,
+                'end_date' => $t->end_date?->toDateString(),
+                'days_left' => (int) $now->diffInDays($t->end_date, false),
+            ]);
+
+        // Company type breakdown
+        $companyTypeBreakdown = Tenant::selectRaw("COALESCE(company_type, 'General') as company_type, count(*) as count")
+            ->groupBy('company_type')
+            ->get()
+            ->map(fn ($row) => ['type' => $row->company_type, 'count' => (int) $row->count]);
+
+        // Lifetime vs dated subscriptions
+        $lifetimeCount = Tenant::whereNull('end_date')->where('status', 'active')->count();
+        $datedCount    = Tenant::whereNotNull('end_date')->where('status', 'active')->count();
+
+        return response()->json([
+            'total_tenants'          => $totalTenants,
+            'active_tenants'         => $activeTenants,
+            'expired_tenants'        => $expiredTenants,
+            'cancelled_tenants'      => $cancelledTenants,
+            'new_last_30_days'       => $newLast30,
+            'expiring_in_30'         => $expiringIn30,
+            'selected_year'          => $selectedYear,
+            'available_years'        => $availableYears,
+            'monthly_new'            => $monthlyNew,
+            'plan_distribution'      => $planDistribution,
+            'status_breakdown'       => $statusBreakdown,
+            'recent_tenants'         => $recentTenants,
+            'expiring_soon'          => $expiringSoon,
+            'company_type_breakdown' => $companyTypeBreakdown,
+            'lifetime_count'         => $lifetimeCount,
+            'dated_count'            => $datedCount,
+        ]);
+    }
+
+    /**
      * Ensure the user is a super admin.
      */
     protected function authorizeSuperAdmin(Request $request)

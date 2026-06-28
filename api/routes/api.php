@@ -168,6 +168,9 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])
     // Global System Settings
     Route::get('settings', [\App\Http\Controllers\SystemSettingController::class, 'index']);
     Route::post('settings', [\App\Http\Controllers\SystemSettingController::class, 'update']);
+
+    // Dashboard Stats
+    Route::get('stats', [SuperAdminController::class, 'stats']);
 });
 
 // ==================================================================================
