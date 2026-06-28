@@ -453,16 +453,16 @@ export default function CancellationReport() {
 
   const metricCards = [
     {
-      label: isRTL ? 'الليدز الملغية' : 'Cancelled Leads',
-      value: loading ? '...' : formatNumber(report?.summary?.totalCancelled),
-      icon: CircleX,
-      accentClass: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-300',
-    },
-    {
       label: isRTL ? 'إجمالي الليدز' : 'Total Leads',
       value: loading ? '...' : formatNumber(report?.summary?.totalLeads),
       icon: User,
       accentClass: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300',
+    },
+    {
+      label: isRTL ? 'الليدز الملغية' : 'Cancelled Leads',
+      value: loading ? '...' : formatNumber(report?.summary?.totalCancelled),
+      icon: CircleX,
+      accentClass: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-300',
     },
     {
       label: isRTL ? 'معدل الإلغاء' : 'Cancellation Rate',
@@ -634,7 +634,7 @@ export default function CancellationReport() {
           isLight={isLight}
         />
         <RankedListCard
-          title={isRTL ? 'أعلى مراحل الإلغاء' : 'Top Cancellation Stages'}
+          title={isRTL ? 'أعلى المراحل قبل الإلغاء' : 'Top Stages Before Cancellation'}
           items={report?.topLists?.stages || []}
           emptyTitle={emptyTitle}
           emptySubtitle={emptySubtitle}

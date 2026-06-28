@@ -669,17 +669,19 @@ class ReportsController extends Controller
         $project = trim((string) $request->input('project', ''));
         $source = trim((string) $request->input('source', ''));
         $cancelReasonFilter = trim((string) $request->input('cancel_reason', ''));
+        $tenantCancelReasonRows = CancelReason::query()
+            ->when($user->tenant_id, fn ($query) => $query->where('tenant_id', $user->tenant_id))
+            ->get(['title', 'title_ar']);
         $cancelReasonCandidates = [];
         if ($cancelReasonFilter !== '') {
             $cancelReasonCandidates[$this->normalizeLooseText($cancelReasonFilter)] = true;
 
-            $matchedReasons = CancelReason::query()
-                ->when($user->tenant_id, fn ($query) => $query->where('tenant_id', $user->tenant_id))
-                ->where(function ($query) use ($cancelReasonFilter) {
-                    $query->where('title', $cancelReasonFilter)
-                        ->orWhere('title_ar', $cancelReasonFilter);
+            $matchedReasons = $tenantCancelReasonRows
+                ->filter(function ($reasonRow) use ($cancelReasonFilter) {
+                    return (string) ($reasonRow->title ?? '') === $cancelReasonFilter
+                        || (string) ($reasonRow->title_ar ?? '') === $cancelReasonFilter;
                 })
-                ->get(['title', 'title_ar']);
+                ->values();
 
             foreach ($matchedReasons as $reasonRow) {
                 foreach ([$reasonRow->title, $reasonRow->title_ar] as $candidate) {
@@ -986,6 +988,58 @@ class ReportsController extends Controller
         arsort($sourceCounts);
         arsort($projectCounts);
 
+        $normalizedReasonCounts = [];
+        foreach ($reasonCounts as $label => $count) {
+            $normalizedLabel = $this->normalizeLooseText($label);
+            if ($normalizedLabel === '') {
+                continue;
+            }
+            $normalizedReasonCounts[$normalizedLabel] = ($normalizedReasonCounts[$normalizedLabel] ?? 0) + (int) $count;
+        }
+
+        $configuredReasonList = [];
+        $configuredReasonKeys = [];
+        foreach ($tenantCancelReasonRows as $reasonRow) {
+            $displayLabel = $this->normalizeReportLabel($reasonRow->title ?: $reasonRow->title_ar, 'No Reason');
+            $candidateKeys = array_values(array_unique(array_filter([
+                $this->normalizeLooseText($reasonRow->title),
+                $this->normalizeLooseText($reasonRow->title_ar),
+            ])));
+
+            $count = 0;
+            foreach ($candidateKeys as $candidateKey) {
+                $configuredReasonKeys[$candidateKey] = true;
+                $count += (int) ($normalizedReasonCounts[$candidateKey] ?? 0);
+            }
+
+            $configuredReasonList[] = [
+                'label' => $displayLabel,
+                'count' => $count,
+            ];
+        }
+
+        usort($configuredReasonList, function ($a, $b) {
+            if (($b['count'] ?? 0) === ($a['count'] ?? 0)) {
+                return strcmp((string) ($a['label'] ?? ''), (string) ($b['label'] ?? ''));
+            }
+            return ($b['count'] ?? 0) <=> ($a['count'] ?? 0);
+        });
+
+        $unconfiguredReasonList = [];
+        foreach ($reasonCounts as $label => $count) {
+            $normalizedLabel = $this->normalizeLooseText($label);
+            if ($normalizedLabel === '' || isset($configuredReasonKeys[$normalizedLabel])) {
+                continue;
+            }
+
+            $unconfiguredReasonList[] = [
+                'label' => $label,
+                'count' => (int) $count,
+            ];
+        }
+
+        $allReasonList = array_merge($configuredReasonList, $unconfiguredReasonList);
+
         $topReasonColumns = array_slice(array_keys($reasonCounts), 0, 3);
         $tableRows = array_values(array_map(function ($row) use ($topReasonColumns) {
             foreach ($topReasonColumns as $reasonName) {
@@ -1054,7 +1108,7 @@ class ReportsController extends Controller
             'topLists' => [
                 'stages' => $toRankedList($stageCounts),
                 'sales' => $toRankedList($salesCancelCounts),
-                'reasons' => $toRankedList($reasonCounts),
+                'reasons' => $allReasonList,
             ],
             'table' => [
                 'reasonColumns' => $topReasonColumns,
@@ -1063,7 +1117,7 @@ class ReportsController extends Controller
             'options' => [
                 'sources' => array_values(array_keys($sourceOptions)),
                 'projects' => array_values(array_keys($projectOptions)),
-                'reasons' => array_values(array_keys($reasonCounts)),
+                'reasons' => array_values(array_map(fn ($item) => $item['label'], $allReasonList)),
                 'companyType' => $companyType,
             ],
         ]);
