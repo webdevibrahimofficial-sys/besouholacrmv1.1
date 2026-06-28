@@ -15,6 +15,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\CancelReason;
 use App\Models\Item;
+use App\Models\Project;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -267,7 +268,7 @@ class ReportsController extends Controller
         ];
     }
 
-    private function resolveLeadProjectOrItemLabel($lead, array $itemsById, string $companyType): string
+    private function resolveLeadProjectOrItemLabel($lead, array $itemsById, array $projectsById, string $companyType): string
     {
         if ($companyType === 'general') {
             $meta = is_array($lead?->meta_data ?? null) ? $lead->meta_data : [];
@@ -282,7 +283,13 @@ class ReportsController extends Controller
             return $this->normalizeReportLabel($label, 'Unknown Item');
         }
 
-        return $this->normalizeReportLabel($lead?->project ?? $lead?->project_id, 'Unknown Project');
+        $projectId = (int) ($lead?->project_id ?? 0);
+        $label = trim((string) (
+            $lead?->project
+            ?? ($projectId > 0 ? ($projectsById[$projectId] ?? '') : '')
+        ));
+
+        return $this->normalizeReportLabel($label, 'Unknown Project');
     }
 
     private function collectManagerScopeUserIds(?string $managerId, ?int $tenantId): array
@@ -805,6 +812,25 @@ class ReportsController extends Controller
                 })
                 ->all();
 
+        $projectIds = $leadRows
+            ->pluck('project_id')
+            ->filter(fn ($value) => !empty($value))
+            ->map(fn ($value) => (int) $value)
+            ->unique()
+            ->values();
+
+        $projectsById = empty($projectIds->all())
+            ? []
+            : Project::query()
+                ->when($user->tenant_id, fn ($query) => $query->where('tenant_id', $user->tenant_id))
+                ->whereIn('id', $projectIds)
+                ->get(['id', 'name', 'name_ar'])
+                ->mapWithKeys(function ($project) {
+                    $label = trim((string) ($project->name ?? $project->name_ar ?? ''));
+                    return [(int) $project->id => $label];
+                })
+                ->all();
+
         $totalLeads = $leadRows->count();
         $leadCountsBySalesId = [];
         $sourceOptions = [];
@@ -821,7 +847,7 @@ class ReportsController extends Controller
                 $sourceOptions[$sourceLabel] = true;
             }
 
-            $projectLabel = $this->resolveLeadProjectOrItemLabel($lead, $itemsById, $companyType);
+            $projectLabel = $this->resolveLeadProjectOrItemLabel($lead, $itemsById, $projectsById, $companyType);
             if ($projectLabel !== '') {
                 $projectOptions[$projectLabel] = true;
             }
@@ -867,7 +893,7 @@ class ReportsController extends Controller
                 : $this->normalizeReportLabel($lead?->assignedAgent?->name, 'Unassigned');
             $stageName = $this->extractCancelStageFromAction($action);
             $sourceName = $this->normalizeReportLabel($lead?->source, 'Unknown Source');
-            $projectName = $this->resolveLeadProjectOrItemLabel($lead, $itemsById, $companyType);
+            $projectName = $this->resolveLeadProjectOrItemLabel($lead, $itemsById, $projectsById, $companyType);
             $entryRevenue = $this->extractCancellationRevenue($action, $lead);
 
             $entries[] = [
@@ -902,7 +928,7 @@ class ReportsController extends Controller
                 'reason' => $this->normalizeReportLabel($lead?->status, 'No Reason'),
                 'stage' => $this->extractCancellationStageFromLead($lead),
                 'source' => $this->normalizeReportLabel($lead?->source, 'Unknown Source'),
-                'project' => $this->resolveLeadProjectOrItemLabel($lead, $itemsById, $companyType),
+                'project' => $this->resolveLeadProjectOrItemLabel($lead, $itemsById, $projectsById, $companyType),
                 'lostRevenue' => $this->normalizeMoneyValue($lead?->estimated_value),
                 'cancelled_at' => optional($lead->updated_at)->toDateTimeString(),
             ];
@@ -992,7 +1018,8 @@ class ReportsController extends Controller
             $palette = ['#ef4444', '#f97316', '#f59e0b', '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899'];
             $segments = [];
             $index = 0;
-            foreach (array_slice($counts, 0, $limit, true) as $label => $count) {
+            $visibleCounts = array_slice($counts, 0, $limit, true);
+            foreach ($visibleCounts as $label => $count) {
                 $segments[] = [
                     'label' => $label,
                     'value' => (int) $count,
@@ -1000,6 +1027,16 @@ class ReportsController extends Controller
                 ];
                 $index++;
             }
+
+            $otherCount = array_sum($counts) - array_sum($visibleCounts);
+            if ($otherCount > 0) {
+                $segments[] = [
+                    'label' => 'Other',
+                    'value' => (int) $otherCount,
+                    'color' => '#94a3b8',
+                ];
+            }
+
             return $segments;
         };
 
