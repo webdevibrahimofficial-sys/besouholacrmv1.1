@@ -229,17 +229,8 @@ function ProtectedModuleRoute({ moduleKey, requiredPermission }) {
 }
 
 function SuperAdminRoute() {
-  const { user, subscription } = useAppState()
-  const roleLower = String(user?.role || '').toLowerCase()
-  const emailLower = String(user?.email || '').toLowerCase()
-  const isSuperAdmin =
-    !!user?.is_super_admin ||
-    subscription?.plan === 'super_admin' ||
-    roleLower === 'owner' ||
-    roleLower.includes('super admin') ||
-    roleLower.includes('superadmin') ||
-    emailLower === 'system@besouhoula.com' ||
-    emailLower === 'admin@besouhoula.com'
+  const { user } = useAppState()
+  const isSuperAdmin = !!user?.is_super_admin
 
   if (!isSuperAdmin) {
     return <Navigate to="/dashboard" replace />
@@ -486,6 +477,7 @@ export default function AppRouter() {
               <Route path="/system" element={<Navigate to="/system/dashboard" replace />} />
               <Route path="/system/dashboard" element={<SystemAdminDashboard />} />
               <Route path="/system/tenants" element={<TenantSetup />} />
+              <Route path="/system/tenants/new" element={<TenantSetup />} />
               
               {/* Dedicated Super Admin pages (Phase 3) */}
               <Route path="/system/subscriptions" element={<SystemSubscriptions />} />

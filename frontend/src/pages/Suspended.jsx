@@ -9,6 +9,8 @@ export default function Suspended() {
   const reason = params.get('reason')
 
   const isSubscriptionExpired = reason === 'subscription_expired'
+  const isCancelled = reason === 'cancelled'
+  const isSuspended = reason === 'suspended' || (!isSubscriptionExpired && !isCancelled)
   const isAr = (typeof document !== 'undefined' && document?.documentElement?.dir === 'rtl') || false
 
   return (
@@ -18,12 +20,16 @@ export default function Suspended() {
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
             {isSubscriptionExpired
               ? (isAr ? 'انتهى الاشتراك' : 'Subscription Expired')
-              : (isAr ? 'تم إيقاف الحساب' : 'Account Suspended')}
+              : isCancelled
+                ? (isAr ? 'تم إلغاء مساحة العمل' : 'Workspace Cancelled')
+                : (isAr ? 'تم تعليق مساحة العمل' : 'Workspace Suspended')}
           </h2>
           <p className="mt-2 text-sm text-gray-600">
             {isSubscriptionExpired
-              ? (isAr ? 'انتهت مدة الاشتراك. برجاء تجديد الاشتراك لاستعادة الوصول.' : 'Your subscription has ended. Please renew your subscription to restore access.')
-              : (isAr ? 'تم إيقاف الحساب بسبب مشاكل في الفوترة أو مخالفة السياسات.' : 'Your account has been suspended due to billing issues or policy violations.')}
+              ? (isAr ? 'انتهى الاشتراك. لو سمحت توجه لخدمة العملاء لتجديد الاشتراك.' : 'Your subscription has expired. Please contact customer service to renew your subscription.')
+              : isCancelled
+                ? (isAr ? 'تم إلغاء مساحة العمل الحالية. برجاء التواصل مع خدمة العملاء للمساعدة.' : 'This workspace has been cancelled. Please contact customer service for assistance.')
+                : (isAr ? 'تم تعليق مساحة العمل الحالية. برجاء التواصل مع خدمة العملاء للمساعدة.' : 'This workspace has been suspended. Please contact customer service for assistance.')}
           </p>
         </div>
         <div className="rounded-md bg-red-50 p-4">
@@ -37,25 +43,29 @@ export default function Suspended() {
               <h3 className="text-sm font-medium text-red-800">
                 {isSubscriptionExpired
                   ? (isAr ? 'تم انتهاء الاشتراك' : 'Subscription Ended')
-                  : (isAr ? 'تم رفض الوصول' : 'Access Denied')}
+                  : isCancelled
+                    ? (isAr ? 'تم إلغاء الوصول' : 'Access Cancelled')
+                    : (isAr ? 'تم رفض الوصول' : 'Access Suspended')}
               </h3>
               <div className="mt-2 text-sm text-red-700">
                 <p>
                   {isSubscriptionExpired
-                    ? (isAr ? 'برجاء التواصل مع الدعم أو تجديد الاشتراك لمتابعة استخدام مساحة العمل.' : 'Please contact support or renew your subscription to continue using this workspace.')
-                    : (isAr ? 'برجاء التواصل مع الدعم أو تحديث بيانات الفوترة لاستعادة الوصول.' : 'Please contact support or update your billing information to restore access.')}
+                    ? (isAr ? 'تم إيقاف تسجيل الدخول إلى مساحة العمل الحالية حتى يتم تجديد الاشتراك من خلال خدمة العملاء.' : 'Login to this workspace is blocked until the subscription is renewed through customer service.')
+                    : isCancelled
+                      ? (isAr ? 'تم منع الوصول إلى مساحة العمل الملغاة. برجاء مراجعة خدمة العملاء لأي إجراءات لاحقة.' : 'Access to this cancelled workspace is blocked. Please contact customer service for next steps.')
+                      : (isAr ? 'تم منع الوصول إلى مساحة العمل المعلقة حتى تقوم خدمة العملاء بإعادة تفعيلها.' : 'Access to this suspended workspace is blocked until customer service reactivates it.')}
                 </p>
               </div>
             </div>
           </div>
         </div>
         <div>
-           <button
-             onClick={() => window.location.reload()}
-             className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-           >
-             Refresh Status
-           </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            {t('Refresh Status')}
+          </button>
         </div>
       </div>
     </div>

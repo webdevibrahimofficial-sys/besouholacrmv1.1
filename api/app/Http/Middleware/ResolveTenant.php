@@ -11,6 +11,34 @@ use Illuminate\Support\Facades\Cache;
 
 class ResolveTenant
 {
+    protected function blockedTenantResponse(Request $request, Tenant $tenant): Response
+    {
+        $status = strtolower((string) ($tenant->status ?? ''));
+
+        if ($status === 'expired') {
+            return response()->json([
+                'code' => 'subscription_expired',
+                'reason' => 'subscription_expired',
+                'status' => $status,
+                'message' => 'Your subscription has expired. Please contact customer service to renew your subscription.',
+                'message_ar' => 'انتهى الاشتراك. لو سمحت توجه لخدمة العملاء لتجديد الاشتراك.',
+                'end_date' => optional($tenant->end_date)->toDateString(),
+            ], 403);
+        }
+
+        return response()->json([
+            'code' => 'tenant_inactive',
+            'reason' => $status ?: 'inactive',
+            'status' => $status,
+            'message' => $status === 'cancelled'
+                ? 'This workspace has been cancelled. Please contact customer service for assistance.'
+                : 'This workspace has been suspended. Please contact customer service for assistance.',
+            'message_ar' => $status === 'cancelled'
+                ? 'تم إلغاء مساحة العمل. برجاء التواصل مع خدمة العملاء للمساعدة.'
+                : 'تم تعليق مساحة العمل. برجاء التواصل مع خدمة العملاء للمساعدة.',
+        ], 403);
+    }
+
     /**
      * Handle an incoming request.
      *
@@ -128,7 +156,7 @@ class ResolveTenant
         }
 
         if ($tenant->status !== 'active' && $tenant->status !== 'trial') {
-            abort(403, 'Tenant is ' . $tenant->status);
+            return $this->blockedTenantResponse($request, $tenant);
         }
 
         // 4. Bind tenant globally

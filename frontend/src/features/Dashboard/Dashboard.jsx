@@ -183,15 +183,7 @@ export const Dashboard = () => {
   const isLight = resolvedTheme === 'light';
   const { user, canAccess, crmSettings } = useAppState();
   const roleLower = String(user?.role || '').toLowerCase();
-  const emailLower = String(user?.email || '').toLowerCase();
-  const isSuperAdmin =
-    !!user?.is_super_admin ||
-    roleLower === 'owner' ||
-    roleLower.includes('super admin') ||
-    roleLower.includes('superadmin') ||
-    emailLower === 'system@besouhoula.com' ||
-    emailLower === 'admin@example.com' ||
-    emailLower === 'admin@besouhoula.com';
+  const isSuperAdmin = !!user?.is_super_admin;
   const isAdmin = roleLower === 'admin';
   const isTeamLeader = roleLower.includes('team leader');
   const isTenantAdmin = roleLower === 'tenant admin' || roleLower === 'tenant-admin';

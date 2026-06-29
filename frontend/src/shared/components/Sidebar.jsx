@@ -483,15 +483,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     roleLower === 'tenant-admin'
   const isDirectorRole = role === 'Director' || roleLower.includes('director')
   const isOperationManagerRole = roleLower.includes('operation manager') || roleLower.includes('operations manager')
-  const isSuperAdmin = !!(
-    user?.is_super_admin || 
-    roleLower.includes('super admin') || 
-    roleLower.includes('superadmin') || 
-    roleLower === 'owner' ||
-    String(user?.email || '').toLowerCase() === 'system@besouhoula.com' ||
-    String(user?.email || '').toLowerCase() === 'admin@example.com' ||
-    String(user?.email || '').toLowerCase() === 'admin@besouhoula.com'
-  )
+  const isSuperAdmin = !!user?.is_super_admin
   const hasFullSettingsAccess = isSuperAdmin || isTenantAdmin || isDirectorRole || isOperationManagerRole
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
@@ -918,12 +910,15 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   // Let's check if there are other sections rendered below.
   
   const inventoryChildren = useMemo(() => {
-    // Check if Super Admin in Global View (no specific company context)
-    // or simply if activeModules contains modules from both worlds.
-    // Ideally, Super Admin should see whatever is in activeModules.
-
     const showBrokerFlag = crmSettings?.showBroker !== false
     const showDeveloperFlag = crmSettings?.showDeveloper !== false
+    const activeModuleSet = new Set((activeModules || []).map(module => String(module || '').trim()))
+    const hasInventoryUmbrella = activeModuleSet.has('inventory')
+    const hasExplicitRealEstateInventory =
+      ['projects', 'properties', 'developers', 'brokers', 'requests'].some(module => activeModuleSet.has(module))
+    const hasExplicitGeneralInventory =
+      ['items', 'orders', 'products', 'suppliers', 'warehouse', 'stockManagement', 'inventoryTransactions'].some(module => activeModuleSet.has(module))
+
     const reChildren = [
       { to: '/inventory/projects', key: 'Projects', module: 'projects' },
       { to: '/inventory/properties', key: 'Properties', module: 'properties' },
@@ -938,23 +933,22 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       { to: '/inventory/requests', key: 'Order Requests', module: 'orders' },
     ].filter(item => canAccess(item.module));
 
-    // If we are strictly a Tenant User, we might want to respect company_type to avoid clutter
-    // But for Super Admin (who might have all modules), we want to show everything available.
-    // The previous logic forced one or the other based on company_type.
-
-    // Improved Logic:
-    // If we have children for Real Estate, show RE Section.
-    // If we have children for General, show General Section.
-    // This handles the "Mixed" case for Super Admin automatically.
-
     const groups = [];
+    const shouldShowRealEstateInventory =
+      reChildren.length > 0 && (
+        isSuperAdmin ||
+        hasExplicitRealEstateInventory ||
+        (hasInventoryUmbrella && isRealEstateTenant && !hasExplicitGeneralInventory)
+      )
 
-    // Only enforce company_type restriction if NOT super admin? 
-    // Actually, relying on activeModules is safer. If the backend says you have 'items', you should see 'items'.
-    // If the backend says you have 'properties', you should see 'properties'.
-    // The backend `enabled_modules` logic dictates what is active.
+    const shouldShowGeneralInventory =
+      genChildren.length > 0 && (
+        isSuperAdmin ||
+        hasExplicitGeneralInventory ||
+        (hasInventoryUmbrella && !isRealEstateTenant && !hasExplicitRealEstateInventory)
+      )
 
-    if (reChildren.length > 0) {
+    if (shouldShowRealEstateInventory) {
       groups.push({
         key: 'Real Estate Inventory',
         isSection: true,
@@ -962,7 +956,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       });
     }
 
-    if (genChildren.length > 0) {
+    if (shouldShowGeneralInventory) {
       groups.push({
         key: 'General Inventory',
         isSection: true,

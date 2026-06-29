@@ -13,24 +13,71 @@ use Illuminate\Support\Facades\Http;
 
 class AuthController extends Controller
 {
+    protected function tenantBlockedReason(?\App\Models\Tenant $tenant): ?string
+    {
+        if (!$tenant) return null;
+
+        $status = strtolower((string) ($tenant->status ?? ''));
+        if (in_array($status, ['cancelled', 'suspended'], true)) {
+            return $status;
+        }
+
+        if ($status === 'expired') {
+            return 'subscription_expired';
+        }
+
+        if (!$tenant->end_date) return null;
+        try {
+            return now()->greaterThan($tenant->end_date->copy()->endOfDay()) ? 'subscription_expired' : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     protected function tenantIsExpired(?\App\Models\Tenant $tenant): bool
     {
-        if (!$tenant || !$tenant->end_date) return false;
-        try {
-            return now()->greaterThan($tenant->end_date->copy()->endOfDay());
-        } catch (\Throwable $e) {
-            return false;
-        }
+        return $this->tenantBlockedReason($tenant) === 'subscription_expired';
     }
 
     protected function subscriptionExpiredResponse(?\App\Models\Tenant $tenant)
     {
         return response()->json([
             'code' => 'subscription_expired',
-            'message' => 'Subscription expired. Please renew your subscription to continue.',
+            'message' => 'Your subscription has expired. Please contact customer service to renew your subscription.',
             'message_ar' => 'انتهى الاشتراك. برجاء تجديد الاشتراك للمتابعة.',
             'end_date' => $tenant?->end_date?->toDateString(),
+            'support_message_ar' => 'انتهى الاشتراك. لو سمحت توجه لخدمة العملاء لتجديد الاشتراك.',
         ], 403);
+    }
+
+    protected function tenantInactiveResponse(?\App\Models\Tenant $tenant, string $reason)
+    {
+        $status = strtolower($reason);
+
+        return response()->json([
+            'code' => 'tenant_inactive',
+            'reason' => $status,
+            'message' => $status === 'cancelled'
+                ? 'This workspace has been cancelled. Please contact customer service for assistance.'
+                : 'This workspace has been suspended. Please contact customer service for assistance.',
+            'message_ar' => $status === 'cancelled'
+                ? 'تم إلغاء مساحة العمل. برجاء التواصل مع خدمة العملاء للمساعدة.'
+                : 'تم تعليق مساحة العمل. برجاء التواصل مع خدمة العملاء للمساعدة.',
+        ], 403);
+    }
+
+    protected function blockedTenantResponse(?\App\Models\Tenant $tenant)
+    {
+        $reason = $this->tenantBlockedReason($tenant);
+        if ($reason === 'subscription_expired') {
+            return $this->subscriptionExpiredResponse($tenant);
+        }
+
+        if (in_array($reason, ['cancelled', 'suspended'], true)) {
+            return $this->tenantInactiveResponse($tenant, $reason);
+        }
+
+        return null;
     }
 
     public function login(Request $request)
@@ -73,10 +120,10 @@ class AuthController extends Controller
                 app()->instance('tenant', $tenant);
             }
 
-            if (!$user->is_super_admin && $this->tenantIsExpired($tenant)) {
+            if (!$user->is_super_admin && $this->tenantBlockedReason($tenant)) {
                 // Invalidate any existing tokens for safety
                 try { $user->tokens()->delete(); } catch (\Throwable $e) {}
-                return $this->subscriptionExpiredResponse($tenant);
+                return $this->blockedTenantResponse($tenant);
             }
         } else {
             if (!$user->is_super_admin) {
@@ -95,9 +142,9 @@ class AuthController extends Controller
         if (!$user->is_super_admin && !$tenant && $user->tenant_id) {
             try {
                 $tenantFromUser = \App\Models\Tenant::find($user->tenant_id);
-                if ($this->tenantIsExpired($tenantFromUser)) {
+                if ($this->tenantBlockedReason($tenantFromUser)) {
                     try { $user->tokens()->delete(); } catch (\Throwable $e) {}
-                    return $this->subscriptionExpiredResponse($tenantFromUser);
+                    return $this->blockedTenantResponse($tenantFromUser);
                 }
             } catch (\Throwable $e) {
             }
@@ -143,9 +190,9 @@ class AuthController extends Controller
             if ($user->tenant_id !== $tenant->id && !$user->is_super_admin) {
                 return response()->json(['message' => 'You do not have access to this workspace'], 403);
             }
-            if (!$user->is_super_admin && $this->tenantIsExpired($tenant)) {
+            if (!$user->is_super_admin && $this->tenantBlockedReason($tenant)) {
                 try { $user->tokens()->delete(); } catch (\Throwable $e) {}
-                return $this->subscriptionExpiredResponse($tenant);
+                return $this->blockedTenantResponse($tenant);
             }
         } else if (!$user->is_super_admin) {
             return response()->json(['message' => 'Workspace domain required'], 403);
@@ -309,7 +356,21 @@ class AuthController extends Controller
             if (!app()->bound('tenant')) {
                 app()->instance('tenant', $tenant);
             }
+            if (!$user->is_super_admin && $this->tenantBlockedReason($tenant)) {
+                try { $user->tokens()->delete(); } catch (\Throwable $e) {}
+                return $this->blockedTenantResponse($tenant);
+            }
         } else {
+            if (!$user->is_super_admin && $user->tenant_id) {
+                try {
+                    $tenantFromUser = \App\Models\Tenant::find($user->tenant_id);
+                    if ($this->tenantBlockedReason($tenantFromUser)) {
+                        try { $user->tokens()->delete(); } catch (\Throwable $e) {}
+                        return $this->blockedTenantResponse($tenantFromUser);
+                    }
+                } catch (\Throwable $e) {
+                }
+            }
         }
 
         $tenant = app()->bound('tenant') ? app('tenant') : null;

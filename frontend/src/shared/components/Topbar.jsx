@@ -187,15 +187,7 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
     setTheme(isLight ? 'dark' : 'light');
   };
 
-  const isSuperAdmin = !!(
-    user?.is_super_admin || 
-    user?.role?.toLowerCase()?.includes('super admin') || 
-    user?.role?.toLowerCase()?.includes('superadmin') || 
-    user?.role?.toLowerCase() === 'owner' ||
-    String(user?.email || '').toLowerCase() === 'system@besouhoula.com' ||
-    String(user?.email || '').toLowerCase() === 'admin@example.com' ||
-    String(user?.email || '').toLowerCase() === 'admin@besouhoula.com'
-  )
+  const isSuperAdmin = !!user?.is_super_admin
   
   const canViewCompanyProfile = (() => {
     const role = (user?.role || '').toLowerCase();

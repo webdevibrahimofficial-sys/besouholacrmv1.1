@@ -181,6 +181,7 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     const status = err?.response?.status
+    const errorData = err?.response?.data || {}
     if (status === 401 && typeof window !== 'undefined') {
       const hash = String(window.location.hash || '')
       const isOnLogin = hash.includes('/login')
@@ -194,12 +195,30 @@ api.interceptors.response.use(
       }
     }
 
+    if (status === 403 && typeof window !== 'undefined') {
+      const code = String(errorData?.code || '')
+      const reason = String(errorData?.reason || '')
+      const hash = String(window.location.hash || '')
+      const isOnSuspended = hash.includes('/suspended')
+      const isOnLogin = hash.includes('/login')
+      const shouldBlockRedirect = code === 'subscription_expired' || code === 'tenant_inactive'
+
+      if (shouldBlockRedirect && !isOnSuspended && !isOnLogin) {
+        clearAuthTokens()
+        const routeReason = code === 'subscription_expired' ? 'subscription_expired' : (reason || 'suspended')
+        try {
+          window.location.href = `/#/suspended?reason=${encodeURIComponent(routeReason)}`
+        } catch {
+        }
+      }
+    }
+
     if (apiDebugEnabled) {
       console.warn('API ERROR', {
         url: err?.config?.url,
         method: err?.config?.method,
         status,
-        data: sanitizePayload(err?.response?.data),
+        data: sanitizePayload(errorData),
       })
     }
     return Promise.reject(err)

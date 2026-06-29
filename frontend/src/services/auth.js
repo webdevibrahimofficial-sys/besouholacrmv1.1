@@ -54,10 +54,7 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
   }
   
   // Force route for Super Admin immediately
-  const isSuperAdmin = user?.is_super_admin || 
-                       user?.email?.toLowerCase() === 'system@besouhoula.com' || 
-                       user?.email?.toLowerCase() === 'admin@example.com' ||
-                       user?.email?.toLowerCase() === 'admin@besouhoula.com';
+  const isSuperAdmin = !!user?.is_super_admin;
 
   if (isSuperAdmin) {
     if (typeof window !== 'undefined' && token) {
@@ -76,7 +73,7 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
       }
     }
 
-    return { token, redirected: true, user, isSuperAdmin: true, subscription_plan: 'super_admin' };
+    return { token, redirected: true, user, isSuperAdmin: true };
   }
 
   if (!isSubdomain && redirectUrl) {
@@ -90,7 +87,7 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
 
       if (isLocalHost) {
         window.location.hash = `#${nextPath}`;
-        return { token, redirected: true, user, tenant: responseData?.tenant, subscription_plan: responseData?.subscription_plan };
+        return { token, redirected: true, user, tenant: responseData?.tenant };
       }
 
       try {
@@ -108,7 +105,7 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
 
       if (shouldHardRedirect) {
         window.location.href = `${redirectUrl}/#/auth/callback?token=${tok}&next=${encodedNext}`;
-        return { token, redirected: true, user, tenant: responseData?.tenant, subscription_plan: responseData?.subscription_plan };
+        return { token, redirected: true, user, tenant: responseData?.tenant };
       }
 
       window.location.hash = `#${nextPath}`;
@@ -120,7 +117,6 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
     redirected: false,
     user,
     tenant: responseData?.tenant,
-    subscription_plan: responseData?.subscription_plan,
   };
 }
 

@@ -74,12 +74,7 @@ export function AppStateProvider({ children }) {
 
     setCompany(payload.company || payload.tenant || null)
     
-    // Store subscription plan string if it's 'super_admin', otherwise store subscription object
-    if (payload.subscription_plan === 'super_admin') {
-        setSubscription({ status: 'active', plan: 'super_admin' })
-    } else {
-        setSubscription(payload.subscription || null)
-    }
+    setSubscription(payload.subscription || null)
 
     setPermissions(payload.user_permissions || payload.permissions || [])
     
@@ -99,9 +94,7 @@ export function AppStateProvider({ children }) {
     // Start / refresh WebSocket connection (Reverb) after a valid token exists.
     try { ensureEcho() } catch {}
 
-    const isSuperAdmin =
-      payload?.subscription_plan === 'super_admin' ||
-      !!payload?.user?.is_super_admin
+    const isSuperAdmin = !!payload?.user?.is_super_admin
 
     if (isSuperAdmin) {
       return payload
@@ -142,10 +135,6 @@ export function AppStateProvider({ children }) {
     if (result?.requires_2fa) {
       return result
     }
-
-    if (result?.redirected) {
-      return result
-    }
     
     // Always fetch latest profile data to ensure state is fresh, 
     // even if redirection is flagged (e.g. for Super Admin)
@@ -162,14 +151,10 @@ export function AppStateProvider({ children }) {
     } catch {}
     
     // Check if user is Super Admin
-    const isSuperAdmin = 
-        payload?.user?.is_super_admin || 
-        payload?.user?.subscription_plan === 'super_admin' ||
-        result?.isSuperAdmin;
+    const isSuperAdmin = !!payload?.user?.is_super_admin || !!result?.isSuperAdmin;
 
     if (isSuperAdmin) {
        // Super Admin routing is handled in Login.jsx
-       result.subscription_plan = 'super_admin';
        result.isSuperAdmin = true;
     }
 
@@ -177,7 +162,6 @@ export function AppStateProvider({ children }) {
       ...result,
       user: payload?.user || null,
       tenant: payload?.company || payload?.tenant || null,
-      subscription_plan: payload?.subscription_plan || result?.subscription_plan,
     }
   }, [fetchCompanyInfo])
 
@@ -226,15 +210,39 @@ export function AppStateProvider({ children }) {
     } catch {}
   }, [navigate])
 
+  useEffect(() => {
+    if (!bootstrapped || !user || user?.is_super_admin) return undefined
+
+    let cancelled = false
+
+    const heartbeat = async () => {
+      if (cancelled || typeof document === 'undefined' || document.visibilityState === 'hidden') {
+        return
+      }
+
+      try {
+        await api.get('/api/me')
+      } catch {
+        // Global API interceptor handles redirect/logout for blocked tenants or revoked tokens.
+      }
+    }
+
+    heartbeat()
+    const intervalId = window.setInterval(heartbeat, 20000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [bootstrapped, user])
+
   const canAccess = useCallback((moduleKey, requiredPermission = null) => {
     if (!moduleKey) return false
     
     const roleLower = String(user?.role || '').toLowerCase()
-    const isSuperAdmin =
-      user?.is_super_admin ||
-      roleLower.includes('super admin') ||
-      roleLower.includes('superadmin') ||
-      roleLower === 'owner'
+    const isSuperAdmin = !!user?.is_super_admin
+    const companyTypeLower = String(company?.company_type || '').toLowerCase()
+    const isRealEstateTenant = companyTypeLower.includes('real')
     
     const isTenantAdmin =
       roleLower === 'admin' ||
@@ -245,6 +253,8 @@ export function AppStateProvider({ children }) {
 
     // Support module is removed systemwide (all tenants).
     if (moduleKey === 'support') return false
+    if (moduleKey === 'customers' && isRealEstateTenant) return false
+    if (moduleKey === 'contract_collections' && !isRealEstateTenant) return false
     
     // Tenant Admin has full access to reports regardless of module settings
     if (isTenantAdmin && moduleKey === 'reports') return true
@@ -274,7 +284,21 @@ export function AppStateProvider({ children }) {
         'sales',
         'quotations',
         'invoices'
-      ]
+      ],
+      items: ['items', 'inventory'],
+      orders: ['orders', 'inventory', 'sales'],
+      products: ['products', 'inventory'],
+      suppliers: ['suppliers', 'inventory'],
+      warehouse: ['warehouse', 'inventory'],
+      stockManagement: ['stockManagement', 'inventory'],
+      inventoryTransactions: ['inventoryTransactions', 'inventory'],
+      projects: ['projects', 'inventory'],
+      properties: ['properties', 'inventory'],
+      developers: ['developers', 'inventory'],
+      brokers: ['brokers', 'inventory'],
+      requests: ['requests', 'inventory'],
+      buyerRequests: ['buyerRequests', 'inventory'],
+      sellerRequests: ['sellerRequests', 'inventory'],
     }
 
     const keysToCheck = expandedModulesMap[moduleKey] || [moduleKey]
@@ -287,7 +311,7 @@ export function AppStateProvider({ children }) {
     }
     
     return true
-  }, [activeModules, permissions, user])
+  }, [activeModules, permissions, user, company])
 
   const value = useMemo(() => ({
     user,
@@ -345,7 +369,7 @@ useEffect(() => {
 
  useEffect(() => {
    if (!user) return
-   if (subscription?.plan === 'super_admin' || user?.is_super_admin) return
+   if (user?.is_super_admin) return
    refreshInventoryBadges()
  }, [user, subscription, refreshInventoryBadges]);
 

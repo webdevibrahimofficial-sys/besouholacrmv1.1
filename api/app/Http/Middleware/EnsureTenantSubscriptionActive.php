@@ -19,6 +19,16 @@ class EnsureTenantSubscriptionActive
             return $next($request);
         }
 
+        if (strtolower((string) ($tenant->status ?? '')) === 'expired') {
+            return response()->json([
+                'code' => 'subscription_expired',
+                'message' => 'Your subscription has expired. Please contact customer service to renew your subscription.',
+                'message_ar' => 'انتهى الاشتراك. لو سمحت توجه لخدمة العملاء لتجديد الاشتراك.',
+                'end_date' => optional($tenant->end_date)->toDateString(),
+                'support_message_ar' => 'انتهى الاشتراك. لو سمحت توجه لخدمة العملاء لتجديد الاشتراك.',
+            ], 403);
+        }
+
         // If end_date is a DATE (no time), treat it as inclusive until end of day.
         try {
             $end = $tenant->end_date ? $tenant->end_date->copy()->endOfDay() : null;
@@ -29,7 +39,7 @@ class EnsureTenantSubscriptionActive
         if ($end && now()->greaterThan($end)) {
             return response()->json([
                 'code' => 'subscription_expired',
-                'message' => 'Subscription expired. Please renew your subscription to continue.',
+                'message' => 'Your subscription has expired. Please contact customer service to renew your subscription.',
                 'message_ar' => 'انتهى الاشتراك. برجاء تجديد الاشتراك للمتابعة.',
                 'end_date' => optional($tenant->end_date)->toDateString(),
             ], 403);
@@ -38,4 +48,3 @@ class EnsureTenantSubscriptionActive
         return $next($request);
     }
 }
-

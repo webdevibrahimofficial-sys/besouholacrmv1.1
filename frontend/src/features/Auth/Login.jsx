@@ -90,17 +90,7 @@ export default function Login() {
 
   const isSuperAdminUser = (u) => {
     if (!u) return false;
-    const roleLower = String(u.role || '').toLowerCase();
-    const emailLower = String(u.email || '').toLowerCase();
-    return (
-      !!u.is_super_admin ||
-      roleLower === 'owner' ||
-      roleLower.includes('super admin') ||
-      roleLower.includes('superadmin') ||
-      emailLower === 'system@besouhoula.com' ||
-      emailLower === 'admin@example.com' ||
-      emailLower === 'admin@besouhoula.com'
-    );
+    return !!u.is_super_admin;
   };
 
   useEffect(() => {
@@ -110,7 +100,7 @@ export default function Login() {
     const cookieToken = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
     
     if ((token || cookieToken) && user) {
-      if (isSuperAdminUser(user) || (user.subscription_plan === 'super_admin')) {
+      if (isSuperAdminUser(user)) {
         navigate('/system/dashboard', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
@@ -178,7 +168,7 @@ export default function Login() {
           const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: 'Logged in' } });
           window.dispatchEvent(evt);
           // Redirect logic
-          if (isSuperAdminUser(data?.user) || data?.subscription_plan === 'super_admin') {
+          if (isSuperAdminUser(data?.user)) {
              navigate('/system/dashboard', { replace: true });
           } else {
              window.location.href = '/dashboard';
@@ -197,9 +187,7 @@ export default function Login() {
         }
         
         // Use updated state/result logic
-        const isSuperAdmin = res?.isSuperAdmin || 
-                             isSuperAdminUser(res?.user) || 
-                             res?.subscription_plan === 'super_admin';
+        const isSuperAdmin = res?.isSuperAdmin || isSuperAdminUser(res?.user);
 
         if (isSuperAdmin) {
           navigate('/system/dashboard', { replace: true });
@@ -254,6 +242,19 @@ export default function Login() {
         });
       }
       console.error(err);
+      const apiError = err?.response?.data || {};
+      if (apiError?.code === 'subscription_expired' || apiError?.code === 'tenant_inactive') {
+        const isArabic = i18n.language === 'ar';
+        const expiredMessage =
+          (isArabic && (apiError.support_message_ar || apiError.message_ar)) ||
+          apiError.message ||
+          'Your subscription has expired. Please contact customer service to renew your subscription.';
+
+        setError(expiredMessage);
+        const reason = apiError?.code === 'subscription_expired' ? 'subscription_expired' : (apiError?.reason || 'suspended')
+        navigate(`/suspended?reason=${encodeURIComponent(reason)}`, { replace: true });
+        return;
+      }
       if (err.response && err.response.status === 401) {
         if (requires2FA) {
           setError(err.response.data?.message || t('login.invalid_code', 'Invalid verification code'));
@@ -261,7 +262,7 @@ export default function Login() {
           setError(t('login.error_invalid_credentials', 'Invalid email or password'));
         }
       } else {
-        setError(err.message || 'Invalid credentials or access denied');
+        setError(apiError?.message || err.message || 'Invalid credentials or access denied');
       }
       // Shake animation trigger could be here
     } finally {
