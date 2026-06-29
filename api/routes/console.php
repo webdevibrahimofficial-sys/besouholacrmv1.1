@@ -59,6 +59,7 @@ Schedule::command('tasks:check-expired')->hourly();
 Schedule::command('tasks:check-reminders')->everyFiveMinutes();
 Schedule::command('campaigns:check-expired')->daily();
 Schedule::command('actions:check-rent-end')->daily();
+Schedule::command('tenants:sync-expired')->hourly();
 Schedule::command('inventory:expire-reservations')->everyFiveMinutes();
 Schedule::command('meta:sync-all')->hourly();
 Schedule::command('google:sync-all')->hourly();

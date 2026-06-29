@@ -20,6 +20,7 @@ class SyncTenantModulesByCompanyType extends Command
 
         $support = Module::firstOrCreate(['slug' => 'support'], ['name' => 'Support', 'is_active' => true]);
         $cc = Module::firstOrCreate(['slug' => 'contract_collections'], ['name' => 'Contract & Collections', 'is_active' => true]);
+        $customers = Module::firstOrCreate(['slug' => 'customers'], ['name' => 'Customers', 'is_active' => true]);
 
         $query = Tenant::query();
         if ($tenantOpt) {
@@ -46,6 +47,7 @@ class SyncTenantModulesByCompanyType extends Command
             }
 
             $ccPivot = $tenant->modules()->where('modules.id', $cc->id)->first();
+            $customersPivot = $tenant->modules()->where('modules.id', $customers->id)->first();
             if ($isRealEstate) {
                 if (!$ccPivot || (bool) ($ccPivot->pivot?->is_enabled ?? false) === false) {
                     $changes[] = 'enable contract_collections';
@@ -53,6 +55,13 @@ class SyncTenantModulesByCompanyType extends Command
                         $tenant->modules()->syncWithoutDetaching([
                             $cc->id => ['is_enabled' => true, 'created_at' => now(), 'updated_at' => now()],
                         ]);
+                    }
+                }
+
+                if ($customersPivot && (bool) ($customersPivot->pivot?->is_enabled ?? false) === true) {
+                    $changes[] = 'disable customers';
+                    if (!$dryRun) {
+                        $tenant->modules()->updateExistingPivot($customers->id, ['is_enabled' => false, 'updated_at' => now()]);
                     }
                 }
             } else {
@@ -77,4 +86,3 @@ class SyncTenantModulesByCompanyType extends Command
         return self::SUCCESS;
     }
 }
-

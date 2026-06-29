@@ -1,49 +1,33 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api as axios } from '@utils/api';
+import { useSubscriptionPlans, getPlanModulesForCompany } from '../../hooks/useSubscriptionPlans';
 import { useAppState } from '../../shared/context/AppStateProvider';
 import { useTheme } from '../../shared/context/ThemeProvider';
+import { AVAILABLE_MODULES } from '../../hooks/useTenants';
 import {
   Plus, 
   Filter, 
   Search, 
   Users, 
-  DatabaseBackup, 
-  List, 
   Key, 
   Eye, 
+  EyeOff,
   Activity, 
   Edit, 
   XCircle,
   Building,
   Calendar,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
   X 
 } from 'lucide-react';
 
-
-
-// Plan Definitions
-const PLANS = [
-  { id: 'core', name: 'Core System', modules: ['dashboard', 'reports', 'users', 'settings'] },
-  { id: 'basic', name: 'Basic', modules: ['leads', 'inventory', 'campaigns', 'users'] },
-  { id: 'professional', name: 'Professional', modules: ['leads', 'inventory', 'campaigns', 'customers', 'users'] },
-  { id: 'enterprise', name: 'Enterprise', modules: ['leads', 'inventory', 'campaigns', 'customers', 'users'] },
-  { id: 'custom', name: 'Custom Plan', modules: [] }
-];
-
-const AVAILABLE_MODULES = [
-  { id: 'dashboard', name: 'Dashboard' },
-  { id: 'leads', name: 'Leads Management' },
-  { id: 'inventory', name: 'Inventory' },
-  { id: 'campaigns', name: 'Marketing Campaigns' },
-  { id: 'customers', name: 'Customers' },
-  { id: 'contract_collections', name: 'Contracts and Collections' },
-  { id: 'users', name: 'User Management' },
-  { id: 'reports', name: 'Reports' },
-  { id: 'settings', name: 'Settings' },
-];
+// AVAILABLE_MODULES imported from useTenants hook
 
 const COUNTRIES = [
   "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
@@ -72,21 +56,70 @@ const COUNTRIES = [
   "Zambia", "Zimbabwe"
 ];
 
+const getInventoryModulesByCompanyType = (companyType = 'General') => {
+  if (companyType === 'Real Estate') {
+    return ['projects', 'properties', 'developers', 'brokers', 'requests'];
+  }
+
+  return ['items', 'orders'];
+};
+
+const toDateInputValue = (value) => {
+  if (!value) return '';
+  const stringValue = String(value);
+  const match = stringValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDateOnly = (value, locale) => {
+  const dateValue = toDateInputValue(value);
+  if (!dateValue) return '-';
+
+  const [year, month, day] = dateValue.split('-').map(Number);
+  return new Intl.DateTimeFormat(locale).format(new Date(year, month - 1, day));
+};
+
 const TenantSetup = () => {
-  const { theme } = useTheme()
-  const isLight = theme === 'light'
   const { t } = useTranslation();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user, fetchCompanyInfo } = useAppState();
+  const { plans: subscriptionPlans, planMap } = useSubscriptionPlans({ includeInactive: true });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showCreateConfirmPassword, setShowCreateConfirmPassword] = useState(false);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [tenantView, setTenantView] = useState('current');
+
+  // Debounce search to avoid API call on every keystroke
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceTimer = useRef(null);
+  const handleSearchChange = useCallback((value) => {
+    setFilters(prev => ({ ...prev, search: value }));
+    clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(value);
+    }, 400);
+  }, []);
   
   // List View State
   const [tenants, setTenants] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [tenantCounts, setTenantCounts] = useState({ current: 0, archived: 0 });
   const [filters, setFilters] = useState({
     search: '',
     plan: 'all',
     status: 'all',
     company_type: 'all',
+    country: 'all',
     users_count: '',
     start_date: '',
     end_date: ''
@@ -94,8 +127,11 @@ const TenantSetup = () => {
   const [pagination, setPagination] = useState({
     current_page: 1,
     last_page: 1,
-    total: 0
+    total: 0,
+    per_page: 20
   });
+  const pageSizeOptions = [10, 20, 50, 100];
+  const selectablePlans = [...subscriptionPlans, { id: 'custom-plan', code: 'custom', name: 'Custom Plan', modules: [] }];
 
   // Edit State
   const [editingTenant, setEditingTenant] = useState(null);
@@ -106,6 +142,70 @@ const TenantSetup = () => {
   const [loadingBackup, setLoadingBackup] = useState(false);
   const [startingBackup, setStartingBackup] = useState(false);
   const [backupsPage, setBackupsPage] = useState(1);
+  const isCreateRoute = location.pathname === '/system/tenants/new';
+
+  useEffect(() => {
+    if (isCreateRoute) return;
+
+    const params = new URLSearchParams(location.search);
+    const nextView = params.get('view') || 'current';
+    const nextFilters = {
+      search: params.get('search') || '',
+      plan: params.get('plan') || 'all',
+      status: params.get('status') || 'all',
+      company_type: params.get('company_type') || 'all',
+      country: params.get('country') || 'all',
+      users_count: params.get('users_count') || '',
+      start_date: params.get('start_date') || '',
+      end_date: params.get('end_date') || '',
+    };
+
+    setTenantView((prev) => (prev === nextView ? prev : nextView));
+    setFilters((prev) => {
+      const unchanged = Object.keys(nextFilters).every((key) => prev[key] === nextFilters[key]);
+      return unchanged ? prev : nextFilters;
+    });
+    setDebouncedSearch(nextFilters.search);
+  }, [location.search, isCreateRoute]);
+
+  const resetFilters = () => {
+    clearTimeout(debounceTimer.current);
+    setDebouncedSearch('');
+    setFilters({
+      search: '',
+      plan: 'all',
+      status: 'all',
+      company_type: 'all',
+      country: 'all',
+      users_count: '',
+      start_date: '',
+      end_date: ''
+    });
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+
+    if (isCreateRoute) {
+      navigate('/system/tenants', { replace: true });
+    }
+  };
+
+  const getVisiblePageNumbers = (currentPage, lastPage) => {
+    if (lastPage <= 7) {
+      return Array.from({ length: lastPage }, (_, index) => index + 1);
+    }
+
+    if (currentPage <= 3) {
+      return [1, 2, 3, 4, '...', lastPage];
+    }
+
+    if (currentPage >= lastPage - 2) {
+      return [1, '...', lastPage - 3, lastPage - 2, lastPage - 1, lastPage];
+    }
+
+    return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', lastPage];
+  };
 
   // Fetch Tenants
   const fetchTenants = async (page = 1) => {
@@ -113,22 +213,28 @@ const TenantSetup = () => {
     try {
       const params = {
         page,
-        ...filters
+        view: tenantView,
+        per_page: pagination.per_page,
+        ...filters,
+        search: debouncedSearch,
       };
       // Clean up 'all' and empty filters
       if (params.plan === 'all') delete params.plan;
       if (params.status === 'all') delete params.status;
       if (params.company_type === 'all') delete params.company_type;
+      if (params.country === 'all') delete params.country;
       if (!params.users_count) delete params.users_count;
       if (!params.start_date) delete params.start_date;
       if (!params.end_date) delete params.end_date;
 
       const response = await axios.get('/api/super-admin/tenants', { params });
       setTenants(response.data.tenants.data);
+      setTenantCounts(response.data.counts || { current: 0, archived: 0 });
       setPagination({
         current_page: response.data.tenants.current_page,
         last_page: response.data.tenants.last_page,
-        total: response.data.tenants.total
+        total: response.data.tenants.total,
+        per_page: response.data.tenants.per_page || 20
       });
     } catch (error) {
       console.error('Failed to fetch tenants:', error);
@@ -160,9 +266,7 @@ const TenantSetup = () => {
       await fetchCompanyInfo()
       toast.success(t('logged_in_as_tenant', 'You are now viewing this tenant workspace'))
 
-      if (typeof window !== 'undefined') {
-        window.location.hash = '#/dashboard'
-      }
+      navigate('/dashboard')
     } catch (error) {
       console.error('Failed to login as tenant:', error)
       toast.error(t('failed_login_as_tenant', 'Failed to login as tenant'))
@@ -172,14 +276,23 @@ const TenantSetup = () => {
   useEffect(() => {
     fetchTenants();
   }, [
-    filters.search,
+    debouncedSearch,
     filters.plan,
     filters.status,
     filters.company_type,
+    filters.country,
     filters.users_count,
     filters.start_date,
-    filters.end_date
+    filters.end_date,
+    tenantView,
+    pagination.per_page
   ]);
+
+  useEffect(() => {
+    if (isCreateRoute) {
+      setShowCreateModal(true);
+    }
+  }, [isCreateRoute]);
 
   // Actions
   const handleEdit = (tenant) => {
@@ -198,6 +311,35 @@ const TenantSetup = () => {
       console.error('Failed to cancel subscription:', error);
       toast.error(t('failed_cancel_subscription', 'Failed to cancel subscription'));
     }
+  };
+
+  const handleCancelAction = async (tenant) => {
+    if (tenant.archived_at) {
+      toast(t('tenant_already_archived', 'This tenant is already archived.'));
+      return;
+    }
+
+    if ((tenant.status || '').toLowerCase() === 'cancelled') {
+      if (!window.confirm(t('confirm_archive_tenant', 'Archive this tenant and remove it from the tenants list?'))) {
+        return;
+      }
+
+      try {
+        await axios.post(`/api/super-admin/tenants/${tenant.id}/archive`);
+        toast.success(t('tenant_archived_successfully', 'Tenant archived successfully'));
+        fetchTenants(pagination.current_page);
+      } catch (error) {
+        console.error('Failed to archive tenant:', error);
+        toast.error(
+          error?.response?.data?.message ||
+          t('failed_archive_tenant', 'Failed to archive tenant')
+        );
+      }
+
+      return;
+    }
+
+    await handleCancelSubscription(tenant);
   };
 
   const handleBackupNow = async (tenant) => {
@@ -294,10 +436,7 @@ const TenantSetup = () => {
         const companyType = data.company_type || 'General';
         const mappedModules = customModules.flatMap(m => {
           if (m === 'inventory') {
-             if (companyType === 'Real Estate') {
-                 return ['projects', 'properties', 'developers', 'brokers', 'requests'];
-             }
-             return ['items', 'orders'];
+             return getInventoryModulesByCompanyType(companyType);
           }
           if (m === 'sales') return ['orders'];
           return [m];
@@ -315,7 +454,7 @@ const TenantSetup = () => {
         admin_name: data.admin_name,
         admin_email: data.admin_email,
         admin_password: data.password,
-        plan: data.plan || 'core',
+        plan: data.plan || 'basic',
         modules: data.plan === 'custom' ? finalModules : [],
         company_type: data.company_type || 'General',
         users_limit: data.users_limit || undefined,
@@ -337,7 +476,7 @@ const TenantSetup = () => {
       toast.success(`URL: ${fullUrl}`, { duration: 6000 });
 
       reset();
-      setShowCreateModal(false);
+      closeCreateModal();
       fetchTenants();
     } catch (error) {
       console.error('Tenant creation failed:', error);
@@ -352,6 +491,32 @@ const TenantSetup = () => {
   };
 
   const isModalOpen = editingTenant || previewTenant || statusTenant || showCreateModal;
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
+
+  const glassCard = `rounded-[26px] border backdrop-blur-xl transition-all duration-200 ${
+    isDark
+      ? 'border-slate-800 bg-slate-900 shadow-[0_18px_50px_rgba(0,0,0,0.35)]'
+      : 'border-slate-200/75 bg-white/72 shadow-[0_10px_30px_rgba(15,23,42,0.08)]'
+  }`;
+  const shellClass = isDark
+    ? 'border border-slate-800 bg-[#0f172a] shadow-[0_24px_70px_rgba(0,0,0,0.45)]'
+    : 'border border-slate-200/70 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_26%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.92))] shadow-[0_28px_70px_rgba(15,23,42,0.08)]';
+  const fieldClass = isDark
+    ? 'h-10 w-full rounded-2xl border border-slate-700 bg-slate-900 text-sm text-slate-100 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+    : 'h-10 w-full rounded-2xl border border-slate-300 bg-white text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100';
+  const labelClass = isDark ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-900';
+  const mutedTextClass = isDark ? 'text-slate-400' : 'text-slate-500';
+  const headingClass = isDark ? 'text-white' : 'text-slate-950';
+  const bodyTextClass = isDark ? 'text-slate-200' : 'text-theme';
+  const tabInactiveClass = isDark
+    ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'
+    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50';
+  const tabCountInactiveClass = isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600';
+  const filterIconClass = isDark ? 'bg-blue-950/50 text-blue-300' : 'bg-blue-50 text-blue-600';
+  const filterBtnClass = isDark
+    ? 'bg-blue-950/40 text-blue-300 hover:bg-blue-950/60'
+    : 'bg-blue-50 text-blue-600 hover:bg-blue-100';
 
   if (!user?.is_super_admin) {
     return (
@@ -362,89 +527,142 @@ const TenantSetup = () => {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <>
+    <div className={`relative mx-auto max-w-screen-2xl overflow-hidden rounded-[32px] px-4 py-6 md:px-6 lg:px-8 ${shellClass}`}>
+      {isDark && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.10),transparent_28%)]" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.08),transparent_24%)]" />
+        </>
+      )}
+      {!isDark && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.75),transparent_28%)]" />
+          <div className="pointer-events-none absolute -top-24 right-12 h-56 w-56 rounded-full blur-3xl bg-blue-400/12" />
+          <div className="pointer-events-none absolute bottom-0 left-10 h-48 w-48 rounded-full blur-3xl bg-emerald-400/10" />
+        </>
+      )}
+    <div className="relative z-10 space-y-5">
       {!isModalOpen && (
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-theme">
-            {t('subscription_plans', 'tenant management')}
-          </h1>
+        <header className="flex gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className={`text-2xl font-bold tracking-tight md:text-3xl ${headingClass}`}>
+              {t('tenant_management', 'Tenant Management')}
+            </h1>
+            <p className={`mt-2 text-sm max-w-2xl ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+              {t('Manage tenant subscriptions, access, and lifecycle details.')}
+            </p>
+          </div>
           <button
-            onClick={() => setShowCreateModal(true)}
-            className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none gap-2"
+            onClick={() => navigate('/system/tenants/new')}
+            className="inline-flex items-center justify-center gap-2 self-start rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition-colors hover:bg-blue-700"
           >
-            <Plus size={14} className="w-3 h-3" />
-            <span className="text-white">{t('create_new', 'Create New')}</span>
+            <Plus size={16} />
+            <span>{t('create_tenant', 'Create Tenant')}</span>
           </button>
-        </div>
+        </header>
       )}
 
-        <div className="card rounded-lg shadow">
-          {/* Filters */}
-          <div className="p-4">
-            <div className="glass-panel rounded-2xl p-3 filters-compact">
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-lg font-semibold dark:text-white flex items-center gap-2">
-                  <Filter size={16} className="text-blue-500 dark:text-blue-400" /> {t('Filters')}
-                </h2>
-                <button
-                  onClick={() => {
-                    setFilters({
-                      search: '',
-                      plan: 'all',
-                      status: 'all',
-                      company_type: 'all',
-                      users_count: '',
-                      start_date: '',
-                      end_date: ''
-                    });
-                  }}
-                  className="px-3 py-1.5 text-sm dark:text-white hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                >
-                  {t('Reset')}
-                </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTenantView('current')}
+            className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              tenantView === 'current'
+                ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                : tabInactiveClass
+            }`}
+          >
+            <span>{t('current_tenants', 'Current Tenants')}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${
+              tenantView === 'current' ? 'bg-white/20 text-white' : tabCountInactiveClass
+            }`}>
+              {tenantCounts.current}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTenantView('archived')}
+            className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              tenantView === 'archived'
+                ? isDark ? 'border-slate-600 bg-slate-800 text-white shadow-sm' : 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                : tabInactiveClass
+            }`}
+          >
+            <span>{t('archived_tenants', 'Archived Tenants')}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${
+              tenantView === 'archived' ? 'bg-white/20 text-white' : tabCountInactiveClass
+            }`}>
+              {tenantCounts.archived}
+            </span>
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className={`${glassCard} p-5 md:p-6`}>
+              <div className="mb-5 flex gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <span className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl ${filterIconClass}`}>
+                    <Filter size={20} />
+                  </span>
+                  <div>
+                    <h2 className={`text-xl font-bold ${headingClass}`}>
+                      {t('Filters')}
+                    </h2>
+                    <p className={`mt-1 text-xs ${mutedTextClass}`}>
+                      {tenantView === 'archived'
+                        ? t('Browse archived tenants without mixing them into the active list.')
+                        : t('Filters apply automatically as you type or select.')}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreFilters((prev) => !prev)}
+                    className={`inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-xs font-semibold transition-colors ${filterBtnClass}`}
+                  >
+                    <span>{showMoreFilters ? t('Hide filters') : t('More filters')}</span>
+                    <ChevronDown
+                      size={18}
+                      className={`transition-transform ${showMoreFilters ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className={`px-2 py-2 text-xs font-medium transition-colors ${isDark ? 'text-slate-200 hover:text-white' : 'text-slate-950 hover:text-slate-600'}`}
+                  >
+                    {t('Reset')}
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-                  <div className="space-y-1">
-                    <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
-                      <Search className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="space-y-2">
+                    <label className={`flex items-center gap-2 ${labelClass}`}>
+                      <Search className="h-4 w-4 text-blue-500" />
                       {t('search_company', 'Search')}
                     </label>
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-theme w-4 h-4" />
+                      <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <input
                         type="text"
-                        placeholder={t('search_company', 'Search by Company Name...')}
-                        className="w-full pl-9 pr-4 py-2 border rounded-md bg-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm focus:ring-blue-500 focus:border-blue-500"
+                        placeholder={t('search_company_name', 'Company name')}
+                        className={`${fieldClass} pl-10 pr-3`}
                         value={filters.search}
-                        onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                        onChange={(e) => handleSearchChange(e.target.value)}
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
-                      {t('plan_type', 'Plan Type')}
-                    </label>
-                    <select
-                      className="w-full px-3 py-2 border rounded-md bg-transparent dark:border-gray-600 text-theme text-sm dark:text-white"
-                      value={filters.plan}
-                      onChange={(e) => setFilters({ ...filters, plan: e.target.value })}
-                    >
-                      <option value="all">{t('all_plans', 'All Plans')}</option>
-                      {PLANS.map(p => (
-                        <option key={p.id} value={p.id}>{t(p.name)}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                  <div className="space-y-2">
+                    <label className={`block ${labelClass}`}>
                       {t('status', 'Status')}
                     </label>
                     <select
-                      className="w-full px-3 py-2 border rounded-md bg-transparent dark:border-gray-600 text-sm dark:text-white"
+                      className={`${fieldClass} px-3`}
                       value={filters.status}
                       onChange={(e) => setFilters({ ...filters, status: e.target.value })}
                     >
@@ -456,12 +674,28 @@ const TenantSetup = () => {
                     </select>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                  <div className="space-y-2">
+                    <label className={`block ${labelClass}`}>
+                      {t('plan_type', 'Plan Type')}
+                    </label>
+                    <select
+                      className={`${fieldClass} px-3`}
+                      value={filters.plan}
+                      onChange={(e) => setFilters({ ...filters, plan: e.target.value })}
+                    >
+                      <option value="all">{t('all_plans', 'All Plans')}</option>
+                      {subscriptionPlans.map((p) => (
+                        <option key={p.id} value={p.code}>{t(p.name)}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className={`block ${labelClass}`}>
                       {t('company_type', 'Company Type')}
                     </label>
                     <select
-                      className="w-full px-3 py-2 border rounded-md bg-transparent dark:border-gray-600 text-sm dark:text-white"
+                      className={`${fieldClass} px-3`}
                       value={filters.company_type}
                       onChange={(e) => setFilters({ ...filters, company_type: e.target.value })}
                     >
@@ -472,174 +706,171 @@ const TenantSetup = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                  <div className="space-y-1">
-                    <label className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
-                      {t('users_count', 'Users Count')}
+                {showMoreFilters && (
+                <div className="grid grid-cols-1 gap-4 pt-1 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="space-y-2">
+                    <label className={`block ${labelClass}`}>
+                      {t('country', 'Country')}
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 border rounded-md bg-transparent dark:border-gray-600 dark:text-white text-sm"
-                      placeholder={t('users_count', 'Users Count')}
-                      value={filters.users_count}
-                      onChange={(e) => setFilters({ ...filters, users_count: e.target.value })}
-                    />
+                    <select
+                      className={`${fieldClass} px-3`}
+                      value={filters.country}
+                      onChange={(e) => setFilters({ ...filters, country: e.target.value })}
+                    >
+                      <option value="all">{t('all_countries', 'All Countries')}</option>
+                      {COUNTRIES.map((country) => (
+                        <option key={country} value={country}>{country}</option>
+                      ))}
+                    </select>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                  <div className="space-y-2">
+                    <label className={`block ${labelClass}`}>
                       {t('start_date', 'Start Date')}
                     </label>
                     <input
                       type="date"
-                      className="w-full px-3 py-2 border rounded-md bg-transparent dark:border-gray-600 dark:text-white text-sm"
+                      className={`${fieldClass} px-3`}
                       value={filters.start_date}
                       onChange={(e) => setFilters({ ...filters, start_date: e.target.value })}
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <label className={`block text-xs font-medium ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>
+                  <div className="space-y-2">
+                    <label className={`block ${labelClass}`}>
                       {t('end_date', 'End Date')}
                     </label>
                     <input
                       type="date"
-                      className="w-full px-3 py-2 border rounded-md bg-transparent dark:border-gray-600 dark:text-white text-sm"
+                      className={`${fieldClass} px-3`}
                       value={filters.end_date}
                       onChange={(e) => setFilters({ ...filters, end_date: e.target.value })}
                     />
                   </div>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <div className="overflow-x-auto hidden md:block">
-            <table className="w-full text-left border-collapse">
+                  <div className="space-y-2">
+                    <label className={`block ${labelClass}`}>
+                      {t('min_users', 'Min Users')}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      className={`${fieldClass} px-3`}
+                      placeholder={t('min_users', 'Min Users')}
+                      value={filters.users_count}
+                      onChange={(e) => setFilters({ ...filters, users_count: e.target.value })}
+                    />
+                  </div>
+                </div>
+                )}
+              </div>
+        </div>
+
+        <div className={`${glassCard} overflow-hidden`}>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="min-w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-700/50 text-white text-sm uppercase">
-                  <th className="p-4 font-semibold">{t('customer_name', 'Customer Name')}</th>
-                  <th className="p-4 font-semibold">{t('plan_type', 'Plan Type')}</th>
-                  <th className="p-4 font-semibold">{t('company_type', 'Company Type')}</th>
-                  <th className="p-4 font-semibold">{t('tenancy_type', 'Tenancy Type')}</th>
-                  <th className="p-4 font-semibold text-center">{t('users', 'Users')}</th>
-                  <th className="p-4 font-semibold">{t('start_date', 'Start Date')}</th>
-                  <th className="p-4 font-semibold">{t('end_date', 'End Date')}</th>
-                  <th className="p-4 font-semibold">{t('last_backup_at', 'Last Backup')}</th>
-                  <th className="p-4 font-semibold">{t('last_backup_status', 'Backup Status')}</th>
-                  <th className="p-4 font-semibold">{t('status', 'Status')}</th>
-                  <th className="p-4 font-semibold text-right">{t('actions', 'Actions')}</th>
+                <tr className={`text-xs uppercase tracking-wide ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                  <th className="p-3 font-semibold">{t('company_name', 'Company Name')}</th>
+                  <th className="p-3 font-semibold">{t('country', 'Country')}</th>
+                  <th className="p-3 font-semibold">{t('company_type', 'Company Type')}</th>
+                  <th className="p-3 font-semibold">{t('plan_type', 'Plan Type')}</th>
+                  <th className="p-3 font-semibold">{t('tenancy_type', 'Tenancy Type')}</th>
+                  <th className="p-3 font-semibold text-center">{t('number_of_users', 'No. Users')}</th>
+                  <th className="p-3 font-semibold">{t('start_date', 'Start Date')}</th>
+                  <th className="p-3 font-semibold">{t('end_date', 'End Date')}</th>
+                  <th className="p-3 font-semibold">{t('status', 'Status')}</th>
+                  <th className="p-3 font-semibold text-right">{t('actions', 'Actions')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-gray-200'}`}>
                 {loadingList ? (
                   <tr>
-                    <td colSpan="8" className="p-8 text-center text-theme">
+                    <td colSpan="10" className={`p-8 text-center ${bodyTextClass}`}>
                       {t('loading', 'Loading...')}
                     </td>
                   </tr>
                 ) : tenants.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="p-8 text-center text-theme">
+                    <td colSpan="10" className={`p-8 text-center ${bodyTextClass}`}>
                       {t('no_tenants_found', 'No subscriptions found.')}
                     </td>
                   </tr>
                 ) : (
                   tenants.map((tenant) => (
-                    <tr key={tenant.id} className="hover:bg-gray-700/50 transition-colors">
-                      <td className="p-4">
-                        <div className="font-medium text-theme">{tenant.name}</div>
-                        <div className="text-xs text-theme">{tenant.domain || tenant.slug}</div>
+                    <tr key={tenant.id} className={`transition-colors ${isDark ? 'hover:bg-slate-800/70' : 'hover:bg-gray-50'}`}>
+                      <td className="p-3">
+                        <div className={`font-medium ${bodyTextClass}`}>{tenant.name}</div>
+                        <div className={`mt-0.5 text-xs ${mutedTextClass}`}>{tenant.domain || tenant.slug}</div>
                       </td>
-                      <td className="p-4">
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 uppercase">
-                          {t(PLANS.find(p => p.id === tenant.subscription_plan)?.name || tenant.subscription_plan || 'N/A')}
+                      <td className={`p-3 text-sm whitespace-nowrap ${bodyTextClass}`}>
+                        {tenant.country || '-'}
+                      </td>
+                      <td className={`p-3 text-sm ${bodyTextClass}`}>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {t(tenant.company_type) || '-'}
                         </span>
                       </td>
-                      <td className="p-4 text-sm text-theme">
-                        {t(tenant.company_type) || '-'}
-                      </td>
-                      <td className="p-4 text-sm text-theme">
-                        {t(tenant.tenancy_type || 'shared')}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="inline-flex items-center text-theme">
-                          <Users size={14} className="mr-1" />
-                          {tenant.users_count} / {tenant.users_limit}
+                      <td className="p-3">
+                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium uppercase text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                          {t(planMap[tenant.subscription_plan]?.name || tenant.subscription_plan || 'N/A')}
                         </span>
                       </td>
-                      <td className="p-4 text-sm text-theme">
-                        {tenant.start_date ? new Date(tenant.start_date).toLocaleDateString() : '-'}
+                      <td className="p-3 text-sm text-theme capitalize">
+                        <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-1 text-xs font-medium text-violet-800 dark:bg-violet-900 dark:text-violet-200">
+                          {t(tenant.tenancy_type || 'shared')}
+                        </span>
                       </td>
-                      <td className="p-4 text-sm text-theme">
-                        {tenant.meta_data?.subscription?.is_lifetime ? t('Lifetime') : (tenant.end_date ? new Date(tenant.end_date).toLocaleDateString() : '-')}
+                      <td className="p-3 text-center">
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                          <Users size={13} />
+                          {tenant.users_count}/{tenant.users_limit}
+                        </span>
                       </td>
-                      <td className="p-4 text-sm text-theme">
-                        {tenant.last_backup_at ? new Date(tenant.last_backup_at).toLocaleString() : '-'}
+                      <td className={`p-3 text-sm whitespace-nowrap ${bodyTextClass}`}>
+                        {formatDateOnly(tenant.start_date)}
                       </td>
-                      <td className="p-4">
-                        <StatusBadge status={tenant.last_backup_status || 'unknown'} />
+                      <td className={`p-3 text-sm whitespace-nowrap ${bodyTextClass}`}>
+                        {tenant.meta_data?.subscription?.is_lifetime ? t('Lifetime') : formatDateOnly(tenant.end_date)}
                       </td>
-                      <td className="p-4">
+                      <td className="p-3">
                         <StatusBadge status={tenant.status} />
                       </td>
-                      <td className="p-4 text-right">
+                      <td className="p-3 text-right">
                         <div className="flex items-center justify-end space-x-2">
                           <button
-                            className={`text-theme ${tenant.tenancy_type !== 'dedicated' ? 'opacity-40 cursor-not-allowed' : 'hover:text-green-500'}`}
-                            title={
-                              tenant.tenancy_type !== 'dedicated'
-                                ? t('backup_only_dedicated', 'Only for dedicated tenants')
-                                : t('backup_now', 'Backup Now')
-                            }
-                            onClick={() => tenant.tenancy_type === 'dedicated' && handleBackupNow(tenant)}
-                            disabled={
-                              tenant.tenancy_type !== 'dedicated' ||
-                              (startingBackup && backupTenant && backupTenant.id === tenant.id)
-                            }
-                          >
-                            <DatabaseBackup size={18} />
-                          </button>
-                          <button
-                            className="text-theme hover:text-cyan-400"
-                            title={t('view_backups', 'View Backups')}
-                            onClick={() => openBackupsModal(tenant)}
-                          >
-                            <List size={18} />
-                          </button>
-                          <button 
-                            className="text-theme hover:text-emerald-600" 
-                            title={t('login_as_tenant', 'Login as tenant')}
-                            onClick={() => handleLoginAsTenant(tenant)}
-                          >
-                            <Key size={18} />
-                          </button>
-                          <button 
-                            className="text-theme hover:text-blue-500" 
+                            className={`${bodyTextClass} hover:text-blue-400`} 
                             title={t('preview', 'Preview')}
                             onClick={() => setPreviewTenant(tenant)}
                           >
                             <Eye size={18} />
                           </button>
                           <button 
-                            className="text-theme hover:text-purple-500" 
-                            title={t('change_status', 'Change Status')}
-                            onClick={() => setStatusTenant(tenant)}
+                            className={`${bodyTextClass} hover:text-emerald-400`} 
+                            title={t('password', 'Password')}
+                            onClick={() => handleLoginAsTenant(tenant)}
                           >
-                            <Activity size={18} />
+                            <Key size={18} />
                           </button>
                           <button 
-                            className="text-theme hover:text-blue-600" 
+                            className={`${bodyTextClass} hover:text-blue-400`} 
                             title={t('edit', 'Edit')}
                             onClick={() => handleEdit(tenant)}
                           >
                             <Edit size={18} />
                           </button>
                           <button 
-                            className="text-theme hover:text-red-600" 
-                            title={t('cancel', 'Cancel')}
-                            onClick={() => handleCancelSubscription(tenant)}
+                            className={`${bodyTextClass} hover:text-purple-400`} 
+                            title={t('change_status', 'Change Status')}
+                            onClick={() => setStatusTenant(tenant)}
+                          >
+                            <Activity size={18} />
+                          </button>
+                          <button 
+                            className={`${bodyTextClass} ${tenant.archived_at ? 'opacity-50 cursor-not-allowed' : (tenant.status || '').toLowerCase() === 'cancelled' ? 'hover:text-amber-400' : 'hover:text-red-400'}`}
+                            title={tenant.archived_at ? t('archived', 'Archived') : (tenant.status || '').toLowerCase() === 'cancelled' ? t('archive', 'Archive') : t('cancel', 'Cancel')}
+                            onClick={() => handleCancelAction(tenant)}
+                            disabled={!!tenant.archived_at}
                           >
                             <XCircle size={18} />
                           </button>
@@ -654,108 +885,91 @@ const TenantSetup = () => {
 
           <div className="md:hidden">
             {loadingList ? (
-              <div className="p-6 text-center text-theme">
+              <div className={`p-6 text-center ${bodyTextClass}`}>
                 {t('loading', 'Loading...')}
               </div>
             ) : tenants.length === 0 ? (
-              <div className="p-6 text-center text-theme">
+              <div className={`p-6 text-center ${bodyTextClass}`}>
                 {t('no_tenants_found', 'No subscriptions found.')}
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 p-4">
                 {tenants.map((tenant) => (
                   <div
                     key={tenant.id}
-                    className="rounded-xl border border-gray-200 dark:border-gray-700 bg-transparent px-4 py-3"
+                    className={`rounded-xl border px-4 py-3 ${isDark ? 'border-slate-800 bg-slate-900/70' : 'border-gray-200 bg-white'}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="font-semibold text-theme">{tenant.name}</div>
-                        <div className="text-xs text-theme">{tenant.domain || tenant.slug}</div>
+                        <div className={`font-semibold ${bodyTextClass}`}>{tenant.name}</div>
+                        <div className={`text-xs ${mutedTextClass}`}>{tenant.domain || tenant.slug}</div>
                       </div>
                       <StatusBadge status={tenant.status} />
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-theme">
+                    <div className={`mt-3 grid grid-cols-2 gap-2 text-xs ${bodyTextClass}`}>
+                      <div>
+                        <span className="font-semibold">{t('company_type', 'Company Type')}</span>
+                        <div className="mt-1">{t(tenant.company_type) || '-'}</div>
+                      </div>
                       <div className="flex items-center gap-1">
                         <span className="font-semibold">{t('plan_type', 'Plan')}</span>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 uppercase">
-                          {t(PLANS.find(p => p.id === tenant.subscription_plan)?.name || tenant.subscription_plan || 'N/A')}
+                          {t(planMap[tenant.subscription_plan]?.name || tenant.subscription_plan || 'N/A')}
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Building size={12} className="text-theme" />
-                        <span>{t(tenant.company_type) || '-'}</span>
+                        <span>{t('tenancy_type', 'Tenancy Type')}: {t(tenant.tenancy_type || 'shared')}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Users size={12} className="text-theme" />
-                        <span>{tenant.users_count} / {tenant.users_limit}</span>
+                        <span className="whitespace-nowrap">{tenant.users_count}/{tenant.users_limit}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Calendar size={12} className="text-theme" />
-                        <span>{tenant.start_date ? new Date(tenant.start_date).toLocaleDateString() : '-'}</span>
+                        <span>{formatDateOnly(tenant.start_date)}</span>
                       </div>
                       <div className="flex items-center gap-1 col-span-2">
                         <Calendar size={12} className="text-theme" />
-                        <span>{tenant.meta_data?.subscription?.is_lifetime ? t('Lifetime') : (tenant.end_date ? new Date(tenant.end_date).toLocaleDateString() : '-')}</span>
+                        <span>{tenant.meta_data?.subscription?.is_lifetime ? t('Lifetime') : formatDateOnly(tenant.end_date)}</span>
                       </div>
                     </div>
 
                     <div className="mt-3 flex justify-end gap-2">
                       <button
-                        className={`text-theme ${tenant.tenancy_type !== 'dedicated' ? 'opacity-40 cursor-not-allowed' : 'hover:text-green-500'}`}
-                        title={
-                          tenant.tenancy_type !== 'dedicated'
-                            ? t('backup_only_dedicated', 'Only for dedicated tenants')
-                            : t('backup_now', 'Backup Now')
-                        }
-                        onClick={() => tenant.tenancy_type === 'dedicated' && handleBackupNow(tenant)}
-                        disabled={
-                          tenant.tenancy_type !== 'dedicated' ||
-                          (startingBackup && backupTenant && backupTenant.id === tenant.id)
-                        }
-                      >
-                        <DatabaseBackup size={18} />
-                      </button>
-                      <button
-                        className="text-theme hover:text-cyan-400"
-                        title={t('view_backups', 'View Backups')}
-                        onClick={() => openBackupsModal(tenant)}
-                      >
-                        <List size={18} />
-                      </button>
-                      <button
-                        className="text-theme hover:text-emerald-600"
-                        title={t('login_as_tenant', 'Login as tenant')}
-                        onClick={() => handleLoginAsTenant(tenant)}
-                      >
-                        <Key size={18} />
-                      </button>
-                      <button
-                        className="text-theme hover:text-blue-500"
+                        className={`${bodyTextClass} hover:text-blue-400`}
                         title={t('preview', 'Preview')}
                         onClick={() => setPreviewTenant(tenant)}
                       >
                         <Eye size={18} />
                       </button>
                       <button
-                        className="text-theme hover:text-purple-500"
-                        title={t('change_status', 'Change Status')}
-                        onClick={() => setStatusTenant(tenant)}
+                        className={`${bodyTextClass} hover:text-emerald-400`}
+                        title={t('password', 'Password')}
+                        onClick={() => handleLoginAsTenant(tenant)}
                       >
-                        <Activity size={18} />
+                        <Key size={18} />
                       </button>
                       <button
-                        className="text-theme hover:text-blue-600"
+                        className={`${bodyTextClass} hover:text-blue-400`}
                         title={t('edit', 'Edit')}
                         onClick={() => handleEdit(tenant)}
                       >
                         <Edit size={18} />
                       </button>
                       <button
-                        className="text-theme hover:text-red-600"
-                        title={t('cancel', 'Cancel')}
-                        onClick={() => handleCancelSubscription(tenant)}
+                        className={`${bodyTextClass} hover:text-purple-400`}
+                        title={t('change_status', 'Change Status')}
+                        onClick={() => setStatusTenant(tenant)}
+                      >
+                        <Activity size={18} />
+                      </button>
+                      <button
+                        className={`${bodyTextClass} ${tenant.archived_at ? 'opacity-50 cursor-not-allowed' : (tenant.status || '').toLowerCase() === 'cancelled' ? 'hover:text-amber-400' : 'hover:text-red-400'}`}
+                        title={tenant.archived_at ? t('archived', 'Archived') : (tenant.status || '').toLowerCase() === 'cancelled' ? t('archive', 'Archive') : t('cancel', 'Cancel')}
+                        onClick={() => handleCancelAction(tenant)}
+                        disabled={!!tenant.archived_at}
                       >
                         <XCircle size={18} />
                       </button>
@@ -767,28 +981,76 @@ const TenantSetup = () => {
           </div>
 
           {/* Pagination */}
-          {pagination.last_page > 1 && (
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-2">
-              <button 
-                disabled={pagination.current_page === 1}
-                onClick={() => fetchTenants(pagination.current_page - 1)}
-                className="px-3 py-1 border rounded disabled:opacity-50"
-              >
-                {t('previous', 'Previous')}
-              </button>
-              <span className="px-3 py-1 text-theme">
-                {pagination.current_page} / {pagination.last_page}
-              </span>
-              <button 
-                disabled={pagination.current_page === pagination.last_page}
-                onClick={() => fetchTenants(pagination.current_page + 1)}
-                className="px-3 py-1 border rounded disabled:opacity-50"
-              >
-                {t('next', 'Next')}
-              </button>
+          <div className={`flex gap-4 border-t px-5 py-4 md:flex-row md:items-center md:justify-between ${isDark ? 'border-slate-800 text-slate-300' : 'border-gray-200 text-slate-600'}`}>
+            <div className="text-sm">
+              {t('showing_tenants_compact', 'Showing {{from}}-{{to}} of {{total}}', {
+                from: pagination.total === 0 ? 0 : ((pagination.current_page - 1) * pagination.per_page) + 1,
+                to: pagination.total === 0 ? 0 : Math.min(pagination.current_page * pagination.per_page, pagination.total),
+                total: pagination.total
+              })}
             </div>
-          )}
+
+            <div className="flex flex-wrap items-center gap-4 text-sm md:justify-end">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={pagination.current_page === 1}
+                  onClick={() => fetchTenants(Math.max(1, pagination.current_page - 1))}
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${isDark ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'}`}
+                  aria-label={t('previous', 'Previous')}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span className={`min-w-[96px] text-center font-medium ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+                  {t('page_x_of_y', 'Page {{page}} of {{pages}}', {
+                    page: Math.max(1, pagination.current_page),
+                    pages: Math.max(1, pagination.last_page)
+                  })}
+                </span>
+                <button
+                  type="button"
+                  disabled={pagination.current_page === pagination.last_page || pagination.total === 0}
+                  onClick={() => fetchTenants(Math.min(pagination.last_page, pagination.current_page + 1))}
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${isDark ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'}`}
+                  aria-label={t('next', 'Next')}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={mutedTextClass}>{t('per_page', 'Per page:')}</span>
+                <div className="relative">
+                  <select
+                    value={pagination.per_page}
+                    onChange={(e) => {
+                      const nextPerPage = Number(e.target.value);
+                      setPagination((prev) => ({
+                        ...prev,
+                        current_page: 1,
+                        per_page: nextPerPage
+                      }));
+                    }}
+                    className={`h-11 min-w-[88px] appearance-none rounded-xl border pl-4 pr-9 text-sm font-medium outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 ${
+                      isDark
+                        ? 'border-slate-700 bg-slate-900 text-slate-200 focus:ring-blue-500/20'
+                        : 'border-slate-200 bg-white text-slate-700 shadow-sm'
+                    }`}
+                  >
+                    {pageSizeOptions.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+    </div>
+    </div>
 
       {backupTenant && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[150] p-4">
@@ -897,7 +1159,7 @@ const TenantSetup = () => {
               </h3>
               <button
                 type="button"
-                onClick={() => setShowCreateModal(false)}
+                onClick={closeCreateModal}
                 className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
               >
                 <X size={20} />
@@ -1058,27 +1320,47 @@ const TenantSetup = () => {
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('password', 'Password')} <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  {...register('password', { required: true, minLength: 8 })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showCreatePassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    {...register('password', { required: true, minLength: 8 })}
+                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    aria-label={showCreatePassword ? t('Hide password') : t('Show password')}
+                  >
+                    {showCreatePassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('confirm_password', 'Confirm Password')} <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  {...register('password_confirmation', { 
-                    required: true,
-                    validate: val => val === watch('password') || t('passwords_mismatch', 'Passwords do not match')
-                  })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showCreateConfirmPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    {...register('password_confirmation', { 
+                      required: true,
+                      validate: val => val === watch('password') || t('passwords_mismatch', 'Passwords do not match')
+                    })}
+                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateConfirmPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    aria-label={showCreateConfirmPassword ? t('Hide password') : t('Show password')}
+                  >
+                    {showCreateConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1086,37 +1368,44 @@ const TenantSetup = () => {
               {t('subscription_details', 'Subscription Details')}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-               <div>
+              <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('number_of_users', 'Number of Users')}
+                  {t('number_of_users', 'Number of Users')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
-                  {...register('users_limit', { min: 1 })}
-                  defaultValue={5}
+                  {...register('users_limit', { required: true, min: 1 })}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 />
+                {errors.users_limit && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('start_date', 'Start Date')}
+                  {t('start_date', 'Start Date')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="date"
-                  {...register('start_date')}
+                  {...register('start_date', { required: true })}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                 />
+                {errors.start_date && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
-                  {t('end_date', 'End Date')}
+                  {t('end_date', 'End Date')} {!isLifetime && <span className="text-red-500">*</span>}
                 </label>
                 <input
                   type="date"
-                  {...register('end_date')}
-                  disabled={isLifetime}
+                  {...register('end_date', {
+                    validate: (value) => {
+                      if (isLifetime) return true;
+                      return !!value || t('required', 'This field is required');
+                    }
+                  })}
+                  disabled={!!isLifetime}
                   className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
                 />
+                {errors.end_date && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
                 <div className="mt-2 flex items-center space-x-2">
                   <input
                     type="checkbox"
@@ -1134,14 +1423,21 @@ const TenantSetup = () => {
               {t('select_plan', 'Select Plan')}
             </h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {PLANS.map((plan) => (
-                <label key={plan.id} className={`relative flex flex-col p-4 border rounded-lg cursor-pointer hover:bg-gray-700 transition-all ${selectedPlan === plan.id ? 'ring-2 ring-blue-500 border-transparent' : 'border-gray-200 dark:border-gray-700'}`}>
+              {selectablePlans.map((plan) => (
+                <label
+                  key={plan.id}
+                  className={`relative flex flex-col rounded-lg border p-4 cursor-pointer transition-all duration-200 ${
+                    selectedPlan === plan.code
+                      ? 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200 dark:border-transparent dark:bg-blue-900/20 dark:ring-2 dark:ring-blue-500'
+                      : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm dark:border-gray-700 dark:bg-transparent dark:hover:bg-gray-700'
+                  }`}
+                >
                   <div className="flex items-center mb-2">
                     <input
                       type="radio"
-                      value={plan.id}
+                      value={plan.code}
                       {...register('plan')}
-                      defaultChecked={plan.id === 'core'}
+                      defaultChecked={plan.code === 'basic'}
                       className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                     />
                     <span className="ml-3 font-bold text-theme">
@@ -1150,10 +1446,7 @@ const TenantSetup = () => {
                   </div>
                   <p className="text-xs text-gray-500 ml-7">
                     {(() => {
-                      const base = Array.isArray(plan.modules) ? [...plan.modules] : []
-                      if (plan.id === 'enterprise' && selectedCompanyType === 'Real Estate') {
-                        base.push('contract_collections')
-                      }
+                      const base = getPlanModulesForCompany(plan, selectedCompanyType)
                       if (base.length === 0) return t('Flexible Selection')
                       return base
                         .map((m) => {
@@ -1171,23 +1464,30 @@ const TenantSetup = () => {
               <div className="mt-6 p-4 bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700">
                 <h3 className="text-sm font-semibold text-theme mb-3">{t('select_modules', 'Select Modules')}</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {AVAILABLE_MODULES.map(module => (
-                    <label key={module.id} className={`flex items-center space-x-2 cursor-pointer ${module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate' ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                  {AVAILABLE_MODULES.map(module => {
+                    const isContractCollectionsBlocked = module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate'
+                    const isCustomersBlocked = module.id === 'customers' && selectedCompanyType === 'Real Estate'
+                    const isDisabled = isContractCollectionsBlocked || isCustomersBlocked
+
+                    return (
+                    <label key={module.id} className={`flex items-center space-x-2 cursor-pointer ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
                       <input
                         type="checkbox"
-                        disabled={module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate'}
+                        disabled={isDisabled}
                         checked={customModules.includes(module.id)}
                         onChange={() => {
-                          if (module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate') return
+                          if (isDisabled) return
                           handleModuleToggle(module.id)
                         }}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-sm text-theme">
-                        {t(module.name)}{module.id === 'contract_collections' ? (selectedCompanyType === 'Real Estate' ? '' : ` (${t('Real Estate')})`) : ''}
+                        {t(module.name)}
+                        {module.id === 'contract_collections' ? (selectedCompanyType === 'Real Estate' ? '' : ` (${t('Real Estate')})`) : ''}
+                        {module.id === 'customers' ? (selectedCompanyType === 'Real Estate' ? ` (${t('General')})` : '') : ''}
                       </span>
                     </label>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}
@@ -1209,6 +1509,7 @@ const TenantSetup = () => {
       {editingTenant && (
         <EditTenantModal 
           tenant={editingTenant} 
+          plans={selectablePlans}
           onClose={() => setEditingTenant(null)} 
           onSave={handleUpdateTenant} 
         />
@@ -1228,13 +1529,14 @@ const TenantSetup = () => {
           onSave={handleUpdateStatus} 
         />
       )}
-    </div>
+    </>
   );
 };
 
 const PreviewTenantModal = ({ tenant, onClose }) => {
   const { t } = useTranslation();
-  const plan = PLANS.find(p => p.id === tenant.subscription_plan) || { name: tenant.subscription_plan };
+  const { planMap } = useSubscriptionPlans({ includeInactive: true });
+  const plan = planMap[tenant.subscription_plan] || { name: tenant.subscription_plan };
   const isLifetime =
     tenant?.meta_data &&
     tenant.meta_data.subscription &&
@@ -1356,7 +1658,7 @@ const PreviewTenantModal = ({ tenant, onClose }) => {
               </div>
               <div>
                 <span className="block text-xs text-gray-400 dark:text-gray-400">{t('start_date', 'Start Date')}</span>
-                <span className="font-medium text-theme">{tenant.start_date ? new Date(tenant.start_date).toLocaleDateString() : '-'}</span>
+                <span className="font-medium text-theme">{formatDateOnly(tenant.start_date)}</span>
               </div>
               <div>
                 <span className="block text-xs text-gray-400 dark:text-gray-400">{t('end_date', 'End Date')}</span>
@@ -1364,7 +1666,7 @@ const PreviewTenantModal = ({ tenant, onClose }) => {
                   {isLifetime
                     ? t('lifetime_subscription', 'Lifetime subscription')
                     : tenant.end_date
-                      ? new Date(tenant.end_date).toLocaleDateString()
+                      ? formatDateOnly(tenant.end_date)
                       : '-'}
                 </span>
               </div>
@@ -1458,9 +1760,11 @@ const ChangeStatusModal = ({ tenant, onClose, onSave }) => {
   );
 };
 
-const EditTenantModal = ({ tenant, onClose, onSave }) => {
+const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
   const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [showEditConfirmPassword, setShowEditConfirmPassword] = useState(false);
   const domainSuffix = '.besouholacrm.net';
   
   // Custom Modules State
@@ -1482,9 +1786,9 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
       admin_name: tenant.admin_name || (tenant.owner?.name),
       admin_email: tenant.admin_email || (tenant.owner?.email),
       users_limit: tenant.users_limit,
-      start_date: tenant.start_date ? tenant.start_date.split('T')[0] : '',
-      end_date: tenant.end_date ? tenant.end_date.split('T')[0] : '',
-      plan: tenant.subscription_plan || 'core',
+      start_date: toDateInputValue(tenant.start_date),
+      end_date: toDateInputValue(tenant.end_date),
+      plan: tenant.subscription_plan || 'basic',
       status: tenant.status,
       is_lifetime: tenant.meta_data?.subscription?.is_lifetime || false
     }
@@ -1512,10 +1816,7 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
         const companyType = data.company_type || 'General';
         const mappedModules = customModules.flatMap(m => {
           if (m === 'inventory') {
-             if (companyType === 'Real Estate') {
-                 return ['projects', 'properties', 'developers', 'brokers', 'requests'];
-             }
-             return ['items', 'orders'];
+             return getInventoryModulesByCompanyType(companyType);
           }
           if (m === 'sales') return ['orders'];
           return [m];
@@ -1706,25 +2007,45 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('password', 'New Password')} <span className="text-gray-400 text-xs">({t('optional', 'Optional')})</span>
                 </label>
-                <input
-                  type="password"
-                  {...register('password', { minLength: 8 })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
-                  placeholder={t('leave_blank_to_keep', 'Leave blank to keep current')}
-                />
+                <div className="relative">
+                  <input
+                    type={showEditPassword ? 'text' : 'password'}
+                    {...register('password', { minLength: 8 })}
+                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                    placeholder={t('leave_blank_to_keep', 'Leave blank to keep current')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    aria-label={showEditPassword ? t('Hide password') : t('Show password')}
+                  >
+                    {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('confirm_password', 'Confirm New Password')}
                 </label>
-                <input
-                  type="password"
-                  {...register('password_confirmation', { 
-                    validate: val => !password || val === password || t('passwords_mismatch', 'Passwords do not match')
-                  })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showEditConfirmPassword ? 'text' : 'password'}
+                    {...register('password_confirmation', { 
+                      validate: val => !password || val === password || t('passwords_mismatch', 'Passwords do not match')
+                    })}
+                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditConfirmPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    aria-label={showEditConfirmPassword ? t('Hide password') : t('Show password')}
+                  >
+                    {showEditConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1794,12 +2115,19 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
               {t('select_plan', 'Select Plan')}
             </h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {PLANS.map((plan) => (
-                <label key={plan.id} className={`relative flex flex-col p-4 border rounded-lg cursor-pointer hover:bg-gray-700 transition-all ${selectedPlan === plan.id ? 'ring-2 ring-blue-500 border-transparent' : 'border-gray-200 dark:border-gray-700'}`}>
+              {plans.map((plan) => (
+                <label
+                  key={plan.id}
+                  className={`relative flex flex-col rounded-lg border p-4 cursor-pointer transition-all duration-200 ${
+                    selectedPlan === plan.code
+                      ? 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200 dark:border-transparent dark:bg-blue-900/20 dark:ring-2 dark:ring-blue-500'
+                      : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm dark:border-gray-700 dark:bg-transparent dark:hover:bg-gray-700'
+                  }`}
+                >
                   <div className="flex items-center mb-2">
                     <input
                       type="radio"
-                      value={plan.id}
+                      value={plan.code}
                       {...register('plan')}
                       className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                     />
@@ -1809,10 +2137,7 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
                   </div>
                   <p className="text-xs text-gray-500 ml-7">
                     {(() => {
-                      const base = Array.isArray(plan.modules) ? [...plan.modules] : []
-                      if (plan.id === 'enterprise' && selectedCompanyType === 'Real Estate') {
-                        base.push('contract_collections')
-                      }
+                      const base = getPlanModulesForCompany(plan, selectedCompanyType)
                       if (base.length === 0) return t('Flexible Selection')
                       return base
                         .map((m) => {
@@ -1830,23 +2155,30 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
               <div className="mt-6 p-4 bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700">
                 <h3 className="text-sm font-semibold text-theme mb-3">{t('select_modules', 'Select Modules')}</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {AVAILABLE_MODULES.map(module => (
-                    <label key={module.id} className={`flex items-center space-x-2 cursor-pointer ${module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate' ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                  {AVAILABLE_MODULES.map(module => {
+                    const isContractCollectionsBlocked = module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate'
+                    const isCustomersBlocked = module.id === 'customers' && selectedCompanyType === 'Real Estate'
+                    const isDisabled = isContractCollectionsBlocked || isCustomersBlocked
+
+                    return (
+                    <label key={module.id} className={`flex items-center space-x-2 cursor-pointer ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
                       <input
                         type="checkbox"
-                        disabled={module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate'}
+                        disabled={isDisabled}
                         checked={customModules.includes(module.id)}
                         onChange={() => {
-                          if (module.id === 'contract_collections' && selectedCompanyType !== 'Real Estate') return
+                          if (isDisabled) return
                           handleModuleToggle(module.id)
                         }}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-sm text-theme">
-                        {t(module.name)}{module.id === 'contract_collections' ? (selectedCompanyType === 'Real Estate' ? '' : ` (${t('Real Estate')})`) : ''}
+                        {t(module.name)}
+                        {module.id === 'contract_collections' ? (selectedCompanyType === 'Real Estate' ? '' : ` (${t('Real Estate')})`) : ''}
+                        {module.id === 'customers' ? (selectedCompanyType === 'Real Estate' ? ` (${t('General')})` : '') : ''}
                       </span>
                     </label>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}

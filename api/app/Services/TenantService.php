@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Module;
+use App\Models\SubscriptionPlan;
 use App\Models\Tenant;
 use Illuminate\Validation\ValidationException;
 
@@ -22,7 +23,7 @@ class TenantService
             throw ValidationException::withMessages(['slug' => 'This slug is reserved.']);
         }
 
-        $plan = $data['plan'] ?? 'core';
+        $plan = $data['plan'] ?? 'basic';
 
         $host = parse_url(config('app.url'), PHP_URL_HOST);
         $domain = $host ? ($data['slug'] . '.' . $host) : null;
@@ -99,25 +100,22 @@ class TenantService
         $modules = array_values(array_unique(array_filter($modules, function ($slug) use ($companyType) {
             if ($slug === 'support') return false;
             if ($slug === 'contract_collections' && $companyType !== 'Real Estate') return false;
+            if ($slug === 'customers' && $companyType === 'Real Estate') return false;
             return true;
         })));
 
-        $moduleIds = [];
+        // Upsert all modules in one query — avoids N+1 and race-condition duplicates
+        $rows = array_map(fn (string $slug) => [
+            'slug'       => $slug,
+            'name'       => ucwords(str_replace(['-', '_'], ' ', $slug)),
+            'is_active'  => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $modules);
 
-        foreach ($modules as $slug) {
-            $name = ucwords(str_replace(['-', '_'], ' ', $slug));
+        Module::upsert($rows, ['slug'], ['name', 'updated_at']);
 
-            $module = Module::firstOrCreate(
-                ['slug' => $slug],
-                [
-                    'name' => $name,
-                    'description' => null,
-                    'is_active' => true,
-                ]
-            );
-
-            $moduleIds[] = $module->id;
-        }
+        $moduleIds = Module::whereIn('slug', $modules)->pluck('id')->toArray();
 
         // Store detailed module configuration in meta_data
         if ($plan === 'custom') {
@@ -140,28 +138,40 @@ class TenantService
 
     protected function getModulesForPlan(string $plan, string $companyType = 'General'): array
     {
-        $core = ['reports', 'settings']; 
+        $dbPlan = SubscriptionPlan::where('code', $plan)->where('is_active', true)->first();
+        if ($dbPlan) {
+            $overrides = is_array($dbPlan->company_type_overrides) ? $dbPlan->company_type_overrides : [];
+            $overrideModules = $overrides[$companyType] ?? null;
+
+            if (is_array($overrideModules) && !empty($overrideModules)) {
+                return array_values(array_unique($overrideModules));
+            }
+
+            return array_values(array_unique(is_array($dbPlan->modules) ? $dbPlan->modules : []));
+        }
+
+        $basicBase = ['dashboard', 'reports', 'users', 'settings', 'leads'];
 
         $inventory = $this->getInventoryModules($companyType);
         $inventoryWithRoot = array_merge(['inventory'], $inventory);
 
         switch ($plan) {
-            case 'core':
-                return $core;
             case 'basic':
-                return array_merge($core, ['leads', 'campaigns'], $inventoryWithRoot);
+                return array_merge($basicBase, $inventoryWithRoot);
             case 'professional':
-                return array_merge($core, ['leads', 'campaigns', 'customers'], $inventoryWithRoot);
+                return array_merge($basicBase, ['campaigns'], $inventoryWithRoot);
             case 'enterprise':
-                $enterprise = array_merge($core, ['leads', 'campaigns', 'customers'], $inventoryWithRoot);
+                $enterprise = array_merge($basicBase, ['campaigns'], $inventoryWithRoot);
                 if ($companyType === 'Real Estate') {
                     $enterprise[] = 'contract_collections';
+                } else {
+                    $enterprise[] = 'customers';
                 }
                 return $enterprise;
             case 'custom':
                 return [];
             default:
-                return $core;
+                return array_merge($basicBase, $inventoryWithRoot);
         }
     }
 

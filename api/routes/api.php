@@ -52,6 +52,7 @@ use App\Http\Controllers\ContractCollections\CcAuditController;
 use App\Http\Controllers\ContractCollections\CcLeadConversionController;
 use App\Http\Controllers\ContractCollections\CcCustomerCommentsController;
 use App\Http\Middleware\ResolveTenant;
+use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\InitializeTenancy;
 use App\Http\Middleware\SetTenantTimezone;
 use App\Http\Middleware\EnsureTenantSubscriptionActive;
@@ -142,10 +143,15 @@ Route::get('/public-website-assets/{path}', [PublicWebsiteAssetController::class
     ->name('public.website-assets.show');
 
 // Super Admin Routes (Accessible on main domain)
-Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])->group(function () {
+Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', EnsureSuperAdmin::class])->group(function () {
     Route::get('tenants', [SuperAdminController::class , 'tenants']);
     Route::post('tenants', [SuperAdminController::class , 'storeTenant']);
     Route::put('tenants/{tenant}', [SuperAdminController::class , 'update']);
+    Route::post('tenants/{tenant}/archive', [SuperAdminController::class, 'archive']);
+    Route::get('subscription-plans', [\App\Http\Controllers\SubscriptionPlanController::class, 'index']);
+    Route::post('subscription-plans', [\App\Http\Controllers\SubscriptionPlanController::class, 'store']);
+    Route::put('subscription-plans/{subscriptionPlan}', [\App\Http\Controllers\SubscriptionPlanController::class, 'update']);
+    Route::delete('subscription-plans/{subscriptionPlan}', [\App\Http\Controllers\SubscriptionPlanController::class, 'destroy']);
     Route::get('users', [SuperAdminController::class , 'users']);
 
     // Audit Logs

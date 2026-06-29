@@ -49,17 +49,32 @@ const DEFAULT_FILTERS = {
   company_type: 'all',
 }
 
+function useDebouncedValue(value, delay = 400) {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [value, delay])
+
+  return debouncedValue
+}
+
 export function useTenants(initialFilters = {}) {
   const [tenants,    setTenants]    = useState([])
   const [loading,    setLoading]    = useState(false)
   const [pagination, setPagination] = useState({ current_page: 1, last_page: 1, total: 0 })
   const [filters,    setFilters]    = useState({ ...DEFAULT_FILTERS, ...initialFilters })
+  const debouncedSearch = useDebouncedValue(filters.search)
 
   const fetch = useCallback(async (page = 1) => {
     setLoading(true)
     try {
       const params = { page }
-      Object.entries(filters).forEach(([k, v]) => {
+      Object.entries({ ...filters, search: debouncedSearch }).forEach(([k, v]) => {
         if (v && v !== 'all') params[k] = v
       })
       const { data } = await api.get('/super-admin/tenants', { params })
@@ -74,7 +89,7 @@ export function useTenants(initialFilters = {}) {
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [debouncedSearch, filters])
 
   useEffect(() => { fetch(1) }, [fetch])
 

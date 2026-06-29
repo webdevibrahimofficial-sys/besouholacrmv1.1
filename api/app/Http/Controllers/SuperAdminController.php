@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Tenant;
+use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\TenantService;
+use App\Services\TenantStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Artisan;
@@ -14,10 +16,31 @@ use Illuminate\Support\Facades\Hash;
 class SuperAdminController extends Controller
 {
     protected TenantService $tenantService;
+    protected TenantStatusService $tenantStatusService;
 
-    public function __construct(TenantService $tenantService)
+    public function __construct(TenantService $tenantService, TenantStatusService $tenantStatusService)
     {
         $this->tenantService = $tenantService;
+        $this->tenantStatusService = $tenantStatusService;
+    }
+
+    protected function tenantAccessShouldBeBlocked(Tenant $tenant): bool
+    {
+        $status = strtolower((string) ($tenant->status ?? ''));
+        return $this->tenantAccessBlockedState($status, $tenant->end_date);
+    }
+
+    protected function tenantAccessBlockedState(string $status, $endDate): bool
+    {
+        if (in_array($status, ['cancelled', 'suspended', 'expired'], true)) {
+            return true;
+        }
+
+        try {
+            return $endDate ? now()->greaterThan($endDate->copy()->endOfDay()) : false;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**
@@ -26,11 +49,28 @@ class SuperAdminController extends Controller
     public function tenants(Request $request)
     {
         $this->authorizeSuperAdmin($request);
+        $this->tenantStatusService->syncExpiredTenants();
+
+        $view = strtolower((string) $request->input('view', 'current'));
+        $perPage = (int) $request->integer('per_page', 20);
+        $perPage = max(10, min($perPage, 100));
 
         $query = Tenant::with(['modules'])
             ->with(['backups' => function ($q) {
                 $q->latest()->limit(1);
+            }])
+            ->withCount(['users' => function ($q) {
+                $q->withoutGlobalScopes();
+            }])
+            ->with(['owner' => function ($q) {
+                $q->withoutGlobalScopes()->orderBy('id')->limit(1);
             }]);
+
+        if ($view === 'archived') {
+            $query->whereNotNull('archived_at');
+        } else {
+            $query->whereNull('archived_at');
+        }
 
         // Filter by Search (Name or Domain)
         if ($request->has('search') && $request->search) {
@@ -57,33 +97,34 @@ class SuperAdminController extends Controller
             $query->where('company_type', $request->company_type);
         }
 
-        $tenants = $query->latest()->paginate(20);
+        // Filter by Country
+        if ($request->has('country') && $request->country && $request->country !== 'all') {
+            $query->where('country', $request->country);
+        }
+
+        $tenants = $query->latest()->paginate($perPage);
 
         $mapped = $tenants->through(function (Tenant $tenant) {
-            $last = $tenant->backups->first();
-
-            // Count users explicitly without global scope to ensure we get all users for this tenant
-            $usersCount = User::withoutGlobalScopes()
-                ->where('tenant_id', $tenant->id)
-                ->count();
-
-            $owner = User::withoutGlobalScopes()
-                ->where('tenant_id', $tenant->id)
-                ->orderBy('id')
-                ->first();
+            $last  = $tenant->backups->first();
+            $owner = $tenant->owner;
 
             $data = $tenant->toArray();
-            $data['users_count'] = $usersCount;
+            $data['users_count']       = $tenant->users_count ?? 0;
             $data['last_backup_status'] = $last?->status;
-            $data['last_backup_at'] = $last?->finished_at;
-            $data['admin_name'] = $owner?->name;
-            $data['admin_email'] = $owner?->email;
+            $data['last_backup_at']    = $last?->finished_at;
+            $data['admin_name']        = $owner?->name;
+            $data['admin_email']       = $owner?->email;
 
             return $data;
         });
 
         return response()->json([
-            'tenants' => $mapped
+            'tenants' => $mapped,
+            'counts' => [
+                'current' => Tenant::whereNull('archived_at')->count(),
+                'archived' => Tenant::whereNotNull('archived_at')->count(),
+            ],
+            'view' => $view,
         ]);
     }
 
@@ -102,13 +143,13 @@ class SuperAdminController extends Controller
             'admin_name' => 'required|string|max:255',
             'admin_email' => 'required|email|max:255',
             'admin_password' => 'required|string|min:8',
-            'plan' => 'nullable|string|in:core,basic,professional,enterprise,custom',
+            'plan' => 'nullable|string|max:50',
             'modules' => 'nullable|array',
             // Do not require modules to already exist in DB; TenantService will create/sanitize module slugs.
             'modules.*' => ['string', 'regex:/^[a-z0-9_-]+$/i'],
             'company_type' => 'nullable|string|in:General,Real Estate',
-            'users_limit' => 'nullable|integer|min:1',
-            'start_date' => 'nullable|date',
+            'users_limit' => 'required|integer|min:1',
+            'start_date' => 'required|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
             'is_lifetime' => 'nullable|boolean',
             'country' => 'nullable|string|max:255',
@@ -134,16 +175,34 @@ class SuperAdminController extends Controller
             ], 500);
         }
 
-        $tenant = Tenant::where('slug', $validated['slug'])->firstOrFail();
-
-        $plan = $request->input('plan', 'core');
         $isLifetime = $request->boolean('is_lifetime', false);
+        $plan = $request->input('plan', 'basic');
+
+        if ($plan !== 'custom' && !SubscriptionPlan::where('code', $plan)->where('is_active', true)->exists()) {
+            return response()->json([
+                'message' => 'Selected subscription plan is invalid.',
+                'errors' => [
+                    'plan' => ['Selected subscription plan is invalid.'],
+                ],
+            ], 422);
+        }
+
+        if (!$isLifetime && !$request->filled('end_date')) {
+            return response()->json([
+                'message' => 'The end date field is required when lifetime subscription is not enabled.',
+                'errors' => [
+                    'end_date' => ['The end date field is required.'],
+                ],
+            ], 422);
+        }
+
+        $tenant = Tenant::where('slug', $validated['slug'])->firstOrFail();
 
         $tenant->subscription_plan = $plan;
         $tenant->company_type = $request->input('company_type', 'General');
-        $tenant->users_limit = $request->input('users_limit', $tenant->users_limit ?? 5);
-        $tenant->start_date = $request->input('start_date', $tenant->start_date ?? now());
-        $tenant->end_date = $isLifetime ? null : $request->input('end_date', $tenant->end_date);
+        $tenant->users_limit = $request->input('users_limit');
+        $tenant->start_date = $request->input('start_date');
+        $tenant->end_date = $isLifetime ? null : $request->input('end_date');
         $tenant->country = $request->input('country', $tenant->country);
         $tenant->city = $request->input('city', $tenant->city);
         $tenant->state = $request->input('state', $tenant->state);
@@ -190,7 +249,7 @@ class SuperAdminController extends Controller
                 'regex:/^[a-z0-9\-]+$/',
                 Rule::unique('tenants', 'slug')->ignore($tenant->id),
             ],
-            'subscription_plan' => 'nullable|string|in:core,basic,professional,enterprise,custom',
+            'subscription_plan' => 'nullable|string|max:50',
             'company_type' => 'nullable|string|in:General,Real Estate',
             'status' => 'nullable|string|in:active,pending,expired,cancelled',
             'start_date' => 'nullable|date',
@@ -225,6 +284,21 @@ class SuperAdminController extends Controller
             $validated['end_date'] = null;
         }
 
+        if ($request->filled('subscription_plan')) {
+            $planCode = $request->input('subscription_plan');
+            if ($planCode !== 'custom' && !SubscriptionPlan::where('code', $planCode)->where('is_active', true)->exists()) {
+                return response()->json([
+                    'message' => 'Selected subscription plan is invalid.',
+                    'errors' => [
+                        'subscription_plan' => ['Selected subscription plan is invalid.'],
+                    ],
+                ], 422);
+            }
+        }
+
+        $previousStatus = strtolower((string) ($tenant->status ?? ''));
+        $previousEndDate = $tenant->end_date;
+        $wasBlocked = $this->tenantAccessBlockedState($previousStatus, $previousEndDate);
         $tenant->update($validated);
 
         if ($request->has('is_lifetime')) {
@@ -265,9 +339,45 @@ class SuperAdminController extends Controller
             }
         }
 
+        $tenant->refresh();
+        $currentStatus = strtolower((string) ($tenant->status ?? ''));
+        $isBlocked = $this->tenantAccessShouldBeBlocked($tenant);
+        $enteredBlockedState = !$wasBlocked && $isBlocked;
+        $statusChangedToBlocked = $previousStatus !== $currentStatus && in_array($currentStatus, ['cancelled', 'suspended', 'expired'], true);
+
+        if ($enteredBlockedState || $statusChangedToBlocked) {
+            $this->tenantStatusService->revokeTenantUserTokens($tenant);
+        }
+
         return response()->json([
             'message' => 'Tenant updated successfully',
             'tenant' => $tenant
+        ]);
+    }
+
+    public function archive(Request $request, Tenant $tenant)
+    {
+        $this->authorizeSuperAdmin($request);
+
+        if ($tenant->archived_at) {
+            return response()->json([
+                'message' => 'Tenant is already archived.',
+            ], 409);
+        }
+
+        if (strtolower((string) $tenant->status) !== 'cancelled') {
+            return response()->json([
+                'message' => 'Only cancelled tenants can be archived.',
+            ], 422);
+        }
+
+        $tenant->archived_at = now();
+        $tenant->save();
+        $this->tenantStatusService->revokeTenantUserTokens($tenant);
+
+        return response()->json([
+            'message' => 'Tenant archived successfully',
+            'tenant' => $tenant,
         ]);
     }
 
@@ -293,18 +403,76 @@ class SuperAdminController extends Controller
     public function stats(Request $request)
     {
         $this->authorizeSuperAdmin($request);
+        $this->tenantStatusService->syncExpiredTenants();
 
-        $now           = now();
-        $thirtyDaysAgo = $now->copy()->subDays(30);
+        $now                  = now();
+        $thirtyDaysAgo        = $now->copy()->subDays(30);
+        $startOfCurrentMonth  = $now->copy()->startOfMonth();
+        $startOfPreviousMonth = $now->copy()->subMonth()->startOfMonth();
+        $endOfPreviousMonth   = $now->copy()->subMonth()->endOfMonth();
 
-        $totalTenants   = Tenant::count();
-        $activeTenants  = Tenant::where('status', 'active')->count();
-        $expiredTenants = Tenant::where('status', 'expired')->count();
-        $cancelledTenants = Tenant::where('status', 'cancelled')->count();
-        $newLast30      = Tenant::where('created_at', '>=', $thirtyDaysAgo)->count();
+        $tenantBase = Tenant::query()->whereNull('archived_at');
+
+        $totalTenants   = (clone $tenantBase)->count();
+        $activeTenants  = (clone $tenantBase)->where('status', 'active')->count();
+        $expiredTenants = (clone $tenantBase)->where('status', 'expired')->count();
+        $cancelledTenants = (clone $tenantBase)->where('status', 'cancelled')->count();
+        $newLast30      = (clone $tenantBase)->where('created_at', '>=', $thirtyDaysAgo)->count();
+
+        $newCurrentMonth = (clone $tenantBase)->where('created_at', '>=', $startOfCurrentMonth)->count();
+        $newPreviousMonth = Tenant::query()
+            ->whereBetween('created_at', [$startOfPreviousMonth, $endOfPreviousMonth])
+            ->count();
+
+        $totalAtMonthStart = (clone $tenantBase)->where('created_at', '<', $startOfCurrentMonth)->count();
+
+        $activeAtMonthStart = (clone $tenantBase)
+            ->where('created_at', '<', $startOfCurrentMonth)
+            ->where(function ($query) use ($startOfCurrentMonth) {
+                $query->where('status', 'active')
+                    ->orWhere(function ($inner) use ($startOfCurrentMonth) {
+                        $inner->where('status', '!=', 'active')
+                            ->where('updated_at', '>=', $startOfCurrentMonth);
+                    });
+            })
+            ->count();
+
+        $statusEventsThisMonth = fn (string $status) => (clone $tenantBase)
+            ->where('status', $status)
+            ->where('updated_at', '>=', $startOfCurrentMonth)
+            ->count();
+
+        $statusEventsPreviousMonth = fn (string $status) => Tenant::query()
+            ->where('status', $status)
+            ->whereBetween('updated_at', [$startOfPreviousMonth, $endOfPreviousMonth])
+            ->count();
+
+        $kpiTrends = [
+            'total_tenants' => [
+                'delta' => $totalTenants - $totalAtMonthStart,
+                'compare' => 'month_start',
+            ],
+            'active_tenants' => [
+                'delta' => $activeTenants - $activeAtMonthStart,
+                'compare' => 'month_start',
+            ],
+            'cancelled_tenants' => [
+                'delta' => $statusEventsThisMonth('cancelled') - $statusEventsPreviousMonth('cancelled'),
+                'compare' => 'previous_month',
+            ],
+            'new_last_30_days' => [
+                'delta' => $newCurrentMonth - $newPreviousMonth,
+                'compare' => 'previous_month',
+            ],
+            'expired_tenants' => [
+                'delta' => $statusEventsThisMonth('expired') - $statusEventsPreviousMonth('expired'),
+                'compare' => 'previous_month',
+            ],
+        ];
 
         // Tenants expiring within the next 30 days (active, non-lifetime)
-        $expiringIn30 = Tenant::where('status', 'active')
+        $expiringIn30 = Tenant::whereNull('archived_at')
+            ->where('status', 'active')
             ->whereNotNull('end_date')
             ->whereBetween('end_date', [$now, $now->copy()->addDays(30)])
             ->count();
@@ -321,13 +489,16 @@ class SuperAdminController extends Controller
             $monthlyNew[] = [
                 'month' => $month->format('M'),
                 'label' => $month->format('M Y'),
-                'count' => Tenant::whereYear('created_at', $month->year)
-                                 ->whereMonth('created_at', $month->month)
-                                 ->count(),
+                'count' => Tenant::whereNull('archived_at')
+                    ->whereYear('created_at', $month->year)
+                    ->whereMonth('created_at', $month->month)
+                    ->count(),
             ];
         }
 
-        $yearRange = Tenant::selectRaw('MIN(YEAR(created_at)) as min_year, MAX(YEAR(created_at)) as max_year')->first();
+        $yearRange = Tenant::whereNull('archived_at')
+            ->selectRaw('MIN(YEAR(created_at)) as min_year, MAX(YEAR(created_at)) as max_year')
+            ->first();
         $firstYear = (int) ($yearRange?->min_year ?: $now->year);
         $lastYear  = max((int) ($yearRange?->max_year ?: $now->year), $now->year);
         $availableYears = [];
@@ -336,20 +507,23 @@ class SuperAdminController extends Controller
         }
 
         // Plan distribution (for legend)
-        $planDistribution = Tenant::selectRaw("COALESCE(subscription_plan, 'none') as plan, count(*) as count")
+        $planDistribution = Tenant::whereNull('archived_at')
+            ->selectRaw("COALESCE(subscription_plan, 'none') as plan, count(*) as count")
             ->groupBy('subscription_plan')
             ->orderByDesc('count')
             ->get()
             ->map(fn ($row) => ['plan' => $row->plan, 'count' => (int) $row->count]);
 
         // Status breakdown
-        $statusBreakdown = Tenant::selectRaw("COALESCE(status, 'unknown') as status, count(*) as count")
+        $statusBreakdown = Tenant::whereNull('archived_at')
+            ->selectRaw("COALESCE(status, 'unknown') as status, count(*) as count")
             ->groupBy('status')
             ->get()
             ->map(fn ($row) => ['status' => $row->status, 'count' => (int) $row->count]);
 
         // Recent tenants — last 5 created
-        $recentTenants = Tenant::latest()
+        $recentTenants = Tenant::whereNull('archived_at')
+            ->latest()
             ->limit(5)
             ->get()
             ->map(fn ($t) => [
@@ -363,7 +537,8 @@ class SuperAdminController extends Controller
             ]);
 
         // Expiring soon — active tenants expiring in next 30 days, ordered soonest first
-        $expiringSoon = Tenant::where('status', 'active')
+        $expiringSoon = Tenant::whereNull('archived_at')
+            ->where('status', 'active')
             ->whereNotNull('end_date')
             ->whereBetween('end_date', [$now, $now->copy()->addDays(30)])
             ->orderBy('end_date')
@@ -378,14 +553,15 @@ class SuperAdminController extends Controller
             ]);
 
         // Company type breakdown
-        $companyTypeBreakdown = Tenant::selectRaw("COALESCE(company_type, 'General') as company_type, count(*) as count")
+        $companyTypeBreakdown = Tenant::whereNull('archived_at')
+            ->selectRaw("COALESCE(company_type, 'General') as company_type, count(*) as count")
             ->groupBy('company_type')
             ->get()
             ->map(fn ($row) => ['type' => $row->company_type, 'count' => (int) $row->count]);
 
         // Lifetime vs dated subscriptions
-        $lifetimeCount = Tenant::whereNull('end_date')->where('status', 'active')->count();
-        $datedCount    = Tenant::whereNotNull('end_date')->where('status', 'active')->count();
+        $lifetimeCount = Tenant::whereNull('archived_at')->whereNull('end_date')->where('status', 'active')->count();
+        $datedCount    = Tenant::whereNull('archived_at')->whereNotNull('end_date')->where('status', 'active')->count();
 
         return response()->json([
             'total_tenants'          => $totalTenants,
@@ -404,6 +580,7 @@ class SuperAdminController extends Controller
             'company_type_breakdown' => $companyTypeBreakdown,
             'lifetime_count'         => $lifetimeCount,
             'dated_count'            => $datedCount,
+            'kpi_trends'             => $kpiTrends,
         ]);
     }
 

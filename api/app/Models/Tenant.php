@@ -24,6 +24,7 @@ class Tenant extends BaseTenant
         'domain',
         'website_url',
         'status',
+        'archived_at',
         'profile',
         'country',
         'city',
@@ -39,6 +40,7 @@ class Tenant extends BaseTenant
         'profile' => 'array',
         'start_date' => 'date',
         'end_date' => 'date',
+        'archived_at' => 'datetime',
         'db_connection_details' => 'array',
         'meta_data' => 'array',
     ];
