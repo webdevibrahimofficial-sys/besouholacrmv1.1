@@ -6,15 +6,31 @@ export default function SystemErrorLog() {
   const { t } = useTranslation()
   const [errors, setErrors] = useState([])
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState({
+    current_page: 1,
+    last_page: 1,
+    per_page: 25,
+    total: 0,
+    from: 0,
+    to: 0,
+  })
 
   useEffect(() => {
-    fetchErrors()
-  }, [])
+    fetchErrors(page)
+  }, [page])
 
-  const fetchErrors = async () => {
+  const fetchErrors = async (nextPage = 1) => {
+    setLoading(true)
     try {
-      const response = await api.get('/super-admin/system-errors')
-      setErrors(response.data)
+      const response = await api.get('/api/super-admin/system-errors', {
+        params: { page: nextPage, per_page: pagination.per_page },
+      })
+      setErrors(response.data?.data || [])
+      setPagination((prev) => ({
+        ...prev,
+        ...(response.data?.meta || {}),
+      }))
     } catch (error) {
       console.error('Failed to fetch system errors:', error)
     } finally {
@@ -96,6 +112,15 @@ export default function SystemErrorLog() {
               {t('Newest errors from all tenants, ordered by time.')}
             </p>
           </div>
+          <p className="text-xs text-theme">
+            {pagination.total > 0
+              ? t('Showing {{from}}-{{to}} of {{total}}', {
+                  from: pagination.from,
+                  to: pagination.to,
+                  total: pagination.total,
+                })
+              : t('No results')}
+          </p>
         </div>
 
         <div className="overflow-x-auto">
@@ -179,6 +204,33 @@ export default function SystemErrorLog() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-theme-border px-4 py-3">
+          <p className="text-xs text-theme">
+            {t('Page {{page}} of {{pages}}', {
+              page: pagination.current_page,
+              pages: pagination.last_page,
+            })}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={loading || pagination.current_page <= 1}
+              className="rounded-lg border border-theme-border px-3 py-1.5 text-sm text-theme transition hover:bg-theme-bg/60 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('Previous')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(pagination.last_page, current + 1))}
+              disabled={loading || pagination.current_page >= pagination.last_page}
+              className="rounded-lg border border-theme-border px-3 py-1.5 text-sm text-theme transition hover:bg-theme-bg/60 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('Next')}
+            </button>
+          </div>
         </div>
       </section>
     </div>

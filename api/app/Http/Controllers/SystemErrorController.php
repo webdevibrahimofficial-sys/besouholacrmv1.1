@@ -10,16 +10,13 @@ class SystemErrorController extends Controller
 {
     public function index(Request $request)
     {
-        // Only allow super admins or system admins to see this
-        // Assuming middleware handles auth, but we might want to check role here
-        // For now, return all errors
+        $perPage = min(max((int) $request->input('per_page', 25), 1), 100);
 
         $errors = SystemError::with('tenant')
             ->orderBy('last_seen_at', 'desc')
-            ->limit(100)
-            ->get();
+            ->paginate($perPage);
 
-        $formatted = $errors->map(function ($error) {
+        $formatted = $errors->getCollection()->map(function ($error) {
             return [
                 'id' => $error->id,
                 'time' => $error->created_at->format('Y-m-d H:i'),
@@ -33,6 +30,16 @@ class SystemErrorController extends Controller
             ];
         });
 
-        return response()->json($formatted);
+        return response()->json([
+            'data' => $formatted,
+            'meta' => [
+                'current_page' => $errors->currentPage(),
+                'last_page' => $errors->lastPage(),
+                'per_page' => $errors->perPage(),
+                'total' => $errors->total(),
+                'from' => $errors->firstItem(),
+                'to' => $errors->lastItem(),
+            ],
+        ]);
     }
 }

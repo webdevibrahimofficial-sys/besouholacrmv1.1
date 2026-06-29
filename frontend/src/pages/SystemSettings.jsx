@@ -1,6 +1,6 @@
 /**
  * SystemSettings - Super Admin global platform settings.
- * Reads/writes from GET|POST /super-admin/settings (SystemSettingController).
+ * Reads/writes from GET|POST /api/super-admin/settings (SystemSettingController).
  * Safe: key-value pairs in a separate system_settings table, no tenant data.
  */
 import { useState, useEffect } from 'react'
@@ -125,7 +125,7 @@ export default function SystemSettings() {
   const load = async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/super-admin/settings')
+      const { data } = await api.get('/api/super-admin/settings')
       setSettings(data || {})
       setDirty(false)
     } catch {
@@ -150,7 +150,7 @@ export default function SystemSettings() {
       const normalizedSettings = Object.fromEntries(
         Object.entries(settings).map(([key, value]) => [key, value == null ? '' : String(value)])
       )
-      await api.post('/super-admin/settings', { settings: normalizedSettings })
+      await api.post('/api/super-admin/settings', { settings: normalizedSettings })
       toast.success(t('Settings saved'))
       setDirty(false)
     } catch {
