@@ -1580,6 +1580,41 @@ body {
     background: rgba(75, 85, 99, 0.7); /* Slightly darker on hover */
   }
 
+/* Super Admin sidebar — slim subtle scrollbar */
+#super-admin-sidebar nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+#super-admin-sidebar nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+#super-admin-sidebar nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#super-admin-sidebar nav::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+
+#super-admin-sidebar nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+}
+
+.dark #super-admin-sidebar nav {
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+
+.dark #super-admin-sidebar nav::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.45);
+}
+
+.dark #super-admin-sidebar nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.65);
+}
+
 /* Reusable sidebar-like scrollbar for other scrollable containers */
 .sidebar-scrollbar {
   scrollbar-width: thin; /* Slim scrollbar for Firefox */

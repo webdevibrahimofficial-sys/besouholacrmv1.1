@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { useAppState } from '@shared/context/AppStateProvider';
@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   LogIn,
   Search,
 } from 'lucide-react';
@@ -31,14 +32,18 @@ import darkLogoCollapse from '@assets/be-souhola-logo-dark-collapse.png';
 export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setCollapsed }) {
   const { t, i18n } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
-  const { user, fetchCompanyInfo } = useAppState();
+  const { fetchCompanyInfo } = useAppState();
 
   const [showQuickSwitch, setShowQuickSwitch] = useState(false);
   const [quickSwitchLoading, setQuickSwitchLoading] = useState(false);
   const [impersonatingId, setImpersonatingId] = useState(null);
   const [quickSwitchSearch, setQuickSwitchSearch] = useState('');
   const [activeTenants, setActiveTenants] = useState([]);
+  const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
+  const [websiteExpanded, setWebsiteExpanded] = useState(false);
+  const [errorLogCount, setErrorLogCount] = useState(0);
 
   const isLight = resolvedTheme === 'light';
   const isRTL = i18n.language === 'ar';
@@ -47,15 +52,25 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
     ? (resolvedTheme === 'dark' ? darkLogoCollapse : lightLogoCollapse)
     : (resolvedTheme === 'dark' ? darkLogo : lightLogo);
 
-  const asideTone = isLight ? 'bg-white border-r border-gray-200' : 'bg-[#0f172a] border-r border-gray-800';
+  const asideTone = isLight
+    ? 'bg-white border-r border-gray-200'
+    : 'bg-[#0f172a] border-r border-slate-800';
   const activeLink = isLight
     ? 'bg-blue-50 text-blue-600 font-medium'
-    : 'bg-blue-900/20 text-blue-400 font-medium';
-  const baseLink = `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm ${isLight ? 'text-gray-700' : 'text-gray-300'}`;
-  const subLinkBase = `flex items-center rounded-lg px-3 py-2 text-sm transition-all duration-200 ${isLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-400 hover:bg-gray-800'}`;
+    : 'bg-blue-950/50 text-blue-300 font-medium border border-blue-500/20';
+  const baseLink = `flex items-center gap-3 px-3 py-2.5 rounded-xl border border-transparent transition-all duration-200 text-sm ${
+    isLight
+      ? 'text-gray-700 hover:bg-gray-100'
+      : 'text-slate-300 hover:bg-slate-800/80 hover:text-slate-100'
+  }`;
+  const subLinkBase = `flex items-center rounded-lg px-3 py-2 text-sm border border-transparent transition-all duration-200 ${
+    isLight
+      ? 'text-gray-600 hover:bg-gray-100'
+      : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
+  }`;
   const subLinkActive = isLight
     ? 'bg-blue-50 text-blue-600 font-medium'
-    : 'bg-blue-900/20 text-blue-400 font-medium';
+    : 'bg-blue-950/40 text-blue-300 font-medium border border-blue-500/15';
 
   const websiteSubmenuItems = [
     { title: 'Analytics', path: '/system/website?tab=analytics' },
@@ -68,18 +83,61 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
   const isWebsiteRoute = location.pathname === '/system/website';
   const activeWebsiteTab = new URLSearchParams(location.search).get('tab') || 'settings';
 
-  const menuItems = [
-    { title: 'Admin Dashboard', path: '/system/dashboard', icon: <LayoutDashboard size={20} /> },
-    { title: 'Tenant Management', path: '/system/tenants', icon: <Users size={20} /> },
-    { title: 'Subscription Plans', path: '/system/subscriptions', icon: <Key size={20} /> },
-    { title: 'Modules Management', path: '/system/modules', icon: <Settings2 size={20} /> },
-    { title: 'Administration Settings', path: '/system/settings', icon: <Settings size={20} /> },
-    { title: 'Global Integrations', path: '/system/integrations', icon: <Share2 size={20} /> },
-    { title: 'Company Website', path: '/system/website', icon: <Globe size={20} /> },
-    { title: 'Error Log', path: '/system/error-log', icon: <AlertOctagon size={20} /> },
-    { title: 'Backup', path: '/system/backup', icon: <Database size={20} /> },
-    { title: 'Transactions', path: '/system/transactions', icon: <ArrowLeftRight size={20} /> },
+  const menuSections = [
+    {
+      label: 'Core',
+      items: [
+        { title: 'Admin Dashboard', path: '/system/dashboard', icon: <LayoutDashboard size={20} /> },
+        { title: 'Tenant Management', path: '/system/tenants', icon: <Users size={20} /> },
+        { title: 'Subscription Plans', path: '/system/subscriptions', icon: <Key size={20} /> },
+        { title: 'Modules Management', path: '/system/modules', icon: <Settings2 size={20} /> },
+      ],
+    },
+    {
+      label: 'System',
+      items: [
+        { title: 'Administration Settings', path: '/system/settings', icon: <Settings size={20} /> },
+        { title: 'Global Integrations', path: '/system/integrations', icon: <Share2 size={20} /> },
+        { title: 'Error Log', path: '/system/error-log', icon: <AlertOctagon size={20} />, badgeKey: 'errors' },
+        { title: 'Backup', path: '/system/backup', icon: <Database size={20} /> },
+      ],
+    },
+    {
+      label: 'More',
+      items: [
+        { title: 'Company Website', path: '/system/website', icon: <Globe size={20} />, expandable: true },
+        { title: 'Transactions', path: '/system/transactions', icon: <ArrowLeftRight size={20} /> },
+      ],
+    },
   ];
+
+  useEffect(() => {
+    if (isWebsiteRoute) {
+      setWebsiteExpanded(true);
+    }
+  }, [isWebsiteRoute]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadErrorCount = async () => {
+      try {
+        const response = await axios.get('/api/super-admin/system-errors', {
+          params: { page: 1, per_page: 1 },
+        });
+        if (!active) return;
+        setErrorLogCount(Number(response.data?.meta?.total || 0));
+      } catch (error) {
+        if (!active) return;
+        console.error('Failed to load error log count:', error);
+      }
+    };
+
+    loadErrorCount();
+    return () => {
+      active = false;
+    };
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!showQuickSwitch) {
@@ -123,6 +181,8 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
     });
   }, [activeTenants, quickSwitchSearch]);
 
+  const isImpersonating = typeof window !== 'undefined' && !!window.localStorage.getItem('impersonateTenantSlug');
+
   const handleLoginAsTenant = async (tenant) => {
     try {
       setImpersonatingId(tenant.id);
@@ -143,15 +203,133 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
       toast.success(t('You are now viewing this tenant workspace'));
       setShowQuickSwitch(false);
 
-      if (typeof window !== 'undefined') {
-        window.location.hash = '#/dashboard';
-      }
+      navigate('/dashboard');
     } catch (error) {
       console.error('Failed to login as tenant:', error);
       toast.error(t('Failed to login as tenant'));
     } finally {
       setImpersonatingId(null);
     }
+  };
+
+  const handleStopImpersonation = async () => {
+    try {
+      setStoppingImpersonation(true);
+      await axios.post('/api/super-admin/impersonate/stop');
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('impersonateTenantSlug');
+      }
+      toast.success(t('Impersonation stopped'));
+    } catch (error) {
+      console.error('Failed to stop impersonation:', error);
+      toast.error(t('Failed to stop impersonation'));
+    } finally {
+      setStoppingImpersonation(false);
+    }
+  };
+
+  const sectionLabelClass = `px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+    isLight ? 'text-gray-400' : 'text-slate-500'
+  }`;
+
+  const renderMenuBadge = (item) => {
+    if (item.badgeKey === 'errors' && errorLogCount > 0) {
+      const label = errorLogCount > 99 ? '99+' : String(errorLogCount);
+      return (
+        <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+          isLight ? 'bg-rose-100 text-rose-700' : 'bg-rose-900/50 text-rose-300'
+        }`}>
+          {label}
+        </span>
+      );
+    }
+    return null;
+  };
+
+  const renderMenuItem = (item) => {
+    const isWebsiteItem = item.path === '/system/website';
+
+    if (isWebsiteItem && !collapsed) {
+      return (
+        <div key={item.path}>
+          <div className="flex items-center gap-1">
+            <NavLink
+              to={item.path}
+              onClick={() => {
+                if (window.innerWidth < 768) onClose();
+                setWebsiteExpanded(true);
+              }}
+              className={({ isActive }) => `
+                ${baseLink}
+                flex-1 min-w-0
+                ${isActive ? activeLink : ''}
+              `}
+            >
+              <span className="min-w-[20px]">{item.icon}</span>
+              <span className="truncate">{t(item.title)}</span>
+            </NavLink>
+            <button
+              type="button"
+              onClick={() => setWebsiteExpanded((open) => !open)}
+              className={`shrink-0 rounded-lg p-2 transition ${
+                isLight ? 'text-gray-500 hover:bg-gray-100' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+              aria-label={websiteExpanded ? t('Collapse submenu') : t('Expand submenu')}
+              aria-expanded={websiteExpanded}
+            >
+              <ChevronDown size={16} className={`transition-transform ${websiteExpanded ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+
+          {websiteExpanded ? (
+            <div className="mt-1 space-y-1 pl-11">
+              {websiteSubmenuItems.map((subItem) => {
+                const isSubItemActive = activeWebsiteTab === new URLSearchParams(subItem.path.split('?')[1]).get('tab');
+
+                return (
+                  <NavLink
+                    key={subItem.path}
+                    to={subItem.path}
+                    onClick={() => {
+                      if (window.innerWidth < 768) onClose();
+                    }}
+                    className={`${subLinkBase} ${isSubItemActive ? subLinkActive : ''}`}
+                  >
+                    <span className="truncate">{t(subItem.title)}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        onClick={() => {
+          if (window.innerWidth < 768) onClose();
+        }}
+        className={({ isActive }) => `
+          ${baseLink}
+          ${isActive ? activeLink : ''}
+          ${collapsed ? 'justify-center px-0' : ''}
+        `}
+        title={collapsed ? t(item.title) : ''}
+      >
+        <span className={collapsed ? '' : 'min-w-[20px]'}>
+          {item.icon}
+        </span>
+        {!collapsed && (
+          <>
+            <span className="truncate">{t(item.title)}</span>
+            {renderMenuBadge(item)}
+          </>
+        )}
+      </NavLink>
+    );
   };
 
   const CollapseIcon = isRTL
@@ -177,7 +355,7 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
               </div>
               <button
                 onClick={() => setShowQuickSwitch(false)}
-                className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 dark:hover:bg-gray-800"
+                className={`rounded-lg p-2 transition ${isLight ? 'text-gray-500 hover:bg-gray-100' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
               >
                 <X size={18} />
               </button>
@@ -205,7 +383,11 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
                       key={tenant.id}
                       onClick={() => handleLoginAsTenant(tenant)}
                       disabled={impersonatingId === tenant.id}
-                      className="flex w-full items-center justify-between rounded-xl border border-gray-200 px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/20"
+                      className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        isLight
+                          ? 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
+                          : 'border-slate-700 bg-slate-900/50 hover:border-blue-500/30 hover:bg-blue-950/40'
+                      }`}
                     >
                       <div className="min-w-0">
                         <p className="truncate font-medium text-gray-900 dark:text-gray-100">{tenant.name}</p>
@@ -226,6 +408,7 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
       )}
 
       <aside
+        id="super-admin-sidebar"
         className={`fixed inset-y-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} z-50 flex flex-col transition-all duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : (isRTL ? 'translate-x-full' : '-translate-x-full')}
           md:translate-x-0
@@ -233,19 +416,21 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
           ${asideTone}
         `}
       >
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-800">
+        <div className={`h-16 flex items-center justify-between px-4 border-b ${isLight ? 'border-gray-200' : 'border-slate-800'}`}>
           <div className={`flex items-center gap-2 overflow-hidden ${collapsed ? 'justify-center w-full' : ''}`}>
             <img src={currentLogo} alt="Logo" className="h-8 object-contain" />
             {!collapsed && (
-              <div className="flex flex-col">
-                <span className="text-[10px] text-gray-500">Control Panel</span>
-              </div>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                isLight ? 'bg-blue-50 text-blue-600' : 'bg-blue-900/40 text-blue-300'
+              }`}>
+                {t('Super Admin')}
+              </span>
             )}
           </div>
 
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="hidden md:flex p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+            className={`hidden md:flex p-1.5 rounded-lg transition ${isLight ? 'hover:bg-gray-100 text-gray-500' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'}`}
             title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
           >
             <CollapseIcon size={18} />
@@ -253,63 +438,49 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
 
           <button
             onClick={onClose}
-            className="md:hidden p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+            className={`md:hidden p-1.5 rounded-lg transition ${isLight ? 'hover:bg-gray-100 text-gray-500' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'}`}
           >
             <X size={20} />
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-          {menuItems.map((item) => (
-            <div key={item.path}>
-              <NavLink
-                to={item.path}
-                onClick={() => {
-                  if (window.innerWidth < 768) onClose();
-                }}
-                className={({ isActive }) => `
-                  ${baseLink}
-                  ${isActive ? activeLink : ''}
-                  ${collapsed ? 'justify-center px-0' : ''}
-                `}
-                title={collapsed ? t(item.title) : ''}
-              >
-                <span className={`${collapsed ? '' : 'min-w-[20px]'}`}>
-                  {item.icon}
-                </span>
-                {!collapsed && (
-                  <span className="truncate">{t(item.title)}</span>
-                )}
-              </NavLink>
-
-              {!collapsed && item.path === '/system/website' && isWebsiteRoute ? (
-                <div className="mt-1 space-y-1 pl-11">
-                  {websiteSubmenuItems.map((subItem) => {
-                    const isSubItemActive = activeWebsiteTab === new URLSearchParams(subItem.path.split('?')[1]).get('tab');
-
-                    return (
-                      <NavLink
-                        key={subItem.path}
-                        to={subItem.path}
-                        onClick={() => {
-                          if (window.innerWidth < 768) onClose();
-                        }}
-                        className={`${subLinkBase} ${isSubItemActive ? subLinkActive : ''}`}
-                      >
-                        <span className="truncate">{t(subItem.title)}</span>
-                      </NavLink>
-                    );
-                  })}
-                </div>
-              ) : null}
+        <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+          {menuSections.map((section, sectionIndex) => (
+            <div key={section.label} className={sectionIndex > 0 ? 'mt-1' : ''}>
+              {!collapsed && (
+                <p className={sectionLabelClass}>{t(section.label)}</p>
+              )}
+              <div className="space-y-1">
+                {section.items.map((item) => renderMenuItem(item))}
+              </div>
             </div>
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800 space-y-3">
+        <div className={`p-4 border-t space-y-3 ${isLight ? 'border-gray-200' : 'border-slate-800'}`}>
+          {isImpersonating && (
+            <button
+              onClick={handleStopImpersonation}
+              disabled={stoppingImpersonation}
+              className={`flex w-full items-center rounded-xl border px-3 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${collapsed ? 'justify-center' : 'gap-3'} ${
+                isLight
+                  ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+                  : 'border-amber-700/50 text-amber-300 hover:bg-amber-500/10 hover:border-amber-500/40'
+              }`}
+              title={t('Exit impersonation')}
+            >
+              <ArrowLeftRight size={18} />
+              {!collapsed && <span className="truncate">{stoppingImpersonation ? t('Stopping...') : t('Exit impersonation')}</span>}
+            </button>
+          )}
+
           <button
             onClick={() => setShowQuickSwitch(true)}
-            className={`flex w-full items-center rounded-xl border border-gray-200 px-3 py-2.5 text-sm font-medium transition hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 ${collapsed ? 'justify-center' : 'gap-3'} ${isLight ? 'text-gray-700' : 'text-gray-200'}`}
+            className={`flex w-full items-center rounded-xl border px-3 py-2.5 text-sm font-medium transition ${collapsed ? 'justify-center' : 'gap-3'} ${
+              isLight
+                ? 'border-gray-200 text-gray-700 hover:bg-gray-100'
+                : 'border-slate-700 text-slate-200 hover:bg-slate-800 hover:border-slate-600'
+            }`}
             title={t('Tenant Quick Switch')}
           >
             <LogIn size={18} />
@@ -317,14 +488,22 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
           </button>
 
           {!collapsed && (
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                <ShieldCheck size={16} />
+            <div className={`flex items-center justify-between rounded-xl px-3 py-2 ${
+              isLight ? 'bg-gray-50' : 'bg-slate-800/60'
+            }`}>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                  isLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-900/50 text-blue-300'
+                }`}>
+                  <ShieldCheck size={14} />
+                </div>
+                <span className={`text-[10px] font-medium truncate ${isLight ? 'text-gray-600' : 'text-slate-400'}`}>
+                  {t('Platform control')}
+                </span>
               </div>
-              <div className="flex flex-col overflow-hidden">
-                <span className="text-xs font-medium truncate">{user?.name || 'System Administrator'}</span>
-                <span className="text-[10px] text-gray-500 truncate">v1.0.0</span>
-              </div>
+              <span className={`shrink-0 text-[10px] font-mono ${isLight ? 'text-gray-400' : 'text-slate-500'}`}>
+                v1.0.0
+              </span>
             </div>
           )}
         </div>

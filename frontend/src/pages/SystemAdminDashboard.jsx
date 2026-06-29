@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import { useTheme } from '@shared/context/ThemeProvider'
 import {
   ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip,
   AreaChart, Area,
 } from 'recharts'
 import {
   AlertCircle, Building2, Clock3, Users, UserPlus, RefreshCw,
-  TrendingUp, AlertTriangle, CheckCircle2, XCircle, Hourglass,
-  ChevronRight, Plus, ExternalLink, Infinity,
+  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, XCircle, Hourglass,
+  ChevronRight, Plus, ExternalLink, Infinity, Minus,
 } from 'lucide-react'
 import { api } from '@utils/api'
 
@@ -18,15 +19,21 @@ const KPI_CONFIG = [
     key: 'total_tenants',
     label: 'Total Tenants',
     icon: Building2,
-    colorClasses: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+    lightColorClasses: 'bg-slate-100 text-slate-600',
+    darkColorClasses: 'bg-slate-800/90 text-slate-200',
+    lightGlassTint: 'before:bg-[radial-gradient(circle_at_top_right,rgba(148,163,184,0.28),transparent_52%),linear-gradient(135deg,rgba(255,255,255,0.78),rgba(226,232,240,0.42))]',
+    darkGlassTint: 'before:bg-[linear-gradient(135deg,rgba(51,65,85,0.55),rgba(15,23,42,0.92))]',
     subtitle: 'All registered workspaces',
-    trend: null,
+    trend: 'positive',
   },
   {
     key: 'active_tenants',
     label: 'Active Tenants',
     icon: CheckCircle2,
-    colorClasses: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300',
+    lightColorClasses: 'bg-emerald-100 text-emerald-600',
+    darkColorClasses: 'bg-emerald-900/50 text-emerald-300',
+    lightGlassTint: 'before:bg-[radial-gradient(circle_at_top_right,rgba(52,211,153,0.32),transparent_52%),linear-gradient(135deg,rgba(255,255,255,0.78),rgba(209,250,229,0.44))]',
+    darkGlassTint: 'before:bg-[linear-gradient(135deg,rgba(20,83,45,0.45),rgba(15,23,42,0.92))]',
     subtitle: 'Currently operational',
     trend: 'positive',
   },
@@ -34,7 +41,10 @@ const KPI_CONFIG = [
     key: 'cancelled_tenants',
     label: 'Cancelled',
     icon: XCircle,
-    colorClasses: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+    lightColorClasses: 'bg-red-100 text-red-600',
+    darkColorClasses: 'bg-red-900/50 text-red-300',
+    lightGlassTint: 'before:bg-[radial-gradient(circle_at_top_right,rgba(248,113,113,0.32),transparent_52%),linear-gradient(135deg,rgba(255,255,255,0.78),rgba(254,226,226,0.44))]',
+    darkGlassTint: 'before:bg-[linear-gradient(135deg,rgba(127,29,29,0.45),rgba(15,23,42,0.92))]',
     subtitle: 'Cancelled subscriptions',
     trend: 'negative',
   },
@@ -42,7 +52,10 @@ const KPI_CONFIG = [
     key: 'new_last_30_days',
     label: 'New This Month',
     icon: UserPlus,
-    colorClasses: 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300',
+    lightColorClasses: 'bg-blue-100 text-blue-600',
+    darkColorClasses: 'bg-blue-900/50 text-blue-300',
+    lightGlassTint: 'before:bg-[radial-gradient(circle_at_top_right,rgba(96,165,250,0.34),transparent_52%),linear-gradient(135deg,rgba(255,255,255,0.78),rgba(219,234,254,0.44))]',
+    darkGlassTint: 'before:bg-[linear-gradient(135deg,rgba(30,64,175,0.45),rgba(15,23,42,0.92))]',
     subtitle: 'Recent growth',
     trend: 'positive',
   },
@@ -50,7 +63,10 @@ const KPI_CONFIG = [
     key: 'expired_tenants',
     label: 'Expired',
     icon: XCircle,
-    colorClasses: 'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300',
+    lightColorClasses: 'bg-amber-100 text-amber-600',
+    darkColorClasses: 'bg-amber-900/50 text-amber-300',
+    lightGlassTint: 'before:bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.34),transparent_52%),linear-gradient(135deg,rgba(255,255,255,0.78),rgba(254,243,199,0.46))]',
+    darkGlassTint: 'before:bg-[linear-gradient(135deg,rgba(120,53,15,0.45),rgba(15,23,42,0.92))]',
     subtitle: 'Churned workspaces',
     trend: 'negative',
   },
@@ -68,13 +84,67 @@ const STATUS_CONFIG = {
 const PLAN_COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4']
 const PLAN_DOT_CLASSES = ['bg-blue-500','bg-emerald-500','bg-amber-500','bg-violet-500','bg-rose-500','bg-cyan-500']
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function statusCfg(status) { return STATUS_CONFIG[status] || STATUS_CONFIG.unknown }
+function startOfCurrentMonth() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+}
 
-function DaysLeftBadge({ days }) {
-  if (days <= 3)  return <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">{days}d left</span>
-  if (days <= 7)  return <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{days}d left</span>
-  return <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">{days}d left</span>
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function statusCfg(status, isDark = false) {
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.unknown
+  if (!isDark) return config
+
+  const darkBadgeMap = {
+    active: 'bg-emerald-900/40 text-emerald-300',
+    expired: 'bg-rose-900/40 text-rose-300',
+    pending: 'bg-amber-900/40 text-amber-300',
+    cancelled: 'bg-slate-800 text-slate-300',
+    unknown: 'bg-violet-900/40 text-violet-300',
+  }
+
+  return { ...config, badge: darkBadgeMap[status] || darkBadgeMap.unknown }
+}
+
+function DaysLeftBadge({ days, isDark = false }) {
+  if (days <= 3)  return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-rose-900/40 text-rose-300' : 'bg-rose-100 text-rose-700'}`}>{days}d left</span>
+  if (days <= 7)  return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-amber-900/40 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>{days}d left</span>
+  return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-blue-900/40 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>{days}d left</span>
+}
+
+function TrendBadge({ delta, sentiment, compare, isDark = false }) {
+  if (delta == null) return null
+
+  if (delta === 0) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+          isDark ? 'bg-slate-800/80 text-slate-400' : 'bg-slate-100 text-slate-500'
+        }`}
+        title={compare === 'previous_month' ? 'No change vs last month' : 'No change this month'}
+      >
+        <Minus size={11} />
+        <span>0</span>
+      </span>
+    )
+  }
+
+  const isUp = delta > 0
+  const Icon = isUp ? TrendingUp : TrendingDown
+  const goodDirection = sentiment === 'positive' ? isUp : !isUp
+  const tone = goodDirection
+    ? isDark ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'
+    : isDark ? 'bg-rose-900/40 text-rose-300' : 'bg-rose-100 text-rose-700'
+  const label = compare === 'previous_month' ? 'vs last month' : 'this month'
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}
+      title={`${isUp ? '+' : ''}${delta} ${label}`}
+    >
+      <Icon size={11} />
+      <span>{isUp ? '+' : ''}{delta}</span>
+    </span>
+  )
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -102,8 +172,8 @@ function RowSkeleton({ rows = 4 }) {
 }
 
 // ─── SummaryList ──────────────────────────────────────────────────────────────
-function SummaryList({ items, labelKey, emptyLabel, getColorClass, total }) {
-  if (!items?.length) return <p className="text-sm text-slate-400 dark:text-slate-500">{emptyLabel}</p>
+function SummaryList({ items, labelKey, emptyLabel, getColorClass, total, isDark = false }) {
+  if (!items?.length) return <p className={`text-sm ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{emptyLabel}</p>
 
   return (
     <div className="space-y-2.5">
@@ -114,17 +184,17 @@ function SummaryList({ items, labelKey, emptyLabel, getColorClass, total }) {
             <div className="flex items-center justify-between gap-2 mb-1">
               <div className="flex min-w-0 items-center gap-2">
                 <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${getColorClass(item, index)}`} />
-                <span className="truncate text-sm text-slate-600 dark:text-slate-300 capitalize">
+                <span className={`truncate text-sm capitalize ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                   {String(item[labelKey] || 'unknown').replace(/_/g, ' ')}
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {pct !== null && <span className="text-xs text-slate-400">{pct}%</span>}
-                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 w-6 text-right">{item.count ?? 0}</span>
+                {pct !== null && <span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{pct}%</span>}
+                <span className={`text-sm font-semibold w-6 text-right ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{item.count ?? 0}</span>
               </div>
             </div>
             {pct !== null && (
-              <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+              <div className={`h-1 w-full rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}>
                 <div
                   className={`h-full rounded-full ${getColorClass(item, index)}`}
                   style={{ width: `${pct}%` }}
@@ -142,11 +212,13 @@ function SummaryList({ items, labelKey, emptyLabel, getColorClass, total }) {
 export default function SystemAdminDashboard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { resolvedTheme } = useTheme()
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastRefreshed, setLastRefreshed] = useState(null)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const isDark = resolvedTheme === 'dark'
 
   const loadStats = async (year = selectedYear) => {
     setLoading(true)
@@ -171,7 +243,12 @@ export default function SystemAdminDashboard() {
 
   const cards = useMemo(() => {
     if (!stats) return []
-    return KPI_CONFIG.map((item) => ({ ...item, value: stats[item.key] ?? 0 }))
+    return KPI_CONFIG.map((item) => ({
+      ...item,
+      value: stats[item.key] ?? 0,
+      trendDelta: stats.kpi_trends?.[item.key]?.delta ?? null,
+      trendCompare: stats.kpi_trends?.[item.key]?.compare ?? 'month_start',
+    }))
   }, [stats])
 
   const activeRate = useMemo(() => {
@@ -179,32 +256,88 @@ export default function SystemAdminDashboard() {
     return Math.round((stats.active_tenants / stats.total_tenants) * 100)
   }, [stats])
 
+  const openTenantView = (key) => {
+    const params = new URLSearchParams({ view: 'current' })
+
+    if (key === 'active_tenants') params.set('status', 'active')
+    if (key === 'cancelled_tenants') params.set('status', 'cancelled')
+    if (key === 'expired_tenants') params.set('status', 'expired')
+    if (key === 'new_last_30_days') {
+      params.set('start_date', startOfCurrentMonth())
+      params.set('end_date', new Date().toISOString().slice(0, 10))
+    }
+
+    navigate(`/system/tenants?${params.toString()}`)
+  }
+
+  const getCardSubtitle = (card) => {
+    if (card.key === 'new_last_30_days' && stats?.total_tenants && card.value === stats.total_tenants) {
+      return t('All current tenants joined this month.')
+    }
+    return t(card.subtitle)
+  }
+
   // ── Glass card class helper
-  const glassCard = 'rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md shadow-sm'
-  const glassCardHover = `${glassCard} hover:border-blue-300/60 dark:hover:border-blue-500/40 hover:shadow-md transition-all duration-200`
+  const glassCard = `rounded-[26px] border backdrop-blur-xl transition-all duration-200 ${
+    isDark
+      ? 'border-slate-800 bg-slate-900 shadow-[0_18px_50px_rgba(0,0,0,0.35)]'
+      : 'border-slate-200/75 bg-white/72 shadow-[0_18px_48px_rgba(15,23,42,0.08)]'
+  }`
+  const chartTickColor = isDark ? '#94a3b8' : '#64748b'
+  const chartGridStroke = isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.12)'
+  const chartTooltipStyle = {
+    borderRadius: '16px',
+    border: isDark ? '1px solid rgba(148,163,184,0.16)' : '1px solid rgba(148,163,184,0.15)',
+    fontSize: 12,
+    backdropFilter: 'blur(14px)',
+    background: isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.92)',
+    color: isDark ? '#e2e8f0' : '#0f172a',
+    boxShadow: isDark ? '0 18px 40px rgba(2,6,23,0.4)' : '0 18px 40px rgba(15,23,42,0.12)',
+  }
 
   return (
-    <div className="px-4 py-6 md:px-6 lg:px-8 max-w-screen-2xl mx-auto">
+    <div className={`relative overflow-hidden rounded-[32px] px-4 py-6 md:px-6 lg:px-8 max-w-screen-2xl mx-auto ${
+      isDark
+        ? 'border border-slate-800 bg-[#0f172a] shadow-[0_24px_70px_rgba(0,0,0,0.45)]'
+        : 'border border-slate-200/70 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_26%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.92))] shadow-[0_28px_70px_rgba(15,23,42,0.08)]'
+    }`}>
+      {isDark && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.10),transparent_28%)]" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.08),transparent_24%)]" />
+        </>
+      )}
+      {!isDark && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.75),transparent_28%)]" />
+          <div className="pointer-events-none absolute -top-24 right-12 h-56 w-56 rounded-full blur-3xl bg-blue-400/12" />
+          <div className="pointer-events-none absolute bottom-0 left-10 h-48 w-48 rounded-full blur-3xl bg-emerald-400/10" />
+        </>
+      )}
+      <div className="relative z-10">
 
       {/* ── Header ── */}
       <header className="mb-14">
         <div className="flex  gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-blue-500/80 dark:text-blue-400/70 mb-1 font-semibold">{t('System Admin')}</p>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-800 dark:text-white">
+            <h1 className={`text-2xl md:text-3xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>
               {t('Super Admin Dashboard')}
             </h1>
           </div>
           <div className="flex items-center gap-2 shrink-0 self-start sm:pt-1">
             {lastRefreshed && (
-              <span className="text-xs text-slate-400 dark:text-slate-500 hidden sm:inline">
+              <span className={`text-xs hidden sm:inline ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                 {t('Updated')} {lastRefreshed.toLocaleTimeString()}
               </span>
             )}
             <button
               onClick={() => loadStats(selectedYear)}
               disabled={loading}
-              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/50 backdrop-blur-sm hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all shadow-sm disabled:opacity-50"
+              className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-xl border backdrop-blur-md transition-all shadow-sm disabled:opacity-50 ${
+                isDark
+                  ? 'border-slate-700/60 bg-slate-900/80 hover:bg-slate-800 text-slate-200'
+                  : 'border-slate-200/80 bg-white/78 hover:bg-white text-slate-600'
+              }`}
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               {t('Refresh')}
@@ -218,7 +351,7 @@ export default function SystemAdminDashboard() {
             </button>
           </div>
         </div>
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-400 max-w-2xl">
+        <p className={`mt-3 text-sm max-w-2xl ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
           {t('High level view of tenants, revenue, usage and system health.')}
         </p>
       </header>
@@ -237,26 +370,56 @@ export default function SystemAdminDashboard() {
       )}
 
       {/* ── KPI Cards ── */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5 mb-5">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-5 pt-2">
         {loading
           ? KPI_CONFIG.map(item => <StatCardSkeleton key={item.key} />)
           : cards.map(card => {
               const Icon = card.icon
+              const filterLabel = card.key === 'total_tenants' ? t('View all') : t('View tenants')
               return (
-                <div key={card.key} className={`${glassCard} p-4 min-h-[148px] flex flex-col justify-between`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-[13px] sm:text-sm font-semibold text-slate-600 dark:text-slate-300 leading-[1.35]">
+                <button
+                  type="button"
+                  key={card.key}
+                  onClick={() => openTenantView(card.key)}
+                  aria-label={`${t(card.label)}: ${card.value}. ${filterLabel}`}
+                  className={`group relative overflow-hidden rounded-[28px] text-left backdrop-blur-xl p-4 min-h-[148px] flex flex-col justify-between before:absolute before:inset-0 before:opacity-100 transition-all duration-200 hover:-translate-y-0.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400/60 ${
+                  isDark
+                    ? 'border border-slate-800 bg-slate-900 hover:border-slate-700 hover:shadow-[0_18px_40px_rgba(0,0,0,0.4)]'
+                    : 'border border-white/55 bg-white/24 shadow-[0_14px_34px_rgba(15,23,42,0.08)] hover:border-blue-200/70 hover:shadow-[0_18px_40px_rgba(15,23,42,0.12)]'
+                } ${isDark ? card.darkGlassTint : card.lightGlassTint}`}>
+                  {!isDark && <div className="absolute inset-x-5 top-0 h-px bg-white/75" />}
+                  {isDark && <div className="absolute inset-x-5 top-0 h-px bg-slate-600/40" />}
+                  <div className="relative z-10 flex items-start justify-between gap-3">
+                    <p className={`text-[13px] sm:text-sm font-semibold leading-[1.35] ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                       {t(card.label)}
                     </p>
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${card.colorClasses}`}>
+                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border backdrop-blur-sm ${
+                      isDark
+                        ? `border-slate-600/50 ${card.darkColorClasses}`
+                        : `border-white/20 shadow-inner shadow-white/10 ${card.lightColorClasses}`
+                    }`}>
                       <Icon size={17} />
                     </div>
                   </div>
-                  <div className="mt-3">
-                    <p className="text-3xl font-bold text-slate-800 dark:text-white tracking-tight">{card.value}</p>
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t(card.subtitle)}</p>
+                  <div className="relative z-10 mt-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className={`text-3xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>{card.value}</p>
+                      <TrendBadge
+                        delta={card.trendDelta}
+                        sentiment={card.trend}
+                        compare={card.trendCompare}
+                        isDark={isDark}
+                      />
+                    </div>
+                    <p className={`mt-2 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{getCardSubtitle(card)}</p>
+                    <p className={`mt-3 inline-flex items-center gap-1 text-[11px] font-medium transition-colors ${
+                      isDark ? 'text-blue-300/80 group-hover:text-blue-200' : 'text-blue-600/75 group-hover:text-blue-700'
+                    }`}>
+                      {filterLabel}
+                      <ChevronRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+                    </p>
                   </div>
-                </div>
+                </button>
               )
             })
         }
@@ -271,33 +434,33 @@ export default function SystemAdminDashboard() {
                 <TrendingUp size={17} className="text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('Platform Health')}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{activeRate}% {t('of tenants are active')}</p>
+                <p className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{t('Platform Health')}</p>
+                <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('Subscription mix and churn snapshot across the platform.')}</p>
               </div>
             </div>
-            <div className="flex items-center gap-6">
-              <div className="text-center">
-                <p className="text-lg font-bold text-slate-800 dark:text-white">{stats.lifetime_count ?? 0}</p>
-                <div className="flex items-center gap-1 text-xs text-slate-400">
+            <div className="flex items-center gap-4 sm:gap-6">
+              <div className="text-center" title={t('Tenants with no subscription end date.')}>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{stats.lifetime_count ?? 0}</p>
+                <div className={`flex items-center gap-1 text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                   <Infinity size={11} />
-                  <span>{t('Lifetime')}</span>
+                  <span>{t('Lifetime plans')}</span>
                 </div>
               </div>
-              <div className="text-center">
-                <p className="text-lg font-bold text-slate-800 dark:text-white">{stats.dated_count ?? 0}</p>
-                <p className="text-xs text-slate-400">{t('Dated')}</p>
+              <div className="text-center" title={t('Tenants with a fixed subscription end date.')}>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{stats.dated_count ?? 0}</p>
+                <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('Dated plans')}</p>
               </div>
-              <div className="text-center">
-                <p className="text-lg font-bold text-slate-800 dark:text-white">{stats.expired_tenants ?? 0}</p>
-                <p className="text-xs text-slate-400">{t('Churned')}</p>
+              <div className="text-center" title={t('Tenants no longer active because their subscription ended or was closed.')}>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{stats.expired_tenants ?? 0}</p>
+                <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('Churned tenants')}</p>
               </div>
             </div>
-            <div className="flex-1 max-w-xs">
-              <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+            <div className="flex-1 max-w-xs" title={t('{{active}} of {{total}} tenants are active', { active: stats.active_tenants ?? 0, total: stats.total_tenants ?? 0 })}>
+              <div className={`flex justify-between text-xs mb-1.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                 <span>{t('Active rate')}</span>
                 <span className="font-semibold text-emerald-500">{activeRate}%</span>
               </div>
-              <div className="h-2 w-full rounded-full bg-slate-200/60 dark:bg-slate-700/60 overflow-hidden">
+              <div className={`h-2 w-full rounded-full overflow-hidden ${isDark ? 'bg-slate-700/60' : 'bg-slate-200/60'}`}>
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-700"
                   style={{ width: `${activeRate}%` }}
@@ -313,16 +476,12 @@ export default function SystemAdminDashboard() {
 
         {/* Area Chart */}
         <div className={`${glassCard} px-5 py-5`}>
-          <div className="hidden">
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('New Tenants — Last 6 Months')}</h2>
-            <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{t('Monthly tenant creation activity across the platform.')}</p>
-          </div>
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <h2 className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
                 {t('New Tenants — {{year}}', { year: selectedYear })}
               </h2>
-              <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{t('Monthly tenant creation activity across the platform.')}</p>
+              <p className={`mt-0.5 text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('Monthly tenant creation activity across the platform.')}</p>
             </div>
             <select
               value={selectedYear}
@@ -331,7 +490,11 @@ export default function SystemAdminDashboard() {
                 setSelectedYear(year)
                 loadStats(year)
               }}
-              className="shrink-0 rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/70 px-3 py-2 text-sm text-slate-600 dark:text-slate-200 outline-none transition hover:border-blue-300 focus:border-blue-400"
+              className={`shrink-0 rounded-xl border px-3 py-2 text-sm outline-none transition focus:border-blue-400 ${
+                isDark
+                  ? 'border-slate-700/60 bg-slate-900/80 text-slate-100 hover:border-blue-500/50'
+                  : 'border-slate-200/80 bg-white/80 text-slate-600 hover:border-blue-300'
+              }`}
             >
               {(stats?.available_years || [new Date().getFullYear()]).map((year) => (
                 <option key={year} value={year}>
@@ -352,12 +515,12 @@ export default function SystemAdminDashboard() {
                       <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: chartTickColor }} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: chartTickColor }} />
                   <Tooltip
                     cursor={{ stroke: 'rgba(59,130,246,0.15)', strokeWidth: 2 }}
-                    contentStyle={{ borderRadius: '12px', border: '1px solid rgba(148,163,184,0.15)', fontSize: 12, backdropFilter: 'blur(8px)', background: 'rgba(255,255,255,0.9)' }}
+                    contentStyle={chartTooltipStyle}
                     labelFormatter={(label, payload) => payload?.[0]?.payload?.label || label}
                   />
                   <Area dataKey="count" stroke="#3b82f6" strokeWidth={2.5} fill="url(#tenantGrad)" dot={{ r: 4, fill: '#3b82f6', strokeWidth: 0 }} activeDot={{ r: 6, fill: '#2563eb' }} />
@@ -371,8 +534,8 @@ export default function SystemAdminDashboard() {
         <div className="space-y-4">
           <div className={`${glassCard} px-5 py-5`}>
             <div className="mb-4">
-              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('Plan Distribution')}</h2>
-              <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{t('How tenants are split by subscription plan.')}</p>
+              <h2 className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{t('Plan Distribution')}</h2>
+              <p className={`mt-0.5 text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('How tenants are split by subscription plan.')}</p>
             </div>
             {loading ? <RowSkeleton /> : (
               <SummaryList
@@ -381,14 +544,15 @@ export default function SystemAdminDashboard() {
                 emptyLabel={t('No plan data available.')}
                 total={stats?.total_tenants}
                 getColorClass={(_, i) => PLAN_DOT_CLASSES[i % PLAN_DOT_CLASSES.length]}
+                isDark={isDark}
               />
             )}
           </div>
 
           <div className={`${glassCard} px-5 py-5`}>
             <div className="mb-4">
-              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('Status Breakdown')}</h2>
-              <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{t('Current tenant lifecycle distribution.')}</p>
+              <h2 className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{t('Status Breakdown')}</h2>
+              <p className={`mt-0.5 text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('Current tenant lifecycle distribution.')}</p>
             </div>
             {loading ? <RowSkeleton /> : (
               <SummaryList
@@ -397,6 +561,7 @@ export default function SystemAdminDashboard() {
                 emptyLabel={t('No status data available.')}
                 total={stats?.total_tenants}
                 getColorClass={(item) => statusCfg(item.status).dot}
+                isDark={isDark}
               />
             )}
           </div>
@@ -410,12 +575,12 @@ export default function SystemAdminDashboard() {
         <div className={`${glassCard} px-5 py-5`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('Recent Tenants')}</h2>
-              <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{t('Last 5 workspaces created on the platform.')}</p>
+              <h2 className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{t('Recent Tenants')}</h2>
+              <p className={`mt-0.5 text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('Last 5 workspaces created on the platform.')}</p>
             </div>
             <button
               onClick={() => navigate('/system/tenants')}
-              className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+              className={`flex items-center gap-1 text-xs transition-colors ${isDark ? 'text-blue-300 hover:text-blue-200' : 'text-blue-500 hover:text-blue-600'}`}
             >
               {t('View all')} <ChevronRight size={13} />
             </button>
@@ -424,23 +589,23 @@ export default function SystemAdminDashboard() {
           {loading ? (
             <RowSkeleton rows={5} />
           ) : !stats?.recent_tenants?.length ? (
-            <p className="text-sm text-slate-400">{t('No tenants yet.')}</p>
+            <p className={`text-sm ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('No tenants yet.')}</p>
           ) : (
-            <div className="divide-y divide-slate-200/60 dark:divide-slate-700/50">
+            <div className={`divide-y ${isDark ? 'divide-slate-700/50' : 'divide-slate-200/60'}`}>
               {stats.recent_tenants.map(tenant => {
-                const sc = statusCfg(tenant.status)
+                const sc = statusCfg(tenant.status, isDark)
                 return (
                   <div key={tenant.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                     <div className={`h-2 w-2 rounded-full shrink-0 ${sc.dot}`} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{tenant.name}</p>
-                      <p className="text-xs text-slate-400 truncate">{tenant.domain}</p>
+                      <p className={`text-sm font-medium truncate ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{tenant.name}</p>
+                      <p className={`text-xs truncate ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{tenant.domain}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${sc.badge}`}>
                         {tenant.subscription_plan}
                       </span>
-                      <p className="text-xs text-slate-400 mt-0.5">{tenant.created_at}</p>
+                      <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{tenant.created_at}</p>
                     </div>
                   </div>
                 )
@@ -453,11 +618,11 @@ export default function SystemAdminDashboard() {
         <div className={`${glassCard} px-5 py-5`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('Expiring Soon')}</h2>
-              <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{t('Active tenants whose subscription ends within 30 days.')}</p>
+              <h2 className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{t('Expiring Soon')}</h2>
+              <p className={`mt-0.5 text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{t('Active tenants whose subscription ends within 30 days.')}</p>
             </div>
             {(stats?.expiring_in_30 ?? 0) > 0 && (
-              <span className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              <span className={`flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${isDark ? 'bg-amber-900/40 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
                 <AlertTriangle size={11} />
                 {stats.expiring_in_30}
               </span>
@@ -467,22 +632,22 @@ export default function SystemAdminDashboard() {
           {loading ? (
             <RowSkeleton rows={5} />
           ) : !stats?.expiring_soon?.length ? (
-            <div className="flex flex-col items-center justify-center py-8 gap-2 text-slate-400">
+            <div className={`flex flex-col items-center justify-center py-8 gap-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
               <CheckCircle2 size={28} className="text-emerald-400" />
               <p className="text-sm">{t('No tenants expiring in the next 30 days.')}</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-200/60 dark:divide-slate-700/50">
+            <div className={`divide-y ${isDark ? 'divide-slate-700/50' : 'divide-slate-200/60'}`}>
               {stats.expiring_soon.map(tenant => (
                 <div key={tenant.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                   <AlertTriangle size={14} className="text-amber-500 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{tenant.name}</p>
-                    <p className="text-xs text-slate-400 truncate">{tenant.domain}</p>
+                    <p className={`text-sm font-medium truncate ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{tenant.name}</p>
+                    <p className={`text-xs truncate ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{tenant.domain}</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <DaysLeftBadge days={tenant.days_left} />
-                    <p className="text-xs text-slate-400 mt-0.5">{tenant.end_date}</p>
+                    <DaysLeftBadge days={tenant.days_left} isDark={isDark} />
+                    <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{tenant.end_date}</p>
                   </div>
                 </div>
               ))}
@@ -490,6 +655,7 @@ export default function SystemAdminDashboard() {
           )}
         </div>
       </section>
+      </div>
     </div>
   )
 }
