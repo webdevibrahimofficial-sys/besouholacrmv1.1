@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SubscriptionPlan;
+use App\Models\Tenant;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -18,8 +19,19 @@ class SubscriptionPlanController extends Controller
             $query->where('is_active', true);
         }
 
+        $plans = $query->get();
+        $tenantCounts = Tenant::query()
+            ->selectRaw('subscription_plan, COUNT(*) as aggregate')
+            ->whereIn('subscription_plan', $plans->pluck('code')->filter()->values())
+            ->groupBy('subscription_plan')
+            ->pluck('aggregate', 'subscription_plan');
+
+        $plans->each(function ($plan) use ($tenantCounts) {
+            $plan->tenants_count = (int) ($tenantCounts[$plan->code] ?? 0);
+        });
+
         return response()->json([
-            'plans' => $query->get(),
+            'plans' => $plans,
         ]);
     }
 
@@ -32,6 +44,7 @@ class SubscriptionPlanController extends Controller
         $validated = $request->validate([
             'code' => ['required', 'string', 'max:50', 'regex:/^[a-z0-9_-]+$/', Rule::unique($table, 'code')],
             'name' => 'required|string|max:255',
+            'icon' => ['nullable', 'string', 'max:50', 'regex:/^[a-z0-9_-]+$/'],
             'description' => 'nullable|string',
             'modules' => 'nullable|array',
             'modules.*' => ['string', 'regex:/^[a-z0-9_-]+$/i'],
@@ -45,6 +58,7 @@ class SubscriptionPlanController extends Controller
         $plan = SubscriptionPlan::create([
             'code' => strtolower($validated['code']),
             'name' => $validated['name'],
+            'icon' => $validated['icon'] ?? null,
             'description' => $validated['description'] ?? null,
             'modules' => array_values(array_unique($validated['modules'] ?? [])),
             'company_type_overrides' => $validated['company_type_overrides'] ?? [],
@@ -73,6 +87,7 @@ class SubscriptionPlanController extends Controller
                 Rule::unique($table, 'code')->ignore($subscriptionPlan->id),
             ],
             'name' => 'required|string|max:255',
+            'icon' => ['nullable', 'string', 'max:50', 'regex:/^[a-z0-9_-]+$/'],
             'description' => 'nullable|string',
             'modules' => 'nullable|array',
             'modules.*' => ['string', 'regex:/^[a-z0-9_-]+$/i'],
@@ -86,6 +101,7 @@ class SubscriptionPlanController extends Controller
         $subscriptionPlan->update([
             'code' => strtolower($validated['code']),
             'name' => $validated['name'],
+            'icon' => $validated['icon'] ?? null,
             'description' => $validated['description'] ?? null,
             'modules' => array_values(array_unique($validated['modules'] ?? [])),
             'company_type_overrides' => $validated['company_type_overrides'] ?? [],

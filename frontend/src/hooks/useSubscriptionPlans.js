@@ -2,41 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'react-hot-toast'
 import { api } from '../utils/api'
 
-export const FALLBACK_SUBSCRIPTION_PLANS = [
-  {
-    id: 'fallback-basic',
-    code: 'basic',
-    name: 'Basic',
-    description: 'Dashboard, Leads Management, Inventory, Reports, User Management, Settings',
-    modules: ['dashboard', 'leads', 'inventory', 'reports', 'users', 'settings'],
-    company_type_overrides: {},
-    is_active: true,
-    display_order: 10,
-  },
-  {
-    id: 'fallback-professional',
-    code: 'professional',
-    name: 'Professional',
-    description: 'Basic + Marketing',
-    modules: ['dashboard', 'leads', 'inventory', 'reports', 'users', 'settings', 'campaigns'],
-    company_type_overrides: {},
-    is_active: true,
-    display_order: 20,
-  },
-  {
-    id: 'fallback-enterprise',
-    code: 'enterprise',
-    name: 'Enterprise',
-    description: 'Professional + Customers for General or Contracts for Real Estate',
-    modules: ['dashboard', 'leads', 'inventory', 'reports', 'users', 'settings', 'campaigns', 'customers'],
-    company_type_overrides: {
-      'Real Estate': ['dashboard', 'leads', 'inventory', 'reports', 'users', 'settings', 'campaigns', 'contract_collections'],
-    },
-    is_active: true,
-    display_order: 30,
-  },
-]
-
 export const AVAILABLE_PLAN_MODULES = [
   { id: 'dashboard', name: 'Dashboard' },
   { id: 'leads', name: 'Leads Management' },
@@ -69,20 +34,23 @@ export function getPlanModulesForCompany(plan, companyType = 'General') {
 
 export function useSubscriptionPlans(options = {}) {
   const includeInactive = options.includeInactive ?? false
-  const [plans, setPlans] = useState(FALLBACK_SUBSCRIPTION_PLANS)
+  const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   const fetchPlans = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const { data } = await api.get('/super-admin/subscription-plans', {
         params: includeInactive ? { include_inactive: 1 } : undefined,
       })
       const apiPlans = Array.isArray(data?.plans) ? data.plans : []
-      setPlans(apiPlans.length > 0 ? apiPlans : FALLBACK_SUBSCRIPTION_PLANS)
-    } catch (error) {
-      console.error('Failed to load subscription plans:', error)
-      setPlans(FALLBACK_SUBSCRIPTION_PLANS)
+      setPlans(apiPlans)
+    } catch (err) {
+      console.error('Failed to load subscription plans:', err)
+      setPlans([])
+      setError(err?.response?.data?.message || 'Failed to load subscription plans')
     } finally {
       setLoading(false)
     }
@@ -120,6 +88,7 @@ export function useSubscriptionPlans(options = {}) {
   return {
     plans,
     loading,
+    error,
     planMap,
     refetchPlans: fetchPlans,
     createPlan,

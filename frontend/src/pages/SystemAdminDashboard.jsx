@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '@shared/context/ThemeProvider'
+import { useAppState } from '@shared/context/AppStateProvider'
 import {
   ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip,
   AreaChart, Area,
@@ -12,6 +13,16 @@ import {
   ChevronRight, Plus, ExternalLink, Infinity, Minus,
 } from 'lucide-react'
 import { api } from '@utils/api'
+
+const DASHBOARD_SECTION_PERMISSIONS = {
+  kpis: 'system.dashboard.kpis',
+  health: 'system.dashboard.health',
+  growth: 'system.dashboard.growth',
+  planDistribution: 'system.dashboard.plan_distribution',
+  statusBreakdown: 'system.dashboard.status_breakdown',
+  recentTenants: 'system.dashboard.recent_tenants',
+  expiringSoon: 'system.dashboard.expiring_soon',
+}
 
 // ─── KPI config ────────────────────────────────────────────────────────────────
 const KPI_CONFIG = [
@@ -213,12 +224,25 @@ export default function SystemAdminDashboard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { resolvedTheme } = useTheme()
+  const { permissions = [] } = useAppState()
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastRefreshed, setLastRefreshed] = useState(null)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const isDark = resolvedTheme === 'dark'
+  const hasDashboardAccess = permissions.includes('system.dashboard.view')
+  const grantedSectionPermissions = useMemo(
+    () => Object.values(DASHBOARD_SECTION_PERMISSIONS).filter((permission) => permissions.includes(permission)),
+    [permissions]
+  )
+  const useSectionScopedVisibility = grantedSectionPermissions.length > 0
+
+  const canViewSection = (permissionName) => {
+    if (!hasDashboardAccess) return false
+    if (!useSectionScopedVisibility) return true
+    return grantedSectionPermissions.includes(permissionName)
+  }
 
   const loadStats = async (year = selectedYear) => {
     setLoading(true)
@@ -237,9 +261,13 @@ export default function SystemAdminDashboard() {
   }
 
   useEffect(() => {
+    if (!hasDashboardAccess) {
+      setLoading(false)
+      return
+    }
     loadStats(selectedYear)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [hasDashboardAccess])
 
   const cards = useMemo(() => {
     if (!stats) return []
@@ -293,6 +321,27 @@ export default function SystemAdminDashboard() {
     background: isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.92)',
     color: isDark ? '#e2e8f0' : '#0f172a',
     boxShadow: isDark ? '0 18px 40px rgba(2,6,23,0.4)' : '0 18px 40px rgba(15,23,42,0.12)',
+  }
+
+  if (!hasDashboardAccess) {
+    return (
+      <div className={`relative overflow-hidden rounded-[32px] px-4 py-6 md:px-6 lg:px-8 max-w-screen-2xl mx-auto ${
+        isDark
+          ? 'border border-slate-800 bg-[#0f172a] shadow-[0_24px_70px_rgba(0,0,0,0.45)]'
+          : 'border border-slate-200/70 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_26%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.92))] shadow-[0_28px_70px_rgba(15,23,42,0.08)]'
+      }`}>
+        <div className="relative z-10">
+          <section className={`rounded-[26px] border px-5 py-8 text-center ${
+            isDark ? 'border-slate-800 bg-slate-900 text-slate-300' : 'border-slate-200 bg-white/80 text-slate-600'
+          }`}>
+            <p className="text-base font-semibold">{t('Dashboard access is not enabled for this account.')}</p>
+            <p className={`mt-2 text-sm ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              {t('Ask a system administrator to grant Dashboard / View permission first.')}
+            </p>
+          </section>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -370,6 +419,7 @@ export default function SystemAdminDashboard() {
       )}
 
       {/* ── KPI Cards ── */}
+      {canViewSection(DASHBOARD_SECTION_PERMISSIONS.kpis) ? (
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-5 pt-2">
         {loading
           ? KPI_CONFIG.map(item => <StatCardSkeleton key={item.key} />)
@@ -424,9 +474,10 @@ export default function SystemAdminDashboard() {
             })
         }
       </section>
+      ) : null}
 
       {/* ── Platform Health Banner ── */}
-      {!loading && stats && (
+      {canViewSection(DASHBOARD_SECTION_PERMISSIONS.health) && !loading && stats ? (
         <section className={`${glassCard} mb-5 px-5 py-4`}>
           <div className="flex  sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -469,12 +520,16 @@ export default function SystemAdminDashboard() {
             </div>
           </div>
         </section>
-      )}
+      ) : null}
 
       {/* ── Main Grid: Chart + Sidebar ── */}
+      {canViewSection(DASHBOARD_SECTION_PERMISSIONS.growth)
+        || canViewSection(DASHBOARD_SECTION_PERMISSIONS.planDistribution)
+        || canViewSection(DASHBOARD_SECTION_PERMISSIONS.statusBreakdown) ? (
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)] mb-5">
 
         {/* Area Chart */}
+        {canViewSection(DASHBOARD_SECTION_PERMISSIONS.growth) ? (
         <div className={`${glassCard} px-5 py-5`}>
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
@@ -529,9 +584,12 @@ export default function SystemAdminDashboard() {
             )}
           </div>
         </div>
+        ) : null}
 
         {/* Sidebar: Plan + Status */}
+        {canViewSection(DASHBOARD_SECTION_PERMISSIONS.planDistribution) || canViewSection(DASHBOARD_SECTION_PERMISSIONS.statusBreakdown) ? (
         <div className="space-y-4">
+          {canViewSection(DASHBOARD_SECTION_PERMISSIONS.planDistribution) ? (
           <div className={`${glassCard} px-5 py-5`}>
             <div className="mb-4">
               <h2 className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{t('Plan Distribution')}</h2>
@@ -548,7 +606,9 @@ export default function SystemAdminDashboard() {
               />
             )}
           </div>
+          ) : null}
 
+          {canViewSection(DASHBOARD_SECTION_PERMISSIONS.statusBreakdown) ? (
           <div className={`${glassCard} px-5 py-5`}>
             <div className="mb-4">
               <h2 className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{t('Status Breakdown')}</h2>
@@ -565,13 +625,19 @@ export default function SystemAdminDashboard() {
               />
             )}
           </div>
+          ) : null}
         </div>
+        ) : null}
       </section>
+      ) : null}
 
       {/* ── Bottom Grid: Recent + Expiring ── */}
+      {canViewSection(DASHBOARD_SECTION_PERMISSIONS.recentTenants)
+        || canViewSection(DASHBOARD_SECTION_PERMISSIONS.expiringSoon) ? (
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
 
         {/* Recent Tenants */}
+        {canViewSection(DASHBOARD_SECTION_PERMISSIONS.recentTenants) ? (
         <div className={`${glassCard} px-5 py-5`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -613,8 +679,10 @@ export default function SystemAdminDashboard() {
             </div>
           )}
         </div>
+        ) : null}
 
         {/* Expiring Soon */}
+        {canViewSection(DASHBOARD_SECTION_PERMISSIONS.expiringSoon) ? (
         <div className={`${glassCard} px-5 py-5`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -654,7 +722,9 @@ export default function SystemAdminDashboard() {
             </div>
           )}
         </div>
+        ) : null}
       </section>
+      ) : null}
       </div>
     </div>
   )

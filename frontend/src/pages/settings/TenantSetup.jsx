@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
@@ -563,7 +564,7 @@ const TenantSetup = () => {
         </header>
       )}
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 mt-4">
           <button
             type="button"
             onClick={() => setTenantView('current')}
@@ -1150,28 +1151,38 @@ const TenantSetup = () => {
         </div>
       )}
 
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[150] p-4">
-          <div className="card rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800 z-10">
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white">
+      {showCreateModal && createPortal(
+        <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/80 p-3 md:p-4 backdrop-blur-sm">
+          <div
+            className={`w-full max-w-4xl max-h-[84vh] overflow-y-auto rounded-2xl border shadow-2xl ${
+              isDark
+                ? 'border-slate-700/70 bg-slate-900 text-slate-100'
+                : 'border-slate-200 bg-white text-slate-900'
+            }`}
+          >
+            <div className={`sticky top-0 z-10 flex items-center justify-between border-b p-4 ${
+              isDark
+                ? 'border-slate-700 bg-slate-900'
+                : 'border-gray-200 bg-white'
+            }`}>
+              <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>
                 {t('create_tenant_subscription', 'Create Tenant Subscription')}
               </h3>
               <button
                 type="button"
                 onClick={closeCreateModal}
-                className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                className={`${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit(onCreateSubmit)} className="p-6 space-y-6">
+            <form onSubmit={handleSubmit(onCreateSubmit)} className="space-y-5 p-4 md:p-5">
             {/* Form Content */}
             <h2 className="text-lg font-semibold mb-4 text-theme border-b pb-2">
               {t('company_details', 'Company Details')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('company_name', 'Company Name')} <span className="text-red-500">*</span>
@@ -1179,7 +1190,7 @@ const TenantSetup = () => {
                 <input
                   type="text"
                   {...register('company_name', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                   placeholder={t('enter_company_name', 'Enter Company Name')}
                 />
                 {errors.company_name && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
@@ -1191,7 +1202,7 @@ const TenantSetup = () => {
                 </label>
                 <select
                   {...register('company_type', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 >
                   <option value="General">{t('General')}</option>
                   <option value="Real Estate">{t('Real Estate')}</option>
@@ -1205,7 +1216,7 @@ const TenantSetup = () => {
                 </label>
                 <select
                   {...register('tenancy_type', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 >
                   <option value="shared">{t('shared', 'Shared')}</option>
                   <option value="dedicated">{t('dedicated', 'Dedicated')}</option>
@@ -1224,10 +1235,10 @@ const TenantSetup = () => {
                       required: true,
                       pattern: /^[a-z0-9\-]+$/ 
                     })}
-                    className="flex-1 px-4 py-2 border rounded-l-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                    className="h-10 flex-1 rounded-l-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                     placeholder="company-slug"
                   />
-                  <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 dark:bg-gray-600 dark:border-gray-600 text-gray-500 dark:text-gray-300 text-sm">
+                    <span className="inline-flex h-10 items-center rounded-r-md border border-l-0 border-gray-300 bg-gray-50 px-3 text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-600 dark:text-gray-300">
                     {domainSuffix}
                   </span>
                 </div>
@@ -1238,14 +1249,14 @@ const TenantSetup = () => {
             <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
               {t('location_details', 'Location Details')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('country', 'Country')}
                 </label>
                 <select
                   {...register('country')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 >
                   <option value="">{t('select_country', 'Select Country')}</option>
                   {COUNTRIES.map(country => (
@@ -1262,7 +1273,7 @@ const TenantSetup = () => {
                 <input
                   type="text"
                   {...register('city')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
@@ -1273,7 +1284,7 @@ const TenantSetup = () => {
                 <input
                   type="text"
                   {...register('address_line_1')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                   placeholder={t('enter_address', 'Enter street address')}
                 />
               </div>
@@ -1285,7 +1296,7 @@ const TenantSetup = () => {
                 <input
                   type="text"
                   {...register('state')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -1293,7 +1304,7 @@ const TenantSetup = () => {
             <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
               {t('admin_account', 'Admin Account')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('admin_name', 'Admin Name')} <span className="text-red-500">*</span>
@@ -1301,7 +1312,7 @@ const TenantSetup = () => {
                 <input
                   type="text"
                   {...register('admin_name', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
@@ -1312,7 +1323,7 @@ const TenantSetup = () => {
                 <input
                   type="email"
                   {...register('admin_email', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
@@ -1325,7 +1336,7 @@ const TenantSetup = () => {
                     type={showCreatePassword ? 'text' : 'password'}
                     autoComplete="new-password"
                     {...register('password', { required: true, minLength: 8 })}
-                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                    className="h-10 w-full rounded-md border px-3 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                   />
                   <button
                     type="button"
@@ -1350,7 +1361,7 @@ const TenantSetup = () => {
                       required: true,
                       validate: val => val === watch('password') || t('passwords_mismatch', 'Passwords do not match')
                     })}
-                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                    className="h-10 w-full rounded-md border px-3 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                   />
                   <button
                     type="button"
@@ -1367,7 +1378,7 @@ const TenantSetup = () => {
             <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
               {t('subscription_details', 'Subscription Details')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('number_of_users', 'Number of Users')} <span className="text-red-500">*</span>
@@ -1375,7 +1386,7 @@ const TenantSetup = () => {
                 <input
                   type="number"
                   {...register('users_limit', { required: true, min: 1 })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 />
                 {errors.users_limit && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
@@ -1386,7 +1397,7 @@ const TenantSetup = () => {
                 <input
                   type="date"
                   {...register('start_date', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 />
                 {errors.start_date && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
               </div>
@@ -1403,7 +1414,7 @@ const TenantSetup = () => {
                     }
                   })}
                   disabled={!!isLifetime}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                 />
                 {errors.end_date && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
                 <div className="mt-2 flex items-center space-x-2">
@@ -1426,10 +1437,14 @@ const TenantSetup = () => {
               {selectablePlans.map((plan) => (
                 <label
                   key={plan.id}
-                  className={`relative flex flex-col rounded-lg border p-4 cursor-pointer transition-all duration-200 ${
+                  className={`relative flex flex-col rounded-xl border p-3 cursor-pointer transition-all duration-200 ${
                     selectedPlan === plan.code
-                      ? 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200 dark:border-transparent dark:bg-blue-900/20 dark:ring-2 dark:ring-blue-500'
-                      : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm dark:border-gray-700 dark:bg-transparent dark:hover:bg-gray-700'
+                      ? isDark
+                        ? 'border-blue-500 bg-blue-950/30 shadow-sm ring-1 ring-blue-500/40'
+                        : 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200'
+                      : isDark
+                        ? 'border-slate-700 bg-slate-900/70 hover:border-blue-500/40 hover:bg-slate-800/80'
+                        : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm'
                   }`}
                 >
                   <div className="flex items-center mb-2">
@@ -1440,11 +1455,11 @@ const TenantSetup = () => {
                       defaultChecked={plan.code === 'basic'}
                       className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                     />
-                    <span className="ml-3 font-bold text-theme">
+                    <span className={`ml-3 text-sm font-bold ${isDark ? 'text-slate-100' : 'text-theme'}`}>
                       {t(plan.name)}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 ml-7">
+                  <p className={`ml-7 text-xs leading-5 ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
                     {(() => {
                       const base = getPlanModulesForCompany(plan, selectedCompanyType)
                       if (base.length === 0) return t('Flexible Selection')
@@ -1493,17 +1508,18 @@ const TenantSetup = () => {
             )}
 
             <div className="pt-4 flex justify-end">
-              <button
-                type="submit"
-                disabled={loadingCreate}
-                className={`px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${loadingCreate ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
+               <button
+                 type="submit"
+                 disabled={loadingCreate}
+                 className={`rounded-md bg-blue-600 px-5 py-2 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${loadingCreate ? 'cursor-not-allowed opacity-50' : ''}`}
+               >
                 {loadingCreate ? t('creating', 'Creating...') : t('create_tenant', 'Create Tenant')}
               </button>
             </div>
           </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {editingTenant && (

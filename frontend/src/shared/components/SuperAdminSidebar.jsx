@@ -10,7 +10,8 @@ import {
   Users,
   Settings,
   Key,
-  Settings2,
+  ListTodo,
+  ScrollText,
   Share2,
   Globe,
   AlertOctagon,
@@ -85,28 +86,35 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
 
   const menuSections = [
     {
-      label: 'Core',
+      label: 'Admin Panel',
       items: [
         { title: 'Admin Dashboard', path: '/system/dashboard', icon: <LayoutDashboard size={20} /> },
-        { title: 'Tenant Management', path: '/system/tenants', icon: <Users size={20} /> },
-        { title: 'Subscription Plans', path: '/system/subscriptions', icon: <Key size={20} /> },
-        { title: 'Modules Management', path: '/system/modules', icon: <Settings2 size={20} /> },
+        { title: 'Super Admin Users', path: '/system/admin-users', icon: <ShieldCheck size={20} /> },
+        { title: 'Tasks', path: '/system/tasks', icon: <ListTodo size={20} /> },
+        { title: 'Audit Logs', path: '/system/audit-logs', icon: <ScrollText size={20} /> },
       ],
     },
     {
-      label: 'System',
+      label: 'Tenant Operations',
+      items: [
+        { title: 'Tenant Management', path: '/system/tenants', icon: <Users size={20} /> },
+        { title: 'Subscription Plans', path: '/system/subscriptions', icon: <Key size={20} /> },
+        { title: 'Transactions', path: '/system/transactions', icon: <ArrowLeftRight size={20} /> },
+      ],
+    },
+    {
+      label: 'Platform Control',
       items: [
         { title: 'Administration Settings', path: '/system/settings', icon: <Settings size={20} /> },
         { title: 'Global Integrations', path: '/system/integrations', icon: <Share2 size={20} /> },
-        { title: 'Error Log', path: '/system/error-log', icon: <AlertOctagon size={20} />, badgeKey: 'errors' },
-        { title: 'Backup', path: '/system/backup', icon: <Database size={20} /> },
+        { title: 'Company Website', path: '/system/website', icon: <Globe size={20} />, expandable: true },
       ],
     },
     {
-      label: 'More',
+      label: 'Monitoring',
       items: [
-        { title: 'Company Website', path: '/system/website', icon: <Globe size={20} />, expandable: true },
-        { title: 'Transactions', path: '/system/transactions', icon: <ArrowLeftRight size={20} /> },
+        { title: 'Error Log', path: '/system/error-log', icon: <AlertOctagon size={20} />, badgeKey: 'errors' },
+        { title: 'Backup', path: '/system/backup', icon: <Database size={20} /> },
       ],
     },
   ];
@@ -446,7 +454,7 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
 
         <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
           {menuSections.map((section, sectionIndex) => (
-            <div key={section.label} className={sectionIndex > 0 ? 'mt-1' : ''}>
+            <div key={section.label} className={sectionIndex > 0 ? 'mt-4' : ''}>
               {!collapsed && (
                 <p className={sectionLabelClass}>{t(section.label)}</p>
               )}

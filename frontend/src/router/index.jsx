@@ -25,6 +25,8 @@ const Terms = lazyRetry(() => import('../pages/Terms'))
 const WelcomeContact = lazyRetry(() => import('../pages/WelcomeContact'))
 const ContactUs = lazyRetry(() => import('../pages/ContactUs'))
 const Tasks = lazyRetry(() => import('../pages/Tasks'))
+const SystemTasks = lazy(() => import('../pages/SystemTasks'))
+const SystemAdminUsers = lazy(() => import('../pages/SystemAdminUsers'))
 const Notifications = lazyRetry(() => import('../pages/Notifications'))
 
 // --- Landing Pages ---
@@ -165,7 +167,6 @@ const RentConfiguration = lazy(() => import('../pages/settings/operations/RentCo
 const SystemAdminDashboard  = lazy(() => import('../pages/SystemAdminDashboard'))
 const TenantSetup           = lazy(() => import('../pages/settings/TenantSetup'))
 const SystemSubscriptions   = lazy(() => import('../pages/SystemSubscriptions'))
-const SystemModules         = lazy(() => import('../pages/SystemModules'))
 const SystemSettings        = lazy(() => import('../pages/SystemSettings'))
 const SystemIntegrations    = lazy(() => import('../pages/SystemIntegrations'))
 const SystemErrorLog        = lazy(() => import('../pages/SystemErrorLog'))
@@ -411,7 +412,7 @@ export default function AppRouter() {
               <Route path="/settings/system/form-inputs/items" element={<AddItemInputs />} />
               <Route path="/settings/system/form-inputs/properties" element={<AddPropertiesInputs />} />
               <Route path="/settings/system/form-inputs/brokers" element={<AddBrokerInputs />} />
-              <Route path="/settings/system/audit-logs" element={<AuditLogs />} />
+              <Route path="/settings/system/audit-logs" element={<Navigate to="/user-management/activity-logs" replace />} />
               
               <Route path="/settings/notifications" element={<Navigate to="/settings/notifications/general" replace />} />
               <Route path="/settings/notifications/general" element={<NotificationsSettings />} />
@@ -476,13 +477,14 @@ export default function AppRouter() {
             <Route element={<SuperAdminRoute />}>
               <Route path="/system" element={<Navigate to="/system/dashboard" replace />} />
               <Route path="/system/dashboard" element={<SystemAdminDashboard />} />
+              <Route path="/system/admin-users" element={<SystemAdminUsers />} />
               <Route path="/system/tenants" element={<TenantSetup />} />
               <Route path="/system/tenants/new" element={<TenantSetup />} />
               
               {/* Dedicated Super Admin pages (Phase 3) */}
               <Route path="/system/subscriptions" element={<SystemSubscriptions />} />
-              <Route path="/system/modules"       element={<SystemModules />} />
               <Route path="/system/settings"      element={<SystemSettings />} />
+              <Route path="/system/audit-logs" element={<AuditLogs />} />
               
               <Route path="/system/integrations" element={<SystemIntegrations />} />
               <Route path="/system/website" element={<WebsiteCms />} />
@@ -493,7 +495,7 @@ export default function AppRouter() {
               {/* Profile & Tasks for Super Admin */}
               <Route path="/system/profile" element={<ProfileSettings />} />
               <Route path="/system/security" element={<SecuritySettings />} />
-              <Route path="/system/tasks" element={<Tasks />} />
+              <Route path="/system/tasks" element={<SystemTasks />} />
             </Route>
           </Route>
         </Route>

@@ -13,6 +13,29 @@ use Illuminate\Support\Facades\Http;
 
 class AuthController extends Controller
 {
+    protected function resolvedUserPermissions(User $user)
+    {
+        try {
+            $allPermissions = $user->getAllPermissions()->pluck('name')->values();
+            $override = data_get($user->meta_data, 'system_permissions_override');
+
+            if (!$user->is_super_admin || !is_array($override)) {
+                return $allPermissions;
+            }
+
+            $nonSystemPermissions = $allPermissions
+                ->filter(fn ($name) => !str_starts_with((string) $name, 'system.'))
+                ->values();
+
+            return $nonSystemPermissions
+                ->merge(collect($override)->filter(fn ($name) => str_starts_with((string) $name, 'system.')))
+                ->unique()
+                ->values();
+        } catch (\Throwable $e) {
+            return collect();
+        }
+    }
+
     protected function tenantBlockedReason(?\App\Models\Tenant $tenant): ?string
     {
         if (!$tenant) return null;
@@ -267,13 +290,7 @@ class AuthController extends Controller
             'tenant' => $tenant ?? $tenantFromUser,
             'enabled_modules' => $enabledModules,
             'subscription_plan' => $subscriptionPlan,
-            'user_permissions' => (function () use ($user) {
-                try {
-                    return $user->getAllPermissions()->pluck('name');
-                } catch (\Throwable $e) {
-                    return [];
-                }
-            })(),
+            'user_permissions' => $this->resolvedUserPermissions($user),
             'tenant_subdomain_url' => $tenant
                 ? ($frontendScheme . '://' . $tenant->slug . '.' . $frontendHost . $portSuffix)
                 : ($tenantFromUser ? ($frontendScheme . '://' . $tenantFromUser->slug . '.' . $frontendHost . $portSuffix) : null),
@@ -309,13 +326,7 @@ class AuthController extends Controller
             'tenant' => $tenant,
             'enabled_modules' => $enabledModules,
             'subscription_plan' => $subscriptionPlan,
-            'user_permissions' => (function () use ($user) {
-                try {
-                    return $user->getAllPermissions()->pluck('name');
-                } catch (\Throwable $e) {
-                    return [];
-                }
-            })(),
+            'user_permissions' => $this->resolvedUserPermissions($user),
             'subdomain_url' => ($tenant ? (parse_url(config('app.frontend_url'), PHP_URL_SCHEME) ?? 'https') . '://' . $tenant->slug . '.' . (parse_url(config('app.frontend_url'), PHP_URL_HOST) ?? 'besouholacrm.net') . (parse_url(config('app.frontend_url'), PHP_URL_PORT) ? ':' . parse_url(config('app.frontend_url'), PHP_URL_PORT) : '') : null),
         ]);
     }
@@ -417,13 +428,7 @@ class AuthController extends Controller
                 'tenant' => $tenant,
                 'enabled_modules' => $enabledModules,
                 'subscription_plan' => $subscriptionPlan,
-                'user_permissions' => (function () use ($user) {
-                    try {
-                        return $user->getAllPermissions()->pluck('name');
-                    } catch (\Throwable $e) {
-                        return [];
-                    }
-                })(),
+                'user_permissions' => $this->resolvedUserPermissions($user),
                 'redirect_url' => $redirectBase,
             ]);
         }

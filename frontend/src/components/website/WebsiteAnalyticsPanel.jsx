@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react'
+import { BarChart3, FileText, MousePointerClick, Users } from 'lucide-react'
+import { useTheme } from '../../shared/context/ThemeProvider'
 import { systemCompanyWebsiteService } from '../../services/systemCompanyWebsiteService'
 
-const MetricCard = ({ label, value, suffix = '' }) => (
-  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-    <p className="text-sm text-[var(--muted-text)]">{label}</p>
-    <p className="mt-2 text-2xl font-semibold text-[var(--content-text)]">
+const MetricCard = ({ label, value, suffix = '', icon: Icon, iconTone }) => (
+  <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+    <div className="flex items-start justify-between gap-3">
+      <p className="text-sm text-[var(--muted-text)]">{label}</p>
+      <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${iconTone}`}>
+        <Icon size={18} />
+      </span>
+    </div>
+    <p className="mt-3 text-2xl font-semibold text-[var(--content-text)]">
       {value}
       {suffix}
     </p>
@@ -12,6 +19,8 @@ const MetricCard = ({ label, value, suffix = '' }) => (
 )
 
 export default function WebsiteAnalyticsPanel() {
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [overview, setOverview] = useState(null)
@@ -52,6 +61,19 @@ export default function WebsiteAnalyticsPanel() {
     return <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>
   }
 
+  const metricCards = [
+    { label: 'Visitors', value: overview?.visitors ?? 0, icon: Users, iconTone: isDark ? 'border-blue-400/20 bg-blue-500/14 text-blue-300' : 'border-blue-200/80 bg-blue-100 text-blue-700' },
+    { label: 'Sessions', value: overview?.sessions ?? 0, icon: BarChart3, iconTone: isDark ? 'border-violet-400/20 bg-violet-500/14 text-violet-300' : 'border-violet-200/80 bg-violet-100 text-violet-700' },
+    { label: 'Page Views', value: overview?.page_views ?? 0, icon: FileText, iconTone: isDark ? 'border-emerald-400/20 bg-emerald-500/14 text-emerald-300' : 'border-emerald-200/80 bg-emerald-100 text-emerald-700' },
+    { label: 'Leads', value: overview?.leads ?? 0, icon: MousePointerClick, iconTone: isDark ? 'border-amber-400/20 bg-amber-500/14 text-amber-300' : 'border-amber-200/80 bg-amber-100 text-amber-700' },
+    { label: 'Conversion Rate', value: overview?.conversion_rate ?? 0, suffix: '%', icon: BarChart3, iconTone: isDark ? 'border-cyan-400/20 bg-cyan-500/14 text-cyan-300' : 'border-cyan-200/80 bg-cyan-100 text-cyan-700' },
+    { label: 'CTA Clicks', value: overview?.cta_clicks ?? 0, icon: MousePointerClick, iconTone: isDark ? 'border-fuchsia-400/20 bg-fuchsia-500/14 text-fuchsia-300' : 'border-fuchsia-200/80 bg-fuchsia-100 text-fuchsia-700' },
+    { label: 'Form Starts', value: overview?.form_starts ?? 0, icon: FileText, iconTone: isDark ? 'border-indigo-400/20 bg-indigo-500/14 text-indigo-300' : 'border-indigo-200/80 bg-indigo-100 text-indigo-700' },
+    { label: 'Form Submits', value: overview?.form_submits ?? 0, icon: FileText, iconTone: isDark ? 'border-emerald-400/20 bg-emerald-500/14 text-emerald-300' : 'border-emerald-200/80 bg-emerald-100 text-emerald-700' },
+    { label: 'Form Errors', value: overview?.form_errors ?? 0, icon: FileText, iconTone: isDark ? 'border-rose-400/20 bg-rose-500/14 text-rose-300' : 'border-rose-200/80 bg-rose-100 text-rose-700' },
+    { label: 'Failed Intakes', value: overview?.failed_intakes ?? 0, icon: FileText, iconTone: isDark ? 'border-orange-400/20 bg-orange-500/14 text-orange-300' : 'border-orange-200/80 bg-orange-100 text-orange-700' },
+  ]
+
   return (
     <div className="space-y-6">
       <div>
@@ -62,16 +84,9 @@ export default function WebsiteAnalyticsPanel() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Visitors" value={overview?.visitors ?? 0} />
-        <MetricCard label="Sessions" value={overview?.sessions ?? 0} />
-        <MetricCard label="Page Views" value={overview?.page_views ?? 0} />
-        <MetricCard label="Leads" value={overview?.leads ?? 0} />
-        <MetricCard label="Conversion Rate" value={overview?.conversion_rate ?? 0} suffix="%" />
-        <MetricCard label="CTA Clicks" value={overview?.cta_clicks ?? 0} />
-        <MetricCard label="Form Starts" value={overview?.form_starts ?? 0} />
-        <MetricCard label="Form Submits" value={overview?.form_submits ?? 0} />
-        <MetricCard label="Form Errors" value={overview?.form_errors ?? 0} />
-        <MetricCard label="Failed Intakes" value={overview?.failed_intakes ?? 0} />
+        {metricCards.map((card) => (
+          <MetricCard key={card.label} {...card} />
+        ))}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

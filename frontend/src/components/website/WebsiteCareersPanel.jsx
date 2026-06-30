@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTheme } from '../../shared/context/ThemeProvider'
 
 const emptyRole = {
   title: '',
@@ -392,9 +393,14 @@ export default function WebsiteCareersPanel({
   cancelCareerRoleEdit,
   careerApplications,
 }) {
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
   const [activeSubTab, setActiveSubTab] = useState('page')
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false)
   const content = useMemo(() => careerPage?.content || {}, [careerPage])
+  const glassPanel = isDark
+    ? 'border border-slate-800/90 bg-slate-900/70 shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl'
+    : 'border border-slate-200/70 bg-white/72 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-xl'
 
   const updateContentField = (key, value) => {
     setCareerPage((prev) => ({
@@ -426,7 +432,7 @@ export default function WebsiteCareersPanel({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className={`rounded-2xl p-4 ${glassPanel}`}>
         <div className="mb-4">
           <h2 className="text-lg font-semibold">Careers</h2>
           <p className="mt-1 text-sm text-[var(--muted-text)]">
@@ -444,10 +450,10 @@ export default function WebsiteCareersPanel({
               key={key}
               type="button"
               onClick={() => setActiveSubTab(key)}
-              className={`rounded-full px-4 py-2 text-sm ${
+              className={`rounded-xl px-4 py-2 text-sm ${
                 activeSubTab === key
                   ? 'bg-[var(--primary)] text-white'
-                  : 'bg-[var(--surface-2)] text-[var(--muted-text)]'
+                  : 'bg-[var(--surface-2)] text-[var(--muted-text)] hover:bg-[var(--surface)]'
               }`}
             >
               {label}
@@ -457,7 +463,7 @@ export default function WebsiteCareersPanel({
       </div>
 
       {activeSubTab === 'page' ? (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
+        <div className={`rounded-2xl p-6 ${glassPanel}`}>
           <div className="mb-5 flex flex-col gap-2">
             <h3 className="text-lg font-semibold">Careers Page Content</h3>
             <p className="text-sm text-[var(--muted-text)]">

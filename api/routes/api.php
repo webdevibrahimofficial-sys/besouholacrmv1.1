@@ -14,6 +14,7 @@ use App\Http\Controllers\PaymentTermController;
 use App\Http\Controllers\InventoryRequestController;
 use App\Http\Controllers\TenantRegistrationController;
 use App\Http\Controllers\SuperAdminController;
+use App\Http\Controllers\SuperAdminUserController;
 use App\Http\Controllers\SuperAdminImpersonationController;
 use App\Http\Controllers\SuperAdminBackupController;
 use App\Http\Controllers\ActivityLogController;
@@ -152,7 +153,20 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', 
     Route::post('subscription-plans', [\App\Http\Controllers\SubscriptionPlanController::class, 'store']);
     Route::put('subscription-plans/{subscriptionPlan}', [\App\Http\Controllers\SubscriptionPlanController::class, 'update']);
     Route::delete('subscription-plans/{subscriptionPlan}', [\App\Http\Controllers\SubscriptionPlanController::class, 'destroy']);
+    Route::get('task-categories', [\App\Http\Controllers\TaskCategoryController::class, 'index']);
+    Route::post('task-categories', [\App\Http\Controllers\TaskCategoryController::class, 'store']);
+    Route::put('task-categories/{taskCategory}', [\App\Http\Controllers\TaskCategoryController::class, 'update']);
+    Route::delete('task-categories/{taskCategory}', [\App\Http\Controllers\TaskCategoryController::class, 'destroy']);
     Route::get('users', [SuperAdminController::class , 'users']);
+    Route::get('admin-users', [SuperAdminUserController::class, 'index']);
+    Route::post('admin-users', [SuperAdminUserController::class, 'store']);
+    Route::put('admin-users/{user}', [SuperAdminUserController::class, 'update']);
+    Route::delete('admin-users/{user}', [SuperAdminUserController::class, 'destroy']);
+    Route::get('admin-roles', [SuperAdminUserController::class, 'rolesIndex']);
+    Route::post('admin-roles', [SuperAdminUserController::class, 'storeRole']);
+    Route::put('admin-roles/{role}', [SuperAdminUserController::class, 'updateRole']);
+    Route::delete('admin-roles/{role}', [SuperAdminUserController::class, 'destroyRole']);
+    Route::get('admin-permissions', [SuperAdminUserController::class, 'permissionsIndex']);
 
     // Audit Logs
     Route::get('logs', [ActivityLogController::class , 'index']);

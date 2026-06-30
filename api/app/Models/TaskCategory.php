@@ -4,25 +4,20 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class SubscriptionPlan extends Model
+class TaskCategory extends Model
 {
     protected $connection = 'landlord';
 
     protected $fillable = [
         'code',
         'name',
-        'icon',
         'description',
-        'modules',
-        'company_type_overrides',
-        'is_active',
         'display_order',
+        'is_active',
     ];
 
     protected $casts = [
-        'modules' => 'array',
-        'company_type_overrides' => 'array',
-        'is_active' => 'boolean',
         'display_order' => 'integer',
+        'is_active' => 'boolean',
     ];
 }

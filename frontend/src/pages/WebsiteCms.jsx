@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { BarChart3, Briefcase, Globe, LayoutTemplate, Settings2 } from 'lucide-react'
+import { useTheme } from '../shared/context/ThemeProvider'
 import { systemCompanyWebsiteService } from '../services/systemCompanyWebsiteService'
 import WebsiteAnalyticsPanel from '../components/website/WebsiteAnalyticsPanel'
 import WebsiteCareersPanel, { emptyRole as emptyCareerRole } from '../components/website/WebsiteCareersPanel'
@@ -256,6 +258,13 @@ const websiteTabLabels = {
   careers: 'Careers',
   analytics: 'Analytics',
 }
+const websiteTabIcons = {
+  settings: Settings2,
+  homepage: LayoutTemplate,
+  services: Globe,
+  careers: Briefcase,
+  analytics: BarChart3,
+}
 const defaultContactPageContent = {
   headline: "Let's",
   headline_accent: 'connect',
@@ -341,8 +350,41 @@ const appendFormDataValue = (formData, key, value) => {
   formData.append(key, value)
 }
 
+function CmsSectionCard({
+  title,
+  description,
+  open,
+  onToggle,
+  children,
+  glassPanel,
+}) {
+  return (
+    <section className={`overflow-hidden rounded-2xl ${glassPanel}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left"
+      >
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--content-text)]">{title}</h2>
+          {description ? (
+            <p className="mt-1 text-sm text-[var(--muted-text)]">{description}</p>
+          ) : null}
+        </div>
+        <span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--muted-text)]">
+          {open ? 'Hide' : 'Show'}
+        </span>
+      </button>
+
+      {open ? <div className="border-t border-[var(--border)] p-5">{children}</div> : null}
+    </section>
+  )
+}
+
 export default function WebsiteCms() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
   const requestedTab = searchParams.get('tab')
   const activeTab = websiteTabs.includes(requestedTab) ? requestedTab : 'settings'
   const activeTabLabel = websiteTabLabels[activeTab] || 'Settings'
@@ -389,6 +431,11 @@ export default function WebsiteCms() {
     primary: true,
     secondary: false,
   })
+  const [settingsSectionsOpen, setSettingsSectionsOpen] = useState({
+    brand: true,
+    social: false,
+    contact: false,
+  })
 
   useEffect(() => {
     if (!websiteTabs.includes(requestedTab)) {
@@ -430,6 +477,15 @@ export default function WebsiteCms() {
     () => sections.find((section) => section.type === 'cta'),
     [sections]
   )
+  const glassShell = isDark
+    ? 'border border-slate-800 bg-[#0f172a] shadow-[0_24px_70px_rgba(0,0,0,0.45)]'
+    : 'border border-slate-200/70 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_26%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.92))] shadow-[0_28px_70px_rgba(15,23,42,0.08)]'
+  const glassPanel = isDark
+    ? 'border border-slate-800/90 bg-slate-900/70 shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl'
+    : 'border border-slate-200/70 bg-white/72 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-xl'
+  const toggleSettingsSection = (key) => {
+    setSettingsSectionsOpen((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
   const heroContent = useMemo(() => {
     if (!heroSection) return defaultHeroSectionContent
     return {
@@ -985,16 +1041,60 @@ export default function WebsiteCms() {
   }
 
   return (
-    <div className="space-y-6 p-1">
+    <div className={`relative overflow-hidden rounded-[32px] px-4 py-6 md:px-6 lg:px-8 ${glassShell}`}>
+      {isDark && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.10),transparent_28%)]" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.08),transparent_24%)]" />
+        </>
+      )}
+      {!isDark && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.75),transparent_28%)]" />
+          <div className="pointer-events-none absolute -top-24 right-12 h-56 w-56 rounded-full bg-blue-400/12 blur-3xl" />
+          <div className="pointer-events-none absolute bottom-0 left-10 h-48 w-48 rounded-full bg-emerald-400/10 blur-3xl" />
+        </>
+      )}
+
+      <div className="relative z-10 space-y-6">
       <div>
-        <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold text-[var(--content-text)]">
+        <p className="mb-1 text-xs uppercase tracking-[0.25em] text-theme opacity-60">System Admin</p>
+        <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold text-[var(--content-text)] md:text-3xl">
           <span>Company Website</span>
           <span className="text-[var(--muted-text)]">/</span>
           <span className="text-blue-600">{activeTabLabel}</span>
         </h1>
-        <p className="mt-1 text-sm text-[var(--muted-text)]">
-          Manage besouhola.com content, homepage sections, services, and analytics.
+        <p className="mt-2 text-sm text-[var(--muted-text)]">
+          Manage besouhola.com content, homepage sections, services, careers, and analytics from one system workspace.
         </p>
+      </div>
+
+      <div className={`flex flex-wrap gap-2 rounded-[24px] p-2 ${glassPanel}`}>
+        {websiteTabs.map((tab) => {
+          const isActive = activeTab === tab
+          const Icon = websiteTabIcons[tab]
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setSearchParams({ tab }, { replace: true })}
+              className={`min-w-[160px] flex-1 rounded-2xl border px-4 py-3 text-left transition ${
+                isActive
+                  ? 'border-blue-500 bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.22)]'
+                  : 'border-transparent bg-transparent text-theme hover:border-theme-border hover:bg-theme-bg/70'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold md:text-base">{websiteTabLabels[tab]}</div>
+                <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+                  isActive ? 'bg-white/16 text-white' : 'bg-theme-bg/60 text-theme opacity-80'
+                }`}>
+                  <Icon size={16} />
+                </span>
+              </div>
+            </button>
+          )
+        })}
       </div>
 
       {message ? <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-300">{message}</div> : null}
@@ -1020,196 +1120,195 @@ export default function WebsiteCms() {
             </button>
           </div>
 
-          <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
-            {[
-              ['company_name', 'Company Name'],
-              ['phone', 'Phone'],
-              ['email', 'Email'],
-              ['whatsapp', 'WhatsApp'],
-              ['primary_color', 'Primary Color'],
-              ['seo_title', 'SEO Title'],
-            ].map(([key, label]) => (
-              <label key={key} className="block text-sm">
-                <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+          <CmsSectionCard
+            title="Brand & SEO"
+            description="Core company identity, contact information, logo, and search metadata."
+            open={settingsSectionsOpen.brand}
+            onToggle={() => toggleSettingsSection('brand')}
+            glassPanel={glassPanel}
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                ['company_name', 'Company Name'],
+                ['phone', 'Phone'],
+                ['email', 'Email'],
+                ['whatsapp', 'WhatsApp'],
+                ['primary_color', 'Primary Color'],
+                ['seo_title', 'SEO Title'],
+              ].map(([key, label]) => (
+                <label key={key} className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                  <input
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    value={settings[key] || ''}
+                    onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
+                  />
+                </label>
+              ))}
+              <div className="block text-sm">
+                <span className="mb-1 block text-[var(--muted-text)]">Logo Upload</span>
+                {settings.logo_url ? (
+                  <img
+                    src={settings.logo_url}
+                    alt={settings.company_name || 'Company logo'}
+                    className="mb-3 h-20 w-auto rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2 object-contain"
+                  />
+                ) : null}
                 <input
+                  type="file"
+                  accept="image/*"
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                  value={settings[key] || ''}
-                  onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
+                  onChange={(e) =>
+                    setBrandingFiles((prev) => ({
+                      ...prev,
+                      logo: e.target.files?.[0] || null,
+                    }))
+                  }
+                />
+                <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                  {brandingFiles.logo
+                    ? `Selected: ${brandingFiles.logo.name}`
+                    : 'Upload a logo image to replace the current one.'}
+                </span>
+              </div>
+              <label className="block text-sm md:col-span-2">
+                <span className="mb-1 block text-[var(--muted-text)]">Address</span>
+                <textarea
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                  rows={3}
+                  value={settings.address || ''}
+                  onChange={(e) => setSettings({ ...settings, address: e.target.value })}
                 />
               </label>
-            ))}
-            <div className="block text-sm">
-              <span className="mb-1 block text-[var(--muted-text)]">Logo Upload</span>
-              {settings.logo_url ? (
-                <img
-                  src={settings.logo_url}
-                  alt={settings.company_name || 'Company logo'}
-                  className="mb-3 h-20 w-auto rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2 object-contain"
+              <label className="block text-sm md:col-span-2">
+                <span className="mb-1 block text-[var(--muted-text)]">SEO Description</span>
+                <textarea
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                  rows={3}
+                  value={settings.seo_description || ''}
+                  onChange={(e) => setSettings({ ...settings, seo_description: e.target.value })}
                 />
-              ) : null}
-              <input
-                type="file"
-                accept="image/*"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                onChange={(e) =>
-                  setBrandingFiles((prev) => ({
-                    ...prev,
-                    logo: e.target.files?.[0] || null,
-                  }))
-                }
-              />
-              <span className="mt-1 block text-xs text-[var(--muted-text)]">
-                {brandingFiles.logo
-                  ? `Selected: ${brandingFiles.logo.name}`
-                  : 'Upload a logo image to replace the current one.'}
-              </span>
+              </label>
             </div>
-            <label className="block text-sm md:col-span-2">
-              <span className="mb-1 block text-[var(--muted-text)]">Address</span>
-              <textarea
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                rows={3}
-                value={settings.address || ''}
-                onChange={(e) => setSettings({ ...settings, address: e.target.value })}
-              />
-            </label>
-            <label className="block text-sm md:col-span-2">
-              <span className="mb-1 block text-[var(--muted-text)]">SEO Description</span>
-              <textarea
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                rows={3}
-                value={settings.seo_description || ''}
-                onChange={(e) => setSettings({ ...settings, seo_description: e.target.value })}
-              />
-            </label>
-          </div>
+          </CmsSectionCard>
 
-          <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <h2 className="text-lg font-semibold">Social Links</h2>
-              <p className="mt-1 text-sm text-[var(--muted-text)]">
-                These icons appear in the public website footer only when a valid link exists.
-              </p>
-            </div>
-
-            {[
-              ['facebook', 'Facebook'],
-              ['whatsapp', 'WhatsApp'],
-              ['twitter', 'Twitter / X'],
-              ['linkedin', 'LinkedIn'],
-              ['instagram', 'Instagram'],
-              ['github', 'GitHub'],
-            ].map(([key, label]) => (
-              <label key={key} className="block text-sm">
-                <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+          <CmsSectionCard
+            title="Social Links"
+            description="Footer and contact social channels shown to public visitors when links are valid."
+            open={settingsSectionsOpen.social}
+            onToggle={() => toggleSettingsSection('social')}
+            glassPanel={glassPanel}
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                ['facebook', 'Facebook'],
+                ['whatsapp', 'WhatsApp'],
+                ['twitter', 'Twitter / X'],
+                ['linkedin', 'LinkedIn'],
+                ['instagram', 'Instagram'],
+                ['github', 'GitHub'],
+              ].map(([key, label]) => (
+                <label key={key} className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
                   <input
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
                     value={settings.social_links?.[key] || ''}
                     onChange={(e) =>
                       setSettings({
-                      ...settings,
-                      social_links: {
-                        ...(settings.social_links || {}),
-                        [key]: e.target.value,
-                      },
-                    })
-                  }
-                />
-                {key === 'whatsapp' ? (
-                  <span className="mt-1 block text-xs text-[var(--muted-text)]">
-                    You can paste a phone number or a full WhatsApp link.
-                  </span>
-                ) : null}
-              </label>
-            ))}
-          </div>
-
-          <div className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <h2 className="text-lg font-semibold">Contact Page</h2>
-              <p className="mt-1 text-sm text-[var(--muted-text)]">
-                Control the messaging and contact labels shown on the public contact page.
-              </p>
+                        ...settings,
+                        social_links: {
+                          ...(settings.social_links || {}),
+                          [key]: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                  {key === 'whatsapp' ? (
+                    <span className="mt-1 block text-xs text-[var(--muted-text)]">
+                      You can paste a phone number or a full WhatsApp link.
+                    </span>
+                  ) : null}
+                </label>
+              ))}
             </div>
+          </CmsSectionCard>
 
-            {[
-              ['headline', 'Headline'],
-              ['headline_accent', 'Headline Accent'],
-              ['sales_label', 'Sales Label'],
-              ['phone_label', 'Phone Label'],
-              ['whatsapp_label', 'WhatsApp Label'],
-              ['address_label', 'Address Label'],
-              ['website_label', 'Website Label'],
-              ['website_text', 'Website Text'],
-              ['website_url', 'Website URL'],
-              ['social_label', 'Social Label'],
-              ['form_title', 'Form Title'],
-            ].map(([key, label]) => (
-              <label key={key} className="block text-sm">
-                <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
-                <input
+          <CmsSectionCard
+            title="Contact Page"
+            description="Public contact page labels, messaging, and form copy."
+            open={settingsSectionsOpen.contact}
+            onToggle={() => toggleSettingsSection('contact')}
+            glassPanel={glassPanel}
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                ['headline', 'Headline'],
+                ['headline_accent', 'Headline Accent'],
+                ['sales_label', 'Sales Label'],
+                ['phone_label', 'Phone Label'],
+                ['whatsapp_label', 'WhatsApp Label'],
+                ['address_label', 'Address Label'],
+                ['website_label', 'Website Label'],
+                ['website_text', 'Website Text'],
+                ['website_url', 'Website URL'],
+                ['social_label', 'Social Label'],
+                ['form_title', 'Form Title'],
+              ].map(([key, label]) => (
+                <label key={key} className="block text-sm">
+                  <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
+                  <input
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    value={contactPageContent[key] || ''}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        contact_page_content: {
+                          ...contactPageContent,
+                          [key]: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                </label>
+              ))}
+
+              <label className="block text-sm md:col-span-2">
+                <span className="mb-1 block text-[var(--muted-text)]">Description</span>
+                <textarea
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                  value={contactPageContent[key] || ''}
+                  rows={3}
+                  value={contactPageContent.description || ''}
                   onChange={(e) =>
                     setSettings({
                       ...settings,
                       contact_page_content: {
                         ...contactPageContent,
-                        [key]: e.target.value,
+                        description: e.target.value,
                       },
                     })
                   }
                 />
               </label>
-            ))}
 
-            <label className="block text-sm md:col-span-2">
-              <span className="mb-1 block text-[var(--muted-text)]">Description</span>
-              <textarea
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                rows={3}
-                value={contactPageContent.description || ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    contact_page_content: {
-                      ...contactPageContent,
-                      description: e.target.value,
-                    },
-                  })
-                }
-              />
-            </label>
-
-            <label className="block text-sm md:col-span-2">
-              <span className="mb-1 block text-[var(--muted-text)]">Form Subtitle</span>
-              <textarea
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                rows={3}
-                value={contactPageContent.form_subtitle || ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    contact_page_content: {
-                      ...contactPageContent,
-                      form_subtitle: e.target.value,
-                    },
-                  })
-                }
-              />
-            </label>
-          </div>
-
-          <div>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={saveSettings}
-              className="rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
-            >
-              {saving ? 'Saving...' : 'Save Settings'}
-            </button>
-          </div>
+              <label className="block text-sm md:col-span-2">
+                <span className="mb-1 block text-[var(--muted-text)]">Form Subtitle</span>
+                <textarea
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                  rows={3}
+                  value={contactPageContent.form_subtitle || ''}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      contact_page_content: {
+                        ...contactPageContent,
+                        form_subtitle: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </CmsSectionCard>
         </div>
       ) : null}
 
@@ -2426,6 +2525,7 @@ export default function WebsiteCms() {
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   )
 }
