@@ -52,6 +52,8 @@ const isSalesPersonRole = (role) => {
   return r === 'sales person' || r === 'salesperson';
 };
 
+const isTeamLeaderRole = (role) => normalizeRoleValue(role) === 'team leader';
+
 const isAdminRole = (role) => {
   const r = normalizeRoleValue(role);
   return r === 'admin' || r === 'tenant admin' || r === 'super admin';
@@ -60,27 +62,74 @@ const isAdminRole = (role) => {
 const getRoleFilteredPermissions = (group, perms, role) => {
   const list = Array.isArray(perms) ? perms : [];
 
-  if (!isSalesPersonRole(role)) {
+  if (isSalesPersonRole(role)) {
+    if (group === 'Leads') {
+      const hiddenLeadPerms = new Set(['viewDuplicateLeads', 'actOnDuplicateLeads']);
+      return list.filter(perm => !hiddenLeadPerms.has(perm));
+    }
+
+    if (group === 'Inventory') {
+      const hiddenInventoryPerms = new Set([
+        'addProject',
+        'exportProject',
+        'revertSoldProperty',
+        'deleteInventory',
+        'addDeveloper',
+      ]);
+      return list.filter(perm => !hiddenInventoryPerms.has(perm));
+    }
+
     return list;
   }
 
-  if (group === 'Leads') {
-    const hiddenLeadPerms = new Set(['viewDuplicateLeads', 'actOnDuplicateLeads']);
-    return list.filter(perm => !hiddenLeadPerms.has(perm));
-  }
-
-  if (group === 'Inventory') {
+  if (isTeamLeaderRole(role) && group === 'Inventory') {
     const hiddenInventoryPerms = new Set([
       'addProject',
       'exportProject',
-      'revertSoldProperty',
       'deleteInventory',
-      'addDeveloper',
     ]);
     return list.filter(perm => !hiddenInventoryPerms.has(perm));
   }
 
+  if (isTeamLeaderRole(role) && group === 'Control') {
+    const hiddenControlPerms = new Set([
+      'addRegions',
+      'addArea',
+      'addStage',
+      'addSource',
+      'userManagement',
+      'addUsers',
+      'editUsers',
+      'toggleUsers',
+      'changeUserPassword',
+      'deleteUsers',
+      'editConfigurationSettings',
+      'addInputs',
+      'addDepartment',
+    ]);
+    return list.filter(perm => !hiddenControlPerms.has(perm));
+  }
+
   return list;
+};
+
+const shouldShowPermissionGroup = (role, group) => {
+  if (role === 'Team Leader') {
+    return !['Marketing', 'ContractCollections'].includes(group);
+  }
+  if (['Marketing Manager', 'Marketing Moderator'].includes(role)) {
+    return !['Customers', 'Support'].includes(group);
+  }
+  if (['Customer Manager', 'Customer Team Leader', 'Customer Agent'].includes(role)) {
+    return ['Customers', 'Inventory'].includes(group);
+  }
+  if (role === 'Sales Person') {
+    return !['Marketing', 'Control', 'ContractCollections'].includes(group);
+  }
+  if (['Support Manager', 'Support Team Leader', 'Support Agent'].includes(role)) {
+    return ['Customers', 'Support'].includes(group);
+  }
+  return true;
 };
 
 const ARABIC_DIGIT_MAP = {
@@ -1336,24 +1385,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 </div>
                 <div className="flex flex-col gap-4 mt-3">
                   {Object.entries(PERMISSIONS)
-                    .filter(([group]) => {
-                      if (form.role === 'Team Leader') {
-                        return !['Marketing'].includes(group);
-                      }
-                      if (['Marketing Manager', 'Marketing Moderator'].includes(form.role)) {
-                        return !['Customers', 'Support'].includes(group);
-                      }
-                      if (['Customer Manager', 'Customer Team Leader', 'Customer Agent'].includes(form.role)) {
-                        return ['Customers', 'Inventory'].includes(group);
-                      }
-                      if (form.role === 'Sales Person') {
-                        return !['Marketing', 'Control', 'ContractCollections'].includes(group);
-                      }
-                      if (['Support Manager', 'Support Team Leader', 'Support Agent'].includes(form.role)) {
-                        return ['Customers', 'Support'].includes(group);
-                      }
-                      return true;
-                    })
+                    .filter(([group]) => shouldShowPermissionGroup(form.role, group))
                     .map(([group, perms]) => {
                     const groupPerms = customPerms[group] || [];
                     const lockedPerms = [];

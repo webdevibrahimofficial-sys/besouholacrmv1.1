@@ -80,7 +80,7 @@ const MetricCard = ({ icon: Icon, label, value, accentClass, tooltip, isLight })
   </div>
 )
 
-const RankedListCard = ({ title, items, isLight, emptyTitle, emptySubtitle }) => (
+const RankedListCard = ({ title, items, isLight, emptyTitle, emptySubtitle, scrollable = false, visibleItems = 5 }) => (
   <div className="rounded-2xl border border-theme-border p-4 shadow-sm dark:border-gray-700/50">
     <div className={`mb-3 text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{title}</div>
     {items.length === 0 ? (
@@ -88,7 +88,10 @@ const RankedListCard = ({ title, items, isLight, emptyTitle, emptySubtitle }) =>
         <EmptyState title={emptyTitle} subtitle={emptySubtitle} compact isLight={isLight} />
       </div>
     ) : (
-      <div className="space-y-2">
+      <div
+        className={`space-y-2 ${scrollable ? 'overflow-y-auto pr-1' : ''}`}
+        style={scrollable ? { maxHeight: `${visibleItems * 58}px` } : undefined}
+      >
         {items.map((item, index) => (
           <div key={`${item.label}-${index}`} className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 ${isLight ? 'bg-slate-50' : 'bg-white/5'}`}>
             <div className={`min-w-0 truncate text-sm font-medium ${isLight ? 'text-black' : 'text-white'}`}>{item.label}</div>
@@ -632,6 +635,8 @@ export default function CancellationReport() {
           emptyTitle={emptyTitle}
           emptySubtitle={emptySubtitle}
           isLight={isLight}
+          scrollable
+          visibleItems={5}
         />
         <RankedListCard
           title={isRTL ? 'أعلى المراحل قبل الإلغاء' : 'Top Stages Before Cancellation'}
@@ -639,6 +644,8 @@ export default function CancellationReport() {
           emptyTitle={emptyTitle}
           emptySubtitle={emptySubtitle}
           isLight={isLight}
+          scrollable
+          visibleItems={5}
         />
         <RankedListCard
           title={isRTL ? 'أعلى المبيعات في الإلغاء' : 'Top Sales Cancellation'}
@@ -646,6 +653,8 @@ export default function CancellationReport() {
           emptyTitle={emptyTitle}
           emptySubtitle={emptySubtitle}
           isLight={isLight}
+          scrollable
+          visibleItems={5}
         />
       </div>
 

@@ -502,23 +502,26 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     return []
   })()
 
-  const canViewCompanyDetails = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
+  const canViewCompanyDetails = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings'))
   const canViewCompanySetupSection = false
   const canViewSystemSettingsSection =
-    hasFullSettingsAccess ||
-    effectiveControlPerms.some(p =>
-      ['addStage', 'addSource', 'addRegions', 'addArea', 'addInputs', 'editConfigurationSettings'].includes(p)
+    !isTeamLeader &&
+    (
+      hasFullSettingsAccess ||
+      effectiveControlPerms.some(p =>
+        ['addStage', 'addSource', 'addRegions', 'addArea', 'addInputs', 'editConfigurationSettings'].includes(p)
+      )
     )
-  const canViewPipelineStages = hasFullSettingsAccess || effectiveControlPerms.includes('addStage')
+  const canViewPipelineStages = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('addStage'))
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
-  const canViewAgenciesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('userManagement')
-  const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')
+  const canViewAgenciesSettings = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('userManagement'))
+  const canViewSourcesSettings = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('addSource'))
   const canViewLocationsSettings =
-    hasFullSettingsAccess || effectiveControlPerms.some(p => ['addRegions', 'addArea'].includes(p))
-  const canViewFormInputsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addInputs')
-  const canViewConfigurationsSection = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
+    !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.some(p => ['addRegions', 'addArea'].includes(p)))
+  const canViewFormInputsSettings = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('addInputs'))
+  const canViewConfigurationsSection = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings'))
 
   const canSeeMyLeadsLink = !isSalesPerson
   const isSalesAdminRole = roleLower.includes('sales admin')
@@ -552,11 +555,27 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     isBranchManagerRole
 
   const canViewUserManagementSection =
-    user?.is_super_admin ||
-    isTenantAdmin ||
-    isDirectorRole ||
-    isOperationManagerRole ||
-    effectiveControlPerms.includes('userManagement')
+    !isTeamLeader &&
+    (
+      user?.is_super_admin ||
+      isTenantAdmin ||
+      isDirectorRole ||
+      isOperationManagerRole ||
+      effectiveControlPerms.includes('userManagement')
+    )
+
+  const contractCollectionsPerms = Array.isArray(modulePermissions.ContractCollections)
+    ? modulePermissions.ContractCollections
+    : []
+  const canViewContractCollectionsSection =
+    canAccess('contract_collections') &&
+    !isTeamLeader &&
+    (
+      contractCollectionsPerms.length === 0 ||
+      contractCollectionsPerms.includes('showModule') ||
+      contractCollectionsPerms.includes('viewContracts') ||
+      contractCollectionsPerms.includes('viewInstallments')
+    )
 
   const canSeeReportsLink =
     user?.is_super_admin ||
@@ -573,16 +592,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
 
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const isInventoryActive = location.pathname.startsWith('/inventory');
-  const [leadMgmtOpen, setLeadMgmtOpen] = useState(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const saved = window.localStorage.getItem('leadMgmtOpen');
-        if (saved === 'true') return true;
-        if (saved === 'false') return false;
-      }
-    } catch { }
-    return false; // مقفولة افتراضيًا
-  })
+  const [leadMgmtOpen, setLeadMgmtOpen] = useState(false)
   const isLeadMgmtActive = location.pathname.startsWith('/leads') || location.pathname.startsWith('/recycle');
   // أغلق قائمة الليد تلقائيًا عند الانتقال لأي مسار خارج الليد/الريسايكل
   useEffect(() => {
@@ -591,14 +601,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('leadMgmtOpen', 'false') } } catch { }
     }
   }, [location.pathname, isLeadMgmtActive])
-  // افتح قسم إدارة العملاء تلقائيًا عند التواجد في مسارات الليد/الريسايكل
-  useEffect(() => {
-    if (isLeadMgmtActive) {
-      setLeadMgmtOpen(true)
-      try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('leadMgmtOpen', 'true') } } catch { }
-    }
-  }, [isLeadMgmtActive])
-  const [stagesOpen, setStagesOpen] = useState(true)
+  const [stagesOpen, setStagesOpen] = useState(false)
   const isMarketingActive = location.pathname.startsWith('/marketing') || location.pathname.startsWith('/reports/marketing')
   const isRecycleActive = location.pathname.startsWith('/recycle')
 
@@ -1751,7 +1754,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Contract & Collections section (Real Estate only) */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || ccOpen) && canAccess('contract_collections') && (
+        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || ccOpen) && canViewContractCollectionsSection && (
           <div className="w-full">
             {ccOpen && (
               <div className={`${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} sticky top-0 z-10 section-header flex items-center mb-2 px-2 py-1`}>

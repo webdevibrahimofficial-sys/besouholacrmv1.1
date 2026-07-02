@@ -692,6 +692,36 @@ class ReportsController extends Controller
                 }
             }
         }
+        $configuredReasonMatchers = [];
+        foreach ($tenantCancelReasonRows as $reasonRow) {
+            $displayLabel = $this->normalizeReportLabel($reasonRow->title ?: $reasonRow->title_ar, 'No Reason');
+            foreach ([$reasonRow->title, $reasonRow->title_ar] as $candidate) {
+                $normalizedCandidate = $this->normalizeLooseText($candidate);
+                if ($normalizedCandidate === '') {
+                    continue;
+                }
+
+                $configuredReasonMatchers[$normalizedCandidate] = $displayLabel;
+            }
+        }
+
+        uksort($configuredReasonMatchers, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+
+        $resolveConfiguredCancelReason = function (?string $rawReason) use ($configuredReasonMatchers) {
+            $normalizedReason = $this->normalizeLooseText($rawReason);
+            if ($normalizedReason === '') {
+                return $this->normalizeReportLabel($rawReason, 'No Reason');
+            }
+
+            foreach ($configuredReasonMatchers as $candidateKey => $displayLabel) {
+                if ($normalizedReason === $candidateKey || str_starts_with($normalizedReason, $candidateKey)) {
+                    return $displayLabel;
+                }
+            }
+
+            return $this->normalizeReportLabel($rawReason, 'No Reason');
+        };
+
         $createdFrom = $request->input('created_from');
         $createdTo = $request->input('created_to');
         $cancelledFrom = $request->input('cancelled_from');
@@ -882,7 +912,8 @@ class ReportsController extends Controller
                 continue;
             }
 
-            $reason = $this->extractCancelReasonFromAction($action);
+            $rawReason = $this->extractCancelReasonFromAction($action);
+            $reason = $resolveConfiguredCancelReason($rawReason);
             if (!empty($cancelReasonCandidates) && !isset($cancelReasonCandidates[$this->normalizeLooseText($reason)])) {
                 continue;
             }
@@ -999,6 +1030,7 @@ class ReportsController extends Controller
 
         $configuredReasonList = [];
         $configuredReasonKeys = [];
+        $configuredReasonKeyToLabel = [];
         foreach ($tenantCancelReasonRows as $reasonRow) {
             $displayLabel = $this->normalizeReportLabel($reasonRow->title ?: $reasonRow->title_ar, 'No Reason');
             $candidateKeys = array_values(array_unique(array_filter([
@@ -1009,6 +1041,7 @@ class ReportsController extends Controller
             $count = 0;
             foreach ($candidateKeys as $candidateKey) {
                 $configuredReasonKeys[$candidateKey] = true;
+                $configuredReasonKeyToLabel[$candidateKey] = $displayLabel;
                 $count += (int) ($normalizedReasonCounts[$candidateKey] ?? 0);
             }
 
@@ -1040,13 +1073,26 @@ class ReportsController extends Controller
 
         $allReasonList = array_merge($configuredReasonList, $unconfiguredReasonList);
 
-        $topReasonColumns = array_slice(array_keys($reasonCounts), 0, 3);
-        $tableRows = array_values(array_map(function ($row) use ($topReasonColumns) {
-            foreach ($topReasonColumns as $reasonName) {
-                $row['reasonCounts'][$reasonName] = $row['reasonCounts'][$reasonName] ?? 0;
+        $configuredReasonColumns = array_values(array_map(
+            fn ($item) => (string) ($item['label'] ?? ''),
+            array_filter($configuredReasonList, fn ($item) => trim((string) ($item['label'] ?? '')) !== '')
+        ));
+        $unconfiguredReasonColumns = array_values(array_map(
+            fn ($item) => (string) ($item['label'] ?? ''),
+            array_filter($unconfiguredReasonList, fn ($item) => trim((string) ($item['label'] ?? '')) !== '')
+        ));
+        $tableReasonColumns = array_values(array_unique(array_merge($configuredReasonColumns, $unconfiguredReasonColumns)));
+
+        $tableRows = array_values(array_map(function ($row) use ($tableReasonColumns, $configuredReasonKeyToLabel) {
+            $resolvedReasonCounts = array_fill_keys($tableReasonColumns, 0);
+
+            foreach (($row['reasonCounts'] ?? []) as $reasonName => $count) {
+                $normalizedReasonName = $this->normalizeLooseText($reasonName);
+                $resolvedLabel = $configuredReasonKeyToLabel[$normalizedReasonName] ?? $reasonName;
+                $resolvedReasonCounts[$resolvedLabel] = ($resolvedReasonCounts[$resolvedLabel] ?? 0) + (int) $count;
             }
 
-            ksort($row['reasonCounts']);
+            $row['reasonCounts'] = $resolvedReasonCounts;
             return $row;
         }, $rowsBySales));
 
@@ -1111,7 +1157,7 @@ class ReportsController extends Controller
                 'reasons' => $allReasonList,
             ],
             'table' => [
-                'reasonColumns' => $topReasonColumns,
+                'reasonColumns' => $tableReasonColumns,
                 'rows' => $tableRows,
             ],
             'options' => [

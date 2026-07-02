@@ -190,6 +190,7 @@ export default function UserManagementUsers() {
   })();
 
   const roleLower = String(user?.role || '').toLowerCase();
+  const isTeamLeaderRole = roleLower.includes('team leader') || roleLower.includes('teamleader');
   const isTenantAdmin =
     roleLower === 'admin' ||
     roleLower === 'tenant admin' ||
@@ -204,17 +205,19 @@ export default function UserManagementUsers() {
     isTenantAdmin; 
 
   const canViewUsers = 
-    canManageUsers ||
-    effectiveControlPerms.includes('userManagement') ||
-    roleLower.includes('director') ||
-    roleLower.includes('operation manager') ||
-    roleLower.includes('branch manager'); // Branch Manager can view users
+    !isTeamLeaderRole && (
+      canManageUsers ||
+      effectiveControlPerms.includes('userManagement') ||
+      roleLower.includes('director') ||
+      roleLower.includes('operation manager') ||
+      roleLower.includes('branch manager')
+    ); // Branch Manager can view users
 
-  const canAddUsers = canManageUsers || effectiveControlPerms.includes('addUsers');
-  const canEditUsers = canManageUsers || effectiveControlPerms.includes('editUsers');
-  const canToggleUsers = canManageUsers || effectiveControlPerms.includes('toggleUsers');
-  const canChangeUsersPassword = canManageUsers || effectiveControlPerms.includes('changeUserPassword');
-  const canDeleteUsers = canManageUsers || effectiveControlPerms.includes('deleteUsers');
+  const canAddUsers = !isTeamLeaderRole && (canManageUsers || effectiveControlPerms.includes('addUsers'));
+  const canEditUsers = !isTeamLeaderRole && (canManageUsers || effectiveControlPerms.includes('editUsers'));
+  const canToggleUsers = !isTeamLeaderRole && (canManageUsers || effectiveControlPerms.includes('toggleUsers'));
+  const canChangeUsersPassword = !isTeamLeaderRole && (canManageUsers || effectiveControlPerms.includes('changeUserPassword'));
+  const canDeleteUsers = !isTeamLeaderRole && (canManageUsers || effectiveControlPerms.includes('deleteUsers'));
   const canRunMultiAction = canManageUsers || effectiveControlPerms.includes('multiAction');
   const canModifyAdminUsers = canManageUsers;
 
