@@ -1,7 +1,10 @@
 import { useTranslation } from 'react-i18next'
+import Layout from '../../../components/Layout'
+import SecuritySettingsPanel from '../../../components/settings/SecuritySettings'
 
 export default function SettingsSecurity() {
   const { t } = useTranslation()
+
   return (
     <Layout>
       <div className="p-3 sm:p-4 md:p-6 bg-[var(--content-bg)] text-[var(--content-text)] space-y-4 sm:space-y-6">
@@ -12,17 +15,8 @@ export default function SettingsSecurity() {
               {t('Security Settings')}
             </h1>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-            <button className="w-full sm:w-auto btn btn-primary">{t('Save Changes')}</button>
-            <button className="btn btn-glass p-2" aria-label="Notifications">
-              <span role="img" aria-hidden>🔔</span>
-            </button>
-            <button className="btn btn-glass p-2" aria-label="Alerts">
-              <span role="img" aria-hidden>⚠️</span>
-            </button>
-          </div>
         </div>
-        <SecuritySettings />
+        <SecuritySettingsPanel />
       </div>
     </Layout>
   )

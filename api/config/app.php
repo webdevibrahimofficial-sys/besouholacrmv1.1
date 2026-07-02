@@ -55,6 +55,7 @@ return [
     'url' => env('APP_URL', 'https://besouholacrm.net'),
     'frontend_url' => env('FRONTEND_URL', 'https://besouholacrm.net'),
     'force_subdomain_redirect' => env('FORCE_SUBDOMAIN_REDIRECT', false),
+    'system_error_log_start_at' => env('SYSTEM_ERROR_LOG_START_AT'),
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

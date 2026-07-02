@@ -4,6 +4,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -59,7 +60,32 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->report(function (Throwable $e) {
             try {
+                // Skip console errors (can be enabled later if needed)
                 if (app()->runningInConsole()) {
+                    return;
+                }
+
+                // Blacklist: skip common noise errors
+                $blacklist = [
+                    \Illuminate\Session\TokenMismatchException::class,
+                    \Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class,
+                    \Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException::class,
+                    \Illuminate\Routing\Exceptions\BackedEnumCaseNotFoundException::class,
+                ];
+                foreach ($blacklist as $class) {
+                    if ($e instanceof $class) {
+                        return;
+                    }
+                }
+
+                // Skip 429 (Too Many Requests) to avoid logging throttle hits
+                $status = 500;
+                if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
+                    $status = $e->getStatusCode();
+                } elseif ($e->getCode() && is_int($e->getCode()) && $e->getCode() >= 100 && $e->getCode() < 600) {
+                    $status = $e->getCode();
+                }
+                if ($status === 429) {
                     return;
                 }
 
@@ -76,25 +102,80 @@ return Application::configure(basePath: dirname(__DIR__))
                     $level = 'warning';
                 }
 
-                // Determine status code
-                $status = 500;
-                if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
-                    $status = $e->getStatusCode();
-                } elseif ($e->getCode() && is_int($e->getCode()) && $e->getCode() >= 100 && $e->getCode() < 600) {
-                    $status = $e->getCode();
+                $service = request()->path();
+                $endpoint = request()->method() . ' ' . request()->fullUrl();
+                $message = $e->getMessage() ?: class_basename($e);
+                $errorClass = get_class($e);
+
+                // Improved fingerprint: includes error class for better grouping
+                $fingerprint = hash('sha256', implode('|', [
+                    $tenantId ?? 'system',
+                    $service,
+                    request()->method(),
+                    $status,
+                    $level,
+                    $errorClass,
+                    Str::limit($message, 200, ''),
+                ]));
+
+                // Simple rate limit: max 1 insert/update per fingerprint per minute
+                // to avoid DB hammering during rapid repeated errors
+                $rateLimitKey = 'sys_error_rl:' . $fingerprint;
+                $recentlyLogged = \Illuminate\Support\Facades\Cache::get($rateLimitKey);
+
+                $query = \App\Models\SystemError::query()
+                    ->where('fingerprint', $fingerprint)
+                    ->whereNull('resolved_at');
+
+                if ($tenantId === null) {
+                    $query->whereNull('tenant_id');
+                } else {
+                    $query->where('tenant_id', $tenantId);
                 }
 
-                \App\Models\SystemError::create([
-                    'tenant_id' => $tenantId,
-                    'service' => request()->path(),
-                    'endpoint' => request()->method() . ' ' . request()->fullUrl(),
-                    'message' => $e->getMessage(),
-                    'stack_trace' => $e->getTraceAsString(),
-                    'status' => $status,
-                    'level' => $level,
-                    'last_seen_at' => now(),
-                    'count' => 1,
-                ]);
+                $existingError = $query->first();
+
+                if ($existingError) {
+                    $existingError->forceFill([
+                        'service' => $service,
+                        'endpoint' => $endpoint,
+                        'message' => $message,
+                        'stack_trace' => $e->getTraceAsString(),
+                        'status' => $status,
+                        'level' => $level,
+                        'last_seen_at' => now(),
+                        'count' => $existingError->count + 1,
+                    ])->save();
+                } else {
+                    $newError = \App\Models\SystemError::create([
+                        'tenant_id' => $tenantId,
+                        'fingerprint' => $fingerprint,
+                        'service' => $service,
+                        'endpoint' => $endpoint,
+                        'message' => $message,
+                        'stack_trace' => $e->getTraceAsString(),
+                        'status' => $status,
+                        'level' => $level,
+                        'last_seen_at' => now(),
+                        'count' => 1,
+                    ]);
+
+                    // Dispatch alert for new critical errors (level = error, status >= 500)
+                    if ($level === 'error' && $status >= 500) {
+                        try {
+                            \Illuminate\Support\Facades\Bus::dispatch(
+                                new \App\Jobs\NotifySystemErrorCreated($newError)
+                            );
+                        } catch (\Throwable $dispatchError) {
+                            // Silently fail to avoid breaking the request
+                        }
+                    }
+                }
+
+                // Update rate limit cache
+                if (! $recentlyLogged) {
+                    \Illuminate\Support\Facades\Cache::put($rateLimitKey, true, 60);
+                }
             } catch (\Throwable $loggingError) {
                 // Fail silently to avoid infinite loop
             }

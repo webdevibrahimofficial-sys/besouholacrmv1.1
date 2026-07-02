@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   Building2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Download,
   Filter,
   FileText,
@@ -12,6 +14,7 @@ import {
   Search,
   Trash2,
   Waypoints,
+  X,
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -51,6 +54,38 @@ const formatDateTime = (value) => {
   return date.toLocaleString()
 }
 
+const formatDescriptionDetails = (details = '') =>
+  String(details || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+const stringifyJsonBlock = (value) => {
+  try {
+    return JSON.stringify(value || {}, null, 2)
+  } catch {
+    return '{}'
+  }
+}
+
+const collectPaginatedItems = async (requestPage, key) => {
+  const items = []
+  let page = 1
+  let lastPage = 1
+
+  do {
+    const response = await requestPage(page)
+    const payload = response?.data?.[key]
+    const pageItems = payload?.data || []
+
+    items.push(...pageItems)
+    lastPage = payload?.last_page || 1
+    page += 1
+  } while (page <= lastPage)
+
+  return items
+}
+
 export default function AuditLogs() {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
@@ -73,6 +108,7 @@ export default function AuditLogs() {
   })
   const [tenantOptions, setTenantOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
+  const [selectedLog, setSelectedLog] = useState(null)
 
   const glassCard = `rounded-[26px] border backdrop-blur-xl transition-all duration-200 ${
     isDark
@@ -175,17 +211,25 @@ export default function AuditLogs() {
   useEffect(() => {
     const loadLookups = async () => {
       try {
-        const [tenantsRes, usersRes] = await Promise.all([
-          api.get('/super-admin/tenants', {
-            params: { per_page: 100, view: 'current' },
-          }),
-          api.get('/super-admin/users', {
-            params: { page: 1 },
-          }),
+        const [allTenants, allUsers] = await Promise.all([
+          collectPaginatedItems(
+            (pageNumber) =>
+              api.get('/super-admin/tenants', {
+                params: { page: pageNumber, per_page: 100, view: 'current' },
+              }),
+            'tenants'
+          ),
+          collectPaginatedItems(
+            (pageNumber) =>
+              api.get('/super-admin/admin-users', {
+                params: { page: pageNumber },
+              }),
+            'users'
+          ),
         ])
 
-        setTenantOptions(tenantsRes.data?.tenants?.data || [])
-        setUserOptions(usersRes.data?.users?.data || [])
+        setTenantOptions(allTenants)
+        setUserOptions(allUsers)
       } catch (error) {
         console.error('Failed to load audit log lookups:', error)
       }
@@ -193,6 +237,26 @@ export default function AuditLogs() {
 
     loadLookups()
   }, [])
+
+  useEffect(() => {
+    if (!selectedLog) return undefined
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setSelectedLog(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [selectedLog])
 
   useEffect(() => {
     const loadLogs = async () => {
@@ -293,6 +357,153 @@ export default function AuditLogs() {
     }
   }
 
+  const handleCopyDetails = async () => {
+    if (!selectedLog) return
+
+    const payload = [
+      selectedLog.description_summary || selectedLog.description || '',
+      selectedLog.description_details || '',
+      stringifyJsonBlock(selectedLog.properties),
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+
+    try {
+      await navigator.clipboard.writeText(payload)
+      toast.success(t('Audit details copied'))
+    } catch (error) {
+      console.error('Failed to copy audit details:', error)
+      toast.error(t('Failed to copy audit details'))
+    }
+  }
+
+  const detailsDrawer =
+    selectedLog && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/80 p-3 md:p-4 backdrop-blur-sm">
+            <button
+              type="button"
+              className="absolute inset-0"
+              onClick={() => setSelectedLog(null)}
+              aria-label={t('Close details')}
+            />
+
+            <div
+              className={`relative z-10 w-full max-w-4xl max-h-[84vh] overflow-y-auto rounded-2xl border shadow-2xl ${
+                isDark
+                  ? 'border-slate-700/70 bg-slate-900 text-slate-100'
+                  : 'border-slate-200 bg-white text-slate-900'
+              }`}
+            >
+              <div className={`sticky top-0 z-10 border-b px-5 py-4 ${
+                isDark ? 'border-slate-800 bg-slate-900/95' : 'border-slate-200 bg-white/95'
+              }`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className={`text-xs uppercase tracking-[0.25em] ${mutedTextClass}`}>{t('Audit Details')}</p>
+                    <h2 className={`mt-2 text-xl font-bold ${headingClass}`}>
+                      {selectedLog.description_summary || selectedLog.description || t('Audit log')}
+                    </h2>
+                    <p className={`mt-2 text-sm ${mutedTextClass}`}>
+                      {selectedLog.causer_name || t('System')} | {prettyLogName(selectedLog.log_name)} | {formatDateTime(selectedLog.created_at)}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyDetails}
+                      className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+                        isDark
+                          ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                      aria-label={t('Copy details')}
+                    >
+                      <Copy size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLog(null)}
+                      className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+                        isDark
+                          ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                      aria-label={t('Close')}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`px-5 py-5 ${isDark ? 'bg-slate-900' : 'bg-white'}`}>
+                <div className="space-y-6">
+                <section className={`${glassCard} p-4`}>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <p className={`text-xs uppercase tracking-[0.2em] ${mutedTextClass}`}>{t('User')}</p>
+                      <p className="mt-2 text-sm font-semibold">{selectedLog.causer_name || t('System')}</p>
+                      <p className={`mt-1 text-sm ${mutedTextClass}`}>{selectedLog.causer_email || '-'}</p>
+                    </div>
+                    <div>
+                      <p className={`text-xs uppercase tracking-[0.2em] ${mutedTextClass}`}>{t('Tenant')}</p>
+                      <p className="mt-2 text-sm font-semibold">{selectedLog.tenant_name || '-'}</p>
+                      <p className={`mt-1 text-sm ${mutedTextClass}`}>{selectedLog.tenant_domain || '-'}</p>
+                    </div>
+                    <div>
+                      <p className={`text-xs uppercase tracking-[0.2em] ${mutedTextClass}`}>{t('Event')}</p>
+                      <p className="mt-2 text-sm font-semibold capitalize">{selectedLog.event || '-'}</p>
+                    </div>
+                    <div>
+                      <p className={`text-xs uppercase tracking-[0.2em] ${mutedTextClass}`}>{t('Subject')}</p>
+                      <p className="mt-2 text-sm font-semibold">{prettySubjectType(selectedLog.subject_type)}</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className={`${glassCard} p-4`}>
+                  <h3 className={`text-sm font-semibold ${headingClass}`}>{t('Summary')}</h3>
+                  <p className="mt-3 text-sm leading-6">{selectedLog.description_summary || selectedLog.description || '-'}</p>
+                </section>
+
+                <section className={`${glassCard} p-4`}>
+                  <h3 className={`text-sm font-semibold ${headingClass}`}>{t('Detailed explanation')}</h3>
+                  <div className="mt-3 space-y-2 text-sm leading-6">
+                    {formatDescriptionDetails(selectedLog.description_details || '').length > 0 ? (
+                      formatDescriptionDetails(selectedLog.description_details || '').map((line, index) => (
+                        <p key={`drawer-detail-${selectedLog.id}-${index}`}>{line}</p>
+                      ))
+                    ) : (
+                      <p>{t('No additional details')}</p>
+                    )}
+                  </div>
+                </section>
+
+                <section className={`${glassCard} p-4`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className={`text-sm font-semibold ${headingClass}`}>{t('Raw properties')}</h3>
+                    <span className={`text-xs ${mutedTextClass}`}>{t('Selectable and copyable')}</span>
+                  </div>
+                  <pre
+                    className={`mt-3 overflow-x-auto rounded-2xl border p-4 text-xs leading-6 ${
+                      isDark
+                        ? 'border-slate-800 bg-slate-900 text-slate-200'
+                        : 'border-slate-200 bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    {stringifyJsonBlock(selectedLog.properties)}
+                  </pre>
+                </section>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null
+
   return (
     <div className={`relative mx-auto max-w-screen-2xl overflow-hidden rounded-[32px] px-4 py-6 md:px-6 lg:px-8 ${
       isDark
@@ -351,23 +562,23 @@ export default function AuditLogs() {
           </div>
         </header>
 
-        <section className="mt-4 mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="mt-4 mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {statCards.map((card) => {
             const Icon = card.icon
             return (
               <div
                 key={card.key}
-                className={`${glassCard} relative overflow-hidden border bg-gradient-to-br px-4 py-4 ${card.tone}`}
+                className={`${glassCard} relative overflow-hidden border bg-gradient-to-br px-4 py-3 ${card.tone}`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className={`text-xs uppercase tracking-[0.22em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                       {t(card.label)}
                     </p>
-                    <p className={`mt-3 text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{card.value}</p>
+                    <p className={`mt-3 break-words text-2xl font-bold tracking-tight md:text-3xl ${isDark ? 'text-white' : 'text-slate-800'}`}>{card.value}</p>
                   </div>
-                  <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${card.iconTone}`}>
-                    <Icon size={20} />
+                  <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${card.iconTone}`}>
+                    <Icon size={19} />
                   </span>
                 </div>
               </div>
@@ -533,8 +744,8 @@ export default function AuditLogs() {
           </div>
         </section>
 
-        <section className={`${glassCard} overflow-hidden`}>
-          <div className="overflow-x-auto">
+        <section className={`${glassCard} overflow-visible`}>
+          <div className="overflow-x-auto overflow-y-visible">
             <table className="w-full min-w-[980px] text-sm">
               <thead className={isDark ? 'bg-slate-950/70' : 'bg-slate-50/90'}>
                 <tr>
@@ -578,17 +789,19 @@ export default function AuditLogs() {
                       <tr key={log.id}>
                         <td className="px-4 py-3 text-theme">
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{user?.name || (log.causer_id ? `#${log.causer_id}` : t('System'))}</p>
+                            <p className="truncate font-medium">
+                              {log.causer_name || user?.name || (log.causer_id ? `#${log.causer_id}` : t('System'))}
+                            </p>
                             <p className={`truncate text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                              {user?.email || ''}
+                              {log.causer_email || user?.email || ''}
                             </p>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-theme">
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{tenant?.name || `#${log.tenant_id || '-'}`}</p>
+                            <p className="truncate font-medium">{log.tenant_name || tenant?.name || `#${log.tenant_id || '-'}`}</p>
                             <p className={`truncate text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                              {tenant?.domain || tenant?.slug || ''}
+                              {log.tenant_domain || tenant?.domain || tenant?.slug || ''}
                             </p>
                           </div>
                         </td>
@@ -604,7 +817,22 @@ export default function AuditLogs() {
                           {prettySubjectType(log.subject_type)}
                         </td>
                         <td className="px-4 py-3 text-theme">
-                          <p className="max-w-[420px] truncate">{log.description || '-'}</p>
+                          <div className="max-w-[420px]">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedLog(log)}
+                              className={`w-full text-left transition ${
+                                isDark ? 'hover:text-blue-300' : 'hover:text-blue-700'
+                              }`}
+                            >
+                              <p className="truncate" title={log.description_details || log.description_summary || log.description || '-'}>
+                                {log.description_summary || log.description || '-'}
+                              </p>
+                              <p className={`mt-1 text-xs font-medium ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>
+                                {t('View details')}
+                              </p>
+                            </button>
+                          </div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-theme">
                           {formatDateTime(log.created_at)}
@@ -693,6 +921,8 @@ export default function AuditLogs() {
           </div>
         </section>
       </div>
+
+      {detailsDrawer}
     </div>
   )
 }

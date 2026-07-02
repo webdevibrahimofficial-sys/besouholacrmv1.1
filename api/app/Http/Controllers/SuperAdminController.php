@@ -5,23 +5,38 @@ namespace App\Http\Controllers;
 use App\Models\Tenant;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\SubscriptionTransactionService;
+use App\Services\TenantSubscriptionContractService;
 use App\Services\TenantService;
 use App\Services\TenantStatusService;
+use App\Traits\LogsSuperAdminActivity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class SuperAdminController extends Controller
 {
+    use LogsSuperAdminActivity;
+
     protected TenantService $tenantService;
     protected TenantStatusService $tenantStatusService;
+    protected TenantSubscriptionContractService $contractService;
+    protected SubscriptionTransactionService $transactionService;
 
-    public function __construct(TenantService $tenantService, TenantStatusService $tenantStatusService)
+    public function __construct(
+        TenantService $tenantService,
+        TenantStatusService $tenantStatusService,
+        TenantSubscriptionContractService $contractService,
+        SubscriptionTransactionService $transactionService
+    )
     {
         $this->tenantService = $tenantService;
         $this->tenantStatusService = $tenantStatusService;
+        $this->contractService = $contractService;
+        $this->transactionService = $transactionService;
     }
 
     protected function tenantAccessShouldBeBlocked(Tenant $tenant): bool
@@ -61,10 +76,13 @@ class SuperAdminController extends Controller
             }])
             ->withCount(['users' => function ($q) {
                 $q->withoutGlobalScopes();
-            }])
-            ->with(['owner' => function ($q) {
-                $q->withoutGlobalScopes()->orderBy('id')->limit(1);
             }]);
+
+        if ($this->subscriptionContractsTableExists()) {
+            $query->with(['subscriptionContracts' => function ($q) {
+                $q->whereNull('effective_to')->latest('effective_from')->limit(1);
+            }]);
+        }
 
         if ($view === 'archived') {
             $query->whereNotNull('archived_at');
@@ -106,7 +124,13 @@ class SuperAdminController extends Controller
 
         $mapped = $tenants->through(function (Tenant $tenant) {
             $last  = $tenant->backups->first();
-            $owner = $tenant->owner;
+            $owner = User::withoutGlobalScopes()
+                ->where('tenant_id', $tenant->id)
+                ->orderBy('id')
+                ->first();
+            $currentContract = $this->subscriptionContractsTableExists()
+                ? $tenant->subscriptionContracts->first()
+                : null;
 
             $data = $tenant->toArray();
             $data['users_count']       = $tenant->users_count ?? 0;
@@ -114,6 +138,16 @@ class SuperAdminController extends Controller
             $data['last_backup_at']    = $last?->finished_at;
             $data['admin_name']        = $owner?->name;
             $data['admin_email']       = $owner?->email;
+            $data['current_contract']  = $currentContract ? [
+                'id' => $currentContract->id,
+                'plan_code' => $currentContract->plan_code,
+                'currency' => $currentContract->currency,
+                'billing_cycle' => $currentContract->billing_cycle,
+                'agreed_amount' => (float) $currentContract->agreed_amount,
+                'effective_from' => optional($currentContract->effective_from)->toDateString(),
+                'effective_to' => optional($currentContract->effective_to)->toDateString(),
+                'notes' => $currentContract->notes,
+            ] : null;
 
             return $data;
         });
@@ -156,6 +190,12 @@ class SuperAdminController extends Controller
             'address_line_1' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:255',
             'state' => 'nullable|string|max:255',
+            'transaction' => 'nullable|array',
+            'transaction.amount' => 'nullable|numeric',
+            'transaction.currency' => 'nullable|string|size:3',
+            'transaction.billing_cycle' => 'nullable|string|max:50',
+            'transaction.payment_method' => 'nullable|string|max:50',
+            'transaction.notes' => 'nullable|string|max:5000',
         ]);
 
         $exitCode = Artisan::call('tenants:create', [
@@ -220,6 +260,62 @@ class SuperAdminController extends Controller
         $modules = $request->input('modules', []);
         $this->tenantService->syncTenantModules($tenant, $plan, $modules);
 
+        if ($this->subscriptionFeatureTablesExist() && $request->filled('transaction.amount') && $request->filled('transaction.currency')) {
+            $contract = $this->contractService->createContract($tenant, [
+                'plan_code' => $tenant->subscription_plan,
+                'currency' => strtoupper((string) $request->input('transaction.currency')),
+                'billing_cycle' => $request->input('transaction.billing_cycle', 'monthly'),
+                'agreed_amount' => $request->input('transaction.amount'),
+                'effective_from' => $tenant->start_date?->toDateString() ?? now()->toDateString(),
+                'notes' => $request->input('transaction.notes'),
+            ], $request->user());
+
+            $transaction = $this->transactionService->record($tenant, [
+                'contract_id' => $contract->id,
+                'type' => 'creation',
+                'currency' => strtoupper((string) $request->input('transaction.currency')),
+                'total_amount' => $request->input('transaction.amount'),
+                'payment_method' => $request->input('transaction.payment_method'),
+                'period_start' => $tenant->start_date?->toDateString(),
+                'period_end' => $tenant->end_date?->toDateString(),
+                'notes' => $request->input('transaction.notes'),
+                'plan_code' => $tenant->subscription_plan,
+                'plan_label' => $tenant->subscription_plan,
+            ], $request->user(), 'auto_system');
+
+            $this->logSuperAdminActivity(
+                $request->user(),
+                'created',
+                'tenant_subscription_contract_created',
+                $contract,
+                [
+                    'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
+                    'contract' => ['id' => $contract->id, 'plan_code' => $contract->plan_code, 'agreed_amount' => $contract->agreed_amount],
+                ]
+            );
+
+            $this->logSuperAdminActivity(
+                $request->user(),
+                'created',
+                'subscription_transaction_created',
+                $transaction,
+                [
+                    'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
+                    'transaction' => ['id' => $transaction->id, 'type' => $transaction->type, 'total_amount' => $transaction->total_amount, 'currency' => $transaction->currency],
+                ]
+            );
+        }
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'created',
+            'tenant_created',
+            $tenant,
+            [
+                'attributes' => $tenant->fresh()->only(['id', 'name', 'domain', 'slug', 'subscription_plan', 'status', 'start_date', 'end_date']),
+            ]
+        );
+
         return response()->json([
             'message' => 'Tenant created successfully',
             'tenant' => $tenant,
@@ -276,6 +372,12 @@ class SuperAdminController extends Controller
                     }),
             ],
             'admin_password' => 'nullable|string|min:8',
+            'transaction' => 'nullable|array',
+            'transaction.amount' => 'nullable|numeric',
+            'transaction.currency' => 'nullable|string|size:3',
+            'transaction.billing_cycle' => 'nullable|string|max:50',
+            'transaction.payment_method' => 'nullable|string|max:50',
+            'transaction.notes' => 'nullable|string|max:5000',
         ]);
 
         $isLifetime = $request->boolean('is_lifetime', false);
@@ -296,6 +398,8 @@ class SuperAdminController extends Controller
             }
         }
 
+        $beforeAttributes = $tenant->only(['name', 'slug', 'subscription_plan', 'company_type', 'status', 'start_date', 'end_date', 'users_limit']);
+        $oldPlan = $tenant->subscription_plan;
         $previousStatus = strtolower((string) ($tenant->status ?? ''));
         $previousEndDate = $tenant->end_date;
         $wasBlocked = $this->tenantAccessBlockedState($previousStatus, $previousEndDate);
@@ -349,6 +453,64 @@ class SuperAdminController extends Controller
             $this->tenantStatusService->revokeTenantUserTokens($tenant);
         }
 
+        if ($this->subscriptionFeatureTablesExist() && $request->filled('transaction.amount') && $request->filled('transaction.currency')) {
+            $contract = $this->contractService->createContract($tenant, [
+                'plan_code' => $tenant->subscription_plan,
+                'currency' => strtoupper((string) $request->input('transaction.currency')),
+                'billing_cycle' => $request->input('transaction.billing_cycle', 'monthly'),
+                'agreed_amount' => $request->input('transaction.amount'),
+                'effective_from' => $request->input('start_date', optional($tenant->start_date)->toDateString() ?? now()->toDateString()),
+                'notes' => $request->input('transaction.notes'),
+            ], $request->user());
+
+            $type = $this->transactionService->inferType($tenant, $oldPlan, $tenant->subscription_plan, false);
+            $transaction = $this->transactionService->record($tenant, [
+                'contract_id' => $contract->id,
+                'type' => $type,
+                'currency' => strtoupper((string) $request->input('transaction.currency')),
+                'total_amount' => $request->input('transaction.amount'),
+                'payment_method' => $request->input('transaction.payment_method'),
+                'period_start' => optional($tenant->start_date)->toDateString(),
+                'period_end' => optional($tenant->end_date)->toDateString(),
+                'notes' => $request->input('transaction.notes'),
+                'plan_code' => $tenant->subscription_plan,
+                'plan_label' => $tenant->subscription_plan,
+            ], $request->user(), 'auto_system');
+
+            $this->logSuperAdminActivity(
+                $request->user(),
+                'created',
+                'tenant_subscription_contract_created',
+                $contract,
+                [
+                    'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
+                    'contract' => ['id' => $contract->id, 'plan_code' => $contract->plan_code, 'agreed_amount' => $contract->agreed_amount],
+                ]
+            );
+
+            $this->logSuperAdminActivity(
+                $request->user(),
+                'created',
+                'subscription_transaction_created',
+                $transaction,
+                [
+                    'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
+                    'transaction' => ['id' => $transaction->id, 'type' => $transaction->type, 'total_amount' => $transaction->total_amount, 'currency' => $transaction->currency],
+                ]
+            );
+        }
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'updated',
+            'tenant_updated',
+            $tenant,
+            [
+                'old' => $beforeAttributes,
+                'attributes' => $tenant->only(['name', 'slug', 'subscription_plan', 'company_type', 'status', 'start_date', 'end_date', 'users_limit']),
+            ]
+        );
+
         return response()->json([
             'message' => 'Tenant updated successfully',
             'tenant' => $tenant
@@ -371,9 +533,52 @@ class SuperAdminController extends Controller
             ], 422);
         }
 
+        $activeContract = $this->subscriptionContractsTableExists()
+            ? $tenant->subscriptionContracts()->whereNull('effective_to')->latest('effective_from')->first()
+            : null;
+
         $tenant->archived_at = now();
         $tenant->save();
         $this->tenantStatusService->revokeTenantUserTokens($tenant);
+
+        if ($this->subscriptionFeatureTablesExist()) {
+            $tenant->subscriptionContracts()->whereNull('effective_to')->update([
+                'effective_to' => now()->toDateString(),
+            ]);
+
+            $transaction = $this->transactionService->record($tenant, [
+                'contract_id' => $activeContract?->id,
+                'type' => 'cancellation',
+                'status' => 'paid',
+                'currency' => $activeContract?->currency ?: 'EGP',
+                'total_amount' => 0,
+                'notes' => 'Tenant archived after cancellation.',
+                'period_end' => now()->toDateString(),
+                'plan_code' => $activeContract?->plan_code ?: $tenant->subscription_plan,
+                'plan_label' => $activeContract?->plan_code ?: $tenant->subscription_plan,
+            ], $request->user(), 'auto_system');
+
+            $this->logSuperAdminActivity(
+                $request->user(),
+                'created',
+                'subscription_transaction_created',
+                $transaction,
+                [
+                    'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
+                    'transaction' => ['id' => $transaction->id, 'type' => $transaction->type, 'total_amount' => $transaction->total_amount, 'currency' => $transaction->currency],
+                ]
+            );
+        }
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'updated',
+            'tenant_archived',
+            $tenant,
+            [
+                'attributes' => $tenant->only(['id', 'name', 'status', 'archived_at']),
+            ]
+        );
 
         return response()->json([
             'message' => 'Tenant archived successfully',
@@ -388,8 +593,12 @@ class SuperAdminController extends Controller
     {
         $this->authorizeSuperAdmin($request);
 
-        // Since we are Super Admin, the global scope is bypassed automatically in BelongsToTenant trait
-        $users = User::with('tenant')->paginate(20);
+        $perPage = max(10, min((int) $request->integer('per_page', 20), 200));
+
+        $users = User::withoutGlobalScope('tenant')
+            ->with('tenant')
+            ->orderBy('name')
+            ->paginate($perPage);
 
         return response()->json([
             'users' => $users
@@ -592,5 +801,17 @@ class SuperAdminController extends Controller
         if (!$request->user() || !$request->user()->is_super_admin) {
             abort(403, 'Super Admin access required.');
         }
+    }
+
+    protected function subscriptionContractsTableExists(): bool
+    {
+        return Schema::hasTable('tenant_subscription_contracts');
+    }
+
+    protected function subscriptionFeatureTablesExist(): bool
+    {
+        return $this->subscriptionContractsTableExists()
+            && Schema::hasTable('subscription_transactions')
+            && Schema::hasTable('subscription_transaction_items');
     }
 }

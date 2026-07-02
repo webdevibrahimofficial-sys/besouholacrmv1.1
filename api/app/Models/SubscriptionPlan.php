@@ -6,8 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class SubscriptionPlan extends Model
 {
-    protected $connection = 'landlord';
-
     protected $fillable = [
         'code',
         'name',
@@ -25,4 +23,9 @@ class SubscriptionPlan extends Model
         'is_active' => 'boolean',
         'display_order' => 'integer',
     ];
+
+    public function prices()
+    {
+        return $this->hasMany(SubscriptionPlanPrice::class);
+    }
 }

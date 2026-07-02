@@ -63,6 +63,7 @@ const Suppliers = lazyRetry(() => import('../pages/Suppliers'))
 const Warehouse = lazyRetry(() => import('../pages/Warehouse'))
 const StockManagement = lazyRetry(() => import('../pages/StockManagement'))
 const InventoryTransactions = lazyRetry(() => import('../pages/InventoryTransactions'))
+const SystemTransactions = lazy(() => import('../pages/SystemTransactions'))
 const Products = lazyRetry(() => import('../pages/Products'))
 
 // --- Real Estate ---
@@ -490,7 +491,7 @@ export default function AppRouter() {
               <Route path="/system/website" element={<WebsiteCms />} />
               <Route path="/system/error-log" element={<SystemErrorLog />} />
               <Route path="/system/backup" element={<Backup />} />
-              <Route path="/system/transactions" element={<InventoryTransactions />} />
+              <Route path="/system/transactions" element={<SystemTransactions />} />
               
               {/* Profile & Tasks for Super Admin */}
               <Route path="/system/profile" element={<ProfileSettings />} />

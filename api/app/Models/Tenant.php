@@ -76,6 +76,16 @@ class Tenant extends BaseTenant
         return $this->hasOne(User::class)->oldestOfMany();
     }
 
+    public function subscriptionContracts()
+    {
+        return $this->hasMany(TenantSubscriptionContract::class);
+    }
+
+    public function subscriptionTransactions()
+    {
+        return $this->hasMany(SubscriptionTransaction::class);
+    }
+
     public function getDatabaseName(): string
     {
         if ($this->tenancy_type === 'dedicated' && is_array($this->db_connection_details)) {

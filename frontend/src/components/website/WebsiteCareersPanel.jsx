@@ -440,7 +440,13 @@ export default function WebsiteCareersPanel({
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div
+          className={`inline-flex flex-wrap gap-2 rounded-2xl border p-1.5 ${
+            isDark
+              ? 'border-slate-800 bg-slate-950/40'
+              : 'border-slate-200/80 bg-slate-50/85 shadow-inner shadow-white/70'
+          }`}
+        >
           {[
             ['page', 'Page Content'],
             ['jobs', 'Jobs'],
@@ -450,10 +456,14 @@ export default function WebsiteCareersPanel({
               key={key}
               type="button"
               onClick={() => setActiveSubTab(key)}
-              className={`rounded-xl px-4 py-2 text-sm ${
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 ${
                 activeSubTab === key
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'bg-[var(--surface-2)] text-[var(--muted-text)] hover:bg-[var(--surface)]'
+                  ? isDark
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/30'
+                    : 'border border-blue-200 bg-white text-blue-700 shadow-[0_8px_20px_rgba(59,130,246,0.14)]'
+                  : isDark
+                    ? 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                    : 'text-slate-500 hover:bg-white hover:text-slate-900'
               }`}
             >
               {label}

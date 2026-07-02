@@ -18,8 +18,6 @@ class SuperAdminImpersonationController extends Controller
 
         $tenant = Tenant::findOrFail($tenantId);
 
-        $request->session()->put('impersonated_tenant_id', $tenant->id);
-
         activity()
             ->causedBy($user)
             ->performedOn($tenant)
@@ -40,7 +38,7 @@ class SuperAdminImpersonationController extends Controller
             abort(403, 'Super Admin access required.');
         }
 
-        $tenantId = $request->session()->pull('impersonated_tenant_id');
+        $tenantId = $request->integer('tenant_id');
 
         if ($tenantId) {
             $tenant = Tenant::find($tenantId);
@@ -56,4 +54,3 @@ class SuperAdminImpersonationController extends Controller
         ]);
     }
 }
-

@@ -17,6 +17,9 @@ use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SuperAdminUserController;
 use App\Http\Controllers\SuperAdminImpersonationController;
 use App\Http\Controllers\SuperAdminBackupController;
+use App\Http\Controllers\SubscriptionTransactionController;
+use App\Http\Controllers\TenantSubscriptionContractController;
+use App\Http\Controllers\PlanPriceController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AccessLogController;
 use App\Http\Controllers\QuotationController;
@@ -167,11 +170,24 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', 
     Route::put('admin-roles/{role}', [SuperAdminUserController::class, 'updateRole']);
     Route::delete('admin-roles/{role}', [SuperAdminUserController::class, 'destroyRole']);
     Route::get('admin-permissions', [SuperAdminUserController::class, 'permissionsIndex']);
+    Route::get('transactions', [SubscriptionTransactionController::class, 'index']);
+    Route::post('transactions', [SubscriptionTransactionController::class, 'store']);
+    Route::get('transactions/summary', [SubscriptionTransactionController::class, 'summary']);
+    Route::get('transactions/export', [SubscriptionTransactionController::class, 'export']);
+    Route::get('transactions/{id}', [SubscriptionTransactionController::class, 'show']);
+    Route::put('transactions/{id}', [SubscriptionTransactionController::class, 'update']);
+    Route::post('transactions/{id}/void', [SubscriptionTransactionController::class, 'void']);
+    Route::get('tenants/{tenant}/contracts', [TenantSubscriptionContractController::class, 'index']);
+    Route::post('tenants/{tenant}/contracts', [TenantSubscriptionContractController::class, 'store']);
+    Route::get('plan-prices', [PlanPriceController::class, 'index']);
+    Route::post('plan-prices', [PlanPriceController::class, 'store']);
+    Route::put('plan-prices/{id}', [PlanPriceController::class, 'update']);
 
     // Audit Logs
     Route::get('logs', [ActivityLogController::class , 'index']);
     Route::get('logs/export', [ActivityLogController::class , 'export']);
     Route::get('system-errors', [\App\Http\Controllers\SystemErrorController::class, 'index']);
+    Route::patch('system-errors/{systemError}/resolve', [\App\Http\Controllers\SystemErrorController::class, 'resolve']);
 
     // Tenant Module Management
     Route::get('tenants/{tenant}/modules', [TenantModuleController::class , 'index']);

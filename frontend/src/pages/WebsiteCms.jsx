@@ -1,6 +1,7 @@
+import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BarChart3, Briefcase, Globe, LayoutTemplate, Settings2 } from 'lucide-react'
+import { BarChart3, Briefcase, Globe, LayoutTemplate, Plus, Settings2, X } from 'lucide-react'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { systemCompanyWebsiteService } from '../services/systemCompanyWebsiteService'
 import WebsiteAnalyticsPanel from '../components/website/WebsiteAnalyticsPanel'
@@ -397,6 +398,7 @@ export default function WebsiteCms() {
   const [services, setServices] = useState([])
   const [serviceForm, setServiceForm] = useState(emptyService)
   const [editingServiceId, setEditingServiceId] = useState(null)
+  const [isServiceModalOpen, setIsServiceModalOpen] = useState(false)
   const [careerPage, setCareerPage] = useState(null)
   const [careerRoles, setCareerRoles] = useState([])
   const [careerApplications, setCareerApplications] = useState([])
@@ -442,6 +444,25 @@ export default function WebsiteCms() {
       setSearchParams({ tab: 'settings' }, { replace: true })
     }
   }, [requestedTab, setSearchParams])
+
+  useEffect(() => {
+    if (!isServiceModalOpen) return undefined
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsServiceModalOpen(false)
+      }
+    }
+
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isServiceModalOpen])
 
   const heroSection = useMemo(
     () => sections.find((section) => section.type === 'hero'),
@@ -923,6 +944,7 @@ export default function WebsiteCms() {
       }
       setServiceForm(emptyService)
       setEditingServiceId(null)
+      setIsServiceModalOpen(false)
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || 'Failed to save service.')
     } finally {
@@ -1019,6 +1041,20 @@ export default function WebsiteCms() {
       form_name: service.form_name || '',
       is_active: service.is_active !== false,
     })
+    setIsServiceModalOpen(true)
+  }
+
+  const openCreateServiceModal = () => {
+    setEditingServiceId(null)
+    setServiceForm(emptyService)
+    setIsServiceModalOpen(true)
+  }
+
+  const closeServiceModal = () => {
+    if (saving) return
+    setIsServiceModalOpen(false)
+    setEditingServiceId(null)
+    setServiceForm(emptyService)
   }
 
   const removeService = async (serviceId) => {
@@ -2437,85 +2473,114 @@ export default function WebsiteCms() {
       ) : null}
 
       {activeTab === 'services' ? (
-        <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
-            <h2 className="mb-4 text-lg font-semibold">
-              {editingServiceId ? 'Edit Service' : 'Add Service'}
-            </h2>
-            <div className="space-y-3">
-              {[
-                ['name', 'Name'],
-                ['short_description', 'Short Description'],
-                ['cta_text', 'CTA Text'],
-                ['form_name', 'Form Name'],
-              ].map(([key, label]) => (
-                <label key={key} className="block text-sm">
-                  <span className="mb-1 block text-[var(--muted-text)]">{label}</span>
-                  <input
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                    value={serviceForm[key] || ''}
-                    onChange={(e) => setServiceForm({ ...serviceForm, [key]: e.target.value })}
-                  />
-                </label>
-              ))}
-              <label className="block text-sm">
-                <span className="mb-1 block text-[var(--muted-text)]">Description</span>
-                <textarea
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                  rows={4}
-                  value={serviceForm.description || ''}
-                  onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={serviceForm.is_active !== false}
-                  onChange={(e) => setServiceForm({ ...serviceForm, is_active: e.target.checked })}
-                />
-                Active
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={saveService}
-                  className="rounded-lg bg-[var(--primary)] px-4 py-2 text-white disabled:opacity-60"
-                >
-                  {saving ? 'Saving...' : editingServiceId ? 'Update Service' : 'Create Service'}
-                </button>
-                {editingServiceId ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingServiceId(null)
-                      setServiceForm(emptyService)
-                    }}
-                    className="rounded-lg border border-[var(--border)] px-4 py-2"
-                  >
-                    Cancel
-                  </button>
-                ) : null}
-              </div>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted-text)]">Services CMS</p>
+              <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Services</h2>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-[11px] font-medium text-[var(--muted-text)]">
+                {services.length} services
+              </span>
+              <button
+                type="button"
+                onClick={openCreateServiceModal}
+                className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium shadow-md transition ${
+                  isDark
+                    ? 'bg-[var(--primary)] text-white shadow-blue-500/20 hover:opacity-95'
+                    : 'bg-blue-600 text-white shadow-blue-500/20 hover:bg-blue-700'
+                }`}
+              >
+                <Plus size={16} />
+                Add Service
+              </button>
             </div>
           </div>
 
           <div className="space-y-3">
             {services.map((service) => (
-              <div key={service.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="font-semibold">{service.name}</h3>
-                    <p className="mt-1 text-sm text-[var(--muted-text)]">{service.short_description}</p>
-                    <p className="mt-2 text-xs text-[var(--muted-text)]">
+              <div
+                key={service.id}
+                className={`group relative overflow-hidden rounded-[28px] border p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)] transition-all duration-200 hover:-translate-y-0.5 ${
+                  isDark
+                    ? 'border-slate-700/70 bg-[linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.88))] shadow-[0_22px_48px_rgba(2,6,23,0.32)] hover:border-slate-600'
+                    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] hover:border-blue-200/80'
+                }`}
+              >
+                <div
+                  className={`pointer-events-none absolute inset-0 opacity-100 ${
+                    isDark
+                      ? 'bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.18),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.12),transparent_24%)]'
+                      : 'bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.10),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.08),transparent_22%)]'
+                  }`}
+                />
+
+                <div className="relative z-10 flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <h3 className={`text-xl font-semibold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {service.name}
+                      </h3>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                        service.is_active
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {service.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <p className={`mt-3 max-w-3xl line-clamp-2 text-sm leading-7 ${
+                      isDark ? 'text-slate-300' : 'text-slate-600'
+                    }`}>
+                      {service.short_description}
+                    </p>
+                    <div className={`mt-4 flex flex-wrap items-center gap-2 text-xs ${
+                      isDark ? 'text-slate-300' : 'text-slate-500'
+                    }`}>
+                      <span className={`rounded-full border px-3 py-1.5 ${
+                        isDark
+                          ? 'border-slate-600 bg-slate-800/80 text-slate-200'
+                          : 'border-slate-200 bg-white text-slate-600'
+                      }`}>
+                        {service.slug}
+                      </span>
+                      {service.cta_text ? (
+                        <span className={`rounded-full border px-3 py-1.5 ${
+                          isDark
+                            ? 'border-blue-500/20 bg-blue-500/10 text-blue-200'
+                            : 'border-blue-100 bg-blue-50 text-blue-700'
+                        }`}>
+                          CTA: {service.cta_text}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="hidden mt-2 text-xs text-[var(--muted-text)]">
                       {service.is_active ? 'Active' : 'Inactive'} · {service.slug}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => editService(service)} className="text-sm text-[var(--primary)]">
+                  <div className="flex shrink-0 items-center gap-2 self-start">
+                    <button
+                      type="button"
+                      onClick={() => editService(service)}
+                      className={`rounded-2xl border px-3.5 py-2 text-xs font-medium transition ${
+                        isDark
+                          ? 'border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
                       Edit
                     </button>
-                    <button type="button" onClick={() => removeService(service.id)} className="text-sm text-red-400">
+                    <button
+                      type="button"
+                      onClick={() => removeService(service.id)}
+                      className={`rounded-2xl border px-3.5 py-2 text-xs font-medium transition ${
+                        isDark
+                          ? 'border-rose-500/20 bg-rose-900/15 text-rose-300 hover:bg-rose-900/25'
+                          : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
+                      }`}
+                    >
                       Delete
                     </button>
                   </div>
@@ -2525,6 +2590,127 @@ export default function WebsiteCms() {
           </div>
         </div>
       ) : null}
+
+      {isServiceModalOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[220] flex items-center justify-center px-4 py-5">
+              <div
+                className="absolute inset-0 bg-slate-950/72 backdrop-blur-sm"
+                onClick={closeServiceModal}
+              />
+
+              <div className={`relative z-10 flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border shadow-[0_30px_90px_rgba(0,0,0,0.35)] ${
+                isDark ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-200 bg-white text-slate-900'
+              }`}>
+                <div className={`flex items-start justify-between gap-4 border-b px-5 py-4 md:px-6 ${
+                  isDark ? 'border-slate-700 bg-slate-900/96' : 'border-slate-200 bg-white/96'
+                }`}>
+                  <div>
+                    <p className={`text-xs uppercase tracking-[0.26em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Services CMS</p>
+                    <h2 className={`mt-2 text-2xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {editingServiceId ? 'Edit Service' : 'Add Service'}
+                    </h2>
+                    <p className={`mt-2 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Create focused service cards with a clear CTA and clean public-facing copy.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={closeServiceModal}
+                    className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition ${
+                      isDark
+                        ? 'border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white'
+                        : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-5 py-5 md:px-6">
+                  <div className="grid gap-3">
+                    {[
+                      ['name', 'Name'],
+                      ['short_description', 'Short Description'],
+                      ['cta_text', 'CTA Text'],
+                      ['form_name', 'Form Name'],
+                    ].map(([key, label]) => (
+                      <label key={key} className="block text-sm">
+                        <span className={`mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] ${
+                          isDark ? 'text-slate-400' : 'text-slate-500'
+                        }`}>{label}</span>
+                        <input
+                          className={`h-11 w-full rounded-2xl border px-4 text-sm outline-none transition focus:border-blue-400 ${
+                            isDark
+                              ? 'border-slate-700/60 bg-slate-950/80 text-slate-100 placeholder:text-slate-500'
+                              : 'border-slate-200/80 bg-slate-50 text-slate-800 placeholder:text-slate-400'
+                          }`}
+                          value={serviceForm[key] || ''}
+                          onChange={(e) => setServiceForm({ ...serviceForm, [key]: e.target.value })}
+                        />
+                      </label>
+                    ))}
+
+                    <label className="block text-sm">
+                      <span className={`mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] ${
+                        isDark ? 'text-slate-400' : 'text-slate-500'
+                      }`}>Description</span>
+                      <textarea
+                        className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none transition focus:border-blue-400 ${
+                          isDark
+                            ? 'border-slate-700/60 bg-slate-950/80 text-slate-100 placeholder:text-slate-500'
+                            : 'border-slate-200/80 bg-slate-50 text-slate-800 placeholder:text-slate-400'
+                        }`}
+                        rows={5}
+                        value={serviceForm.description || ''}
+                        onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
+                      />
+                    </label>
+
+                    <label className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-2 text-sm ${
+                      isDark ? 'border-slate-700 bg-slate-950/60 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-800'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={serviceForm.is_active !== false}
+                        onChange={(e) => setServiceForm({ ...serviceForm, is_active: e.target.checked })}
+                      />
+                      Active service
+                    </label>
+                  </div>
+                </div>
+
+                <div className={`flex flex-wrap justify-end gap-2 border-t px-5 py-4 md:px-6 ${
+                  isDark ? 'border-slate-700 bg-slate-900/90' : 'border-slate-200 bg-white/90'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={closeServiceModal}
+                    className={`rounded-2xl border px-4 py-2.5 text-sm font-medium transition ${
+                      isDark ? 'border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={saveService}
+                    className={`rounded-2xl px-4 py-2.5 text-sm font-medium text-white shadow-md transition disabled:opacity-60 ${
+                      isDark
+                        ? 'bg-[var(--primary)] shadow-blue-500/20 hover:opacity-95'
+                        : 'bg-blue-600 shadow-blue-500/20 hover:bg-blue-700'
+                    }`}
+                  >
+                    {saving ? 'Saving...' : editingServiceId ? 'Update Service' : 'Create Service'}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
       </div>
     </div>
   )

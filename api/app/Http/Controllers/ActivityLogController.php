@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Activity;
 use App\Models\LeadAction;
 use App\Models\Lead;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ActivityLogController extends Controller
@@ -24,7 +24,7 @@ class ActivityLogController extends Controller
             abort(403, 'Unauthorized');
         }
 
-        $query = Activity::query();
+        $query = Activity::query()->with(['causer', 'tenant']);
 
         // Filtering
         if ($request->has('tenant_id')) {
@@ -65,8 +65,308 @@ class ActivityLogController extends Controller
         // Pagination
         $perPage = min($request->input('per_page', 50), 500); // Max 500
         $logs = $query->paginate($perPage);
+        $logs->getCollection()->transform(function (Activity $activity) {
+            $causer = $activity->causer;
+            $tenant = $activity->tenant;
+            $properties = $this->normalizeActivityProperties($activity->properties);
+            $description = $this->buildAuditDescription($activity, $properties);
+
+            return [
+                'id' => (int) $activity->id,
+                'log_name' => $activity->log_name,
+                'description' => $activity->description,
+                'description_summary' => $description['summary'],
+                'description_details' => $description['details'],
+                'subject_type' => $activity->subject_type,
+                'subject_id' => $activity->subject_id,
+                'event' => $activity->event,
+                'causer_id' => $activity->causer_id,
+                'causer_type' => $activity->causer_type,
+                'causer_name' => $causer?->name,
+                'causer_email' => $causer?->email,
+                'causer_role' => $causer?->job_title ?: $causer?->role,
+                'tenant_id' => $activity->tenant_id,
+                'tenant_name' => $tenant?->name,
+                'tenant_domain' => $tenant?->domain ?: $tenant?->slug,
+                'properties' => $properties,
+                'created_at' => optional($activity->created_at)->toISOString(),
+                'updated_at' => optional($activity->updated_at)->toISOString(),
+            ];
+        });
 
         return response()->json($logs);
+    }
+
+    protected function normalizeActivityProperties($properties): array
+    {
+        if (is_string($properties)) {
+            $decoded = json_decode($properties, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        if (is_object($properties) && method_exists($properties, 'toArray')) {
+            return $properties->toArray();
+        }
+
+        return is_array($properties) ? $properties : [];
+    }
+
+    protected function buildAuditDescription(Activity $activity, array $properties): array
+    {
+        $summary = trim((string) ($activity->description ?: 'Activity recorded.'));
+        $details = [];
+        $subjectLabel = $this->resolveSubjectLabel($activity, $properties);
+
+        if ($subjectLabel !== '') {
+            $details[] = 'Target: ' . $subjectLabel;
+        }
+
+        $old = is_array($properties['old'] ?? null) ? $properties['old'] : [];
+        $attributes = is_array($properties['attributes'] ?? null) ? $properties['attributes'] : [];
+
+        if ($activity->log_name === 'super_admin') {
+            [$summary, $details] = $this->buildSuperAdminDescription($activity, $properties, $summary, $details);
+        } elseif ($activity->subject_type === \App\Models\Tenant::class || str_contains(strtolower((string) $activity->description), 'tenant')) {
+            [$summary, $details] = $this->buildTenantDescription($activity, $properties, $summary, $details);
+        } elseif (!empty($old) || !empty($attributes)) {
+            $changes = $this->summarizeFieldChanges($old, $attributes);
+            if ($changes !== []) {
+                $details[] = 'Changes: ' . implode('; ', $changes);
+            }
+        }
+
+        $ip = $properties['ip'] ?? ($properties['ip_address'] ?? null);
+        if ($ip) {
+            $details[] = 'IP: ' . $ip;
+        }
+
+        $userAgent = $properties['user_agent'] ?? null;
+        if ($userAgent) {
+            $details[] = 'User agent: ' . $userAgent;
+        }
+
+        return [
+            'summary' => $summary,
+            'details' => implode("\n", array_values(array_filter($details))),
+        ];
+    }
+
+    protected function buildSuperAdminDescription(Activity $activity, array $properties, string $fallbackSummary, array $details): array
+    {
+        $entity = data_get($properties, 'user.name')
+            ?: data_get($properties, 'role.name')
+            ?: $this->resolveSubjectLabel($activity, $properties);
+
+        if ($activity->description === 'super_admin_user_created') {
+            $role = data_get($properties, 'user.role');
+            $email = data_get($properties, 'user.email');
+            $summary = 'Created super admin user ' . ($entity ?: 'Unknown user');
+            if ($role) {
+                $summary .= ' with role ' . $role;
+            }
+            if ($email) {
+                $details[] = 'Email: ' . $email;
+            }
+            $permissions = data_get($properties, 'user.permissions', []);
+            if (is_array($permissions) && $permissions !== []) {
+                $details[] = 'Permissions: ' . implode(', ', $permissions);
+            }
+            return [$summary . '.', $details];
+        }
+
+        if ($activity->description === 'super_admin_user_updated') {
+            $changes = $this->summarizeFieldChanges(
+                is_array($properties['old'] ?? null) ? $properties['old'] : [],
+                is_array($properties['attributes'] ?? null) ? $properties['attributes'] : []
+            );
+            $summary = 'Updated super admin user ' . ($entity ?: 'Unknown user') . '.';
+            if ($changes !== []) {
+                $details[] = 'Changes: ' . implode('; ', $changes);
+            }
+            return [$summary, $details];
+        }
+
+        if ($activity->description === 'super_admin_user_deleted') {
+            $summary = 'Deleted super admin user ' . ($entity ?: 'Unknown user') . '.';
+            $email = data_get($properties, 'user.email');
+            if ($email) {
+                $details[] = 'Email: ' . $email;
+            }
+            return [$summary, $details];
+        }
+
+        if ($activity->description === 'super_admin_role_created') {
+            return ['Created system role ' . ($entity ?: 'Unknown role') . '.', $details];
+        }
+
+        if ($activity->description === 'super_admin_role_updated') {
+            $changes = $this->summarizeFieldChanges(
+                is_array($properties['old'] ?? null) ? $properties['old'] : [],
+                is_array($properties['attributes'] ?? null) ? $properties['attributes'] : []
+            );
+            if (($affectedUsers = $properties['affected_users'] ?? []) && is_array($affectedUsers)) {
+                $details[] = 'Affected users: ' . implode(', ', $affectedUsers);
+            }
+            if ($changes !== []) {
+                $details[] = 'Changes: ' . implode('; ', $changes);
+            }
+            return ['Updated system role ' . ($entity ?: 'Unknown role') . '.', $details];
+        }
+
+        if ($activity->description === 'super_admin_role_deleted') {
+            return ['Deleted system role ' . ($entity ?: 'Unknown role') . '.', $details];
+        }
+
+        if ($activity->description === 'subscription_transaction_created') {
+            $transaction = is_array($properties['transaction'] ?? null) ? $properties['transaction'] : [];
+            $summary = 'Recorded subscription transaction #' . ($transaction['id'] ?? $activity->subject_id) . '.';
+            if (!empty($transaction['type'])) {
+                $details[] = 'Type: ' . $transaction['type'];
+            }
+            if (isset($transaction['total_amount'], $transaction['currency'])) {
+                $details[] = 'Amount: ' . $transaction['total_amount'] . ' ' . $transaction['currency'];
+            }
+            return [$summary, $details];
+        }
+
+        if ($activity->description === 'subscription_transaction_updated') {
+            $changes = $this->summarizeFieldChanges(
+                is_array($properties['old'] ?? null) ? $properties['old'] : [],
+                is_array($properties['attributes'] ?? null) ? $properties['attributes'] : []
+            );
+            if ($changes !== []) {
+                $details[] = 'Changes: ' . implode('; ', $changes);
+            }
+            return ['Updated subscription transaction #' . ($activity->subject_id ?: 'Unknown') . '.', $details];
+        }
+
+        if ($activity->description === 'subscription_transaction_voided') {
+            $reason = $properties['reason'] ?? null;
+            if ($reason) {
+                $details[] = 'Reason: ' . $reason;
+            }
+            return ['Voided subscription transaction #' . ($activity->subject_id ?: 'Unknown') . '.', $details];
+        }
+
+        if ($activity->description === 'tenant_subscription_contract_created') {
+            $contract = is_array($properties['contract'] ?? null) ? $properties['contract'] : [];
+            $summary = 'Created tenant subscription contract #' . ($contract['id'] ?? $activity->subject_id) . '.';
+            if (!empty($contract['plan_code'])) {
+                $details[] = 'Plan: ' . $contract['plan_code'];
+            }
+            if (isset($contract['agreed_amount'])) {
+                $details[] = 'Agreed amount: ' . $contract['agreed_amount'];
+            }
+            return [$summary, $details];
+        }
+
+        return [$fallbackSummary, $details];
+    }
+
+    protected function buildTenantDescription(Activity $activity, array $properties, string $fallbackSummary, array $details): array
+    {
+        $tenantName = $this->resolveSubjectLabel($activity, $properties) ?: ('Tenant #' . ($activity->tenant_id ?: $activity->subject_id));
+        $event = strtolower((string) $activity->event);
+        $old = is_array($properties['old'] ?? null) ? $properties['old'] : [];
+        $attributes = is_array($properties['attributes'] ?? null) ? $properties['attributes'] : [];
+
+        if ($event === 'created') {
+            $summary = 'Created tenant ' . $tenantName . '.';
+            $domain = $attributes['domain'] ?? null;
+            $status = $attributes['status'] ?? null;
+            if ($domain) {
+                $details[] = 'Domain: ' . $domain;
+            }
+            if ($status) {
+                $details[] = 'Status: ' . $status;
+            }
+            return [$summary, $details];
+        }
+
+        if ($event === 'updated') {
+            $changes = $this->summarizeFieldChanges($old, $attributes);
+            $summary = 'Updated tenant ' . $tenantName . '.';
+            if ($changes !== []) {
+                $details[] = 'Changes: ' . implode('; ', $changes);
+            }
+            return [$summary, $details];
+        }
+
+        if ($event === 'deleted') {
+            return ['Deleted tenant ' . $tenantName . '.', $details];
+        }
+
+        return [$fallbackSummary, $details];
+    }
+
+    protected function summarizeFieldChanges(array $old, array $attributes): array
+    {
+        $changes = [];
+        $keys = collect(array_unique(array_merge(array_keys($old), array_keys($attributes))))
+            ->reject(fn ($key) => in_array($key, ['updated_at', 'created_at', 'password', 'remember_token'], true))
+            ->values();
+
+        foreach ($keys as $key) {
+            $oldValue = $old[$key] ?? null;
+            $newValue = $attributes[$key] ?? null;
+
+            if ($oldValue == $newValue) {
+                continue;
+            }
+
+            if (is_array($oldValue) || is_array($newValue)) {
+                $oldArray = is_array($oldValue) ? $oldValue : [];
+                $newArray = is_array($newValue) ? $newValue : [];
+                $added = array_values(array_diff($newArray, $oldArray));
+                $removed = array_values(array_diff($oldArray, $newArray));
+
+                if ($added !== []) {
+                    $changes[] = $this->humanizeFieldName($key) . ' added [' . implode(', ', $added) . ']';
+                }
+                if ($removed !== []) {
+                    $changes[] = $this->humanizeFieldName($key) . ' removed [' . implode(', ', $removed) . ']';
+                }
+                continue;
+            }
+
+            $changes[] = $this->humanizeFieldName($key) . ' changed from "' . $this->stringifyAuditValue($oldValue) . '" to "' . $this->stringifyAuditValue($newValue) . '"';
+        }
+
+        return $changes;
+    }
+
+    protected function resolveSubjectLabel(Activity $activity, array $properties): string
+    {
+        return (string) (
+            data_get($properties, 'attributes.name')
+            ?: data_get($properties, 'user.name')
+            ?: data_get($properties, 'role.name')
+            ?: data_get($properties, 'tenant.name')
+            ?: $activity->tenant?->name
+            ?: (class_basename((string) $activity->subject_type) . ($activity->subject_id ? ' #' . $activity->subject_id : ''))
+        );
+    }
+
+    protected function humanizeFieldName(string $field): string
+    {
+        return ucfirst(str_replace('_', ' ', $field));
+    }
+
+    protected function stringifyAuditValue($value): string
+    {
+        if ($value === null || $value === '') {
+            return 'empty';
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
+        if (is_array($value)) {
+            return implode(', ', array_map(fn ($item) => $this->stringifyAuditValue($item), $value));
+        }
+
+        return (string) $value;
     }
 
     public function tenantLogs(Request $request)

@@ -440,7 +440,7 @@ export default function SystemAdminDashboard() {
                   {!isDark && <div className="absolute inset-x-5 top-0 h-px bg-white/75" />}
                   {isDark && <div className="absolute inset-x-5 top-0 h-px bg-slate-600/40" />}
                   <div className="relative z-10 flex items-start justify-between gap-3">
-                    <p className={`text-[13px] sm:text-sm font-semibold leading-[1.35] ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                    <p className={`text-xs font-semibold leading-6 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                       {t(card.label)}
                     </p>
                     <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border backdrop-blur-sm ${
@@ -453,7 +453,7 @@ export default function SystemAdminDashboard() {
                   </div>
                   <div className="relative z-10 mt-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className={`text-3xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>{card.value}</p>
+                      <p className={`text-2xl font-bold tracking-tight md:text-3xl ${isDark ? 'text-white' : 'text-slate-800'}`}>{card.value}</p>
                       <TrendBadge
                         delta={card.trendDelta}
                         sentiment={card.trend}
@@ -461,7 +461,7 @@ export default function SystemAdminDashboard() {
                         isDark={isDark}
                       />
                     </div>
-                    <p className={`mt-2 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{getCardSubtitle(card)}</p>
+                    <p className={`mt-2 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{getCardSubtitle(card)}</p>
                     <p className={`mt-3 inline-flex items-center gap-1 text-[11px] font-medium transition-colors ${
                       isDark ? 'text-blue-300/80 group-hover:text-blue-200' : 'text-blue-600/75 group-hover:text-blue-700'
                     }`}>

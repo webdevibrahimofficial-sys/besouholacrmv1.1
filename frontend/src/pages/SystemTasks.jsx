@@ -1019,28 +1019,28 @@ export default function SystemTasks() {
             </div>
           </header>
 
-          <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <section className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             {stats.map((item) => {
               const Icon = item.icon
               return (
-                <div key={item.key} className={`${glassCard} relative overflow-hidden px-5 py-5`}>
+                <div key={item.key} className={`${glassCard} relative overflow-hidden px-4 py-3`}>
                   <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${item.tone}`} />
                   <div className="relative z-10 flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <p className={`text-xs uppercase tracking-[0.22em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                         {t(item.label)}
                       </p>
-                      <p className={`mt-3 text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                      <p className={`mt-3 break-words text-2xl font-bold tracking-tight md:text-3xl ${isDark ? 'text-white' : 'text-slate-800'}`}>
                         {item.value}
                       </p>
-                      <p className={`mt-3 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <p className={`mt-2 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                         {t(item.note)}
                       </p>
                     </div>
-                    <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
                       isDark ? 'bg-slate-800/90 text-slate-200' : 'bg-white/80 text-slate-700'
                     }`}>
-                      <Icon size={18} />
+                      <Icon size={17} />
                     </div>
                   </div>
                 </div>

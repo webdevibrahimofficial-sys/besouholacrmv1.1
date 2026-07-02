@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Traits\LogsSuperAdminActivity;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Permission;
@@ -12,6 +14,8 @@ use Spatie\Permission\Models\Role;
 
 class SuperAdminUserController extends Controller
 {
+    use LogsSuperAdminActivity;
+
     protected const DEFAULT_SYSTEM_ROLES = [
         'Platform Owner',
         'system admin',
@@ -46,6 +50,10 @@ class SuperAdminUserController extends Controller
         'system.tenants.manage',
         'system.subscriptions.view',
         'system.subscriptions.manage',
+        'system.transactions.view',
+        'system.transactions.manage',
+        'system.contracts.manage',
+        'system.plan_prices.manage',
         'system.settings.view',
         'system.settings.manage',
         'system.integrations.view',
@@ -83,6 +91,10 @@ class SuperAdminUserController extends Controller
             'system.tenants.manage',
             'system.subscriptions.view',
             'system.subscriptions.manage',
+            'system.transactions.view',
+            'system.transactions.manage',
+            'system.contracts.manage',
+            'system.plan_prices.manage',
             'system.settings.view',
             'system.settings.manage',
             'system.integrations.view',
@@ -109,6 +121,7 @@ class SuperAdminUserController extends Controller
             'system.audit_logs.export',
             'system.tenants.view',
             'system.subscriptions.view',
+            'system.transactions.view',
             'system.settings.view',
             'system.integrations.view',
             'system.website.view',
@@ -131,6 +144,10 @@ class SuperAdminUserController extends Controller
             'system.tenants.manage',
             'system.subscriptions.view',
             'system.subscriptions.manage',
+            'system.transactions.view',
+            'system.transactions.manage',
+            'system.contracts.manage',
+            'system.plan_prices.manage',
             'system.settings.view',
             'system.integrations.view',
             'system.integrations.manage',
@@ -153,6 +170,7 @@ class SuperAdminUserController extends Controller
             'system.audit_logs.view',
             'system.tenants.view',
             'system.subscriptions.view',
+            'system.transactions.view',
             'system.errors.view',
         ],
     ];
@@ -309,25 +327,40 @@ class SuperAdminUserController extends Controller
             ],
         ]);
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'phone' => $validated['phone'] ?? null,
-            'password' => Hash::make($validated['password']),
-            'tenant_id' => $systemTenant->id,
-            'is_super_admin' => true,
-            'status' => $validated['status'] ?? 'Active',
-            'job_title' => $validated['role'],
-        ]);
+        $user = DB::transaction(function () use ($validated, $systemTenant) {
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'phone' => $validated['phone'] ?? null,
+                'password' => Hash::make($validated['password']),
+                'tenant_id' => $systemTenant->id,
+                'is_super_admin' => true,
+                'status' => $validated['status'] ?? 'Active',
+                'job_title' => $validated['role'],
+            ]);
 
-        $this->syncSystemRole($user, $validated['role'], $systemTenant->id);
-        $this->syncSystemPermissionSelection($user, $validated['role'], $validated['permissions'] ?? [], $systemTenant->id);
+            $this->syncSystemRole($user, $validated['role'], $systemTenant->id);
+            $this->syncSystemPermissionSelection($user, $validated['role'], $validated['permissions'] ?? [], $systemTenant->id);
+
+            return $user;
+        });
 
         $user->load(['roles', 'permissions']);
+        $serializedUser = $this->serializeUser($user, $systemTenant->id);
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'created',
+            'super_admin_user_created',
+            $user,
+            [
+                'user' => $serializedUser,
+            ]
+        );
 
         return response()->json([
             'message' => 'Super admin user created successfully.',
-            'user' => $this->serializeUser($user, $systemTenant->id),
+            'user' => $serializedUser,
         ], 201);
     }
 
@@ -340,6 +373,9 @@ class SuperAdminUserController extends Controller
         $this->ensureSystemUser($user, $systemTenant->id);
         $this->ensureDefaultPermissions();
         $this->ensureDefaultRoles($systemTenant->id);
+        $user->load(['roles', 'permissions']);
+        $before = $this->serializeUser($user, $systemTenant->id);
+        $currentPermissionSelection = $before['permissions'] ?? [];
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
@@ -408,22 +444,40 @@ class SuperAdminUserController extends Controller
             $user->job_title = $validated['role'];
         }
 
-        $user->save();
+        $roleChanged = !empty($validated['role']) && $validated['role'] !== ($before['role'] ?? null);
 
-        if (!empty($validated['role'])) {
-            $this->syncSystemRole($user, $validated['role'], $systemTenant->id);
-        }
+        DB::transaction(function () use ($user, $validated, $systemTenant, $roleChanged, $currentPermissionSelection) {
+            $user->save();
 
-        if (array_key_exists('permissions', $validated)) {
-            $effectiveRole = $validated['role'] ?? $user->roles->where('tenant_id', $systemTenant->id)->pluck('name')->first() ?? $user->job_title ?? '';
-            $this->syncSystemPermissionSelection($user, (string) $effectiveRole, $validated['permissions'] ?? [], $systemTenant->id);
-        }
+            if (!empty($validated['role'])) {
+                $this->syncSystemRole($user, $validated['role'], $systemTenant->id);
+            }
+
+            if (array_key_exists('permissions', $validated)) {
+                $effectiveRole = $validated['role'] ?? $user->roles->where('tenant_id', $systemTenant->id)->pluck('name')->first() ?? $user->job_title ?? '';
+                $this->syncSystemPermissionSelection($user, (string) $effectiveRole, $validated['permissions'] ?? [], $systemTenant->id);
+            } elseif ($roleChanged) {
+                $this->syncSystemPermissionSelection($user, $validated['role'], $currentPermissionSelection, $systemTenant->id);
+            }
+        });
 
         $user->load(['roles', 'permissions']);
+        $after = $this->serializeUser($user, $systemTenant->id);
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'updated',
+            'super_admin_user_updated',
+            $user,
+            [
+                'old' => $before,
+                'attributes' => $after,
+            ]
+        );
 
         return response()->json([
             'message' => 'Super admin user updated successfully.',
-            'user' => $this->serializeUser($user, $systemTenant->id),
+            'user' => $after,
         ]);
     }
 
@@ -451,8 +505,24 @@ class SuperAdminUserController extends Controller
             setPermissionsTeamId($systemTenant->id);
         }
 
-        $user->syncRoles([]);
-        $user->delete();
+        $user->load(['roles', 'permissions']);
+        $deletedUser = $this->serializeUser($user, $systemTenant->id);
+
+        DB::transaction(function () use ($user) {
+            $user->syncRoles([]);
+            $user->syncPermissions([]);
+            $user->delete();
+        });
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'deleted',
+            'super_admin_user_deleted',
+            $user,
+            [
+                'user' => $deletedUser,
+            ]
+        );
 
         return response()->json([
             'message' => 'Super admin user deleted successfully.',
@@ -573,23 +643,37 @@ class SuperAdminUserController extends Controller
             ],
         ]);
 
-        $role = Role::create([
-            'name' => trim($validated['name']),
-            'guard_name' => 'web',
-            'tenant_id' => $systemTenant->id,
-        ]);
+        $role = DB::transaction(function () use ($validated, $systemTenant) {
+            return Role::create([
+                'name' => trim($validated['name']),
+                'guard_name' => 'web',
+                'tenant_id' => $systemTenant->id,
+            ]);
+        });
+
+        $serializedRole = [
+            'id' => $role->id,
+            'name' => $role->name,
+            'permissions' => $role->permissions->pluck('name')->values(),
+            'permissions_count' => $role->permissions->count(),
+            'users_count' => 0,
+            'created_at' => optional($role->created_at)->toISOString(),
+            'updated_at' => optional($role->updated_at)->toISOString(),
+        ];
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'created',
+            'super_admin_role_created',
+            $role,
+            [
+                'role' => $serializedRole,
+            ]
+        );
 
         return response()->json([
             'message' => 'System role created successfully.',
-            'role' => [
-                'id' => $role->id,
-                'name' => $role->name,
-                'permissions' => $role->permissions->pluck('name')->values(),
-                'permissions_count' => $role->permissions->count(),
-                'users_count' => 0,
-                'created_at' => optional($role->created_at)->toISOString(),
-                'updated_at' => optional($role->updated_at)->toISOString(),
-            ],
+            'role' => $serializedRole,
         ], 201);
     }
 
@@ -614,21 +698,53 @@ class SuperAdminUserController extends Controller
         ]);
 
         $previousName = $role->name;
-        $role->update([
-            'name' => trim($validated['name']),
-        ]);
+        $before = [
+            'id' => $role->id,
+            'name' => $role->name,
+            'permissions' => $role->permissions->pluck('name')->values(),
+            'created_at' => optional($role->created_at)->toISOString(),
+            'updated_at' => optional($role->updated_at)->toISOString(),
+        ];
 
-        $users = User::withoutGlobalScope('tenant')
-            ->where('is_super_admin', true)
-            ->where('tenant_id', $systemTenant->id)
-            ->where('job_title', $previousName)
-            ->get();
+        $users = DB::transaction(function () use ($role, $validated, $systemTenant, $previousName) {
+            $role->update([
+                'name' => trim($validated['name']),
+            ]);
 
-        foreach ($users as $user) {
-            $user->job_title = $role->name;
-            $user->save();
-            $this->syncSystemRole($user, $role->name, $systemTenant->id);
-        }
+            $users = User::withoutGlobalScope('tenant')
+                ->where('is_super_admin', true)
+                ->where('tenant_id', $systemTenant->id)
+                ->where('job_title', $previousName)
+                ->get();
+
+            foreach ($users as $user) {
+                $user->job_title = $role->name;
+                $user->save();
+                $this->syncSystemRole($user, $role->name, $systemTenant->id);
+            }
+
+            return $users;
+        });
+
+        $after = [
+            'id' => $role->id,
+            'name' => $role->name,
+            'permissions' => $role->permissions->pluck('name')->values(),
+            'created_at' => optional($role->created_at)->toISOString(),
+            'updated_at' => optional($role->updated_at)->toISOString(),
+        ];
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'updated',
+            'super_admin_role_updated',
+            $role,
+            [
+                'old' => $before,
+                'attributes' => $after,
+                'affected_users' => $users->pluck('id')->values()->all(),
+            ]
+        );
 
         return response()->json([
             'message' => 'System role updated successfully.',
@@ -667,7 +783,27 @@ class SuperAdminUserController extends Controller
             ], 422);
         }
 
-        $role->delete();
+        $deletedRole = [
+            'id' => $role->id,
+            'name' => $role->name,
+            'permissions' => $role->permissions->pluck('name')->values(),
+            'created_at' => optional($role->created_at)->toISOString(),
+            'updated_at' => optional($role->updated_at)->toISOString(),
+        ];
+
+        DB::transaction(function () use ($role) {
+            $role->delete();
+        });
+
+        $this->logSuperAdminActivity(
+            $request->user(),
+            'deleted',
+            'super_admin_role_deleted',
+            $role,
+            [
+                'role' => $deletedRole,
+            ]
+        );
 
         return response()->json([
             'message' => 'System role deleted successfully.',
@@ -738,12 +874,15 @@ class SuperAdminUserController extends Controller
             setPermissionsTeamId($tenantId);
         }
 
-        $permissions = Permission::query()
+        $permissionIds = Permission::query()
             ->where('guard_name', 'web')
             ->whereIn('name', collect($permissionNames)->filter()->values())
-            ->get();
+            ->pluck('id')
+            ->unique()
+            ->values()
+            ->all();
 
-        $user->syncPermissions($permissions);
+        $user->syncPermissions($permissionIds);
     }
 
     protected function syncSystemPermissionSelection(User $user, string $roleName, array $selectedPermissionNames, int $tenantId): void
@@ -768,16 +907,19 @@ class SuperAdminUserController extends Controller
             return;
         }
 
-        if (function_exists('setPermissionsTeamId')) {
-            setPermissionsTeamId($tenantId);
-        }
-
-        $permissions = Permission::query()
+        $permissionIds = Permission::query()
             ->where('guard_name', 'web')
             ->whereIn('name', $permissionNames)
-            ->get();
+            ->pluck('id')
+            ->unique()
+            ->values()
+            ->all();
 
-        $role->syncPermissions($permissions);
+        // Role permissions themselves are not team-scoped in the pivot table,
+        // so syncing through the raw relation avoids duplicate attach attempts
+        // when Spatie's team context makes the package think nothing is attached.
+        $role->permissions()->sync($permissionIds);
+        $role->unsetRelation('permissions');
     }
 
     protected function rolePriority(string $roleName): int
@@ -915,4 +1057,5 @@ class SuperAdminUserController extends Controller
             ->map(fn ($segment) => ucfirst(str_replace('_', ' ', $segment)))
             ->implode(' / ');
     }
+
 }

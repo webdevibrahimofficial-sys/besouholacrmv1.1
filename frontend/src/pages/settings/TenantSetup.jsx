@@ -14,7 +14,7 @@ import {
   Filter, 
   Search, 
   Users, 
-  Key, 
+  LogIn, 
   Eye, 
   EyeOff,
   Activity, 
@@ -22,6 +22,9 @@ import {
   XCircle,
   Building,
   Calendar,
+  Globe,
+  MapPin,
+  Mail,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -88,6 +91,32 @@ const formatDateOnly = (value, locale) => {
   return new Intl.DateTimeFormat(locale).format(new Date(year, month - 1, day));
 };
 
+const findReferencePlanPrice = (prices, planCode, billingCycle = 'monthly') => {
+  if (!Array.isArray(prices) || !planCode) return null;
+  return prices.find((price) => (
+    price?.plan_code === planCode &&
+    price?.billing_cycle === billingCycle &&
+    price?.is_active !== false
+  )) || null;
+};
+
+const buildTransactionPayload = (data, fallbackBillingCycle = 'monthly') => {
+  const amount = String(data?.transaction_amount ?? '').trim();
+  const currency = String(data?.transaction_currency ?? '').trim().toUpperCase();
+
+  if (!amount) {
+    return null;
+  }
+
+  return {
+    amount: Number(amount),
+    currency: currency || 'EGP',
+    billing_cycle: data?.transaction_billing_cycle || fallbackBillingCycle,
+    payment_method: data?.transaction_payment_method || undefined,
+    notes: data?.transaction_notes || undefined,
+  };
+};
+
 const TenantSetup = () => {
   const { t } = useTranslation();
   const location = useLocation();
@@ -143,6 +172,7 @@ const TenantSetup = () => {
   const [loadingBackup, setLoadingBackup] = useState(false);
   const [startingBackup, setStartingBackup] = useState(false);
   const [backupsPage, setBackupsPage] = useState(1);
+  const [planPrices, setPlanPrices] = useState([]);
   const isCreateRoute = location.pathname === '/system/tenants/new';
 
   useEffect(() => {
@@ -290,6 +320,19 @@ const TenantSetup = () => {
   ]);
 
   useEffect(() => {
+    const loadPlanPrices = async () => {
+      try {
+        const response = await axios.get('/api/super-admin/plan-prices');
+        setPlanPrices(Array.isArray(response.data?.prices) ? response.data.prices : []);
+      } catch (error) {
+        console.error('Failed to load plan prices:', error);
+      }
+    };
+
+    loadPlanPrices();
+  }, []);
+
+  useEffect(() => {
     if (isCreateRoute) {
       setShowCreateModal(true);
     }
@@ -297,7 +340,11 @@ const TenantSetup = () => {
 
   // Actions
   const handleEdit = (tenant) => {
-    setEditingTenant(tenant);
+    setEditingTenant({
+      ...tenant,
+      admin_name: tenant.admin_name || tenant.owner?.name || '',
+      admin_email: tenant.admin_email || tenant.owner?.email || '',
+    });
   };
 
   const handleCancelSubscription = async (tenant) => {
@@ -417,6 +464,9 @@ const TenantSetup = () => {
   const selectedPlan = watch('plan');
   const selectedCompanyType = watch('company_type') || 'General';
   const isLifetime = watch('is_lifetime');
+  const selectedBillingCycle = watch('transaction_billing_cycle') || 'monthly';
+  const transactionAmount = watch('transaction_amount');
+  const transactionCurrency = watch('transaction_currency');
   const tenancyType = watch('tenancy_type');
   const [customModules, setCustomModules] = useState([]);
 
@@ -427,6 +477,19 @@ const TenantSetup = () => {
         : [...prev, moduleId]
     );
   };
+
+  useEffect(() => {
+    const referencePrice = findReferencePlanPrice(planPrices, selectedPlan, selectedBillingCycle);
+    if (!referencePrice) return;
+
+    if (!transactionAmount) {
+      setValue('transaction_amount', String(referencePrice.list_price));
+    }
+
+    if (!transactionCurrency) {
+      setValue('transaction_currency', referencePrice.currency || 'EGP');
+    }
+  }, [planPrices, selectedPlan, selectedBillingCycle, setValue, transactionAmount, transactionCurrency]);
 
   const onCreateSubmit = async (data) => {
     setLoadingCreate(true);
@@ -467,6 +530,11 @@ const TenantSetup = () => {
         city: data.city,
         state: data.state,
       };
+
+      const transactionPayload = buildTransactionPayload(data);
+      if (transactionPayload) {
+        payload.transaction = transactionPayload;
+      }
 
       const response = await axios.post('/api/super-admin/tenants', payload);
 
@@ -848,10 +916,11 @@ const TenantSetup = () => {
                           </button>
                           <button 
                             className={`${bodyTextClass} hover:text-emerald-400`} 
-                            title={t('password', 'Password')}
+                            title={t('login_as_tenant', 'Login as tenant')}
+                            aria-label={t('login_as_tenant', 'Login as tenant')}
                             onClick={() => handleLoginAsTenant(tenant)}
                           >
-                            <Key size={18} />
+                            <LogIn size={18} />
                           </button>
                           <button 
                             className={`${bodyTextClass} hover:text-blue-400`} 
@@ -947,10 +1016,11 @@ const TenantSetup = () => {
                       </button>
                       <button
                         className={`${bodyTextClass} hover:text-emerald-400`}
-                        title={t('password', 'Password')}
+                        title={t('login_as_tenant', 'Login as tenant')}
+                        aria-label={t('login_as_tenant', 'Login as tenant')}
                         onClick={() => handleLoginAsTenant(tenant)}
                       >
-                        <Key size={18} />
+                        <LogIn size={18} />
                       </button>
                       <button
                         className={`${bodyTextClass} hover:text-blue-400`}
@@ -1340,9 +1410,11 @@ const TenantSetup = () => {
                   />
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setShowCreatePassword((prev) => !prev)}
-                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    className="absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:text-gray-300 dark:hover:text-blue-400"
                     aria-label={showCreatePassword ? t('Hide password') : t('Show password')}
+                    title={showCreatePassword ? t('Hide password') : t('Show password')}
                   >
                     {showCreatePassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -1365,9 +1437,11 @@ const TenantSetup = () => {
                   />
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setShowCreateConfirmPassword((prev) => !prev)}
-                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    className="absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:text-gray-300 dark:hover:text-blue-400"
                     aria-label={showCreateConfirmPassword ? t('Hide password') : t('Show password')}
+                    title={showCreateConfirmPassword ? t('Hide password') : t('Show password')}
                   >
                     {showCreateConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -1427,6 +1501,81 @@ const TenantSetup = () => {
                     {t('lifetime_subscription', 'Lifetime subscription')}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
+              {t('contract_pricing', 'Contract & Pricing')}
+            </h2>
+            <div className={`rounded-2xl border p-4 ${isDark ? 'border-slate-700 bg-slate-900/50' : 'border-slate-200 bg-slate-50/80'}`}>
+              <p className={`mb-4 text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                {t('record_payment_help', 'Optional: record a payment for this tenant creation and create the initial contract automatically.')}
+              </p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('amount', 'Amount')}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('transaction_amount')}
+                    className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('currency', 'Currency')}
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    placeholder="EGP"
+                    {...register('transaction_currency')}
+                    className="h-10 w-full rounded-md border px-3 py-2 uppercase dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('billing_cycle', 'Billing Cycle')}
+                  </label>
+                  <select
+                    {...register('transaction_billing_cycle')}
+                    className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                    defaultValue="monthly"
+                  >
+                    <option value="monthly">{t('monthly', 'Monthly')}</option>
+                    <option value="yearly">{t('yearly', 'Yearly')}</option>
+                    <option value="lifetime">{t('lifetime', 'Lifetime')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('payment_method', 'Payment Method')}
+                  </label>
+                  <select
+                    {...register('transaction_payment_method')}
+                    className="h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                  >
+                    <option value="">{t('select', 'Select')}</option>
+                    <option value="bank_transfer">{t('bank_transfer', 'Bank Transfer')}</option>
+                    <option value="instapay">{t('instapay', 'InstaPay')}</option>
+                    <option value="cash">{t('cash', 'Cash')}</option>
+                    <option value="card">{t('card', 'Card')}</option>
+                    <option value="gateway">{t('gateway', 'Gateway')}</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-theme mb-1">
+                  {t('notes', 'Notes')}
+                </label>
+                <textarea
+                  rows={3}
+                  {...register('transaction_notes')}
+                  className="w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                  placeholder={t('payment_notes_placeholder', 'Internal note for the contract / payment record')}
+                />
               </div>
             </div>
 
@@ -1524,10 +1673,13 @@ const TenantSetup = () => {
 
       {editingTenant && (
         <EditTenantModal 
+          key={`edit-tenant-${editingTenant.id}-${editingTenant.updated_at || ''}`}
           tenant={editingTenant} 
           plans={selectablePlans}
+          planPrices={planPrices}
           onClose={() => setEditingTenant(null)} 
-          onSave={handleUpdateTenant} 
+          onSave={handleUpdateTenant}
+          onTenantChanged={() => fetchTenants(pagination.current_page)}
         />
       )}
 
@@ -1551,153 +1703,285 @@ const TenantSetup = () => {
 
 const PreviewTenantModal = ({ tenant, onClose }) => {
   const { t } = useTranslation();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const { planMap } = useSubscriptionPlans({ includeInactive: true });
+  const [contracts, setContracts] = useState([]);
+  const [contractsLoading, setContractsLoading] = useState(false);
   const plan = planMap[tenant.subscription_plan] || { name: tenant.subscription_plan };
   const isLifetime =
     tenant?.meta_data &&
     tenant.meta_data.subscription &&
     tenant.meta_data.subscription.is_lifetime;
+  const subdomain = tenant.domain || `${tenant.slug}.besouholacrm.net`;
+  const createdAt = tenant.created_at ? new Date(tenant.created_at).toLocaleDateString() : '-';
+  const locationLine = [tenant.city, tenant.state, tenant.country].filter(Boolean).join(', ') || '-';
+  const infoCardClass = isDark ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-white';
+  const labelClass = isDark ? 'text-slate-400' : 'text-slate-500';
+  const valueClass = isDark ? 'text-slate-100' : 'text-slate-900';
+  const sectionTitleClass = isDark ? 'text-slate-100' : 'text-slate-900';
+  const detailItemClass = isDark ? 'border-slate-800/80 bg-slate-950/40' : 'border-slate-200 bg-slate-50/80';
+  const modules = Array.isArray(tenant.modules) ? tenant.modules : [];
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[150] p-4">
-      <div className="card rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center  bg-transparent z-10">
-          <h3 className="text-lg font-bold text-theme">
-            {t('subscription_preview', 'Subscription Preview')} - {tenant.name}
+  useEffect(() => {
+    const loadContracts = async () => {
+      try {
+        setContractsLoading(true);
+        const response = await axios.get(`/api/super-admin/tenants/${tenant.id}/contracts`);
+        setContracts(Array.isArray(response.data?.contracts) ? response.data.contracts : []);
+      } catch (error) {
+        console.error('Failed to load contracts preview:', error);
+      } finally {
+        setContractsLoading(false);
+      }
+    };
+
+    loadContracts();
+  }, [tenant.id]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/80 p-3 md:p-4 backdrop-blur-sm">
+      <div
+        className={`w-full max-w-5xl max-h-[88vh] overflow-y-auto rounded-3xl border shadow-2xl ${
+          isDark
+            ? 'border-slate-700/70 bg-slate-900 text-slate-100'
+            : 'border-slate-200 bg-white text-slate-900'
+        }`}
+      >
+        <div
+          className={`sticky top-0 z-10 flex items-center justify-between border-b p-4 ${
+            isDark ? 'border-slate-700 bg-slate-900' : 'border-gray-200 bg-white'
+          }`}
+        >
+          <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>
+            {t('subscription_preview', 'Subscription Preview')} - {tenant.name} <StatusBadge status={tenant.status} />
           </h3>
-          <button onClick={onClose} className="text-theme hover:text-gray-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className={`${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-gray-500 hover:text-gray-700'}`}
+          >
             <X size={20} />
           </button>
         </div>
         
-        <div className="p-6 space-y-8">
-          {/* Company Details */}
-          <div>
-            <h4 className="text-md font-semibold text-blue-600 dark:text-blue-400 mb-4 pb-2 border-b border-gray-100 dark:border-gray-700">
-              {t('company_details', 'Company Details')}
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('company_name', 'Company Name')}</span>
-                <span className="font-medium text-theme">{tenant.name}</span>
+        <div className="space-y-6 p-4 md:p-6">
+          <div
+            className={`overflow-hidden rounded-3xl border p-5 md:p-6 ${
+              isDark
+                ? 'border-slate-800 bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950'
+                : 'border-slate-200 bg-gradient-to-br from-slate-50 via-white to-blue-50/60'
+            }`}
+          >
+            <div className="space-y-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className=" min-w-0">
+                  
+                  <div className={`mt-3 flex flex-wrap items-center gap-3 text-sm ${labelClass}`}>
+                    <span className="inline-flex items-center gap-2">
+                      <Globe size={15} />
+                      {subdomain}
+                    </span>
+                    <span className="inline-flex items-center gap-2">
+                      <Calendar size={15} />
+                      {t('created_at', 'Created At')}: {createdAt}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('company_type', 'Company Type')}</span>
-                <span className="font-medium text-theme">{tenant.company_type || '-'}</span>
-              </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('tenancy_type', 'Tenancy Type')}</span>
-                <span
-                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mt-1 ${
-                    (tenant.tenancy_type || 'shared') === 'dedicated'
-                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
-                  }`}
-                >
-                  {t(tenant.tenancy_type || 'shared')}
-                </span>
-              </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('subdomain', 'Subdomain')}</span>
-                <span className="font-medium text-theme">{tenant.domain || `${tenant.slug}.besouholacrm.net`}</span>
-              </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('created_at', 'Created At')}</span>
-                <span className="font-medium text-theme">{new Date(tenant.created_at).toLocaleDateString()}</span>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className={`rounded-2xl border p-4 ${infoCardClass}`}>
+                  <div className={`text-xs font-medium uppercase tracking-[0.18em] ${labelClass}`}>
+                    {t('plan', 'Plan')}
+                  </div>
+                  <div className={`mt-2 text-lg font-semibold ${valueClass}`}>{t(plan.name)}</div>
+                </div>
+                <div className={`rounded-2xl border p-4 ${infoCardClass}`}>
+                  <div className={`text-xs font-medium uppercase tracking-[0.18em] ${labelClass}`}>
+                    {t('users_limit', 'Users Limit')}
+                  </div>
+                  <div className={`mt-2 text-lg font-semibold ${valueClass}`}>{tenant.users_limit || '-'}</div>
+                </div>
+                <div className={`rounded-2xl border p-4 ${infoCardClass}`}>
+                  <div className={`text-xs font-medium uppercase tracking-[0.18em] ${labelClass}`}>
+                    {t('tenancy_type', 'Tenancy Type')}
+                  </div>
+                  <div className={`mt-2 text-lg font-semibold ${valueClass}`}>{t(tenant.tenancy_type || 'shared')}</div>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Location Details */}
-          <div>
-            <h4 className="text-md font-semibold text-blue-600 dark:text-blue-400 mb-4 pb-2 border-b border-gray-100 dark:border-gray-700">
-              {t('location_details', 'Location Details')}
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('country', 'Country')}</span>
-                <span className="font-medium text-theme">{tenant.country || '-'}</span>
+          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className={`rounded-3xl border p-5 md:p-6 ${infoCardClass}`}>
+              <div className="mb-5 flex items-center gap-3">
+                <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                  <Building size={18} />
+                </div>
+                <div>
+                  <h4 className={`text-lg font-semibold ${sectionTitleClass}`}>{t('company_details', 'Company Details')}</h4>
+                  <p className={`text-sm ${labelClass}`}>{t('Core company and subscription identity')}</p>
+                </div>
               </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('city', 'City')}</span>
-                <span className="font-medium text-theme">{tenant.city || '-'}</span>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  [t('company_name', 'Company Name'), tenant.name],
+                  [t('company_type', 'Company Type'), tenant.company_type || '-'],
+                  [t('subdomain', 'Subdomain'), subdomain],
+                  [t('plan', 'Plan'), t(plan.name)],
+                  [t('start_date', 'Start Date'), formatDateOnly(tenant.start_date)],
+                  [t('end_date', 'End Date'), isLifetime ? t('lifetime_subscription', 'Lifetime subscription') : (tenant.end_date ? formatDateOnly(tenant.end_date) : '-')],
+                ].map(([label, value]) => (
+                  <div key={label} className={`rounded-2xl border p-4 ${detailItemClass}`}>
+                    <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{label}</div>
+                    <div className={`mt-2 text-sm font-semibold break-words ${valueClass}`}>{value}</div>
+                  </div>
+                ))}
               </div>
-              <div className="md:col-span-2">
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('address', 'Address')}</span>
-                <span className="font-medium text-theme">
-                  {[tenant.address_line_1, tenant.state].filter(Boolean).join(', ') || '-'}
-                </span>
+            </div>
+
+            <div className="space-y-4">
+              <div className={`rounded-3xl border p-5 md:p-6 ${infoCardClass}`}>
+                <div className="mb-5 flex items-center gap-3">
+                  <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                    <Mail size={18} />
+                  </div>
+                  <div>
+                    <h4 className={`text-lg font-semibold ${sectionTitleClass}`}>{t('admin_account', 'Admin Account')}</h4>
+                    <p className={`text-sm ${labelClass}`}>{t('Primary workspace owner details')}</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className={`rounded-2xl border p-4 ${detailItemClass}`}>
+                    <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('admin_name', 'Admin Name')}</div>
+                    <div className={`mt-2 text-sm font-semibold ${valueClass}`}>
+                      {tenant.admin_name || (tenant.owner ? tenant.owner.name : '-')}
+                    </div>
+                  </div>
+                  <div className={`rounded-2xl border p-4 ${detailItemClass}`}>
+                    <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('admin_email', 'Admin Email')}</div>
+                    <div className={`mt-2 text-sm font-semibold break-all ${valueClass}`}>
+                      {tenant.admin_email || (tenant.owner ? tenant.owner.email : '-')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`rounded-3xl border p-5 md:p-6 ${infoCardClass}`}>
+                <div className="mb-5 flex items-center gap-3">
+                  <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                    <MapPin size={18} />
+                  </div>
+                  <div>
+                    <h4 className={`text-lg font-semibold ${sectionTitleClass}`}>{t('location_details', 'Location Details')}</h4>
+                    <p className={`text-sm ${labelClass}`}>{t('Registered operating location')}</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className={`rounded-2xl border p-4 ${detailItemClass}`}>
+                    <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('location', 'Location')}</div>
+                    <div className={`mt-2 text-sm font-semibold ${valueClass}`}>{locationLine}</div>
+                  </div>
+                  <div className={`rounded-2xl border p-4 ${detailItemClass}`}>
+                    <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('address', 'Address')}</div>
+                    <div className={`mt-2 text-sm font-semibold ${valueClass}`}>
+                      {[tenant.address_line_1, tenant.state].filter(Boolean).join(', ') || '-'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {tenant.current_contract && (
+                <div className={`rounded-3xl border p-5 md:p-6 ${infoCardClass}`}>
+                  <div className="mb-5">
+                    <h4 className={`text-lg font-semibold ${sectionTitleClass}`}>{t('contract_pricing', 'Contract & Pricing')}</h4>
+                    <p className={`text-sm ${labelClass}`}>{t('Current negotiated contract details')}</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      [t('plan', 'Plan'), tenant.current_contract.plan_code || '-'],
+                      [t('amount', 'Amount'), tenant.current_contract.agreed_amount != null ? `${tenant.current_contract.agreed_amount} ${tenant.current_contract.currency || ''}`.trim() : '-'],
+                      [t('billing_cycle', 'Billing Cycle'), tenant.current_contract.billing_cycle || '-'],
+                      [t('effective_from', 'Effective From'), tenant.current_contract.effective_from ? formatDateOnly(tenant.current_contract.effective_from) : '-'],
+                    ].map(([label, value]) => (
+                      <div key={label} className={`rounded-2xl border p-4 ${detailItemClass}`}>
+                        <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{label}</div>
+                        <div className={`mt-2 text-sm font-semibold break-words ${valueClass}`}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className={`rounded-3xl border p-5 md:p-6 ${infoCardClass}`}>
+                <div className="mb-5">
+                  <h4 className={`text-lg font-semibold ${sectionTitleClass}`}>{t('contract_history', 'Contract History')}</h4>
+                  <p className={`text-sm ${labelClass}`}>{t('Timeline of negotiated contract versions for this tenant')}</p>
+                </div>
+                {contractsLoading ? (
+                  <p className={`text-sm ${labelClass}`}>{t('Loading...')}</p>
+                ) : contracts.length === 0 ? (
+                  <p className={`text-sm ${labelClass}`}>{t('No contracts found yet.')}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {contracts.map((contract) => (
+                      <div key={contract.id} className={`rounded-2xl border p-4 ${detailItemClass}`}>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                          <div>
+                            <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('plan', 'Plan')}</div>
+                            <div className={`mt-2 text-sm font-semibold ${valueClass}`}>{contract.plan_code}</div>
+                          </div>
+                          <div>
+                            <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('amount', 'Amount')}</div>
+                            <div className={`mt-2 text-sm font-semibold ${valueClass}`}>{contract.agreed_amount} {contract.currency}</div>
+                          </div>
+                          <div>
+                            <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('billing_cycle', 'Billing Cycle')}</div>
+                            <div className={`mt-2 text-sm font-semibold ${valueClass}`}>{contract.billing_cycle}</div>
+                          </div>
+                          <div>
+                            <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('from', 'From')}</div>
+                            <div className={`mt-2 text-sm font-semibold ${valueClass}`}>{contract.effective_from ? formatDateOnly(contract.effective_from) : '-'}</div>
+                          </div>
+                          <div>
+                            <div className={`text-xs font-medium uppercase tracking-[0.16em] ${labelClass}`}>{t('to', 'To')}</div>
+                            <div className={`mt-2 text-sm font-semibold ${valueClass}`}>{contract.effective_to ? formatDateOnly(contract.effective_to) : t('Active')}</div>
+                          </div>
+                        </div>
+                        {contract.notes ? (
+                          <p className={`mt-3 text-xs leading-5 ${labelClass}`}>{contract.notes}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Admin Account */}
-          <div>
-            <h4 className="text-md font-semibold text-blue-600 dark:text-blue-400 mb-4 pb-2 border-b border-gray-100 dark:border-gray-700">
-              {t('admin_account', 'Admin Account')}
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('admin_name', 'Admin Name')}</span>
-                <span className="font-medium text-theme">
-                  {tenant.admin_name || (tenant.owner ? tenant.owner.name : '-')}
-                </span>
+          {modules.length > 0 && (
+            <div className={`rounded-3xl border p-5 md:p-6 ${infoCardClass}`}>
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className={`text-lg font-semibold ${sectionTitleClass}`}>{t('modules', 'Modules')}</h4>
+                  <p className={`text-sm ${labelClass}`}>{t('Enabled workspace capabilities')}</p>
+                </div>
+                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                  <Users size={14} />
+                  {modules.length}
+                </div>
               </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('admin_email', 'Admin Email')}</span>
-                <span className="font-medium text-theme">
-                  {tenant.admin_email || (tenant.owner ? tenant.owner.email : '-')}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Subscription Details */}
-          <div>
-            <h4 className="text-md font-semibold text-blue-600 dark:text-blue-400 mb-4 pb-2 border-b border-gray-100 dark:border-gray-700">
-              {t('subscription_details', 'Subscription Details')}
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('plan', 'Plan')}</span>
-                <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 uppercase inline-block mt-1">
-                  {t(plan.name)}
-                </span>
-              </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('status', 'Status')}</span>
-                <div className="mt-1"><StatusBadge status={tenant.status} /></div>
-              </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('users_limit', 'Users Limit')}</span>
-                <span className="font-medium text-theme">{tenant.users_limit}</span>
-              </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('start_date', 'Start Date')}</span>
-                <span className="font-medium text-theme">{formatDateOnly(tenant.start_date)}</span>
-              </div>
-              <div>
-                <span className="block text-xs text-gray-400 dark:text-gray-400">{t('end_date', 'End Date')}</span>
-                <span className="font-medium text-theme">
-                  {isLifetime
-                    ? t('lifetime_subscription', 'Lifetime subscription')
-                    : tenant.end_date
-                      ? formatDateOnly(tenant.end_date)
-                      : '-'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Modules */}
-          {tenant.modules && tenant.modules.length > 0 && (
-            <div>
-              <h4 className="text-md font-semibold text-blue-600 dark:text-blue-400 mb-4 pb-2 border-b border-gray-100 dark:border-gray-700">
-                {t('modules', 'Modules')}
-              </h4>
               <div className="flex flex-wrap gap-2">
-                {tenant.modules.map((module, index) => (
-                  <span key={index} className="px-3 py-1 bg-gray-700/50 text-theme rounded-full text-sm">
+                {modules.map((module, index) => (
+                  <span
+                    key={index}
+                    className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                      isDark
+                        ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-700'
+                        : 'bg-slate-100 text-slate-700 ring-1 ring-slate-200'
+                    }`}
+                  >
                     {t(module.slug || module)}
                   </span>
                 ))}
@@ -1706,82 +1990,150 @@ const PreviewTenantModal = ({ tenant, onClose }) => {
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+        <div className={`flex justify-end border-t p-4 ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
           <button 
             onClick={onClose}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 dark:bg-gray-700  dark:hover:bg-gray-600"
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              isDark
+                ? 'bg-slate-800 text-slate-100 hover:bg-slate-700'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
           >
             {t('close', 'Close')}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
 const ChangeStatusModal = ({ tenant, onClose, onSave }) => {
   const { t } = useTranslation();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const [status, setStatus] = useState(tenant.status);
+  const statusDescriptions = {
+    active: t('Tenant can access the platform normally.'),
+    pending: t('Tenant is created but not fully active yet.'),
+    expired: t('Tenant access is blocked because the subscription ended.'),
+    cancelled: t('Tenant is cancelled and access will remain blocked.'),
+  };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[150] p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-sm">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-          <h3 className="text-lg font-bold text-gray-800 dark:text-white">
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/80 p-3 md:p-4 backdrop-blur-sm">
+      <div
+        className={`w-full max-w-4xl max-h-[84vh] overflow-y-auto rounded-2xl border shadow-2xl ${
+          isDark
+            ? 'border-slate-700/70 bg-slate-900 text-slate-100'
+            : 'border-slate-200 bg-white text-slate-900'
+        }`}
+      >
+        <div
+          className={`sticky top-0 z-10 flex items-center justify-between border-b p-4 ${
+            isDark ? 'border-slate-700 bg-slate-900' : 'border-gray-200 bg-white'
+          }`}
+        >
+          <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>
             {t('change_status', 'Change Status')}
           </h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className={`${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-gray-500 hover:text-gray-700'}`}
+          >
             <X size={20} />
           </button>
         </div>
-        <div className="p-6">
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            {t('change_status_desc', 'Select the new status for')} <span className="font-semibold text-gray-900 dark:text-white">{tenant.name}</span>
+        <div className="space-y-4 p-4 md:p-5">
+          <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
+            {t('change_status_desc', 'Select the new status for')} <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{tenant.name}</span>
           </p>
           <div className="space-y-2">
             {['active', 'pending', 'expired', 'cancelled'].map((s) => (
-              <label key={s} className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all ${status === s ? 'ring-2 ring-blue-500 border-transparent bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-                <input
-                  type="radio"
-                  name="status"
-                  value={s}
-                  checked={status === s}
-                  onChange={(e) => setStatus(e.target.value)}
-                  className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                />
-                <span className="ml-3 font-medium text-gray-900 dark:text-white capitalize">{t(s)}</span>
-                <span className="ml-auto">
-                   <StatusBadge status={s} />
-                </span>
-              </label>
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatus(s)}
+                className={`w-full rounded-xl border px-4 py-3 text-left transition-all ${
+                  status === s
+                    ? isDark
+                      ? 'border-blue-400/70 bg-blue-500/10 shadow-sm ring-1 ring-blue-400/60'
+                      : 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200'
+                    : isDark
+                      ? 'border-slate-700 bg-slate-800/80 hover:border-slate-500 hover:bg-slate-800'
+                      : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                      status === s
+                        ? 'border-blue-500 bg-blue-500'
+                        : isDark
+                          ? 'border-slate-500 bg-transparent'
+                          : 'border-slate-300 bg-white'
+                    }`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${status === s ? 'bg-white' : 'bg-transparent'}`} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className={`text-sm font-semibold capitalize ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {t(s)}
+                      </p>
+                      <span className="shrink-0">
+                        <StatusBadge status={s} />
+                      </span>
+                    </div>
+                    <p className={`mt-1 pr-2 text-xs leading-5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {statusDescriptions[s]}
+                    </p>
+                  </div>
+                </div>
+              </button>
             ))}
           </div>
-        </div>
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-2">
-          <button 
-            onClick={onClose}
-            className="px-4 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200"
-          >
-            {t('cancel', 'Cancel')}
-          </button>
-          <button 
-            onClick={() => onSave(status)}
-            className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700"
-          >
-            {t('save', 'Save')}
-          </button>
+          <div className="flex justify-end gap-3 border-t pt-4 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`rounded-md px-5 py-2.5 text-sm font-medium transition-colors ${
+                isDark
+                  ? 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {t('cancel', 'Cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(status)}
+              className="rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              {t('save', 'Save')}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
-const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
+const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantChanged }) => {
   const { t } = useTranslation();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [showEditConfirmPassword, setShowEditConfirmPassword] = useState(false);
+  const [contracts, setContracts] = useState([]);
+  const [contractsLoading, setContractsLoading] = useState(false);
+  const [contractSubmitting, setContractSubmitting] = useState(false);
   const domainSuffix = '.besouholacrm.net';
+  const fieldClass = 'h-10 w-full rounded-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500';
+  const sectionTitleClass = 'text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2';
   
   // Custom Modules State
   const [customModules, setCustomModules] = useState(
@@ -1790,7 +2142,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
       : []
   );
 
-  const { register, handleSubmit, watch, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
     defaultValues: {
       company_name: tenant.name,
       company_type: tenant.company_type || 'General',
@@ -1806,14 +2158,82 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
       end_date: toDateInputValue(tenant.end_date),
       plan: tenant.subscription_plan || 'basic',
       status: tenant.status,
-      is_lifetime: tenant.meta_data?.subscription?.is_lifetime || false
+      is_lifetime: tenant.meta_data?.subscription?.is_lifetime || false,
+      transaction_billing_cycle: tenant.current_contract?.billing_cycle || 'monthly',
+      transaction_currency: tenant.current_contract?.currency || '',
+      manual_contract_plan_code: tenant.current_contract?.plan_code || tenant.subscription_plan || 'basic',
+      manual_contract_currency: tenant.current_contract?.currency || 'EGP',
+      manual_contract_billing_cycle: tenant.current_contract?.billing_cycle || 'monthly',
+      manual_contract_amount: tenant.current_contract?.agreed_amount || '',
+      manual_contract_effective_from: toDateInputValue(tenant.current_contract?.effective_from || tenant.start_date),
+      manual_contract_notes: '',
     }
   });
+
+  useEffect(() => {
+    reset({
+      company_name: tenant.name,
+      company_type: tenant.company_type || 'General',
+      slug: tenant.slug || (tenant.domain ? tenant.domain.split('.')[0] : ''),
+      country: tenant.country,
+      city: tenant.city,
+      address_line_1: tenant.address_line_1,
+      state: tenant.state,
+      admin_name: tenant.admin_name || tenant.owner?.name || '',
+      admin_email: tenant.admin_email || tenant.owner?.email || '',
+      users_limit: tenant.users_limit,
+      start_date: toDateInputValue(tenant.start_date),
+      end_date: toDateInputValue(tenant.end_date),
+      plan: tenant.subscription_plan || 'basic',
+      status: tenant.status,
+      is_lifetime: tenant.meta_data?.subscription?.is_lifetime || false,
+      transaction_billing_cycle: tenant.current_contract?.billing_cycle || 'monthly',
+      transaction_currency: tenant.current_contract?.currency || '',
+      transaction_amount: '',
+      transaction_payment_method: '',
+      transaction_notes: '',
+      manual_contract_plan_code: tenant.current_contract?.plan_code || tenant.subscription_plan || 'basic',
+      manual_contract_currency: tenant.current_contract?.currency || 'EGP',
+      manual_contract_billing_cycle: tenant.current_contract?.billing_cycle || 'monthly',
+      manual_contract_amount: tenant.current_contract?.agreed_amount || '',
+      manual_contract_effective_from: toDateInputValue(tenant.current_contract?.effective_from || tenant.start_date),
+      manual_contract_notes: '',
+      password: '',
+      confirm_password: '',
+    });
+
+    setValue('admin_name', tenant.admin_name || tenant.owner?.name || '', { shouldDirty: false });
+    setValue('admin_email', tenant.admin_email || tenant.owner?.email || '', { shouldDirty: false });
+  }, [tenant, reset, setValue]);
 
   const selectedPlan = watch('plan');
   const selectedCompanyType = watch('company_type') || (tenant?.company_type || 'General');
   const isLifetime = watch('is_lifetime');
   const password = watch('password');
+  const selectedBillingCycle = watch('transaction_billing_cycle') || 'monthly';
+  const transactionAmount = watch('transaction_amount');
+  const transactionCurrency = watch('transaction_currency');
+  const manualContractPlanCode = watch('manual_contract_plan_code');
+  const manualContractBillingCycle = watch('manual_contract_billing_cycle') || 'monthly';
+  const manualContractAmount = watch('manual_contract_amount');
+  const manualContractCurrency = watch('manual_contract_currency');
+
+  const loadContracts = useCallback(async () => {
+    try {
+      setContractsLoading(true);
+      const response = await axios.get(`/api/super-admin/tenants/${tenant.id}/contracts`);
+      setContracts(Array.isArray(response.data?.contracts) ? response.data.contracts : []);
+    } catch (error) {
+      console.error('Failed to load contracts:', error);
+      toast.error(t('failed_load_contracts', 'Failed to load contract history'));
+    } finally {
+      setContractsLoading(false);
+    }
+  }, [tenant.id, t]);
+
+  useEffect(() => {
+    loadContracts();
+  }, [loadContracts]);
 
   const handleModuleToggle = (moduleId) => {
     setCustomModules(prev => 
@@ -1821,6 +2241,65 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
         ? prev.filter(id => id !== moduleId)
         : [...prev, moduleId]
     );
+  };
+
+  useEffect(() => {
+    const referencePrice = findReferencePlanPrice(planPrices, selectedPlan, selectedBillingCycle);
+    if (!referencePrice) return;
+
+    if (!transactionAmount) {
+      setValue('transaction_amount', String(referencePrice.list_price));
+    }
+
+    if (!transactionCurrency) {
+      setValue('transaction_currency', referencePrice.currency || 'EGP');
+    }
+  }, [planPrices, selectedPlan, selectedBillingCycle, setValue, transactionAmount, transactionCurrency]);
+
+  useEffect(() => {
+    const referencePrice = findReferencePlanPrice(planPrices, manualContractPlanCode, manualContractBillingCycle);
+    if (!referencePrice) return;
+
+    if (!manualContractAmount) {
+      setValue('manual_contract_amount', String(referencePrice.list_price));
+    }
+
+    if (!manualContractCurrency) {
+      setValue('manual_contract_currency', referencePrice.currency || 'EGP');
+    }
+  }, [planPrices, manualContractPlanCode, manualContractBillingCycle, setValue, manualContractAmount, manualContractCurrency]);
+
+  const handleCreateManualContract = async () => {
+    const payload = {
+      plan_code: manualContractPlanCode || selectedPlan || tenant.subscription_plan,
+      currency: manualContractCurrency || 'EGP',
+      billing_cycle: manualContractBillingCycle,
+      agreed_amount: Number(manualContractAmount || 0),
+      effective_from: watch('manual_contract_effective_from') || toDateInputValue(tenant.start_date),
+      notes: watch('manual_contract_notes') || undefined,
+    };
+
+    if (!payload.plan_code || !payload.currency || !payload.agreed_amount || !payload.effective_from) {
+      toast.error(t('Please complete the manual contract form first.'));
+      return;
+    }
+
+    try {
+      setContractSubmitting(true);
+      await axios.post(`/api/super-admin/tenants/${tenant.id}/contracts`, payload);
+      toast.success(t('Contract created successfully.'));
+      setValue('manual_contract_notes', '');
+      await loadContracts();
+      if (typeof onTenantChanged === 'function') {
+        onTenantChanged();
+      }
+    } catch (error) {
+      console.error('Failed to create contract:', error);
+      const message = error?.response?.data?.message || Object.values(error?.response?.data?.errors || {}).flat()[0];
+      toast.error(message || t('Failed to create contract.'));
+    } finally {
+      setContractSubmitting(false);
+    }
   };
 
   const onSubmit = async (data) => {
@@ -1861,34 +2340,59 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
         modules: data.plan === 'custom' ? finalModules : [],
       };
 
+      const transactionPayload = buildTransactionPayload(
+        data,
+        tenant.current_contract?.billing_cycle || 'monthly',
+      );
+      if (transactionPayload) {
+        payload.transaction = transactionPayload;
+      }
+
       if (data.password) {
         payload.admin_password = data.password;
       }
 
       await onSave(payload);
+      if (payload.transaction) {
+        toast.success(t('Contract & Pricing saved to the database.'));
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[150] p-4">
-      <div className="card rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800 z-10">
-          <h3 className="text-lg font-bold text-black">
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/80 p-3 md:p-4 backdrop-blur-sm">
+      <div
+        className={`w-full max-w-4xl max-h-[84vh] overflow-y-auto rounded-2xl border shadow-2xl ${
+          isDark
+            ? 'border-slate-700/70 bg-slate-900 text-slate-100'
+            : 'border-slate-200 bg-white text-slate-900'
+        }`}
+      >
+        <div
+          className={`sticky top-0 z-10 flex items-center justify-between border-b p-4 ${
+            isDark ? 'border-slate-700 bg-slate-900' : 'border-gray-200 bg-white'
+          }`}
+        >
+          <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>
             {t('edit_subscription', 'Edit Subscription')} - {tenant.name}
           </h3>
-          <button onClick={onClose} className="text-black hover:text-gray-700 dark:hover:text-gray-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className={`${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-gray-500 hover:text-gray-700'}`}
+          >
             <X size={20} />
           </button>
         </div>
         
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 p-4 md:p-5">
             {/* Company Details */}
             <h2 className="text-lg font-semibold mb-4 text-theme border-b pb-2">
               {t('company_details', 'Company Details')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('company_name', 'Company Name')} <span className="text-red-500">*</span>
@@ -1896,7 +2400,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="text"
                   {...register('company_name', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                   placeholder={t('enter_company_name', 'Enter Company Name')}
                 />
                 {errors.company_name && <span className="text-red-500 text-xs">{t('required', 'This field is required')}</span>}
@@ -1908,7 +2412,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 </label>
                 <select
                   {...register('company_type', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 text-theme focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 >
                   <option value="General">{t('General')}</option>
                   <option value="Real Estate">{t('Real Estate')}</option>
@@ -1927,10 +2431,10 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                       required: true,
                       pattern: /^[a-z0-9\-]+$/ 
                     })}
-                    className="flex-1 px-4 py-2 border rounded-l-md dark:bg-gray-700 dark:border-gray-600 text-theme focus:ring-blue-500 focus:border-blue-500"
+                    className="h-10 flex-1 rounded-l-md border px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                     placeholder="company-slug"
                   />
-                  <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 dark:bg-gray-600 dark:border-gray-600 text-black text-sm">
+                  <span className="inline-flex h-10 items-center rounded-r-md border border-l-0 border-gray-300 bg-gray-50 px-3 text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-600 dark:text-gray-300">
                     {domainSuffix}
                   </span>
                 </div>
@@ -1938,17 +2442,17 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
               </div>
             </div>
 
-            <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
+            <h2 className={sectionTitleClass}>
               {t('location_details', 'Location Details')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('country', 'Country')}
                 </label>
                 <select
                   {...register('country')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 >
                   <option value="">{t('select_country', 'Select Country')}</option>
                   {COUNTRIES.map(country => (
@@ -1965,7 +2469,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="text"
                   {...register('city')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 />
               </div>
 
@@ -1976,7 +2480,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="text"
                   {...register('address_line_1')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                   placeholder={t('enter_address', 'Enter street address')}
                 />
               </div>
@@ -1988,15 +2492,15 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="text"
                   {...register('state')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 />
               </div>
             </div>
 
-            <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
+            <h2 className={sectionTitleClass}>
               {t('admin_account', 'Admin Account')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('admin_name', 'Admin Name')} <span className="text-red-500">*</span>
@@ -2004,7 +2508,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="text"
                   {...register('admin_name', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 />
               </div>
 
@@ -2015,7 +2519,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="email"
                   {...register('admin_email', { required: true })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 />
               </div>
 
@@ -2027,14 +2531,16 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                   <input
                     type={showEditPassword ? 'text' : 'password'}
                     {...register('password', { minLength: 8 })}
-                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                    className="h-10 w-full rounded-md border px-3 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                     placeholder={t('leave_blank_to_keep', 'Leave blank to keep current')}
                   />
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setShowEditPassword((prev) => !prev)}
-                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    className="absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:text-gray-300 dark:hover:text-blue-400"
                     aria-label={showEditPassword ? t('Hide password') : t('Show password')}
+                    title={showEditPassword ? t('Hide password') : t('Show password')}
                   >
                     {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -2051,13 +2557,15 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                     {...register('password_confirmation', { 
                       validate: val => !password || val === password || t('passwords_mismatch', 'Passwords do not match')
                     })}
-                    className="w-full rounded-md border px-4 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                    className="h-10 w-full rounded-md border px-3 py-2 pr-11 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                   />
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setShowEditConfirmPassword((prev) => !prev)}
-                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+                    className="absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-center text-gray-400 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:text-gray-300 dark:hover:text-blue-400"
                     aria-label={showEditConfirmPassword ? t('Hide password') : t('Show password')}
+                    title={showEditConfirmPassword ? t('Hide password') : t('Show password')}
                   >
                     {showEditConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -2065,10 +2573,10 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
               </div>
             </div>
 
-            <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
+            <h2 className={sectionTitleClass}>
               {t('subscription_details', 'Subscription Details')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                <div>
                 <label className="block text-sm font-medium text-theme mb-1">
                   {t('number_of_users', 'Number of Users')}
@@ -2076,7 +2584,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="number"
                   {...register('users_limit', { min: 1 })}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 />
               </div>
               <div>
@@ -2086,7 +2594,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 <input
                   type="date"
                   {...register('start_date')}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                  className={fieldClass}
                 />
               </div>
               <div>
@@ -2097,7 +2605,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                   type="date"
                   {...register('end_date')}
                   disabled={isLifetime}
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className={`${fieldClass} disabled:cursor-not-allowed disabled:opacity-60`}
                 />
                 <div className="mt-2 flex items-center space-x-2">
                   <input
@@ -2111,6 +2619,183 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 </div>
               </div>
             </div>
+
+            <h2 className={sectionTitleClass}>
+              {t('contract_pricing', 'Contract & Pricing')}
+            </h2>
+            {tenant.current_contract && (
+              <div className={`rounded-2xl border p-4 ${isDark ? 'border-slate-700 bg-slate-900/50' : 'border-slate-200 bg-slate-50/80'}`}>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-[0.16em] text-theme">{t('plan', 'Plan')}</div>
+                    <div className="mt-1 text-sm font-semibold text-theme">{tenant.current_contract.plan_code || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-[0.16em] text-theme">{t('amount', 'Amount')}</div>
+                    <div className="mt-1 text-sm font-semibold text-theme">
+                      {tenant.current_contract.agreed_amount != null
+                        ? `${tenant.current_contract.agreed_amount} ${tenant.current_contract.currency || ''}`.trim()
+                        : '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-[0.16em] text-theme">{t('billing_cycle', 'Billing Cycle')}</div>
+                    <div className="mt-1 text-sm font-semibold text-theme">{tenant.current_contract.billing_cycle || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-[0.16em] text-theme">{t('effective_from', 'Effective From')}</div>
+                    <div className="mt-1 text-sm font-semibold text-theme">{tenant.current_contract.effective_from ? formatDateOnly(tenant.current_contract.effective_from) : '-'}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className={`rounded-2xl border p-4 ${isDark ? 'border-slate-700 bg-slate-900/50' : 'border-slate-200 bg-slate-50/80'}`}>
+              <p className={`mb-4 text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                {t('record_payment_edit_help', 'Optional: record a payment for this change. When provided, a new contract version is created automatically.')}
+              </p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('amount', 'Amount')}
+                  </label>
+                  <input type="number" step="0.01" {...register('transaction_amount')} className={fieldClass} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('currency', 'Currency')}
+                  </label>
+                  <input type="text" maxLength={3} placeholder="EGP" {...register('transaction_currency')} className={`${fieldClass} uppercase`} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('billing_cycle', 'Billing Cycle')}
+                  </label>
+                  <select {...register('transaction_billing_cycle')} className={fieldClass} defaultValue={tenant.current_contract?.billing_cycle || 'monthly'}>
+                    <option value="monthly">{t('monthly', 'Monthly')}</option>
+                    <option value="yearly">{t('yearly', 'Yearly')}</option>
+                    <option value="lifetime">{t('lifetime', 'Lifetime')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">
+                    {t('payment_method', 'Payment Method')}
+                  </label>
+                  <select {...register('transaction_payment_method')} className={fieldClass}>
+                    <option value="">{t('select', 'Select')}</option>
+                    <option value="bank_transfer">{t('bank_transfer', 'Bank Transfer')}</option>
+                    <option value="instapay">{t('instapay', 'InstaPay')}</option>
+                    <option value="cash">{t('cash', 'Cash')}</option>
+                    <option value="card">{t('card', 'Card')}</option>
+                    <option value="gateway">{t('gateway', 'Gateway')}</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-theme mb-1">
+                  {t('notes', 'Notes')}
+                </label>
+                <textarea rows={3} {...register('transaction_notes')} className={fieldClass.replace('h-10 ', '')} />
+              </div>
+            </div>
+
+            <div className={`rounded-2xl border p-4 ${isDark ? 'border-slate-700 bg-slate-900/50' : 'border-slate-200 bg-slate-50/80'}`}>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-theme">{t('manual_contract', 'Create Contract Without Payment')}</h3>
+                  <p className={`mt-1 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {t('Use this when you want to update the negotiated contract without recording a transaction.')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCreateManualContract}
+                  disabled={contractSubmitting}
+                  className={`rounded-md bg-emerald-600 px-4 py-2 text-sm text-white ${contractSubmitting ? 'cursor-not-allowed opacity-60' : 'hover:bg-emerald-700'}`}
+                >
+                  {contractSubmitting ? t('saving', 'Saving...') : t('Create Contract')}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">{t('plan', 'Plan')}</label>
+                  <select {...register('manual_contract_plan_code')} className={fieldClass}>
+                    {plans.map((plan) => (
+                      <option key={plan.code} value={plan.code}>{t(plan.name)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">{t('currency', 'Currency')}</label>
+                  <input type="text" maxLength={3} {...register('manual_contract_currency')} className={`${fieldClass} uppercase`} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">{t('billing_cycle', 'Billing Cycle')}</label>
+                  <select {...register('manual_contract_billing_cycle')} className={fieldClass}>
+                    <option value="monthly">{t('monthly', 'Monthly')}</option>
+                    <option value="yearly">{t('yearly', 'Yearly')}</option>
+                    <option value="lifetime">{t('lifetime', 'Lifetime')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">{t('amount', 'Amount')}</label>
+                  <input type="number" step="0.01" {...register('manual_contract_amount')} className={fieldClass} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-theme mb-1">{t('effective_from', 'Effective From')}</label>
+                  <input type="date" {...register('manual_contract_effective_from')} className={fieldClass} />
+                </div>
+                <div className="md:col-span-2 xl:col-span-3">
+                  <label className="block text-sm font-medium text-theme mb-1">{t('notes', 'Notes')}</label>
+                  <textarea rows={3} {...register('manual_contract_notes')} className={fieldClass.replace('h-10 ', '')} />
+                </div>
+              </div>
+            </div>
+
+            <div className={`rounded-2xl border p-4 ${isDark ? 'border-slate-700 bg-slate-900/50' : 'border-slate-200 bg-slate-50/80'}`}>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-theme">{t('contract_history', 'Contract History')}</h3>
+                <button type="button" onClick={loadContracts} className={`text-xs font-medium ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>
+                  {t('Refresh')}
+                </button>
+              </div>
+              {contractsLoading ? (
+                <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('Loading...')}</p>
+              ) : contracts.length === 0 ? (
+                <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t('No contracts found yet.')}</p>
+              ) : (
+                <div className="space-y-3">
+                  {contracts.map((contract) => (
+                    <div key={contract.id} className={`rounded-xl border p-3 ${isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-white'}`}>
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-theme">{t('plan', 'Plan')}</div>
+                          <div className="mt-1 text-sm font-semibold text-theme">{contract.plan_code}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-theme">{t('amount', 'Amount')}</div>
+                          <div className="mt-1 text-sm font-semibold text-theme">{contract.agreed_amount} {contract.currency}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-theme">{t('cycle', 'Cycle')}</div>
+                          <div className="mt-1 text-sm font-semibold text-theme">{contract.billing_cycle}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-theme">{t('from', 'From')}</div>
+                          <div className="mt-1 text-sm font-semibold text-theme">{contract.effective_from ? formatDateOnly(contract.effective_from) : '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-theme">{t('to', 'To')}</div>
+                          <div className="mt-1 text-sm font-semibold text-theme">{contract.effective_to ? formatDateOnly(contract.effective_to) : t('Active')}</div>
+                        </div>
+                      </div>
+                      {contract.notes && (
+                        <p className={`mt-3 text-xs leading-5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{contract.notes}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             
              <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2118,7 +2803,7 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 </label>
                 <select 
                   {...register('status')}
-                  className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  className={fieldClass}
                 >
                   <option value="active">{t('active', 'Active')}</option>
                   <option value="pending">{t('pending', 'Pending')}</option>
@@ -2127,17 +2812,38 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                 </select>
             </div>
 
-            <h2 className="text-lg font-semibold mb-4 mt-6 text-theme border-b pb-2">
+            <h2 className={sectionTitleClass}>
               {t('select_plan', 'Select Plan')}
             </h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {plans.map((plan) => (
+              {plans.map((plan) => {
+                const isSelected = selectedPlan === plan.code;
+                const titleClass = isSelected
+                  ? isDark
+                    ? 'text-white'
+                    : 'text-slate-900'
+                  : isDark
+                    ? 'text-slate-100'
+                    : 'text-slate-900';
+                const bodyClass = isSelected
+                  ? isDark
+                    ? 'text-slate-200'
+                    : 'text-slate-700'
+                  : isDark
+                    ? 'text-slate-300'
+                    : 'text-slate-500';
+
+                return (
                 <label
                   key={plan.id}
                   className={`relative flex flex-col rounded-lg border p-4 cursor-pointer transition-all duration-200 ${
-                    selectedPlan === plan.code
-                      ? 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200 dark:border-transparent dark:bg-blue-900/20 dark:ring-2 dark:ring-blue-500'
-                      : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm dark:border-gray-700 dark:bg-transparent dark:hover:bg-gray-700'
+                    isSelected
+                      ? isDark
+                        ? 'border-blue-400/70 bg-blue-500/10 shadow-sm ring-1 ring-blue-400/60'
+                        : 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200'
+                      : isDark
+                        ? 'border-slate-700 bg-slate-800/80 hover:border-slate-500 hover:bg-slate-800'
+                        : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm'
                   }`}
                 >
                   <div className="flex items-center mb-2">
@@ -2147,11 +2853,11 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                       {...register('plan')}
                       className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                     />
-                    <span className="ml-3 font-bold text-theme">
+                    <span className={`ml-3 font-bold ${titleClass}`}>
                       {t(plan.name)}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 ml-7">
+                  <p className={`ml-7 text-xs ${bodyClass}`}>
                     {(() => {
                       const base = getPlanModulesForCompany(plan, selectedCompanyType)
                       if (base.length === 0) return t('Flexible Selection')
@@ -2164,7 +2870,8 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
                     })()}
                   </p>
                 </label>
-              ))}
+                );
+              })}
             </div>
 
             {selectedPlan === 'custom' && (
@@ -2199,25 +2906,26 @@ const EditTenantModal = ({ tenant, plans, onClose, onSave }) => {
               </div>
             )}
 
-            <div className="flex justify-end pt-4 space-x-2">
+            <div className="flex justify-end space-x-2 pt-4">
               <button 
                 type="button" 
                 onClick={onClose}
-                className="px-4 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200"
+                className="rounded-md bg-gray-100 px-4 py-2 text-gray-600 hover:bg-gray-200"
               >
                 {t('cancel', 'Cancel')}
               </button>
               <button 
                 type="submit"
                 disabled={isSubmitting}
-                className={`px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 ${isSubmitting ? 'cursor-not-allowed opacity-50' : ''}`}
               >
                 {isSubmitting ? t('saving', 'Saving...') : t('save_changes', 'Save Changes')}
               </button>
             </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

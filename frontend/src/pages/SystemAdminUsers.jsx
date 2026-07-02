@@ -1395,47 +1395,47 @@ export default function SystemAdminUsers() {
                     {t('No system roles available yet.')}
                   </div>
                 ) : (
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {roles.map((role, index) => (
-                      <div key={role.id} className={`rounded-[20px] border bg-gradient-to-br p-4 ${gradientTone(index, isDark)}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className={`text-xs uppercase tracking-[0.28em] ${mutedTextClass}`}>{t('System Role')}</p>
-                            <h3 className={`mt-2 text-base font-semibold ${headingClass}`}>{role.name}</h3>
+                      <div key={role.id} className={`rounded-[18px] border bg-gradient-to-br p-3.5 ${gradientTone(index, isDark)}`}>
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="min-w-0">
+                            <p className={`text-[11px] uppercase tracking-[0.24em] ${mutedTextClass}`}>{t('System Role')}</p>
+                            <h3 className={`mt-1.5 truncate text-sm font-semibold ${headingClass}`}>{role.name}</h3>
                           </div>
-                          <div className={`flex h-10 w-10 items-center justify-center rounded-xl border ${
+                          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
                             isDark ? 'border-white/10 bg-white/5 text-slate-200' : 'border-slate-200/80 bg-white/80 text-slate-700'
                           }`}>
-                            <ShieldCheck size={18} />
+                            <ShieldCheck size={16} />
                           </div>
                         </div>
 
-                        <div className={`mt-4 rounded-[18px] border px-3 py-3 ${
-                          isDark ? 'border-slate-800 bg-slate-950/55' : 'border-slate-200 bg-white/70'
+                        <div className={`mt-3 flex items-center justify-between rounded-2xl border px-3 py-2.5 ${
+                          isDark ? 'border-slate-800 bg-slate-950/45' : 'border-slate-200 bg-white/75'
                         }`}>
-                          <p className={`text-xs uppercase tracking-[0.24em] ${mutedTextClass}`}>{t('Assigned Users')}</p>
-                          <div className={`mt-2 text-2xl font-bold ${headingClass}`}>{role.users_count || 0}</div>
+                          <p className={`text-[11px] uppercase tracking-[0.2em] ${mutedTextClass}`}>{t('Assigned Users')}</p>
+                          <div className={`text-lg font-bold ${headingClass}`}>{role.users_count || 0}</div>
                         </div>
 
-                        <div className="mt-4 flex items-center gap-2">
+                        <div className="mt-3 flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => openEditRole(role)}
-                            className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                            className={`inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-medium transition ${
                               isDark ? 'border-slate-700 text-slate-200 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                             }`}
                           >
-                            <Pencil size={16} />
+                            <Pencil size={14} />
                             {t('Edit')}
                           </button>
                           <button
                             type="button"
                             onClick={() => askDeleteRole(role)}
-                            className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                            className={`inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-medium transition ${
                               isDark ? 'border-rose-500/20 text-rose-300 hover:bg-rose-500/10' : 'border-rose-200 text-rose-600 hover:bg-rose-50'
                             }`}
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={14} />
                             {t('Delete')}
                           </button>
                         </div>

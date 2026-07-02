@@ -9,6 +9,7 @@ class SystemError extends Model
 {
     protected $fillable = [
         'tenant_id',
+        'fingerprint',
         'service',
         'endpoint',
         'status',
@@ -17,10 +18,12 @@ class SystemError extends Model
         'message',
         'stack_trace',
         'last_seen_at',
+        'resolved_at',
     ];
 
     protected $casts = [
         'last_seen_at' => 'datetime',
+        'resolved_at' => 'datetime',
     ];
 
     public function tenant(): BelongsTo
