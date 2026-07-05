@@ -26,21 +26,38 @@ export default function WhatsAppMirrorConnection() {
   const { resolvedTheme, theme } = useTheme()
   const isLight = (resolvedTheme || theme) === 'light'
   const isArabic = String(i18n.language || '').startsWith('ar')
+
   const [status, setStatus] = useState('disconnected')
   const [qrCode, setQrCode] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
+
+  const [activeDirectory, setActiveDirectory] = useState('unassigned')
   const [contacts, setContacts] = useState([])
   const [contactsMeta, setContactsMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [contactStatus, setContactStatus] = useState('pending')
   const [search, setSearch] = useState('')
+
+  const [groupContacts, setGroupContacts] = useState([])
+  const [groupContactsMeta, setGroupContactsMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
+  const [loadingGroupContacts, setLoadingGroupContacts] = useState(false)
+  const [groupContactStatus, setGroupContactStatus] = useState('pending')
+  const [groupSearch, setGroupSearch] = useState('')
+  const [syncingGroupContacts, setSyncingGroupContacts] = useState(false)
+  const [adminGroups, setAdminGroups] = useState([])
+  const [loadingAdminGroups, setLoadingAdminGroups] = useState(false)
+  const [openGroupDropdownFor, setOpenGroupDropdownFor] = useState(null)
+  const [addingToGroup, setAddingToGroup] = useState(false)
+
   const [showConvertModal, setShowConvertModal] = useState(false)
   const [selectedContact, setSelectedContact] = useState(null)
+  const [selectedContactSource, setSelectedContactSource] = useState('unassigned')
   const [convertForm, setConvertForm] = useState(DEFAULT_CONVERT_FORM)
   const [submittingConvert, setSubmittingConvert] = useState(false)
   const [inventoryOptions, setInventoryOptions] = useState([])
   const [loadingInventoryOptions, setLoadingInventoryOptions] = useState(false)
+
   const pollingInterval = useRef(null)
   const searchTimer = useRef(null)
 
@@ -48,7 +65,6 @@ export default function WhatsAppMirrorConnection() {
   const usesProjects = companyType === 'real estate'
   const inventoryLabel = usesProjects ? (isArabic ? 'المشروع' : 'Project') : (isArabic ? 'العنصر' : 'Item')
   const defaultCountry = crmSettings?.defaultCountryCode || ''
-
   const selectedInventoryValue = usesProjects ? convertForm.project_id : convertForm.item_id
 
   const connectionCardClass = isLight
@@ -96,22 +112,33 @@ export default function WhatsAppMirrorConnection() {
   useEffect(() => {
     checkStatus()
     fetchContacts(1, 'pending', '')
+    fetchGroupContacts(1, 'pending', '')
+
     return () => {
       stopPolling()
       clearTimeout(searchTimer.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    // When mirror becomes connected, prefetch admin groups for Add dropdown
+    if (status === 'connected') {
+      fetchAdminGroups().catch((err) => console.error('Error prefetching admin groups', err))
+    }
+  }, [status])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)
     searchTimer.current = setTimeout(() => {
-      fetchContacts(1, contactStatus, search)
+      if (activeDirectory === 'groups') {
+        fetchGroupContacts(1, groupContactStatus, groupSearch)
+      } else {
+        fetchContacts(1, contactStatus, search)
+      }
     }, 250)
 
     return () => clearTimeout(searchTimer.current)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contactStatus, search])
+  }, [activeDirectory, contactStatus, search, groupContactStatus, groupSearch])
 
   useEffect(() => {
     if (!showConvertModal) return undefined
@@ -181,6 +208,64 @@ export default function WhatsAppMirrorConnection() {
     }
   }
 
+  const fetchGroupContacts = async (page = 1, nextStatus = groupContactStatus, nextSearch = groupSearch) => {
+    setLoadingGroupContacts(true)
+    try {
+      const data = await whatsappMirrorService.getGroupContacts({
+        page,
+        status: nextStatus,
+        search: nextSearch,
+        per_page: 20,
+      })
+      setGroupContacts(Array.isArray(data?.data) ? data.data : [])
+      setGroupContactsMeta({
+        current_page: data?.current_page || 1,
+        last_page: data?.last_page || 1,
+        total: data?.total || 0,
+      })
+    } catch (error) {
+      console.error('Error fetching WhatsApp group contacts:', error)
+      setGroupContacts([])
+      setGroupContactsMeta({ current_page: 1, last_page: 1, total: 0 })
+    } finally {
+      setLoadingGroupContacts(false)
+    }
+  }
+
+  const fetchAdminGroups = async (force = false) => {
+    if (adminGroups.length > 0 && !force) return adminGroups
+    setLoadingAdminGroups(true)
+    try {
+      const data = await whatsappMirrorService.getAdminGroups()
+      let list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : [])
+
+      // Fallback: if API returns empty array, try to infer groups from group contacts
+      if ((!list || list.length === 0) && status === 'connected') {
+        try {
+          const gc = await whatsappMirrorService.getGroupContacts({ per_page: 200 })
+          const contactsList = Array.isArray(gc?.data) ? gc.data : (Array.isArray(gc) ? gc : [])
+          const groupsMap = {}
+          contactsList.forEach((c) => {
+            const name = c.group_name || c.subject || null
+            if (name) groupsMap[name] = { id: c.group_id || c.group_jid || name, name, inferred: true }
+          })
+          list = Object.values(groupsMap)
+        } catch (innerErr) {
+          console.error('Fallback: failed to infer groups from group contacts', innerErr)
+        }
+      }
+
+      setAdminGroups(list || [])
+      return list || []
+    } catch (error) {
+      console.error('Error fetching admin groups:', error)
+      setAdminGroups([])
+      return []
+    } finally {
+      setLoadingAdminGroups(false)
+    }
+  }
+
   const fetchInventoryOptions = async () => {
     setLoadingInventoryOptions(true)
     try {
@@ -244,12 +329,37 @@ export default function WhatsAppMirrorConnection() {
     }
   }
 
-  const openConvertModal = async (contact) => {
+  const handleSyncGroupContacts = async () => {
+    setSyncingGroupContacts(true)
+    try {
+      const data = await whatsappMirrorService.syncGroupContacts()
+      const summary = data?.summary || {}
+      emitToast(
+        'success',
+        isArabic
+          ? `تمت مزامنة ${summary.received || 0} عضو من ${summary.groups || 0} جروب`
+          : `Synced ${summary.received || 0} members from ${summary.groups || 0} groups`
+      )
+      fetchGroupContacts(1, groupContactStatus, groupSearch)
+    } catch (error) {
+      const message = error?.response?.data?.message || (isArabic ? 'فشل سحب أعضاء الجروبات' : 'Failed to sync group contacts')
+      emitToast('error', message)
+    } finally {
+      setSyncingGroupContacts(false)
+    }
+  }
+
+  const openConvertModal = async (contact, source = 'unassigned') => {
     setSelectedContact(contact)
+    setSelectedContactSource(source)
     setConvertForm({
       ...DEFAULT_CONVERT_FORM,
       name: contact?.push_name || '',
-      notes: contact?.last_message_body || '',
+      notes: source === 'groups'
+        ? (contact?.group_name
+          ? (isArabic ? `تم استيراده من جروب واتساب: ${contact.group_name}` : `Imported from WhatsApp group: ${contact.group_name}`)
+          : (isArabic ? 'تم استيراده من أعضاء جروبات واتساب.' : 'Imported from WhatsApp group members.'))
+        : (contact?.last_message_body || ''),
       country: defaultCountry,
     })
     setShowConvertModal(true)
@@ -259,6 +369,7 @@ export default function WhatsAppMirrorConnection() {
   const closeConvertModal = () => {
     setShowConvertModal(false)
     setSelectedContact(null)
+    setSelectedContactSource('unassigned')
     setConvertForm(DEFAULT_CONVERT_FORM)
     setInventoryOptions([])
   }
@@ -276,10 +387,20 @@ export default function WhatsAppMirrorConnection() {
         phone_country: defaultCountry || undefined,
       }
 
-      await whatsappMirrorService.convertToLead(selectedContact.id, payload)
+      if (selectedContactSource === 'groups') {
+        await whatsappMirrorService.convertGroupContactToLead(selectedContact.id, payload)
+      } else {
+        await whatsappMirrorService.convertToLead(selectedContact.id, payload)
+      }
+
       emitToast('success', isArabic ? 'تم تحويل الرقم إلى ليد بنجاح' : 'Contact converted to lead')
       closeConvertModal()
-      fetchContacts(1, contactStatus, search)
+
+      if (selectedContactSource === 'groups') {
+        fetchGroupContacts(1, groupContactStatus, groupSearch)
+      } else {
+        fetchContacts(1, contactStatus, search)
+      }
     } catch (error) {
       const message = error?.response?.data?.message || (isArabic ? 'فشل تحويل الرقم إلى ليد' : 'Failed to convert contact to lead')
       emitToast('error', message)
@@ -287,6 +408,250 @@ export default function WhatsAppMirrorConnection() {
       setSubmittingConvert(false)
     }
   }
+
+  const currentStatus = activeDirectory === 'groups' ? groupContactStatus : contactStatus
+  const currentSearch = activeDirectory === 'groups' ? groupSearch : search
+  const currentMeta = activeDirectory === 'groups' ? groupContactsMeta : contactsMeta
+  const currentItems = activeDirectory === 'groups' ? groupContacts : contacts
+  const currentLoading = activeDirectory === 'groups' ? loadingGroupContacts : loadingContacts
+
+  const renderTabButton = (value, label) => (
+    <button
+      key={value}
+      type="button"
+      onClick={() => setActiveDirectory(value)}
+      role="tab"
+      aria-selected={activeDirectory === value}
+      className={`px-4 pb-2 pt-1 text-sm font-medium transition ${
+        activeDirectory === value
+          ? 'border-b-2 border-blue-600 text-blue-600'
+          : isLight
+            ? 'border-b-2 border-transparent text-gray-600 hover:text-gray-800'
+            : 'border-b-2 border-transparent text-slate-300 hover:text-slate-100'
+      }`}
+    >
+      {label}
+    </button>
+  )
+
+  const renderStatusSwitch = (value, setter) => (
+    <div className="flex rounded-xl border overflow-hidden border-gray-200 dark:border-slate-700">
+      {['pending', 'converted'].map((item) => (
+        <button
+          key={item}
+          type="button"
+          onClick={() => setter(item)}
+          aria-pressed={value === item}
+          className={`px-4 py-2 text-sm font-medium transition ${
+            value === item
+              ? 'bg-blue-600 text-white'
+              : isLight
+                ? 'bg-white text-gray-700 hover:bg-gray-50'
+                : 'bg-slate-950 text-slate-300 hover:bg-slate-900'
+          }`}
+        >
+          {item === 'pending'
+            ? (isArabic ? 'معلق' : 'Pending')
+            : (isArabic ? 'تم التحويل' : 'Converted')}
+        </button>
+      ))}
+    </div>
+  )
+
+  const renderUnassignedTable = () => (
+    <>
+      <div className={`grid grid-cols-12 gap-3 px-4 py-3 text-xs font-semibold uppercase tracking-[0.24em] ${
+        isLight ? 'bg-gray-50 text-gray-500' : 'bg-slate-950 text-slate-400'
+      }`}>
+        <div className="col-span-3">{isArabic ? 'الاسم' : 'Name'}</div>
+        <div className="col-span-2">{isArabic ? 'الرقم' : 'Phone'}</div>
+        <div className="col-span-4">{isArabic ? 'آخر رسالة' : 'Last message'}</div>
+        <div className="col-span-1">{isArabic ? 'العدد' : 'Count'}</div>
+        <div className="col-span-2">{isArabic ? 'إجراء' : 'Action'}</div>
+      </div>
+
+      {currentLoading ? (
+        <div className={`px-4 py-8 text-sm ${mutedTextClass}`}>{isArabic ? 'جاري تحميل الأرقام...' : 'Loading contacts...'}</div>
+      ) : currentItems.length === 0 ? (
+        <div className={`px-4 py-8 text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد أرقام في هذه الحالة.' : 'No contacts found for this status.'}</div>
+      ) : (
+        currentItems.map((contact) => (
+          <div
+            key={contact.id}
+            className={`grid grid-cols-12 gap-3 px-4 py-4 text-sm ${
+              isLight ? 'border-t border-gray-100 bg-white text-gray-800' : 'border-t border-slate-800 bg-slate-950/30 text-slate-100'
+            }`}
+          >
+            <div className="col-span-3 min-w-0">
+              <div className="font-semibold truncate">{contact.push_name || (isArabic ? 'بدون اسم' : 'No name')}</div>
+              {contact.status !== 'converted' && (
+                <div className={`mt-1 text-xs ${mutedTextClass}`}>{isArabic ? 'بانتظار التحويل' : 'Awaiting conversion'}</div>
+              )}
+            </div>
+            <div className="col-span-2 break-all">{contact.phone}</div>
+            <div className="col-span-4 min-w-0">
+              <div className="truncate">{contact.last_message_body || (isArabic ? 'لا توجد معاينة' : 'No preview')}</div>
+              <div className={`mt-1 text-xs ${mutedTextClass}`}>
+                {contact.last_message_at ? new Date(contact.last_message_at).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : '-'}
+              </div>
+            </div>
+            <div className="col-span-1">{contact.messages_count || 0}</div>
+            <div className="col-span-2">
+              {contact.status === 'converted' ? (
+                <div className={`text-xs ${mutedTextClass}`}>
+                  {contact.converted_lead?.name || (isArabic ? 'تم الربط بليد' : 'Linked to lead')}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={`convert-unassigned-${contact.id}`}
+                  onClick={() => openConvertModal(contact, 'unassigned')}
+                  className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                >
+                  {isArabic ? 'تحويل' : 'Convert'}
+                </button>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </>
+  )
+
+  const renderGroupContactsTable = () => (
+    <>
+      <div className={`grid grid-cols-12 gap-3 px-4 py-3 text-xs font-semibold uppercase tracking-[0.24em] ${
+        isLight ? 'bg-gray-50 text-gray-500' : 'bg-slate-950 text-slate-400'
+      }`}>
+        <div className="col-span-3">{isArabic ? 'الاسم' : 'Name'}</div>
+        <div className="col-span-2">{isArabic ? 'الرقم' : 'Phone'}</div>
+        <div className="col-span-4">{isArabic ? 'الجروب' : 'Group'}</div>
+        <div className="col-span-1">{isArabic ? 'آخر مزامنة' : 'Synced'}</div>
+        <div className="col-span-2">{isArabic ? 'إجراء' : 'Action'}</div>
+      </div>
+
+      {currentLoading ? (
+        <div className={`px-4 py-8 text-sm ${mutedTextClass}`}>{isArabic ? 'جاري تحميل أعضاء الجروبات...' : 'Loading group contacts...'}</div>
+      ) : currentItems.length === 0 ? (
+        <div className={`px-4 py-8 text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد بيانات جروبات حتى الآن.' : 'No group contacts found yet.'}</div>
+      ) : (
+        currentItems.map((contact) => (
+          <div
+            key={contact.id}
+            className={`grid grid-cols-12 gap-3 px-4 py-4 text-sm ${
+              isLight ? 'border-t border-gray-100 bg-white text-gray-800' : 'border-t border-slate-800 bg-slate-950/30 text-slate-100'
+            }`}
+          >
+            <div className="col-span-3 min-w-0">
+              <div className="font-semibold truncate">{contact.push_name || (isArabic ? 'بدون اسم' : 'No name')}</div>
+              {contact.status !== 'converted' && (
+                <div className={`mt-1 text-xs ${mutedTextClass}`}>{isArabic ? 'عضو جروب قابل للتحويل' : 'Group member ready for conversion'}</div>
+              )}
+            </div>
+            <div className="col-span-2 break-all">{contact.phone}</div>
+            <div className="col-span-4 min-w-0">
+              <div className="truncate font-medium">{contact.group_name || (isArabic ? 'جروب بدون اسم' : 'Unnamed group')}</div>
+              <div className={`mt-1 text-xs ${mutedTextClass}`}>{contact.participant_jid || '-'}</div>
+            </div>
+            <div className="col-span-1 text-xs">
+              {contact.last_synced_at ? new Date(contact.last_synced_at).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US') : '-'}
+            </div>
+            <div className="col-span-2 relative">
+              {contact.status === 'converted' ? (
+                <div className={`text-xs ${mutedTextClass}`}>
+                  {contact.converted_lead?.name || (isArabic ? 'تم الربط بليد' : 'Linked to lead')}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={`convert-groups-${contact.id}`}
+                    onClick={() => openConvertModal(contact, 'groups')}
+                    className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                  >
+                    {isArabic ? 'تحويل' : 'Convert'}
+                  </button>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (status !== 'connected') {
+                          emitToast('error', isArabic ? 'يرجى ربط الجهاز أولاً لتحميل الجروبات' : 'Please connect the mirror to load groups')
+                          return
+                        }
+                        if (openGroupDropdownFor === contact.id) {
+                          setOpenGroupDropdownFor(null)
+                          return
+                        }
+                        await fetchAdminGroups()
+                        setOpenGroupDropdownFor(contact.id)
+                      }}
+                      disabled={status !== 'connected'}
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${status !== 'connected' ? 'opacity-50 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      {isArabic ? 'إضافة' : 'Add'}
+                    </button>
+
+                    {openGroupDropdownFor === contact.id && (
+                      <div className={`absolute right-0 mt-2 w-64 rounded-lg shadow-lg z-20 ${isLight ? 'bg-white border' : 'bg-slate-900 border-slate-700'}`}>
+                        <div className="p-2">
+                          <div className="flex items-center justify-between px-2 pb-2">
+                            <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'اختر جروب للإضافة' : 'Select a group to add'}</div>
+                            <button
+                              type="button"
+                              onClick={() => fetchAdminGroups(true)}
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              {isArabic ? 'إعادة تحميل' : 'Reload'}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="max-h-48 overflow-auto">
+                          {loadingAdminGroups ? (
+                            <div className={`p-3 text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
+                          ) : adminGroups.length === 0 ? (
+                            <div className={`p-3 text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد جروبات متاحة' : 'No groups available'}</div>
+                          ) : (
+                            adminGroups.map((g) => (
+                              <button
+                                key={g.id}
+                                type="button"
+                                onClick={async () => {
+                                  setAddingToGroup(true)
+                                  try {
+                                    await whatsappMirrorService.addContactToGroup(contact.id, g.id)
+                                    emitToast('success', isArabic ? 'تمت الإضافة للجروب' : 'Added to group')
+                                    setOpenGroupDropdownFor(null)
+                                    fetchGroupContacts(1, groupContactStatus, groupSearch)
+                                  } catch (err) {
+                                    const msg = err?.response?.data?.message || (isArabic ? 'فشل الإضافة' : 'Failed to add to group')
+                                    emitToast('error', msg)
+                                  } finally {
+                                    setAddingToGroup(false)
+                                  }
+                                }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${isLight ? 'text-gray-800' : 'text-slate-200 hover:bg-slate-800'}`}
+                              >
+                                {(() => {
+                                  const label = g.name || g.subject || `#${g.id}`
+                                  return g.inferred ? `${label} ${isArabic ? '(مستنتج)' : '(inferred)'}` : label
+                                })()}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </>
+  )
 
   return (
     <div className="space-y-6">
@@ -297,7 +662,9 @@ export default function WhatsAppMirrorConnection() {
               {isArabic ? 'واتساب ميرور (ربط مباشر)' : t('WhatsApp Mirror (Direct Link)')}
             </h3>
             <p className={`text-sm ${mutedTextClass}`}>
-              {isArabic ? 'اربط رقمك الشخصي عبر مسح رمز QR لتفعيل مزامنة واتساب المباشرة.' : t('Link your personal number by scanning a QR for direct WhatsApp mirroring.')}
+              {isArabic
+                ? 'اربط رقمك الشخصي عبر مسح رمز QR لتفعيل مزامنة واتساب المباشرة.'
+                : t('Link your personal number by scanning a QR for direct WhatsApp mirroring.')}
             </p>
           </div>
 
@@ -341,114 +708,97 @@ export default function WhatsAppMirrorConnection() {
       </div>
 
       <div className={`${connectionCardClass} p-6`}>
-        <div className="flex  gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h4 className={`text-lg font-semibold ${titleTextClass}`}>{isArabic ? 'أرقام واتساب غير المحولة' : 'Unassigned WhatsApp Contacts'}</h4>
-            <p className={`text-sm ${mutedTextClass}`}>{isArabic ? 'أي رقم لا يطابق ليد حاليًا سيظهر هنا مع الاسم القادم من واتساب.' : 'Numbers that do not match an existing lead appear here with their WhatsApp display name.'}</p>
+        <div className="flex  gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex  gap-1">
+              <h4 className={`text-lg font-semibold ${titleTextClass}`}>{isArabic ? 'جهات واتساب' : 'WhatsApp Contacts'}</h4>
+              <p className={`text-sm ${mutedTextClass}`}>
+                {activeDirectory === 'groups'
+                  ? (isArabic
+                    ? 'اعرض أعضاء الجروبات المستوردة من الرقم المربوط، وقم بتحويلهم يدوياً.'
+                    : 'Showing group members pulled from the linked number. Convert them manually to leads.')
+                  : (isArabic
+                    ? 'الأرقام التي لم تُطابق ليد موجود ستظهر هنا مع الاسم القادم من واتساب.'
+                    : 'Contacts not matched to existing leads appear here with their WhatsApp display name.')}
+              </p>
+            </div>
+
+            <div role="tablist" aria-label={isArabic ? 'التبويبات' : 'Tabs'} className="flex items-end gap-4 border-b pb-0" >
+              {renderTabButton('unassigned', isArabic ? 'أرقام غير محولة' : 'Unassigned')}
+              {renderTabButton('groups', isArabic ? 'أعضاء الجروبات' : 'Group Contacts')}
+            </div>
           </div>
 
-          <div className="flex flex-col gap-3 md:flex-row md:items-center">
-            <div className="flex rounded-xl border overflow-hidden border-gray-200 dark:border-slate-700">
-              {['pending', 'converted'].map((value) => (
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              {activeDirectory === 'groups'
+                ? renderStatusSwitch(groupContactStatus, setGroupContactStatus)
+                : renderStatusSwitch(contactStatus, setContactStatus)}
+
+              {activeDirectory === 'groups' && (
                 <button
-                  key={value}
                   type="button"
-                  onClick={() => setContactStatus(value)}
-                  className={`px-4 py-2 text-sm font-medium transition ${
-                    contactStatus === value
-                      ? 'bg-blue-600 text-white'
-                      : isLight
-                        ? 'bg-white text-gray-700 hover:bg-gray-50'
-                        : 'bg-slate-950 text-slate-300 hover:bg-slate-900'
+                  onClick={handleSyncGroupContacts}
+                  disabled={syncingGroupContacts || status !== 'connected'}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isLight
+                      ? 'bg-slate-900 text-white hover:bg-slate-800'
+                      : 'bg-blue-500 text-slate-950 hover:bg-blue-400'
                   }`}
                 >
-                  {value === 'pending'
-                    ? (isArabic ? 'معلق' : 'Pending')
-                    : (isArabic ? 'تم التحويل' : 'Converted')}
+                  {syncingGroupContacts
+                    ? (isArabic ? 'جاري السحب...' : 'Syncing...')
+                    : (isArabic ? 'سحب أعضاء الجروبات' : 'Sync Group Contacts')}
                 </button>
-              ))}
+              )}
             </div>
+
             <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={isArabic ? 'ابحث بالاسم أو الرقم' : 'Search by name or phone'}
-              className={`${inputClass} md:w-72`}
+              value={currentSearch}
+              onChange={(event) => (
+                activeDirectory === 'groups'
+                  ? setGroupSearch(event.target.value)
+                  : setSearch(event.target.value)
+              )}
+              placeholder={
+                activeDirectory === 'groups'
+                  ? (isArabic ? 'ابحث بالاسم أو الرقم أو اسم الجروب' : 'Search by name, phone, or group')
+                  : (isArabic ? 'ابحث بالاسم أو الرقم' : 'Search by name or phone')
+              }
+              className={`${inputClass} md:w-80`}
             />
           </div>
         </div>
 
         <div className={`mt-5 rounded-2xl border overflow-hidden ${isLight ? 'border-gray-200' : 'border-slate-800'}`}>
-          <div className={`grid grid-cols-12 gap-3 px-4 py-3 text-xs font-semibold uppercase tracking-[0.24em] ${
-            isLight ? 'bg-gray-50 text-gray-500' : 'bg-slate-950 text-slate-400'
-          }`}>
-            <div className="col-span-3">{isArabic ? 'الاسم' : 'Name'}</div>
-            <div className="col-span-2">{isArabic ? 'الرقم' : 'Phone'}</div>
-            <div className="col-span-4">{isArabic ? 'آخر رسالة' : 'Last message'}</div>
-            <div className="col-span-1">{isArabic ? 'العدد' : 'Count'}</div>
-            <div className="col-span-2">{isArabic ? 'إجراء' : 'Action'}</div>
-          </div>
-
-          {loadingContacts ? (
-            <div className={`px-4 py-8 text-sm ${mutedTextClass}`}>{isArabic ? 'جاري تحميل الأرقام...' : 'Loading contacts...'}</div>
-          ) : contacts.length === 0 ? (
-            <div className={`px-4 py-8 text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد أرقام في هذه الحالة.' : 'No contacts found for this status.'}</div>
-          ) : (
-            contacts.map((contact) => (
-              <div
-                key={contact.id}
-                className={`grid grid-cols-12 gap-3 px-4 py-4 text-sm ${
-                  isLight ? 'border-t border-gray-100 bg-white text-gray-800' : 'border-t border-slate-800 bg-slate-950/30 text-slate-100'
-                }`}
-              >
-                <div className="col-span-3 min-w-0">
-                  <div className="font-semibold truncate">{contact.push_name || (isArabic ? 'بدون اسم' : 'No name')}</div>
-                  <div className={`mt-1 text-xs ${mutedTextClass}`}>{contact.status === 'converted' ? (isArabic ? 'تم تحويله' : 'Converted') : (isArabic ? 'بانتظار التحويل' : 'Awaiting conversion')}</div>
-                </div>
-                <div className="col-span-2 break-all">{contact.phone}</div>
-                <div className="col-span-4 min-w-0">
-                  <div className="truncate">{contact.last_message_body || (isArabic ? 'لا توجد معاينة' : 'No preview')}</div>
-                  <div className={`mt-1 text-xs ${mutedTextClass}`}>
-                    {contact.last_message_at ? new Date(contact.last_message_at).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : '-'}
-                  </div>
-                </div>
-                <div className="col-span-1">{contact.messages_count || 0}</div>
-                <div className="col-span-2">
-                  {contact.status === 'converted' ? (
-                    <div className={`text-xs ${mutedTextClass}`}>
-                      {contact.converted_lead?.name || (isArabic ? 'تم الربط بليد' : 'Linked to lead')}
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => openConvertModal(contact)}
-                      className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 transition"
-                    >
-                      {isArabic ? 'تحويل إلى ليد' : 'Convert to Lead'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+          {activeDirectory === 'groups' ? renderGroupContactsTable() : renderUnassignedTable()}
         </div>
 
         <div className={`mt-4 flex items-center justify-between text-sm ${mutedTextClass}`}>
-          <span>{isArabic ? `الإجمالي: ${contactsMeta.total}` : `Total: ${contactsMeta.total}`}</span>
-          {contactsMeta.last_page > 1 && (
+          <span>{isArabic ? `الإجمالي: ${currentMeta.total}` : `Total: ${currentMeta.total}`}</span>
+          {currentMeta.last_page > 1 && (
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={contactsMeta.current_page <= 1}
-                onClick={() => fetchContacts(contactsMeta.current_page - 1)}
+                disabled={currentMeta.current_page <= 1}
+                onClick={() => (
+                  activeDirectory === 'groups'
+                    ? fetchGroupContacts(currentMeta.current_page - 1, groupContactStatus, groupSearch)
+                    : fetchContacts(currentMeta.current_page - 1, contactStatus, search)
+                )}
                 className="rounded-lg border px-3 py-1 disabled:opacity-40"
               >
                 {isArabic ? 'السابق' : 'Prev'}
               </button>
-              <span>{contactsMeta.current_page} / {contactsMeta.last_page}</span>
+              <span>{currentMeta.current_page} / {currentMeta.last_page}</span>
               <button
                 type="button"
-                disabled={contactsMeta.current_page >= contactsMeta.last_page}
-                onClick={() => fetchContacts(contactsMeta.current_page + 1)}
+                disabled={currentMeta.current_page >= currentMeta.last_page}
+                onClick={() => (
+                  activeDirectory === 'groups'
+                    ? fetchGroupContacts(currentMeta.current_page + 1, groupContactStatus, groupSearch)
+                    : fetchContacts(currentMeta.current_page + 1, contactStatus, search)
+                )}
                 className="rounded-lg border px-3 py-1 disabled:opacity-40"
               >
                 {isArabic ? 'التالي' : 'Next'}
@@ -462,7 +812,7 @@ export default function WhatsAppMirrorConnection() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className={`${connectionCardClass} max-w-sm w-full p-6 relative text-center`}>
             <h4 className={`text-md font-bold mb-2 ${titleTextClass}`}>{t('Scan the QR to complete pairing')}</h4>
-            <p className={`text-xs mb-4 ${mutedTextClass}`}>{t('Open WhatsApp on your phone → Linked Devices → Link a device')}</p>
+            <p className={`text-xs mb-4 ${mutedTextClass}`}>{isArabic ? 'افتح واتساب على هاتفك ثم الأجهزة المرتبطة ثم اربط جهازًا.' : t('Open WhatsApp on your phone → Linked Devices → Link a device')}</p>
 
             <div className={`p-4 rounded-lg inline-block border mb-4 ${isLight ? 'bg-gray-50 border-gray-200' : 'bg-slate-950 border-slate-800'}`}>
               {qrCode ? (
@@ -473,7 +823,7 @@ export default function WhatsAppMirrorConnection() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <span className="text-xs text-indigo-600 animate-pulse font-medium">{t('Waiting for phone to connect...')}</span>
+              <span className="text-xs text-indigo-600 animate-pulse font-medium">{isArabic ? 'بانتظار اتصال الهاتف...' : t('Waiting for phone to connect...')}</span>
               <button
                 onClick={() => { setShowModal(false); stopPolling() }}
                 className={`mt-2 px-4 py-2 rounded-md text-xs font-medium transition ${isLight ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}
@@ -497,10 +847,19 @@ export default function WhatsAppMirrorConnection() {
                 <div className={`mb-2 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
                   isLight ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
                 }`}>
-                  {isArabic ? 'رقم واتساب جديد' : 'New WhatsApp Contact'}
+                  {selectedContactSource === 'groups'
+                    ? (isArabic ? 'عضو جروب' : 'Group Member')
+                    : (isArabic ? 'جهة اتصال' : 'Contact')}
                 </div>
-                <h4 className={`text-lg font-semibold ${titleTextClass}`}>{isArabic ? 'تحويل رقم واتساب إلى ليد' : 'Convert WhatsApp Contact to Lead'}</h4>
-                <p className={`mt-2 text-sm ${mutedTextClass}`}>{selectedContact.push_name || selectedContact.phone}</p>
+                <h4 className={`text-lg font-semibold ${titleTextClass}`}>
+                  {selectedContactSource === 'groups'
+                    ? (isArabic ? 'تحويل عضو الجروب إلى ليد' : 'Convert Group Member to Lead')
+                    : (isArabic ? 'تحويل جهة اتصال إلى ليد' : 'Convert Contact to Lead')}
+                </h4>
+                <p className={`mt-2 text-sm ${mutedTextClass}`}>
+                  {selectedContact.push_name || selectedContact.phone}
+                  {selectedContactSource === 'groups' && selectedContact.group_name ? ` • ${selectedContact.group_name}` : ''}
+                </p>
               </div>
               <button
                 type="button"
@@ -549,7 +908,7 @@ export default function WhatsAppMirrorConnection() {
                         usesProjects
                           ? { ...prev, project_id: event.target.value }
                           : { ...prev, item_id: event.target.value }
-                    ))}
+                      ))}
                       className={inputClass}
                     >
                       {loadingInventoryOptions && (
@@ -568,7 +927,9 @@ export default function WhatsAppMirrorConnection() {
               <div className={`${modalPanelClass} mt-4 p-5`}>
                 <label className={`mb-2 block text-sm font-medium ${titleTextClass}`}>{isArabic ? 'ملاحظات' : 'Notes'}</label>
                 <p className={`mb-3 text-xs ${mutedTextClass}`}>
-                  {isArabic ? 'تقدر تراجع الرسالة أو تعدلها قبل التحويل.' : 'You can review or edit the imported message before converting.'}
+                  {selectedContactSource === 'groups'
+                    ? (isArabic ? 'يمكنك ترك ملاحظة عن الجروب أو تعديل الوصف قبل التحويل.' : 'You can keep a note about the group source before conversion.')
+                    : (isArabic ? 'تقدر تراجع الرسالة أو تعدلها قبل التحويل.' : 'You can review or edit the imported message before converting.')}
                 </p>
                 <textarea
                   rows="5"
@@ -580,7 +941,7 @@ export default function WhatsAppMirrorConnection() {
 
               <div className={`mt-5 flex items-center justify-between gap-3 border-t pt-5 ${isLight ? 'border-gray-200' : 'border-slate-800'}`}>
                 <div className={`text-xs ${mutedTextClass}`}>
-                  {isArabic ? 'سيتم إنشاء ليد جديد وربط المحادثات به.' : 'A new lead will be created and linked to this conversation.'}
+                  {isArabic ? 'سيتم إنشاء ليد جديد وربط السجل بهذا الرقم.' : 'A new lead will be created and linked to this contact.'}
                 </div>
                 <div className="flex items-center gap-3">
                   <button

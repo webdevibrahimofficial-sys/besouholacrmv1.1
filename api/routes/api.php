@@ -55,6 +55,7 @@ use App\Http\Controllers\ContractCollections\CcPaymentsController;
 use App\Http\Controllers\ContractCollections\CcAuditController;
 use App\Http\Controllers\ContractCollections\CcLeadConversionController;
 use App\Http\Controllers\ContractCollections\CcCustomerCommentsController;
+use App\Http\Controllers\WhatsappMirrorGroupContactController;
 use App\Http\Controllers\WhatsappMirrorUnassignedContactController;
 use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\EnsureSuperAdmin;
@@ -133,6 +134,9 @@ Route::middleware([
     Route::post('/disconnect', [WhatsappMirrorController::class, 'disconnect']);
     Route::get('/unassigned-contacts', [WhatsappMirrorUnassignedContactController::class, 'index']);
     Route::post('/unassigned-contacts/{contact}/convert-to-lead', [WhatsappMirrorUnassignedContactController::class, 'convertToLead']);
+    Route::get('/group-contacts', [WhatsappMirrorGroupContactController::class, 'index']);
+    Route::post('/group-contacts/sync', [WhatsappMirrorGroupContactController::class, 'sync']);
+    Route::post('/group-contacts/{contact}/convert-to-lead', [WhatsappMirrorGroupContactController::class, 'convertToLead']);
 });
 
 // Secure File Serving (Signed URLs)
@@ -455,6 +459,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::post('leads/{id}/resolve-duplicate', [LeadController::class , 'resolveDuplicate']);
     Route::post('leads/duplicates/bulk-action', [LeadController::class , 'bulkDuplicateAction']);
     Route::post('leads/{id}/transfer', [LeadController::class , 'transfer']);
+    Route::post('leads/{id}/duplicate-as-fresh', [LeadController::class , 'duplicateAndAssignAsFresh']);
     Route::post('leads/{id}/attachments', [LeadController::class, 'addAttachments']);
     Route::apiResource('leads', LeadController::class);
 

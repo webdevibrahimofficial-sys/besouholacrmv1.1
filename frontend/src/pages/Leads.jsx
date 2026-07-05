@@ -2569,15 +2569,42 @@ if (!s) {
     try {
       setAssignModalSubmitting(true)
       setAssignModalError('')
-      const { stage } = buildLeadTransferPayload(assignData);
+      const { stage, history_option } = buildLeadTransferPayload(assignData);
+      const isDuplicateAsFresh = !!assignData.options?.duplicate;
+
+      if (isDuplicateAsFresh) {
+        // Clone each selected lead independently — original stays untouched
+        const results = await Promise.allSettled(
+          selectedLeads.map(leadId =>
+            api.post(`/api/leads/${leadId}/duplicate-as-fresh`, {
+              assigned_to: target,
+              history_option,
+            })
+          )
+        );
+        const failed = results.filter(r => r.status === 'rejected');
+        if (failed.length > 0) {
+          const msg = failed[0]?.reason?.response?.data?.message || 'Some leads could not be cloned';
+          setAssignModalError(msg);
+          window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: msg } }));
+          return false;
+        }
+        setBulkFeedback({ key: 'bulk.assignSuccess', params: { count: selectedLeads.length, target: assignData.userName } });
+        setSelectedLeads([]);
+        fetchLeads();
+        return true;
+      }
+
+      // Normal assign: fresh / cold_call / same_stage (+ optional clear history)
       const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : stage === 'new_lead' ? 'New Lead' : null;
 
       await api.post('/api/leads/bulk-assign', {
         ids: selectedLeads,
         assigned_to: target,
         assign_role: assignData.assignRole,
-        assign_method: assignData.method,
-        options: assignData.options
+        stage,
+        history_option,
+        options: assignData.options,
       });
 
       setLeads(prev => prev.map(l => {

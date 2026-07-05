@@ -46,4 +46,9 @@ class WhatsappMirrorClient
     {
         return $this->client()->delete("/sessions/{$tenantId}");
     }
+
+    public function fetchGroupContacts(int $tenantId): Response
+    {
+        return $this->client()->post("/sessions/{$tenantId}/group-contacts/sync");
+    }
 }

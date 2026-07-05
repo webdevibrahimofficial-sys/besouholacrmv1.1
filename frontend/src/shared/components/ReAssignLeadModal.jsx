@@ -405,65 +405,55 @@ const ReAssignLeadModal = ({
 
           {/* Checkboxes */}
           <div className="space-y-3 pt-2">
+            {/* Duplicate — mutually exclusive with Same Stage */}
             <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={options.duplicate}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setOptions({
-                    duplicate: checked,
-                    // User requirement: "Cannot select more than one of the three"
-                    // So if checked, others must be false.
-                    sameStage: false,
-                    clearHistory: false
-                  });
-                  if (!checked) {
-                    // If unchecked, maybe enforce default? Or allow none?
-                    // "Default is same stage" - implies initial state.
-                    // If user unchecks, it's fine to have none? 
-                    // Usually radio behavior means clicking selected does nothing or stays selected.
-                    // But these are checkboxes. 
-                    // Let's allow unchecking, but if checking one, uncheck others.
-                  }
-                }}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{isArabic ? 'نسخ وتعيين كجديد' : 'Duplicate and assign as fresh'}</span>
+            <input
+            type="checkbox"
+            checked={options.duplicate}
+            onChange={(e) => {
+            const checked = e.target.checked;
+            setOptions(prev => ({
+            ...prev,
+            duplicate: checked,
+            // Duplicate is mutually exclusive with Same Stage only
+            sameStage: checked ? false : prev.sameStage,
+            }));
+            }}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{isArabic ? 'نسخ وتعيين كجديد' : 'Duplicate and assign as fresh'}</span>
             </label>
             <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={options.sameStage}
-                  onChange={(e) => {
+            {/* Same Stage — mutually exclusive with Duplicate */}
+            <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+                checked={options.sameStage}
+                onChange={(e) => {
                     const checked = e.target.checked;
-                    setOptions({
-                      duplicate: false,
-                      sameStage: checked,
-                      clearHistory: false
-                    });
-                  }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{isArabic ? 'نفس المرحلة' : 'Same stage'}</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={options.clearHistory}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setOptions({
-                      duplicate: false,
-                      sameStage: false,
-                      clearHistory: checked
-                    });
-                  }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{isArabic ? 'مسح السجل' : 'Clear History'}</span>
-              </label>
+                    setOptions(prev => ({
+                    ...prev,
+                  sameStage: checked,
+                // Same Stage is mutually exclusive with Duplicate only
+                duplicate: checked ? false : prev.duplicate,
+              }));
+            }}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{isArabic ? 'نفس المرحلة' : 'Same stage'}</span>
+            </label>
+            {/* Clear History — fully independent, works with any option above */}
+            <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={options.clearHistory}
+                onChange={(e) => {
+                  setOptions(prev => ({ ...prev, clearHistory: e.target.checked }));
+              }}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{isArabic ? 'مسح السجل' : 'Clear History'}</span>
+            </label>
             </div>
           </div>
 

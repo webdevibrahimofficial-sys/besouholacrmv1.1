@@ -126,10 +126,42 @@ export const convertWhatsappMirrorContactToLead = async (contactId, payload) => 
   return res?.data
 }
 
+export const getWhatsappMirrorGroupContacts = async ({ status = 'pending', search = '', page = 1, per_page = 20 } = {}) => {
+  const res = await api.get('/api/whatsapp-mirror/group-contacts', {
+    params: { status, search, page, per_page },
+  })
+  return res?.data
+}
+
+export const getWhatsappMirrorAdminGroups = async () => {
+  const res = await api.get('/api/whatsapp-mirror/admin-groups')
+  return res?.data
+}
+
+export const addWhatsappMirrorContactToGroup = async (contactId, groupId) => {
+  const res = await api.post(`/api/whatsapp-mirror/group-contacts/${contactId}/add-to-group`, { group_id: groupId })
+  return res?.data
+}
+
+export const syncWhatsappMirrorGroupContacts = async () => {
+  const res = await api.post('/api/whatsapp-mirror/group-contacts/sync')
+  return res?.data
+}
+
+export const convertWhatsappMirrorGroupContactToLead = async (contactId, payload) => {
+  const res = await api.post(`/api/whatsapp-mirror/group-contacts/${contactId}/convert-to-lead`, payload)
+  return res?.data
+}
+
 export const whatsappMirrorService = {
   pair: pairWhatsappMirror,
   getStatus: getWhatsappMirrorStatus,
   disconnect: disconnectWhatsappMirror,
   getUnassignedContacts: getWhatsappMirrorUnassignedContacts,
   convertToLead: convertWhatsappMirrorContactToLead,
+  getGroupContacts: getWhatsappMirrorGroupContacts,
+  syncGroupContacts: syncWhatsappMirrorGroupContacts,
+  convertGroupContactToLead: convertWhatsappMirrorGroupContactToLead,
+  getAdminGroups: getWhatsappMirrorAdminGroups,
+  addContactToGroup: addWhatsappMirrorContactToGroup,
 }

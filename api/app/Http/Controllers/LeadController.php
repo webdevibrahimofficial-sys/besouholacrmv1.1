@@ -2738,13 +2738,17 @@ class LeadController extends Controller
                     if ($tenantId) {
                         $base->where('tenant_id', $tenantId);
                     }
-                    $isDuplicate = (clone $base)->whereIn('phone', $variants)->exists();
+                    $isDuplicate = (clone $base)
+                        ->whereIn('phone', $variants)
+                        ->where(function ($q) { $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false); })
+                        ->exists();
 
                     if ($isDuplicate) {
                         $original = (clone $base)->whereIn('phone', $variants)
                             ->where(function ($q) {
                                 $q->whereNull('status')->orWhere('status', '!=', 'duplicate');
                             })
+                            ->where(function ($q) { $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false); })
                             ->orderBy('id', 'asc')
                             ->first();
                         if (!$original) {
@@ -4083,21 +4087,25 @@ class LeadController extends Controller
     public function bulkAssign(Request $request)
     {
         $request->validate([
-            'ids' => 'required|array',
-            'assigned_to' => 'required',
-            'assign_role' => 'nullable|in:sales,manager',
-            'options' => 'nullable|array' // Accept options array
+            'ids'          => 'required|array',
+            'assigned_to'  => 'required',
+            'assign_role'  => 'nullable|in:sales,manager',
+            'stage'        => 'nullable|string|in:same_stage,new_lead,cold_calls',
+            'history_option' => 'nullable|string|in:keep_history,assign_as_new',
+            'options'      => 'nullable|array',
         ]);
 
-        $role = $request->input('assign_role', 'sales');
-        $userId = $request->assigned_to;
+        $role          = $request->input('assign_role', 'sales');
+        $userId        = $request->assigned_to;
         $currentUserId = $request->user()->id;
-        $options = $request->input('options', []);
-        $clearHistory = !empty($options['clearHistory']) || !empty($options['clear_history']);
-        $notifyLeadIds = [];
+        $options       = $request->input('options', []);
+        $targetStage   = $request->input('stage', 'new_lead');   // new_lead | cold_calls | same_stage
+        $historyOption = $request->input('history_option', 'keep_history'); // keep_history | assign_as_new
+        $clearHistory  = $historyOption === 'assign_as_new';
+        $notifyLeadIds  = [];
         $oldAssigneeMap = [];
 
-        DB::transaction(function () use ($request, $role, $userId, $currentUserId, $options, &$notifyLeadIds, &$oldAssigneeMap) {
+        DB::transaction(function () use ($request, $role, $userId, $currentUserId, $options, $targetStage, $clearHistory, &$notifyLeadIds, &$oldAssigneeMap) {
             if ($role === 'manager') {
                 Lead::whereIn('id', $request->ids)
                     ->orderBy('id')
@@ -4115,8 +4123,7 @@ class LeadController extends Controller
 
                 Lead::whereIn('id', $request->ids)
                     ->orderBy('id')
-                    ->chunk(200, function ($leads) use ($currentUserId, $user, $userId, $options, &$notifyLeadIds, &$oldAssigneeMap) {
-                        $clearHistory = !empty($options['clearHistory']) || !empty($options['clear_history']);
+                    ->chunk(200, function ($leads) use ($currentUserId, $user, $userId, $targetStage, $clearHistory, &$notifyLeadIds, &$oldAssigneeMap) {
                         $resetMap = [];
                         if ($clearHistory) {
                             $ids = $leads->pluck('id')->all();
@@ -4145,21 +4152,33 @@ class LeadController extends Controller
                             if ($user) {
                                 $lead->sales_person = $user->name;
                             }
-                            $stageLower = strtolower(trim((string) ($lead->stage ?? '')));
+
+                            $stageLower  = strtolower(trim((string) ($lead->stage ?? '')));
                             $statusLower = strtolower(trim((string) ($lead->status ?? '')));
+
+                            // Apply stage transition based on selected option
                             if ($stageLower !== 'duplicate' && $statusLower !== 'duplicate') {
-                                $lead->status = 'pending';
+                                if ($targetStage === 'new_lead') {
+                                    $lead->stage  = 'New Lead';
+                                    $lead->status = 'pending';
+                                } elseif ($targetStage === 'cold_calls') {
+                                    $lead->stage  = 'Cold Calls';
+                                    $lead->status = 'pending';
+                                } else {
+                                    // same_stage: keep current stage, just mark pending
+                                    $lead->status = 'pending';
+                                }
                             }
 
-                            // Clear History = "sales-view reset": keep history in DB, but hide old actions from new assignee only.
+                            // Clear History = independent visibility flag; does NOT override stage
                             if ($clearHistory) {
                                 $lead->history_hidden_before_action_id = $resetMap[$lead->id] ?? null;
                                 $lead->sales_view_reset_at = now();
-                                $lead->stage = 'New Lead';
                             } else {
                                 $lead->history_hidden_before_action_id = null;
                                 $lead->sales_view_reset_at = null;
                             }
+
                             $lead->save();
 
                             if (!empty($lead->assigned_to) && (string) $lead->assigned_to !== (string) ($oldAssigneeMap[$lead->id] ?? null)) {
@@ -4940,6 +4959,121 @@ class LeadController extends Controller
         }
     }
 
+    /**
+     * Clone a lead and assign the clone to a new salesperson as a fresh lead.
+     * The original lead is NOT modified — it stays with its current assignee, stage, and history.
+     * The new lead is flagged with is_duplicate_exception = true so it never gets blocked by
+     * duplicate detection, and linked back via original_lead_id.
+     */
+    public function duplicateAndAssignAsFresh(Request $request, $id)
+    {
+        $originalLead = Lead::findOrFail($id);
+
+        $request->validate([
+            'assigned_to'    => 'required',
+            'history_option' => 'nullable|in:keep_history,assign_as_new',
+        ]);
+
+        $newAgentId    = $request->assigned_to;
+        $clearHistory  = $request->input('history_option') === 'assign_as_new';
+        $currentUser   = $request->user();
+
+        $user = \App\Models\User::where('id', $newAgentId)
+            ->orWhere('name', $newAgentId)
+            ->first();
+
+        if ($user) {
+            $this->ensureUserCanBeAssignedLeadSource($user, $originalLead->source);
+            $this->ensureUserCanBeAssignedLeadProject($user, $this->resolveLeadProjectLabel($originalLead));
+        }
+
+        $clonedLead = DB::transaction(function () use ($originalLead, $user, $newAgentId, $clearHistory, $currentUser) {
+            // Copy core fields — skip identity/tracking fields
+            $skip = [
+                'id', 'created_at', 'updated_at', 'deleted_at', 'deleted_by',
+                'assigned_to', 'sales_person', 'manager_id',
+                'stage', 'status',
+                'history_hidden_before_action_id', 'sales_view_reset_at',
+                'is_duplicate_exception', 'original_lead_id',
+                'last_action_at', 'assigned_at',
+            ];
+
+            $cloneData = collect($originalLead->getAttributes())
+                ->except($skip)
+                ->toArray();
+
+            // Override fields for the new lead
+            $cloneData['stage']                   = 'New Lead';
+            $cloneData['status']                  = 'pending';
+            $cloneData['assigned_to']             = $user?->id ?? $newAgentId;
+            $cloneData['sales_person']             = $user?->name ?? null;
+            $cloneData['is_duplicate_exception']  = true;
+            $cloneData['original_lead_id']        = $originalLead->id;
+            $cloneData['created_by']              = $currentUser->id;
+            $cloneData['assigned_at']             = now();
+
+            // Determine manager
+            if ($user && !empty($user->manager_id)) {
+                $cloneData['manager_id'] = $user->manager_id;
+            } else {
+                $cloneData['manager_id'] = $currentUser->id;
+            }
+
+            // Strip duplicate_of from meta_data so clone is not linked as duplicate
+            $meta = is_array($cloneData['meta_data'] ?? null) ? $cloneData['meta_data'] : [];
+            unset($meta['duplicate_of'], $meta['entered_stage'], $meta['duplicate_attempts']);
+            $meta['cloned_from_lead_id'] = $originalLead->id;
+            $cloneData['meta_data'] = $meta;
+
+            $clone = Lead::create($cloneData);
+
+            // Optionally hide history from new assignee (nothing to hide on a fresh clone,
+            // but we honour the flag for future actions)
+            if ($clearHistory) {
+                $clone->history_hidden_before_action_id = null; // no actions yet on clone
+                $clone->sales_view_reset_at = now();
+                $clone->save();
+            }
+
+            // Log the action
+            activity()
+                ->performedOn($clone)
+                ->causedBy($currentUser)
+                ->withProperties([
+                    'cloned_from'  => $originalLead->id,
+                    'assigned_to'  => $clone->assigned_to,
+                ])
+                ->log('Lead cloned and assigned as fresh');
+
+            return $clone;
+        });
+
+        // Notify new assignee
+        try {
+            if ($user) {
+                $notification = new \App\Notifications\LeadAssigned(
+                    $clonedLead->fresh(['assignedAgent:id,name', 'creator:id,name']),
+                    $currentUser->name
+                );
+                $recipients = $this->buildNotificationRecipients(
+                    $user,
+                    ['assignee' => $user, 'assigner' => $currentUser],
+                    'leads',
+                    'notify_assigned_leads'
+                );
+                foreach ($recipients as $recipient) {
+                    try { $recipient->notify($notification); } catch (\Throwable) {}
+                }
+            }
+        } catch (\Throwable) {}
+
+        return response()->json([
+            'message'      => 'Lead cloned and assigned successfully',
+            'cloned_lead'  => $clonedLead->fresh(['assignedAgent:id,name', 'creator:id,name']),
+            'original_lead_id' => $originalLead->id,
+        ]);
+    }
+
     public function transfer(Request $request, $id)
     {
         $lead = Lead::findOrFail($id);
@@ -5075,19 +5209,18 @@ class LeadController extends Controller
             $lead->save();
 
             // Handle History Visibility
+            // Clear History is an independent visibility flag — it does NOT affect stage or status.
+            // Stage was already set above based on $targetStage (new_lead / cold_calls / same_stage).
             if ($historyOption === 'assign_as_new') {
-                // Clear History = "sales-view reset": keep history in DB, but hide old actions from the new assignee only.
-                // Managers/admins still see everything. Sales assignee sees actions created after the reset point.
+                // Keep all history in DB; just hide old actions from the new assignee's view.
+                // Managers and higher roles still see the full history.
                 $lastActionId = \App\Models\LeadAction::where('lead_id', $lead->id)->max('id');
                 $lead->history_hidden_before_action_id = $lastActionId ?: null;
                 $lead->sales_view_reset_at = now();
-
-                // Reset stage for the new assignee
-                $lead->stage = 'New Lead';
-                $lead->status = $user ? 'pending' : ($lead->status ?? 'new');
+                // ⚠️ Do NOT force stage here — stage was already resolved above via $targetStage.
                 $lead->save();
             } else {
-                // Keep history visible for the assignee
+                // Keep history fully visible for the new assignee
                 $lead->history_hidden_before_action_id = null;
                 $lead->sales_view_reset_at = null;
                 $lead->save();

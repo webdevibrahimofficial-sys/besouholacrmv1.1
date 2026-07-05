@@ -399,6 +399,15 @@ function resolveContactName(sock, candidates = [], fallbackName = null) {
   return null;
 }
 
+function normalizeJid(value) {
+  if (!value) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  return raw !== '' ? raw : null;
+}
+
 function extractSenderPhone(msg) {
   const key = msg?.key || {};
 
@@ -711,6 +720,55 @@ export async function restorePersistedSessions() {
 
 export function getSession(tenantId) {
   return sessions.get(String(tenantId));
+}
+
+export async function fetchGroupContactsSnapshot(tenantId) {
+  const key = String(tenantId);
+  let sock = sessions.get(key);
+
+  if (!sock && hasPersistedSession(key)) {
+    sock = await initSession(key);
+  }
+
+  if (!sock) {
+    throw new Error('WhatsApp Mirror session is not connected.');
+  }
+
+  const allGroups = await sock.groupFetchAllParticipating();
+  const ownPhone = normalizePhoneCandidate(extractPhoneNumber(sock));
+  const contacts = [];
+
+  for (const group of Object.values(allGroups || {})) {
+    const groupJid = normalizeJid(group?.id);
+    const groupName = group?.subject || null;
+    const participants = Array.isArray(group?.participants) ? group.participants : [];
+
+    for (const participant of participants) {
+      const participantJid = normalizeJid(participant?.id);
+      const phone = resolveMappedPhone(sock, participantJid)
+        || chooseBestPhoneCandidate([
+          participant?.phone,
+          participantJid,
+        ]);
+
+      if (!phone || phone === ownPhone) {
+        continue;
+      }
+
+      contacts.push({
+        group_jid: groupJid,
+        group_name: groupName,
+        participant_jid: participantJid,
+        phone,
+        push_name: resolveContactName(sock, [participantJid, phone], null),
+      });
+    }
+  }
+
+  return {
+    groups_count: Object.keys(allGroups || {}).length,
+    contacts,
+  };
 }
 
 export function registerLidPhoneMappings(tenantId, pairs = []) {
