@@ -61,7 +61,7 @@ class WhatsappWebhookController extends Controller
                 'status' => 'received',
                 'direction' => 'inbound',
                 'message_id' => $messageId,
-                'body' => data_get($m, 'text.body') ?? data_get($m, 'button.text') ?? null,
+                'body' => $this->resolveInboundBody($m),
                 'raw' => $m,
             ];
             $lead = LeadPhoneMatcher::findLeadByPhone((int) $setting->tenant_id, (string) ($m['from'] ?? ''));
@@ -129,5 +129,15 @@ class WhatsappWebhookController extends Controller
         $id = $meta['phone_number_id'] ?? null;
         if ($id) return (string) $id;
         return null;
+    }
+
+    private function resolveInboundBody(array $message): ?string
+    {
+        return data_get($message, 'text.body')
+            ?? data_get($message, 'button.text')
+            ?? data_get($message, 'image.caption')
+            ?? data_get($message, 'video.caption')
+            ?? data_get($message, 'document.caption')
+            ?? data_get($message, 'document.filename');
     }
 }

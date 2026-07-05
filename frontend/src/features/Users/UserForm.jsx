@@ -265,6 +265,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   });
   const [customPerms, setCustomPerms] = useState({});
   const [errors, setErrors] = useState({});
+  const [submitError, setSubmitError] = useState('');
   const [activeTab, setActiveTab] = useState('info'); // 'info' | 'account' | 'notifications'
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -761,6 +762,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    setSubmitError('');
     const clientErrors = validate();
     if (Object.keys(clientErrors).length > 0) {
       const firstErrorKey = Object.keys(clientErrors)[0];
@@ -855,8 +857,13 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       else navigate('/user-management/users');
     } catch (error) {
       console.error('Failed to save user', error);
+      const statusCode = Number(error.response?.status || 0);
       const errorMsg = error.response?.data?.message || (isArabic ? 'فشل حفظ البيانات' : 'Failed to save data');
       const validationErrors = error.response?.data?.errors ? Object.values(error.response.data.errors).flat().join('\n') : '';
+
+      if (statusCode === 403) {
+        setSubmitError(errorMsg);
+      }
 
       // If backend returned Laravel validation errors (422), map them to our form fields and scroll to the first one.
       if (error.response?.status === 422 && error.response?.data?.errors) {
@@ -929,6 +936,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       </div>
 
         <form onSubmit={onSubmit} className="space-y-6">
+        {submitError && (
+          <div className="rounded-2xl border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">
+            <div className="flex items-start gap-2">
+              <AlertCircle size={18} className="mt-0.5 shrink-0" />
+              <span>{submitError}</span>
+            </div>
+          </div>
+        )}
         <div className="w-full overflow-x-auto pb-2 mb-6">
           <div className="inline-flex p-1 bg-[rgba(255,255,255,0.04)] rounded-xl border border-white/5 min-w-full md:min-w-0">
             <button 

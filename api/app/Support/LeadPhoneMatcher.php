@@ -100,10 +100,8 @@ class LeadPhoneMatcher
 
         $leads = Lead::where('tenant_id', $tenantId)
             ->where(function ($q) use ($significantVariants, $phoneColumns) {
-                foreach ($significantVariants as $variant) {
-                    foreach ($phoneColumns as $column) {
-                        $q->orWhere($column, 'like', "%{$variant}%");
-                    }
+                foreach ($phoneColumns as $column) {
+                    $q->orWhereIn($column, $significantVariants);
                 }
             })
             ->get();

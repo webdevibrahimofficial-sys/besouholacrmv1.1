@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Tenant;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
 use Laravel\Sanctum\Sanctum;
@@ -110,5 +111,26 @@ class SuperAdminTest extends TestCase
         $this->tenantA->refresh();
         $this->assertSame('enterprise', $this->tenantA->subscription_plan);
         $this->assertTrue($this->tenantA->meta_data['subscription']['is_lifetime'] ?? false);
+    }
+
+    public function test_super_admin_can_filter_tenants_by_created_at_range()
+    {
+        Sanctum::actingAs($this->superAdmin);
+
+        Carbon::setTestNow('2026-07-04 12:00:00');
+
+        $this->tenantA->forceFill(['created_at' => Carbon::parse('2026-07-03 10:00:00')])->save();
+        $this->tenantB->forceFill(['created_at' => Carbon::parse('2026-06-15 10:00:00')])->save();
+
+        $response = $this->getJson('/api/super-admin/tenants?view=current&start_date=2026-07-01&end_date=2026-07-04');
+
+        $response->assertStatus(200);
+
+        $tenantNames = collect($response->json('tenants.data'))->pluck('name');
+
+        $this->assertTrue($tenantNames->contains('Tenant A'));
+        $this->assertFalse($tenantNames->contains('Tenant B'));
+
+        Carbon::setTestNow();
     }
 }

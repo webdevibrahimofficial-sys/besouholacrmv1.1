@@ -483,7 +483,12 @@ class SystemCompanyWebsiteController extends Controller
         $tenantId = $this->ownerTenantResolver->bindTenantContext();
 
         return response()->json(
-            $this->analyticsService->overview($tenantId, $request->query('from'), $request->query('to'))
+            $this->analyticsService->overview(
+                $tenantId,
+                $request->query('from'),
+                $request->query('to'),
+                $this->analyticsFilters($request)
+            )
         );
     }
 
@@ -492,7 +497,12 @@ class SystemCompanyWebsiteController extends Controller
         $tenantId = $this->ownerTenantResolver->bindTenantContext();
 
         return response()->json(
-            $this->analyticsService->pages($tenantId, $request->query('from'), $request->query('to'))
+            $this->analyticsService->pages(
+                $tenantId,
+                $request->query('from'),
+                $request->query('to'),
+                $this->analyticsFilters($request)
+            )
         );
     }
 
@@ -501,7 +511,12 @@ class SystemCompanyWebsiteController extends Controller
         $tenantId = $this->ownerTenantResolver->bindTenantContext();
 
         return response()->json(
-            $this->analyticsService->forms($tenantId, $request->query('from'), $request->query('to'))
+            $this->analyticsService->forms(
+                $tenantId,
+                $request->query('from'),
+                $request->query('to'),
+                $this->analyticsFilters($request)
+            )
         );
     }
 
@@ -510,8 +525,36 @@ class SystemCompanyWebsiteController extends Controller
         $tenantId = $this->ownerTenantResolver->bindTenantContext();
 
         return response()->json(
-            $this->analyticsService->campaigns($tenantId, $request->query('from'), $request->query('to'))
+            $this->analyticsService->campaigns(
+                $tenantId,
+                $request->query('from'),
+                $request->query('to'),
+                $this->analyticsFilters($request)
+            )
         );
+    }
+
+    public function analyticsFilterOptions(Request $request): JsonResponse
+    {
+        $tenantId = $this->ownerTenantResolver->bindTenantContext();
+
+        return response()->json(
+            $this->analyticsService->filterOptions(
+                $tenantId,
+                $request->query('from'),
+                $request->query('to')
+            )
+        );
+    }
+
+    private function analyticsFilters(Request $request): array
+    {
+        return $request->only([
+            'utm_source',
+            'utm_medium',
+            'utm_campaign',
+            'device',
+        ]);
     }
 
     private function validateServicePayload(Request $request, int $tenantId, ?int $ignoreId = null): array

@@ -8,5 +8,14 @@ interface WhatsappProviderInterface
 
     public function sendText(int $tenantId, string $to, string $body): array;
 
+    public function sendMedia(
+        int $tenantId,
+        string $to,
+        string $mediaType,
+        string $mediaUrl,
+        ?string $caption = null,
+        ?string $filename = null
+    ): array;
+
     public function testConnection(int $tenantId, array $credentials = []): array;
 }

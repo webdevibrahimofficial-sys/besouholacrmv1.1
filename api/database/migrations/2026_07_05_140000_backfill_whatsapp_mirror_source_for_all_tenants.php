@@ -7,6 +7,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        $now = now();
         $tenantIds = DB::table('tenants')->pluck('id');
 
         foreach ($tenantIds as $tenantId) {
@@ -15,15 +16,17 @@ return new class extends Migration
                 ->whereRaw('LOWER(name) = ?', ['whatsapp mirror'])
                 ->exists();
 
-            if (!$exists) {
-                DB::table('sources')->insert([
-                    'tenant_id'  => $tenantId,
-                    'name'       => 'WhatsApp Mirror',
-                    'is_active'  => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+            if ($exists) {
+                continue;
             }
+
+            DB::table('sources')->insert([
+                'tenant_id' => $tenantId,
+                'name' => 'WhatsApp Mirror',
+                'is_active' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
         }
     }
 

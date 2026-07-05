@@ -117,6 +117,17 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         throw new Exception("Templates are not supported on WhatsApp Mirror provider.");
     }
 
+    public function sendMedia(
+        int $tenantId,
+        string $to,
+        string $mediaType,
+        string $mediaUrl,
+        ?string $caption = null,
+        ?string $filename = null
+    ): array {
+        throw new Exception("Media messages are not supported on WhatsApp Mirror provider.");
+    }
+
     public function testConnection(int $tenantId, array $credentials = []): array
     {
         $response = $this->client->status($tenantId);

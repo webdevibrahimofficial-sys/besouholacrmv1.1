@@ -79,13 +79,19 @@ class WhatsappMirrorWebhookController extends Controller
 
         $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
 
-        // Guard against re-running: skip if history was already synced more than 5 minutes ago.
-        if ($session?->history_synced_at && now()->diffInMinutes($session->history_synced_at) > 5) {
+        // Guard against re-running the SAME sync burst: skip only if synced
+        // recently (within 2 minutes) AND this is NOT a fresh isLatest batch.
+        // We must NOT block subsequent syncs after reconnects.
+        $isLatest = (bool) ($payload['is_latest'] ?? false);
+        if (
+            !$isLatest
+            && $session?->history_synced_at
+            && now()->diffInMinutes($session->history_synced_at) < 2
+        ) {
             return response()->json(['success' => true, 'skipped' => true]);
         }
 
         $messages = (array) ($payload['messages'] ?? []);
-        $isLatest = (bool) ($payload['is_latest'] ?? false);
 
         // Process synchronously to avoid Spatie multitenancy queue issues.
         // Once the job is properly tenant-aware, this should be switched to ::dispatch().

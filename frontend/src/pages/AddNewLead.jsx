@@ -12,6 +12,7 @@ import DynamicFieldRenderer from '../components/DynamicFieldRenderer';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import CountryCodeSelect from '../components/CountryCodeSelect';
 import { getLeadPermissionFlags } from '../services/leadPermissions';
+import { getDefaultDialCode } from '@shared/utils/crmPhone';
 
 export const AddNewLead = () => {
   const { t, i18n } = useTranslation();
@@ -44,7 +45,8 @@ export const AddNewLead = () => {
   const [primaryCollapsed, setPrimaryCollapsed] = useState(false);
   const [projectsList, setProjectsList] = useState([]);
   
-  const { user: currentUser, company: tenantCompany } = useAppState();
+  const { user: currentUser, company: tenantCompany, crmSettings } = useAppState();
+  const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings]);
   const leadPermissionFlags = getLeadPermissionFlags(currentUser);
   const roleLower = String(currentUser?.role || '').toLowerCase();
   const isSalesPerson =
@@ -135,6 +137,37 @@ export const AddNewLead = () => {
       setAssignedTo(currentUser.id);
     }
   }, [isSalesPerson, currentUser]);
+
+  useEffect(() => {
+    if (!defaultDialCode) return;
+
+    setMobileNumbers((prev) => {
+      if (!Array.isArray(prev) || prev.length === 0) {
+        return [{ code: defaultDialCode, number: '' }];
+      }
+
+      return prev.map((entry, index) => (
+        index === 0 && !String(entry?.code || '').trim()
+          ? { ...entry, code: defaultDialCode }
+          : entry
+      ));
+    });
+
+    setExtraLeads((prev) => prev.map((lead) => {
+      const currentNumbers = Array.isArray(lead.mobileNumbers) && lead.mobileNumbers.length > 0
+        ? lead.mobileNumbers
+        : [{ code: '', number: '' }];
+
+      return {
+        ...lead,
+        mobileNumbers: currentNumbers.map((entry, index) => (
+          index === 0 && !String(entry?.code || '').trim()
+            ? { ...entry, code: defaultDialCode }
+            : entry
+        )),
+      };
+    }));
+  }, [defaultDialCode]);
 
   const userOptions = useMemo(() => usersList.map(u => ({
     value: u.id,

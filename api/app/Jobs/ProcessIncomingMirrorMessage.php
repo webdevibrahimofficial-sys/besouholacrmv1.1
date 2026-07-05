@@ -6,6 +6,7 @@ use App\Events\InboundWhatsappMessage;
 use App\Models\Lead;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
+use App\Services\Whatsapp\WhatsappUnassignedContactService;
 use App\Support\LeadPhoneMatcher;
 use App\Services\Whatsapp\WhatsappInboundNotificationService;
 use Illuminate\Bus\Queueable;
@@ -47,6 +48,8 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
 
         $fromMe = $msgData['from_me'] ?? false;
         $direction = $fromMe ? 'outbound' : 'inbound';
+        $pushName = $msgData['pushName'] ?? $msgData['push_name'] ?? null;
+        $messageBody = $msgData['body'] ?? '';
 
         $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
         $ownNumber = $session?->connected_phone_number;
@@ -105,6 +108,31 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
             if (!empty($updates)) {
                 $message->forceFill($updates)->save();
                 $message->refresh();
+            }
+
+            $unassignedContactService = app(WhatsappUnassignedContactService::class);
+            if (!$resolvedLeadId) {
+                // Always upsert the unassigned contact so that contacts whose
+                // first message arrived before the service was running (and thus
+                // already have a whatsapp_messages row) still get registered.
+                $unassignedContactService->recordPendingMessage(
+                    $tenantId,
+                    (string) $counterpartPhone,
+                    is_string($pushName) ? $pushName : null,
+                    is_string($messageBody) ? $messageBody : null,
+                    $message->created_at,
+                    $message->wasRecentlyCreated // only increment count for new messages
+                );
+            } elseif ($resolvedLeadId) {
+                $unassignedContactService->markAsConverted(
+                    $tenantId,
+                    (string) $counterpartPhone,
+                    (int) $resolvedLeadId,
+                    is_string($pushName) ? $pushName : null,
+                    is_string($messageBody) ? $messageBody : null,
+                    $message->created_at,
+                    false
+                );
             }
 
             if ($message->wasRecentlyCreated && $resolvedLeadId) {

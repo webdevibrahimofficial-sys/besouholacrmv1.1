@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Module;
+use App\Models\Source;
 use App\Models\SubscriptionPlan;
 use App\Models\Tenant;
 use Illuminate\Validation\ValidationException;
@@ -46,6 +47,8 @@ class TenantService
             'address_line_2' => $data['address_line_2'] ?? null,
         ]);
 
+        $this->ensureDefaultSources($tenant);
+
         if (!empty($data['is_lifetime'])) {
             $meta = is_array($tenant->meta_data) ? $tenant->meta_data : [];
             $subscriptionMeta = $meta['subscription'] ?? [];
@@ -68,6 +71,19 @@ class TenantService
         $this->syncTenantModules($tenant, $plan, $customModules);
 
         return ['tenant' => $tenant, 'user' => $admin];
+    }
+
+    public function ensureDefaultSources(Tenant $tenant): void
+    {
+        Source::withoutGlobalScopes()->firstOrCreate(
+            [
+                'tenant_id' => $tenant->id,
+                'name' => 'WhatsApp Mirror',
+            ],
+            [
+                'is_active' => true,
+            ]
+        );
     }
 
     public function syncTenantModules(Tenant $tenant, string $plan, array $customModules = [])

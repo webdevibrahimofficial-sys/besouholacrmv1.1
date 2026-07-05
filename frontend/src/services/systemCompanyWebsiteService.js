@@ -2,6 +2,15 @@ import { api } from '@utils/api'
 
 const basePath = '/api/system/company-website'
 
+const buildAnalyticsParams = (from, to, filters = {}) => ({
+  from,
+  to,
+  utm_source: filters.utm_source || undefined,
+  utm_medium: filters.utm_medium || undefined,
+  utm_campaign: filters.utm_campaign || undefined,
+  device: filters.device || undefined,
+})
+
 export const systemCompanyWebsiteService = {
   async getSettings() {
     const res = await api.get(`${basePath}/settings`)
@@ -100,23 +109,38 @@ export const systemCompanyWebsiteService = {
     await api.delete(`${basePath}/careers/roles/${id}`)
   },
 
-  async getAnalyticsOverview(from, to) {
-    const res = await api.get(`${basePath}/analytics/overview`, { params: { from, to } })
+  async getAnalyticsOverview(from, to, filters = {}) {
+    const res = await api.get(`${basePath}/analytics/overview`, {
+      params: buildAnalyticsParams(from, to, filters),
+    })
     return res.data
   },
 
-  async getAnalyticsPages(from, to) {
-    const res = await api.get(`${basePath}/analytics/pages`, { params: { from, to } })
+  async getAnalyticsPages(from, to, filters = {}) {
+    const res = await api.get(`${basePath}/analytics/pages`, {
+      params: buildAnalyticsParams(from, to, filters),
+    })
     return res.data
   },
 
-  async getAnalyticsForms(from, to) {
-    const res = await api.get(`${basePath}/analytics/forms`, { params: { from, to } })
+  async getAnalyticsForms(from, to, filters = {}) {
+    const res = await api.get(`${basePath}/analytics/forms`, {
+      params: buildAnalyticsParams(from, to, filters),
+    })
     return res.data
   },
 
-  async getAnalyticsCampaigns(from, to) {
-    const res = await api.get(`${basePath}/analytics/campaigns`, { params: { from, to } })
+  async getAnalyticsCampaigns(from, to, filters = {}) {
+    const res = await api.get(`${basePath}/analytics/campaigns`, {
+      params: buildAnalyticsParams(from, to, filters),
+    })
+    return res.data
+  },
+
+  async getAnalyticsFilterOptions(from, to) {
+    const res = await api.get(`${basePath}/analytics/filter-options`, {
+      params: { from, to },
+    })
     return res.data
   },
 }

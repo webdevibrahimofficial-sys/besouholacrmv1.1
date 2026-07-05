@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
+use App\Services\Whatsapp\WhatsappUnassignedContactService;
 use App\Support\LeadPhoneMatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -33,18 +34,19 @@ class ProcessHistorySyncBatch implements ShouldQueue
         $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
         $ownNumber = $session?->connected_phone_number;
 
-        // Guard: if history was already synced and this is NOT a continuation
-        // of a sync in progress (within 5 minutes of the last sync), skip.
-        if ($session?->history_synced_at) {
+        // Guard: skip only if we are within a 2-minute dedup window AND this
+        // is not a fresh isLatest=true batch (which signals a new reconnect sync).
+        if (!$this->isLatest && $session?->history_synced_at) {
             $minutesSinceSync = now()->diffInMinutes($session->history_synced_at);
-            if ($minutesSinceSync > 5) {
-                Log::info("[History Sync] Skipping batch for tenant {$tenantId}: already synced.");
+            if ($minutesSinceSync < 2) {
+                Log::info("[History Sync] Skipping duplicate burst for tenant {$tenantId}.");
                 return;
             }
         }
 
         $processedCount = 0;
-        $skippedCount = 0;
+        $unmatchedCount = 0;
+        $unassignedContactService = app(WhatsappUnassignedContactService::class);
 
         foreach ($this->messages as $msg) {
             $phone = $msg['phone'] ?? null;
@@ -52,12 +54,7 @@ class ProcessHistorySyncBatch implements ShouldQueue
                 continue;
             }
 
-            // Only import history for numbers that match an existing Lead
             $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $phone);
-            if (!$lead) {
-                $skippedCount++;
-                continue;
-            }
 
             $fromMe = $msg['from_me'] ?? false;
             $direction = $fromMe ? 'outbound' : 'inbound';
@@ -77,14 +74,41 @@ class ProcessHistorySyncBatch implements ShouldQueue
                         'direction' => $direction,
                         'from' => $from,
                         'to' => $to,
-                        'type' => 'text',
+                        'type' => $msg['type'] ?? 'text',
                         'status' => $direction === 'outbound' ? 'sent' : 'received',
                         'message_id' => $msg['message_id'] ?? null,
                         'body' => $msg['body'] ?? '',
-                        'lead_id' => $lead->id,
+                        'lead_id' => $lead?->id,
                         'raw' => $msg,
                     ]
                 );
+
+                if (!$lead) {
+                    // Upsert regardless of wasRecentlyCreated — history re-syncs
+                    // after a reconnect must still register contacts whose messages
+                    // already exist in whatsapp_messages.
+                    if ($message->wasRecentlyCreated) {
+                        $unmatchedCount++;
+                    }
+                    $unassignedContactService->recordPendingMessage(
+                        $tenantId,
+                        (string) $phone,
+                        is_string($msg['pushName'] ?? $msg['push_name'] ?? null) ? ($msg['pushName'] ?? $msg['push_name']) : null,
+                        is_string($msg['body'] ?? null) ? $msg['body'] : null,
+                        $message->created_at,
+                        $message->wasRecentlyCreated // only increment count for new messages
+                    );
+                } elseif ($lead) {
+                    $unassignedContactService->markAsConverted(
+                        $tenantId,
+                        (string) $phone,
+                        (int) $lead->id,
+                        is_string($msg['pushName'] ?? $msg['push_name'] ?? null) ? ($msg['pushName'] ?? $msg['push_name']) : null,
+                        is_string($msg['body'] ?? null) ? $msg['body'] : null,
+                        $message->created_at,
+                        false
+                    );
+                }
 
                 $processedCount++;
             } catch (\Exception $e) {
@@ -92,7 +116,7 @@ class ProcessHistorySyncBatch implements ShouldQueue
             }
         }
 
-        Log::info("[History Sync] Tenant {$tenantId} processed {$processedCount} messages, skipped {$skippedCount} (no lead match).");
+        Log::info("[History Sync] Tenant {$tenantId} processed {$processedCount} messages, unmatched {$unmatchedCount}.");
 
         if ($session && ($this->isLatest || (!$session->history_synced_at && !empty($this->messages)))) {
             $session->update(['history_synced_at' => now()]);

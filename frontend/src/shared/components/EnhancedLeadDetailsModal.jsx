@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../context/ThemeProvider';
 import { useAppState } from '../context/AppStateProvider';
-import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt, FaCopy, FaSyncAlt } from 'react-icons/fa';
+import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt, FaCopy, FaSyncAlt, FaPaperPlane } from 'react-icons/fa';
 
 import AddActionModal from '../../components/AddActionModal';
 import EditLeadModal from '../../components/EditLeadModal';
@@ -15,7 +15,7 @@ import { saveRequest as saveRealEstateRequest } from '../../data/realEstateReque
 import { saveRequest as saveInventoryRequest } from '../../data/inventoryRequests';
 import { api } from '../../utils/api';
 import { ensureEcho, getEcho } from '../../echo';
-import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, getWhatsappTemplates, getWhatsappMirrorStatus } from '../../services/whatsappService';
+import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, sendWhatsappMedia, getWhatsappTemplates, getWhatsappMirrorStatus } from '../../services/whatsappService';
 import { getLeadEmailMessages, sendEmailText } from '../../services/emailService';
 import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
@@ -352,6 +352,14 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [showEditLeadModal, setShowEditLeadModal] = useState(false);
   const [showPaymentPlanModal, setShowPaymentPlanModal] = useState(false);
   const [waMessages, setWaMessages] = useState([]);
+  const waMessagesContainerRef = useRef(null);
+
+  useEffect(() => {
+    const el = waMessagesContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [waMessages]);
   const [waLoading, setWaLoading] = useState(false);
   const [waMirrorStatus, setWaMirrorStatus] = useState(null);
   const [emailMessages, setEmailMessages] = useState([]);
@@ -361,6 +369,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [sendingTpl, setSendingTpl] = useState('');
   const [textBody, setTextBody] = useState('');
   const [sendingText, setSendingText] = useState(false);
+  const [selectedWhatsappAttachment, setSelectedWhatsappAttachment] = useState(null);
+  const [showWhatsappEmojiPicker, setShowWhatsappEmojiPicker] = useState(false);
+  const [showWhatsappTemplatePicker, setShowWhatsappTemplatePicker] = useState(false);
+  const whatsappAttachmentInputRef = useRef(null);
+  const whatsappEmojiPickerRef = useRef(null);
+  const whatsappTemplatePickerRef = useRef(null);
+  const whatsappMessageInputRef = useRef(null);
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -369,6 +384,236 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [showCreateRequestModal, setShowCreateRequestModal] = useState(false);
   const [actionType, setActionType] = useState('call');
   const [commFilter, setCommFilter] = useState('all');
+  const whatsappEmojiGroups = [
+    {
+      key: 'faces',
+      label: isArabic ? 'الوجوه' : 'Faces',
+      items: ['😀', '😁', '😂', '🤣', '😊', '😍', '🥰', '😘', '😎', '🤩'],
+    },
+    {
+      key: 'gestures',
+      label: isArabic ? 'التفاعل' : 'Reactions',
+      items: ['😉', '🙂', '😇', '🤗', '🙌', '👍', '👏', '🙏', '💪', '👌'],
+    },
+    {
+      key: 'love',
+      label: isArabic ? 'المشاعر' : 'Feelings',
+      items: ['❤️', '💚', '💙', '💜', '🧡', '🔥', '✨', '🎉', '💯', '✅'],
+    },
+    {
+      key: 'business',
+      label: isArabic ? 'الأعمال' : 'Business',
+      items: ['📞', '📩', '📎', '📝', '💬', '🚀', '🌟', '🎯', '💡', '🤝'],
+    },
+  ];
+  const whatsappEmojis = ['😀', '😂', '😍', '👍', '🙏', '🎉', '🔥', '✅', '❤️', '📞', '📎', '😊'];
+  const whatsappAttachmentPreviewUrl = useMemo(() => {
+    if (!selectedWhatsappAttachment) return '';
+    return URL.createObjectURL(selectedWhatsappAttachment);
+  }, [selectedWhatsappAttachment]);
+
+  useEffect(() => {
+    return () => {
+      if (whatsappAttachmentPreviewUrl) {
+        URL.revokeObjectURL(whatsappAttachmentPreviewUrl);
+      }
+    };
+  }, [whatsappAttachmentPreviewUrl]);
+
+  useEffect(() => {
+    if (!showWhatsappEmojiPicker) {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (whatsappEmojiPickerRef.current?.contains(event.target)) {
+        return;
+      }
+      setShowWhatsappEmojiPicker(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showWhatsappEmojiPicker]);
+
+  useEffect(() => {
+    if (!showWhatsappTemplatePicker) {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (whatsappTemplatePickerRef.current?.contains(event.target)) {
+        return;
+      }
+      setShowWhatsappTemplatePicker(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showWhatsappTemplatePicker]);
+
+  const handleWhatsappAttachmentPick = (event) => {
+    const file = event.target.files?.[0] || null;
+    setSelectedWhatsappAttachment(file);
+  };
+
+  const clearWhatsappAttachment = () => {
+    setSelectedWhatsappAttachment(null);
+    if (whatsappAttachmentInputRef.current) {
+      whatsappAttachmentInputRef.current.value = '';
+    }
+  };
+
+  const appendWhatsappEmoji = (emoji) => {
+    setTextBody((prev) => `${prev || ''}${emoji}`);
+    setShowWhatsappEmojiPicker(false);
+  };
+
+  const applyWhatsappTemplateToComposer = (template) => {
+    const nextBody = String(template?.body || '').trim();
+    if (!nextBody) {
+      return;
+    }
+
+    setTextBody(nextBody);
+    setShowWhatsappTemplatePicker(false);
+
+    requestAnimationFrame(() => {
+      whatsappMessageInputRef.current?.focus();
+      const textLength = nextBody.length;
+      whatsappMessageInputRef.current?.setSelectionRange?.(textLength, textLength);
+    });
+  };
+
+  const getWhatsappMessageText = (message) => {
+    if (message?.body) {
+      return message.body;
+    }
+
+    if (message?.media?.caption) {
+      return message.media.caption;
+    }
+
+    if (message?.media?.filename) {
+      return message.media.filename;
+    }
+
+    if (message?.media?.url) {
+      return '';
+    }
+
+    return message?.direction === 'inbound'
+      ? (isArabic ? '[رسالة وسائط بدون نص]' : '[Media message]')
+      : (isArabic ? '[بدون نص]' : '[No text]');
+  };
+
+  const renderWhatsappMessageMedia = (message) => {
+    const media = message?.media;
+    if (!media?.url) {
+      return null;
+    }
+
+    if (media.type === 'image') {
+      return (
+        <a href={media.url} target="_blank" rel="noreferrer">
+          <img
+            src={media.url}
+            alt={media.filename || 'WhatsApp image'}
+            className="mb-2 max-h-56 w-full rounded-lg object-cover"
+          />
+        </a>
+      );
+    }
+
+    if (media.type === 'video') {
+      return (
+        <video controls className="mb-2 max-h-56 w-full rounded-lg bg-black">
+          <source src={media.url} type={media.mime_type || 'video/mp4'} />
+        </video>
+      );
+    }
+
+    if (media.type === 'audio') {
+      return (
+        <audio controls className="mb-2 w-full">
+          <source src={media.url} type={media.mime_type || 'audio/mpeg'} />
+        </audio>
+      );
+    }
+
+    return (
+      <a
+        href={media.url}
+        target="_blank"
+        rel="noreferrer"
+        className={`mb-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+          isLight ? 'border-gray-200 bg-white/80 text-slate-700' : 'border-slate-600 bg-slate-800/80 text-white'
+        }`}
+      >
+        <FaFileAlt className="shrink-0" />
+        <span className="truncate">{media.filename || (isArabic ? 'مرفق' : 'Attachment')}</span>
+      </a>
+    );
+  };
+
+  const handleSendWhatsappMessage = async () => {
+    if (sendingText) return;
+
+    const raw = lead?.phone || lead?.mobile || '';
+    const digits = getPhoneDigits(raw, {
+      defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
+    });
+
+    if (!digits) {
+      showToast('error', isArabic ? 'رقم الواتساب غير صالح' : 'Invalid WhatsApp number');
+      return;
+    }
+
+    if (!textBody.trim() && !selectedWhatsappAttachment) {
+      return;
+    }
+
+    setSendingText(true);
+    try {
+      let res;
+      if (selectedWhatsappAttachment) {
+        res = await sendWhatsappMedia({
+          recipient_number: digits,
+          attachment: selectedWhatsappAttachment,
+          caption: textBody.trim(),
+        });
+      } else {
+        res = await sendWhatsappText({ recipient_number: digits, message_body: textBody.trim() });
+      }
+
+      const ok = !!(res?.ok || res?.success);
+      if (ok && lead?.id) {
+        await reloadWhatsappMessages(lead.id);
+        setTextBody('');
+        clearWhatsappAttachment();
+        setShowWhatsappEmojiPicker(false);
+      } else {
+        showToast('error', isArabic ? 'فشل إرسال الرسالة' : 'Failed to send message');
+      }
+    } catch (error) {
+      showToast(
+        'error',
+        error?.response?.data?.message || (isArabic ? 'فشل إرسال الرسالة أو المرفق' : 'Failed to send message or attachment')
+      );
+    } finally {
+      setSendingText(false);
+    }
+  };
   const refreshWhatsappChat = useCallback(async () => {
     if (!lead?.id || waLoading) return;
     setWaLoading(true);
@@ -383,7 +628,6 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   }, [lead?.id, loadWhatsappMirrorStatus, reloadWhatsappMessages, waLoading]);
   const showWhatsAppSection = commFilter !== 'email';
   const showEmailSection = commFilter !== 'whatsapp';
-  const showBothCommPanels = showWhatsAppSection && showEmailSection;
   const waMirrorIsConnected = waMirrorStatus?.status === 'connected';
   const waMirrorWarning =
     waMirrorStatus && !waMirrorIsConnected
@@ -1003,13 +1247,21 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
   const leadCountryValue = resolveCountryLabel(leadCountryRaw);
 
-  const leadInformationRows = [
+  const buildLeadInformationRows = (entries) => [
     {
       key: isRealEstateTenant ? 'project' : 'item',
       label: isRealEstateTenant
         ? (isArabic ? 'المشروع:' : 'Project:')
         : (isArabic ? 'الصنف:' : 'Item:'),
       value: isRealEstateTenant ? leadProjectValue : leadItemValue,
+    },
+    {
+      key: 'phone',
+      label: isArabic ? 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ:' : 'Phone:',
+      value: entries.length > 0
+        ? entries.map((entry) => entry.display).join('\n')
+        : '-',
+      multiline: entries.length > 1,
     },
     {
       key: 'source',
@@ -1112,6 +1364,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   };
 
   const phoneEntries = getLeadPhoneEntries(effectiveLead);
+  const leadInformationRows = buildLeadInformationRows(phoneEntries);
 
   const copyPhoneToClipboard = async (phone) => {
     const value = String(phone || '').trim();
@@ -2057,7 +2310,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     {effectiveLead?.score || 50}%
                   </div>
                 </div>
-                {crmSettings?.showMobileNumber !== false && (
+                {false && crmSettings?.showMobileNumber !== false && (
                   <div className="mb-0.5 flex flex-col items-start gap-0.5">
                     {phoneEntries.length > 0 ? phoneEntries.map((entry, idx) => (
                       <div key={idx} className={`group flex max-w-[240px] items-center gap-1 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
@@ -2102,6 +2355,50 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                   </div>
                 )}
                 <p className={`${isLight ? 'text-slate-500' : 'text-slate-400'} text-[10px] sm:text-xs`}>{leadData.email}</p>
+                {(phoneEntries.length > 0 || (leadData.phone && leadData.phone !== '-')) && (
+                  <div className="mt-1 flex flex-col items-start gap-0.5">
+                    {phoneEntries.length > 0 ? phoneEntries.map((entry, idx) => (
+                      <div key={idx} className={`group flex max-w-[240px] items-center gap-1 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                        <span dir="ltr" className="min-w-0 truncate leading-4" title={entry.display}>{entry.display}</span>
+                        <button
+                          type="button"
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[#25D366] transition hover:opacity-80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (entry?.digits) window.open(`https://wa.me/${entry.digits}`, '_blank');
+                          }}
+                          title={isArabic ? 'واتساب' : 'WhatsApp'}
+                        >
+                          <FaWhatsapp size={10} />
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-blue-600 transition hover:opacity-80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (entry?.digits) window.open(`tel:${entry.digits}`, '_blank');
+                          }}
+                          title={isArabic ? 'مكالمة' : 'Call'}
+                        >
+                          <FaPhone size={9} />
+                        </button>
+                        <button
+                          type="button"
+                          className={`inline-flex h-4 w-4 shrink-0 items-center justify-center transition hover:opacity-80 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyPhoneToClipboard(entry.display);
+                          }}
+                          title={isArabic ? 'نسخ' : 'Copy'}
+                        >
+                          <FaCopy size={9} />
+                        </button>
+                      </div>
+                    )) : (
+                      <p className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs`}>{leadData.phone}</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2535,7 +2832,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     {isArabic ? 'بيانات العميل' : 'Lead Information'}
                   </h3>
                   <div className={`space-y-2 sm:space-y-4 p-2 sm:p-4 rounded-lg ${isLight ? 'bg-white border border-gray-200' : 'bg-slate-700'}`}>
-                    {leadInformationRows.map((row) => (
+                    {leadInformationRows.filter((row) => row.key !== 'phone').map((row) => (
                       <div
                         key={row.key}
                         className={`flex justify-between gap-3 ${row.multiline ? 'items-start' : 'items-center'}`}
@@ -3201,9 +3498,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                 </div>
               </div>
 
-              <div className={`grid grid-cols-1 ${showBothCommPanels ? 'md:grid-cols-3' : 'md:grid-cols-1'} gap-6`}>
+              <div className="grid grid-cols-1 gap-6">
                 {showWhatsAppSection && (
-                <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'} ${showBothCommPanels ? 'md:col-span-2' : ''}`}>
+                <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'}`}>
                   <div className="flex justify-between items-center mb-4">
                     <h4 className={`text-lg font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isArabic ? 'سجل واتساب' : 'WhatsApp Chat'}</h4>
                     <div className="flex items-center gap-3">
@@ -3225,11 +3522,14 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                       {waMirrorWarning}
                     </div>
                   )}
-                  <div className={`${waMessages.length > 3 ? 'max-h-64 overflow-y-auto pr-1' : ''} space-y-3`}>
+                  <div ref={waMessagesContainerRef} className={`${waMessages.length > 3 ? 'max-h-64 overflow-y-auto pr-1' : ''} space-y-3`}>
                     {waMessages.map((m) => (
                       <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`${m.direction === 'outbound' ? 'bg-green-500 text-white' : 'bg-white text-gray-800'} max-w-[75%] rounded-xl px-3 py-2 border ${m.direction === 'outbound' ? 'border-green-600' : 'border-gray-200'} shadow-sm`}>
-                          <div className="text-sm">{m.body || (m.direction === 'inbound' ? (isArabic ? '[رسالة وسائط بدون نص]' : '[Media message, no text]') : (isArabic ? '[بدون نص]' : '[No text]'))}</div>
+                          {renderWhatsappMessageMedia(m)}
+                          {getWhatsappMessageText(m) ? (
+                            <div className="text-sm break-words">{getWhatsappMessageText(m)}</div>
+                          ) : null}
                           <div className="mt-1 text-[10px] opacity-70 flex items-center gap-2">
                             <span>{new Date(m.timestamp).toLocaleString(isArabic ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</span>
                             <span>{getWhatsappStatusLabel(m.status)}</span>
@@ -3241,42 +3541,209 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                       <div className={`${isLight ? 'text-gray-500' : 'text-white/70'} text-sm`}>{isArabic ? 'لا توجد رسائل' : 'No messages'}</div>
                     )}
                   </div>
-                  <div className="mt-6">
+                  <div className={`mt-3 rounded-[22px] border p-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)] sm:mt-4 sm:rounded-[26px] sm:p-4 sm:shadow-[0_14px_40px_rgba(15,23,42,0.07)] ${isLight ? 'border-gray-200 bg-white' : 'border-slate-700 bg-slate-900/70'}`}>
                     {canAddAction ? (
                     <>
-                    <div className="flex items-center gap-2 mb-2">
-                      <FaWhatsapp className="text-green-500" />
-                      <span className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{isArabic ? 'اكتب رسالة' : 'Type a message'}</span>
+                    <div className={`mb-2 flex items-start justify-between gap-2 sm:mb-3 sm:gap-3 ${isArabic ? 'flex-row-reverse' : ''}`}>
+                      <div className={`flex min-w-0 items-start gap-2.5 sm:gap-3 ${isArabic ? 'flex-row-reverse text-right' : ''}`}>
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 sm:h-10 sm:w-10">
+                          <FaWhatsapp className="text-[24px] sm:text-[28px]" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className={`truncate text-lg font-semibold leading-tight sm:text-xl ${isLight ? 'text-slate-900' : 'text-white'}`}>{isArabic ? 'اكتب رسالة' : 'Type a message'}</div>
+                          <div className={`mt-0.5 line-clamp-2 text-[11px] sm:text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>{isArabic ? 'سيتم إرسال رسالتك إلى العميل' : 'Your message will be sent to the customer'}</div>
+                        </div>
+                      </div>
+                      <div ref={whatsappTemplatePickerRef} className={`relative flex shrink-0 items-center gap-2 ${isArabic ? 'flex-row-reverse' : ''}`}>
+                      
+                      <div className={`hidden text-[11px] sm:block sm:text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>{`${textBody.length} / 1000`}</div>
+                      <button
+                        type="button"
+                        onClick={() => setShowWhatsappTemplatePicker((prev) => !prev)}
+                        className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-medium shadow-sm transition-all sm:h-auto sm:gap-2 sm:rounded-2xl sm:px-3 sm:py-2 sm:text-xs ${isLight ? 'border-gray-200 bg-white text-slate-700 hover:bg-slate-50' : 'border-slate-700 bg-slate-800 text-white hover:bg-slate-700'} ${isArabic ? 'flex-row-reverse' : ''}`}
+                      >
+                        <FaFileAlt className="text-slate-500" />
+                        <span>{isArabic ? 'القوالب' : 'Templates'}</span>
+                        <FaChevronDown className={`text-xs opacity-70 transition-transform ${showWhatsappTemplatePicker ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showWhatsappTemplatePicker && (
+                        <div className={`absolute ${isArabic ? 'left-0' : 'right-0'} top-full z-20 mt-2 w-[300px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border shadow-2xl ${isLight ? 'border-gray-200 bg-white' : 'border-slate-700 bg-slate-900'}`}>
+                          <div className={`border-b px-3 py-2.5 ${isLight ? 'border-gray-100 bg-slate-50/80' : 'border-slate-800 bg-slate-950/60'}`}>
+                            <div className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-white'}`}>{isArabic ? 'اختر قالب واتساب' : 'Choose a WhatsApp template'}</div>
+                            <div className={`mt-1 text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>{isArabic ? 'عند الاختيار سيتم إدراج النص تلقائياً في الرسالة.' : 'Choosing one will insert its text into the message.'}</div>
+                          </div>
+                          <div className="max-h-72 overflow-y-auto p-2">
+                            {templates.length > 0 ? templates.map((template) => (
+                              <button
+                                key={template.id}
+                                type="button"
+                                onClick={() => applyWhatsappTemplateToComposer(template)}
+                                className={`mb-1 flex w-full flex-col items-start rounded-xl px-3 py-2 text-left transition-all last:mb-0 ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800'} ${isArabic ? 'text-right' : ''}`}
+                              >
+                                <span className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-white'}`}>{template.name}</span>
+                                <span className={`mt-0.5 text-[11px] uppercase tracking-[0.18em] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>{template.language || (isArabic ? 'قالب' : 'Template')}</span>
+                                <span className={`mt-1 line-clamp-2 text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>{template.body || (isArabic ? 'لا يوجد نص متاح' : 'No preview available')}</span>
+                              </button>
+                            )) : (
+                              <div className={`px-3 py-4 text-sm ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
+                                {tplLoading ? (isArabic ? 'جاري تحميل القوالب...' : 'Loading templates...') : (isArabic ? 'لا توجد قوالب متاحة' : 'No templates available')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
+                    </div>
+                    <input
+                      ref={whatsappAttachmentInputRef}
+                      type="file"
+                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
+                      onChange={handleWhatsappAttachmentPick}
+                      className="hidden"
+                    />
+                    <div className={`rounded-[20px] border-2 p-3 sm:rounded-[22px] sm:p-4 ${isLight ? 'border-emerald-500/90 bg-white' : 'border-emerald-500/70 bg-slate-950/40'}`}>
                     <textarea
-                      rows="3"
+                      ref={whatsappMessageInputRef}
+                      rows="2"
+                      maxLength={1000}
                       value={textBody}
                       onChange={(e) => setTextBody(e.target.value)}
                       placeholder={isArabic ? 'اكتب رسالتك...' : 'Type your message...'}
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${isLight ? 'border-gray-300' : 'bg-slate-800/70 text-white border-slate-700 placeholder-slate-300'}`}
+                      className={`min-h-[56px] max-h-[120px] w-full resize-none overflow-y-auto bg-transparent text-sm outline-none sm:min-h-[64px] sm:max-h-[160px] sm:text-base ${isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-slate-400'}`}
                     />
-                    <div className="mt-2 flex items-center gap-3">
+                    <div className={`relative z-[2] mt-2 flex items-center justify-between gap-2 px-1 sm:mt-3 ${isArabic ? 'flex-row-reverse' : ''}`}>
+                      <div className={`flex items-center gap-1.5 ${isArabic ? 'flex-row-reverse' : ''}`}>
+                        <div className="relative" ref={whatsappEmojiPickerRef}>
+                          <button
+                            type="button"
+                            onClick={() => setShowWhatsappEmojiPicker((prev) => !prev)}
+                            className={`inline-flex h-8 items-center gap-1 rounded-xl border px-2 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-2.5 sm:text-xs ${isLight ? 'border-gray-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm' : 'border-slate-700 bg-slate-900/80 text-white hover:bg-slate-800'}`}
+                          >
+                            <span className="text-base">😊</span>
+                            <span>{isArabic ? 'إيموجي' : 'Emoji'}</span>
+                          </button>
+                          {showWhatsappEmojiPicker && (
+                            <div className={`absolute bottom-full mb-2 w-[280px] max-w-[calc(100vw-2.25rem)] overflow-hidden rounded-2xl border shadow-2xl ${isLight ? 'border-gray-200 bg-white' : 'border-slate-700 bg-slate-900'}`}>
+                              <div className={`border-b px-3 py-2.5 ${isLight ? 'border-gray-100 bg-slate-50/80' : 'border-slate-800 bg-slate-950/60'}`}>
+                                <div className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-white'}`}>{isArabic ? 'اختر إيموجي' : 'Pick an emoji'}</div>
+                                <div className={`mt-1 text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>{isArabic ? 'إيموجيز سريعة للردود والرسائل.' : 'Quick emojis for replies and messages.'}</div>
+                              </div>
+                              <div className="max-h-60 overflow-y-auto px-3 py-2.5">
+                                <div className="space-y-3">
+                                  {whatsappEmojiGroups.map((group) => (
+                                    <div key={group.key}>
+                                      <div className={`mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+                                        {group.label}
+                                      </div>
+                                      <div className="grid grid-cols-5 gap-1.5">
+                                        {group.items.map((emoji) => (
+                                          <button
+                                            key={`${group.key}-${emoji}`}
+                                            type="button"
+                                            onClick={() => appendWhatsappEmoji(emoji)}
+                                            className={`flex h-10 w-full items-center justify-center rounded-lg text-xl transition-all ${isLight ? 'bg-slate-50 hover:bg-blue-50 hover:shadow-sm' : 'bg-slate-800 hover:bg-slate-700'}`}
+                                          >
+                                            {emoji}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => whatsappAttachmentInputRef.current?.click()}
+                          className={`inline-flex h-8 items-center gap-1 rounded-xl border px-2 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-2.5 sm:text-xs ${isLight ? 'border-gray-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm' : 'border-slate-700 bg-slate-900/80 text-white hover:bg-slate-800'}`}
+                        >
+                          <FaPaperclip />
+                          <span>{isArabic ? 'مرفق' : 'Attach'}</span>
+                        </button>
+                      </div>
                       <button
-                        disabled={sendingText || !textBody.trim()}
-                        onClick={async () => {
-                          if (sendingText) return;
-                          const raw = lead?.phone || lead?.mobile || '';
-                          const digits = getPhoneDigits(raw, {
-                            defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
-                          });
-                          setSendingText(true);
-                          try {
-                            const res = await sendWhatsappText({ recipient_number: digits, message_body: textBody.trim() });
-                            const ok = !!(res?.ok || res?.success);
-                            if (ok && lead?.id) {
-                              await reloadWhatsappMessages(lead.id);
-                              setTextBody('');
-                            }
-                          } catch {
-                          } finally {
-                            setSendingText(false);
-                          }
-                        }}
+                        disabled={sendingText || (!textBody.trim() && !selectedWhatsappAttachment)}
+                        onClick={handleSendWhatsappMessage}
+                        className={`inline-flex h-10 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition-all sm:h-11 sm:px-5 sm:text-base ${sendingText ? 'opacity-60' : ''} ${isLight ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg' : 'bg-emerald-500 text-white hover:bg-emerald-400'}`}
+                      >
+                        <FaPaperPlane />
+                        <span>{sendingText ? (isArabic ? 'جاري الإرسال...' : 'Sending...') : (isArabic ? 'إرسال' : 'Send')}</span>
+                      </button>
+                    </div>
+                    </div>
+                    {selectedWhatsappAttachment && (
+                      <div className={`mt-3 rounded-xl border p-3 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800/60'}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className={`truncate text-sm font-medium ${isLight ? 'text-slate-800' : 'text-white'}`}>
+                              {selectedWhatsappAttachment.name}
+                            </div>
+                            <div className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
+                              {(selectedWhatsappAttachment.size / 1024 / 1024).toFixed(2)} MB
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={clearWhatsappAttachment}
+                            className={`rounded-lg px-2 py-1 text-xs ${isLight ? 'bg-white text-slate-600 hover:bg-slate-100' : 'bg-slate-900 text-white hover:bg-slate-700'}`}
+                          >
+                            {isArabic ? 'إزالة' : 'Remove'}
+                          </button>
+                        </div>
+                        {selectedWhatsappAttachment.type.startsWith('image/') && whatsappAttachmentPreviewUrl ? (
+                          <img src={whatsappAttachmentPreviewUrl} alt={selectedWhatsappAttachment.name} className="mt-3 max-h-40 rounded-lg object-cover" />
+                        ) : null}
+                        {selectedWhatsappAttachment.type.startsWith('video/') && whatsappAttachmentPreviewUrl ? (
+                          <video controls className="mt-3 max-h-40 rounded-lg bg-black">
+                            <source src={whatsappAttachmentPreviewUrl} type={selectedWhatsappAttachment.type} />
+                          </video>
+                        ) : null}
+                      </div>
+                    )}
+                    <div className={`mt-3 flex items-center gap-2 rounded-2xl px-3 py-2.5 sm:mt-4 sm:py-3 ${isLight ? 'bg-emerald-50 text-emerald-700' : 'bg-emerald-500/10 text-emerald-200'} ${isArabic ? 'flex-row-reverse' : ''}`}>
+                      <FaCheckCircle className="shrink-0" />
+                      <span className="text-xs font-medium sm:text-sm">
+                        {isArabic ? 'رسائلك محمية بتشفير من طرف إلى طرف' : 'Your messages are end-to-end encrypted'}
+                      </span>
+                    </div>
+                    <div className="hidden mt-2 items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => whatsappAttachmentInputRef.current?.click()}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-gray-200 text-slate-700 hover:bg-gray-50' : 'border-slate-700 text-white hover:bg-slate-800/80'}`}
+                      >
+                        <FaPaperclip />
+                        <span>{isArabic ? 'مرفق' : 'Attach'}</span>
+                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setShowWhatsappEmojiPicker((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-gray-200 text-slate-700 hover:bg-gray-50' : 'border-slate-700 text-white hover:bg-slate-800/80'}`}
+                        >
+                          <span className="text-base">😊</span>
+                          <span>{isArabic ? 'إيموجي' : 'Emoji'}</span>
+                        </button>
+                        {showWhatsappEmojiPicker && (
+                          <div className={`absolute bottom-full mb-2 flex max-w-[220px] flex-wrap gap-2 rounded-xl border p-3 shadow-xl ${isLight ? 'border-gray-200 bg-white' : 'border-slate-700 bg-slate-900'}`}>
+                            {whatsappEmojis.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => appendWhatsappEmoji(emoji)}
+                                className="rounded-md px-2 py-1 text-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        disabled={sendingText || (!textBody.trim() && !selectedWhatsappAttachment)}
+                        onClick={handleSendWhatsappMessage}
                         className={`px-4 py-2 rounded-lg ${sendingText ? 'opacity-60' : ''} ${isLight ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-emerald-500 text-white'}`}
                       >
                         {sendingText ? (isArabic ? 'جاري الإرسال...' : 'Sending...') : (isArabic ? 'إرسال' : 'Send')}
@@ -3285,51 +3752,6 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     </>
                     ) : (
                       <div className="text-sm opacity-60 text-center py-4">{isArabic ? 'لا يمكنك إرسال رسائل لأنك لست المالك' : 'You cannot send messages because you are not the owner'}</div>
-                    )}
-                  </div>
-                </div>
-                )}
-                {showWhatsAppSection && (
-                <div className={`${isLight ? 'bg-white rounded-2xl p-6 border border-gray-100 shadow-sm' : 'bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-sm'}`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className={`text-lg font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isArabic ? 'قوالب واتساب' : 'WhatsApp Templates'}</h4>
-                    <div className="text-sm">{tplLoading ? (isArabic ? 'جاري التحميل...' : 'Loading...') : ''}</div>
-                  </div>
-                  <div className="space-y-3">
-                    {templates.map((t) => (
-                      <div key={t.id} className="rounded-xl border border-gray-200 dark:border-slate-700 p-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{t.name}</div>
-                            <div className="text-xs opacity-70">{t.language}</div>
-                          </div>
-                          <button
-                            disabled={sendingTpl === t.name}
-                            onClick={async () => {
-                              const raw = lead?.phone || lead?.mobile || '';
-                              const digits = getPhoneDigits(raw, {
-                                defaultCountryCode: getLeadDefaultCountryCode(effectiveLead),
-                              });
-                                setSendingTpl(t.name);
-                                try {
-                                  const res = await sendWhatsappTemplate({ recipient_number: digits, template_name: t.name, variables: {} });
-                                  const ok = !!(res?.ok || res?.success);
-                                  if (ok && lead?.id) {
-                                    await reloadWhatsappMessages(lead.id);
-                                  }
-                                } catch { }
-                                setSendingTpl('');
-                              }}
-                            className={`px-3 py-1 rounded-md text-xs ${isLight ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-500 text-white'}`}
-                          >
-                            {sendingTpl === t.name ? (isArabic ? 'جاري الإرسال...' : 'Sending...') : (isArabic ? 'إرسال' : 'Send')}
-                          </button>
-                        </div>
-                        <div className="mt-2 text-xs opacity-80">{t.body}</div>
-                      </div>
-                    ))}
-                    {templates.length === 0 && !tplLoading && (
-                      <div className="text-sm opacity-70">{isArabic ? 'لا توجد قوالب' : 'No templates found'}</div>
                     )}
                   </div>
                 </div>
@@ -3569,4 +3991,3 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 };
 
 export default EnhancedLeadDetailsModal;
-

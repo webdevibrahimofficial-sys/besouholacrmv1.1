@@ -7,9 +7,13 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\WhatsappMessage;
 use App\Models\Lead;
 use App\Services\Whatsapp\WhatsappProviderResolver;
+use App\Services\Whatsapp\MetaCloudApiProvider;
+use App\Services\TenantStorageService;
 use App\Support\LeadPhoneMatcher;
 use App\Support\PhoneNormalizer;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Validation\ValidationException;
 
 class WhatsappMessageController extends Controller
 {
@@ -61,7 +65,7 @@ class WhatsappMessageController extends Controller
             })
             ->orderBy('created_at', 'asc')
             ->get()
-            ->map(function (WhatsappMessage $m) {
+            ->map(function (WhatsappMessage $m) use ($user) {
                 $normalizedStatus = $this->mapStatus($m->status, $m->direction);
 
                 if (
@@ -81,6 +85,7 @@ class WhatsappMessageController extends Controller
                     'type' => $m->type,
                     'id' => $m->id,
                     'message_id' => $m->message_id,
+                    'media' => $this->extractMediaPayload($m, (int) $user->tenant_id),
                 ];
             });
         return response()->json($messages);
@@ -122,6 +127,88 @@ class WhatsappMessageController extends Controller
         $result = $provider->sendText((int) $user->tenant_id, $digits, $validated['message_body']);
 
         return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
+    }
+
+    public function sendMediaV1(
+        Request $request,
+        WhatsappProviderResolver $providerResolver,
+        TenantStorageService $tenantStorageService
+    ) {
+        $user = Auth::user();
+        $validated = $request->validate([
+            'recipient_number' => 'required|string',
+            'caption' => 'nullable|string|max:1024',
+            'attachment' => 'required|file|max:51200',
+        ]);
+
+        $providerKey = $providerResolver->activeProviderKey((int) $user->tenant_id);
+        if ($providerKey !== 'meta') {
+            throw ValidationException::withMessages([
+                'attachment' => ['Media sending is currently available only with the Meta WhatsApp provider.'],
+            ]);
+        }
+
+        $file = $request->file('attachment');
+        $mediaType = $this->resolveMediaTypeFromMime((string) $file->getMimeType());
+        $digits = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
+        $upload = $tenantStorageService->upload($file, 'whatsapp/attachments');
+
+        $provider = $providerResolver->resolve((int) $user->tenant_id);
+        $result = $provider->sendMedia(
+            (int) $user->tenant_id,
+            $digits,
+            $mediaType,
+            $upload['url'],
+            $validated['caption'] ?? null,
+            $file->getClientOriginalName()
+        );
+
+        $message = WhatsappMessage::query()->find($result['db_id'] ?? null);
+        if ($message) {
+            $raw = is_array($message->raw) ? $message->raw : [];
+            $raw['request'] = array_merge($raw['request'] ?? [], [
+                'attachment_path' => $upload['path'],
+                'attachment_url' => $upload['url'],
+                'mime_type' => $file->getMimeType(),
+                'original_name' => $file->getClientOriginalName(),
+                'caption' => $validated['caption'] ?? null,
+            ]);
+            $message->forceFill(['raw' => $raw])->save();
+        }
+
+        return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
+    }
+
+    public function streamMediaV1(
+        Request $request,
+        WhatsappMessage $message,
+        WhatsappProviderResolver $providerResolver,
+        MetaCloudApiProvider $metaCloudApiProvider
+    ) {
+        $user = Auth::user();
+        $hasAccess = $request->hasValidSignature()
+            || ($user && (int) $message->tenant_id === (int) $user->tenant_id);
+
+        abort_unless($hasAccess, 404);
+
+        $providerKey = $providerResolver->activeProviderKey((int) $message->tenant_id);
+        if ($providerKey !== 'meta') {
+            abort(404);
+        }
+
+        $raw = is_array($message->raw) ? $message->raw : [];
+        $mediaId = $this->extractMetaMediaId($raw, (string) $message->type);
+        if (!$mediaId) {
+            abort(404);
+        }
+
+        $media = $metaCloudApiProvider->downloadMedia((int) $message->tenant_id, $mediaId);
+        $filename = $media['filename'] ?: ('whatsapp-media-' . $message->id);
+
+        return response($media['body'], 200, [
+            'Content-Type' => $media['mime_type'] ?: 'application/octet-stream',
+            'Content-Disposition' => 'inline; filename="' . addslashes($filename) . '"',
+        ]);
     }
 
     private function mapStatus(?string $status, ?string $direction = null): string
@@ -178,5 +265,65 @@ class WhatsappMessageController extends Controller
         }
 
         return ltrim($digits, '+');
+    }
+
+    private function resolveMediaTypeFromMime(string $mimeType): string
+    {
+        $mimeType = strtolower(trim($mimeType));
+
+        if (str_starts_with($mimeType, 'image/')) {
+            return 'image';
+        }
+
+        if (str_starts_with($mimeType, 'video/')) {
+            return 'video';
+        }
+
+        if (str_starts_with($mimeType, 'audio/')) {
+            return 'audio';
+        }
+
+        return 'document';
+    }
+
+    private function extractMediaPayload(WhatsappMessage $message, int $tenantId): ?array
+    {
+        $type = (string) ($message->type ?? '');
+        if (!in_array($type, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
+            return null;
+        }
+
+        $raw = is_array($message->raw) ? $message->raw : [];
+        $requestPayload = is_array($raw['request'] ?? null) ? $raw['request'] : [];
+        $typePayload = is_array($raw[$type] ?? null) ? $raw[$type] : [];
+        $mirrorMessage = is_array($raw['message'] ?? null) ? $raw['message'] : [];
+
+        $url = $requestPayload['attachment_path'] ?? null
+            ? app(TenantStorageService::class)->getUrl($requestPayload['attachment_path'])
+            : ($requestPayload['attachment_url'] ?? $typePayload['link'] ?? $typePayload['url'] ?? $mirrorMessage['media_url'] ?? $mirrorMessage['url'] ?? null);
+
+        if (!$url && $message->provider === 'meta' && $this->extractMetaMediaId($raw, $type)) {
+            $url = URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(60));
+        }
+
+        if (!$url) {
+            return null;
+        }
+
+        return [
+            'url' => $url,
+            'mime_type' => $requestPayload['mime_type'] ?? $typePayload['mime_type'] ?? $mirrorMessage['mime_type'] ?? null,
+            'filename' => $requestPayload['original_name'] ?? $typePayload['filename'] ?? $mirrorMessage['file_name'] ?? null,
+            'caption' => $requestPayload['caption'] ?? $typePayload['caption'] ?? $mirrorMessage['caption'] ?? $message->body,
+            'type' => $type,
+        ];
+    }
+
+    private function extractMetaMediaId(array $raw, string $type): ?string
+    {
+        $typePayload = is_array($raw[$type] ?? null) ? $raw[$type] : null;
+        $mediaId = $typePayload['id'] ?? null;
+
+        return is_string($mediaId) && $mediaId !== '' ? $mediaId : null;
     }
 }

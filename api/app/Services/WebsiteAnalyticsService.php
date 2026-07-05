@@ -9,6 +9,7 @@ use App\Models\WebsiteIntakeLog;
 use App\Models\WebsitePageView;
 use App\Models\WebsiteSession;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -59,6 +60,9 @@ class WebsiteAnalyticsService
         $sessionId = trim((string) ($payload['session_id'] ?? ''));
         $eventName = trim((string) ($payload['event_name'] ?? ''));
         $occurredAt = $this->resolveOccurredAt($payload['timestamp'] ?? null);
+        $utmSource = $this->normalizeTrackingValue($payload['utm_source'] ?? null, true);
+        $utmMedium = $this->normalizeTrackingValue($payload['utm_medium'] ?? null, true);
+        $utmCampaign = $this->normalizeTrackingValue($payload['utm_campaign'] ?? null, false);
 
         if ($sessionId === '' || $eventName === '') {
             throw new \InvalidArgumentException('session_id and event_name are required.');
@@ -77,9 +81,9 @@ class WebsiteAnalyticsService
                 'first_page_url' => $payload['page_url'] ?? null,
                 'first_page_path' => $payload['page_path'] ?? null,
                 'first_referrer' => $payload['referrer'] ?? null,
-                'utm_source' => $payload['utm_source'] ?? null,
-                'utm_campaign' => $payload['utm_campaign'] ?? null,
-                'utm_medium' => $payload['utm_medium'] ?? null,
+                'utm_source' => $utmSource,
+                'utm_campaign' => $utmCampaign,
+                'utm_medium' => $utmMedium,
                 'device' => $payload['device'] ?? null,
                 'browser' => $payload['browser'] ?? null,
                 'ip_address' => $request->ip(),
@@ -102,9 +106,9 @@ class WebsiteAnalyticsService
             'page_path' => $payload['page_path'] ?? null,
             'form_name' => $payload['form_name'] ?? null,
             'service_slug' => $payload['service_slug'] ?? null,
-            'utm_source' => $payload['utm_source'] ?? null,
-            'utm_campaign' => $payload['utm_campaign'] ?? null,
-            'utm_medium' => $payload['utm_medium'] ?? null,
+            'utm_source' => $utmSource,
+            'utm_campaign' => $utmCampaign,
+            'utm_medium' => $utmMedium,
             'referrer' => $payload['referrer'] ?? null,
             'device' => $payload['device'] ?? null,
             'browser' => $payload['browser'] ?? null,
@@ -122,9 +126,9 @@ class WebsiteAnalyticsService
                 'page_url' => $payload['page_url'] ?? null,
                 'page_path' => $payload['page_path'] ?? null,
                 'referrer' => $payload['referrer'] ?? null,
-                'utm_source' => $payload['utm_source'] ?? null,
-                'utm_campaign' => $payload['utm_campaign'] ?? null,
-                'utm_medium' => $payload['utm_medium'] ?? null,
+                'utm_source' => $utmSource,
+                'utm_campaign' => $utmCampaign,
+                'utm_medium' => $utmMedium,
                 'device' => $payload['device'] ?? null,
                 'browser' => $payload['browser'] ?? null,
                 'viewed_at' => $occurredAt,
@@ -144,25 +148,37 @@ class WebsiteAnalyticsService
         ];
     }
 
-    public function overview(int $tenantId, ?string $from = null, ?string $to = null): array
+    public function overview(int $tenantId, ?string $from = null, ?string $to = null, array $filters = []): array
     {
         [$start, $end] = $this->resolveRange($from, $to);
+        $filters = $this->normalizeFilters($filters);
 
-        $sessions = WebsiteSession::query()
+        $sessions = $this->applySessionFilters(
+            WebsiteSession::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->whereBetween('started_at', [$start, $end])
             ->count();
 
-        $visitors = WebsiteSession::query()
+        $visitors = $this->applySessionFilters(
+            WebsiteSession::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->whereBetween('started_at', [$start, $end])
             ->distinct('session_id')
             ->count('session_id');
 
-        $pageViews = WebsitePageView::query()
+        $pageViews = $this->applyPageViewFilters(
+            WebsitePageView::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->whereBetween('viewed_at', [$start, $end])
             ->count();
 
-        $leads = Lead::query()
-            ->where('tenant_id', $tenantId)
+        $leads = $this->applyLeadFilters(
+            Lead::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->whereBetween('created_at', [$start, $end])
             ->where(function ($query) {
                 $query->whereNotNull('website_connection_id')
@@ -170,10 +186,10 @@ class WebsiteAnalyticsService
             })
             ->count();
 
-        $ctaClicks = $this->countEvents($tenantId, 'cta_click', $start, $end);
-        $formStarts = $this->countEvents($tenantId, 'form_start', $start, $end);
-        $formSubmits = $this->countEvents($tenantId, 'form_submit', $start, $end);
-        $formErrors = $this->countEvents($tenantId, 'form_error', $start, $end);
+        $ctaClicks = $this->countEvents($tenantId, 'cta_click', $start, $end, $filters);
+        $formStarts = $this->countEvents($tenantId, 'form_start', $start, $end, $filters);
+        $formSubmits = $this->countEvents($tenantId, 'form_submit', $start, $end, $filters);
+        $formErrors = $this->countEvents($tenantId, 'form_error', $start, $end, $filters);
 
         $failedIntakes = WebsiteIntakeLog::query()
             ->where('tenant_id', $tenantId)
@@ -195,19 +211,22 @@ class WebsiteAnalyticsService
             'form_submits' => $formSubmits,
             'form_errors' => $formErrors,
             'failed_intakes' => $failedIntakes,
-            'top_pages' => $this->topPages($tenantId, $start, $end, 5),
-            'top_forms' => $this->topForms($tenantId, $start, $end, 5),
-            'top_campaigns' => $this->topCampaigns($tenantId, $start, $end, 5),
+            'top_pages' => $this->topPages($tenantId, $start, $end, 5, $filters),
+            'top_forms' => $this->topForms($tenantId, $start, $end, 5, $filters),
+            'top_campaigns' => $this->topCampaigns($tenantId, $start, $end, 5, $filters),
         ];
     }
 
-    public function pages(int $tenantId, ?string $from = null, ?string $to = null): array
+    public function pages(int $tenantId, ?string $from = null, ?string $to = null, array $filters = []): array
     {
         [$start, $end] = $this->resolveRange($from, $to);
+        $filters = $this->normalizeFilters($filters);
 
-        $rows = WebsitePageView::query()
+        $rows = $this->applyPageViewFilters(
+            WebsitePageView::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->select('page_path', DB::raw('COUNT(*) as views'), DB::raw('COUNT(DISTINCT session_id) as unique_visitors'))
-            ->where('tenant_id', $tenantId)
             ->whereBetween('viewed_at', [$start, $end])
             ->whereNotNull('page_path')
             ->groupBy('page_path')
@@ -215,17 +234,21 @@ class WebsiteAnalyticsService
             ->limit(50)
             ->get();
 
-        $formStarts = WebsiteEvent::query()
+        $formStarts = $this->applyEventFilters(
+            WebsiteEvent::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->select('page_path', DB::raw('COUNT(*) as total'))
-            ->where('tenant_id', $tenantId)
             ->where('event_name', 'form_start')
             ->whereBetween('occurred_at', [$start, $end])
             ->groupBy('page_path')
             ->pluck('total', 'page_path');
 
-        $formSubmits = WebsiteEvent::query()
+        $formSubmits = $this->applyEventFilters(
+            WebsiteEvent::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->select('page_path', DB::raw('COUNT(*) as total'))
-            ->where('tenant_id', $tenantId)
             ->where('event_name', 'form_submit')
             ->whereBetween('occurred_at', [$start, $end])
             ->groupBy('page_path')
@@ -246,23 +269,26 @@ class WebsiteAnalyticsService
         })->values()->all();
     }
 
-    public function forms(int $tenantId, ?string $from = null, ?string $to = null): array
+    public function forms(int $tenantId, ?string $from = null, ?string $to = null, array $filters = []): array
     {
         [$start, $end] = $this->resolveRange($from, $to);
+        $filters = $this->normalizeFilters($filters);
 
-        $forms = WebsiteEvent::query()
+        $forms = $this->applyEventFilters(
+            WebsiteEvent::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->select('form_name')
-            ->where('tenant_id', $tenantId)
             ->whereBetween('occurred_at', [$start, $end])
             ->whereNotNull('form_name')
             ->distinct()
             ->pluck('form_name');
 
-        return $forms->map(function ($formName) use ($tenantId, $start, $end) {
-            $views = $this->countFormEvents($tenantId, 'form_view', $formName, $start, $end);
-            $starts = $this->countFormEvents($tenantId, 'form_start', $formName, $start, $end);
-            $submits = $this->countFormEvents($tenantId, 'form_submit', $formName, $start, $end);
-            $errors = $this->countFormEvents($tenantId, 'form_error', $formName, $start, $end);
+        return $forms->map(function ($formName) use ($tenantId, $start, $end, $filters) {
+            $views = $this->countFormEvents($tenantId, 'form_view', $formName, $start, $end, $filters);
+            $starts = $this->countFormEvents($tenantId, 'form_start', $formName, $start, $end, $filters);
+            $submits = $this->countFormEvents($tenantId, 'form_submit', $formName, $start, $end, $filters);
+            $errors = $this->countFormEvents($tenantId, 'form_error', $formName, $start, $end, $filters);
 
             return [
                 'form_name' => $formName,
@@ -275,18 +301,21 @@ class WebsiteAnalyticsService
         })->sortByDesc('submits')->values()->all();
     }
 
-    public function campaigns(int $tenantId, ?string $from = null, ?string $to = null): array
+    public function campaigns(int $tenantId, ?string $from = null, ?string $to = null, array $filters = []): array
     {
         [$start, $end] = $this->resolveRange($from, $to);
+        $filters = $this->normalizeFilters($filters);
 
-        $rows = WebsiteSession::query()
+        $rows = $this->applySessionFilters(
+            WebsiteSession::query()->where('tenant_id', $tenantId),
+            $filters
+        )
             ->select(
                 'utm_source',
                 'utm_medium',
                 'utm_campaign',
                 DB::raw('COUNT(*) as sessions')
             )
-            ->where('tenant_id', $tenantId)
             ->whereBetween('started_at', [$start, $end])
             ->where(function ($query) {
                 $query->whereNotNull('utm_source')
@@ -298,9 +327,11 @@ class WebsiteAnalyticsService
             ->limit(50)
             ->get();
 
-        return $rows->map(function ($row) use ($tenantId, $start, $end) {
-            $leadQuery = Lead::query()
-                ->where('tenant_id', $tenantId)
+        return $rows->map(function ($row) use ($tenantId, $start, $end, $filters) {
+            $leadQuery = $this->applyLeadFilters(
+                Lead::query()->where('tenant_id', $tenantId),
+                $filters
+            )
                 ->whereBetween('created_at', [$start, $end])
                 ->where(function ($query) {
                     $query->whereNotNull('website_connection_id')
@@ -331,11 +362,57 @@ class WebsiteAnalyticsService
         })->values()->all();
     }
 
-    private function topPages(int $tenantId, Carbon $start, Carbon $end, int $limit): array
+    public function filterOptions(int $tenantId, ?string $from = null, ?string $to = null): array
     {
-        return WebsitePageView::query()
-            ->select('page_path', DB::raw('COUNT(*) as views'))
+        [$start, $end] = $this->resolveRange($from, $to);
+
+        $sessionQuery = WebsiteSession::query()
             ->where('tenant_id', $tenantId)
+            ->whereBetween('started_at', [$start, $end]);
+
+        return [
+            'utm_sources' => (clone $sessionQuery)
+                ->whereNotNull('utm_source')
+                ->where('utm_source', '!=', '')
+                ->distinct()
+                ->orderBy('utm_source')
+                ->pluck('utm_source')
+                ->values()
+                ->all(),
+            'utm_mediums' => (clone $sessionQuery)
+                ->whereNotNull('utm_medium')
+                ->where('utm_medium', '!=', '')
+                ->distinct()
+                ->orderBy('utm_medium')
+                ->pluck('utm_medium')
+                ->values()
+                ->all(),
+            'utm_campaigns' => (clone $sessionQuery)
+                ->whereNotNull('utm_campaign')
+                ->where('utm_campaign', '!=', '')
+                ->distinct()
+                ->orderBy('utm_campaign')
+                ->pluck('utm_campaign')
+                ->values()
+                ->all(),
+            'devices' => (clone $sessionQuery)
+                ->whereNotNull('device')
+                ->where('device', '!=', '')
+                ->distinct()
+                ->orderBy('device')
+                ->pluck('device')
+                ->values()
+                ->all(),
+        ];
+    }
+
+    private function topPages(int $tenantId, Carbon $start, Carbon $end, int $limit, array $filters = []): array
+    {
+        return $this->applyPageViewFilters(
+            WebsitePageView::query()->where('tenant_id', $tenantId),
+            $this->normalizeFilters($filters)
+        )
+            ->select('page_path', DB::raw('COUNT(*) as views'))
             ->whereBetween('viewed_at', [$start, $end])
             ->whereNotNull('page_path')
             ->groupBy('page_path')
@@ -346,11 +423,13 @@ class WebsiteAnalyticsService
             ->all();
     }
 
-    private function topForms(int $tenantId, Carbon $start, Carbon $end, int $limit): array
+    private function topForms(int $tenantId, Carbon $start, Carbon $end, int $limit, array $filters = []): array
     {
-        return WebsiteEvent::query()
+        return $this->applyEventFilters(
+            WebsiteEvent::query()->where('tenant_id', $tenantId),
+            $this->normalizeFilters($filters)
+        )
             ->select('form_name', DB::raw('COUNT(*) as submits'))
-            ->where('tenant_id', $tenantId)
             ->where('event_name', 'form_submit')
             ->whereBetween('occurred_at', [$start, $end])
             ->whereNotNull('form_name')
@@ -362,11 +441,13 @@ class WebsiteAnalyticsService
             ->all();
     }
 
-    private function topCampaigns(int $tenantId, Carbon $start, Carbon $end, int $limit): array
+    private function topCampaigns(int $tenantId, Carbon $start, Carbon $end, int $limit, array $filters = []): array
     {
-        return WebsiteSession::query()
+        return $this->applySessionFilters(
+            WebsiteSession::query()->where('tenant_id', $tenantId),
+            $this->normalizeFilters($filters)
+        )
             ->select('utm_source', 'utm_campaign', DB::raw('COUNT(*) as sessions'))
-            ->where('tenant_id', $tenantId)
             ->whereBetween('started_at', [$start, $end])
             ->whereNotNull('utm_campaign')
             ->groupBy('utm_source', 'utm_campaign')
@@ -381,23 +462,98 @@ class WebsiteAnalyticsService
             ->all();
     }
 
-    private function countEvents(int $tenantId, string $eventName, Carbon $start, Carbon $end): int
+    private function countEvents(int $tenantId, string $eventName, Carbon $start, Carbon $end, array $filters = []): int
     {
-        return WebsiteEvent::query()
-            ->where('tenant_id', $tenantId)
+        return $this->applyEventFilters(
+            WebsiteEvent::query()->where('tenant_id', $tenantId),
+            $this->normalizeFilters($filters)
+        )
             ->where('event_name', $eventName)
             ->whereBetween('occurred_at', [$start, $end])
             ->count();
     }
 
-    private function countFormEvents(int $tenantId, string $eventName, string $formName, Carbon $start, Carbon $end): int
+    private function countFormEvents(int $tenantId, string $eventName, string $formName, Carbon $start, Carbon $end, array $filters = []): int
     {
-        return WebsiteEvent::query()
-            ->where('tenant_id', $tenantId)
+        return $this->applyEventFilters(
+            WebsiteEvent::query()->where('tenant_id', $tenantId),
+            $this->normalizeFilters($filters)
+        )
             ->where('event_name', $eventName)
             ->where('form_name', $formName)
             ->whereBetween('occurred_at', [$start, $end])
             ->count();
+    }
+
+    private function normalizeFilters(array $filters): array
+    {
+        return [
+            'utm_source' => $this->normalizeFilterValue($filters['utm_source'] ?? null),
+            'utm_medium' => $this->normalizeFilterValue($filters['utm_medium'] ?? null),
+            'utm_campaign' => $this->normalizeFilterValue($filters['utm_campaign'] ?? null),
+            'device' => $this->normalizeFilterValue($filters['device'] ?? null),
+        ];
+    }
+
+    private function normalizeFilterValue(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
+    }
+
+    private function normalizeTrackingValue(mixed $value, bool $lowercase = true): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        return $lowercase ? strtolower($value) : $value;
+    }
+
+    private function applySessionFilters(Builder $query, array $filters): Builder
+    {
+        return $query
+            ->when($filters['utm_source'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_source', $value))
+            ->when($filters['utm_medium'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_medium', $value))
+            ->when($filters['utm_campaign'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_campaign', $value))
+            ->when($filters['device'] ?? null, fn (Builder $builder, string $value) => $builder->where('device', $value));
+    }
+
+    private function applyPageViewFilters(Builder $query, array $filters): Builder
+    {
+        return $query
+            ->when($filters['utm_source'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_source', $value))
+            ->when($filters['utm_medium'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_medium', $value))
+            ->when($filters['utm_campaign'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_campaign', $value))
+            ->when($filters['device'] ?? null, fn (Builder $builder, string $value) => $builder->where('device', $value));
+    }
+
+    private function applyEventFilters(Builder $query, array $filters): Builder
+    {
+        return $query
+            ->when($filters['utm_source'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_source', $value))
+            ->when($filters['utm_medium'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_medium', $value))
+            ->when($filters['utm_campaign'] ?? null, fn (Builder $builder, string $value) => $builder->where('utm_campaign', $value))
+            ->when($filters['device'] ?? null, fn (Builder $builder, string $value) => $builder->where('device', $value));
+    }
+
+    private function applyLeadFilters(Builder $query, array $filters): Builder
+    {
+        return $query
+            ->when($filters['utm_source'] ?? null, fn (Builder $builder, string $value) => $builder->where('meta_data->utm_source', $value))
+            ->when($filters['utm_medium'] ?? null, fn (Builder $builder, string $value) => $builder->where('meta_data->utm_medium', $value))
+            ->when($filters['utm_campaign'] ?? null, fn (Builder $builder, string $value) => $builder->where('meta_data->utm_campaign', $value));
     }
 
     private function resolveRange(?string $from, ?string $to): array

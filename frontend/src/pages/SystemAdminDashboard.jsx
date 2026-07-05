@@ -287,10 +287,16 @@ export default function SystemAdminDashboard() {
   const openTenantView = (key) => {
     const params = new URLSearchParams({ view: 'current' })
 
-    if (key === 'active_tenants') params.set('status', 'active')
-    if (key === 'cancelled_tenants') params.set('status', 'cancelled')
-    if (key === 'expired_tenants') params.set('status', 'expired')
-    if (key === 'new_last_30_days') {
+    if (key === 'total_tenants') {
+      // Show all tenants - no status or date filters
+    } else if (key === 'active_tenants') {
+      params.set('status', 'active')
+    } else if (key === 'cancelled_tenants') {
+      params.set('status', 'cancelled')
+    } else if (key === 'expired_tenants') {
+      params.set('status', 'expired')
+    } else if (key === 'new_last_30_days') {
+      // Clear status for date-based filter
       params.set('start_date', startOfCurrentMonth())
       params.set('end_date', new Date().toISOString().slice(0, 10))
     }

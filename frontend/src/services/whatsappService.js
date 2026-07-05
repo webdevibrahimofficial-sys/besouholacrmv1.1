@@ -55,6 +55,21 @@ export const sendWhatsappText = async ({ recipient_number, message_body }) => {
   return res?.data
 }
 
+export const sendWhatsappMedia = async ({ recipient_number, attachment, caption = '' }) => {
+  const formData = new FormData()
+  formData.append('recipient_number', recipient_number)
+  formData.append('attachment', attachment)
+  formData.append('caption', caption)
+
+  const res = await api.post('/api/v1/whatsapp/send-media', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+
+  return res?.data
+}
+
 export const whatsappService = {
   loadSettings: getWhatsappSettings,
   saveSettings: updateWhatsappSettings,
@@ -80,6 +95,7 @@ export const whatsappService = {
   getLeadWhatsappMessages,
   sendWhatsappTemplate,
   sendWhatsappText,
+  sendWhatsappMedia,
 }
 
 // WhatsApp Mirror microservice API helpers
@@ -98,8 +114,22 @@ export const disconnectWhatsappMirror = async () => {
   return res?.data
 }
 
+export const getWhatsappMirrorUnassignedContacts = async ({ status = 'pending', search = '', page = 1, per_page = 20 } = {}) => {
+  const res = await api.get('/api/whatsapp-mirror/unassigned-contacts', {
+    params: { status, search, page, per_page },
+  })
+  return res?.data
+}
+
+export const convertWhatsappMirrorContactToLead = async (contactId, payload) => {
+  const res = await api.post(`/api/whatsapp-mirror/unassigned-contacts/${contactId}/convert-to-lead`, payload)
+  return res?.data
+}
+
 export const whatsappMirrorService = {
   pair: pairWhatsappMirror,
   getStatus: getWhatsappMirrorStatus,
   disconnect: disconnectWhatsappMirror,
+  getUnassignedContacts: getWhatsappMirrorUnassignedContacts,
+  convertToLead: convertWhatsappMirrorContactToLead,
 }

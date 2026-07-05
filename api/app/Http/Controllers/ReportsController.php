@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Models\CancelReason;
 use App\Models\Item;
 use App\Models\Project;
+use App\Models\Stage;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -815,6 +816,16 @@ class ReportsController extends Controller
             $scopeUsersById[(int) $userRow->id] = $this->normalizeReportLabel($userRow->name, 'Unknown User');
         }
 
+        $configuredStageLabels = Stage::query()
+            ->orderBy('order')
+            ->get(['name', 'name_ar'])
+            ->map(function ($stageRow) {
+                return $this->normalizeReportLabel($stageRow->name ?: $stageRow->name_ar, '');
+            })
+            ->filter(fn ($label) => $label !== '')
+            ->values()
+            ->all();
+
         $leadSelectColumns = ['id', 'assigned_to', 'source', 'project', 'project_id', 'item_id', 'meta_data', 'stage', 'status', 'estimated_value', 'created_at', 'updated_at'];
         if ($hasLeadItemNameColumn) {
             $leadSelectColumns[] = 'item_name';
@@ -970,6 +981,9 @@ class ReportsController extends Controller
         $totalCancelled = count($entries);
         $reasonCounts = [];
         $stageCounts = [];
+        foreach ($configuredStageLabels as $stageLabel) {
+            $stageCounts[$stageLabel] = 0;
+        }
         $salesCancelCounts = [];
         $sourceCounts = [];
         $projectCounts = [];
@@ -1014,7 +1028,6 @@ class ReportsController extends Controller
         }
 
         arsort($reasonCounts);
-        arsort($stageCounts);
         arsort($salesCancelCounts);
         arsort($sourceCounts);
         arsort($projectCounts);
@@ -1103,6 +1116,24 @@ class ReportsController extends Controller
             return ($b['totalCanceled'] ?? 0) <=> ($a['totalCanceled'] ?? 0);
         });
 
+        $orderedStageCounts = [];
+        foreach ($configuredStageLabels as $stageLabel) {
+            $orderedStageCounts[$stageLabel] = (int) ($stageCounts[$stageLabel] ?? 0);
+        }
+
+        foreach ($stageCounts as $stageLabel => $count) {
+            if (!array_key_exists($stageLabel, $orderedStageCounts)) {
+                $orderedStageCounts[$stageLabel] = (int) $count;
+            }
+        }
+
+        $salesRankedList = array_values(array_map(function ($row) {
+            return [
+                'label' => (string) ($row['salesperson'] ?? 'Unknown User'),
+                'count' => (int) ($row['totalCanceled'] ?? 0),
+            ];
+        }, $tableRows));
+
         $toRankedList = function (array $counts, int $limit = 5): array {
             $result = [];
             foreach (array_slice($counts, 0, $limit, true) as $label => $count) {
@@ -1152,8 +1183,8 @@ class ReportsController extends Controller
                 'projects' => $toChartSegments($projectCounts),
             ],
             'topLists' => [
-                'stages' => $toRankedList($stageCounts),
-                'sales' => $toRankedList($salesCancelCounts),
+                'stages' => $toRankedList($orderedStageCounts, max(count($orderedStageCounts), 5)),
+                'sales' => $salesRankedList,
                 'reasons' => $allReasonList,
             ],
             'table' => [

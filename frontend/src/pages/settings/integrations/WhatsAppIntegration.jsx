@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plug, FileText } from 'lucide-react';
 import WhatsAppConnection from '../../../components/integrations/WhatsAppConnection';
 import WhatsAppTemplates from '../../../components/integrations/WhatsAppTemplates';
 import WhatsAppMirrorConnection from '../../../components/integrations/WhatsAppMirrorConnection';
+import { whatsappMirrorService } from '../../../services/whatsappService';
 import { useTheme } from '@shared/context/ThemeProvider'
 
 const WhatsAppIntegration = () => {
@@ -11,6 +12,30 @@ const WhatsAppIntegration = () => {
   const isLight = theme === 'light'
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('connection'); // connection | templates | mirror
+  const [pendingContactsCount, setPendingContactsCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchPendingCount = async () => {
+      try {
+        const data = await whatsappMirrorService.getUnassignedContacts({ status: 'pending', per_page: 1 });
+        if (!cancelled) {
+          setPendingContactsCount(data?.total || 0);
+        }
+      } catch {
+        if (!cancelled) setPendingContactsCount(0);
+      }
+    };
+
+    fetchPendingCount();
+    const interval = setInterval(fetchPendingCount, 20000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <div className="w-full space-y-6">
@@ -48,13 +73,18 @@ const WhatsAppIntegration = () => {
         </button>
         <button
           onClick={() => setActiveTab('mirror')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all relative ${
             activeTab === 'mirror'
               ? 'bg-white dark:bg-gray-700 text-green-600 dark:text-green-400 shadow-sm'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
           WhatsApp Mirror
+          {pendingContactsCount > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+              {pendingContactsCount > 99 ? '99+' : pendingContactsCount}
+            </span>
+          )}
         </button>
       </div>
 

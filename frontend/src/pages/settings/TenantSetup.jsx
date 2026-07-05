@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Check,
   X 
 } from 'lucide-react';
 
@@ -90,6 +91,8 @@ const formatDateOnly = (value, locale) => {
   const [year, month, day] = dateValue.split('-').map(Number);
   return new Intl.DateTimeFormat(locale).format(new Date(year, month - 1, day));
 };
+
+const getTenantDomainDisplay = (tenant) => tenant?.domain || '-';
 
 const findReferencePlanPrice = (prices, planCode, billingCycle = 'monthly') => {
   if (!Array.isArray(prices) || !planCode) return null;
@@ -191,12 +194,69 @@ const TenantSetup = () => {
       end_date: params.get('end_date') || '',
     };
 
+    console.log('📍 URL changed. nextFilters:', nextFilters);
     setTenantView((prev) => (prev === nextView ? prev : nextView));
-    setFilters((prev) => {
-      const unchanged = Object.keys(nextFilters).every((key) => prev[key] === nextFilters[key]);
-      return unchanged ? prev : nextFilters;
-    });
+    setFilters(nextFilters);
     setDebouncedSearch(nextFilters.search);
+    setPagination((prev) => ({ ...prev, current_page: 1 }));
+  }, [location.search, isCreateRoute]);
+
+  // Fetch tenants when URL changes
+  useEffect(() => {
+    if (isCreateRoute) return;
+    
+    const params = new URLSearchParams(location.search);
+    const urlFilters = {
+      search: params.get('search') || '',
+      plan: params.get('plan') || 'all',
+      status: params.get('status') || 'all',
+      company_type: params.get('company_type') || 'all',
+      country: params.get('country') || 'all',
+      users_count: params.get('users_count') || '',
+      start_date: params.get('start_date') || '',
+      end_date: params.get('end_date') || '',
+    };
+    const urlView = params.get('view') || 'current';
+    
+    console.log('🔍 URL changed - Fetching with filters:', urlFilters);
+    setLoadingList(true);
+    
+    (async () => {
+      try {
+        const reqParams = {
+          page: 1,
+          view: urlView,
+          per_page: pagination.per_page,
+          ...urlFilters,
+        };
+        
+        // Clean up 'all' and empty filters
+        if (reqParams.plan === 'all') delete reqParams.plan;
+        if (reqParams.status === 'all') delete reqParams.status;
+        if (reqParams.company_type === 'all') delete reqParams.company_type;
+        if (reqParams.country === 'all') delete reqParams.country;
+        if (!reqParams.users_count) delete reqParams.users_count;
+        if (!reqParams.start_date) delete reqParams.start_date;
+        if (!reqParams.end_date) delete reqParams.end_date;
+
+        console.log('📤 Sending API request with params:', reqParams);
+        const response = await axios.get('/api/super-admin/tenants', { params: reqParams });
+        console.log('📥 Response received:', response.data.tenants.data.length, 'items');
+        setTenants(response.data.tenants.data);
+        setTenantCounts(response.data.counts || { current: 0, archived: 0 });
+        setPagination({
+          current_page: response.data.tenants.current_page,
+          last_page: response.data.tenants.last_page,
+          total: response.data.tenants.total,
+          per_page: response.data.tenants.per_page || 20
+        });
+      } catch (error) {
+        console.error('Failed to fetch tenants:', error);
+        toast.error(t('failed_fetch_tenants', 'Failed to load subscription plans'));
+      } finally {
+        setLoadingList(false);
+      }
+    })();
   }, [location.search, isCreateRoute]);
 
   const resetFilters = () => {
@@ -259,6 +319,7 @@ const TenantSetup = () => {
       if (!params.end_date) delete params.end_date;
 
       const response = await axios.get('/api/super-admin/tenants', { params });
+      console.log('✅ Tenants fetched with status filter:', params.status, 'Data received:', response.data.tenants.data.length);
       setTenants(response.data.tenants.data);
       setTenantCounts(response.data.counts || { current: 0, archived: 0 });
       setPagination({
@@ -303,21 +364,6 @@ const TenantSetup = () => {
       toast.error(t('failed_login_as_tenant', 'Failed to login as tenant'))
     }
   };
-
-  useEffect(() => {
-    fetchTenants();
-  }, [
-    debouncedSearch,
-    filters.plan,
-    filters.status,
-    filters.company_type,
-    filters.country,
-    filters.users_count,
-    filters.start_date,
-    filters.end_date,
-    tenantView,
-    pagination.per_page
-  ]);
 
   useEffect(() => {
     const loadPlanPrices = async () => {
@@ -870,7 +916,7 @@ const TenantSetup = () => {
                     <tr key={tenant.id} className={`transition-colors ${isDark ? 'hover:bg-slate-800/70' : 'hover:bg-gray-50'}`}>
                       <td className="p-3">
                         <div className={`font-medium ${bodyTextClass}`}>{tenant.name}</div>
-                        <div className={`mt-0.5 text-xs ${mutedTextClass}`}>{tenant.domain || tenant.slug}</div>
+                        <div className={`mt-0.5 text-xs ${mutedTextClass}`}>{getTenantDomainDisplay(tenant)}</div>
                       </td>
                       <td className={`p-3 text-sm whitespace-nowrap ${bodyTextClass}`}>
                         {tenant.country || '-'}
@@ -972,7 +1018,7 @@ const TenantSetup = () => {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className={`font-semibold ${bodyTextClass}`}>{tenant.name}</div>
-                        <div className={`text-xs ${mutedTextClass}`}>{tenant.domain || tenant.slug}</div>
+                        <div className={`text-xs ${mutedTextClass}`}>{getTenantDomainDisplay(tenant)}</div>
                       </div>
                       <StatusBadge status={tenant.status} />
                     </div>
@@ -1583,11 +1629,14 @@ const TenantSetup = () => {
               {t('select_plan', 'Select Plan')}
             </h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {selectablePlans.map((plan) => (
+              {selectablePlans.map((plan) => {
+                const isSelected = selectedPlan === plan.code;
+
+                return (
                 <label
                   key={plan.id}
                   className={`relative flex flex-col rounded-xl border p-3 cursor-pointer transition-all duration-200 ${
-                    selectedPlan === plan.code
+                    isSelected
                       ? isDark
                         ? 'border-blue-500 bg-blue-950/30 shadow-sm ring-1 ring-blue-500/40'
                         : 'border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-200'
@@ -1596,15 +1645,39 @@ const TenantSetup = () => {
                         : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm'
                   }`}
                 >
-                  <div className="flex items-center mb-2">
-                    <input
-                      type="radio"
-                      value={plan.code}
-                      {...register('plan')}
-                      defaultChecked={plan.code === 'basic'}
-                      className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                    />
-                    <span className={`ml-3 text-sm font-bold ${isDark ? 'text-slate-100' : 'text-theme'}`}>
+                  <input
+                    type="radio"
+                    value={plan.code}
+                    {...register('plan')}
+                    defaultChecked={plan.code === 'basic'}
+                    className="sr-only"
+                  />
+                  <span
+                    className={`absolute end-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-bold transition-all ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                        : isDark
+                          ? 'border-slate-600 bg-slate-800 text-transparent'
+                          : 'border-slate-300 bg-white text-transparent'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    ✓
+                  </span>
+                  <div className="mb-2 flex items-center gap-3">
+                    <span
+                      className={`inline-flex h-5 w-5 items-center justify-center rounded-md border transition-all ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : isDark
+                            ? 'border-slate-500 bg-slate-800 text-transparent'
+                            : 'border-slate-300 bg-white text-transparent'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      ✓
+                    </span>
+                    <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-theme'}`}>
                       {t(plan.name)}
                     </span>
                   </div>
@@ -1621,7 +1694,7 @@ const TenantSetup = () => {
                     })()}
                   </p>
                 </label>
-              ))}
+              )})}
             </div>
 
             {selectedPlan === 'custom' && (
@@ -1713,7 +1786,7 @@ const PreviewTenantModal = ({ tenant, onClose }) => {
     tenant?.meta_data &&
     tenant.meta_data.subscription &&
     tenant.meta_data.subscription.is_lifetime;
-  const subdomain = tenant.domain || `${tenant.slug}.besouholacrm.net`;
+  const subdomain = getTenantDomainDisplay(tenant);
   const createdAt = tenant.created_at ? new Date(tenant.created_at).toLocaleDateString() : '-';
   const locationLine = [tenant.city, tenant.state, tenant.country].filter(Boolean).join(', ') || '-';
   const infoCardClass = isDark ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-white';
@@ -2846,14 +2919,38 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
                         : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-slate-50 hover:shadow-sm'
                   }`}
                 >
-                  <div className="flex items-center mb-2">
-                    <input
-                      type="radio"
-                      value={plan.code}
-                      {...register('plan')}
-                      className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                    />
-                    <span className={`ml-3 font-bold ${titleClass}`}>
+                  <input
+                    type="radio"
+                    value={plan.code}
+                    {...register('plan')}
+                    className="sr-only"
+                  />
+                  <span
+                    className={`absolute end-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-bold transition-all ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                        : isDark
+                          ? 'border-slate-600 bg-slate-800 text-transparent'
+                          : 'border-slate-300 bg-white text-transparent'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    ✓
+                  </span>
+                  <div className="mb-2 flex items-center gap-3">
+                    <span
+                      className={`inline-flex h-5 w-5 items-center justify-center rounded-md border transition-all ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : isDark
+                            ? 'border-slate-500 bg-slate-800 text-transparent'
+                            : 'border-slate-300 bg-white text-transparent'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      ✓
+                    </span>
+                    <span className={`font-bold ${titleClass}`}>
                       {t(plan.name)}
                     </span>
                   </div>
@@ -2948,3 +3045,4 @@ const StatusBadge = ({ status }) => {
 };
 
 export default TenantSetup;
+

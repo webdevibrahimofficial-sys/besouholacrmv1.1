@@ -394,6 +394,21 @@ export default function CancellationReport() {
       .map((item) => ({ value: item, label: item })),
   ], [cancelReasonsCatalog, report?.options?.reasons, isRTL, reasonLabelMap])
 
+  const sortedStages = useMemo(
+    () => [...(report?.topLists?.stages || [])].sort((a, b) => (b?.count ?? 0) - (a?.count ?? 0)),
+    [report?.topLists?.stages]
+  )
+
+  const sortedReasons = useMemo(
+    () => [...(report?.topLists?.reasons || [])].sort((a, b) => (b?.count ?? 0) - (a?.count ?? 0)),
+    [report?.topLists?.reasons]
+  )
+
+  const sortedSales = useMemo(
+    () => [...(report?.topLists?.sales || [])].sort((a, b) => (b?.count ?? 0) - (a?.count ?? 0)),
+    [report?.topLists?.sales]
+  )
+
   const exportRows = useMemo(() => {
     const reasonColumns = report?.table?.reasonColumns || []
     return (report?.table?.rows || []).map((row) => {
@@ -628,7 +643,7 @@ export default function CancellationReport() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <RankedListCard
           title={isRTL ? 'أعلى أسباب الإلغاء' : 'Top Cancellation Reasons'}
-          items={(report?.topLists?.reasons || []).map((item) => ({
+          items={sortedReasons.map((item) => ({
             ...item,
             label: localizeReasonLabel(item.label),
           }))}
@@ -640,7 +655,7 @@ export default function CancellationReport() {
         />
         <RankedListCard
           title={isRTL ? 'أعلى المراحل قبل الإلغاء' : 'Top Stages Before Cancellation'}
-          items={report?.topLists?.stages || []}
+          items={sortedStages}
           emptyTitle={emptyTitle}
           emptySubtitle={emptySubtitle}
           isLight={isLight}
@@ -649,7 +664,7 @@ export default function CancellationReport() {
         />
         <RankedListCard
           title={isRTL ? 'أعلى المبيعات في الإلغاء' : 'Top Sales Cancellation'}
-          items={report?.topLists?.sales || []}
+          items={sortedSales}
           emptyTitle={emptyTitle}
           emptySubtitle={emptySubtitle}
           isLight={isLight}

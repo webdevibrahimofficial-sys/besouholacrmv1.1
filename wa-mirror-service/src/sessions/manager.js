@@ -24,6 +24,10 @@ function lidMapFileForTenant(tenantId) {
   return path.join(authDirForTenant(tenantId), 'lid-map.json');
 }
 
+function contactMapFileForTenant(tenantId) {
+  return path.join(authDirForTenant(tenantId), 'contact-map.json');
+}
+
 function persistedSessionDirs() {
   if (!fs.existsSync(authBaseDir)) {
     return [];
@@ -65,6 +69,24 @@ function normalizeLid(value) {
   }
 
   return digits;
+}
+
+function cleanContactName(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function selectBestContactName(contact = {}) {
+  return (
+    cleanContactName(contact.name)
+    || cleanContactName(contact.notify)
+    || cleanContactName(contact.verifiedName)
+    || null
+  );
 }
 
 function extractMessageBody(message) {
@@ -245,6 +267,25 @@ function resolveMappedPhone(sock, candidate) {
   return sock.lidToPhoneMap.get(normalized) || null;
 }
 
+function loadPersistedContactNameMap(tenantId) {
+  const file = contactMapFileForTenant(String(tenantId));
+
+  if (!fs.existsSync(file)) {
+    return new Map();
+  }
+
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    const data = JSON.parse(raw);
+    const map = new Map(Object.entries(data || {}));
+    console.log('[Contact Map Load] Tenant %s size=%d', tenantId, map.size);
+    return map;
+  } catch (error) {
+    console.error(`[Contact Map Load Error] Tenant ${tenantId}:`, error.message);
+    return new Map();
+  }
+}
+
 function loadPersistedLidPhoneMap(tenantId) {
   const file = lidMapFileForTenant(String(tenantId));
 
@@ -264,6 +305,16 @@ function loadPersistedLidPhoneMap(tenantId) {
   }
 }
 
+function persistContactNameMap(sock) {
+  try {
+    const file = contactMapFileForTenant(String(sock?.tenantId || ''));
+    const data = Object.fromEntries(sock?.contactNameMap || []);
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+  } catch (error) {
+    console.error(`[Contact Map Save Error] Tenant ${sock?.tenantId || 'unknown'}:`, error.message);
+  }
+}
+
 function persistLidPhoneMap(sock) {
   try {
     const file = lidMapFileForTenant(String(sock?.tenantId || ''));
@@ -272,6 +323,80 @@ function persistLidPhoneMap(sock) {
   } catch (error) {
     console.error(`[LID Map Save Error] Tenant ${sock?.tenantId || 'unknown'}:`, error.message);
   }
+}
+
+function buildContactLookupKeys(candidate) {
+  if (!candidate) {
+    return [];
+  }
+
+  const raw = String(candidate).trim();
+  if (!raw) {
+    return [];
+  }
+
+  const keys = new Set([`raw:${raw.toLowerCase()}`]);
+  const normalizedPhone = normalizePhoneCandidate(raw);
+  const normalizedLid = normalizeLid(raw);
+
+  if (normalizedPhone) {
+    keys.add(`phone:${normalizedPhone}`);
+  }
+
+  if (normalizedLid) {
+    keys.add(`lid:${normalizedLid}`);
+  }
+
+  return [...keys];
+}
+
+function rememberContactName(sock, contact = {}) {
+  const bestName = selectBestContactName(contact);
+  if (!bestName) {
+    return;
+  }
+
+  if (!sock.contactNameMap) {
+    sock.contactNameMap = new Map();
+  }
+
+  const keys = new Set([
+    ...buildContactLookupKeys(contact.id),
+    ...buildContactLookupKeys(contact.jid),
+    ...buildContactLookupKeys(contact.lid),
+  ]);
+
+  if (keys.size === 0) {
+    return;
+  }
+
+  for (const key of keys) {
+    sock.contactNameMap.set(key, bestName);
+  }
+
+  persistContactNameMap(sock);
+}
+
+function resolveContactName(sock, candidates = [], fallbackName = null) {
+  const directName = cleanContactName(fallbackName);
+  if (directName) {
+    return directName;
+  }
+
+  if (!sock?.contactNameMap) {
+    return null;
+  }
+
+  for (const candidate of candidates) {
+    for (const key of buildContactLookupKeys(candidate)) {
+      const name = cleanContactName(sock.contactNameMap.get(key));
+      if (name) {
+        return name;
+      }
+    }
+  }
+
+  return null;
 }
 
 function extractSenderPhone(msg) {
@@ -326,10 +451,21 @@ export async function initSession(tenantId) {
     sock.qrCode = null;
     sock.connectionStatus = 'disconnected';
     sock.lidToPhoneMap = loadPersistedLidPhoneMap(key);
+    sock.contactNameMap = loadPersistedContactNameMap(key);
 
     sessions.set(key, sock);
 
     sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('contacts.upsert', (contacts = []) => {
+      for (const contact of contacts) {
+        rememberContactName(sock, contact);
+      }
+    });
+    sock.ev.on('contacts.update', (contacts = []) => {
+      for (const contact of contacts) {
+        rememberContactName(sock, contact);
+      }
+    });
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -402,19 +538,47 @@ export async function initSession(tenantId) {
       if (!messages || messages.length === 0) return;
 
       const relevantMessages = messages
-        .filter((m) => m.message && !m.key?.remoteJid?.endsWith('@g.us'))
-        .map((m) => ({
-          from_me: !!m.key.fromMe,
-          phone: extractRemotePhone(m.key.remoteJid) || extractSenderPhone(m),
-          body: extractMessageBody(m.message),
-          timestamp: m.messageTimestamp,
-          message_id: m.key.id,
-        }))
-        .filter((m) => m.phone);
+        .filter((m) => {
+          if (!m.message) return false;
+          const jid = m.key?.remoteJid || '';
+          if (jid.endsWith('@g.us')) return false;
+          if (jid.endsWith('@newsletter')) return false;
+          if (jid === 'status@broadcast') return false;
+          if (jid.endsWith('@broadcast')) return false;
+          return true;
+        })
+        .map((m) => {
+          const phone = chooseBestPhoneCandidate([
+            m.key?.senderPn,
+            m.key?.participantPn,
+          ]) || (m.key?.remoteJid?.endsWith('@lid')
+            ? resolveMappedPhone(sock, m.key.remoteJid)
+            : extractRemotePhone(m.key?.remoteJid)
+          ) || extractSenderPhone(m);
+
+          const pushName = resolveContactName(sock, [
+            m.key?.remoteJid,
+            m.key?.participant,
+            m?.participant,
+            m.key?.senderPn,
+            m.key?.participantPn,
+            phone,
+          ], m.pushName);
+
+          return {
+            from_me: !!m.key.fromMe,
+            phone,
+            push_name: pushName,
+            body: extractMessageBody(m.message),
+            timestamp: m.messageTimestamp,
+            message_id: m.key.id,
+          };
+        })
+        .filter((m) => m.phone && normalizePhoneCandidate(m.phone) !== null);
 
       if (relevantMessages.length === 0) return;
 
-      console.log('[history-sync] tenant=%s batch=%d', key, relevantMessages.length);
+      console.log('[history-sync] tenant=%s batch=%d isLatest=%s', key, relevantMessages.length, isLatest);
 
       notifyLaravelHistorySync(key, {
         event: 'history_sync_batch',
@@ -451,6 +615,14 @@ export async function initSession(tenantId) {
           || resolveMappedPhone(sock, directCandidate);
 
         let counterpartPhone = mappedCandidate || directCandidate;
+        const resolvedPushName = resolveContactName(sock, [
+          msg.key?.remoteJid,
+          msg.key?.participant,
+          msg?.participant,
+          msg.key?.senderPn,
+          msg.key?.participantPn,
+          counterpartPhone,
+        ], msg.pushName);
 
         if (!extractedBody) {
           console.log(
@@ -467,7 +639,7 @@ export async function initSession(tenantId) {
           fromMe: isFromMe,
           counterpartPhone,
           remoteJid: msg.key?.remoteJid || null,
-          pushName: msg.pushName || null,
+          pushName: resolvedPushName,
           bodyPreview: extractedBody ? extractedBody.slice(0, 80) : '',
           messageKeys: Object.keys(msg.message || {}),
         });
@@ -477,7 +649,7 @@ export async function initSession(tenantId) {
           message: {
             from_me: isFromMe,
             from: counterpartPhone,
-            pushName: msg.pushName || null,
+            pushName: resolvedPushName,
             body: extractedBody,
             timestamp: msg.messageTimestamp,
             message_id: msg.key.id,
@@ -559,6 +731,7 @@ export function getSessionDebug() {
     hasQr: !!sock?.qrCode,
     user: sock?.user?.id || null,
     lidMapSize: sock?.lidToPhoneMap?.size || 0,
+    contactMapSize: sock?.contactNameMap?.size || 0,
   }));
 }
 

@@ -120,6 +120,15 @@ class SuperAdminController extends Controller
             $query->where('country', $request->country);
         }
 
+        // Filter by tenant creation date range
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->input('start_date'));
+        }
+
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->input('end_date'));
+        }
+
         $tenants = $query->latest()->paginate($perPage);
 
         $mapped = $tenants->through(function (Tenant $tenant) {
@@ -777,7 +786,7 @@ class SuperAdminController extends Controller
             'active_tenants'         => $activeTenants,
             'expired_tenants'        => $expiredTenants,
             'cancelled_tenants'      => $cancelledTenants,
-            'new_last_30_days'       => $newLast30,
+            'new_last_30_days'       => $newCurrentMonth,
             'expiring_in_30'         => $expiringIn30,
             'selected_year'          => $selectedYear,
             'available_years'        => $availableYears,

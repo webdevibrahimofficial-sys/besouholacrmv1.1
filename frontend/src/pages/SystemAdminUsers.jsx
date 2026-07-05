@@ -435,6 +435,8 @@ function UserModal({
                       : sortedGroupItems
 
                     const visibleGroupNames = visibleGroupItems.map((item) => item.name)
+                    const hasAnyEnabled = visibleGroupNames.some((name) => effectivePermissionSet.has(name))
+                    const hasAllEnabled = visibleGroupNames.length > 0 && visibleGroupNames.every((name) => effectivePermissionSet.has(name))
                     return (
                       <div
                         key={groupName}
@@ -454,16 +456,21 @@ function UserModal({
                           <button
                             type="button"
                             onClick={() => {
-                              const hasAll = visibleGroupNames.every((name) => effectivePermissionSet.has(name))
                               onChange(
                                 'permissions',
-                                hasAll
+                                hasAllEnabled
                                   ? form.permissions.filter((name) => !visibleGroupNames.includes(name))
                                   : Array.from(new Set([...form.permissions, ...visibleGroupNames]))
                               )
                             }}
                             className={`rounded-xl px-3 py-1.5 text-[11px] font-medium transition ${
-                              isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white text-slate-600 hover:bg-slate-100'
+                              hasAnyEnabled
+                                ? isDark
+                                  ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/40 hover:bg-emerald-500/20'
+                                  : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100'
+                                : isDark
+                                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                  : 'bg-white text-slate-600 hover:bg-slate-100'
                             }`}
                             aria-label={t('Toggle all')}
                             title={t('Toggle all')}

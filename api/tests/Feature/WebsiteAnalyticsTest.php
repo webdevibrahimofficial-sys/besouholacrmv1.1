@@ -161,4 +161,134 @@ class WebsiteAnalyticsTest extends TestCase
             'event_name' => 'unknown_event',
         ])->assertStatus(422);
     }
+
+    public function test_analytics_filters_by_utm_and_device(): void
+    {
+        WebsiteSession::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'session_id' => 'sess_google_desktop',
+            'utm_source' => 'google',
+            'utm_medium' => 'cpc',
+            'utm_campaign' => 'brand',
+            'device' => 'desktop',
+            'started_at' => now()->subDay(),
+            'last_seen_at' => now()->subDay(),
+        ]);
+
+        WebsiteSession::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'session_id' => 'sess_meta_mobile',
+            'utm_source' => 'meta',
+            'utm_medium' => 'social',
+            'utm_campaign' => 'summer',
+            'device' => 'mobile',
+            'started_at' => now()->subDay(),
+            'last_seen_at' => now()->subDay(),
+        ]);
+
+        WebsitePageView::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'session_id' => 'sess_google_desktop',
+            'page_path' => '/pricing',
+            'utm_source' => 'google',
+            'utm_medium' => 'cpc',
+            'utm_campaign' => 'brand',
+            'device' => 'desktop',
+            'viewed_at' => now()->subDay(),
+        ]);
+
+        WebsitePageView::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'session_id' => 'sess_meta_mobile',
+            'page_path' => '/contact',
+            'utm_source' => 'meta',
+            'utm_medium' => 'social',
+            'utm_campaign' => 'summer',
+            'device' => 'mobile',
+            'viewed_at' => now()->subDay(),
+        ]);
+
+        WebsiteEvent::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'session_id' => 'sess_google_desktop',
+            'event_name' => 'form_submit',
+            'form_name' => 'Pricing Demo',
+            'page_path' => '/pricing',
+            'utm_source' => 'google',
+            'utm_medium' => 'cpc',
+            'utm_campaign' => 'brand',
+            'device' => 'desktop',
+            'occurred_at' => now()->subDay(),
+        ]);
+
+        WebsiteEvent::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'session_id' => 'sess_meta_mobile',
+            'event_name' => 'form_submit',
+            'form_name' => 'Contact Form',
+            'page_path' => '/contact',
+            'utm_source' => 'meta',
+            'utm_medium' => 'social',
+            'utm_campaign' => 'summer',
+            'device' => 'mobile',
+            'occurred_at' => now()->subDay(),
+        ]);
+
+        Lead::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Google Desktop Lead',
+            'phone' => '01000000002',
+            'source' => 'Website',
+            'meta_data' => [
+                'integration' => 'website',
+                'utm_source' => 'google',
+                'utm_medium' => 'cpc',
+                'utm_campaign' => 'brand',
+            ],
+        ]);
+
+        Lead::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Meta Mobile Lead',
+            'phone' => '01000000003',
+            'source' => 'Website',
+            'meta_data' => [
+                'integration' => 'website',
+                'utm_source' => 'meta',
+                'utm_medium' => 'social',
+                'utm_campaign' => 'summer',
+            ],
+        ]);
+
+        $query = http_build_query([
+            'utm_source' => 'google',
+            'utm_medium' => 'cpc',
+            'utm_campaign' => 'brand',
+            'device' => 'desktop',
+        ]);
+
+        $overview = $this->getJson('/api/system/company-website/analytics/overview?' . $query);
+        $overview->assertOk()
+            ->assertJsonPath('sessions', 1)
+            ->assertJsonPath('visitors', 1)
+            ->assertJsonPath('page_views', 1)
+            ->assertJsonPath('leads', 1)
+            ->assertJsonPath('form_submits', 1);
+
+        $pages = $this->getJson('/api/system/company-website/analytics/pages?' . $query);
+        $pages->assertOk()
+            ->assertJsonPath('0.page_path', '/pricing')
+            ->assertJsonPath('0.views', 1);
+
+        $forms = $this->getJson('/api/system/company-website/analytics/forms?' . $query);
+        $forms->assertOk()
+            ->assertJsonPath('0.form_name', 'Pricing Demo')
+            ->assertJsonPath('0.submits', 1);
+
+        $campaigns = $this->getJson('/api/system/company-website/analytics/campaigns?' . $query);
+        $campaigns->assertOk()
+            ->assertJsonPath('0.utm_source', 'google')
+            ->assertJsonPath('0.sessions', 1)
+            ->assertJsonPath('0.leads', 1);
+    }
 }

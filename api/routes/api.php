@@ -55,6 +55,7 @@ use App\Http\Controllers\ContractCollections\CcPaymentsController;
 use App\Http\Controllers\ContractCollections\CcAuditController;
 use App\Http\Controllers\ContractCollections\CcLeadConversionController;
 use App\Http\Controllers\ContractCollections\CcCustomerCommentsController;
+use App\Http\Controllers\WhatsappMirrorUnassignedContactController;
 use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\InitializeTenancy;
@@ -130,12 +131,17 @@ Route::middleware([
     Route::post('/pair', [WhatsappMirrorController::class, 'pair']);
     Route::get('/status', [WhatsappMirrorController::class, 'status']);
     Route::post('/disconnect', [WhatsappMirrorController::class, 'disconnect']);
+    Route::get('/unassigned-contacts', [WhatsappMirrorUnassignedContactController::class, 'index']);
+    Route::post('/unassigned-contacts/{contact}/convert-to-lead', [WhatsappMirrorUnassignedContactController::class, 'convertToLead']);
 });
 
 // Secure File Serving (Signed URLs)
 Route::get('/files/{path}', [\App\Http\Controllers\TenantFileController::class , 'show'])
     ->where('path', '.*')
     ->name('tenant.files.show');
+
+Route::get('/whatsapp/media/{message}', [\App\Http\Controllers\WhatsappMessageController::class , 'streamMediaV1'])
+    ->name('whatsapp.messages.media');
 
 // Public disk files (used by PDF/image exports)
 Route::get('/public-files/{path}', [PublicFileController::class , 'show'])
@@ -316,6 +322,7 @@ Route::middleware([ResolveTenant::class])
             Route::get('/analytics/pages', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsPages']);
             Route::get('/analytics/forms', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsForms']);
             Route::get('/analytics/campaigns', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsCampaigns']);
+            Route::get('/analytics/filter-options', [\App\Http\Controllers\SystemCompanyWebsiteController::class, 'analyticsFilterOptions']);
         });
 
     // Contract & Collections (Real Estate)
@@ -507,6 +514,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('/v1/leads/{lead}/whatsapp-messages', [\App\Http\Controllers\WhatsappMessageController::class , 'leadMessages']);
     Route::post('/v1/whatsapp/send-template', [\App\Http\Controllers\WhatsappMessageController::class , 'sendTemplateV1']);
     Route::post('/v1/whatsapp/send-text', [\App\Http\Controllers\WhatsappMessageController::class , 'sendTextV1']);
+    Route::post('/v1/whatsapp/send-media', [\App\Http\Controllers\WhatsappMessageController::class , 'sendMediaV1']);
 
     // Notifications (Dynamic)
     Route::get('/notifications', [NotificationController::class , 'index']);
