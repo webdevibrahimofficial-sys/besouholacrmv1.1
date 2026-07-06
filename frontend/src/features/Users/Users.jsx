@@ -26,6 +26,7 @@ import UserPreviewModal from '@features/Users/UserPreviewModal.jsx';
 import { ROLES } from '@features/Users/constants.js';
 import UserManagementUserProfile from '@pages/UserManagementUserProfile.jsx';
 import UserChangePasswordModal from '@features/Users/UserChangePasswordModal.jsx';
+import UserDeleteReassignModal from '@features/Users/UserDeleteReassignModal.jsx';
 
 // User Management Component
 const statuses = ['Active', 'Inactive', 'Suspended'];
@@ -396,6 +397,11 @@ export default function UserManagementUsers() {
   // Assignment modal state
   const [showAssign, setShowAssign] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDeleteReassignModal, setShowDeleteReassignModal] = useState(false);
+  const [deleteTargetUser, setDeleteTargetUser] = useState(null);
+  const [deleteDependencySummary, setDeleteDependencySummary] = useState(null);
+  const [deleteDependencyError, setDeleteDependencyError] = useState('');
+  const [deleteDependencySubmitting, setDeleteDependencySubmitting] = useState(false);
   const [assignContext, setAssignContext] = useState('task'); // 'task' | 'lead' | 'ticket' | 'user'
   const [defaultAssignType, setDefaultAssignType] = useState('user');
   const [defaultTargetId, setDefaultTargetId] = useState('');
@@ -636,6 +642,27 @@ export default function UserManagementUsers() {
       return;
     }
 
+    try {
+      const summaryRes = await api.get(`/api/users/${id}/dependency-summary`);
+      const summary = summaryRes?.data || null;
+      if (summary && !summary.can_delete) {
+        setDeleteTargetUser(target);
+        setDeleteDependencySummary(summary);
+        setDeleteDependencyError('');
+        setShowDeleteReassignModal(true);
+        return;
+      }
+    } catch (error) {
+      console.error('Failed to load user dependency summary', error);
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isArabic ? 'فشل تحميل اعتماديات المستخدم قبل الحذف' : 'Failed to load user dependencies before delete',
+        },
+      }));
+      return;
+    }
+
     const confirmed = window.confirm(
       isArabic
         ? `هل أنت متأكد من حذف المستخدم ${target.name || ''}؟`
@@ -670,6 +697,53 @@ export default function UserManagementUsers() {
         },
       });
       window.dispatchEvent(evt);
+    }
+  };
+
+  const handleDeleteReassignAndDelete = async (payload) => {
+    if (!deleteTargetUser?.id) return false;
+
+    setDeleteDependencySubmitting(true);
+    setDeleteDependencyError('');
+
+    try {
+      const reassignRes = await api.post(`/api/users/${deleteTargetUser.id}/reassign-dependencies`, payload);
+      const latestSummary = reassignRes?.data?.summary || null;
+      if (latestSummary) {
+        setDeleteDependencySummary(latestSummary);
+      }
+
+      await api.delete(`/api/users/${deleteTargetUser.id}`);
+
+      setUsers((prev) => prev.filter((u) => Number(u.id) !== Number(deleteTargetUser.id)));
+      setShowDeleteReassignModal(false);
+      setDeleteTargetUser(null);
+      setDeleteDependencySummary(null);
+      setDeleteDependencyError('');
+
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'success',
+          message: isArabic ? 'تمت إعادة التوزيع ثم حذف المستخدم بنجاح' : 'Dependencies were reassigned and the user was deleted successfully',
+        },
+      }));
+
+      return true;
+    } catch (error) {
+      console.error('Failed to reassign dependencies before deleting user', error);
+      if (error?.response?.data?.summary) {
+        setDeleteDependencySummary(error.response.data.summary);
+      }
+
+      const errors = error?.response?.data?.errors || null;
+      const message =
+        (errors ? Object.values(errors).flat().find(Boolean) : null) ||
+        error?.response?.data?.message ||
+        (isArabic ? 'فشل إعادة توزيع الاعتماديات قبل الحذف' : 'Failed to reassign dependencies before deletion');
+      setDeleteDependencyError(String(message));
+      return false;
+    } finally {
+      setDeleteDependencySubmitting(false);
     }
   };
 
@@ -982,6 +1056,25 @@ export default function UserManagementUsers() {
             onClose={() => setShowChangePasswordModal(false)}
             user={selectedUser}
             onSubmit={handleChangePasswordSubmit}
+          />
+        )}
+        {showDeleteReassignModal && (
+          <UserDeleteReassignModal
+            isOpen={showDeleteReassignModal}
+            onClose={() => {
+              if (deleteDependencySubmitting) return;
+              setShowDeleteReassignModal(false);
+              setDeleteDependencyError('');
+              setDeleteDependencySummary(null);
+              setDeleteTargetUser(null);
+            }}
+            onSubmit={handleDeleteReassignAndDelete}
+            submitting={deleteDependencySubmitting}
+            errorMessage={deleteDependencyError}
+            summary={deleteDependencySummary}
+            targetUser={deleteTargetUser}
+            users={users}
+            isArabic={isArabic}
           />
         )}
       </div>

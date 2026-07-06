@@ -30,6 +30,7 @@ class WhatsappMirrorController extends Controller
 
         $session = \App\Models\WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
         $data['history_synced_at'] = $session?->history_synced_at?->toISOString() ?? null;
+        $data['connected_phone_number'] = $session?->connected_phone_number ?? null;
 
         return response()->json($data, $response->status());
     }

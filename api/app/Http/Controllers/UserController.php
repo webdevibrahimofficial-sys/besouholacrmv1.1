@@ -3,14 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Agency;
+use App\Models\Broker;
+use App\Models\Lead;
 use App\Models\User;
 use App\Models\Tenant;
 use App\Support\AppliesAgencyScope;
 use App\Services\TenantStorageService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -91,6 +95,144 @@ class UserController extends Controller
         }
 
         return $allowed;
+    }
+
+    protected function normalizeAssignedSalesPersonIds(array|string|int|null $raw): array
+    {
+        if ($raw === null) {
+            return [];
+        }
+
+        $values = is_array($raw) ? $raw : [$raw];
+        $ids = [];
+
+        foreach ($values as $value) {
+            if ($value === null) {
+                continue;
+            }
+
+            $stringValue = trim((string) $value);
+            if ($stringValue === '') {
+                continue;
+            }
+
+            foreach (preg_split('/\s*,\s*/', $stringValue) ?: [] as $part) {
+                $part = trim((string) $part);
+                if ($part === '' || !is_numeric($part)) {
+                    continue;
+                }
+
+                $intValue = (int) $part;
+                if ($intValue > 0) {
+                    $ids[] = $intValue;
+                }
+            }
+        }
+
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+
+        return $ids;
+    }
+
+    protected function extractBrokerAssignedUserIds(Broker $broker): array
+    {
+        $meta = is_array($broker->meta_data ?? null) ? ($broker->meta_data ?? []) : [];
+
+        return $this->normalizeAssignedSalesPersonIds(
+            $meta['assigned_sales_person_ids']
+                ?? $meta['sales_person_ids']
+                ?? $meta['salesPersons']
+                ?? null
+        );
+    }
+
+    protected function dependentBrokerRows(User $user)
+    {
+        return Broker::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->get(['id', 'name', 'meta_data'])
+            ->map(function (Broker $broker) use ($user) {
+                $assignedIds = $this->extractBrokerAssignedUserIds($broker);
+                if (!in_array((int) $user->id, $assignedIds, true)) {
+                    return null;
+                }
+
+                return [
+                    'broker' => $broker,
+                    'assigned_ids' => $assignedIds,
+                    'is_sole' => count($assignedIds) <= 1,
+                ];
+            })
+            ->filter()
+            ->values();
+    }
+
+    protected function buildDeletionDependencySummary(User $user): array
+    {
+        $leadQuery = Lead::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->where('assigned_to', $user->id);
+
+        $leadCount = (clone $leadQuery)->count();
+        $leadPreview = (clone $leadQuery)
+            ->orderBy('id')
+            ->limit(5)
+            ->get(['id', 'name', 'stage', 'project'])
+            ->map(fn (Lead $lead) => [
+                'id' => $lead->id,
+                'name' => (string) ($lead->name ?? ''),
+                'stage' => (string) ($lead->stage ?? ''),
+                'project' => (string) ($lead->project ?? ''),
+            ])
+            ->values()
+            ->all();
+
+        $brokerRows = $this->dependentBrokerRows($user);
+        $brokerCount = $brokerRows->count();
+        $soleBrokerCount = $brokerRows->where('is_sole', true)->count();
+        $sharedBrokerCount = $brokerCount - $soleBrokerCount;
+        $brokerPreview = $brokerRows
+            ->take(5)
+            ->map(fn (array $row) => [
+                'id' => $row['broker']->id,
+                'name' => (string) ($row['broker']->name ?? ''),
+                'assigned_user_ids' => $row['assigned_ids'],
+                'assignment_mode' => $row['is_sole'] ? 'sole' : 'shared',
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'role' => $user->role,
+            ],
+            'dependencies' => [
+                'leads' => [
+                    'count' => $leadCount,
+                    'preview' => $leadPreview,
+                ],
+                'brokers' => [
+                    'count' => $brokerCount,
+                    'sole_assigned_count' => $soleBrokerCount,
+                    'shared_assigned_count' => $sharedBrokerCount,
+                    'preview' => $brokerPreview,
+                ],
+            ],
+            'can_delete' => $leadCount === 0 && $brokerCount === 0,
+        ];
+    }
+
+    protected function salesOwnedLeadIdsForDeletion(User $user): array
+    {
+        return Lead::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->where('assigned_to', $user->id)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 
     protected function syncScopeFilters(Request $request, User $user): void
@@ -505,6 +647,13 @@ class UserController extends Controller
         return $user;
     }
 
+    public function dependencySummary(Request $request, User $user)
+    {
+        $this->ensureVisibleWithinAgencyScope($request->user(), $user);
+
+        return response()->json($this->buildDeletionDependencySummary($user));
+    }
+
     public function update(Request $request, User $user, TenantStorageService $storage)
     {
         $this->ensureVisibleWithinAgencyScope($request->user(), $user);
@@ -643,13 +792,138 @@ class UserController extends Controller
         return response()->json($user->load(['roles', 'manager', 'team.department']));
     }
     
-    public function destroy(User $user)
+    public function reassignDependencies(Request $request, User $user)
     {
-        $this->ensureVisibleWithinAgencyScope(request()->user(), $user);
+        $actor = $request->user();
+        $this->ensureVisibleWithinAgencyScope($actor, $user);
+
+        $summary = $this->buildDeletionDependencySummary($user);
+        $leadCount = (int) ($summary['dependencies']['leads']['count'] ?? 0);
+        $soleBrokerCount = (int) ($summary['dependencies']['brokers']['sole_assigned_count'] ?? 0);
+
+        $validated = $request->validate([
+            'lead_target_user_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('users', 'id')->where(fn ($query) => $query->where('tenant_id', $user->tenant_id)),
+            ],
+            'assign_role' => 'nullable|in:sales,manager',
+            'lead_stage' => 'nullable|in:new_lead,cold_calls,same_stage',
+            'lead_history_option' => 'nullable|in:keep_history,assign_as_new',
+            'broker_target_user_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('users', 'id')->where(fn ($query) => $query->where('tenant_id', $user->tenant_id)),
+            ],
+        ]);
+
+        if ($leadCount > 0 && empty($validated['lead_target_user_id'])) {
+            throw ValidationException::withMessages([
+                'lead_target_user_id' => ['Lead reassignment target is required before deleting this user.'],
+            ]);
+        }
+
+        if ($soleBrokerCount > 0 && empty($validated['broker_target_user_id'])) {
+            throw ValidationException::withMessages([
+                'broker_target_user_id' => ['Broker reassignment target is required for brokers assigned only to this user.'],
+            ]);
+        }
+
+        if (!empty($validated['lead_target_user_id']) && (int) $validated['lead_target_user_id'] === (int) $user->id) {
+            throw ValidationException::withMessages([
+                'lead_target_user_id' => ['Lead reassignment target must be a different user.'],
+            ]);
+        }
+
+        if (!empty($validated['broker_target_user_id']) && (int) $validated['broker_target_user_id'] === (int) $user->id) {
+            throw ValidationException::withMessages([
+                'broker_target_user_id' => ['Broker reassignment target must be a different user.'],
+            ]);
+        }
+
+        $brokerTargetUser = !empty($validated['broker_target_user_id'])
+            ? User::find((int) $validated['broker_target_user_id'])
+            : null;
+
+        DB::transaction(function () use ($user, $actor, $validated, $brokerTargetUser, $leadCount) {
+            if ($leadCount > 0) {
+                $leadIds = $this->salesOwnedLeadIdsForDeletion($user);
+                $leadController = app(LeadController::class);
+                $assignRequest = Request::create(
+                    '/api/leads/bulk-assign',
+                    'POST',
+                    [
+                        'ids' => $leadIds,
+                        'assigned_to' => (int) $validated['lead_target_user_id'],
+                        'assign_role' => $validated['assign_role'] ?? 'sales',
+                        'stage' => $validated['lead_stage'] ?? 'same_stage',
+                        'history_option' => $validated['lead_history_option'] ?? 'keep_history',
+                    ]
+                );
+                $assignRequest->setUserResolver(fn () => $actor);
+
+                $response = $leadController->bulkAssign($assignRequest);
+                if (method_exists($response, 'getStatusCode') && $response->getStatusCode() >= 400) {
+                    $payload = json_decode((string) $response->getContent(), true);
+                    $message = $payload['message'] ?? 'Failed to reassign one or more leads.';
+                    throw ValidationException::withMessages([
+                        'lead_target_user_id' => [$message],
+                    ]);
+                }
+                if (($validated['assign_role'] ?? 'sales') === 'manager') {
+                    Lead::query()
+                        ->whereIn('id', $leadIds)
+                        ->update(['status' => 'pending']);
+                }
+            }
+
+            foreach ($this->dependentBrokerRows($user) as $row) {
+                /** @var Broker $broker */
+                $broker = $row['broker'];
+                $assignedIds = array_values(array_filter(
+                    $row['assigned_ids'],
+                    fn (int $assignedId) => $assignedId !== (int) $user->id
+                ));
+
+                if ($row['is_sole'] && $brokerTargetUser) {
+                    $assignedIds[] = (int) $brokerTargetUser->id;
+                }
+
+                $assignedIds = array_values(array_unique(array_filter($assignedIds, fn ($id) => (int) $id > 0)));
+                sort($assignedIds);
+
+                $meta = is_array($broker->meta_data ?? null) ? ($broker->meta_data ?? []) : [];
+                $meta['assigned_sales_person_ids'] = $assignedIds;
+                $meta['sales_person_ids'] = $assignedIds;
+                $broker->meta_data = $meta;
+                $broker->save();
+            }
+        });
+
+        $freshSummary = $this->buildDeletionDependencySummary($user);
+
+        return response()->json([
+            'message' => 'User dependencies reassigned successfully.',
+            'summary' => $freshSummary,
+        ]);
+    }
+
+    public function destroy(Request $request, User $user)
+    {
+        $this->ensureVisibleWithinAgencyScope($request->user(), $user);
         if ($this->isPrimaryAdmin($user)) {
             return response()->json([
                 'message' => 'Primary admin user cannot be deleted.',
             ], 403);
+        }
+
+        $summary = $this->buildDeletionDependencySummary($user);
+        if (!$summary['can_delete']) {
+            return response()->json([
+                'message' => 'This user still has assigned leads or brokers. Reassign them before deleting the user.',
+                'code' => 'user_dependencies_exist',
+                'summary' => $summary,
+            ], 409);
         }
 
         $user->delete();

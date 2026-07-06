@@ -60,7 +60,7 @@ export default function Brokers() {
   
   // State
   const [brokers, setBrokers] = useState([]);
-  const [salesUsers, setSalesUsers] = useState([]);
+  const [assignableUsers, setAssignableUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [previewBroker, setPreviewBroker] = useState(null);
@@ -116,15 +116,6 @@ export default function Brokers() {
       const usersRaw = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || []);
       const users = Array.isArray(usersRaw) ? usersRaw : [];
 
-      const salesOnly = users.filter(u => {
-        const r = String(
-          u?.role ||
-          (Array.isArray(u?.roles) && u.roles[0]?.name ? u.roles[0].name : '') ||
-          ''
-        ).toLowerCase();
-        return r.includes('sales person') || r.includes('salesperson') || r.includes('sales_person');
-      });
-
       const brokersRaw = Array.isArray(brokersRes.data) ? brokersRes.data : (brokersRes.data?.data || []);
 
       const normalizeAssignedIds = (raw) => {
@@ -178,7 +169,7 @@ export default function Brokers() {
       });
 
       setBrokers(enriched);
-      setSalesUsers(salesOnly);
+      setAssignableUsers(users);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error(isArabic ? 'فشل تحميل البيانات' : 'Failed to fetch data');
@@ -355,12 +346,12 @@ export default function Brokers() {
     });
   }, [brokers, filters]);
 
-  const salesTeamOptions = useMemo(() => {
-    return salesUsers.map(m => ({
+  const assignableUserOptions = useMemo(() => {
+    return assignableUsers.map(m => ({
       value: String(m.id),
       label: m.role ? `${m.name} - ${m.role}` : (m.name || m.username || m.email || String(m.id))
     }))
-  }, [salesUsers])
+  }, [assignableUsers])
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -1054,7 +1045,7 @@ export default function Brokers() {
                     </div>
                   ) : (
                     <SearchableSelect
-                      options={salesTeamOptions}
+                      options={assignableUserOptions}
                       value={form.salesPersons}
                       onChange={(vals)=>setForm(prev=>({...prev, salesPersons: vals}))}
                       isRTL={isArabic}

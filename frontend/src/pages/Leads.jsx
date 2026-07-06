@@ -862,16 +862,35 @@ if (!s) {
       }
     });
 
-    // Total Leads = sum of all pipeline cards except Duplicate (must match visible cards).
-    counts.total = sidebarStages
-      .filter((s) => s.backendKey !== 'duplicate')
-      .reduce((sum, s) => sum + Number(counts[s.key] || 0), 0);
+    // Use backend total directly so Leads page stays aligned with Dashboard/API
+    // even if a tenant has legacy/unmapped stage values that are not represented
+    // by the visible stage cards.
+    counts.total = Number(statsData.total || 0);
     
     return counts;
   }, [statsData, sidebarStages, normalizedStatsByStage, stageAliasMap])
 
   const numberFormatter = useMemo(() => new Intl.NumberFormat(i18n.language.startsWith('ar') ? 'ar-EG' : 'en-US'), [i18n.language])
   const formatInt = (n) => numberFormatter.format(n || 0)
+
+  const activeStageTableCount = useMemo(() => {
+    if (!Array.isArray(stageFilter) || stageFilter.length === 0) {
+      return Number(stageCounts.total || 0)
+    }
+
+    if (stageFilter.length === 1) {
+      const selectedStage = stageFilter[0]
+      if (selectedStage === 'cold calls') {
+        return Number(stageCounts['cold calls'] || 0)
+      }
+      return Number(stageCounts[selectedStage] || 0)
+    }
+
+    return stageFilter.reduce((sum, stage) => {
+      const key = stage === 'cold calls' ? 'cold calls' : stage
+      return sum + Number(stageCounts[key] || 0)
+    }, 0)
+  }, [stageFilter, stageCounts])
 
   const _formatLocalYMD = (d) => {
     if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
@@ -1239,12 +1258,13 @@ if (!s) {
         const normalized = normStageKey(raw)
         const mapped = stageAliasMap[normalized] || raw
         const mappedLower = String(mapped).toLowerCase().trim()
-        const resolvedStage =
+        const resolvedStageRaw =
           mappedLower === 'cold calls' || normalized === 'coldcalls' || normalized === 'coldcall'
             ? 'coldCall'
             : mappedLower === 'new'
               ? 'new lead'
               : mapped
+        const resolvedStage = normalizeStageFilterValue(resolvedStageRaw)
         setStageFilter(prev => (Array.isArray(prev) && prev.length === 1 && String(prev[0]) === String(resolvedStage) ? prev : [resolvedStage]))
       } else {
         // Only reset stage filter if we are not on my-leads (or maybe my-leads can also have stage?)
@@ -3895,7 +3915,9 @@ if (!s) {
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4 items-stretch">
         <button
           onClick={() => setStageFilterNormalized([])}
-          className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor}`}
+          className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor} ${
+            stageFilter.length === 0 ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+          }`}
         >
           <span className="flex items-center gap-2 text-left"><span>Σ</span><span>{t('total leads')}</span></span>
           <span className="font-bold">{formatInt(stageCounts.total)}</span>
@@ -3948,7 +3970,7 @@ if (!s) {
 
       {/* Main Table */}
       <div className={`glass-panel rounded-2xl overflow-hidden`}>
-        <div className="relative z-[60] flex flex-col md:flex-row justify-between items-center p-4 gap-4 border-b border-theme-border dark:border-gray-700 bg-transparent backdrop-blur-md">
+        <div className="relative z-[60] flex  md:flex-row justify-between items-center p-4 gap-4 border-b border-theme-border dark:border-gray-700 bg-transparent backdrop-blur-md">
           {selectedLeads.length > 0 ? (
             <div className="flex items-center gap-3 flex-wrap w-full">
               <div className={`flex items-center px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/20 border border-blue-100  text-sm font-semibold ${isLight ? 'text-blue-700' : 'text-blue-300'}`}>
@@ -4062,6 +4084,12 @@ if (!s) {
               <span className="text-sm font-medium">{t('No leads selected for bulk actions')}</span>
             </div>
           )}
+
+          <div className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${isLight ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-800 bg-blue-900/30 text-blue-300'}`}>
+            <FaList className="text-xs" />
+            <span>{isRtl ? 'عدد المرحلة' : 'Stage Count'}:</span>
+            <span>{formatInt(activeStageTableCount)}</span>
+          </div>
         </div>
         <div ref={scrollXRef} className="mt-4 w-full overflow-x-auto rounded-lg shadow-md backdrop-blur-lg" style={{ '--table-header-bg': theme === 'dark' ? 'transparent' : undefined, '--scroll-bg': theme === 'dark' ? '#0f172a' : '#f9fafb' }}>
           <table className={`w-max min-w-full divide-y divide-theme-border dark:divide-gray-700 ${isLight ? 'text-black' : 'text-white'}`} style={{ tableLayout: 'auto' }}>

@@ -24,6 +24,40 @@ class LeadActionController extends Controller
 {
     use ResolvesNotificationRecipients, UserHierarchyTrait;
 
+    private function resolveActionStageNames(LeadAction $action): array
+    {
+        $details = is_array($action->details) ? $action->details : [];
+
+        $stageName = trim((string) (
+            $action->stageAtCreation?->name
+            ?? $details['stage_at_creation_name']
+            ?? $details['stageAtCreationName']
+            ?? $details['stage_name']
+            ?? $details['imported_stage']
+            ?? $action->stage
+            ?? $details['stage']
+            ?? ''
+        ));
+
+        $stageNameAr = trim((string) ($action->stageAtCreation?->name_ar ?? ''));
+
+        return [
+            'stage_name' => $stageName !== '' ? $stageName : null,
+            'stage_name_ar' => $stageNameAr !== '' ? $stageNameAr : null,
+        ];
+    }
+
+    private function enrichActionForResponse(LeadAction $action): LeadAction
+    {
+        $stageNames = $this->resolveActionStageNames($action);
+
+        $action->setAttribute('stage_name', $stageNames['stage_name']);
+        $action->setAttribute('stage_name_ar', $stageNames['stage_name_ar']);
+        $action->setAttribute('stage_label', $stageNames['stage_name_ar'] ?: $stageNames['stage_name']);
+
+        return $action;
+    }
+
     private function normalizeMeetingStatus($status, $doneMeeting = null): string
     {
         $s = strtolower(trim((string) ($status ?? '')));
@@ -656,6 +690,8 @@ class LeadActionController extends Controller
             }
             $actions = $query->with('user')->orderByDesc('id')->limit($limit)->get();
         }
+
+        $actions->transform(fn (LeadAction $action) => $this->enrichActionForResponse($action));
 
         return response()->json($actions);
     }

@@ -59,6 +59,8 @@ class WhatsappMirrorGroupContactController extends Controller
         if ($search !== '') {
             $query->where(function ($subQuery) use ($search) {
                 $subQuery->where('phone', 'like', "%{$search}%")
+                    ->orWhere('resolved_phone', 'like', "%{$search}%")
+                    ->orWhere('lid', 'like', "%{$search}%")
                     ->orWhere('push_name', 'like', "%{$search}%")
                     ->orWhere('group_name', 'like', "%{$search}%");
             });
@@ -87,6 +89,18 @@ class WhatsappMirrorGroupContactController extends Controller
         $payload = $response->json();
         $contacts = array_values(array_filter((array) ($payload['contacts'] ?? []), fn ($contact) => is_array($contact)));
         $summary = $groupContactService->syncContacts($tenantId, $contacts);
+        $resolvedNow = 0;
+
+        $unresolvedLids = array_values(array_unique(array_filter((array) ($summary['unresolved_lids'] ?? []))));
+        if (!empty($unresolvedLids)) {
+            $resolveResponse = $client->resolveLids($tenantId, $unresolvedLids);
+            if ($resolveResponse->successful()) {
+                $resolvedNow = $groupContactService->applyResolvedLidMap(
+                    $tenantId,
+                    (array) ($resolveResponse->json('resolved') ?? [])
+                );
+            }
+        }
 
         return response()->json([
             'ok' => true,
@@ -94,6 +108,8 @@ class WhatsappMirrorGroupContactController extends Controller
                 ...$summary,
                 'received' => count($contacts),
                 'groups' => (int) ($payload['groups_count'] ?? 0),
+                'resolved_now' => $resolvedNow,
+                'unresolved_remaining' => max(0, count($unresolvedLids) - $resolvedNow),
             ],
         ]);
     }
@@ -106,6 +122,12 @@ class WhatsappMirrorGroupContactController extends Controller
     ) {
         $user = $request->user();
         abort_unless((int) $contact->tenant_id === (int) $user->tenant_id, 404);
+
+        if ($contact->is_unresolved_lid && !filled($contact->resolved_phone)) {
+            return response()->json([
+                'message' => 'This group member still has an unresolved WhatsApp LID. Wait until the real phone number is resolved before converting.',
+            ], 422);
+        }
 
         if ($contact->status === 'converted' && $contact->converted_lead_id) {
             $existingLead = Lead::query()
@@ -173,11 +195,12 @@ class WhatsappMirrorGroupContactController extends Controller
             }
         }
 
+        $phoneForLead = trim((string) ($contact->resolved_phone ?: $contact->phone));
         $requestedPhoneCountry = trim((string) $request->input('phone_country', ''));
-        $effectivePhoneCountry = $this->inferPhoneCountryCode((string) $contact->phone, $requestedPhoneCountry !== '' ? $requestedPhoneCountry : null) ?? '';
-        $normalizedPhone = PhoneNormalizer::normalize((string) $contact->phone, $effectivePhoneCountry !== '' ? $effectivePhoneCountry : null);
+        $effectivePhoneCountry = $this->inferPhoneCountryCode($phoneForLead, $requestedPhoneCountry !== '' ? $requestedPhoneCountry : null) ?? '';
+        $normalizedPhone = PhoneNormalizer::normalize($phoneForLead, $effectivePhoneCountry !== '' ? $effectivePhoneCountry : null);
         if ($normalizedPhone === '') {
-            $normalizedPhone = PhoneNormalizer::normalize((string) $contact->phone, null);
+            $normalizedPhone = PhoneNormalizer::normalize($phoneForLead, null);
         }
 
         $leadPayload = array_filter([
@@ -191,7 +214,7 @@ class WhatsappMirrorGroupContactController extends Controller
                 ]
             )->name,
             'name' => trim((string) $request->input('name')),
-            'phone' => $normalizedPhone !== '' ? $normalizedPhone : trim((string) $contact->phone),
+            'phone' => $normalizedPhone !== '' ? $normalizedPhone : $phoneForLead,
             'email' => trim((string) $request->input('email', '')),
             'company' => trim((string) $request->input('company', '')),
             'campaign' => trim((string) $request->input('campaign', '')),

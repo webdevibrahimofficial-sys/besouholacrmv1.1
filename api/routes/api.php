@@ -490,6 +490,8 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('departments', \App\Http\Controllers\DepartmentController::class);
     Route::apiResource('teams', \App\Http\Controllers\TeamController::class);
     Route::apiResource('tasks', \App\Http\Controllers\TaskController::class);
+    Route::get('users/{user}/dependency-summary', [\App\Http\Controllers\UserController::class, 'dependencySummary']);
+    Route::post('users/{user}/reassign-dependencies', [\App\Http\Controllers\UserController::class, 'reassignDependencies']);
     Route::apiResource('users', \App\Http\Controllers\UserController::class);
     Route::get('/users/{user}/avatar', [\App\Http\Controllers\UserController::class, 'avatar']); // New Avatar Endpoint
     Route::apiResource('developers', \App\Http\Controllers\DeveloperController::class);

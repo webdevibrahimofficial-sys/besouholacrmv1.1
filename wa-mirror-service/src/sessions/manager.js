@@ -228,6 +228,13 @@ function normalizePhoneCandidate(value) {
   return digits;
 }
 
+function isLikelyLidLength(digits) {
+  // Real E.164 numbers are typically 10-13 digits. WhatsApp LIDs
+  // (pseudo user ids WhatsApp uses when the real number is hidden or
+  // unavailable, e.g. due to privacy settings) are usually 14-16 digits.
+  return typeof digits === 'string' && digits.length >= 14;
+}
+
 function chooseBestPhoneCandidate(candidates) {
   const normalized = candidates
     .map((candidate) => normalizePhoneCandidate(candidate))
@@ -237,8 +244,14 @@ function chooseBestPhoneCandidate(candidates) {
     return null;
   }
 
-  const nonLidSized = normalized.find((candidate) => candidate.length <= 15);
-  return nonLidSized || normalized[0];
+  // Prefer a candidate that doesn't look like a LID. The previous check here
+  // was `candidate.length <= 15`, which is ALWAYS true at this point because
+  // normalizePhoneCandidate() already rejects anything over 15 digits -- so it
+  // never actually filtered out LIDs. This was the root cause of LIDs like
+  // "120569026592815" being saved and displayed as if they were real phone
+  // numbers (e.g. the جزارة انس unassigned contact).
+  const realLooking = normalized.find((candidate) => !isLikelyLidLength(candidate));
+  return realLooking || normalized[0];
 }
 
 function rememberLidPhoneMapping(sock, lid, phone) {
@@ -265,6 +278,28 @@ function resolveMappedPhone(sock, candidate) {
   }
 
   return sock.lidToPhoneMap.get(normalized) || null;
+}
+
+async function tryResolveLidToRealPhone(sock, jidOrLid) {
+  if (!sock || typeof sock.onWhatsApp !== 'function' || !jidOrLid) {
+    return null;
+  }
+
+  try {
+    const results = await sock.onWhatsApp(jidOrLid);
+    const match = Array.isArray(results) ? results[0] : null;
+    const candidate = match?.jid || match?.pn || null;
+    const resolved = candidate ? normalizePhoneCandidate(candidate) : null;
+
+    if (resolved && !isLikelyLidLength(resolved)) {
+      return resolved;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[LID Resolve Error] tenant=%s jid=%s', sock?.tenantId || 'unknown', jidOrLid, error.message);
+    return null;
+  }
 }
 
 function loadPersistedContactNameMap(tenantId) {
@@ -577,10 +612,17 @@ export async function initSession(tenantId) {
           return {
             from_me: !!m.key.fromMe,
             phone,
+            is_unresolved_lid: isLikelyLidLength(phone),
             push_name: pushName,
             body: extractMessageBody(m.message),
             timestamp: m.messageTimestamp,
             message_id: m.key.id,
+            sender_pn: m.key?.senderPn || null,
+            participant_pn: m.key?.participantPn || null,
+            participant: extractRemotePhone(m.key?.participant) || extractRemotePhone(m?.participant) || null,
+            remote_jid: m.key?.remoteJid || null,
+            sender: extractRemotePhone(m.key?.sender) || null,
+            author: extractRemotePhone(m.key?.participant) || extractRemotePhone(m?.participant) || null,
           };
         })
         .filter((m) => m.phone && normalizePhoneCandidate(m.phone) !== null);
@@ -624,6 +666,20 @@ export async function initSession(tenantId) {
           || resolveMappedPhone(sock, directCandidate);
 
         let counterpartPhone = mappedCandidate || directCandidate;
+        let isUnresolvedLid = !mappedCandidate && isLikelyLidLength(counterpartPhone);
+
+        if (isUnresolvedLid) {
+          // Best-effort: ask WhatsApp directly for the real number behind this LID
+          // instead of silently storing the LID as if it were the phone number.
+          const resolvedFromLookup = await tryResolveLidToRealPhone(sock, remoteJidRaw || counterpartPhone);
+
+          if (resolvedFromLookup) {
+            rememberLidPhoneMapping(sock, remoteJidRaw || counterpartPhone, resolvedFromLookup);
+            counterpartPhone = resolvedFromLookup;
+            isUnresolvedLid = false;
+          }
+        }
+
         const resolvedPushName = resolveContactName(sock, [
           msg.key?.remoteJid,
           msg.key?.participant,
@@ -647,6 +703,7 @@ export async function initSession(tenantId) {
           messageId: msg.key?.id || null,
           fromMe: isFromMe,
           counterpartPhone,
+          isUnresolvedLid,
           remoteJid: msg.key?.remoteJid || null,
           pushName: resolvedPushName,
           bodyPreview: extractedBody ? extractedBody.slice(0, 80) : '',
@@ -658,6 +715,7 @@ export async function initSession(tenantId) {
           message: {
             from_me: isFromMe,
             from: counterpartPhone,
+            is_unresolved_lid: isUnresolvedLid,
             pushName: resolvedPushName,
             body: extractedBody,
             timestamp: msg.messageTimestamp,
@@ -666,6 +724,8 @@ export async function initSession(tenantId) {
             participant_pn: msg.key?.participantPn || null,
             participant: extractRemotePhone(msg.key?.participant) || null,
             remote_jid: msg.key?.remoteJid || null,
+            sender: extractRemotePhone(msg.key?.sender) || null,
+            author: extractRemotePhone(msg.key?.participant) || extractRemotePhone(msg?.participant) || null,
           },
         });
       }
@@ -745,11 +805,18 @@ export async function fetchGroupContactsSnapshot(tenantId) {
 
     for (const participant of participants) {
       const participantJid = normalizeJid(participant?.id);
-      const phone = resolveMappedPhone(sock, participantJid)
+      const mappedPhone = resolveMappedPhone(sock, participantJid);
+      const directPhone = chooseBestPhoneCandidate([
+        participant?.phone,
+      ]);
+      const lid = participantJid?.endsWith('@lid') ? normalizeLid(participantJid) : null;
+      const resolvedPhone = mappedPhone || directPhone || null;
+      const phone = resolvedPhone
         || chooseBestPhoneCandidate([
           participant?.phone,
           participantJid,
         ]);
+      const isUnresolvedLid = Boolean(lid && !resolvedPhone);
 
       if (!phone || phone === ownPhone) {
         continue;
@@ -759,7 +826,10 @@ export async function fetchGroupContactsSnapshot(tenantId) {
         group_jid: groupJid,
         group_name: groupName,
         participant_jid: participantJid,
+        lid,
         phone,
+        resolved_phone: resolvedPhone,
+        is_unresolved_lid: isUnresolvedLid,
         push_name: resolveContactName(sock, [participantJid, phone], null),
       });
     }
@@ -791,6 +861,51 @@ export function getSessionDebug() {
     lidMapSize: sock?.lidToPhoneMap?.size || 0,
     contactMapSize: sock?.contactNameMap?.size || 0,
   }));
+}
+
+/**
+ * Best-effort resolve a batch of LIDs (or bare LID digit strings) to real
+ * phone numbers using the tenant's active/persisted session. Used by the
+ * Laravel backfill command for unassigned contacts that were stored with a
+ * LID before the isLikelyLidLength() fix landed.
+ */
+export async function resolveLidsForTenant(tenantId, lids = []) {
+  const key = String(tenantId);
+  let sock = sessions.get(key);
+
+  if (!sock && hasPersistedSession(key)) {
+    sock = await initSession(key);
+  }
+
+  if (!sock) {
+    throw new Error('WhatsApp Mirror session is not connected.');
+  }
+
+  const resolved = {};
+
+  for (const rawLid of lids) {
+    if (!rawLid) {
+      continue;
+    }
+
+    const lidString = String(rawLid);
+    const jid = lidString.includes('@') ? lidString : `${lidString}@lid`;
+
+    // Already known from a previous mapping.
+    const alreadyMapped = resolveMappedPhone(sock, jid);
+    if (alreadyMapped) {
+      resolved[lidString] = alreadyMapped;
+      continue;
+    }
+
+    const phone = await tryResolveLidToRealPhone(sock, jid);
+    if (phone) {
+      rememberLidPhoneMapping(sock, jid, phone);
+      resolved[lidString] = phone;
+    }
+  }
+
+  return resolved;
 }
 
 export async function deleteSession(tenantId) {

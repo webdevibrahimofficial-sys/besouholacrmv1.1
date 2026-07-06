@@ -12,6 +12,7 @@ class WhatsappUnassignedContact extends Model
     protected $fillable = [
         'tenant_id',
         'phone',
+        'is_unresolved_lid',
         'push_name',
         'first_message_at',
         'last_message_at',
@@ -25,6 +26,7 @@ class WhatsappUnassignedContact extends Model
         'first_message_at' => 'datetime',
         'last_message_at' => 'datetime',
         'messages_count' => 'integer',
+        'is_unresolved_lid' => 'boolean',
     ];
 
     public function convertedLead()

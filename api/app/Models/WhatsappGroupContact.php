@@ -14,17 +14,23 @@ class WhatsappGroupContact extends Model
         'group_jid',
         'group_name',
         'participant_jid',
+        'lid',
         'phone',
+        'resolved_phone',
+        'is_unresolved_lid',
         'push_name',
         'status',
         'converted_lead_id',
         'first_seen_at',
         'last_synced_at',
+        'meta_data',
     ];
 
     protected $casts = [
         'first_seen_at' => 'datetime',
         'last_synced_at' => 'datetime',
+        'is_unresolved_lid' => 'boolean',
+        'meta_data' => 'array',
     ];
 
     public function convertedLead()

@@ -6,6 +6,7 @@ use App\Events\InboundWhatsappMessage;
 use App\Models\Lead;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
+use App\Services\Whatsapp\WhatsappGroupContactService;
 use App\Services\Whatsapp\WhatsappUnassignedContactService;
 use App\Support\LeadPhoneMatcher;
 use App\Services\Whatsapp\WhatsappInboundNotificationService;
@@ -50,6 +51,17 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         $direction = $fromMe ? 'outbound' : 'inbound';
         $pushName = $msgData['pushName'] ?? $msgData['push_name'] ?? null;
         $messageBody = $msgData['body'] ?? '';
+        $isUnresolvedLid = (bool) ($msgData['is_unresolved_lid'] ?? false);
+        $rawIdentifiers = [
+            'message_id' => $msgData['message_id'] ?? null,
+            'sender_pn' => $msgData['sender_pn'] ?? null,
+            'participant_pn' => $msgData['participant_pn'] ?? null,
+            'participant' => $msgData['participant'] ?? null,
+            'remote_jid' => $msgData['remote_jid'] ?? null,
+            'sender' => $msgData['sender'] ?? null,
+            'author' => $msgData['author'] ?? null,
+            'phone' => $counterpartPhone,
+        ];
 
         $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
         $ownNumber = $session?->connected_phone_number;
@@ -111,6 +123,13 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
             }
 
             $unassignedContactService = app(WhatsappUnassignedContactService::class);
+            app(WhatsappGroupContactService::class)->autoResolveFromMessageEvent(
+                $tenantId,
+                $rawIdentifiers,
+                (string) $counterpartPhone,
+                $message->created_at
+            );
+
             if (!$resolvedLeadId) {
                 // Always upsert the unassigned contact so that contacts whose
                 // first message arrived before the service was running (and thus
@@ -121,7 +140,8 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
                     is_string($pushName) ? $pushName : null,
                     is_string($messageBody) ? $messageBody : null,
                     $message->created_at,
-                    $message->wasRecentlyCreated // only increment count for new messages
+                    $message->wasRecentlyCreated, // only increment count for new messages
+                    $isUnresolvedLid
                 );
             } elseif ($resolvedLeadId) {
                 $unassignedContactService->markAsConverted(

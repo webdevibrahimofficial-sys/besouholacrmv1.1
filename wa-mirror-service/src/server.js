@@ -7,6 +7,7 @@ import statusRoutes from './routes/status.js';
 import sendRoutes from './routes/send.js';
 import disconnectRoutes from './routes/disconnect.js';
 import groupContactsRoutes from './routes/groupContacts.js';
+import resolveLidsRoutes from './routes/resolveLids.js';
 import { restorePersistedSessions } from './sessions/manager.js';
 
 const app = express();
@@ -25,6 +26,7 @@ app.use(statusRoutes);
 app.use(sendRoutes);
 app.use(disconnectRoutes);
 app.use(groupContactsRoutes);
+app.use(resolveLidsRoutes);
 
 const PORT = process.env.PORT || 3000;
 

@@ -1,6 +1,6 @@
 /* global jest, describe, beforeEach, test, expect */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import EditLeadModal from './EditLeadModal'
 
 jest.mock('react-i18next', () => ({
@@ -43,16 +43,18 @@ jest.mock('./DynamicFieldRenderer', () => {
 })
 
 const mockApiGet = jest.fn()
+const mockApiPut = jest.fn()
 jest.mock('../utils/api', () => ({
   api: {
     get: (...args) => mockApiGet(...args),
-    put: jest.fn(),
+    put: (...args) => mockApiPut(...args),
   },
 }))
 
 describe('EditLeadModal phone parsing', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockApiPut.mockResolvedValue({ data: { id: 1 } })
     mockApiGet.mockImplementation((url) => {
       if (url === '/api/sources?active=1') return Promise.resolve({ data: { data: [] } })
       if (url === '/api/campaigns') return Promise.resolve({ data: { data: [] } })
@@ -112,5 +114,48 @@ describe('EditLeadModal phone parsing', () => {
 
     expect(screen.getByDisplayValue('01555143942')).toBeInTheDocument()
     expect(screen.getByDisplayValue('01555143933')).toBeInTheDocument()
+  })
+
+  test('loads and saves additional phones via meta_data.other_mobile', async () => {
+    render(
+      <EditLeadModal
+        isOpen={true}
+        onClose={jest.fn()}
+        onSave={jest.fn()}
+        canEditInfo={false}
+        canEditPhone={true}
+        lead={{
+          id: 3,
+          name: 'Multi Phone Lead',
+          source: 'Cold Call',
+          phone: '+20 1017387554',
+          meta_data: { phone_country: '+20', other_mobile: '+966 0521312311' },
+        }}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByDisplayValue('+20').length).toBeGreaterThanOrEqual(1)
+    })
+
+    expect(screen.getByDisplayValue('1017387554')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('+966')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('521312311')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Save Changes'))
+
+    await waitFor(() => {
+      expect(mockApiPut).toHaveBeenCalledWith(
+        '/api/leads/3',
+        expect.objectContaining({
+          phone: '+20 1017387554',
+          phone_country: '+20',
+          meta_data: expect.objectContaining({
+            phone_country: '+20',
+            other_mobile: '+966 521312311',
+          }),
+        })
+      )
+    })
   })
 })

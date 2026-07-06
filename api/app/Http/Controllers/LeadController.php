@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use App\Support\LeadStageResolver;
 use App\Support\PhoneNormalizer;
 use App\Support\TenantSourceLookup;
 use App\Services\LeadRotationEngine;
@@ -1438,74 +1439,10 @@ class LeadController extends Controller
             });
         }
 
-        // 4. Stage Filter (Including Pending Virtual Stage)
+        // 4. Stage Filter
         if ($request->filled('stage')) {
             $stages = (array)$request->stage;
-            $viewType = $request->get('view_type', 'all_leads');
-            $isManager = !in_array(strtolower($user->role ?? ''), ['sales person', 'salesperson']);
-            $isAllLeadsView = $viewType === 'all_leads';
-
-            if (in_array('pending', $stages)) {
-                $currentUserId = $user->id;
-                $query->where(function($q) use ($currentUserId, $isAllLeadsView, $isManager) {
-                    // Match Pending Logic in stats()
-                    $q->where(function($sq) {
-                        $sq->whereIn('leads.stage', ['pending', 'in-progress'])
-                           ->orWhereIn('leads.status', ['pending', 'in-progress']);
-                    })->whereRaw('COALESCE(leads.assigned_to, 0) > 0')->orWhere(function($sq) use ($currentUserId, $isAllLeadsView, $isManager) {
-                        $sq->where(function($s) {
-                            $s->whereIn('leads.stage', ['new', 'New Lead'])
-                              ->orWhere(function($sub) {
-                                  $sub->whereNull('leads.stage')->where('leads.status', 'new');
-                              });
-                        })
-                        ->whereRaw('COALESCE(leads.assigned_to, 0) > 0')
-                        ->where(function($a) use ($currentUserId, $isAllLeadsView, $isManager) {
-                            $a->where('leads.assigned_to', '!=', $currentUserId)
-                              ->orWhere(function($sub) use ($currentUserId, $isAllLeadsView, $isManager) {
-                                  $sub->where('leads.assigned_to', $currentUserId)
-                                      ->whereRaw($isAllLeadsView && $isManager ? "1=1" : "1=0");
-                              });
-                        });
-                    })->orWhere(function($sq) use ($currentUserId, $isAllLeadsView, $isManager) {
-                        // Also treat assigned Cold Calls as Pending (computed stage) for managers / non-owners.
-                        $sq->whereIn(DB::raw('lower(leads.stage)'), ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'])
-                           ->whereRaw('COALESCE(leads.assigned_to, 0) > 0')
-                           ->where(function($a) use ($currentUserId, $isAllLeadsView, $isManager) {
-                               $a->where('leads.assigned_to', '!=', $currentUserId)
-                                 ->orWhere(function($sub) use ($currentUserId, $isAllLeadsView, $isManager) {
-                                     $sub->where('leads.assigned_to', $currentUserId)
-                                         ->whereRaw($isAllLeadsView && $isManager ? "1=1" : "1=0");
-                                 });
-                           });
-                    });
-                })->whereNotExists(function ($aq) {
-                    $aq->select(DB::raw(1))
-                        ->from('lead_actions')
-                        ->whereColumn('lead_actions.lead_id', 'leads.id');
-                });
-            } elseif (in_array('new', $stages) || in_array('new lead', $stages)) {
-                $currentUserId = $user->id;
-                $query->where(function($q) use ($currentUserId, $isAllLeadsView, $isManager) {
-                    // Match New Logic in stats()
-                    $q->where(function($s) {
-                        $s->whereIn('leads.stage', ['new', 'New Lead'])
-                          ->orWhere(function($sub) {
-                              $sub->whereNull('leads.stage')->where('leads.status', 'new');
-                          });
-                    })
-                    ->where(function($a) use ($currentUserId, $isAllLeadsView, $isManager) {
-                        // If in All Leads view and user is manager, leads assigned to them are PENDING, not NEW.
-                        // So we exclude them from the NEW filter.
-                        if ($isAllLeadsView && $isManager) {
-                            $a->whereNull('leads.assigned_to');
-                        } else {
-                            $a->where('leads.assigned_to', $currentUserId)
-                              ->orWhereNull('leads.assigned_to');
-                        }
-                    });
-                });
-            } elseif (in_array('duplicate', $stages)) {
+            if (in_array('duplicate', $stages)) {
                 $query->where(function($q) use ($stages) {
                     $q->whereIn('leads.stage', $stages)
                       ->orWhere('leads.status', 'duplicate');
@@ -1734,7 +1671,11 @@ class LeadController extends Controller
 
     private function buildLeadDisplayStageSql(array $context, string $table = 'leads'): string
     {
-        if (!empty($context['hasSalesPersonFilter'])) {
+        // Real stage mode:
+        // 1. Any explicit Sales Person filter is active
+        // 2. The current scoped user is a Sales Person
+        // In both cases we must not apply manager-facing virtual pending remapping.
+        if (!empty($context['hasSalesPersonFilter']) || empty($context['isManager'])) {
             return "
                 CASE
                     WHEN {$table}.stage IS NULL OR {$table}.stage = '' THEN {$table}.status
@@ -1745,32 +1686,53 @@ class LeadController extends Controller
 
         $currentUserId = (int) ($context['currentUserId'] ?? 0);
         $virtualPendingFlag = (int) ($context['virtualPendingFlag'] ?? 0);
+        $noActionAfterResetSql = $this->buildLeadNoActionAfterResetSql($table);
 
         return "
             CASE
-                WHEN (lower({$table}.status) = 'pending' or lower({$table}.status) = 'in-progress')
-                     AND COALESCE({$table}.assigned_to, 0) > 0
-                     AND {$table}.assigned_to != {$currentUserId}
-                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
-                THEN 'pending'
                 WHEN {$virtualPendingFlag} = 1
                      AND {$table}.assigned_to = {$currentUserId}
                      AND (lower({$table}.stage) = 'new' or lower({$table}.stage) = 'new lead' or (lower({$table}.status) = 'new' and {$table}.stage is null))
-                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
+                     AND {$noActionAfterResetSql}
                 THEN 'pending'
                 WHEN (lower({$table}.stage) = 'new' or lower({$table}.stage) = 'new lead' or (lower({$table}.status) = 'new' and {$table}.stage is null))
                      AND COALESCE({$table}.assigned_to, 0) > 0
                      AND {$table}.assigned_to != {$currentUserId}
-                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
+                     AND {$noActionAfterResetSql}
                 THEN 'pending'
                 WHEN (lower({$table}.stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call'))
                      AND COALESCE({$table}.assigned_to, 0) > 0
                      AND ({$table}.assigned_to != {$currentUserId} OR {$virtualPendingFlag} = 1)
-                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = {$table}.id)
+                     AND {$noActionAfterResetSql}
                 THEN 'pending'
                 ELSE {$table}.stage
             END
         ";
+    }
+
+    private function buildLeadPendingResetAnchorSql(string $table = 'leads'): string
+    {
+        // If a lead was reassigned/reset and returned to New Lead / Cold Calls, managers should
+        // see it as Pending again until a newer action is added after that reset point.
+        return "
+            CASE
+                WHEN COALESCE({$table}.assigned_to, 0) > 0
+                     AND (lower(COALESCE({$table}.status, '')) = 'pending' OR lower(COALESCE({$table}.status, '')) = 'in-progress')
+                THEN COALESCE({$table}.sales_view_reset_at, {$table}.assigned_at, {$table}.updated_at, {$table}.created_at)
+                ELSE COALESCE({$table}.sales_view_reset_at, {$table}.assigned_at, {$table}.created_at)
+            END
+        ";
+    }
+
+    private function buildLeadNoActionAfterResetSql(string $table = 'leads'): string
+    {
+        $anchorSql = $this->buildLeadPendingResetAnchorSql($table);
+        return "NOT EXISTS (
+            SELECT 1
+            FROM lead_actions
+            WHERE lead_actions.lead_id = {$table}.id
+              AND lead_actions.created_at > ({$anchorSql})
+        )";
     }
 
     public function pipelineReport(Request $request)
@@ -1856,22 +1818,19 @@ class LeadController extends Controller
             $isManager = !in_array(strtolower($scopeUser->role ?? ''), ['sales person', 'salesperson']);
             $isAllLeadsView = $viewType === 'all_leads';
             $virtualPendingFlag = ($isAllLeadsView && $isManager) ? 1 : 0;
+            $noActionAfterResetSql = $this->buildLeadNoActionAfterResetSql('leads');
 
             $pendingCountRow = (clone $query)->selectRaw("
                 count(case when (
                     CASE
-                        WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
-                             AND COALESCE(assigned_to, 0) > 0
-                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
-                        THEN 'pending'
                         WHEN ? = 1 AND assigned_to = ? AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null))
-                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
+                             AND {$noActionAfterResetSql}
                         THEN 'pending'
                         WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != ?
-                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
+                             AND {$noActionAfterResetSql}
                         THEN 'pending'
                         WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != ? OR ? = 1)
-                             AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
+                             AND {$noActionAfterResetSql}
                         THEN 'pending'
                         ELSE stage
                     END
@@ -2369,7 +2328,7 @@ class LeadController extends Controller
                 return [
                     'total' => $totalFromByStage,
                     'new' => $newFromByStage,
-                    'pending' => !empty($stageVisibility['hasSalesPersonFilter']) ? 0 : $pendingFromByStage,
+                    'pending' => $pendingFromByStage,
                     'coldCall' => $coldCallsFromByStage,
                     'duplicate' => $duplicateCount,
                     'closedDeals' => $closedDealsCount,
@@ -2569,15 +2528,12 @@ class LeadController extends Controller
         $isAllLeadsView = $viewType === 'all_leads';
 
         // Keep stage bucketing consistent with /api/leads/stats (virtual "pending" stage rules).
+        $noActionAfterResetSql = $this->buildLeadNoActionAfterResetSql('leads');
         $displayStageSql = "
             CASE 
-                WHEN (lower(stage) = 'pending' or lower(stage) = 'in-progress' or lower(status) = 'pending' or lower(status) = 'in-progress')
-                     AND COALESCE(assigned_to, 0) > 0
-                     AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id)
-                THEN 'pending'
-                WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id) THEN 'pending'
-                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id) THEN 'pending'
-                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) AND NOT EXISTS (SELECT 1 FROM lead_actions WHERE lead_actions.lead_id = leads.id) THEN 'pending'
+                WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND {$noActionAfterResetSql} THEN 'pending'
+                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId AND {$noActionAfterResetSql} THEN 'pending'
+                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) AND {$noActionAfterResetSql} THEN 'pending'
                 ELSE stage
             END
         ";
@@ -2690,6 +2646,16 @@ class LeadController extends Controller
                 $data['source'] = $resolvedSourceName;
             }
 
+            $resolvedStage = LeadStageResolver::resolve($tenantId, $data['stage'] ?? null, true);
+            if ($resolvedStage === null) {
+                return response()->json([
+                    'errors' => [
+                        'stage' => ['Selected stage is not allowed for this tenant.'],
+                    ],
+                ], 422);
+            }
+            $data['stage'] = $resolvedStage;
+
             // Normalize phone for consistent search/duplicate matching
             $rawPhone = isset($data['phone']) ? trim((string) $data['phone']) : '';
             if ($rawPhone !== '') {
@@ -2722,11 +2688,6 @@ class LeadController extends Controller
             $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
             $variantsForSearch = null;
             
-            // Set default stage if not provided
-           if (empty($data['stage']) || strtolower($data['stage']) == 'new' || strtolower($data['stage']) == 'new lead') {
-               $data['stage'] = 'New Lead';
-           }
-
             if ($enableDup) {
                 $isDuplicate = false;
                 $duplicateOfId = null;
@@ -3253,6 +3214,19 @@ class LeadController extends Controller
                 unset($data['phone_country']);
             }
 
+            $tenantId = $request->user()?->tenant_id;
+            if (array_key_exists('stage', $data) || $request->has('stage')) {
+                $resolvedStage = LeadStageResolver::resolve($tenantId, $data['stage'] ?? null, true);
+                if ($resolvedStage === null) {
+                    return response()->json([
+                        'errors' => [
+                            'stage' => ['Selected stage is not allowed for this tenant.'],
+                        ],
+                    ], 422);
+                }
+                $data['stage'] = $resolvedStage;
+            }
+
             $rawPhone = isset($data['phone']) ? trim((string) $data['phone']) : '';
             if ($rawPhone !== '') {
                 $phoneSegments = $this->normalizePhoneInputSegments($rawPhone, $phoneCountryHint);
@@ -3709,26 +3683,6 @@ class LeadController extends Controller
         }
 
         $phonesInBatch = [];
-        $availableStages = [];
-        $stageRows = \App\Models\Stage::query()
-            ->where('tenant_id', $currentTenantId)
-            ->get(['name', 'name_ar']);
-
-        foreach ($stageRows as $stageRow) {
-            $canonicalStage = trim((string) ($stageRow->name ?? $stageRow->name_ar ?? ''));
-            if ($canonicalStage === '') {
-                continue;
-            }
-
-            foreach ([(string) ($stageRow->name ?? ''), (string) ($stageRow->name_ar ?? '')] as $stageAlias) {
-                $stageAlias = trim($stageAlias);
-                if ($stageAlias === '') {
-                    continue;
-                }
-
-                $availableStages[strtolower(str_replace([' ', '-'], '', $stageAlias))] = $canonicalStage;
-            }
-        }
 
         foreach ($leads as $index => $leadData) {
             try {
@@ -3797,32 +3751,12 @@ class LeadController extends Controller
                 // 3. Stage handling
                 $incomingStage = isset($leadData['stage']) && trim($leadData['stage']) !== '' ? trim($leadData['stage']) : null;
                 
-                if (empty($incomingStage)) {
-                    $stage = 'New Lead';
-                } else {
-                    $normIncoming = strtolower(str_replace([' ', '-'], '', trim($incomingStage)));
-                    if (in_array($normIncoming, ['new', 'newlead', 'fresh'])) {
-                        $stage = 'New Lead';
-                    } elseif ($normIncoming === 'pending') {
-                        $stage = 'Pending';
-                    } elseif (in_array($normIncoming, ['coldcalls', 'coldcall'])) {
-                        $stage = 'Cold Calls';
-                    } elseif ($normIncoming === 'duplicate') {
-                         $stage = 'Duplicate';
-                    } elseif (in_array($normIncoming, ['reseal', 'resale'])) {
-                        $stage = 'Resale';
-                    } else {
-                        $stage = $incomingStage;
-                    }
-                }
-
-                $stageKey = strtolower(str_replace([' ', '-'], '', trim((string) $stage)));
-                if ($stageKey === '' || !isset($availableStages[$stageKey])) {
-                    $errors[] = "Row {$rowNum}: Stage '{$stage}' not found in stages table. Row skipped.";
+                $stage = LeadStageResolver::resolve($currentTenantId, $incomingStage, true);
+                if ($stage === null) {
+                    $stageLabel = $incomingStage !== null && $incomingStage !== '' ? $incomingStage : '(empty)';
+                    $errors[] = "Row {$rowNum}: Stage '{$stageLabel}' is not allowed for this tenant. Row skipped.";
                     continue;
                 }
-
-                $stage = $availableStages[$stageKey];
 
                 $enteredStage = $this->sanitizeDuplicateEnteredStage($stage);
                 $status = 'new';
@@ -5293,157 +5227,51 @@ class LeadController extends Controller
 
     private function applyStageFilter($query, $stages, $user, ?Request $request = null)
     {
-        // Manager Visibility Logic (including Team Leader):
-        // - Can see leads assigned to themselves (as Sales Person) -> "New Lead"
-        // - Can see leads assigned to their subordinates (Direct or Indirect) -> "Pending"
-        // - Cannot see unassigned leads or leads assigned to others outside their scope
-        
-        $isBranchManager = $this->isBranchManager($user);
-        $isSalesAdmin = $this->isSalesAdmin($user);
-        $isSalesManager = $this->isSalesManager($user);
-        $isTeamLeader = $this->isTeamLeader($user);
-        
-        // Sales Person Logic:
-        // - Can ONLY see leads assigned to themselves
-        // - Cannot see team leads or others
-        $roleLower = strtolower($user->role ?? '');
-        $isSalesPerson = !$isBranchManager && !$isSalesAdmin && !$isSalesManager && !$isTeamLeader && !$user->is_super_admin && 
-                         (str_contains($roleLower, 'sales person') || str_contains($roleLower, 'salesperson'));
-        
         $stages = (array)$stages;
-        
         $request ??= request();
         $stageVisibility = $this->resolveLeadStageVisibilityContext($request, $user);
         $displayStageSql = $this->buildLeadDisplayStageSql($stageVisibility);
         $normalizedDisplayStageExpr = DB::raw("lower(trim(coalesce(({$displayStageSql}), '')))");
 
-        return $query->where(function($q) use ($stages, $user, $isBranchManager, $isSalesAdmin, $isSalesManager, $isTeamLeader, $isSalesPerson, $normalizedDisplayStageExpr) {
-            $isNewRequested = false;
-            $isPendingRequested = false;
-            $otherStages = [];
+        $expandedTargets = [];
+        foreach ($stages as $stage) {
+            $value = strtolower(trim((string) $stage));
+            if ($value === '' || $value === 'duplicate') {
+                continue;
+            }
 
-            foreach ($stages as $s) {
-                $sLower = strtolower($s);
-                if ($sLower === 'new' || $sLower === 'new lead') {
-                    $isNewRequested = true;
-                } elseif ($sLower === 'pending' || $sLower === 'in-progress' || $sLower === 'assigned') {
-                    $isPendingRequested = true;
-                } elseif ($sLower === 'coldcall' || $sLower === 'cold_call' || $sLower === 'cold calls' || $sLower === 'cold_calls' || $sLower === 'cold call') {
-                     $otherStages[] = 'cold calls';
-                     $otherStages[] = 'cold-call';
-                     $otherStages[] = 'cold_calls';
-                     $otherStages[] = 'cold_call';
-                     $otherStages[] = 'cold call';
-                     $otherStages[] = 'coldcalls';
-                } else {
-                    $otherStages[] = $s;
+            if (in_array($value, ['new', 'new lead', 'fresh'], true)) {
+                $expandedTargets[] = 'new';
+                $expandedTargets[] = 'new lead';
+                continue;
+            }
+
+            if (in_array($value, ['pending', 'in-progress', 'assigned'], true)) {
+                $expandedTargets[] = 'pending';
+                if (!empty($stageVisibility['hasSalesPersonFilter'])) {
+                    $expandedTargets[] = 'in-progress';
                 }
-            }
-            // Remove duplicates
-            $otherStages = array_unique($otherStages);
-
-            $normalizedOtherStages = array_values(array_unique(array_map(
-                fn($stage) => strtolower(trim((string) $stage)),
-                $otherStages
-            )));
-
-            $hasCondition = false;
-            
-            // 1. New Lead Logic
-            if ($isNewRequested) {
-                $condition = function($sub) use ($user, $isBranchManager, $isSalesAdmin, $isSalesManager, $isTeamLeader, $isSalesPerson) {
-                     // قاعدة الورقة 2: الليد يظهر في New Lead إذا:
-                     // 1. مرحلته New Lead (أو ما يعادلها)
-                     // 2. غير مسند لموظف (assigned_to IS NULL) - للجميع
-                     // 3. مسند للمستخدم الحالي
-                     
-                     $sub->where(function($k) use ($user) {
-                          $k->whereIn('leads.stage', ['new', 'new lead'])
-                            ->where(function($in) use ($user) {
-                                $in->where('leads.assigned_to', $user->id)
-                                   ->orWhereNull('leads.assigned_to');
-                            });
-                      });
-                };
-                $hasCondition ? $q->orWhere($condition) : $q->where($condition);
-                $hasCondition = true;
+                continue;
             }
 
-            // 2. Pending Logic
-            if ($isPendingRequested) {
-                $condition = function($sub) use ($user, $isBranchManager, $isSalesAdmin, $isSalesManager, $isTeamLeader, $isSalesPerson) {
-                    if ($isSalesPerson) {
-                        // Sales Person CANNOT see "Pending" in the manager sense.
-                        $sub->where('leads.assigned_to', $user->id)
-                            ->whereIn('leads.stage', ['pending', 'in-progress']);
-                    } elseif ($isBranchManager || $isSalesAdmin || $isSalesManager || $isTeamLeader) {
-                        // Managers/Leaders see "Pending" if:
-                        // 1. Leads assigned to subordinates AND stage is 'new' (Pending for Manager)
-                        // 2. Leads that are actually in 'pending' stage
-                        
-                        $descendantIds = $user->descendants()->pluck('id')->toArray();
-                        
-                        $sub->where(function($k) use ($descendantIds, $user) {
-                            $k->whereIn('leads.assigned_to', $descendantIds)
-                              ->whereRaw('COALESCE(leads.assigned_to, 0) > 0') // Ensure it is assigned
-                              ->whereIn('leads.stage', ['new', 'new lead']);
-                        })
-                        ->orWhereIn('leads.stage', ['pending', 'in-progress'])
-                        ->orWhereIn('leads.status', ['pending', 'in-progress']);
-                    } else {
-                        // Standard Logic (Admin/Owner)
-                        $sub->where(function($k) use ($user) {
-                            // Any lead assigned to someone else (not me) is Pending for me
-                            // EXCLUDE unassigned (they are New Lead)
-                            $k->where('leads.assigned_to', '!=', $user->id)
-                              ->whereRaw('COALESCE(leads.assigned_to, 0) > 0')
-                              ->whereIn('leads.stage', ['new', 'new lead']);
-                        })
-                        ->orWhereIn('leads.stage', ['pending', 'in-progress'])
-                        ->orWhereIn('leads.status', ['pending', 'in-progress']);
-                    }
-                    $sub->whereNotExists(function ($aq) {
-                        $aq->select(DB::raw(1))
-                            ->from('lead_actions')
-                            ->whereColumn('lead_actions.lead_id', 'leads.id');
-                    });
-                };
-                $hasCondition ? $q->orWhere($condition) : $q->where($condition);
-                $hasCondition = true;
+            if (in_array($value, ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'], true)) {
+                $expandedTargets[] = 'coldcalls';
+                $expandedTargets[] = 'cold calls';
+                $expandedTargets[] = 'cold-call';
+                $expandedTargets[] = 'cold_call';
+                $expandedTargets[] = 'cold_calls';
+                $expandedTargets[] = 'cold call';
+                continue;
             }
 
-            // 3. Other Stages
-            if (!empty($otherStages)) {
-                if ($isSalesPerson) {
-                    // Sales Person: Only assigned to self.
-                    // Match against the same display-stage logic used by stats/cards so
-                    // assigned leads stay Pending until the first action after assignment.
-                    $condition = function($sub) use ($normalizedOtherStages, $user, $normalizedDisplayStageExpr) {
-                        $sub->whereIn($normalizedDisplayStageExpr, $normalizedOtherStages)
-                            ->where('leads.assigned_to', $user->id);
-                     };
-                     $hasCondition ? $q->orWhere($condition) : $q->where($condition);
-                         
-                } elseif ($isBranchManager || $isSalesAdmin || $isSalesManager || $isTeamLeader) {
-                    // Restrict visibility to branch/team only
-                    $descendantIds = $user->descendants()->pluck('id')->toArray();
-                    $descendantIds[] = $user->id;
-                    
-                    $condition = function($sub) use ($normalizedOtherStages, $descendantIds, $normalizedDisplayStageExpr) {
-                        $sub->whereIn($normalizedDisplayStageExpr, $normalizedOtherStages)
-                            ->where(function ($k) use ($descendantIds) {
-                                $k->whereIn('leads.assigned_to', $descendantIds)
-                                    ->orWhereIn('leads.manager_id', $descendantIds);
-                            });
-                    };
-                     $hasCondition ? $q->orWhere($condition) : $q->where($condition);
-                 } else {
-                     $condition = function($sub) use ($normalizedOtherStages, $normalizedDisplayStageExpr) {
-                         $sub->whereIn($normalizedDisplayStageExpr, $normalizedOtherStages);
-                    };
-                    $hasCondition ? $q->orWhere($condition) : $q->where($condition);
-                }
-            }
-        });
+            $expandedTargets[] = $value;
+        }
+
+        $expandedTargets = array_values(array_unique($expandedTargets));
+        if (empty($expandedTargets)) {
+            return $query;
+        }
+
+        return $query->whereIn($normalizedDisplayStageExpr, $expandedTargets);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
+use App\Services\Whatsapp\WhatsappGroupContactService;
 use App\Services\Whatsapp\WhatsappUnassignedContactService;
 use App\Support\LeadPhoneMatcher;
 use Illuminate\Bus\Queueable;
@@ -47,12 +48,24 @@ class ProcessHistorySyncBatch implements ShouldQueue
         $processedCount = 0;
         $unmatchedCount = 0;
         $unassignedContactService = app(WhatsappUnassignedContactService::class);
+        $groupContactService = app(WhatsappGroupContactService::class);
 
         foreach ($this->messages as $msg) {
             $phone = $msg['phone'] ?? null;
             if (empty($phone)) {
                 continue;
             }
+
+            $rawIdentifiers = [
+                'message_id' => $msg['message_id'] ?? null,
+                'sender_pn' => $msg['sender_pn'] ?? null,
+                'participant_pn' => $msg['participant_pn'] ?? null,
+                'participant' => $msg['participant'] ?? null,
+                'remote_jid' => $msg['remote_jid'] ?? null,
+                'sender' => $msg['sender'] ?? null,
+                'author' => $msg['author'] ?? null,
+                'phone' => $phone,
+            ];
 
             $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $phone);
 
@@ -83,6 +96,13 @@ class ProcessHistorySyncBatch implements ShouldQueue
                     ]
                 );
 
+                $groupContactService->autoResolveFromMessageEvent(
+                    $tenantId,
+                    $rawIdentifiers,
+                    (string) $phone,
+                    $message->created_at
+                );
+
                 if (!$lead) {
                     // Upsert regardless of wasRecentlyCreated — history re-syncs
                     // after a reconnect must still register contacts whose messages
@@ -96,7 +116,8 @@ class ProcessHistorySyncBatch implements ShouldQueue
                         is_string($msg['pushName'] ?? $msg['push_name'] ?? null) ? ($msg['pushName'] ?? $msg['push_name']) : null,
                         is_string($msg['body'] ?? null) ? $msg['body'] : null,
                         $message->created_at,
-                        $message->wasRecentlyCreated // only increment count for new messages
+                        $message->wasRecentlyCreated, // only increment count for new messages
+                        (bool) ($msg['is_unresolved_lid'] ?? false)
                     );
                 } elseif ($lead) {
                     $unassignedContactService->markAsConverted(

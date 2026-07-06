@@ -12,6 +12,26 @@ import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import CountryCodeSelect from './CountryCodeSelect';
 import { parsePhoneEntriesForEdit } from '../shared/utils/phoneDisplay';
 
+const OTHER_PHONES_PATTERN = /(?:^|\n)\s*Other phones?\s*:\s*([^\n]+)/i;
+
+const getLeadOtherPhonesValue = (lead) => (
+  lead?.other_mobile ||
+  lead?.otherMobile ||
+  lead?.meta_data?.other_mobile ||
+  lead?.metaData?.other_mobile ||
+  lead?.meta_data?.otherMobile ||
+  lead?.metaData?.otherMobile ||
+  lead?.custom_fields?.other_mobile ||
+  lead?.custom_fields?.otherMobile ||
+  String(lead?.notes || lead?.note || '').match(OTHER_PHONES_PATTERN)?.[1] ||
+  ''
+);
+
+const stripLegacyOtherPhonesFromNotes = (value) => String(value || '')
+  .replace(OTHER_PHONES_PATTERN, '')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
 const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhone }) => {
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
@@ -67,7 +87,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
       setTags(lead.tags || '');
       setExpectedRevenue(lead.estimatedValue || lead.estimated_value || '');
       setEmail(lead.email || '');
-      setNote(lead.notes || '');
+      setNote(stripLegacyOtherPhonesFromNotes(lead.notes || ''));
       setAssignedTo(lead.assignedTo || lead.assigned_to || '');
       setStage(lead.stage || 'New');
       setStatus(lead.status || '');
@@ -75,7 +95,10 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
       setDynamicValues(lead.custom_fields || {});
 
       // Parse mobile numbers
-      const phoneStr = lead.mobile || lead.phone || '';
+      const phoneValues = [
+        lead.mobile || lead.phone || '',
+        getLeadOtherPhonesValue(lead),
+      ].filter(Boolean).join(' / ');
       const defaultCode =
         lead.phone_country ||
         lead.phoneCountry ||
@@ -85,7 +108,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
         lead?.metaData?.phoneCountry ||
         crmSettings?.defaultCountryCode ||
         '+20';
-      const parsed = parsePhoneEntriesForEdit(phoneStr, { defaultCountryCode: defaultCode });
+      const parsed = parsePhoneEntriesForEdit(phoneValues, { defaultCountryCode: defaultCode });
       setMobileNumbers(parsed.length > 0 ? parsed : [{ code: defaultCode, number: '' }]);
     }
   }, [lead, crmSettings?.defaultCountryCode, COUNTRY_CODES]);
@@ -237,6 +260,21 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
 
     const payload = {};
 
+    const existingMeta = (lead && typeof lead.meta_data === 'object' && lead.meta_data !== null)
+      ? lead.meta_data
+      : ((lead && typeof lead.metaData === 'object' && lead.metaData !== null) ? lead.metaData : {});
+    const formattedNumbers = mobileNumbers
+        .filter((m) => m.number.trim())
+        .map((m) => `${m.code} ${m.number}`);
+    const otherMobile = formattedNumbers.slice(1).join(' / ').trim();
+    const nextMeta = { ...existingMeta };
+    if (otherMobile) {
+        nextMeta.other_mobile = otherMobile;
+    } else {
+        delete nextMeta.other_mobile;
+        delete nextMeta.otherMobile;
+    }
+
     if (canEditInfo) {
         payload.name = nameTrimmed;
         payload.email = email.trim();
@@ -254,6 +292,7 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
         payload.item_id = item;
         payload.tags = tags;
         payload.custom_fields = dynamicValues;
+        payload.meta_data = nextMeta;
 
         if (assignedTo !== null && assignedTo !== undefined && String(assignedTo).trim() !== '') {
             payload.assigned_to_id = String(assignedTo).trim();
@@ -261,12 +300,10 @@ const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhon
     }
 
     if (canEditPhone) {
-        const phoneValue = mobileNumbers
-            .filter((m) => m.number.trim())
-            .map((m) => `${m.code} ${m.number}`)
-            .join(' / ');
-        payload.phone = phoneValue;
+        const firstPhone = mobileNumbers.find((m) => m.number.trim());
+        payload.phone = firstPhone ? `${firstPhone.code} ${firstPhone.number}` : '';
         payload.phone_country = mobileNumbers[0]?.code || '+20';
+        payload.meta_data = nextMeta;
     }
 
     if (Object.keys(payload).length === 0) {

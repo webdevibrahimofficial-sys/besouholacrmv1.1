@@ -51,4 +51,17 @@ class WhatsappMirrorClient
     {
         return $this->client()->post("/sessions/{$tenantId}/group-contacts/sync");
     }
+
+    /**
+     * Ask the mirror service to resolve a batch of WhatsApp LIDs to real
+     * phone numbers using the tenant's connected/persisted session.
+     *
+     * @param  array<int, string>  $lids
+     */
+    public function resolveLids(int $tenantId, array $lids): Response
+    {
+        return $this->client()->post("/sessions/{$tenantId}/resolve-lids", [
+            'lids' => $lids,
+        ]);
+    }
 }

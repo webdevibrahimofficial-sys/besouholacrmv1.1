@@ -487,7 +487,7 @@ export const AddNewLead = () => {
         return { phone: code ? `${code} ${number}` : number, phoneCountry: code };
       };
 
-      const buildOtherPhonesNote = (numbers) => {
+      const buildOtherPhonesValue = (numbers) => {
         const arr = Array.isArray(numbers) ? numbers : [];
         const formatted = arr
           .filter((m) => String(m?.number || '').trim())
@@ -497,8 +497,7 @@ export const AddNewLead = () => {
             return code ? `${code} ${number}` : number;
           });
         if (formatted.length <= 1) return '';
-        const tail = formatted.slice(1).join(' / ');
-        return tail ? `Other phones: ${tail}` : '';
+        return formatted.slice(1).join(' / ');
       };
 
       let savedTotal = 0;
@@ -520,9 +519,11 @@ export const AddNewLead = () => {
       formData.append('source', source);
       if (campaign) formData.append('campaign', campaign);
       if (assignedTo) formData.append('assigned_to', String(assignedTo).trim());
-      const otherPhonesNote = buildOtherPhonesNote(mobileNumbers);
-      const mergedNote = [String(note || '').trim(), otherPhonesNote].filter(Boolean).join('\n');
-      formData.append('notes', mergedNote);
+      const otherPhonesValue = buildOtherPhonesValue(mobileNumbers);
+      formData.append('notes', String(note || '').trim());
+      if (otherPhonesValue) {
+        formData.append('meta_data[other_mobile]', otherPhonesValue);
+      }
       if (expectedRevenue) formData.append('estimated_value', expectedRevenue);
       
       if (compType === 'general') {
@@ -570,9 +571,11 @@ export const AddNewLead = () => {
           extraFormData.append('priority', l.priority || 'medium');
           extraFormData.append('source', l.source || '');
           extraFormData.append('assigned_to', l.assignedTo?.trim() || '');
-          const extraOtherPhonesNote = buildOtherPhonesNote(l.mobileNumbers || []);
-          const extraMergedNote = [String(l.note || '').trim(), extraOtherPhonesNote].filter(Boolean).join('\n');
-          extraFormData.append('notes', extraMergedNote);
+          const extraOtherPhonesValue = buildOtherPhonesValue(l.mobileNumbers || []);
+          extraFormData.append('notes', String(l.note || '').trim());
+          if (extraOtherPhonesValue) {
+            extraFormData.append('meta_data[other_mobile]', extraOtherPhonesValue);
+          }
           extraFormData.append('estimated_value', l.expectedRevenue || '');
           
           if (compType === 'general') {

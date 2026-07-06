@@ -16,7 +16,8 @@ class WhatsappUnassignedContactService
         ?string $pushName = null,
         ?string $lastMessageBody = null,
         ?CarbonInterface $occurredAt = null,
-        bool $incrementCount = true
+        bool $incrementCount = true,
+        ?bool $isUnresolvedLid = null
     ): ?WhatsappUnassignedContact {
         $normalizedPhone = $this->normalizePhone($phone);
         if ($tenantId <= 0 || $normalizedPhone === '') {
@@ -36,6 +37,13 @@ class WhatsappUnassignedContactService
         $contact->last_message_at = $timestamp;
         $contact->status = 'pending';
         $contact->converted_lead_id = null;
+
+        // Once we resolve a real phone number for this contact (isUnresolvedLid
+        // becomes false), keep it corrected going forward. Never "downgrade" a
+        // previously-resolved contact back to unresolved based on a stale flag.
+        if ($isUnresolvedLid !== null && !($isUnresolvedLid && $contact->is_unresolved_lid === false)) {
+            $contact->is_unresolved_lid = $isUnresolvedLid;
+        }
 
         $cleanPushName = $this->cleanText($pushName);
         if ($cleanPushName !== null) {
@@ -99,6 +107,9 @@ class WhatsappUnassignedContactService
 
         $contact->status = 'converted';
         $contact->converted_lead_id = $leadId;
+        // A converted lead always carries a real phone number, so this contact
+        // can no longer be considered an unresolved LID.
+        $contact->is_unresolved_lid = false;
 
         $cleanPushName = $this->cleanText($pushName);
         if ($cleanPushName !== null) {

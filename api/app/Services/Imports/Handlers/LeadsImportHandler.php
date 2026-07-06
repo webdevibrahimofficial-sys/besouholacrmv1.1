@@ -11,12 +11,12 @@ use App\Models\LeadAction;
 use App\Models\InventoryRequest;
 use App\Models\Project;
 use App\Models\RealEstateRequest;
-use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Visit;
 use App\Services\Imports\Contracts\ImportHandler;
 use App\Support\PhoneNormalizer;
+use App\Support\LeadStageResolver;
 use App\Support\TenantSourceLookup;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Schema;
@@ -57,29 +57,6 @@ class LeadsImportHandler implements ImportHandler
         $warningRows = 0;
 
         $allowedColumns = $this->allowedLeadColumns();
-        $availableStages = [];
-        if ($tenantId) {
-            $stageRows = Stage::query()
-                ->where('tenant_id', $tenantId)
-                ->get(['name', 'name_ar']);
-
-            foreach ($stageRows as $stageRow) {
-                $canonicalStage = trim((string) ($stageRow->name ?? $stageRow->name_ar ?? ''));
-                if ($canonicalStage === '') {
-                    continue;
-                }
-
-                foreach ([(string) ($stageRow->name ?? ''), (string) ($stageRow->name_ar ?? '')] as $stageAlias) {
-                    $stageAlias = trim($stageAlias);
-                    if ($stageAlias === '') {
-                        continue;
-                    }
-
-                    $availableStages[strtolower(str_replace([' ', '-'], '', $stageAlias))] = $canonicalStage;
-                }
-            }
-        }
-
         foreach ($rows as $index => $rawRow) {
             $totalRows++;
             $rowNumber = $this->rowNumberFromOptions($options, $index);
@@ -306,38 +283,17 @@ class LeadsImportHandler implements ImportHandler
                 $normalized['project'] = $projectName;
             }
 
-            // Stage normalization (match legacy behavior)
             $incomingStage = trim((string) ($normalized['stage'] ?? ''));
-            if ($incomingStage === '') {
-                $normalized['stage'] = 'New Lead';
-            } else {
-                $normIncoming = strtolower(str_replace([' ', '-'], '', $incomingStage));
-                if (in_array($normIncoming, ['new', 'newlead', 'fresh'], true)) {
-                    $normalized['stage'] = 'New Lead';
-                } elseif ($normIncoming === 'pending') {
-                    $normalized['stage'] = 'Pending';
-                } elseif (in_array($normIncoming, ['coldcalls', 'coldcall'], true)) {
-                    $normalized['stage'] = 'Cold Calls';
-                } elseif ($normIncoming === 'duplicate') {
-                    $normalized['stage'] = 'Duplicate';
-                } elseif (in_array($normIncoming, ['reseal', 'resale'], true)) {
-                    $normalized['stage'] = 'Resale';
-                } else {
-                    $normalized['stage'] = $incomingStage;
-                }
-            }
-
-            $stageLabel = trim((string) ($normalized['stage'] ?? ''));
-            $stageKey = strtolower(str_replace([' ', '-'], '', $stageLabel));
-            $isDefaultImportStage = in_array($stageKey, ['new', 'newlead', 'fresh', 'coldcall', 'coldcalls'], true);
-            if ($stageKey === '' || (!isset($availableStages[$stageKey]) && !$isDefaultImportStage)) {
+            $resolvedStage = LeadStageResolver::resolve($tenantId, $incomingStage, true);
+            if ($resolvedStage === null) {
+                $stageLabel = $incomingStage !== '' ? $incomingStage : '(empty)';
                 $this->storeRow($job, [
                     'row_number' => $rowNumber,
                     'status' => 'skipped',
                     'reason_code' => 'stage_not_found',
-                    'reason_message' => "Stage '{$stageLabel}' not found in stages table. Row skipped.",
+                    'reason_message' => "Stage '{$stageLabel}' is not allowed for this tenant. Row skipped.",
                     'raw_data' => $rawRow,
-                    'normalized_data' => $this->withFieldErrors($normalized, ['stage' => "Stage '{$stageLabel}' not found in stages table."]),
+                    'normalized_data' => $this->withFieldErrors($normalized, ['stage' => "Stage '{$stageLabel}' is not allowed for this tenant."]),
                     'warnings' => $warnings,
                     'entity_type' => 'leads',
                 ]);
@@ -345,7 +301,7 @@ class LeadsImportHandler implements ImportHandler
                 continue;
             }
 
-            $normalized['stage'] = $availableStages[$stageKey] ?? $stageLabel;
+            $normalized['stage'] = $resolvedStage;
 
             // Store common template fields inside meta_data (best-effort).
             $meta = is_array($normalized['meta_data'] ?? null) ? ($normalized['meta_data'] ?? []) : [];

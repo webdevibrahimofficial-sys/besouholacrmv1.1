@@ -28,6 +28,7 @@ export default function WhatsAppMirrorConnection() {
   const isArabic = String(i18n.language || '').startsWith('ar')
 
   const [status, setStatus] = useState('disconnected')
+  const [connectedPhoneNumber, setConnectedPhoneNumber] = useState(null)
   const [qrCode, setQrCode] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
@@ -173,6 +174,7 @@ export default function WhatsAppMirrorConnection() {
       const data = await whatsappMirrorService.getStatus()
       if (!data) return
       setStatus(data.status || 'disconnected')
+      setConnectedPhoneNumber(data.connected_phone_number || null)
       if (data.status === 'pending_qr' && data.qr_base64) {
         setQrCode(data.qr_base64)
       } else if (data.status === 'connected') {
@@ -321,6 +323,7 @@ export default function WhatsAppMirrorConnection() {
     try {
       await whatsappMirrorService.disconnect()
       setStatus('disconnected')
+      setConnectedPhoneNumber(null)
       setQrCode(null)
     } catch (error) {
       emitToast('error', t('Failed to disconnect'))
@@ -414,6 +417,14 @@ export default function WhatsAppMirrorConnection() {
   const currentMeta = activeDirectory === 'groups' ? groupContactsMeta : contactsMeta
   const currentItems = activeDirectory === 'groups' ? groupContacts : contacts
   const currentLoading = activeDirectory === 'groups' ? loadingGroupContacts : loadingContacts
+  const isGroupContactUnresolvedLid = (contact) => {
+    if (typeof contact?.is_unresolved_lid === 'boolean') {
+      return contact.is_unresolved_lid
+    }
+
+    const participantJid = String(contact?.participant_jid || '').toLowerCase().trim()
+    return participantJid.endsWith('@lid') || participantJid.includes('@lid')
+  }
 
   const renderTabButton = (value, label) => (
     <button
@@ -488,7 +499,26 @@ export default function WhatsAppMirrorConnection() {
                 <div className={`mt-1 text-xs ${mutedTextClass}`}>{isArabic ? 'بانتظار التحويل' : 'Awaiting conversion'}</div>
               )}
             </div>
-            <div className="col-span-2 break-all">{contact.phone}</div>
+            <div className="col-span-2 break-all">
+              {contact.is_unresolved_lid ? (
+                <span
+                  title={
+                    isArabic
+                      ? `معرف واتساب داخلي (LID) - الرقم الحقيقي غير معروف: ${contact.phone}`
+                      : `Internal WhatsApp ID (LID) - real number unknown: ${contact.phone}`
+                  }
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${
+                    isLight
+                      ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
+                      : 'bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/30'
+                  }`}
+                >
+                  ⚠ {isArabic ? 'رقم غير معروف (خصوصية)' : 'Unresolved (privacy)'}
+                </span>
+              ) : (
+                contact.phone
+              )}
+            </div>
             <div className="col-span-4 min-w-0">
               <div className="truncate">{contact.last_message_body || (isArabic ? 'لا توجد معاينة' : 'No preview')}</div>
               <div className={`mt-1 text-xs ${mutedTextClass}`}>
@@ -501,6 +531,21 @@ export default function WhatsAppMirrorConnection() {
                 <div className={`text-xs ${mutedTextClass}`}>
                   {contact.converted_lead?.name || (isArabic ? 'تم الربط بليد' : 'Linked to lead')}
                 </div>
+              ) : contact.is_unresolved_lid ? (
+                <button
+                  type="button"
+                  disabled
+                  title={
+                    isArabic
+                      ? 'لا يمكن التحويل قبل معرفة الرقم الحقيقي. انتظر رسالة تانية أو تواصل مع الشخص من رقم تاني.'
+                      : "Can't convert until the real phone number is resolved. Wait for another message or contact them another way."
+                  }
+                  className={`cursor-not-allowed rounded-xl px-3 py-2 text-xs font-semibold ${
+                    isLight ? 'bg-gray-200 text-gray-500' : 'bg-slate-800 text-slate-500'
+                  }`}
+                >
+                  {isArabic ? 'بانتظار الرقم' : 'Awaiting number'}
+                </button>
               ) : (
                 <button
                   type="button"
@@ -535,7 +580,10 @@ export default function WhatsAppMirrorConnection() {
       ) : currentItems.length === 0 ? (
         <div className={`px-4 py-8 text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد بيانات جروبات حتى الآن.' : 'No group contacts found yet.'}</div>
       ) : (
-        currentItems.map((contact) => (
+        currentItems.map((contact) => {
+          const isUnresolvedGroupContact = isGroupContactUnresolvedLid(contact)
+
+          return (
           <div
             key={contact.id}
             className={`grid grid-cols-12 gap-3 px-4 py-4 text-sm ${
@@ -548,7 +596,26 @@ export default function WhatsAppMirrorConnection() {
                 <div className={`mt-1 text-xs ${mutedTextClass}`}>{isArabic ? 'عضو جروب قابل للتحويل' : 'Group member ready for conversion'}</div>
               )}
             </div>
-            <div className="col-span-2 break-all">{contact.phone}</div>
+            <div className="col-span-2 break-all">
+              {isUnresolvedGroupContact ? (
+                <span
+                  title={
+                    isArabic
+                      ? `معرف واتساب داخلي (LID) - الرقم الحقيقي غير معروف: ${contact.phone}`
+                      : `Internal WhatsApp ID (LID) - real number unknown: ${contact.phone}`
+                  }
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${
+                    isLight
+                      ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
+                      : 'bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/30'
+                  }`}
+                >
+                  ⚠ {isArabic ? 'رقم غير معروف' : 'Unresolved'}
+                </span>
+              ) : (
+                contact.phone
+              )}
+            </div>
             <div className="col-span-4 min-w-0">
               <div className="truncate font-medium">{contact.group_name || (isArabic ? 'جروب بدون اسم' : 'Unnamed group')}</div>
               <div className={`mt-1 text-xs ${mutedTextClass}`}>{contact.participant_jid || '-'}</div>
@@ -561,6 +628,21 @@ export default function WhatsAppMirrorConnection() {
                 <div className={`text-xs ${mutedTextClass}`}>
                   {contact.converted_lead?.name || (isArabic ? 'تم الربط بليد' : 'Linked to lead')}
                 </div>
+              ) : isUnresolvedGroupContact ? (
+                <button
+                  type="button"
+                  disabled
+                  title={
+                    isArabic
+                      ? 'لا يمكن التحويل أو الإضافة قبل معرفة الرقم الحقيقي لهذا العضو.'
+                      : "Can't convert or add until the real phone number is resolved."
+                  }
+                  className={`cursor-not-allowed rounded-xl px-3 py-2 text-xs font-semibold ${
+                    isLight ? 'bg-gray-200 text-gray-500' : 'bg-slate-800 text-slate-500'
+                  }`}
+                >
+                  {isArabic ? 'بانتظار الرقم' : 'Awaiting number'}
+                </button>
               ) : (
                 <div className="flex items-center gap-2">
                   <button
@@ -648,7 +730,8 @@ export default function WhatsAppMirrorConnection() {
               )}
             </div>
           </div>
-        ))
+          )
+        })
       )}
     </>
   )
@@ -668,9 +751,16 @@ export default function WhatsAppMirrorConnection() {
             </p>
           </div>
 
-          <span className={`px-3 py-1 text-xs font-medium rounded-full ${statusBadgeClass}`}>
-            {status === 'connected' ? t('Connected') : status === 'pending_qr' ? t('Awaiting QR') : t('Disconnected')}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span className={`px-3 py-1 text-xs font-medium rounded-full ${statusBadgeClass}`}>
+              {status === 'connected' ? t('Connected') : status === 'pending_qr' ? t('Awaiting QR') : t('Disconnected')}
+            </span>
+            {status === 'connected' && connectedPhoneNumber && (
+              <span className={`text-xs font-mono ${mutedTextClass}`} dir="ltr">
+                +{connectedPhoneNumber}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className={`mb-6 rounded-xl border-l-4 p-4 text-sm ${
