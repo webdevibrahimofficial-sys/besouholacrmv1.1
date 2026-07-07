@@ -21,6 +21,7 @@ class WhatsappMessage extends Model
         'status',
         'conversation_id',
         'message_id',
+        'counterpart_lid',
         'body',
         'lead_id',
         'raw',

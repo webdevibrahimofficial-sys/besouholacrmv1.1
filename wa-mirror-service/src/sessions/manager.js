@@ -15,6 +15,9 @@ const authBaseDir = path.resolve(process.env.WA_AUTH_PATH || path.join(__dirname
 
 const sessions = new Map();
 const initializing = new Map();
+const reconnectAttempts = new Map();
+
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 function authDirForTenant(tenantId) {
   return path.join(authBaseDir, `session-${tenantId}`);
@@ -26,6 +29,80 @@ function lidMapFileForTenant(tenantId) {
 
 function contactMapFileForTenant(tenantId) {
   return path.join(authDirForTenant(tenantId), 'contact-map.json');
+}
+
+function resetReconnectState(tenantId) {
+  reconnectAttempts.delete(String(tenantId));
+}
+
+function incrementReconnectAttempts(tenantId) {
+  const key = String(tenantId);
+  const nextValue = (reconnectAttempts.get(key) || 0) + 1;
+  reconnectAttempts.set(key, nextValue);
+  return nextValue;
+}
+
+function shouldStopReconnect(sock, statusCode, lastDisconnect) {
+  const message = String(lastDisconnect?.error?.message || '').toLowerCase();
+  const attempts = reconnectAttempts.get(String(sock?.tenantId || '')) || 0;
+  const hasConnectedBefore = !!sock?.hasEverConnected;
+
+  if (!hasConnectedBefore && statusCode === 408 && message.includes('qr refs attempts ended')) {
+    return {
+      stop: true,
+      reason: 'qr_expired_before_pairing',
+      detail: 'QR pairing expired before the session connected. Waiting for a fresh pair request.',
+    };
+  }
+
+  if (message.includes('bad mac') || message.includes('failed to decrypt')) {
+    return {
+      stop: true,
+      reason: 'corrupted_auth_state',
+      detail: 'Auth state looks corrupted (Bad MAC / decrypt failure). Waiting for disconnect + re-pair.',
+    };
+  }
+
+  if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+    return {
+      stop: true,
+      reason: 'reconnect_limit_reached',
+      detail: `Reconnect attempts reached ${MAX_RECONNECT_ATTEMPTS}. Waiting for manual reconnect.`,
+    };
+  }
+
+  return { stop: false, reason: null, detail: null };
+}
+
+function isConflictDisconnect(statusCode, lastDisconnect) {
+  const message = String(lastDisconnect?.error?.message || '').toLowerCase();
+  return statusCode === DisconnectReason.loggedOut && message.includes('conflict');
+}
+
+function isHardLoggedOutDisconnect(sock, statusCode, lastDisconnect) {
+  if (statusCode !== DisconnectReason.loggedOut) {
+    return false;
+  }
+
+  const message = String(lastDisconnect?.error?.message || '').toLowerCase();
+  const authStillExists = hasPersistedSession(sock?.tenantId || '');
+  const hasCreds = !!sock?.authState?.creds?.me?.id || !!sock?.user?.id;
+
+  if (message.includes('conflict') || message.includes('connection failure') || message.includes('stream errored')) {
+    return false;
+  }
+
+  if (message.includes('logged out') || message.includes('device removed') || message.includes('multidevice mismatch')) {
+    return true;
+  }
+
+  // If credentials still exist locally, bias toward reconnecting instead of
+  // deleting the tenant session on an ambiguous 401.
+  if (authStillExists && hasCreds) {
+    return false;
+  }
+
+  return true;
 }
 
 function persistedSessionDirs() {
@@ -40,6 +117,10 @@ function persistedSessionDirs() {
 
 export function hasPersistedSession(tenantId) {
   return fs.existsSync(authDirForTenant(String(tenantId)));
+}
+
+function canRestorePersistedCreds(state) {
+  return !!state?.creds?.registered && !!state?.creds?.me?.id;
 }
 
 function extractPhoneNumber(sock) {
@@ -130,6 +211,43 @@ function fireWebhook(tenantId, payload) {
   notifyLaravel(tenantId, payload).catch((error) => {
     console.error(`[Webhook Error] Tenant ${tenantId}:`, error.message);
   });
+}
+
+/**
+ * Forward raw contact observations (contacts.upsert / contacts.update) to
+ * Laravel's persistent Contact Resolver Layer (whatsapp_contacts table), so
+ * the CRM keeps a cache of jid/lid/phone/name independent of any single
+ * group snapshot or this process's in-memory maps -- the same idea behind
+ * how WhatsApp Web itself resolves and displays names/numbers.
+ */
+function pushContactsToContactStore(tenantId, sock, contacts = [], source = 'contacts.update') {
+  const normalized = contacts
+    .map((contact) => {
+      const jid = normalizeJid(contact?.id || contact?.jid || null);
+      const lid = normalizeLid(contact?.lid || (jid?.endsWith('@lid') ? jid : null));
+      const phone = normalizePhoneCandidate(contact?.phone) || (jid && !jid.endsWith('@lid') && !jid.endsWith('@g.us') ? normalizePhoneCandidate(jid) : null);
+
+      if (!lid && !phone && !jid) {
+        return null;
+      }
+
+      return {
+        jid,
+        lid,
+        phone,
+        name: cleanContactName(contact?.name) || null,
+        push_name: cleanContactName(contact?.notify) || null,
+        verified_name: cleanContactName(contact?.verifiedName) || null,
+        source,
+      };
+    })
+    .filter(Boolean);
+
+  if (normalized.length === 0) {
+    return;
+  }
+
+  fireWebhook(tenantId, { event: 'contact_update', contacts: normalized });
 }
 
 function summarizeConnectionUpdate(update = {}) {
@@ -443,6 +561,28 @@ function normalizeJid(value) {
   return raw !== '' ? raw : null;
 }
 
+function buildSelfParticipantKeys(sock) {
+  const keys = new Set();
+  const ownJid = normalizeJid(sock?.user?.id);
+  const ownLid = normalizeJid(sock?.user?.lid);
+  const ownPhone = normalizePhoneCandidate(extractPhoneNumber(sock));
+
+  if (ownJid) {
+    keys.add(ownJid);
+  }
+
+  if (ownLid) {
+    keys.add(ownLid);
+  }
+
+  if (ownPhone) {
+    keys.add(`${ownPhone}@s.whatsapp.net`);
+    keys.add(`${ownPhone}:1@s.whatsapp.net`);
+  }
+
+  return keys;
+}
+
 function extractSenderPhone(msg) {
   const key = msg?.key || {};
 
@@ -492,23 +632,34 @@ export async function initSession(tenantId) {
     });
 
     sock.tenantId = key;
+    sock.authState = state;
     sock.qrCode = null;
-    sock.connectionStatus = 'disconnected';
+    sock.connectionStatus = canRestorePersistedCreds(state) ? 'reconnecting' : 'disconnected';
+    sock.hasEverConnected = false;
     sock.lidToPhoneMap = loadPersistedLidPhoneMap(key);
     sock.contactNameMap = loadPersistedContactNameMap(key);
 
     sessions.set(key, sock);
+
+    if (sock.connectionStatus === 'reconnecting') {
+      console.log(`[Session Restore Pending] Tenant ${key}`, {
+        meId: state?.creds?.me?.id || null,
+      });
+      fireWebhook(key, { event: 'status_change', status: 'reconnecting' });
+    }
 
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('contacts.upsert', (contacts = []) => {
       for (const contact of contacts) {
         rememberContactName(sock, contact);
       }
+      pushContactsToContactStore(key, sock, contacts, 'contacts.upsert');
     });
     sock.ev.on('contacts.update', (contacts = []) => {
       for (const contact of contacts) {
         rememberContactName(sock, contact);
       }
+      pushContactsToContactStore(key, sock, contacts, 'contacts.update');
     });
 
     sock.ev.on('connection.update', async (update) => {
@@ -524,6 +675,8 @@ export async function initSession(tenantId) {
       if (connection === 'open') {
         sock.qrCode = null;
         sock.connectionStatus = 'connected';
+        sock.hasEverConnected = true;
+        resetReconnectState(key);
         console.log(`[Session Open] Tenant ${key}`, {
           user: sock.user || null,
           registered: !!state?.creds?.registered,
@@ -539,19 +692,21 @@ export async function initSession(tenantId) {
       if (connection === 'close') {
         sock.qrCode = null;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const loggedOut = statusCode === DisconnectReason.loggedOut;
+        const conflictDisconnect = isConflictDisconnect(statusCode, lastDisconnect);
+        const loggedOut = isHardLoggedOutDisconnect(sock, statusCode, lastDisconnect);
         const shouldReconnect = !loggedOut;
 
         console.log(`[Connection Close] Tenant ${key}`, {
           statusCode,
+          conflictDisconnect,
           shouldReconnect,
           message: lastDisconnect?.error?.message,
         });
 
-        sessions.delete(key);
-
         if (loggedOut) {
+          sessions.delete(key);
           sock.connectionStatus = 'disconnected';
+          resetReconnectState(key);
           fireWebhook(key, { event: 'status_change', status: 'disconnected' });
 
           if (fs.existsSync(authDir)) {
@@ -562,15 +717,39 @@ export async function initSession(tenantId) {
         }
 
         const isRestartRequired = statusCode === DisconnectReason.restartRequired
-          || statusCode === 515;
+          || statusCode === 515
+          || conflictDisconnect;
 
-        sock.connectionStatus = 'disconnected';
-        fireWebhook(key, { event: 'status_change', status: 'disconnected' });
+        sock.connectionStatus = 'reconnecting';
+        fireWebhook(key, { event: 'status_change', status: 'reconnecting' });
 
-        const reconnectDelay = isRestartRequired ? 1500 : 5000;
-        console.log(`[Reconnect] Tenant ${key} reconnecting in ${reconnectDelay}ms (statusCode=${statusCode})`);
+        const attemptCount = incrementReconnectAttempts(key);
+        const reconnectDecision = shouldStopReconnect(sock, statusCode, lastDisconnect);
+        console.log(`[Reconnect Decision] Tenant ${key}`, {
+          attemptCount,
+          stop: reconnectDecision.stop,
+          reason: reconnectDecision.reason,
+          detail: reconnectDecision.detail,
+        });
+
+    if (reconnectDecision.stop) {
+          sock.connectionStatus = reconnectDecision.reason === 'reconnect_limit_reached'
+            ? 'reconnect_failed'
+            : 'disconnected';
+          fireWebhook(key, {
+            event: 'status_change',
+            status: sock.connectionStatus,
+            reconnect_reason: reconnectDecision.reason,
+            reconnect_detail: reconnectDecision.detail,
+          });
+          return;
+        }
+
+        const reconnectDelay = conflictDisconnect ? 1000 : (isRestartRequired ? 1500 : 5000);
+        console.log(`[Reconnect] Tenant ${key} reconnecting in ${reconnectDelay}ms (statusCode=${statusCode}, attempt=${attemptCount})`);
 
         setTimeout(() => {
+          sessions.delete(key);
           initSession(key).catch((error) => {
             console.error(`[Reconnect Error] Tenant ${key}:`, error.message);
           });
@@ -628,6 +807,34 @@ export async function initSession(tenantId) {
         .filter((m) => m.phone && normalizePhoneCandidate(m.phone) !== null);
 
       if (relevantMessages.length === 0) return;
+
+      const historyContacts = relevantMessages
+        .map((message) => {
+          const jid = normalizeJid(message.remote_jid);
+          const lid = normalizeLid(
+            (typeof message.remote_jid === 'string' && message.remote_jid.endsWith('@lid') && message.remote_jid)
+            || (typeof message.participant === 'string' && `${message.participant}`.endsWith('@lid') && message.participant)
+            || null
+          );
+          const phone = isLikelyLidLength(message.phone) ? null : normalizePhoneCandidate(message.phone);
+
+          if (!jid && !lid && !phone) {
+            return null;
+          }
+
+          return {
+            jid,
+            lid,
+            phone,
+            push_name: cleanContactName(message.push_name) || null,
+            source: 'history_sync',
+          };
+        })
+        .filter(Boolean);
+
+      if (historyContacts.length > 0) {
+        fireWebhook(key, { event: 'contact_update', contacts: historyContacts });
+      }
 
       console.log('[history-sync] tenant=%s batch=%d isLatest=%s', key, relevantMessages.length, isLatest);
 
@@ -782,7 +989,7 @@ export function getSession(tenantId) {
   return sessions.get(String(tenantId));
 }
 
-export async function fetchGroupContactsSnapshot(tenantId) {
+export async function fetchGroupContactsSnapshot(tenantId, groupJids = []) {
   const key = String(tenantId);
   let sock = sessions.get(key);
 
@@ -798,25 +1005,54 @@ export async function fetchGroupContactsSnapshot(tenantId) {
   const ownPhone = normalizePhoneCandidate(extractPhoneNumber(sock));
   const contacts = [];
 
+  const wantedGroupJids = Array.isArray(groupJids) && groupJids.length > 0
+    ? new Set(groupJids.map((jid) => normalizeJid(jid)).filter(Boolean))
+    : null;
+
   for (const group of Object.values(allGroups || {})) {
     const groupJid = normalizeJid(group?.id);
+
+    if (wantedGroupJids && !wantedGroupJids.has(groupJid)) {
+      continue;
+    }
+
     const groupName = group?.subject || null;
     const participants = Array.isArray(group?.participants) ? group.participants : [];
 
     for (const participant of participants) {
       const participantJid = normalizeJid(participant?.id);
-      const mappedPhone = resolveMappedPhone(sock, participantJid);
+
+      // Baileys' GroupParticipant (see Contact type) exposes THREE distinct
+      // identifiers, not a `.phone` field (which never existed and always
+      // evaluated to undefined, silently breaking resolution for every
+      // group member):
+      //   - id:  the raw identifier used to address them (often @lid)
+      //   - lid: the explicit anonymous @lid identifier
+      //   - jid: the real @s.whatsapp.net phone-number identifier, present
+      //          ONLY when WhatsApp's server actually reveals it (built from
+      //          the `phone_number` attribute server-side; omitted entirely
+      //          when the participant's privacy settings hide their number).
+      const explicitLid = participant?.lid ? normalizeLid(participant.lid) : null;
+      const isLidId = participantJid?.endsWith('@lid');
+      const lid = explicitLid || (isLidId ? normalizeLid(participantJid) : null);
+
+      const explicitPhoneJid = participant?.jid && !String(participant.jid).endsWith('@lid')
+        ? participant.jid
+        : null;
+
+      const mappedPhone = resolveMappedPhone(sock, participantJid)
+        || (lid ? resolveMappedPhone(sock, lid) : null);
       const directPhone = chooseBestPhoneCandidate([
-        participant?.phone,
+        explicitPhoneJid,
+        !isLidId ? participantJid : null,
       ]);
-      const lid = participantJid?.endsWith('@lid') ? normalizeLid(participantJid) : null;
       const resolvedPhone = mappedPhone || directPhone || null;
-      const phone = resolvedPhone
-        || chooseBestPhoneCandidate([
-          participant?.phone,
-          participantJid,
-        ]);
       const isUnresolvedLid = Boolean(lid && !resolvedPhone);
+
+      // Fall back to the lid digits only as a placeholder so unresolved rows
+      // still get created (and can be resolved later); never treat this as a
+      // real phone number downstream (is_unresolved_lid flags it).
+      const phone = resolvedPhone || lid;
 
       if (!phone || phone === ownPhone) {
         continue;
@@ -835,9 +1071,183 @@ export async function fetchGroupContactsSnapshot(tenantId) {
     }
   }
 
+  const syncedGroupsCount = wantedGroupJids
+    ? new Set(contacts.map((contact) => contact.group_jid)).size
+    : Object.keys(allGroups || {}).length;
+
   return {
-    groups_count: Object.keys(allGroups || {}).length,
+    groups_count: syncedGroupsCount,
     contacts,
+  };
+}
+
+/**
+ * List the groups (from the tenant's connected/persisted session) where the
+ * linked account itself is an admin or superadmin -- used by the CRM UI to
+ * offer a "which group should this contact be added to" picker.
+ */
+export async function fetchAdminGroups(tenantId) {
+  const key = String(tenantId);
+  let sock = sessions.get(key);
+
+  if (!sock && hasPersistedSession(key)) {
+    sock = await initSession(key);
+  }
+
+  if (!sock) {
+    throw new Error('WhatsApp Mirror session is not connected.');
+  }
+
+  const allGroups = await sock.groupFetchAllParticipating();
+  const selfParticipantKeys = buildSelfParticipantKeys(sock);
+
+  const groups = [];
+
+  for (const group of Object.values(allGroups || {})) {
+    const participants = Array.isArray(group?.participants) ? group.participants : [];
+
+    // Match "self" among the participants. Depending on the group's
+    // addressingMode, our own participant entry's `id` may be either our
+    // real jid, an explicit `jid`, or our own @lid. Keep this tolerant
+    // because WhatsApp/Baileys can expose different shapes per group.
+    const self = participants.find((participant) => {
+      const participantId = normalizeJid(participant?.id);
+      const participantJid = normalizeJid(participant?.jid);
+      return (
+        (participantId && selfParticipantKeys.has(participantId))
+        || (participantJid && selfParticipantKeys.has(participantJid))
+      );
+    });
+
+    if (!self?.admin) {
+      continue;
+    }
+
+    groups.push({
+      id: normalizeJid(group?.id),
+      name: group?.subject || null,
+      size: group?.size ?? participants.length,
+    });
+  }
+
+  return groups;
+}
+
+/**
+ * List every group the tenant's linked account participates in (regardless
+ * of admin status) -- used by the CRM UI's "choose which groups to sync"
+ * multi-select picker.
+ */
+export async function listAllGroups(tenantId) {
+  const key = String(tenantId);
+  let sock = sessions.get(key);
+
+  if (!sock && hasPersistedSession(key)) {
+    sock = await initSession(key);
+  }
+
+  if (!sock) {
+    throw new Error('WhatsApp Mirror session is not connected.');
+  }
+
+  const allGroups = await sock.groupFetchAllParticipating();
+
+  return Object.values(allGroups || {}).map((group) => {
+    const participants = Array.isArray(group?.participants) ? group.participants : [];
+    return {
+      id: normalizeJid(group?.id),
+      name: group?.subject || null,
+      size: group?.size ?? participants.length,
+    };
+  });
+}
+
+/**
+ * Add a phone number to an existing WhatsApp group. Requires the tenant's
+ * linked account to be an admin of that group (WhatsApp itself enforces
+ * this server-side; Baileys will surface a non-200 status per participant
+ * in the response if it's rejected).
+ */
+export async function addParticipantToGroup(tenantId, groupJid, phone) {
+  const key = String(tenantId);
+  let sock = sessions.get(key);
+
+  if (!sock && hasPersistedSession(key)) {
+    sock = await initSession(key);
+  }
+
+  if (!sock) {
+    throw new Error('WhatsApp Mirror session is not connected.');
+  }
+
+  const normalizedGroupJid = normalizeJid(groupJid);
+  if (!normalizedGroupJid || !normalizedGroupJid.endsWith('@g.us')) {
+    throw new Error('A valid WhatsApp group id is required.');
+  }
+
+  const normalizedPhone = normalizePhoneCandidate(phone);
+  if (!normalizedPhone) {
+    throw new Error('A valid phone number is required to add a participant.');
+  }
+
+  const participantJid = `${normalizedPhone}@s.whatsapp.net`;
+  const [result] = await sock.groupParticipantsUpdate(normalizedGroupJid, [participantJid], 'add');
+
+  return result || { status: 'unknown', jid: participantJid };
+}
+
+export async function sendGroupInviteLink(tenantId, groupJid, phone, groupName = null) {
+  const key = String(tenantId);
+  let sock = sessions.get(key);
+
+  if (!sock && hasPersistedSession(key)) {
+    sock = await initSession(key);
+  }
+
+  if (!sock) {
+    throw new Error('WhatsApp Mirror session is not connected.');
+  }
+
+  const normalizedGroupJid = normalizeJid(groupJid);
+  if (!normalizedGroupJid || !normalizedGroupJid.endsWith('@g.us')) {
+    throw new Error('A valid WhatsApp group id is required.');
+  }
+
+  const normalizedPhone = normalizePhoneCandidate(phone);
+  if (!normalizedPhone) {
+    throw new Error('A valid phone number is required to send an invite.');
+  }
+
+  const inviteCode = await sock.groupInviteCode(normalizedGroupJid);
+  if (!inviteCode) {
+    throw new Error('Unable to generate a WhatsApp invite link for this group.');
+  }
+
+  let resolvedGroupName = groupName || null;
+  if (!resolvedGroupName) {
+    try {
+      const metadata = await sock.groupMetadata(normalizedGroupJid);
+      resolvedGroupName = metadata?.subject || null;
+    } catch (error) {
+      resolvedGroupName = null;
+    }
+  }
+
+  const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
+  const participantJid = `${normalizedPhone}@s.whatsapp.net`;
+  const inviteMessage = resolvedGroupName
+    ? `Join ${resolvedGroupName}: ${inviteLink}`
+    : `Join this WhatsApp group: ${inviteLink}`;
+
+  const sendResult = await sock.sendMessage(participantJid, { text: inviteMessage });
+
+  return {
+    status: 200,
+    jid: participantJid,
+    invite_code: inviteCode,
+    invite_link: inviteLink,
+    message_id: sendResult?.key?.id || null,
+    group_name: resolvedGroupName,
   };
 }
 
@@ -926,6 +1336,8 @@ export async function deleteSession(tenantId) {
   if (fs.existsSync(authDir)) {
     fs.rmSync(authDir, { recursive: true, force: true });
   }
+
+  resetReconnectState(key);
 }
 
 /**

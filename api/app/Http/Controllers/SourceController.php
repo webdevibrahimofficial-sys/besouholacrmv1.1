@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Source;
+use App\Models\Lead;
 use Illuminate\Http\Request;
 
 class SourceController extends Controller
@@ -74,9 +75,44 @@ class SourceController extends Controller
 
     /**
      * Remove the specified resource from storage.
+     *
+     * If leads are still linked to this source, refuse to delete unless the
+     * caller explicitly provides `reassign_to_source_id` to bulk-move those
+     * leads to another source first (handled atomically before deletion).
      */
-    public function destroy(Source $source)
+    public function destroy(Request $request, Source $source)
     {
+        $leadsQuery = Lead::withTrashed()->where('source', $source->name);
+        $leadsCount = $leadsQuery->count();
+
+        if ($leadsCount > 0) {
+            $reassignToId = $request->input('reassign_to_source_id');
+
+            if (!$reassignToId) {
+                return response()->json([
+                    'message' => "لا يمكن حذف هذا المصدر لأنه مرتبط بـ {$leadsCount} ليد. اختر مصدرًا بديلًا لتحويل الليدز إليه قبل الحذف.",
+                    'leads_count' => $leadsCount,
+                    'requires_reassignment' => true,
+                ], 422);
+            }
+
+            $targetSource = Source::find($reassignToId);
+
+            if (!$targetSource) {
+                return response()->json([
+                    'message' => 'المصدر المطلوب التحويل إليه غير موجود.',
+                ], 422);
+            }
+
+            if ((int) $targetSource->id === (int) $source->id) {
+                return response()->json([
+                    'message' => 'لا يمكن التحويل لنفس المصدر.',
+                ], 422);
+            }
+
+            $leadsQuery->update(['source' => $targetSource->name]);
+        }
+
         $source->delete();
         return response()->json(null, 204);
     }

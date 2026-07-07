@@ -7,7 +7,7 @@ use App\Models\LeadAction;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithFaker;
+use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 class ReferralLeadPermissionTest extends TestCase
@@ -54,7 +54,7 @@ class ReferralLeadPermissionTest extends TestCase
         $this->lead->referralUsers()->attach($this->referralUser->id, ['tenant_id' => $this->tenantId]);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_cannot_update_lead()
     {
         $response = $this->actingAs($this->referralUser)
@@ -66,7 +66,7 @@ class ReferralLeadPermissionTest extends TestCase
         $response->assertStatus(403);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_cannot_delete_lead()
     {
         $response = $this->actingAs($this->referralUser)
@@ -75,7 +75,7 @@ class ReferralLeadPermissionTest extends TestCase
         $response->assertStatus(403);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_cannot_add_regular_action()
     {
         $response = $this->actingAs($this->referralUser)
@@ -89,7 +89,7 @@ class ReferralLeadPermissionTest extends TestCase
         $response->assertStatus(403);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_can_add_comment_action()
     {
         $response = $this->actingAs($this->referralUser)
@@ -104,7 +104,7 @@ class ReferralLeadPermissionTest extends TestCase
         $response->assertStatus(201);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_can_add_note_action()
     {
         $response = $this->actingAs($this->referralUser)
@@ -118,7 +118,7 @@ class ReferralLeadPermissionTest extends TestCase
         $response->assertStatus(201);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_cannot_update_action_details_except_comments()
     {
         // Create an action by sales user
@@ -139,7 +139,7 @@ class ReferralLeadPermissionTest extends TestCase
         $response->assertStatus(403);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_can_add_comments_to_existing_action()
     {
         // Create an action by sales user
@@ -162,7 +162,7 @@ class ReferralLeadPermissionTest extends TestCase
         $response->assertStatus(200);
     }
 
-    /** @test */
+    #[Test]
     public function referral_supervisor_cannot_delete_action()
     {
         // Create an action by sales user

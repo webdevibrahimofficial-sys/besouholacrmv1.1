@@ -19,8 +19,12 @@ router.get('/sessions/:tenantId/status', async (req, res) => {
     return res.json({ status: 'disconnected', qr: null });
   }
 
+  const inferredStatus = (!sock.qrCode && sock.connectionStatus === 'disconnected' && hasPersistedSession(tenantId))
+    ? 'reconnecting'
+    : sock.connectionStatus;
+
   return res.json({
-    status: sock.connectionStatus,
+    status: inferredStatus,
     qr: sock.qrCode,
   });
 });

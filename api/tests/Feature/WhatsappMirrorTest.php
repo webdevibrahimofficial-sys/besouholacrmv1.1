@@ -6,8 +6,10 @@ use App\Events\InboundWhatsappMessage;
 use App\Jobs\ProcessHistorySyncBatch;
 use App\Models\Lead;
 use App\Models\Tenant;
+use App\Models\WhatsappContact;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
+use App\Services\Whatsapp\WhatsappGroupContactService;
 use App\Services\Whatsapp\WhatsappMirrorProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -127,5 +129,99 @@ class WhatsappMirrorTest extends TestCase
         $this->assertNotNull(
             WhatsappMirrorSession::where('tenant_id', $tenant->id)->value('history_synced_at')
         );
+    }
+
+    public function test_group_contact_sync_can_resolve_lid_from_persisted_message_history(): void
+    {
+        $tenant = Tenant::factory()->create();
+
+        WhatsappMessage::create([
+            'tenant_id' => $tenant->id,
+            'provider' => 'mirror',
+            'source' => 'history_sync',
+            'direction' => 'inbound',
+            'from' => '201001234567',
+            'to' => '201099999999',
+            'type' => 'text',
+            'status' => 'received',
+            'message_id' => 'legacy-lid-history-1',
+            'counterpart_lid' => null,
+            'body' => 'legacy message',
+            'raw' => [
+                'remote_jid' => '195893592608918@lid',
+                'sender_pn' => '201001234567',
+                'phone' => '195893592608918',
+            ],
+        ]);
+
+        $summary = app(WhatsappGroupContactService::class)->syncContacts($tenant->id, [[
+            'group_jid' => '120363000000000000@g.us',
+            'group_name' => 'Legacy Group',
+            'participant_jid' => '195893592608918@lid',
+            'lid' => '195893592608918',
+            'phone' => '195893592608918',
+            'is_unresolved_lid' => true,
+        ]]);
+
+        $this->assertSame([], $summary['unresolved_lids']);
+        $this->assertDatabaseHas('whatsapp_group_contacts', [
+            'tenant_id' => $tenant->id,
+            'group_jid' => '120363000000000000@g.us',
+            'lid' => '195893592608918',
+            'resolved_phone' => '201001234567',
+            'is_unresolved_lid' => false,
+        ]);
+    }
+
+    public function test_history_sync_upserts_contacts_into_persistent_contact_store(): void
+    {
+        $tenant = Tenant::factory()->create();
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+        ]);
+
+        $job = new ProcessHistorySyncBatch($tenant->id, [[
+            'message_id' => 'history-contact-1',
+            'phone' => '201001234567',
+            'body' => 'old message',
+            'from_me' => false,
+            'remote_jid' => '195893592608918@lid',
+            'sender_pn' => '201001234567',
+            'push_name' => 'History Contact',
+        ]], true);
+
+        $job->handle();
+
+        $this->assertDatabaseHas('whatsapp_contacts', [
+            'tenant_id' => $tenant->id,
+            'lid' => '195893592608918',
+            'phone' => '201001234567',
+            'push_name' => 'History Contact',
+        ]);
+    }
+
+    public function test_group_contact_sync_does_not_store_lid_digits_as_resolved_phone_in_contact_cache(): void
+    {
+        $tenant = Tenant::factory()->create();
+
+        app(WhatsappGroupContactService::class)->syncContacts($tenant->id, [[
+            'group_jid' => '120363000000000001@g.us',
+            'group_name' => 'Poison Guard Group',
+            'participant_jid' => '113563565879363@lid',
+            'lid' => '113563565879363',
+            'phone' => '113563565879363',
+            'is_unresolved_lid' => true,
+        ]]);
+
+        $contact = WhatsappContact::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('lid', '113563565879363')
+            ->first();
+
+        $this->assertNotNull($contact);
+        $this->assertNull($contact->phone);
     }
 }

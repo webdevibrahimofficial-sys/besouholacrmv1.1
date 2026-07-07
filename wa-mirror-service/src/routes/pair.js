@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import QRCode from 'qrcode';
-import { initSession, waitForSessionReady } from '../sessions/manager.js';
+import { deleteSession, getSession, initSession, waitForSessionReady } from '../sessions/manager.js';
 
 const router = Router();
 
@@ -8,6 +8,11 @@ router.post('/sessions/:tenantId/pair', async (req, res) => {
   const tenantId = req.params.tenantId;
 
   try {
+    const existingSession = getSession(tenantId);
+    if (existingSession && ['reconnect_failed', 'disconnected'].includes(existingSession.connectionStatus || '')) {
+      await deleteSession(tenantId);
+    }
+
     const sock = await initSession(tenantId);
     const result = await waitForSessionReady(sock, 10000);
 

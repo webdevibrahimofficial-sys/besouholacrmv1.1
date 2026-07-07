@@ -126,9 +126,16 @@ export const convertWhatsappMirrorContactToLead = async (contactId, payload) => 
   return res?.data
 }
 
-export const getWhatsappMirrorGroupContacts = async ({ status = 'pending', search = '', page = 1, per_page = 20 } = {}) => {
+export const getWhatsappMirrorGroupContacts = async ({ status = 'pending', search = '', group_id = '', page = 1, per_page = 20 } = {}) => {
   const res = await api.get('/api/whatsapp-mirror/group-contacts', {
-    params: { status, search, page, per_page },
+    params: { status, search, group_id, page, per_page },
+  })
+  return res?.data
+}
+
+export const getWhatsappMirrorStoredGroupContactsGroups = async ({ status = 'pending' } = {}) => {
+  const res = await api.get('/api/whatsapp-mirror/group-contacts/groups', {
+    params: { status },
   })
   return res?.data
 }
@@ -138,13 +145,44 @@ export const getWhatsappMirrorAdminGroups = async () => {
   return res?.data
 }
 
-export const addWhatsappMirrorContactToGroup = async (contactId, groupId) => {
-  const res = await api.post(`/api/whatsapp-mirror/group-contacts/${contactId}/add-to-group`, { group_id: groupId })
+export const addWhatsappMirrorContactToGroup = async (contactId, groupId, groupName = '') => {
+  const res = await api.post(`/api/whatsapp-mirror/group-contacts/${contactId}/add-to-group`, {
+    group_id: groupId,
+    group_name: groupName,
+  })
   return res?.data
 }
 
-export const syncWhatsappMirrorGroupContacts = async () => {
-  const res = await api.post('/api/whatsapp-mirror/group-contacts/sync')
+export const sendWhatsappMirrorContactInviteToGroup = async (contactId, groupId, groupName = '') => {
+  const res = await api.post(`/api/whatsapp-mirror/group-contacts/${contactId}/send-invite`, {
+    group_id: groupId,
+    group_name: groupName,
+  })
+  return res?.data
+}
+
+export const bulkAddWhatsappMirrorContactsToGroup = async (contactIds, groupId) => {
+  const res = await api.post('/api/whatsapp-mirror/group-contacts/bulk-add-to-group', {
+    contact_ids: Array.isArray(contactIds) ? contactIds : [],
+    group_id: groupId,
+  })
+  return res?.data
+}
+
+export const syncWhatsappMirrorGroupContacts = async (groupIds = []) => {
+  const res = await api.post('/api/whatsapp-mirror/group-contacts/sync', {
+    group_ids: Array.isArray(groupIds) ? groupIds : [],
+  })
+  return res?.data
+}
+
+export const deleteWhatsappMirrorGroupContact = async (contactId) => {
+  const res = await api.delete(`/api/whatsapp-mirror/group-contacts/${contactId}`)
+  return res?.data
+}
+
+export const getWhatsappMirrorGroups = async () => {
+  const res = await api.get('/api/whatsapp-mirror/groups')
   return res?.data
 }
 
@@ -160,8 +198,13 @@ export const whatsappMirrorService = {
   getUnassignedContacts: getWhatsappMirrorUnassignedContacts,
   convertToLead: convertWhatsappMirrorContactToLead,
   getGroupContacts: getWhatsappMirrorGroupContacts,
+  getStoredGroupContactGroups: getWhatsappMirrorStoredGroupContactsGroups,
   syncGroupContacts: syncWhatsappMirrorGroupContacts,
+  deleteGroupContact: deleteWhatsappMirrorGroupContact,
+  getGroups: getWhatsappMirrorGroups,
   convertGroupContactToLead: convertWhatsappMirrorGroupContactToLead,
   getAdminGroups: getWhatsappMirrorAdminGroups,
   addContactToGroup: addWhatsappMirrorContactToGroup,
+  sendContactInviteToGroup: sendWhatsappMirrorContactInviteToGroup,
+  bulkAddContactsToGroup: bulkAddWhatsappMirrorContactsToGroup,
 }

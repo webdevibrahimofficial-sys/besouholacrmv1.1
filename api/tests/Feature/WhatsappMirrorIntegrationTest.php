@@ -6,6 +6,7 @@ use App\Events\InboundWhatsappMessage;
 use App\Models\Lead;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\WhatsappGroupContact;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
 use App\Models\WhatsappSetting;
@@ -177,5 +178,33 @@ class WhatsappMirrorIntegrationTest extends TestCase
             'tenant_id' => $tenant->id,
             'message_id' => 'history-second',
         ]);
+    }
+
+    public function test_group_contact_conversion_rejects_poisoned_lid_phone_even_if_unresolved_flag_is_false(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Admin',
+        ]);
+
+        $contact = WhatsappGroupContact::create([
+            'tenant_id' => $tenant->id,
+            'group_jid' => '120363000000000002@g.us',
+            'group_name' => 'Poisoned Group',
+            'participant_jid' => '113563565879363@lid',
+            'lid' => '113563565879363',
+            'phone' => '113563565879363',
+            'resolved_phone' => null,
+            'is_unresolved_lid' => false,
+            'status' => 'pending',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/whatsapp-mirror/group-contacts/{$contact->id}/convert-to-lead", [
+            'name' => 'Should Be Rejected',
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'This group member still has an unresolved WhatsApp LID. Wait until the real phone number is resolved before converting.');
     }
 }

@@ -4,9 +4,14 @@ namespace App\Services\Whatsapp;
 
 use App\Models\WhatsappGroupContact;
 use Carbon\CarbonInterface;
+use App\Services\Whatsapp\WhatsappContactStoreService;
 
 class WhatsappGroupContactService
 {
+    public function __construct(private WhatsappContactStoreService $contactStore)
+    {
+    }
+
     public function syncContacts(int $tenantId, array $contacts, ?CarbonInterface $syncedAt = null): array
     {
         $timestamp = $syncedAt ?: now();
@@ -24,9 +29,34 @@ class WhatsappGroupContactService
             $resolvedPhone = $this->normalizePhone((string) ($contact['resolved_phone'] ?? ''));
             $isUnresolvedLid = filter_var($contact['is_unresolved_lid'] ?? false, FILTER_VALIDATE_BOOL);
 
+            if ($resolvedPhone !== '' && ($this->looksLikeLid($resolvedPhone) || ($lid !== null && $resolvedPhone === $lid))) {
+                $resolvedPhone = '';
+                $isUnresolvedLid = true;
+            }
+
             if ($tenantId <= 0 || $groupJid === '') {
                 $skipped++;
                 continue;
+            }
+
+            // Consult the persistent Contact Resolver Layer before accepting an
+            // unresolved LID: another sync source (message event, contacts.upsert,
+            // history sync) may already have learned the real phone number even
+            // though this particular group snapshot only carries the LID.
+            if ($resolvedPhone === '' && $lid !== null) {
+                $storedPhone = $this->contactStore->resolvePhoneForLid($tenantId, $lid);
+                if ($storedPhone) {
+                    $resolvedPhone = $storedPhone;
+                    $isUnresolvedLid = false;
+                }
+            }
+
+            if ($resolvedPhone === '' && $lid !== null) {
+                $historyResolvedPhone = $this->contactStore->resolveFromMessageHistory($tenantId, $lid);
+                if ($historyResolvedPhone) {
+                    $resolvedPhone = $historyResolvedPhone;
+                    $isUnresolvedLid = false;
+                }
             }
 
             if ($resolvedPhone === '' && !$isUnresolvedLid && $lid === null) {
@@ -80,6 +110,21 @@ class WhatsappGroupContactService
                 'last_sync_source' => 'group_contacts_sync',
             ]);
 
+            // Feed the persistent Contact Resolver Layer too, so this observation
+            // benefits future syncs and message auto-resolve even for other groups.
+            // IMPORTANT: only ever pass a *genuinely resolved* phone here. When
+            // $resolvedPhone is empty, $normalizedPhone at this point is just the
+            // LID digits used as a placeholder (see the `$normalizedPhone = $lid`
+            // branch above) -- storing that would poison the cache into treating
+            // a LID as if it were a real phone number on the next sync.
+            $this->contactStore->upsertContact($tenantId, [
+                'jid' => $participantJid,
+                'lid' => $lid,
+                'phone' => $resolvedPhone !== '' ? $resolvedPhone : null,
+                'push_name' => $this->cleanText($contact['push_name'] ?? null),
+                'source' => 'group_contacts_sync',
+            ], $timestamp);
+
             if ($resolvedPhone !== '') {
                 $record = $this->applyResolvedPhoneToRecord($record, $resolvedPhone, $timestamp);
             } elseif ($normalizedPhone !== '') {
@@ -94,6 +139,10 @@ class WhatsappGroupContactService
 
             if (!$record->converted_lead_id) {
                 $record->status = 'pending';
+            }
+
+            if (!filled($record->group_action_status)) {
+                $record->group_action_status = 'pending';
             }
 
             $record->save();
@@ -135,6 +184,17 @@ class WhatsappGroupContactService
             return 0;
         }
 
+        // Persist every freshly-resolved lid -> phone pair into the Contact
+        // Resolver Layer so it's available tenant-wide, not just for whichever
+        // whatsapp_group_contacts rows happen to reference it right now.
+        foreach ($normalizedMap as $lidKey => $realPhone) {
+            $this->contactStore->upsertContact($tenantId, [
+                'lid' => $lidKey,
+                'phone' => $realPhone,
+                'source' => 'resolve_lids',
+            ], $timestamp);
+        }
+
         $contacts = WhatsappGroupContact::query()
             ->where('tenant_id', $tenantId)
             ->where('is_unresolved_lid', true)
@@ -173,6 +233,29 @@ class WhatsappGroupContactService
 
         if (empty($lids)) {
             return 0;
+        }
+
+        // Persist whatever this message event taught us into the persistent
+        // Contact Resolver Layer, independent of whether any whatsapp_group_contacts
+        // row currently references these LIDs (a future group sync may benefit).
+        foreach ($lids as $lidCandidate) {
+            $this->contactStore->upsertContact($tenantId, [
+                'lid' => $lidCandidate,
+                'phone' => $resolvedPhone,
+                'source' => 'message_event',
+            ], $timestamp);
+        }
+
+        // If this event's own payload didn't carry a resolvable phone, see if the
+        // persistent store already learned one for any of these LIDs elsewhere.
+        if ($resolvedPhone === null) {
+            foreach ($lids as $lidCandidate) {
+                $storedPhone = $this->contactStore->resolvePhoneForLid($tenantId, $lidCandidate);
+                if ($storedPhone) {
+                    $resolvedPhone = $storedPhone;
+                    break;
+                }
+            }
         }
 
         $contacts = WhatsappGroupContact::query()
@@ -315,6 +398,14 @@ class WhatsappGroupContactService
             $duplicate->first_seen_at = $this->earliestDate($duplicate->first_seen_at, $record->first_seen_at);
             $duplicate->last_synced_at = $timestamp;
             $duplicate->meta_data = $this->mergeMetaData($duplicate->meta_data, $record->meta_data);
+            $duplicate->group_action_status = $duplicate->group_action_status ?: $record->group_action_status ?: 'pending';
+            $duplicate->group_action_reason = $duplicate->group_action_reason ?: $record->group_action_reason;
+            $duplicate->group_action_message = $duplicate->group_action_message ?: $record->group_action_message;
+            $duplicate->last_target_group_jid = $duplicate->last_target_group_jid ?: $record->last_target_group_jid;
+            $duplicate->last_target_group_name = $duplicate->last_target_group_name ?: $record->last_target_group_name;
+            $duplicate->last_add_attempt_at = $duplicate->last_add_attempt_at ?: $record->last_add_attempt_at;
+            $duplicate->invite_sent_at = $duplicate->invite_sent_at ?: $record->invite_sent_at;
+            $duplicate->invite_link = $duplicate->invite_link ?: $record->invite_link;
 
             if ($record->converted_lead_id && !$duplicate->converted_lead_id) {
                 $duplicate->converted_lead_id = $record->converted_lead_id;
@@ -363,6 +454,12 @@ class WhatsappGroupContactService
     private function normalizePhone(string $phone): string
     {
         return preg_replace('/\D+/', '', trim($phone)) ?: '';
+    }
+
+    private function looksLikeLid(?string $value): bool
+    {
+        $digits = preg_replace('/\D+/', '', (string) ($value ?? '')) ?: '';
+        return $digits !== '' && strlen($digits) >= 14;
     }
 
     private function earliestDate(mixed $left, mixed $right): mixed

@@ -18,6 +18,17 @@ class WhatsappMirrorController extends Controller
     public function pair(Request $request)
     {
         $tenantId = auth()->user()->tenant_id;
+        $statusResponse = $this->client->status($tenantId);
+
+        if ($statusResponse->successful()) {
+            $statusPayload = $statusResponse->json() ?? [];
+            $currentStatus = (string) ($statusPayload['status'] ?? 'disconnected');
+
+            if (in_array($currentStatus, ['connected', 'reconnecting', 'pending_qr'], true)) {
+                return response()->json($statusPayload, $statusResponse->status());
+            }
+        }
+
         $response = $this->client->pair($tenantId);
         return response()->json($response->json(), $response->status());
     }
@@ -29,6 +40,21 @@ class WhatsappMirrorController extends Controller
         $data = $response->json() ?? [];
 
         $session = \App\Models\WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
+        $localStatus = (string) ($session?->status ?? 'disconnected');
+        $remoteStatus = (string) ($data['status'] ?? 'disconnected');
+
+        if (
+            $remoteStatus === 'disconnected'
+            && $session?->connected_phone_number
+            && in_array($localStatus, ['connected', 'reconnecting'], true)
+        ) {
+            $data['status'] = 'reconnecting';
+        }
+
+        if ($remoteStatus === 'disconnected' && $localStatus === 'reconnect_failed') {
+            $data['status'] = 'reconnect_failed';
+        }
+
         $data['history_synced_at'] = $session?->history_synced_at?->toISOString() ?? null;
         $data['connected_phone_number'] = $session?->connected_phone_number ?? null;
 
@@ -46,5 +72,17 @@ class WhatsappMirrorController extends Controller
             ->update(['history_synced_at' => null]);
 
         return response()->json($response->json(), $response->status());
+    }
+
+    public function adminGroups()
+    {
+        $tenantId = auth()->user()->tenant_id;
+        $response = $this->client->adminGroups($tenantId);
+
+        if (!$response->successful()) {
+            return response()->json($response->json(), $response->status());
+        }
+
+        return response()->json($response->json('groups') ?? []);
     }
 }

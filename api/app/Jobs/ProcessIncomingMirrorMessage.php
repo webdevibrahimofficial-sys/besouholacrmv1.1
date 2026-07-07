@@ -62,6 +62,7 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
             'author' => $msgData['author'] ?? null,
             'phone' => $counterpartPhone,
         ];
+        $counterpartLid = $this->extractCounterpartLid($rawIdentifiers);
 
         $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
         $ownNumber = $session?->connected_phone_number;
@@ -92,6 +93,10 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
 
             if (Schema::hasColumn('whatsapp_messages', 'lead_id')) {
                 $attributes['lead_id'] = $resolvedLeadId;
+            }
+
+            if (Schema::hasColumn('whatsapp_messages', 'counterpart_lid')) {
+                $attributes['counterpart_lid'] = $counterpartLid;
             }
 
             $message = WhatsappMessage::firstOrCreate(
@@ -183,5 +188,32 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         } catch (\Exception $e) {
             Log::error("[Mirror Job Error] Tenant {$tenantId}: " . $e->getMessage());
         }
+    }
+
+    private function extractCounterpartLid(array $identifiers): ?string
+    {
+        foreach (['participant', 'remote_jid', 'sender', 'author', 'phone'] as $key) {
+            $lid = $this->extractLid($identifiers[$key] ?? null);
+            if ($lid) {
+                return $lid;
+            }
+        }
+
+        return null;
+    }
+
+    private function extractLid(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $raw = trim((string) $value);
+        if ($raw === '' || (!str_contains(strtolower($raw), '@lid') && !preg_match('/^\d{14,}$/', $raw))) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', explode('@', $raw)[0] ?? '') ?: '';
+        return $digits !== '' ? $digits : null;
     }
 }

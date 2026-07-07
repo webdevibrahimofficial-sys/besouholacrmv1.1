@@ -135,8 +135,15 @@ Route::middleware([
     Route::get('/unassigned-contacts', [WhatsappMirrorUnassignedContactController::class, 'index']);
     Route::post('/unassigned-contacts/{contact}/convert-to-lead', [WhatsappMirrorUnassignedContactController::class, 'convertToLead']);
     Route::get('/group-contacts', [WhatsappMirrorGroupContactController::class, 'index']);
+    Route::get('/group-contacts/groups', [WhatsappMirrorGroupContactController::class, 'storedGroups']);
     Route::post('/group-contacts/sync', [WhatsappMirrorGroupContactController::class, 'sync']);
+    Route::delete('/group-contacts/{contact}', [WhatsappMirrorGroupContactController::class, 'destroy']);
     Route::post('/group-contacts/{contact}/convert-to-lead', [WhatsappMirrorGroupContactController::class, 'convertToLead']);
+    Route::get('/admin-groups', [WhatsappMirrorGroupContactController::class, 'adminGroups']);
+    Route::post('/group-contacts/{contact}/add-to-group', [WhatsappMirrorGroupContactController::class, 'addToGroup']);
+    Route::post('/group-contacts/{contact}/send-invite', [WhatsappMirrorGroupContactController::class, 'sendInviteToGroup']);
+    Route::post('/group-contacts/bulk-add-to-group', [WhatsappMirrorGroupContactController::class, 'bulkAddToGroup']);
+    Route::get('/groups', [WhatsappMirrorGroupContactController::class, 'groups']);
 });
 
 // Secure File Serving (Signed URLs)
@@ -206,7 +213,15 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', 
     Route::post('impersonate/{tenant}', [SuperAdminImpersonationController::class , 'impersonate']);
     Route::post('impersonate/stop', [SuperAdminImpersonationController::class , 'stop']);
 
-    Route::get('tenant-backups', [SuperAdminBackupController::class , 'index']);
+    Route::get('backups/dashboard', [SuperAdminBackupController::class , 'dashboard']);
+    Route::get('backups', [SuperAdminBackupController::class , 'history']);
+    Route::get('backups/restores', [SuperAdminBackupController::class , 'restoreHistory']);
+    Route::post('backups', [SuperAdminBackupController::class , 'store']);
+    Route::get('backups/{backup}', [SuperAdminBackupController::class , 'show']);
+    Route::get('backups/{backup}/download', [SuperAdminBackupController::class , 'downloadAny']);
+    Route::post('backups/{backup}/restore', [SuperAdminBackupController::class , 'restore']);
+    Route::delete('backups/{backup}', [SuperAdminBackupController::class , 'destroy']);
+    Route::get('tenant-backups', [SuperAdminBackupController::class , 'dashboard']);
     Route::post('tenants/{tenant}/backups', [SuperAdminBackupController::class , 'backupNow']);
     Route::get('tenants/{tenant}/backups', [SuperAdminBackupController::class , 'listBackups']);
     Route::get('tenants/{tenant}/backups/{backup}/download', [SuperAdminBackupController::class , 'download']);

@@ -8,6 +8,7 @@ use App\Models\WhatsappMirrorSession;
 use App\Models\WhatsappSetting;
 use App\Jobs\ProcessIncomingMirrorMessage;
 use App\Jobs\ProcessHistorySyncBatch;
+use App\Services\Whatsapp\WhatsappContactStoreService;
 
 class WhatsappMirrorWebhookController extends Controller
 {
@@ -36,7 +37,7 @@ class WhatsappMirrorWebhookController extends Controller
                     'last_connected_at' => $payload['status'] === 'connected'
                         ? now()
                         : $existingSession?->last_connected_at,
-                    'last_disconnected_at' => $payload['status'] === 'disconnected'
+                    'last_disconnected_at' => in_array($payload['status'], ['disconnected', 'reconnect_failed'], true)
                         ? now()
                         : $existingSession?->last_disconnected_at,
                 ]
@@ -52,6 +53,15 @@ class WhatsappMirrorWebhookController extends Controller
 
         if (($payload['event'] ?? null) === 'message_received') {
             (new ProcessIncomingMirrorMessage($payload))->handle();
+        }
+
+        // Contact Resolver Layer: contacts.upsert / contacts.update batches pushed
+        // by the mirror service so we keep a persistent jid/lid/phone/name cache
+        // independent of any single group snapshot (mirrors what WhatsApp Web
+        // itself relies on internally).
+        if (($payload['event'] ?? null) === 'contact_update') {
+            $contacts = array_values(array_filter((array) ($payload['contacts'] ?? []), fn ($c) => is_array($c)));
+            app(WhatsappContactStoreService::class)->upsertMany((int) $tenantId, $contacts);
         }
 
         if (($payload['event'] ?? null) === 'message_status_update') {
