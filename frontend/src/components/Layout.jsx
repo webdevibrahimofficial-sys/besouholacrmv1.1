@@ -6,6 +6,7 @@ import { useAppState } from '@shared/context/AppStateProvider'
 import { useNotifications } from '../hooks/useNotifications'
 import Topbar from '../shared/components/Topbar'
 import AppSidebar from '../shared/components/AppSidebar'
+import ImpersonationBanner from '@features/Impersonation/ImpersonationBanner'
 
 export const LayoutContext = createContext(null)
 
@@ -107,6 +108,7 @@ useEffect(() => {
 
   return (
     <div className="relative min-h-screen bg-[var(--app-bg)] text-[var(--app-text)] app-glass-neon">
+      <ImpersonationBanner />
 
       {/* Topbar */}
       <div className={`${(isModalOpen || isWebsiteIntegrationOpen) ? 'hidden' : (isMobileSidebarOpen && isMobileView ? 'hidden md:block' : '')}`}>

@@ -1,5 +1,6 @@
 import { api } from '@utils/api'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { shouldUseAdminPanel } from '@utils/authRouting'
 
 export const login = async (email, password, subdomain, rememberMe = false) => {
   const payload = { email, password };
@@ -53,10 +54,15 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
     window.dispatchEvent(evt);
   }
   
-  // Force route for Super Admin immediately
-  const isSuperAdmin = !!user?.is_super_admin;
+  const routingOptions = {
+    permissions: responseData?.user_permissions,
+    subscriptionPlan: responseData?.subscription_plan,
+    panelMode: responseData?.panel_mode,
+    isSystemAdmin: responseData?.is_system_admin,
+  }
+  const useAdminPanel = shouldUseAdminPanel(user, responseData?.impersonation, routingOptions)
 
-  if (isSuperAdmin) {
+  if (useAdminPanel) {
     if (typeof window !== 'undefined' && token) {
       const tok = encodeURIComponent(token);
       const encodedNext = encodeURIComponent('/system/dashboard');
@@ -67,27 +73,58 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
         : (parts.length > 2 ? parts.slice(-2).join('.') : window.location.hostname);
       const targetBase = `${window.location.protocol}//${centralHost}${window.location.port ? `:${window.location.port}` : ''}`;
       if (window.location.origin === targetBase) {
-        window.location.href = `${targetBase}/#/system/dashboard`;
+        return {
+          token,
+          redirected: false,
+          redirect_mode: 'same_origin',
+          next_path: '/system/dashboard',
+          redirect_url: redirectUrl || null,
+          user,
+          isSuperAdmin: true,
+          panel_mode: responseData?.panel_mode || 'system',
+          subscription_plan: responseData?.subscription_plan,
+          user_permissions: responseData?.user_permissions,
+          tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
+        };
       } else {
         window.location.href = `${targetBase}/#/auth/callback?token=${tok}&next=${encodedNext}`;
       }
     }
 
-    return { token, redirected: true, user, isSuperAdmin: true };
+    return {
+      token,
+      redirected: true,
+      redirect_mode: 'hard',
+      redirect_url: redirectUrl || null,
+      user,
+      isSuperAdmin: true,
+      panel_mode: responseData?.panel_mode || 'system',
+      subscription_plan: responseData?.subscription_plan,
+      user_permissions: responseData?.user_permissions,
+      tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
+    };
   }
 
   if (!isSubdomain && redirectUrl) {
     if (typeof window !== 'undefined') {
       const tok = token ? encodeURIComponent(token) : '';
-      const nextPath = isSuperAdmin ? '/system/dashboard' : '/dashboard';
+      const nextPath = useAdminPanel ? '/system/dashboard' : '/dashboard';
       const encodedNext = encodeURIComponent(nextPath);
       const normalizeHost = (host) => String(host || '').replace(/^www\./i, '').toLowerCase();
       const isLocalHost = ['localhost', '127.0.0.1'].includes(normalizeHost(window.location.hostname));
       let shouldHardRedirect = true;
 
       if (isLocalHost) {
-        window.location.hash = `#${nextPath}`;
-        return { token, redirected: true, user, tenant: responseData?.tenant };
+        return {
+          token,
+          redirected: false,
+          redirect_mode: 'local_hash',
+          next_path: nextPath,
+          redirect_url: redirectUrl || null,
+          user,
+          tenant: responseData?.tenant,
+          tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
+        };
       }
 
       try {
@@ -105,18 +142,45 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
 
       if (shouldHardRedirect) {
         window.location.href = `${redirectUrl}/#/auth/callback?token=${tok}&next=${encodedNext}`;
-        return { token, redirected: true, user, tenant: responseData?.tenant };
+        return {
+          token,
+          redirected: true,
+          redirect_mode: 'hard',
+          redirect_url: redirectUrl || null,
+          user,
+          tenant: responseData?.tenant,
+          panel_mode: responseData?.panel_mode,
+          subscription_plan: responseData?.subscription_plan,
+          tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
+        };
       }
 
-      window.location.hash = `#${nextPath}`;
-      return { token, redirected: true, user, tenant: responseData?.tenant, subscription_plan: responseData?.subscription_plan };
+      return {
+        token,
+        redirected: false,
+        redirect_mode: 'same_origin',
+        next_path: nextPath,
+        redirect_url: redirectUrl || null,
+        user,
+        tenant: responseData?.tenant,
+        panel_mode: responseData?.panel_mode,
+        subscription_plan: responseData?.subscription_plan,
+        user_permissions: responseData?.user_permissions,
+        tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
+      };
     }
   }
   return {
     token,
     redirected: false,
+    redirect_mode: 'none',
+    redirect_url: redirectUrl || null,
     user,
     tenant: responseData?.tenant,
+    panel_mode: responseData?.panel_mode,
+    subscription_plan: responseData?.subscription_plan,
+    user_permissions: responseData?.user_permissions,
+    tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
   };
 }
 

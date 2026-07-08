@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Tenant;
 use App\Models\TenantBackup;
+use App\Services\AdminEventNotificationService;
 use App\Services\BackupExportService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -26,7 +27,7 @@ class RunTenantBackupJob implements ShouldQueue, NotTenantAware
         $this->backup = $backup;
     }
 
-    public function handle(BackupExportService $exportService): void
+    public function handle(BackupExportService $exportService, AdminEventNotificationService $adminEventNotifications): void
     {
         $backup = $this->backup->fresh();
 
@@ -62,6 +63,8 @@ class RunTenantBackupJob implements ShouldQueue, NotTenantAware
                 'metadata' => array_merge($metadata, ['logs' => $logs]),
                 'finished_at' => now(),
             ]);
+
+            $adminEventNotifications->safe(fn () => $adminEventNotifications->notifyBackupFailed($backup->fresh(), $this->tenant));
 
             throw $e;
         }

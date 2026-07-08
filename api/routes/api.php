@@ -42,6 +42,7 @@ use App\Http\Controllers\TenantConfigController;
 use App\Http\Controllers\CrmSettingsController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\SuperAdminNotificationController;
 use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\ShareLinkController;
 use App\Http\Controllers\UserController;
@@ -210,6 +211,11 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', 
     Route::get('tenants/{tenant}/modules', [TenantModuleController::class , 'index']);
     Route::put('tenants/{tenant}/modules', [TenantModuleController::class , 'update']);
 
+    Route::get('tenants/quick-switch', [SuperAdminImpersonationController::class, 'quickSwitchTenants']);
+    Route::post('tenants/{tenant}/impersonation', [SuperAdminImpersonationController::class, 'start']);
+    Route::get('impersonation/current', [SuperAdminImpersonationController::class, 'current']);
+    Route::delete('impersonation/current', [SuperAdminImpersonationController::class, 'destroy']);
+
     Route::post('impersonate/{tenant}', [SuperAdminImpersonationController::class , 'impersonate']);
     Route::post('impersonate/stop', [SuperAdminImpersonationController::class , 'stop']);
 
@@ -232,6 +238,22 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', 
 
     // Dashboard Stats
     Route::get('stats', [SuperAdminController::class, 'stats']);
+});
+
+// Super-admin notifications are intentionally isolated from tenant middleware.
+Route::prefix('super-admin')->middleware(['auth:sanctum', EnsureSuperAdmin::class])->group(function () {
+    Route::get('notifications', [SuperAdminNotificationController::class, 'index']);
+    Route::get('notifications/unread-count', [SuperAdminNotificationController::class, 'unreadCount']);
+    Route::post('notifications/{notification}/read', [SuperAdminNotificationController::class, 'markAsRead']);
+    Route::post('notifications/read-all', [SuperAdminNotificationController::class, 'markAllAsRead']);
+    Route::post('notifications/{notification}/archive', [SuperAdminNotificationController::class, 'archive']);
+    Route::post('notifications/archive-all-read', [SuperAdminNotificationController::class, 'archiveAllRead']);
+
+    Route::get('notification-settings', [SuperAdminNotificationController::class, 'settingsShow']);
+    Route::put('notification-settings', [SuperAdminNotificationController::class, 'settingsUpdate']);
+
+    Route::post('push/subscribe', [SuperAdminNotificationController::class, 'subscribePush']);
+    Route::delete('push/unsubscribe', [SuperAdminNotificationController::class, 'unsubscribePush']);
 });
 
 // ==================================================================================
@@ -260,6 +282,7 @@ Route::middleware([ResolveTenant::class])
         // Authentication
         Route::post('/auth/login', [AuthController::class , 'login']);
         Route::post('/auth/2fa/verify', [AuthController::class , 'verifyTwoFactor']);
+        Route::post('/impersonation/exchange', [\App\Http\Controllers\ImpersonationController::class, 'exchange']);
 
         // Magic Link (Tenant Context)
         Route::post('/login/magic', [MagicLinkController::class , 'send']);
@@ -289,6 +312,8 @@ Route::middleware([ResolveTenant::class])
 
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
+    Route::get('/impersonation/current', [\App\Http\Controllers\ImpersonationController::class, 'current']);
+    Route::delete('/impersonation/current', [\App\Http\Controllers\ImpersonationController::class, 'destroy'])->middleware('impersonation.active');
 
     Route::get('/tenant-config', [TenantConfigController::class , 'show']);
     Route::get('/crm-settings', [CrmSettingsController::class , 'show']);
@@ -425,7 +450,7 @@ Route::middleware([ResolveTenant::class])
     Route::post('/auth/google/connected-accounts/{connected_account_id}/discover-ads-accounts', [\App\Http\Controllers\GoogleAdsAccountController::class, 'discover']);
     Route::patch('/auth/google/accounts/{account_id}', [\App\Http\Controllers\GoogleAdsAccountController::class, 'update']);
     Route::post('/auth/google/accounts/{account_id}/sync', [\App\Http\Controllers\GoogleAdsAccountController::class, 'sync']);
-    Route::post('/auth/google/accounts/{account_id}/generate-webhook-key', [\App\Http\Controllers\GoogleAdsAccountController::class, 'regenerateWebhookKey']);
+    Route::post('/auth/google/accounts/{account_id}/generate-webhook-key', [\App\Http\Controllers\GoogleAdsAccountController::class, 'regenerateWebhookKey'])->middleware('impersonation.restrict');
     Route::post('/auth/google/settings', [\App\Http\Controllers\GoogleAuthController::class, 'updateSettings']);
     Route::post('/auth/google/conversion/test', [\App\Http\Controllers\GoogleAuthController::class, 'testConversion']);
     Route::post('/auth/google/conversion/upload', [\App\Http\Controllers\GoogleAuthController::class, 'uploadConversion']);
@@ -551,8 +576,8 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
 
     // API Keys
     Route::get('/api-keys', [\App\Http\Controllers\ApiKeyController::class , 'index']);
-    Route::post('/api-keys', [\App\Http\Controllers\ApiKeyController::class , 'store']);
-    Route::delete('/api-keys/{id}', [\App\Http\Controllers\ApiKeyController::class , 'destroy']);
+    Route::post('/api-keys', [\App\Http\Controllers\ApiKeyController::class , 'store'])->middleware('impersonation.restrict');
+    Route::delete('/api-keys/{id}', [\App\Http\Controllers\ApiKeyController::class , 'destroy'])->middleware('impersonation.restrict');
 
     // SMTP Settings
     Route::get('/smtp-settings', [\App\Http\Controllers\SmtpSettingController::class , 'show']);
@@ -616,7 +641,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     // Email Messages
     Route::get('/v1/leads/{lead}/email-messages', [\App\Http\Controllers\EmailMessageController::class , 'leadMessages']);
     Route::post('/v1/email/send', [\App\Http\Controllers\EmailMessageController::class , 'send']);
-    Route::post('/profile', [App\Http\Controllers\ProfileController::class , 'update']);
+    Route::post('/profile', [App\Http\Controllers\ProfileController::class , 'update'])->middleware('impersonation.restrict');
     Route::post('/profile/preferences', [App\Http\Controllers\ProfileController::class , 'preferences']);
     Route::get('/profile/sessions', [App\Http\Controllers\ProfileController::class , 'sessions']);
     Route::delete('/profile/sessions/{id}', [App\Http\Controllers\ProfileController::class , 'revokeSession']);
@@ -624,7 +649,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('/user-management/access-logs', [AccessLogController::class , 'index']);
     Route::get('/exports', [\App\Http\Controllers\ExportController::class , 'index']);
     Route::get('/exports/stats', [\App\Http\Controllers\ExportController::class , 'stats']);
-    Route::post('/exports', [\App\Http\Controllers\ExportController::class , 'store']);
+    Route::post('/exports', [\App\Http\Controllers\ExportController::class , 'store'])->middleware('impersonation.restrict');
     Route::post('/imports', [\App\Http\Controllers\ExportController::class , 'store']); // Alias for imports logging
 
     Route::get('/user', function (Request $request) {

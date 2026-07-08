@@ -182,11 +182,12 @@ api.interceptors.response.use(
   (err) => {
     const status = err?.response?.status
     const errorData = err?.response?.data || {}
+    const shouldSkipAuthRedirect = err?.config?.skipAuthRedirect === true
     if (status === 401 && typeof window !== 'undefined') {
       const hash = String(window.location.hash || '')
       const isOnLogin = hash.includes('/login')
       const isOnAuthCallback = hash.includes('/auth/callback')
-      if (!isOnLogin && !isOnAuthCallback) {
+      if (!shouldSkipAuthRedirect && !isOnLogin && !isOnAuthCallback) {
         clearAuthTokens()
         try {
           window.location.href = '/#/login'

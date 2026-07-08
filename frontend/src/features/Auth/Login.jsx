@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAppState } from '@shared/context/AppStateProvider';
+import { shouldUseAdminPanel } from '@utils/authRouting';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { api } from '@utils/api';
 import { useTranslation } from 'react-i18next';
@@ -72,7 +73,7 @@ const FloatingInput = ({
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, user, bootstrapped } = useAppState();
+  const { login, fetchCompanyInfo, user, impersonation, permissions, subscriptionPlan, panelMode, bootstrapped } = useAppState();
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
   const logo = resolvedTheme === 'dark' ? DarkLogo : lightLogo;
@@ -88,11 +89,6 @@ export default function Login() {
   const loginDebugEnabled = String(import.meta.env.VITE_API_DEBUG || (import.meta.env.DEV ? 'true' : 'false')).toLowerCase() === 'true'
     || window.localStorage.getItem('api_debug') === '1';
 
-  const isSuperAdminUser = (u) => {
-    if (!u) return false;
-    return !!u.is_super_admin;
-  };
-
   useEffect(() => {
     if (!bootstrapped) return;
 
@@ -100,13 +96,13 @@ export default function Login() {
     const cookieToken = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
     
     if ((token || cookieToken) && user) {
-      if (isSuperAdminUser(user)) {
+      if (shouldUseAdminPanel(user, impersonation, { permissions, subscriptionPlan, panelMode })) {
         navigate('/system/dashboard', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
       }
     }
-  }, [navigate, user, bootstrapped]);
+  }, [navigate, user, impersonation, permissions, subscriptionPlan, panelMode, bootstrapped]);
 
   if (!bootstrapped) {
     return (
@@ -167,12 +163,10 @@ export default function Login() {
           }
           const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: 'Logged in' } });
           window.dispatchEvent(evt);
-          // Redirect logic
-          if (isSuperAdminUser(data?.user)) {
-             navigate('/system/dashboard', { replace: true });
-          } else {
-             window.location.href = '/dashboard';
-          }
+          try {
+            await fetchCompanyInfo();
+          } catch {}
+          setLoading(false);
           return;
         }
       } else {
@@ -185,52 +179,22 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        
-        // Use updated state/result logic
-        const isSuperAdmin = res?.isSuperAdmin || isSuperAdminUser(res?.user);
 
-        if (isSuperAdmin) {
-          navigate('/system/dashboard', { replace: true });
+        if (res?.redirected) {
           setLoading(false);
           return;
-        } else {
-              // Try to find tenant slug from various possible locations in response
-              const tenantSlug = res?.tenant?.slug || res?.company?.slug || res?.user?.tenant?.slug;
-              
-              if (tenantSlug) {
-                  const protocol = window.location.protocol;
-                 const host = window.location.hostname;
-                 const parts = host.split('.');
-                 
-                 // Check if we are on main domain
-                 const isMainDomain = parts.length <= 2 || (parts.length === 3 && parts[0] === 'www');
-                 
-                 if (isMainDomain) {
-                     // Construct new domain: https://slug.besouholacrm.net
-                     // Handle cases like 'localhost' or 'besouholacrm.net'
-                     let baseDomain = '';
-                     if (parts.length >= 2) {
-                        // Get the last two parts (domain.com)
-                        baseDomain = parts.slice(-2).join('.');
-                     } else {
-                        // Localhost fallback
-                        baseDomain = 'localhost'; 
-                     }
-                     
-                     // Avoid redirect loop if slug is same as current subdomain (unlikely on main domain but good practice)
-                     if (host !== `${tenantSlug}.${baseDomain}`) {
-                        const newUrl = `${protocol}//${tenantSlug}.${baseDomain}/#/dashboard`;
-                        console.log('Redirecting to tenant domain:', newUrl);
-                        // Force hard redirect to subdomain
-                        window.location.href = newUrl;
-                        return;
-                     }
-                 }
-             }
-             
-             // If we are already on subdomain or no tenant context, navigate internally
-             navigate('/dashboard');
         }
+
+        if (res?.next_path) {
+          navigate(res.next_path, { replace: true });
+          setLoading(false);
+          return;
+        }
+        
+        // For same-origin/local successful logins, wait for AppStateProvider user state
+        // and let the existing login-page effect perform the final redirect.
+        setLoading(false);
+        return;
       }
     } catch (err) {
       if (loginDebugEnabled) {

@@ -4,7 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { useAppState } from '@shared/context/AppStateProvider';
 import { api as axios } from '@utils/api';
+import { isSecureQuickSwitchEnabled } from '@utils/features';
 import { toast } from 'react-hot-toast';
+import { impersonationApi } from '@features/Impersonation/impersonationApi';
+import { clearImpersonationHints } from '@utils/authToken';
 import {
   LayoutDashboard,
   Users,
@@ -45,6 +48,8 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
   const [websiteExpanded, setWebsiteExpanded] = useState(false);
   const [errorLogCount, setErrorLogCount] = useState(0);
+  const [currentImpersonation, setCurrentImpersonation] = useState(null);
+  const secureQuickSwitchEnabled = isSecureQuickSwitchEnabled();
 
   const isLight = resolvedTheme === 'light';
   const isRTL = i18n.language === 'ar';
@@ -148,6 +153,27 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
   }, [location.pathname]);
 
   useEffect(() => {
+    if (!secureQuickSwitchEnabled) {
+      return undefined;
+    }
+
+    let active = true;
+    impersonationApi.currentSystem()
+      .then((response) => {
+        if (!active) return;
+        setCurrentImpersonation(response.data?.active ? response.data?.session || null : null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setCurrentImpersonation(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [secureQuickSwitchEnabled, location.pathname]);
+
+  useEffect(() => {
     if (!showQuickSwitch) {
       setQuickSwitchSearch('');
       return;
@@ -157,11 +183,13 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
     const loadTenants = async () => {
       setQuickSwitchLoading(true);
       try {
-        const response = await axios.get('/api/super-admin/tenants', {
-          params: { status: 'active', page: 1 },
-        });
+        const response = secureQuickSwitchEnabled
+          ? await impersonationApi.quickSwitchTenants({ status: 'active', limit: 25, search: quickSwitchSearch.trim() || undefined })
+          : await axios.get('/api/super-admin/tenants', {
+              params: { status: 'active', page: 1 },
+            });
         if (!active) return;
-        setActiveTenants(response.data?.tenants?.data || []);
+        setActiveTenants(secureQuickSwitchEnabled ? (response.data?.data || []) : (response.data?.tenants?.data || []));
       } catch (error) {
         if (!active) return;
         console.error('Failed to load active tenants:', error);
@@ -177,7 +205,7 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
     return () => {
       active = false;
     };
-  }, [showQuickSwitch, t]);
+  }, [showQuickSwitch, t, secureQuickSwitchEnabled, quickSwitchSearch]);
 
   const filteredTenants = useMemo(() => {
     const term = quickSwitchSearch.trim().toLowerCase();
@@ -189,11 +217,31 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
     });
   }, [activeTenants, quickSwitchSearch]);
 
-  const isImpersonating = typeof window !== 'undefined' && !!window.localStorage.getItem('impersonateTenantSlug');
+  const isImpersonating = secureQuickSwitchEnabled
+    ? !!currentImpersonation
+    : (typeof window !== 'undefined' && !!window.localStorage.getItem('impersonateTenantSlug'));
 
   const handleLoginAsTenant = async (tenant) => {
     try {
       setImpersonatingId(tenant.id);
+      if (secureQuickSwitchEnabled) {
+        const reason = window.prompt(t('Optional support access reason'), '') || ''
+        const response = await impersonationApi.start(tenant.id, {
+          mode: 'support_access',
+          reason,
+        })
+        const redirectUrl = response?.data?.redirect_url
+        if (!redirectUrl) {
+          toast.error(t('Failed to start support access'))
+          return
+        }
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('impersonateTenantSlug', tenant.slug || '')
+          window.location.href = redirectUrl
+        }
+        return
+      }
+
       const impersonateResponse = await axios.post(`/api/super-admin/impersonate/${tenant.id}`);
       const apiTenant = impersonateResponse?.data?.tenant || {};
       const slug = apiTenant.slug || tenant.slug || (tenant.domain ? tenant.domain.split('.')[0] : null);
@@ -223,9 +271,14 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
   const handleStopImpersonation = async () => {
     try {
       setStoppingImpersonation(true);
-      await axios.post('/api/super-admin/impersonate/stop');
+      if (secureQuickSwitchEnabled) {
+        await impersonationApi.exitSystem();
+        setCurrentImpersonation(null);
+      } else {
+        await axios.post('/api/super-admin/impersonate/stop');
+      }
       if (typeof window !== 'undefined') {
-        window.localStorage.removeItem('impersonateTenantSlug');
+        clearImpersonationHints();
       }
       toast.success(t('Impersonation stopped'));
     } catch (error) {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AdminEventNotificationService;
 use App\Models\SubscriptionTransaction;
 use App\Models\TenantSubscriptionContract;
 use App\Models\Tenant;
@@ -18,7 +19,10 @@ class SubscriptionTransactionController extends Controller
 {
     use LogsSuperAdminActivity;
 
-    public function __construct(private readonly SubscriptionTransactionService $transactionService)
+    public function __construct(
+        private readonly SubscriptionTransactionService $transactionService,
+        private readonly AdminEventNotificationService $adminEventNotifications
+    )
     {
     }
 
@@ -89,6 +93,7 @@ class SubscriptionTransactionController extends Controller
         }
 
         $transaction = $this->transactionService->record($tenant, $validated, $request->user(), 'manual');
+        $this->notifyIfPaymentFailed($transaction);
 
         $this->logSuperAdminActivity(
             $request->user(),
@@ -142,6 +147,7 @@ class SubscriptionTransactionController extends Controller
         }
 
         $updated = $this->transactionService->update($transaction, $validated);
+        $this->notifyIfPaymentFailed($updated);
 
         $this->logSuperAdminActivity(
             $request->user(),
@@ -458,5 +464,15 @@ class SubscriptionTransactionController extends Controller
                 ? null
                 : 'Run the main application migrations that create tenant_subscription_contracts, subscription_transactions, and subscription_transaction_items.',
         ];
+    }
+
+    private function notifyIfPaymentFailed(SubscriptionTransaction $transaction): void
+    {
+        if (strtolower((string) $transaction->status) !== 'failed') {
+            return;
+        }
+
+        $transaction->loadMissing('tenant');
+        $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyPaymentFailed($transaction));
     }
 }

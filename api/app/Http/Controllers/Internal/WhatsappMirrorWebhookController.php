@@ -40,6 +40,12 @@ class WhatsappMirrorWebhookController extends Controller
                     'last_disconnected_at' => in_array($payload['status'], ['disconnected', 'reconnect_failed'], true)
                         ? now()
                         : $existingSession?->last_disconnected_at,
+                    'reconnect_reason' => in_array($payload['status'], ['connected', 'pending_qr'], true)
+                        ? null
+                        : ($payload['reconnect_reason'] ?? $existingSession?->reconnect_reason),
+                    'reconnect_detail' => in_array($payload['status'], ['connected', 'pending_qr'], true)
+                        ? null
+                        : ($payload['reconnect_detail'] ?? $existingSession?->reconnect_detail),
                 ]
             );
 

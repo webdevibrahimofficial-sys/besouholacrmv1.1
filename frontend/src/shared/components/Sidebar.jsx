@@ -11,6 +11,7 @@ import { useAppState } from '@shared/context/AppStateProvider'
 import { useTranslation } from 'react-i18next';
 import { useStages } from '@hooks/useStages';
 import { ICON_MAP } from '../../components/settings/IconSelector';
+import { isSystemAdminContext } from '@utils/authRouting'
 
 
 // دالة ترجع أيقونة مناسبة لكل عنصر
@@ -451,7 +452,7 @@ const getMarketingItemIcon = (key) => {
 }
 
 export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, setCollapsed }) => {
-  const { activeModules, user, company, canAccess, crmSettings, inventoryBadges } = useAppState()
+  const { activeModules, user, company, permissions, subscriptionPlan, panelMode, canAccess, crmSettings, inventoryBadges } = useAppState()
   const { theme, resolvedTheme } = useTheme()
   const { t, i18n } = useTranslation();
 
@@ -483,7 +484,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     roleLower === 'tenant-admin'
   const isDirectorRole = role === 'Director' || roleLower.includes('director')
   const isOperationManagerRole = roleLower.includes('operation manager') || roleLower.includes('operations manager')
-  const isSuperAdmin = !!user?.is_super_admin
+  const isSuperAdmin = isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })
   const hasFullSettingsAccess = isSuperAdmin || isTenantAdmin || isDirectorRole || isOperationManagerRole
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
@@ -557,7 +558,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewUserManagementSection =
     !isTeamLeader &&
     (
-      user?.is_super_admin ||
+      isSuperAdmin ||
       isTenantAdmin ||
       isDirectorRole ||
       isOperationManagerRole ||
@@ -578,7 +579,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     )
 
   const canSeeReportsLink =
-    user?.is_super_admin ||
+    isSuperAdmin ||
     isTenantAdmin ||
     isDirectorRole ||
     isOperationManagerRole ||

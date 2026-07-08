@@ -17,7 +17,12 @@ const sessions = new Map();
 const initializing = new Map();
 const reconnectAttempts = new Map();
 
-const MAX_RECONNECT_ATTEMPTS = 5;
+// After this many fast attempts we don't give up — we just slow down and
+// keep retrying indefinitely, since the auth state is still valid. Giving up
+// entirely used to set status to 'reconnect_failed', which made the next
+// manual /pair call wipe perfectly good credentials and force a fresh QR.
+const MAX_FAST_RECONNECT_ATTEMPTS = 5;
+const SLOW_RECONNECT_DELAY_MS = 30000;
 
 function authDirForTenant(tenantId) {
   return path.join(authBaseDir, `session-${tenantId}`);
@@ -42,9 +47,69 @@ function incrementReconnectAttempts(tenantId) {
   return nextValue;
 }
 
+function setReconnectMeta(sock, reason = null, detail = null) {
+  if (!sock) {
+    return;
+  }
+
+  sock.reconnectReason = reason || null;
+  sock.reconnectDetail = detail || null;
+}
+
+function summarizeDisconnect(statusCode, lastDisconnect) {
+  const message = String(lastDisconnect?.error?.message || '').trim();
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes('stream errored')) {
+    return {
+      reason: 'stream_errored',
+      detail: 'WhatsApp stream errored while the mirror session was active. The service will try to reconnect automatically.',
+    };
+  }
+
+  if (lowerMessage.includes('conflict') || lowerMessage.includes('replaced')) {
+    return {
+      reason: 'session_conflict',
+      detail: 'WhatsApp reported a session conflict. Another device or browser may have interrupted this session.',
+    };
+  }
+
+  if (lowerMessage.includes('device removed') || lowerMessage.includes('logged out')) {
+    return {
+      reason: 'device_removed',
+      detail: 'This linked WhatsApp device was removed or logged out from the phone. Pair again to restore the mirror.',
+    };
+  }
+
+  if (lowerMessage.includes('multidevice mismatch')) {
+    return {
+      reason: 'multidevice_mismatch',
+      detail: 'WhatsApp reported a multi-device mismatch for this session. Pair again to restore the mirror.',
+    };
+  }
+
+  if (lowerMessage.includes('connection failure')) {
+    return {
+      reason: 'connection_failure',
+      detail: 'WhatsApp connection failed unexpectedly. The service will keep trying to reconnect.',
+    };
+  }
+
+  if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+    return {
+      reason: 'restart_required',
+      detail: 'WhatsApp requested a session restart. The service is trying to restore the session automatically.',
+    };
+  }
+
+  return {
+    reason: 'session_disconnected',
+    detail: message || 'The WhatsApp Mirror session disconnected unexpectedly.',
+  };
+}
+
 function shouldStopReconnect(sock, statusCode, lastDisconnect) {
   const message = String(lastDisconnect?.error?.message || '').toLowerCase();
-  const attempts = reconnectAttempts.get(String(sock?.tenantId || '')) || 0;
   const hasConnectedBefore = !!sock?.hasEverConnected;
 
   if (!hasConnectedBefore && statusCode === 408 && message.includes('qr refs attempts ended')) {
@@ -63,20 +128,18 @@ function shouldStopReconnect(sock, statusCode, lastDisconnect) {
     };
   }
 
-  if (attempts >= MAX_RECONNECT_ATTEMPTS) {
-    return {
-      stop: true,
-      reason: 'reconnect_limit_reached',
-      detail: `Reconnect attempts reached ${MAX_RECONNECT_ATTEMPTS}. Waiting for manual reconnect.`,
-    };
-  }
-
+  // Never give up permanently just because we've retried a few times — the
+  // auth state is still valid, so we keep retrying forever, just slower
+  // (see MAX_FAST_RECONNECT_ATTEMPTS / SLOW_RECONNECT_DELAY_MS below). Giving
+  // up used to flip status to 'reconnect_failed', which made the next manual
+  // /pair call wipe perfectly good credentials and force a fresh QR scan.
   return { stop: false, reason: null, detail: null };
 }
 
 function isConflictDisconnect(statusCode, lastDisconnect) {
   const message = String(lastDisconnect?.error?.message || '').toLowerCase();
-  return statusCode === DisconnectReason.loggedOut && message.includes('conflict');
+  return statusCode === DisconnectReason.loggedOut
+    && (message.includes('conflict') || message.includes('replaced'));
 }
 
 function isHardLoggedOutDisconnect(sock, statusCode, lastDisconnect) {
@@ -635,6 +698,8 @@ export async function initSession(tenantId) {
     sock.authState = state;
     sock.qrCode = null;
     sock.connectionStatus = canRestorePersistedCreds(state) ? 'reconnecting' : 'disconnected';
+    sock.reconnectReason = null;
+    sock.reconnectDetail = null;
     sock.hasEverConnected = false;
     sock.lidToPhoneMap = loadPersistedLidPhoneMap(key);
     sock.contactNameMap = loadPersistedContactNameMap(key);
@@ -642,10 +707,16 @@ export async function initSession(tenantId) {
     sessions.set(key, sock);
 
     if (sock.connectionStatus === 'reconnecting') {
+      setReconnectMeta(sock, 'restoring_saved_session', 'The service is restoring the previously saved WhatsApp session.');
       console.log(`[Session Restore Pending] Tenant ${key}`, {
         meId: state?.creds?.me?.id || null,
       });
-      fireWebhook(key, { event: 'status_change', status: 'reconnecting' });
+      fireWebhook(key, {
+        event: 'status_change',
+        status: 'reconnecting',
+        reconnect_reason: sock.reconnectReason,
+        reconnect_detail: sock.reconnectDetail,
+      });
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -669,12 +740,14 @@ export async function initSession(tenantId) {
       if (qr) {
         sock.qrCode = qr;
         sock.connectionStatus = 'pending_qr';
+        setReconnectMeta(sock, null, null);
         fireWebhook(key, { event: 'status_change', status: 'pending_qr' });
       }
 
       if (connection === 'open') {
         sock.qrCode = null;
         sock.connectionStatus = 'connected';
+        setReconnectMeta(sock, null, null);
         sock.hasEverConnected = true;
         resetReconnectState(key);
         console.log(`[Session Open] Tenant ${key}`, {
@@ -695,6 +768,7 @@ export async function initSession(tenantId) {
         const conflictDisconnect = isConflictDisconnect(statusCode, lastDisconnect);
         const loggedOut = isHardLoggedOutDisconnect(sock, statusCode, lastDisconnect);
         const shouldReconnect = !loggedOut;
+        const disconnectMeta = summarizeDisconnect(statusCode, lastDisconnect);
 
         console.log(`[Connection Close] Tenant ${key}`, {
           statusCode,
@@ -706,8 +780,14 @@ export async function initSession(tenantId) {
         if (loggedOut) {
           sessions.delete(key);
           sock.connectionStatus = 'disconnected';
+          setReconnectMeta(sock, disconnectMeta.reason, disconnectMeta.detail);
           resetReconnectState(key);
-          fireWebhook(key, { event: 'status_change', status: 'disconnected' });
+          fireWebhook(key, {
+            event: 'status_change',
+            status: 'disconnected',
+            reconnect_reason: sock.reconnectReason,
+            reconnect_detail: sock.reconnectDetail,
+          });
 
           if (fs.existsSync(authDir)) {
             fs.rmSync(authDir, { recursive: true, force: true });
@@ -721,7 +801,13 @@ export async function initSession(tenantId) {
           || conflictDisconnect;
 
         sock.connectionStatus = 'reconnecting';
-        fireWebhook(key, { event: 'status_change', status: 'reconnecting' });
+        setReconnectMeta(sock, disconnectMeta.reason, disconnectMeta.detail);
+        fireWebhook(key, {
+          event: 'status_change',
+          status: 'reconnecting',
+          reconnect_reason: sock.reconnectReason,
+          reconnect_detail: sock.reconnectDetail,
+        });
 
         const attemptCount = incrementReconnectAttempts(key);
         const reconnectDecision = shouldStopReconnect(sock, statusCode, lastDisconnect);
@@ -736,16 +822,22 @@ export async function initSession(tenantId) {
           sock.connectionStatus = reconnectDecision.reason === 'reconnect_limit_reached'
             ? 'reconnect_failed'
             : 'disconnected';
+          setReconnectMeta(
+            sock,
+            reconnectDecision.reason || disconnectMeta.reason,
+            reconnectDecision.detail || disconnectMeta.detail,
+          );
           fireWebhook(key, {
             event: 'status_change',
             status: sock.connectionStatus,
-            reconnect_reason: reconnectDecision.reason,
-            reconnect_detail: reconnectDecision.detail,
+            reconnect_reason: sock.reconnectReason,
+            reconnect_detail: sock.reconnectDetail,
           });
           return;
         }
 
-        const reconnectDelay = conflictDisconnect ? 1000 : (isRestartRequired ? 1500 : 5000);
+        const fastDelay = conflictDisconnect ? 1000 : (isRestartRequired ? 1500 : 5000);
+        const reconnectDelay = attemptCount > MAX_FAST_RECONNECT_ATTEMPTS ? SLOW_RECONNECT_DELAY_MS : fastDelay;
         console.log(`[Reconnect] Tenant ${key} reconnecting in ${reconnectDelay}ms (statusCode=${statusCode}, attempt=${attemptCount})`);
 
         setTimeout(() => {
@@ -1191,7 +1283,16 @@ export async function addParticipantToGroup(tenantId, groupJid, phone) {
   }
 
   const participantJid = `${normalizedPhone}@s.whatsapp.net`;
-  const [result] = await sock.groupParticipantsUpdate(normalizedGroupJid, [participantJid], 'add');
+  let result;
+
+  try {
+    [result] = await sock.groupParticipantsUpdate(normalizedGroupJid, [participantJid], 'add');
+  } catch (error) {
+    error.sessionStatus = sock?.connectionStatus || 'disconnected';
+    error.reconnectReason = sock?.reconnectReason || null;
+    error.reconnectDetail = sock?.reconnectDetail || null;
+    throw error;
+  }
 
   return result || { status: 'unknown', jid: participantJid };
 }

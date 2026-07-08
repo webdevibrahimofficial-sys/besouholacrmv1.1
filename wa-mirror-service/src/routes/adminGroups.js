@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { fetchAdminGroups, addParticipantToGroup, sendGroupInviteLink } from '../sessions/manager.js';
+import { fetchAdminGroups, addParticipantToGroup, getSession, sendGroupInviteLink } from '../sessions/manager.js';
 
 const router = Router();
 
@@ -18,7 +18,17 @@ router.post('/sessions/:tenantId/groups/:groupJid/add-participant', async (req, 
     const result = await addParticipantToGroup(req.params.tenantId, req.params.groupJid, phone);
     return res.json({ result });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    const sock = getSession(req.params.tenantId);
+    const sessionStatus = error.sessionStatus || sock?.connectionStatus || 'disconnected';
+    const reconnectReason = error.reconnectReason || sock?.reconnectReason || null;
+    const reconnectDetail = error.reconnectDetail || sock?.reconnectDetail || null;
+
+    return res.status(sessionStatus === 'connected' ? 500 : 409).json({
+      error: error.message,
+      status: sessionStatus,
+      reconnect_reason: reconnectReason,
+      reconnect_detail: reconnectDetail,
+    });
   }
 });
 

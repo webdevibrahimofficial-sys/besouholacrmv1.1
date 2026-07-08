@@ -11,6 +11,7 @@ import lightLogo from '@assets/be-souhola-logo-light.png'
 import darkLogo from '@assets/be-souhola-logo-dark.png'
 import { api } from '@utils/api' // Ensure api utility is imported
 import AvatarImage from '@components/AvatarImage'
+import { isSystemAdminContext } from '@utils/authRouting'
 
 // Custom Avatar Component removed - now imported from @components/AvatarImage
 
@@ -78,7 +79,7 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
   const isRTL = i18n.language === 'ar'
   const navigate = useNavigate()
   const currentLogo = theme === 'dark' ? darkLogo : lightLogo;
-  const { user, logout, fetchCompanyInfo } = useAppState()
+  const { user, permissions, subscriptionPlan, panelMode, logout, fetchCompanyInfo } = useAppState()
   
   // Helper to resolve full image URL
   const getFullAvatarUrl = (url) => {
@@ -187,7 +188,7 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
     setTheme(isLight ? 'dark' : 'light');
   };
 
-  const isSuperAdmin = !!user?.is_super_admin
+  const isSuperAdmin = isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })
   
   const canViewCompanyProfile = (() => {
     const role = (user?.role || '').toLowerCase();

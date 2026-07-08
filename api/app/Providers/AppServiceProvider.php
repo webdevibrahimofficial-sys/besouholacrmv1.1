@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\AdminEventNotificationService;
 use App\Contracts\MetaApiClientInterface;
 use App\Services\Meta\RealMetaApiClient;
 use App\Services\Meta\MockMetaApiClient;
@@ -16,7 +17,9 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Notifications\Events\NotificationSent;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -89,6 +92,16 @@ class AppServiceProvider extends ServiceProvider
         \App\Models\LeadAction::observe(\App\Observers\LeadActionObserver::class);
 
         Event::listen(NotificationSent::class, SendFcmNotificationForDatabaseChannel::class);
+        Queue::failing(function (JobFailed $event) {
+            app(AdminEventNotificationService::class)->safe(function () use ($event) {
+                app(AdminEventNotificationService::class)->notifyQueueFailure(
+                    $event->job->resolveName(),
+                    (string) $event->connectionName,
+                    (string) $event->job->getQueue(),
+                    $event->exception->getMessage()
+                );
+            });
+        });
 
         RateLimiter::for('api', function (Request $request) {
             $userId = $request->user()?->id;

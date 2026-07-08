@@ -319,18 +319,24 @@ class WhatsappMirrorGroupContactController extends Controller
         $response = $client->addParticipantToGroup($tenantId, $targetGroupId, $phone);
 
         if (!$response->successful()) {
+            $details = (array) ($response->json() ?? []);
+            $reason = !empty($details['reconnect_reason']) ? 'unknown_error' : 'unknown_error';
+            $friendlyMessage = trim((string) ($details['reconnect_detail'] ?? '')) ?: $this->buildFriendlyAddFailureHint($reason);
             $updatedContact = $this->updateGroupActionState($contact, [
                 'group_action_status' => 'add_failed',
-                'group_action_reason' => 'unknown_error',
-                'group_action_message' => $this->buildFriendlyAddFailureHint('unknown_error'),
+                'group_action_reason' => $reason,
+                'group_action_message' => $friendlyMessage,
                 'last_target_group_jid' => $targetGroupId,
                 'last_target_group_name' => $targetGroupName,
                 'last_add_attempt_at' => now(),
             ]);
 
             return response()->json([
-                'message' => 'Failed to add contact to group.',
-                'details' => $response->json(),
+                'message' => !empty($details['reconnect_detail'])
+                    ? 'WhatsApp Mirror disconnected while trying to add this participant.'
+                    : 'Failed to add contact to group.',
+                'details' => $details,
+                'friendly_message' => $friendlyMessage,
                 'contact' => $updatedContact,
             ], $response->status() ?: 500);
         }
@@ -354,6 +360,7 @@ class WhatsappMirrorGroupContactController extends Controller
                 'message' => $this->buildGroupAddFailureMessage($result),
                 'details' => $result,
                 'friendly_message' => $this->buildFriendlyAddFailureHint($reason),
+                'fallback_action' => in_array($reason, ['privacy_restricted', 'group_admin_only'], true) ? 'send_invite' : null,
                 'contact' => $updatedContact,
             ], 422);
         }
@@ -426,10 +433,12 @@ class WhatsappMirrorGroupContactController extends Controller
 
             $response = $client->addParticipantToGroup($tenantId, $groupId, $phone);
             if (!$response->successful()) {
+                $details = (array) ($response->json() ?? []);
+                $friendlyMessage = trim((string) ($details['reconnect_detail'] ?? '')) ?: $this->buildFriendlyAddFailureHint('unknown_error');
                 $this->updateGroupActionState($contact, [
                     'group_action_status' => 'add_failed',
                     'group_action_reason' => 'unknown_error',
-                    'group_action_message' => $this->buildFriendlyAddFailureHint('unknown_error'),
+                    'group_action_message' => $friendlyMessage,
                     'last_target_group_jid' => $groupId,
                     'last_target_group_name' => $groupName,
                     'last_add_attempt_at' => now(),
@@ -438,8 +447,10 @@ class WhatsappMirrorGroupContactController extends Controller
                     'contact_id' => (int) $contact->id,
                     'phone' => $phone,
                     'ok' => false,
-                    'message' => 'Failed to add contact to group.',
-                    'details' => $response->json(),
+                    'message' => !empty($details['reconnect_detail'])
+                        ? 'WhatsApp Mirror disconnected while trying to add this participant.'
+                        : 'Failed to add contact to group.',
+                    'details' => $details,
                 ];
                 continue;
             }

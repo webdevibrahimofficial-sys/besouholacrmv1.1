@@ -14,6 +14,8 @@ class WhatsappMirrorSession extends Model
         'last_connected_at',
         'last_disconnected_at',
         'history_synced_at',
+        'reconnect_reason',
+        'reconnect_detail',
     ];
 
     protected $casts = [

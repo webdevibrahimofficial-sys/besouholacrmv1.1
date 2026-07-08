@@ -44,6 +44,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'check_api_key_expiration' => \App\Http\Middleware\CheckApiKeyExpiration::class,
             'csp' => \App\Http\Middleware\ContentSecurityPolicy::class,
             'ensure.super_admin' => \App\Http\Middleware\EnsureSuperAdmin::class,
+            'impersonation.active' => \App\Http\Middleware\EnsureActiveImpersonationSession::class,
+            'impersonation.restrict' => \App\Http\Middleware\PreventDangerousImpersonatedActions::class,
         ]);
 
         $middleware->web(append: [
@@ -55,6 +57,7 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\ApplyTenantSmtpSettings::class,
             \App\Http\Middleware\ContentSecurityPolicy::class,
             \App\Http\Middleware\NormalizeCorsHeaders::class,
+            \App\Http\Middleware\AttachImpersonationContext::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

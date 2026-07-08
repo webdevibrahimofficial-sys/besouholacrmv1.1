@@ -180,6 +180,107 @@ class WhatsappMirrorIntegrationTest extends TestCase
         ]);
     }
 
+    public function test_status_reports_reconnecting_only_within_grace_window(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Admin',
+        ]);
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+            'last_connected_at' => now()->subMinutes(5),
+            'last_disconnected_at' => now()->subSeconds(8),
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'http://127.0.0.1:3000/sessions/*/status' => Http::response([
+                'status' => 'disconnected',
+            ], 200),
+        ]);
+
+        $this->getJson('/api/whatsapp-mirror/status')
+            ->assertOk()
+            ->assertJsonPath('status', 'reconnecting');
+
+        $this->assertSame(
+            'reconnecting',
+            WhatsappMirrorSession::where('tenant_id', $tenant->id)->value('status')
+        );
+    }
+
+    public function test_status_marks_reconnect_failed_after_grace_window_expires(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Admin',
+        ]);
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+            'last_connected_at' => now()->subMinutes(5),
+            'last_disconnected_at' => now()->subSeconds(45),
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'http://127.0.0.1:3000/sessions/*/status' => Http::response([
+                'status' => 'disconnected',
+            ], 200),
+        ]);
+
+        $this->getJson('/api/whatsapp-mirror/status')
+            ->assertOk()
+            ->assertJsonPath('status', 'reconnect_failed');
+
+        $this->assertSame(
+            'reconnect_failed',
+            WhatsappMirrorSession::where('tenant_id', $tenant->id)->value('status')
+        );
+    }
+
+    public function test_status_exposes_reconnect_reason_and_detail(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Admin',
+        ]);
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'reconnect_failed',
+            'connected_phone_number' => '201099999999',
+            'last_connected_at' => now()->subMinutes(5),
+            'last_disconnected_at' => now()->subMinute(),
+            'reconnect_reason' => 'session_conflict',
+            'reconnect_detail' => 'WhatsApp reported a session conflict during the last reconnect attempt.',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'http://127.0.0.1:3000/sessions/*/status' => Http::response([
+                'status' => 'disconnected',
+            ], 200),
+        ]);
+
+        $this->getJson('/api/whatsapp-mirror/status')
+            ->assertOk()
+            ->assertJsonPath('status', 'reconnect_failed')
+            ->assertJsonPath('reconnect_reason', 'session_conflict')
+            ->assertJsonPath('reconnect_detail', 'WhatsApp reported a session conflict during the last reconnect attempt.');
+    }
+
     public function test_group_contact_conversion_rejects_poisoned_lid_phone_even_if_unresolved_flag_is_false(): void
     {
         $tenant = Tenant::factory()->create();

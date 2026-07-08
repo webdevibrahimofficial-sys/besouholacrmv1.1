@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Tenant;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\AdminEventNotificationService;
 use App\Services\SubscriptionTransactionService;
 use App\Services\TenantSubscriptionContractService;
 use App\Services\TenantService;
@@ -25,18 +26,21 @@ class SuperAdminController extends Controller
     protected TenantStatusService $tenantStatusService;
     protected TenantSubscriptionContractService $contractService;
     protected SubscriptionTransactionService $transactionService;
+    protected AdminEventNotificationService $adminEventNotifications;
 
     public function __construct(
         TenantService $tenantService,
         TenantStatusService $tenantStatusService,
         TenantSubscriptionContractService $contractService,
-        SubscriptionTransactionService $transactionService
+        SubscriptionTransactionService $transactionService,
+        AdminEventNotificationService $adminEventNotifications
     )
     {
         $this->tenantService = $tenantService;
         $this->tenantStatusService = $tenantStatusService;
         $this->contractService = $contractService;
         $this->transactionService = $transactionService;
+        $this->adminEventNotifications = $adminEventNotifications;
     }
 
     protected function tenantAccessShouldBeBlocked(Tenant $tenant): bool
@@ -325,6 +329,8 @@ class SuperAdminController extends Controller
             ]
         );
 
+        $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyTenantCreated($tenant));
+
         return response()->json([
             'message' => 'Tenant created successfully',
             'tenant' => $tenant,
@@ -519,6 +525,10 @@ class SuperAdminController extends Controller
                 'attributes' => $tenant->only(['name', 'slug', 'subscription_plan', 'company_type', 'status', 'start_date', 'end_date', 'users_limit']),
             ]
         );
+
+        if ($previousStatus !== 'active' && $currentStatus === 'active') {
+            $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyTenantActivated($tenant));
+        }
 
         return response()->json([
             'message' => 'Tenant updated successfully',

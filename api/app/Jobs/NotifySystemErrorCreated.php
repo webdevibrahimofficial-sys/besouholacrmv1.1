@@ -4,7 +4,9 @@ namespace App\Jobs;
 
 use App\Models\SystemError;
 use App\Models\User;
+use App\Data\AdminNotificationPayload;
 use App\Notifications\SystemNotification;
+use App\Services\AdminNotificationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -42,6 +44,37 @@ class NotifySystemErrorCreated implements ShouldQueue, NotTenantAware
             $superAdmins = User::withoutGlobalScopes()
                 ->where('is_super_admin', true)
                 ->get();
+
+            if (config('features.admin_notifications_v1')) {
+                app(AdminNotificationService::class)->notify(
+                    new AdminNotificationPayload(
+                        type: 'system_error',
+                        title: $title,
+                        body: $message,
+                        category: 'system',
+                        severity: in_array(strtolower((string) $error->level), ['critical', 'error'], true) ? 'critical' : 'warning',
+                        source: (string) ($error->service ?? 'system'),
+                        relatedTenantId: $error->tenant_id ? (int) $error->tenant_id : null,
+                        data: [
+                            'system_error_id' => $error->id,
+                            'tenant_id' => $error->tenant_id,
+                            'status' => $error->status,
+                            'level' => $error->level,
+                            'service' => $error->service,
+                        ],
+                        actionUrl: '/system/error-log',
+                        channels: ['in_app', 'email', 'push'],
+                        dedupeKey: sprintf(
+                            'system_error:%s:%s:%s',
+                            (string) ($error->tenant_id ?? 'none'),
+                            (string) ($error->service ?? 'unknown'),
+                            (string) ($error->status ?? 'new')
+                        ),
+                    ),
+                    $superAdmins
+                );
+                return;
+            }
 
             foreach ($superAdmins as $admin) {
                 try {

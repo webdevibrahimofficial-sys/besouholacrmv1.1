@@ -4,6 +4,7 @@ import { login as svcLogin, logout as svcLogout, getProfile } from '@services/au
 import { captureDeviceInfo, saveDeviceForUser } from '@utils/device'
 import { api } from '@utils/api'
 import { preloadRotationSettings } from '@services/rotationService'
+import { isSystemAdminContext, shouldUseAdminPanel } from '@utils/authRouting'
 import i18n from '../../i18n'
 import { ensureEcho, disconnectEcho } from '../../echo'
 
@@ -13,7 +14,10 @@ export function AppStateProvider({ children }) {
   const navigate = useNavigate()
   const [user, setUser] = useState(null)
   const [company, setCompany] = useState(null)
+  const [impersonation, setImpersonation] = useState(null)
   const [subscription, setSubscription] = useState(null)
+  const [subscriptionPlan, setSubscriptionPlan] = useState(null)
+  const [panelMode, setPanelMode] = useState(null)
   const [activeModules, setActiveModules] = useState([])
   const [permissions, setPermissions] = useState([])
   const [bootstrapped, setBootstrapped] = useState(false)
@@ -73,8 +77,37 @@ export function AppStateProvider({ children }) {
     }
 
     setCompany(payload.company || payload.tenant || null)
+
+    let nextImpersonation = payload.impersonation || null
+    try {
+      const bootstrapRaw = window.sessionStorage.getItem('impersonation_bootstrap')
+      if (bootstrapRaw) {
+        // The bootstrap key is only a one-shot fallback to bridge the gap right
+        // after ImpersonationCallback, before the backend profile confirms the
+        // session. Once we've read it here, the backend response (payload.impersonation)
+        // is authoritative, so we ALWAYS clear it — otherwise a stale 'active: true'
+        // value survives (in sessionStorage) past logout/exit and silently blocks
+        // super admin routing on the next login in the same tab.
+        if (!nextImpersonation?.active) {
+          try {
+            const bootstrap = JSON.parse(bootstrapRaw)
+            if (bootstrap?.active) {
+              nextImpersonation = bootstrap
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+        window.sessionStorage.removeItem('impersonation_bootstrap')
+      }
+    } catch {
+      // ignore storage errors
+    }
+    setImpersonation(nextImpersonation)
     
     setSubscription(payload.subscription || null)
+    setSubscriptionPlan(payload.subscription_plan || null)
+    setPanelMode(payload.panel_mode || null)
 
     setPermissions(payload.user_permissions || payload.permissions || [])
     
@@ -94,7 +127,12 @@ export function AppStateProvider({ children }) {
     // Start / refresh WebSocket connection (Reverb) after a valid token exists.
     try { ensureEcho() } catch {}
 
-    const isSuperAdmin = !!payload?.user?.is_super_admin
+    const isSuperAdmin = isSystemAdminContext(payload, {
+      permissions: payload?.user_permissions || payload?.permissions,
+      subscriptionPlan: payload?.subscription_plan,
+      panelMode: payload?.panel_mode,
+      isSystemAdmin: payload?.is_system_admin,
+    })
 
     if (isSuperAdmin) {
       return payload
@@ -135,6 +173,32 @@ export function AppStateProvider({ children }) {
     if (result?.requires_2fa) {
       return result
     }
+
+    const shouldSkipProfileFetchDuringRedirect = (() => {
+      if (!result?.redirected || typeof window === 'undefined') {
+        return false
+      }
+
+      if (result?.redirect_mode === 'local_hash' || result?.redirect_mode === 'same_origin') {
+        return false
+      }
+
+      if (!result?.redirect_url) {
+        return false
+      }
+
+      try {
+        const targetUrl = new URL(result.redirect_url, window.location.origin)
+        return targetUrl.origin !== window.location.origin
+          || targetUrl.hostname !== window.location.hostname
+      } catch {
+        return false
+      }
+    })()
+
+    if (shouldSkipProfileFetchDuringRedirect) {
+      return result
+    }
     
     // Always fetch latest profile data to ensure state is fresh, 
     // even if redirection is flagged (e.g. for Super Admin)
@@ -151,7 +215,12 @@ export function AppStateProvider({ children }) {
     } catch {}
     
     // Check if user is Super Admin
-    const isSuperAdmin = !!payload?.user?.is_super_admin || !!result?.isSuperAdmin;
+    const isSuperAdmin = isSystemAdminContext(payload, {
+      permissions: payload?.user_permissions || payload?.permissions,
+      subscriptionPlan: payload?.subscription_plan,
+      panelMode: payload?.panel_mode,
+      isSystemAdmin: payload?.is_system_admin,
+    }) || !!result?.isSuperAdmin;
 
     if (isSuperAdmin) {
        // Super Admin routing is handled in Login.jsx
@@ -162,6 +231,11 @@ export function AppStateProvider({ children }) {
       ...result,
       user: payload?.user || null,
       tenant: payload?.company || payload?.tenant || null,
+      impersonation: payload?.impersonation || null,
+      user_permissions: payload?.user_permissions || payload?.permissions || result?.user_permissions || [],
+      subscription_plan: payload?.subscription_plan || result?.subscription_plan || null,
+      panel_mode: payload?.panel_mode || result?.panel_mode || null,
+      is_system_admin: payload?.is_system_admin ?? result?.is_system_admin ?? null,
     }
   }, [fetchCompanyInfo])
 
@@ -170,12 +244,15 @@ export function AppStateProvider({ children }) {
     setUser(null)
     setCompany(null)
     setSubscription(null)
+    setSubscriptionPlan(null)
+    setPanelMode(null)
     setActiveModules([])
     setPermissions([])
     
     // 2. Clear tokens immediately (don't wait for server)
     window.localStorage.removeItem('token')
     window.sessionStorage.removeItem('token')
+    try { window.sessionStorage.removeItem('impersonation_bootstrap') } catch {}
     try { disconnectEcho() } catch {}
      
     // Clear cookies with domain handling (Matching auth.js logic)
@@ -240,7 +317,7 @@ export function AppStateProvider({ children }) {
     if (!moduleKey) return false
     
     const roleLower = String(user?.role || '').toLowerCase()
-    const isSuperAdmin = !!user?.is_super_admin
+    const isSuperAdmin = isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })
     const companyTypeLower = String(company?.company_type || '').toLowerCase()
     const isRealEstateTenant = companyTypeLower.includes('real')
     
@@ -311,12 +388,15 @@ export function AppStateProvider({ children }) {
     }
     
     return true
-  }, [activeModules, permissions, user, company])
+  }, [activeModules, permissions, user, company, subscriptionPlan])
 
   const value = useMemo(() => ({
     user,
     company,
+    impersonation,
     subscription,
+    subscriptionPlan,
+    panelMode,
     activeModules,
     permissions,
     isSubscriptionActive,
@@ -331,7 +411,7 @@ export function AppStateProvider({ children }) {
     inventoryBadges,
       refreshInventoryBadges,
       saveUiPreference,
-    }), [user, company, subscription, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges, saveUiPreference])
+    }), [user, company, impersonation, subscription, subscriptionPlan, panelMode, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges, saveUiPreference])
 
 useEffect(() => {
   const getCookie = (name) => {
@@ -368,10 +448,23 @@ useEffect(() => {
 }, [fetchCompanyInfo]);
 
  useEffect(() => {
+   if (!bootstrapped || !user) return
+
+   const hashPath = window.location.hash.replace(/^#/, '') || '/'
+   const path = hashPath.split('?')[0]
+   if (
+     path === '/dashboard' &&
+     shouldUseAdminPanel(user, impersonation, { permissions, subscriptionPlan, panelMode })
+   ) {
+     navigate('/system/dashboard', { replace: true })
+   }
+ }, [bootstrapped, user, impersonation, permissions, subscriptionPlan, panelMode, navigate])
+
+ useEffect(() => {
    if (!user) return
-   if (user?.is_super_admin) return
+   if (isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })) return
    refreshInventoryBadges()
- }, [user, subscription, refreshInventoryBadges]);
+ }, [user, subscription, refreshInventoryBadges, permissions, subscriptionPlan, panelMode])
 
   return (
     <AppStateContext.Provider value={value}>

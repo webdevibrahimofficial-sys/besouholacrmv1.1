@@ -35,6 +35,7 @@ describe('Login Component', () => {
     useAppState.mockReturnValue({
       login: mockLogin,
       user: null,
+      impersonation: null,
       bootstrapped: true,
     });
     useNavigate.mockReturnValue(mockNavigate);
@@ -84,6 +85,27 @@ describe('Login Component', () => {
 
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/dashboard'); // fallback logic
+    });
+  });
+
+  test('redirects super admin with active impersonation to tenant dashboard', async () => {
+    mockLogin.mockResolvedValue({
+      user: { is_super_admin: true },
+      impersonation: { active: true },
+    });
+
+    render(<Login />);
+
+    const emailInput = screen.getByLabelText(/Email Address/i);
+    const passwordInput = screen.getByLabelText(/Password/i);
+    const submitButton = screen.getByRole('button', { name: /Sign in/i });
+
+    fireEvent.change(emailInput, { target: { value: 'admin@example.com' } });
+    fireEvent.change(passwordInput, { target: { value: 'password' } });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
     });
   });
 });

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Tenant;
 use App\Models\TenantBackup;
 use App\Models\TenantBackupRestore;
+use App\Services\AdminEventNotificationService;
 use App\Services\BackupRestoreService;
 use App\Services\TenantBackupService;
 use Illuminate\Http\Request;
@@ -19,13 +20,22 @@ class SuperAdminBackupController extends Controller
 
         $base = TenantBackup::query();
         $lastSuccess = (clone $base)->where('status', 'success')->latest('finished_at')->first();
+        $storageUsedBytes = (int) ((clone $base)->sum('size_bytes') ?: 0);
+        $storageWarningBytes = max(0, (int) config('admin_notifications.storage_warning_bytes', 0));
+
+        if ($storageWarningBytes > 0 && $storageUsedBytes >= $storageWarningBytes) {
+            app(AdminEventNotificationService::class)->safe(fn () => app(AdminEventNotificationService::class)->notifyStorageLimitExceeded(
+                $storageUsedBytes,
+                $storageWarningBytes
+            ));
+        }
 
         return response()->json([
             'last_successful_backup_at' => $lastSuccess?->finished_at,
             'last_successful_backup' => $lastSuccess ? $this->transformBackup($lastSuccess) : null,
             'running_jobs' => (clone $base)->whereIn('status', ['pending', 'running'])->count(),
             'failed_backups' => (clone $base)->where('status', 'failed')->count(),
-            'storage_used_bytes' => (int) ((clone $base)->sum('size_bytes') ?: 0),
+            'storage_used_bytes' => $storageUsedBytes,
             'scheduled_jobs' => 0,
             'protected_tenants' => (clone $base)->whereNotNull('tenant_id')->where('status', 'success')->distinct('tenant_id')->count('tenant_id'),
             'retention_days' => 30,

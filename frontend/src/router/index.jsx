@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { lazyRetry } from '../utils/lazyRetry'
+import { shouldUseAdminPanel } from '../utils/authRouting'
 
 const SuperAdminLayout = lazyRetry(() => import('../components/SuperAdminLayout'))
 
@@ -12,6 +13,7 @@ const Login = lazyRetry(() => import('../features/Auth/Login'))
 const ForgotPassword = lazyRetry(() => import('../features/Auth/ForgotPassword'))
 const ResetPassword = lazyRetry(() => import('../features/Auth/ResetPassword'))
 const AuthCallback = lazyRetry(() => import('../features/Auth/AuthCallback'))
+const ImpersonationCallback = lazyRetry(() => import('../features/Impersonation/ImpersonationCallback'))
 const GoogleAuthCallback = lazyRetry(() => import('../features/Auth/GoogleAuthCallback'))
 
 // --- Pages (Root) ---
@@ -171,6 +173,8 @@ const SystemSubscriptions   = lazy(() => import('../pages/SystemSubscriptions'))
 const SystemSettings        = lazy(() => import('../pages/SystemSettings'))
 const SystemIntegrations    = lazy(() => import('../pages/SystemIntegrations'))
 const SystemErrorLog        = lazy(() => import('../pages/SystemErrorLog'))
+const AdminNotificationsArchive = lazy(() => import('../pages/system/AdminNotificationsArchive'))
+const AdminNotificationSettings = lazy(() => import('../pages/system/AdminNotificationSettings'))
 
 // --- User Management ---
 const UserManagementUsers = lazy(() => import('@features/Users/Users.jsx'))
@@ -231,19 +235,34 @@ function ProtectedModuleRoute({ moduleKey, requiredPermission }) {
 }
 
 function SuperAdminRoute() {
-  const { user } = useAppState()
-  const isSuperAdmin = !!user?.is_super_admin
+  const { user, impersonation, permissions, subscriptionPlan, panelMode } = useAppState()
 
-  if (!isSuperAdmin) {
+  if (!shouldUseAdminPanel(user, null, { permissions, subscriptionPlan, panelMode }) && !impersonation?.active) {
     return <Navigate to="/dashboard" replace />
   }
+
+  if (impersonation?.active) {
+    return <Navigate to="/dashboard" replace />
+  }
+
   return <Outlet />
 }
+
+function DashboardRoute() {
+  const { user, impersonation, permissions, subscriptionPlan, panelMode } = useAppState()
+
+  if (shouldUseAdminPanel(user, impersonation, { permissions, subscriptionPlan, panelMode })) {
+    return <Navigate to="/system/dashboard" replace />
+  }
+
+  return <Dashboard />
+}
+
 function SubscriptionGuard() { 
   const { bootstrapped, user } = useAppState();
   
   // 1. التحقق إذا كان الرابط الحالي هو رابط استلام التوكن
-  const isAuthCallback = window.location.hash.includes('/auth/callback');
+  const isAuthCallback = window.location.hash.includes('/auth/callback') || window.location.hash.includes('/auth/impersonation-callback');
 
   // 2. التحقق من وجود توكن في الكوكيز أو LocalStorage أو SessionStorage
   const hasToken = (() => {
@@ -262,7 +281,11 @@ function SubscriptionGuard() {
   }
 
   // السماح بالدخول إذا كان المسار هو callback أو إذا وجدنا توكن
-  if (isAuthCallback || hasToken) {
+  if (isAuthCallback) {
+    return <Outlet />;
+  }
+
+  if (hasToken && user) {
     return <Outlet />;
   }
 
@@ -285,6 +308,7 @@ export default function AppRouter() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/auth/impersonation-callback" element={<ImpersonationCallback />} />
         <Route path="/auth/google/callback" element={<GoogleAuthCallback />} />
         <Route path="/suspended" element={<Suspended />} />
         <Route path="/signup" element={<Suspended />} /> {/* Placeholder, should be Signup */}
@@ -300,7 +324,7 @@ export default function AppRouter() {
 
         <Route element={<SubscriptionGuard />}>        
           <Route element={<Layout />}>        
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/dashboard" element={<DashboardRoute />} />
             <Route element={<ProtectedModuleRoute moduleKey="customers" />}>
               <Route path="/customers" element={<Customers />} />
             </Route>
@@ -490,6 +514,8 @@ export default function AppRouter() {
               <Route path="/system/integrations" element={<SystemIntegrations />} />
               <Route path="/system/website" element={<WebsiteCms />} />
               <Route path="/system/error-log" element={<SystemErrorLog />} />
+              <Route path="/system/notifications" element={<AdminNotificationsArchive />} />
+              <Route path="/system/notifications/settings" element={<AdminNotificationSettings />} />
               <Route path="/system/backup" element={<Backup />} />
               <Route path="/system/transactions" element={<SystemTransactions />} />
               

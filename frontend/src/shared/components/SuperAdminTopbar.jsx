@@ -5,8 +5,10 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   Sun, Moon, LogOut, User, Lock, Menu, X, Search, ChevronDown, Building2, Loader2,
+  Bell,
 } from 'lucide-react';
 import { api } from '@utils/api';
+import { useAdminNotifications } from '@hooks/useAdminNotifications';
 
 const FlagUS = () => (
   <svg viewBox="0 0 640 480" className="w-5 h-3.5 object-cover rounded-[2px] shadow-sm flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
@@ -50,12 +52,28 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
   const [tenantSearchOpen, setTenantSearchOpen] = useState(false);
   const [tenantSearchLoading, setTenantSearchLoading] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [adminNotificationsOpen, setAdminNotificationsOpen] = useState(false);
+  const [notificationTab, setNotificationTab] = useState('all');
+  const [notificationSeverity, setNotificationSeverity] = useState('all');
+  const [notificationQuery, setNotificationQuery] = useState('');
 
   const profileRef = useRef(null);
   const languageRef = useRef(null);
   const tenantSearchRef = useRef(null);
   const mobileSearchRef = useRef(null);
+  const notificationsRef = useRef(null);
   const tenantDebounceRef = useRef(null);
+  const {
+    enabled: adminNotificationsEnabled,
+    notifications: adminNotifications,
+    unreadCount,
+    loading: notificationsLoading,
+    fetchNotifications,
+    markAsRead,
+    markAllAsRead,
+    archive,
+    archiveAllRead,
+  } = useAdminNotifications(user);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -68,8 +86,12 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
       if (tenantSearchRef.current?.contains(event.target) || mobileSearchRef.current?.contains(event.target)) {
         return;
       }
+      if (notificationsRef.current?.contains(event.target)) {
+        return;
+      }
       setTenantSearchOpen(false);
       setMobileSearchOpen(false);
+      setAdminNotificationsOpen(false);
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -239,6 +261,54 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
     </div>
   );
 
+  const severityTone = (severity) => {
+    switch (String(severity || '').toLowerCase()) {
+      case 'critical':
+        return isLight ? 'bg-red-100 text-red-700' : 'bg-red-900/40 text-red-300';
+      case 'error':
+        return isLight ? 'bg-rose-100 text-rose-700' : 'bg-rose-900/40 text-rose-300';
+      case 'warning':
+        return isLight ? 'bg-amber-100 text-amber-700' : 'bg-amber-900/40 text-amber-300';
+      case 'success':
+        return isLight ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-900/40 text-emerald-300';
+      default:
+        return isLight ? 'bg-slate-100 text-slate-700' : 'bg-slate-800 text-slate-300';
+    }
+  };
+
+  const formatNotificationTime = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(i18n.language === 'ar' ? 'ar-EG' : 'en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
+  const filteredAdminNotifications = adminNotifications.filter((item) => {
+    if (notificationTab === 'active' && item.archived) return false;
+    if (notificationTab === 'unread' && (item.read || item.archived)) return false;
+    if (notificationTab === 'archived' && !item.archived) return false;
+    if (notificationSeverity !== 'all' && item.severity !== notificationSeverity) return false;
+
+    if (notificationQuery.trim()) {
+      const haystack = `${item.title || ''} ${item.body || ''} ${item.category || ''} ${item.source || ''}`.toLowerCase();
+      if (!haystack.includes(notificationQuery.trim().toLowerCase())) return false;
+    }
+
+    return true;
+  });
+
+  const refreshDropdown = useCallback(() => {
+    const params = {};
+    if (notificationSeverity !== 'all') params.severity = notificationSeverity;
+    if (notificationQuery.trim()) params.search = notificationQuery.trim();
+    return fetchNotifications(params).catch(() => {});
+  }, [fetchNotifications, notificationQuery, notificationSeverity]);
+
   const dropdownPanelClass = isLight
     ? 'border-slate-200 bg-white shadow-xl'
     : 'border-slate-700/60 bg-slate-900 shadow-2xl shadow-black/50';
@@ -303,6 +373,186 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 md:gap-3 lg:ml-0">
+          {adminNotificationsEnabled && (
+            <div className="relative z-[100]" ref={notificationsRef}>
+              <button
+                type="button"
+                onClick={() => setAdminNotificationsOpen((open) => !open)}
+                className={`relative ${iconBtnClass}`}
+                aria-label={t('Admin notifications')}
+                aria-expanded={adminNotificationsOpen}
+              >
+                <Bell size={18} />
+                {unreadCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-red-500 px-1 py-0.5 text-[10px] font-semibold text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                ) : null}
+              </button>
+              {adminNotificationsOpen && (
+                <div className={`absolute top-12 ${isRTL ? 'left-0' : 'right-0'} z-[120] w-[min(96vw,520px)] overflow-hidden rounded-2xl border ${dropdownPanelClass}`}>
+                  <div className={`border-b px-4 py-4 ${isLight ? 'border-slate-200' : 'border-slate-700'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{t('Admin Notifications')}</p>
+                        <p className={`mt-1 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {t('Live platform alerts and super admin activity.')}
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => markAllAsRead().catch(() => {})} className="shrink-0 text-xs text-blue-500 hover:text-blue-600">
+                        {t('Mark all read')}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {[
+                        { key: 'all', label: t('All') },
+                        { key: 'active', label: t('Inbox') },
+                        { key: 'unread', label: t('Unread') },
+                        { key: 'archived', label: t('Archived') },
+                      ].map((tab) => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setNotificationTab(tab.key)}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                            notificationTab === tab.key
+                              ? 'bg-blue-600 text-white'
+                              : isLight
+                                ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_140px]">
+                      <input
+                        type="search"
+                        value={notificationQuery}
+                        onChange={(event) => setNotificationQuery(event.target.value)}
+                        placeholder={t('Search notifications...')}
+                        className={`rounded-xl border px-3 py-2 text-sm outline-none transition focus:border-blue-400 ${
+                          isLight
+                            ? 'border-slate-200 bg-white text-slate-700 placeholder:text-slate-400'
+                            : 'border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500'
+                        }`}
+                      />
+                      <select
+                        value={notificationSeverity}
+                        onChange={(event) => setNotificationSeverity(event.target.value)}
+                        className={`rounded-xl border px-3 py-2 text-sm outline-none transition focus:border-blue-400 ${
+                          isLight
+                            ? 'border-slate-200 bg-white text-slate-700'
+                            : 'border-slate-700 bg-slate-950 text-slate-100'
+                        }`}
+                      >
+                        <option value="all">{t('All severities')}</option>
+                        <option value="critical">{t('Critical')}</option>
+                        <option value="error">{t('Error')}</option>
+                        <option value="warning">{t('Warning')}</option>
+                        <option value="success">{t('Success')}</option>
+                        <option value="info">{t('Info')}</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="max-h-[26rem] overflow-y-auto">
+                    {notificationsLoading ? (
+                      <div className={`px-4 py-8 text-sm ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {t('Loading notifications...')}
+                      </div>
+                    ) : !filteredAdminNotifications.length ? (
+                      <div className={`px-4 py-8 text-sm ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {t('No notifications match the current filters.')}
+                      </div>
+                    ) : (
+                      filteredAdminNotifications.slice(0, 12).map((item) => (
+                        <div
+                          key={item.id}
+                          className={`border-b px-4 py-3 transition ${isLight ? 'border-slate-100 hover:bg-slate-50/80' : 'border-slate-800 hover:bg-slate-800/70'} ${!item.read ? (isLight ? 'bg-blue-50/50' : 'bg-blue-950/10') : ''}`}
+                        >
+                          <div className="mb-1 flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                {!item.read ? <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" /> : null}
+                                <p className="truncate text-sm font-semibold">{item.title}</p>
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                                <span className={`rounded-full px-2 py-0.5 font-semibold ${severityTone(item.severity)}`}>
+                                  {item.severity}
+                                </span>
+                                <span className={isLight ? 'text-slate-400' : 'text-slate-500'}>{item.category}</span>
+                                <span className={isLight ? 'text-slate-300' : 'text-slate-600'}>•</span>
+                                <span className={isLight ? 'text-slate-400' : 'text-slate-500'}>{item.source}</span>
+                              </div>
+                            </div>
+                            <span className={`shrink-0 text-[11px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+                              {formatNotificationTime(item.createdAt)}
+                            </span>
+                          </div>
+
+                          <p className={`line-clamp-2 text-xs leading-5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {item.body || '-'}
+                          </p>
+
+                          <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] font-medium">
+                            {!item.read ? (
+                              <button type="button" onClick={() => markAsRead(item.id).catch(() => {})} className="text-blue-500 hover:text-blue-600">
+                                {t('Mark read')}
+                              </button>
+                            ) : null}
+                            {!item.archived ? (
+                              <button type="button" onClick={() => archive(item.id).catch(() => {})} className="text-amber-500 hover:text-amber-600">
+                                {t('Archive')}
+                              </button>
+                            ) : null}
+                            {item.actionUrl ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!item.read) {
+                                    await markAsRead(item.id).catch(() => {});
+                                  }
+                                  setAdminNotificationsOpen(false);
+                                  navigate(item.actionUrl);
+                                }}
+                                className="text-emerald-500 hover:text-emerald-600"
+                              >
+                                {t('Open')}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className={`flex items-center justify-between gap-2 border-t px-4 py-3 ${isLight ? 'border-slate-200 bg-slate-50/80' : 'border-slate-700 bg-slate-900/70'}`}>
+                    <div className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {t('{{count}} shown', { count: Math.min(filteredAdminNotifications.length, 12) })}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button type="button" className="text-xs text-amber-500" onClick={() => archiveAllRead().catch(() => {})}>
+                        {t('Archive read')}
+                      </button>
+                      <button type="button" className="text-xs text-slate-500" onClick={refreshDropdown}>
+                        {t('Refresh')}
+                      </button>
+                      <button type="button" className="text-xs text-blue-500" onClick={() => navigate('/system/notifications')}>
+                        {t('View all')}
+                      </button>
+                      <button type="button" className="text-xs text-blue-500" onClick={() => navigate('/system/notifications/settings')}>
+                        {t('Settings')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="relative z-[100]" ref={languageRef}>
             <button

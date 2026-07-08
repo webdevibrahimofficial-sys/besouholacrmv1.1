@@ -29,9 +29,12 @@ export default function WhatsAppMirrorConnection() {
 
   const [status, setStatus] = useState('disconnected')
   const [connectedPhoneNumber, setConnectedPhoneNumber] = useState(null)
+  const [reconnectReason, setReconnectReason] = useState(null)
+  const [reconnectDetail, setReconnectDetail] = useState(null)
   const [qrCode, setQrCode] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [showReconnectChoiceModal, setShowReconnectChoiceModal] = useState(false)
 
   const [activeDirectory, setActiveDirectory] = useState('unassigned')
   const [contacts, setContacts] = useState([])
@@ -53,6 +56,7 @@ export default function WhatsAppMirrorConnection() {
   const [adminGroups, setAdminGroups] = useState([])
   const [loadingAdminGroups, setLoadingAdminGroups] = useState(false)
   const [openGroupDropdownFor, setOpenGroupDropdownFor] = useState(null)
+  const [groupPickerAction, setGroupPickerAction] = useState('add')
   const [addingToGroup, setAddingToGroup] = useState(false)
   const [bulkAddOpen, setBulkAddOpen] = useState(false)
   const [bulkAddingToGroup, setBulkAddingToGroup] = useState(false)
@@ -164,6 +168,39 @@ export default function WhatsAppMirrorConnection() {
           : 'Scan the QR code from WhatsApp on your phone to finish the initial pairing.')
         : ''
 
+  const reconnectIssueLabel = useMemo(() => {
+    const reason = String(reconnectReason || '').trim()
+    if (!reason) return ''
+
+    if (isArabic) {
+      return ({
+        restoring_saved_session: 'يجري استعادة الجلسة المحفوظة.',
+        session_conflict: 'هناك تعارض جلسة مع واتساب.',
+        stream_errored: 'حدث خطأ في بث الاتصال مع واتساب.',
+        device_removed: 'تمت إزالة الجهاز المرتبط من الهاتف.',
+        multidevice_mismatch: 'هناك مشكلة توافق في الأجهزة المرتبطة.',
+        connection_failure: 'فشل اتصال مؤقت مع واتساب.',
+        restart_required: 'واتساب طلب إعادة تشغيل الجلسة.',
+        corrupted_auth_state: 'ملفات الجلسة المحلية تبدو تالفة.',
+        qr_expired_before_pairing: 'انتهت صلاحية QR قبل اكتمال الربط.',
+        session_disconnected: 'انقطعت جلسة واتساب بشكل غير متوقع.',
+      })[reason] || ''
+    }
+
+    return ({
+      restoring_saved_session: 'Restoring the saved session.',
+      session_conflict: 'WhatsApp reported a session conflict.',
+      stream_errored: 'The WhatsApp stream errored.',
+      device_removed: 'The linked device was removed from the phone.',
+      multidevice_mismatch: 'WhatsApp reported a multi-device mismatch.',
+      connection_failure: 'Temporary WhatsApp connection failure.',
+      restart_required: 'WhatsApp requested a session restart.',
+      corrupted_auth_state: 'The local auth state looks corrupted.',
+      qr_expired_before_pairing: 'The QR expired before pairing completed.',
+      session_disconnected: 'The WhatsApp session disconnected unexpectedly.',
+    })[reason] || ''
+  }, [isArabic, reconnectReason])
+
   useEffect(() => {
     checkStatus()
     startPolling()
@@ -256,13 +293,19 @@ export default function WhatsAppMirrorConnection() {
       if (!data) return
       setStatus(data.status || 'disconnected')
       setConnectedPhoneNumber(data.connected_phone_number || null)
+      setReconnectReason(data.reconnect_reason || null)
+      setReconnectDetail(data.reconnect_detail || null)
       if (data.status === 'pending_qr' && data.qr_base64) {
         setQrCode(data.qr_base64)
         setShowModal(true)
+        setReconnectReason(null)
+        setReconnectDetail(null)
       } else if (data.status === 'connected') {
         setShowModal(false)
         setQrCode(null)
-      } else if (data.status === 'reconnect_failed') {
+        setReconnectReason(null)
+        setReconnectDetail(null)
+      } else if (data.status === 'reconnect_failed' || data.status === 'disconnected') {
         setShowModal(false)
         setQrCode(null)
       }
@@ -393,6 +436,23 @@ export default function WhatsAppMirrorConnection() {
     return ['reconnect', 'reconnecting', 'conflict', 'timeout', 'temporar', 'session', 'stream errored'].some((token) => message.includes(token))
   }
 
+  const shouldAutoFallbackToInvite = (error) => {
+    const fallbackAction = String(error?.response?.data?.fallback_action || '').toLowerCase()
+    const reason = String(error?.response?.data?.contact?.group_action_reason || error?.response?.data?.details?.reason || '').toLowerCase()
+    return fallbackAction === 'send_invite' || ['privacy_restricted', 'group_admin_only'].includes(reason)
+  }
+
+  const sendInviteFallbackForJob = async (job) => {
+    const data = await whatsappMirrorService.sendContactInviteToGroup(job.contactId, job.groupId, job.groupName)
+    emitToast(
+      'success',
+      isArabic
+        ? `تعذرت الإضافة المباشرة، فتم إرسال رابط الدعوة إلى ${job.contactName || job.contactId} بدلًا من ذلك`
+        : `Direct add was blocked, so an invite link was sent to ${job.contactName || `#${job.contactId}`} instead`
+    )
+    return data
+  }
+
   const enqueueGroupAddJobs = (jobs) => {
     const normalizedJobs = Array.isArray(jobs)
       ? jobs
@@ -470,6 +530,24 @@ export default function WhatsAppMirrorConnection() {
               : `Added ${currentJob.contactName || `#${currentJob.contactId}`} to ${currentJob.groupName || 'the group'}`
           )
         } catch (error) {
+          if (shouldAutoFallbackToInvite(error)) {
+            try {
+              await sendInviteFallbackForJob(currentJob)
+              succeededThisPass += 1
+              shouldRefreshContacts = true
+              setGroupAddQueue((prev) => prev.filter((job) => job.key !== currentJob.key))
+              continue
+            } catch (inviteError) {
+              const inviteMessage = inviteError?.response?.data?.message
+                || inviteError?.message
+                || (isArabic ? 'فشل إرسال رابط الدعوة' : 'Failed to send invite link')
+              shouldRefreshContacts = true
+              setGroupAddQueue((prev) => prev.filter((job) => job.key !== currentJob.key))
+              emitToast('error', inviteMessage)
+              continue
+            }
+          }
+
           if (isRetryableGroupAddError(error) && currentJob.attempts < 6) {
             setGroupAddQueue((prev) => prev.map((job) => (
               job.key === currentJob.key ? { ...job, attempts: job.attempts + 1 } : job
@@ -564,23 +642,34 @@ export default function WhatsAppMirrorConnection() {
     }
   }
 
-  const handleConnect = async () => {
+  const startManualPair = async () => {
     setLoading(true)
     try {
-      const data = await whatsappMirrorService.pair()
+      const data = await whatsappMirrorService.pair({ force: true })
       setStatus(data.status || 'pending_qr')
       if (data.qr_base64) {
         setQrCode(data.qr_base64)
         setShowModal(true)
+        setShowReconnectChoiceModal(false)
         startPolling()
       } else if (data.status === 'connected') {
         setStatus('connected')
+        setShowReconnectChoiceModal(false)
       }
     } catch (error) {
       emitToast('error', t('Failed to start pairing. Please ensure the Mirror service is running.'))
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleConnect = async () => {
+    if (status === 'reconnecting') {
+      setShowReconnectChoiceModal(true)
+      return
+    }
+
+    await startManualPair()
   }
 
   const handleDisconnect = async () => {
@@ -897,6 +986,53 @@ export default function WhatsAppMirrorConnection() {
     }
   }
 
+  const handleSendInviteToSelectedGroup = async (contact, group) => {
+    const targetGroupId = group?.id
+    const targetGroupName = group?.name || group?.subject || ''
+
+    if (!targetGroupId) {
+      emitToast('error', isArabic ? 'اختر جروبًا صالحًا أولًا' : 'Select a valid group first')
+      return
+    }
+
+    setAddingToGroup(true)
+    try {
+      const ready = await waitForMirrorReadyForGroupAdd()
+      if (!ready) return
+
+      await whatsappMirrorService.sendContactInviteToGroup(contact.id, targetGroupId, targetGroupName)
+      setOpenGroupDropdownFor(null)
+      emitToast(
+        'success',
+        isArabic
+          ? `تم إرسال رابط الدعوة إلى ${contact.push_name || contact.phone || contact.id} للجروب ${targetGroupName || 'المحدد'}`
+          : `Invite link sent to ${contact.push_name || contact.phone || `#${contact.id}`} for ${targetGroupName || 'the selected group'}`
+      )
+      fetchGroupContacts(1, groupContactStatus, groupSearch, selectedGroupFilter)
+    } catch (error) {
+      const message = error?.response?.data?.message || (isArabic ? 'فشل إرسال رابط الدعوة' : 'Failed to send invite link')
+      emitToast('error', message)
+    } finally {
+      setAddingToGroup(false)
+    }
+  }
+
+  const openGroupPicker = async (contactId, action = 'add') => {
+    if (openGroupDropdownFor === contactId && groupPickerAction === action) {
+      setOpenGroupDropdownFor(null)
+      return
+    }
+
+    const groups = await fetchAdminGroups(true)
+    if (!Array.isArray(groups) || groups.length === 0) {
+      emitToast('error', isArabic ? 'لا توجد جروبات متاحة' : 'No groups available')
+      return
+    }
+
+    setGroupPickerAction(action)
+    setOpenGroupDropdownFor(contactId)
+  }
+
   const selectableGroupContacts = groupContacts.filter((contact) => getGroupContactSelectableState(contact))
   const allVisibleGroupContactsSelected = selectableGroupContacts.length > 0
     && selectableGroupContacts.every((contact) => selectedGroupContactIds.includes(contact.id))
@@ -1203,16 +1339,7 @@ export default function WhatsAppMirrorConnection() {
                           if (isQueuedForAdd || isActivelyAdding || persistedActionStatus === 'added') {
                             return
                           }
-                          if (openGroupDropdownFor === contact.id) {
-                            setOpenGroupDropdownFor(null)
-                            return
-                          }
-                          const groups = await fetchAdminGroups(true)
-                          if (!Array.isArray(groups) || groups.length === 0) {
-                            emitToast('error', isArabic ? 'لا توجد جروبات متاحة للإضافة' : 'No groups available for adding')
-                            return
-                          }
-                          setOpenGroupDropdownFor(contact.id)
+                          await openGroupPicker(contact.id, 'add')
                         }}
                         disabled={addingToGroup || loadingAdminGroups || isQueuedForAdd || isActivelyAdding || persistedActionStatus === 'added'}
                         className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
@@ -1229,12 +1356,30 @@ export default function WhatsAppMirrorConnection() {
                               ? (isArabic ? 'إعادة المحاولة' : 'Retry Add')
                               : (isArabic ? 'إضافة للجروب' : 'Add to Group')}
                       </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await openGroupPicker(contact.id, 'invite')
+                        }}
+                        disabled={addingToGroup || loadingAdminGroups}
+                        className={`mt-2 w-full rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          isLight
+                            ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                            : 'border-blue-500/30 bg-blue-500/10 text-blue-200 hover:bg-blue-500/20'
+                        }`}
+                      >
+                        {isArabic ? 'إرسال دعوة للجروب' : 'Send Invite to Group'}
+                      </button>
 
                       {openGroupDropdownFor === contact.id && (
                         <div className={`absolute bottom-full right-0 mb-2 w-64 rounded-lg shadow-lg z-30 ${isLight ? 'bg-white border' : 'bg-slate-900 border-slate-700'}`}>
                           <div className="p-2">
                             <div className="flex items-center justify-between px-2 pb-2">
-                              <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'اختر جروب للإضافة' : 'Select a group to add'}</div>
+                              <div className={`text-sm ${mutedTextClass}`}>
+                                {groupPickerAction === 'invite'
+                                  ? (isArabic ? 'اختر جروب لإرسال الدعوة' : 'Select a group to send invite')
+                                  : (isArabic ? 'اختر جروب للإضافة' : 'Select a group to add')}
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => fetchAdminGroups(true)}
@@ -1251,42 +1396,68 @@ export default function WhatsAppMirrorConnection() {
                               <div className={`p-3 text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد جروبات متاحة' : 'No groups available'}</div>
                             ) : (
                               adminGroups.map((g) => (
-                                <button
+                                <div
                                   key={g.id}
-                                  type="button"
-                                  onClick={async () => {
-                                    setAddingToGroup(true)
-                                    try {
-                                      const queuedCount = enqueueGroupAddJobs([{
-                                        contactId: contact.id,
-                                        contactName: contact.push_name || contact.phone || `#${contact.id}`,
-                                        groupId: g.id,
-                                        groupName: g.name || g.subject || '',
-                                      }])
-
-                                      if (queuedCount > 0) {
-                                        emitToast(
-                                          'info',
-                                          isArabic
-                                            ? 'تمت إضافة الطلب إلى الطابور. سننفذه تلقائيًا عند جاهزية الاتصال.'
-                                            : 'Add request queued. It will run automatically once the connection is ready.'
-                                        )
-                                      }
-                                      setOpenGroupDropdownFor(null)
-                                    } catch (err) {
-                                      const msg = err?.response?.data?.message || err?.message || (isArabic ? 'فشل الإضافة' : 'Failed to add to group')
-                                      emitToast('error', msg)
-                                    } finally {
-                                      setAddingToGroup(false)
-                                    }
-                                  }}
-                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${isLight ? 'text-gray-800' : 'text-slate-200 hover:bg-slate-800'}`}
+                                  className={`flex items-center gap-2 px-3 py-2 ${isLight ? 'hover:bg-gray-50' : 'hover:bg-slate-800/70'}`}
                                 >
-                                  {(() => {
-                                    const label = g.name || g.subject || `#${g.id}`
-                                    return g.inferred ? `${label} ${isArabic ? '(مستنتج)' : '(inferred)'}` : label
-                                  })()}
-                                </button>
+                                  <div className={`min-w-0 flex-1 text-sm ${isLight ? 'text-gray-800' : 'text-slate-200'}`}>
+                                    {(() => {
+                                      const label = g.name || g.subject || `#${g.id}`
+                                      return g.inferred ? `${label} ${isArabic ? '(مستنتج)' : '(inferred)'}` : label
+                                    })()}
+                                  </div>
+                                  {groupPickerAction === 'invite' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendInviteToSelectedGroup(contact, g)}
+                                      disabled={addingToGroup}
+                                      className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                        isLight
+                                          ? 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                          : 'border border-blue-500/30 bg-blue-500/10 text-blue-200 hover:bg-blue-500/20'
+                                      }`}
+                                    >
+                                      {isArabic ? 'إرسال الدعوة' : 'Send Invite'}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        setAddingToGroup(true)
+                                        try {
+                                          const queuedCount = enqueueGroupAddJobs([{
+                                            contactId: contact.id,
+                                            contactName: contact.push_name || contact.phone || `#${contact.id}`,
+                                            groupId: g.id,
+                                            groupName: g.name || g.subject || '',
+                                          }])
+
+                                          if (queuedCount > 0) {
+                                            emitToast(
+                                              'info',
+                                              isArabic
+                                                ? 'تمت إضافة الطلب إلى الطابور. سننفذه تلقائيًا عند جاهزية الاتصال.'
+                                                : 'Add request queued. It will run automatically once the connection is ready.'
+                                            )
+                                          }
+                                          setOpenGroupDropdownFor(null)
+                                        } catch (err) {
+                                          const msg = err?.response?.data?.message || err?.message || (isArabic ? 'فشل الإضافة' : 'Failed to add to group')
+                                          emitToast('error', msg)
+                                        } finally {
+                                          setAddingToGroup(false)
+                                        }
+                                      }}
+                                      className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                                        isLight
+                                          ? 'bg-gray-900 text-white hover:bg-gray-800'
+                                          : 'bg-blue-500 text-slate-950 hover:bg-blue-400'
+                                      }`}
+                                    >
+                                      {isArabic ? 'إضافة' : 'Add'}
+                                    </button>
+                                  )}
+                                </div>
                               ))
                             )}
                           </div>
@@ -1387,7 +1558,15 @@ export default function WhatsAppMirrorConnection() {
                 ? (isLight ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-amber-500/30 bg-amber-500/10 text-amber-100')
                 : (isLight ? 'border-gray-200 bg-gray-50 text-gray-700' : 'border-slate-700 bg-slate-900/70 text-slate-200')
           }`}>
-            <p className="leading-6">{reconnectHint}</p>
+            <div className="space-y-2">
+              <p className="leading-6">{reconnectHint}</p>
+              {(reconnectDetail || reconnectIssueLabel) && (
+                <p className={`text-xs leading-5 ${status === 'reconnect_failed' ? '' : (isLight ? 'text-blue-800' : 'text-blue-200')}`}>
+                  <span className="font-semibold">{isArabic ? 'السبب:' : 'Reason:'}</span>{' '}
+                  {reconnectDetail || reconnectIssueLabel}
+                </p>
+              )}
+            </div>
             <button
               type="button"
               onClick={checkStatus}
@@ -1618,6 +1797,65 @@ export default function WhatsAppMirrorConnection() {
           )}
         </div>
       </div>
+
+      {showReconnectChoiceModal && (
+        <div
+          className={`fixed inset-0 z-[10000] flex items-center justify-center p-4 ${modalOverlayClass}`}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className={`${modalShellClass} w-full max-w-lg overflow-hidden rounded-[28px]`}>
+            <div className={`flex items-start justify-between gap-4 border-b px-6 py-5 ${modalHeaderClass}`}>
+              <div className="min-w-0">
+                <h4 className={`text-lg font-semibold ${titleTextClass}`}>
+                  {isArabic ? 'واتساب ما زال يحاول الاستعادة' : 'WhatsApp is still restoring'}
+                </h4>
+                <p className={`mt-2 text-sm ${mutedTextClass}`}>
+                  {isArabic
+                    ? 'تقدر تكمل انتظار الاستعادة التلقائية، أو تبدأ ربطًا يدويًا جديدًا عبر QR الآن.'
+                    : 'You can keep waiting for the automatic restore, or start a fresh manual QR pairing now.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReconnectChoiceModal(false)}
+                aria-label={isArabic ? 'إغلاق' : 'Close'}
+                className={`inline-flex h-10 w-10 items-center justify-center rounded-full border text-xl leading-none transition ${modalCloseButtonClass}`}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="px-6 py-5">
+              <div className={`${modalPanelClass} p-4 text-sm leading-6 ${mutedTextClass}`}>
+                {isArabic
+                  ? 'لو الجلسة القديمة مازالت صالحة، الانتظار قد يكفي. لو تريد تجاوز الانتظار، اختر الربط اليدوي وسيظهر لك QR جديد.'
+                  : 'If the old session is still valid, waiting may be enough. If you want to skip waiting, choose manual pairing and a fresh QR will be generated.'}
+              </div>
+            </div>
+
+            <div className={`flex items-center justify-between gap-3 border-t px-6 py-5 ${isLight ? 'border-gray-200' : 'border-slate-800'}`}>
+              <button
+                type="button"
+                onClick={() => setShowReconnectChoiceModal(false)}
+                className={`rounded-xl px-4 py-2 text-sm transition ${modalButtonSecondaryClass}`}
+              >
+                {isArabic ? 'استمر في الانتظار' : 'Continue waiting'}
+              </button>
+              <button
+                type="button"
+                onClick={startManualPair}
+                disabled={loading}
+                className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${modalButtonPrimaryClass}`}
+              >
+                {loading
+                  ? (isArabic ? 'جاري تجهيز QR...' : 'Preparing QR...')
+                  : (isArabic ? 'ربط يدوي عبر QR' : 'Pair manually via QR')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

@@ -753,9 +753,57 @@ if (!s) {
     return [...staticStages, ...dynamicStages];
   }, [crmSettings, isDuplicateAllowed, isSalesPerson, isAdminOrManager, stagesList, location.pathname]);
 
+  // Helper for hierarchy
+  const getDescendants = (rootId, allUsers) => {
+    let descendants = [];
+    const direct = allUsers.filter(u => u.manager_id === rootId);
+    direct.forEach(u => {
+      descendants.push(u);
+      descendants = [...descendants, ...getDescendants(u.id, allUsers)];
+    });
+    return descendants;
+  };
+
+  const buildManagerScopeAssignedIds = useCallback((managerIds) => {
+    if (!Array.isArray(managerIds) || managerIds.length === 0 || !usersList.length) return [];
+
+    const scopedIds = new Set();
+
+    managerIds
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .forEach((managerId) => {
+        scopedIds.add(managerId);
+        const numericId = Number(managerId);
+        const descendants = getDescendants(Number.isFinite(numericId) ? numericId : managerId, usersList);
+        descendants.forEach((userItem) => {
+          if (userItem?.id != null) scopedIds.add(String(userItem.id));
+        });
+      });
+
+    return Array.from(scopedIds);
+  }, [usersList]);
+
+  const combineAssignedToFilters = useCallback((selectedAssignedTo, managerScopedAssignedTo) => {
+    const directAssigned = Array.isArray(selectedAssignedTo)
+      ? selectedAssignedTo.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+
+    // Manager scope is now handled by `manager_id` on the backend.
+    // Keep `assigned_to` reserved for the explicit Sales Person filter only,
+    // otherwise manager-assigned leads (where assigned_to is null) get filtered out.
+    return directAssigned;
+  }, []);
+
+  const managerScopedAssignedToFilter = useMemo(
+    () => buildManagerScopeAssignedIds(managerFilter),
+    [buildManagerScopeAssignedIds, managerFilter]
+  );
+
   const fetchStatsApi = async ({ queryKey }) => {
     const [_key, filters] = queryKey;
     const isMyLeads = location.pathname === '/leads/my-leads';
+    const effectiveAssignedTo = combineAssignedToFilters(filters.assignedTo, filters.managerAssignedTo);
     const params = {
         search: filters.search,
         source: filters.source.length > 0 ? filters.source : null,
@@ -764,8 +812,8 @@ if (!s) {
         campaign: filters.campaign.length > 0 ? filters.campaign : null,
         country: filters.country.length > 0 ? filters.country : null,
         project_id: filters.project.length > 0 ? filters.project : null,
-        assigned_to: filters.assignedTo.length > 0 ? filters.assignedTo : null,
-        manager_id: filters.managerId.length > 0 ? filters.managerId[0] : null,
+        manager_id: filters.managerIds.length > 0 ? filters.managerIds[0] : null,
+        assigned_to: effectiveAssignedTo.length > 0 ? effectiveAssignedTo : null,
         old_stage: filters.oldStage.length > 0 ? filters.oldStage : null,
         created_by: filters.createdBy.length > 0 ? filters.createdBy : null,
         created_from: filters.createdFrom,
@@ -801,8 +849,9 @@ if (!s) {
           campaign: campaignFilter,
           country: countryFilter,
           project: projectFilter,
+          managerIds: managerFilter,
           assignedTo: salesPersonFilter,
-          managerId: managerFilter,
+          managerAssignedTo: managerScopedAssignedToFilter,
           oldStage: oldStageFilter,
           createdBy: createdByFilter,
           createdFrom: creationDateFrom,
@@ -934,6 +983,7 @@ if (!s) {
       ? filters.stage.map(normalizeStageFilterValue).filter(Boolean)
       : (filters.stage ? [normalizeStageFilterValue(filters.stage)].filter(Boolean) : []);
     const isColdCallsStageView = normalizedStageForUi.includes('cold calls');
+    const effectiveAssignedTo = combineAssignedToFilters(filters.assignedTo, filters.managerAssignedTo);
     const params = {
       page: filters.page,
       per_page: filters.perPage,
@@ -948,8 +998,8 @@ if (!s) {
       campaign: filters.campaign.length > 0 ? filters.campaign : null,
       country: filters.country.length > 0 ? filters.country : null,
       project_id: filters.project.length > 0 ? filters.project : null,
-      assigned_to: filters.assignedTo.length > 0 ? filters.assignedTo : null,
-      manager_id: filters.managerId.length > 0 ? filters.managerId[0] : null,
+      manager_id: filters.managerIds.length > 0 ? filters.managerIds[0] : null,
+      assigned_to: effectiveAssignedTo.length > 0 ? effectiveAssignedTo : null,
       created_by: filters.createdBy.length > 0 ? filters.createdBy : null,
       created_from: filters.createdFrom,
       created_to: filters.createdTo,
@@ -991,8 +1041,9 @@ if (!s) {
         campaign: campaignFilter,
         country: countryFilter,
         project: projectFilter,
+        managerIds: managerFilter,
         assignedTo: salesPersonFilter,
-        managerId: managerFilter,
+        managerAssignedTo: managerScopedAssignedToFilter,
         createdBy: createdByFilter,
         createdFrom: creationDateFrom,
         createdTo: creationDateTo,
@@ -1046,17 +1097,6 @@ if (!s) {
     closedDateFrom,
     closedDateTo,
   ]);
-
-  // Helper for hierarchy
-  const getDescendants = (rootId, allUsers) => {
-    let descendants = [];
-    const direct = allUsers.filter(u => u.manager_id === rootId);
-    direct.forEach(u => {
-      descendants.push(u);
-      descendants = [...descendants, ...getDescendants(u.id, allUsers)];
-    });
-    return descendants;
-  };
 
   const getUserRoleLabel = (u) => {
     const roleFromRolesArray = Array.isArray(u?.roles) && u.roles[0]?.name ? u.roles[0].name : null;
@@ -2319,27 +2359,9 @@ if (!s) {
       
       const matchesProject = matchesMulti(projectFilter, lead.project)
       
-      const matchesManager = (() => {
-        if (!managerFilter || managerFilter.length === 0) return true;
-        
-        const selectedManagerIds = managerFilter.map(v => String(v))
-        const selectedManagerUsers = usersList.filter(u => selectedManagerIds.includes(String(u.id)))
-        
-        if (selectedManagerUsers.length === 0) return false;
-
-        // 2. Build a set of all valid assignee IDs (The managers themselves + all their subordinates)
-        const validAssigneeIds = new Set(selectedManagerIds);
-        
-        selectedManagerUsers.forEach(manager => {
-            const subordinates = getDescendants(manager.id, usersList);
-            subordinates.forEach(sub => validAssigneeIds.add(sub.id));
-        });
-        
-        // 3. Check if the lead's assigned user is in this set
-        const leadAssigneeId = lead.assigned_to || (typeof lead.assignedTo === 'object' ? lead.assignedTo?.id : lead.assignedTo);
-        
-        return validAssigneeIds.has(String(leadAssigneeId));
-      })();
+      // Manager filtering is handled on the backend so the table stays aligned
+      // with the stats cards and includes manager-assigned leads.
+      const matchesManager = true;
 
       const matchesCreatedBy = matchesMulti(canShowCreator ? createdByFilter : [], lead.createdBy)
       const matchesOldStage = true
@@ -2943,6 +2965,7 @@ if (!s) {
 
   const buildLeadsQueryParams = ({ page, perPage }) => {
     const isMyLeads = location.pathname === '/leads/my-leads';
+    const effectiveAssignedTo = combineAssignedToFilters(salesPersonFilter, managerScopedAssignedToFilter)
     const params = {
       page,
       per_page: perPage,
@@ -2955,8 +2978,7 @@ if (!s) {
       campaign: campaignFilter.length > 0 ? campaignFilter : null,
       country: countryFilter.length > 0 ? countryFilter : null,
       project_id: projectFilter.length > 0 ? projectFilter : null,
-      assigned_to: salesPersonFilter.length > 0 ? salesPersonFilter : null,
-      manager_id: managerFilter.length > 0 ? managerFilter[0] : null,
+      assigned_to: effectiveAssignedTo.length > 0 ? effectiveAssignedTo : null,
       created_by: createdByFilter.length > 0 ? createdByFilter : null,
       created_from: creationDateFrom,
       created_to: creationDateTo,
@@ -3554,9 +3576,8 @@ if (!s) {
                   {t('Manager')}
                 </label>
                 <SearchableSelect
-                  value={managerFilter}
-                  multiple={true}
-                  onChange={setManagerFilter}
+                  value={Array.isArray(managerFilter) && managerFilter.length > 0 ? managerFilter[0] : ''}
+                  onChange={(value) => setManagerFilter(value ? [value] : [])}
                   options={availableManagers.map(u => ({ value: u.id, label: u.__roleLabel ? `${u.name} - ${u.__roleLabel}` : u.name }))}
                   placeholder={t('All ')}
                   isRTL={isRtl}

@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use App\Models\Tenant;
+use App\Services\AdminEventNotificationService;
+use App\Services\UserPanelContextService;
 
 use App\Mail\TwoFactorCodeEmail;
 use Illuminate\Support\Facades\Mail;
@@ -13,6 +15,11 @@ use Illuminate\Support\Facades\Http;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private readonly UserPanelContextService $panelContext
+    ) {
+    }
+
     protected function resolvedUserPermissions(User $user)
     {
         try {
@@ -125,6 +132,20 @@ class AuthController extends Controller
         $authOk = app(\App\Contracts\AuthenticatorInterface::class)->verifyCredentials($user, (string) $request->password);
         if (!$authOk) {
             \Illuminate\Support\Facades\Log::warning('Login failed: Invalid credentials for ' . $request->email);
+            if ($user?->is_super_admin) {
+                app(AdminEventNotificationService::class)->safe(function () use ($request, $user) {
+                    app(AdminEventNotificationService::class)->notifySecurityWarning(
+                        'Super admin login failure',
+                        "Failed login attempt detected for super admin {$user->email}.",
+                        [
+                            'user_id' => $user->id,
+                            'email' => $user->email,
+                            'ip' => $request->ip(),
+                            'user_agent' => $request->userAgent(),
+                        ]
+                    );
+                });
+            }
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -228,10 +249,6 @@ class AuthController extends Controller
     {
         $token = app(\App\Contracts\TokenIssuerInterface::class)->issue($user, $request);
 
-        $location = null;
-
-        // Device info stored by TokenIssuer
-
         try {
             activity('auth')
                 ->causedBy($user)
@@ -240,95 +257,64 @@ class AuthController extends Controller
         } catch (\Throwable $e) {
         }
 
-        // Handle Global Super Admin (No Tenant)
-        $enabledModules = [];
-        $subscriptionPlan = null;
-        $tenantFromUser = null;
+        $impersonation = $this->resolveImpersonationPayload();
+        $profileTenant = $this->panelContext->resolveTenantForProfile($user, $tenant, $impersonation);
+        $panelPayload = $this->panelContext->buildPayload($user, $profileTenant, $impersonation);
+        $enabledModules = $this->resolveEnabledModules($user, $profileTenant, $panelPayload);
 
-        if ($tenant) {
-            try {
-                $enabledModules = app(\App\Services\ModuleService::class)->enabledForTenant($tenant);
-                $subscriptionPlan = $tenant->subscription_plan;
-            } catch (\Throwable $e) {
-            }
-        } else {
-            try {
-                $enabledModules = \App\Models\Module::all();
-                $subscriptionPlan = 'super_admin';
-            } catch (\Throwable $e) {
-            }
-            if (!$user->is_super_admin && $user->tenant_id) {
-                $tenantFromUser = \App\Models\Tenant::find($user->tenant_id);
-            }
-        }
-
-        // Token-based SPA auth does not require session login
-
-        // Calculate Redirect URL
-        $redirectUrl = null;
-        $frontendBase = config('app.frontend_url', 'https://besouholacrm.net');
-        $frontendHost = parse_url($frontendBase, PHP_URL_HOST) ?? 'besouholacrm.net';
-        $frontendScheme = parse_url($frontendBase, PHP_URL_SCHEME) ?? 'https';
-        $frontendPort = parse_url($frontendBase, PHP_URL_PORT);
-        $portSuffix = $frontendPort ? ':' . $frontendPort : '';
-
-        if ($tenant) {
-            $redirectUrl = $frontendScheme . '://' . $tenant->slug . '.' . $frontendHost . $portSuffix;
-        } else {
-            // Try to find tenant from user if not resolved from request
-            if ($tenantFromUser) {
-                $redirectUrl = $frontendScheme . '://' . $tenantFromUser->slug . '.' . $frontendHost . $portSuffix;
-            } else {
-                $redirectUrl = $frontendBase;
-            }
-        }
-
-        return response()->json([
+        return response()->json(array_merge([
             'token' => $token,
-            'redirect_url' => $redirectUrl,
-            'user' => $user,
-            'tenant' => $tenant ?? $tenantFromUser,
+            'redirect_url' => $this->resolveFrontendRedirectUrl($user, $profileTenant, $panelPayload),
+            'user' => $this->serializeAuthUser($user),
+            'tenant' => $profileTenant,
+            'company' => $profileTenant,
             'enabled_modules' => $enabledModules,
-            'subscription_plan' => $subscriptionPlan,
             'user_permissions' => $this->resolvedUserPermissions($user),
-            'tenant_subdomain_url' => $tenant
-                ? ($frontendScheme . '://' . $tenant->slug . '.' . $frontendHost . $portSuffix)
-                : ($tenantFromUser ? ($frontendScheme . '://' . $tenantFromUser->slug . '.' . $frontendHost . $portSuffix) : null),
-        ]);
+            'impersonation' => $impersonation,
+            'tenant_subdomain_url' => $this->resolveTenantSubdomainUrl($profileTenant),
+        ], $panelPayload));
     }
 
     public function me(Request $request)
     {
         $user = $request->user();
-        $tenant = $user->is_super_admin
-            ? (app()->bound('tenant') ? app('tenant') : null)
-            : ($user->tenant_id ? Tenant::find($user->tenant_id) : null);
+        $boundTenant = app()->bound('tenant') ? app('tenant') : null;
+        $impersonation = $this->resolveImpersonationPayload();
+        $tenant = $this->panelContext->resolveTenantForProfile($user, $boundTenant, $impersonation);
+        $panelPayload = $this->panelContext->buildPayload($user, $tenant, $impersonation);
 
-        if (!$tenant && !$user->is_super_admin) {
+        if (!$tenant && !$this->panelContext->isSystemAdmin($user)) {
             return response()->json(['message' => 'Workspace domain required'], 403);
         }
 
-        $enabledModules = [];
-        $subscriptionPlan = null;
-
-        if ($tenant) {
-            $enabledModules = $tenant->modules()->wherePivot('is_enabled', true)->get();
-            $subscriptionPlan = $tenant->subscription_plan;
-        }
-        else {
-            // Global Super Admin
-            $enabledModules = \App\Models\Module::all();
-            $subscriptionPlan = 'super_admin';
-        }
-
-        return response()->json([
-            'user' => $user,
+        return response()->json(array_merge([
+            'user' => $this->serializeAuthUser($user),
             'tenant' => $tenant,
-            'enabled_modules' => $enabledModules,
-            'subscription_plan' => $subscriptionPlan,
+            'company' => $tenant,
+            'enabled_modules' => $this->resolveEnabledModules($user, $tenant, $panelPayload),
             'user_permissions' => $this->resolvedUserPermissions($user),
-            'subdomain_url' => ($tenant ? (parse_url(config('app.frontend_url'), PHP_URL_SCHEME) ?? 'https') . '://' . $tenant->slug . '.' . (parse_url(config('app.frontend_url'), PHP_URL_HOST) ?? 'besouholacrm.net') . (parse_url(config('app.frontend_url'), PHP_URL_PORT) ? ':' . parse_url(config('app.frontend_url'), PHP_URL_PORT) : '') : null),
-        ]);
+            'impersonation' => $impersonation,
+            'subdomain_url' => $this->resolveTenantSubdomainUrl($tenant),
+        ], $panelPayload));
+    }
+
+    protected function resolveImpersonationPayload(): ?array
+    {
+        if (!app()->bound('impersonation_session')) {
+            return null;
+        }
+
+        $session = app('impersonation_session');
+
+        return [
+            'active' => true,
+            'session_id' => $session->id,
+            'admin_user_id' => $session->admin_user_id,
+            'tenant_id' => $session->tenant_id,
+            'mode' => $session->mode,
+            'reason' => $session->reason,
+            'expires_at' => optional($session->expires_at)->toISOString(),
+        ];
     }
 
     public function loginRedirect(Request $request)
@@ -395,42 +381,86 @@ class AuthController extends Controller
         // Device metadata stored by TokenIssuer
 
         if ($request->wantsJson()) {
-            $enabledModules = [];
-            $subscriptionPlan = null;
-            if ($tenant) {
-                $enabledModules = app(\App\Services\ModuleService::class)->enabledForTenant($tenant);
-                $subscriptionPlan = $tenant->subscription_plan;
-            }
-            else {
-                $enabledModules = \App\Models\Module::all();
-                $subscriptionPlan = 'super_admin';
-            }
-            $frontendBase = config('app.frontend_url', 'https://besouholacrm.net');
-            $frontendHost = parse_url($frontendBase, PHP_URL_HOST) ?? 'besouholacrm.net';
-            $frontendScheme = parse_url($frontendBase, PHP_URL_SCHEME) ?? 'https';
-            $frontendPort = parse_url($frontendBase, PHP_URL_PORT);
-            $portSuffix = $frontendPort ? ':' . $frontendPort : '';
+            $impersonation = $this->resolveImpersonationPayload();
+            $profileTenant = $this->panelContext->resolveTenantForProfile($user, $tenant, $impersonation);
+            $panelPayload = $this->panelContext->buildPayload($user, $profileTenant, $impersonation);
 
-            $redirectBase = null;
-            $fallbackTenant = null;
-            if (!$tenant && !$user->is_super_admin) {
-                $fallbackTenant = \App\Models\Tenant::find($user->tenant_id);
-            }
-            if ($tenant || $fallbackTenant) {
-                $slug = $tenant ? $tenant->slug : ($fallbackTenant ? $fallbackTenant->slug : null);
-                $redirectBase = $slug ? ($frontendScheme . '://' . $slug . '.' . $frontendHost . $portSuffix) : $frontendBase;
-            } else {
-                $redirectBase = $frontendBase;
-            }
-            return response()->json([
+            return response()->json(array_merge([
                 'token' => $token,
-                'user' => $user,
-                'tenant' => $tenant,
-                'enabled_modules' => $enabledModules,
-                'subscription_plan' => $subscriptionPlan,
+                'user' => $this->serializeAuthUser($user),
+                'tenant' => $profileTenant,
+                'company' => $profileTenant,
+                'enabled_modules' => $this->resolveEnabledModules($user, $profileTenant, $panelPayload),
                 'user_permissions' => $this->resolvedUserPermissions($user),
-                'redirect_url' => $redirectBase,
-            ]);
+                'impersonation' => $impersonation,
+                'redirect_url' => $this->resolveFrontendRedirectUrl($user, $profileTenant, $panelPayload),
+            ], $panelPayload));
+        }
+
+        $impersonation = $this->resolveImpersonationPayload();
+        $profileTenant = $this->panelContext->resolveTenantForProfile($user, $tenant, $impersonation);
+        $panelPayload = $this->panelContext->buildPayload($user, $profileTenant, $impersonation);
+        $frontendUrl = $this->resolveFrontendRedirectUrl($user, $profileTenant, $panelPayload);
+
+        return redirect()->away($frontendUrl . '/auth/callback?token=' . $token);
+    }
+
+    protected function serializeAuthUser(User $user): array
+    {
+        $data = $user->toArray();
+        $data['is_super_admin'] = $this->panelContext->isSystemAdmin($user);
+
+        return $data;
+    }
+
+    protected function resolveEnabledModules(User $user, ?Tenant $tenant, array $panelPayload): array
+    {
+        if (($panelPayload['panel_mode'] ?? null) === 'system') {
+            try {
+                return \App\Models\Module::all()->all();
+            } catch (\Throwable $e) {
+                return [];
+            }
+        }
+
+        if ($tenant) {
+            try {
+                return app(\App\Services\ModuleService::class)->enabledForTenant($tenant);
+            } catch (\Throwable $e) {
+                try {
+                    return $tenant->modules()->wherePivot('is_enabled', true)->get()->all();
+                } catch (\Throwable $e2) {
+                    return [];
+                }
+            }
+        }
+
+        return [];
+    }
+
+    protected function resolveFrontendRedirectUrl(User $user, ?Tenant $tenant, array $panelPayload): string
+    {
+        $frontendBase = config('app.frontend_url', 'https://besouholacrm.net');
+        $frontendHost = parse_url($frontendBase, PHP_URL_HOST) ?? 'besouholacrm.net';
+        $frontendScheme = parse_url($frontendBase, PHP_URL_SCHEME) ?? 'https';
+        $frontendPort = parse_url($frontendBase, PHP_URL_PORT);
+        $portSuffix = $frontendPort ? ':' . $frontendPort : '';
+
+        if (($panelPayload['panel_mode'] ?? null) === 'system') {
+            return $frontendBase;
+        }
+
+        if ($tenant) {
+            return $frontendScheme . '://' . $tenant->slug . '.' . $frontendHost . $portSuffix;
+        }
+
+        return $frontendBase;
+    }
+
+    protected function resolveTenantSubdomainUrl(?Tenant $tenant): ?string
+    {
+        if (!$tenant) {
+            return null;
         }
 
         $frontendBase = config('app.frontend_url', 'https://besouholacrm.net');
@@ -438,16 +468,8 @@ class AuthController extends Controller
         $frontendScheme = parse_url($frontendBase, PHP_URL_SCHEME) ?? 'https';
         $frontendPort = parse_url($frontendBase, PHP_URL_PORT);
         $portSuffix = $frontendPort ? ':' . $frontendPort : '';
-        $fallbackTenant = null;
-        if (!$tenant && !$user->is_super_admin) {
-            $fallbackTenant = \App\Models\Tenant::find($user->tenant_id);
-        }
-        $slug = $tenant ? $tenant->slug : ($fallbackTenant ? $fallbackTenant->slug : null);
-        $frontendUrl = $slug
-            ? ($frontendScheme . '://' . $slug . '.' . $frontendHost . $portSuffix)
-            : $frontendBase;
 
-        return redirect()->away($frontendUrl . '/auth/callback?token=' . $token);
+        return $frontendScheme . '://' . $tenant->slug . '.' . $frontendHost . $portSuffix;
     }
 
     protected function resolveTenantFromHost(Request $request): ?Tenant

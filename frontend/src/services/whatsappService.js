@@ -99,8 +99,8 @@ export const whatsappService = {
 }
 
 // WhatsApp Mirror microservice API helpers
-export const pairWhatsappMirror = async () => {
-  const res = await api.post('/api/whatsapp-mirror/pair')
+export const pairWhatsappMirror = async ({ force = false } = {}) => {
+  const res = await api.post('/api/whatsapp-mirror/pair', { force })
   return res?.data
 }
 

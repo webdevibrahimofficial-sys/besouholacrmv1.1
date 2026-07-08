@@ -93,10 +93,36 @@ return new class extends Migration
 
     private function hasIndex(string $tableName, string $indexName): bool
     {
-        return DB::table('information_schema.statistics')
-            ->where('table_schema', DB::getDatabaseName())
-            ->where('table_name', $tableName)
-            ->where('index_name', $indexName)
-            ->exists();
+        $driver = DB::connection()->getDriverName();
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            return DB::table('information_schema.statistics')
+                ->where('table_schema', DB::getDatabaseName())
+                ->where('table_name', $tableName)
+                ->where('index_name', $indexName)
+                ->exists();
+        }
+
+        if ($driver === 'sqlite') {
+            $rows = DB::select(sprintf("PRAGMA index_list('%s')", str_replace("'", "''", $tableName)));
+            foreach ($rows as $row) {
+                if (($row->name ?? null) === $indexName) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if ($driver === 'pgsql') {
+            $rows = DB::select(
+                'select indexname from pg_indexes where schemaname = ? and tablename = ? and indexname = ? limit 1',
+                ['public', $tableName, $indexName]
+            );
+
+            return ! empty($rows);
+        }
+
+        return false;
     }
 };

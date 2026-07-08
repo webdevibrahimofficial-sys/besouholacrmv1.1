@@ -9,6 +9,7 @@ use App\Models\MetaConnection;
 use App\Models\MetaBusiness;
 use App\Models\MetaAdAccount;
 use App\Models\MetaPage;
+use App\Models\Tenant;
 use App\Services\TenantMetaCredentialsResolver;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -22,11 +23,17 @@ class MetaAuthService
     protected $apiVersion = 'v19.0';
     protected $apiClient;
     protected $credentialsResolver;
+    protected $adminEventNotifications;
 
-    public function __construct(MetaApiClientInterface $apiClient, TenantMetaCredentialsResolver $credentialsResolver)
+    public function __construct(
+        MetaApiClientInterface $apiClient,
+        TenantMetaCredentialsResolver $credentialsResolver,
+        AdminEventNotificationService $adminEventNotifications
+    )
     {
         $this->apiClient = $apiClient;
         $this->credentialsResolver = $credentialsResolver;
+        $this->adminEventNotifications = $adminEventNotifications;
         $this->redirectUri = config('services.facebook.redirect');
     }
 
@@ -310,6 +317,7 @@ class MetaAuthService
             
             if (empty($newTokenData) || !isset($newTokenData['access_token'])) {
                 Log::warning("Failed to refresh token for connection {$connection->id}");
+                $this->notifyIntegrationIssue($connection, 'Meta token refresh returned an empty response.');
                 return false;
             }
 
@@ -327,8 +335,24 @@ class MetaAuthService
 
         } catch (\Exception $e) {
             Log::error("Error refreshing token for connection {$connection->id}: " . $e->getMessage());
+            $this->notifyIntegrationIssue($connection, $e->getMessage());
             return false;
         }
+    }
+
+    protected function notifyIntegrationIssue(MetaConnection $connection, string $reason): void
+    {
+        $tenant = Tenant::query()->find($connection->tenant_id);
+        if (!$tenant) {
+            return;
+        }
+
+        $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyIntegrationDisconnected(
+            $tenant->id,
+            $tenant->name,
+            'Meta',
+            $reason
+        ));
     }
 
     public function exchangeForLongLivedToken($shortLivedToken, $tenantId = null)

@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal, flushSync } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api as axios, logExportEvent } from '../../utils/api';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { useAppState } from '@shared/context/AppStateProvider';
+import { shouldUseAdminPanel } from '@utils/authRouting';
 // أضف Sparkles لهذا السطر في أعلى الملف
 import { Users, Sparkles,  Briefcase, Copy,Clock,Phone,CalendarClock,TrendingUp,Timer,Flame,CheckCircle,XCircle,Target,BarChart2,FileText,PhoneOff,Calendar,Bookmark, RefreshCw, Pin, Handshake, Contact, PhoneCall, PhoneForwarded, PhoneIncoming, PhoneMissed, PhoneOutgoing } from 'lucide-react';
 import { RiBarChart2Line, RiLineChartLine, RiPieChartLine } from 'react-icons/ri';
@@ -178,15 +179,17 @@ const COLOR_STYLES = {
 
 export const Dashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
-  const { user, canAccess, crmSettings } = useAppState();
+  const { user, impersonation, permissions, subscriptionPlan, panelMode, canAccess, crmSettings } = useAppState();
   const roleLower = String(user?.role || '').toLowerCase();
-  const isSuperAdmin = !!user?.is_super_admin;
+  const isSuperAdmin = shouldUseAdminPanel(user, impersonation, { permissions, subscriptionPlan, panelMode });
   const isAdmin = roleLower === 'admin';
   const isTeamLeader = roleLower.includes('team leader');
   const isTenantAdmin = roleLower === 'tenant admin' || roleLower === 'tenant-admin';
+  const canLoadDashboardData = !!user && String(location.pathname || '').includes('/dashboard');
   
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {};
   const leadModulePerms = Array.isArray(modulePermissions.Leads) ? modulePermissions.Leads : [];
@@ -206,6 +209,7 @@ export const Dashboard = () => {
   }, [isSuperAdmin, navigate]);
 
   useEffect(() => {
+    if (!canLoadDashboardData) return;
     const fetchRoles = async () => {
       try {
         const { data } = await axios.get('/api/user');
@@ -216,7 +220,7 @@ export const Dashboard = () => {
       } catch {}
     };
     fetchRoles();
-  }, []);
+  }, [canLoadDashboardData]);
   const userRolesFromUser = Array.isArray(user?.roles)
     ? user.roles.map(r => String(r?.name || r)).map(s => String(s).toLowerCase())
     : [];
@@ -294,6 +298,7 @@ export const Dashboard = () => {
   const [activeUsersData, setActiveUsersData] = useState([]);
 
   useEffect(() => {
+    if (!canLoadDashboardData) return;
     let cancelled = false;
     const fetchActiveUsers = async () => {
       try {
@@ -325,7 +330,7 @@ export const Dashboard = () => {
     };
     fetchActiveUsers();
     return () => { cancelled = true; };
-  }, [dateFrom, dateTo, selectedManager, refreshTrigger]);
+  }, [canLoadDashboardData, dateFrom, dateTo, selectedManager, refreshTrigger]);
 
   // Load pipeline stages with colors/icons from Settings
   const defaultIconForName = (name) => {
@@ -376,6 +381,7 @@ export const Dashboard = () => {
   }, []);
 
   useEffect(() => {
+    if (!canLoadDashboardData) return;
     const loadManagers = async () => {
       try {
         const roles = ['Team Leader','Sales Manager','Branch Manager','Sales Admin'];
@@ -385,8 +391,9 @@ export const Dashboard = () => {
       } catch {}
     };
     loadManagers();
-  }, []);
+  }, [canLoadDashboardData]);
   useEffect(() => {
+    if (!canLoadDashboardData) return;
     const loadAllUsers = async () => {
       try {
         const { data } = await axios.get('/api/users');
@@ -396,7 +403,7 @@ export const Dashboard = () => {
       } catch {}
     };
     loadAllUsers();
-  }, []);
+  }, [canLoadDashboardData]);
   useEffect(() => {
     const selId = (selectedManager || '').trim();
     if (!selId) {
@@ -429,6 +436,7 @@ export const Dashboard = () => {
   const [stagesLoading, setStagesLoading] = useState(true);
 
   useEffect(() => {
+    if (!canLoadDashboardData) return;
     let cancelled = false;
     let hasCachedStages = false;
     
@@ -499,7 +507,7 @@ export const Dashboard = () => {
     };
     fromDb();
     return () => { cancelled = true; };
-  }, [refreshTrigger]);
+  }, [canLoadDashboardData, refreshTrigger]);
 
 
 
@@ -519,6 +527,7 @@ export const Dashboard = () => {
   const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
+    if (!canLoadDashboardData) return;
     let cancelled = false;
     const fetchStats = async () => {
       try {
@@ -551,7 +560,7 @@ export const Dashboard = () => {
     };
     fetchStats();
     return () => { cancelled = true; };
-  }, [dateFrom, dateTo, selectedEmployee, selectedManager, refreshTrigger]);
+  }, [canLoadDashboardData, dateFrom, dateTo, selectedEmployee, selectedManager, refreshTrigger]);
 
   // Fetch Leads Analysis Data
   const [analysisData, setAnalysisData] = useState(null);
@@ -568,6 +577,7 @@ export const Dashboard = () => {
   const isExportingPipelineAnalysis = exportingChartKey === 'pipeline-analysis';
   
   useEffect(() => {
+    if (!canLoadDashboardData) return;
     let cancelled = false;
     const fetchAnalysis = async () => {
       try {
@@ -588,7 +598,7 @@ export const Dashboard = () => {
     };
     fetchAnalysis();
     return () => { cancelled = true; };
-  }, [leadsAnalysisDateRange, selectedEmployee, selectedManager, refreshTrigger]);
+  }, [canLoadDashboardData, leadsAnalysisDateRange, selectedEmployee, selectedManager, refreshTrigger]);
 
   const handleExportDashboardPdf = async (chartKey = 'all') => {
     if (exportingChartKey) return;

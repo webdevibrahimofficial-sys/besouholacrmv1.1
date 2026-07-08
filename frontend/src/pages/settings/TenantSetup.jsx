@@ -5,6 +5,8 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api as axios } from '@utils/api';
+import { isSecureQuickSwitchEnabled } from '@utils/features';
+import { impersonationApi } from '@features/Impersonation/impersonationApi';
 import { useSubscriptionPlans, getPlanModulesForCompany } from '../../hooks/useSubscriptionPlans';
 import { useAppState } from '../../shared/context/AppStateProvider';
 import { useTheme } from '../../shared/context/ThemeProvider';
@@ -125,6 +127,7 @@ const TenantSetup = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, fetchCompanyInfo } = useAppState();
+  const secureQuickSwitchEnabled = isSecureQuickSwitchEnabled();
   const { plans: subscriptionPlans, planMap } = useSubscriptionPlans({ includeInactive: true });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showCreatePassword, setShowCreatePassword] = useState(false);
@@ -338,6 +341,26 @@ const TenantSetup = () => {
 
   const handleLoginAsTenant = async (tenant) => {
     try {
+      if (secureQuickSwitchEnabled) {
+        const reason = window.prompt(t('Optional support access reason'), '') || ''
+        const response = await impersonationApi.start(tenant.id, {
+          mode: 'support_access',
+          reason,
+        })
+        const redirectUrl = response?.data?.redirect_url
+
+        if (!redirectUrl) {
+          toast.error(t('failed_login_as_tenant', 'Failed to login as tenant'))
+          return
+        }
+
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('impersonateTenantSlug', tenant.slug || '')
+          window.location.href = redirectUrl
+        }
+        return
+      }
+
       const impersonateResponse = await axios.post(`/api/super-admin/impersonate/${tenant.id}`)
       const apiTenant = impersonateResponse?.data?.tenant || {}
 
