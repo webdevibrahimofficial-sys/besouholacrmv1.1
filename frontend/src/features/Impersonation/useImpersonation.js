@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { impersonationApi } from './impersonationApi'
+import { useAppState } from '@shared/context/AppStateProvider'
 
 export function useImpersonation(enabled = true) {
+  const { impersonation: appImpersonation } = useAppState()
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(false)
   const canCheckSession = enabled
@@ -44,14 +46,19 @@ export function useImpersonation(enabled = true) {
   }, [])
 
   useEffect(() => {
+    if (appImpersonation?.active) {
+      setSession(appImpersonation)
+      return
+    }
+
     if (!canCheckSession) return
     refresh().catch(() => {})
-  }, [canCheckSession, refresh])
+  }, [appImpersonation, canCheckSession, refresh])
 
   return {
     loading,
-    session,
-    active: !!session,
+    session: appImpersonation?.active ? appImpersonation : session,
+    active: !!(appImpersonation?.active || session),
     refresh,
     exit,
   }

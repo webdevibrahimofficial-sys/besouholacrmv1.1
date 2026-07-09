@@ -157,9 +157,6 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])
     Route::get('tenants/{tenant}/modules', [TenantModuleController::class , 'index']);
     Route::put('tenants/{tenant}/modules', [TenantModuleController::class , 'update']);
 
-    Route::post('impersonate/{tenant}', [SuperAdminImpersonationController::class , 'impersonate']);
-    Route::post('impersonate/stop', [SuperAdminImpersonationController::class , 'stop']);
-
     Route::get('tenant-backups', [SuperAdminBackupController::class , 'index']);
     Route::post('tenants/{tenant}/backups', [SuperAdminBackupController::class , 'backupNow']);
     Route::get('tenants/{tenant}/backups', [SuperAdminBackupController::class , 'listBackups']);

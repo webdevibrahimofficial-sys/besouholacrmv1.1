@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { login as svcLogin, logout as svcLogout, getProfile } from '@services/auth'
 import { captureDeviceInfo, saveDeviceForUser } from '@utils/device'
 import { api } from '@utils/api'
@@ -12,6 +12,7 @@ const AppStateContext = createContext(null)
 
 export function AppStateProvider({ children }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [user, setUser] = useState(null)
   const [company, setCompany] = useState(null)
   const [impersonation, setImpersonation] = useState(null)
@@ -414,6 +415,13 @@ export function AppStateProvider({ children }) {
     }), [user, company, impersonation, subscription, subscriptionPlan, panelMode, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges, saveUiPreference])
 
 useEffect(() => {
+  const isImpersonationCallback = location.pathname === '/auth/impersonation-callback'
+
+  if (isImpersonationCallback) {
+    setBootstrapped(true)
+    return
+  }
+
   const getCookie = (name) => {
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
@@ -445,7 +453,7 @@ useEffect(() => {
   } else {
     setBootstrapped(true);
   }
-}, [fetchCompanyInfo]);
+}, [fetchCompanyInfo, location.pathname, location.search, location.hash]);
 
  useEffect(() => {
    if (!bootstrapped || !user) return

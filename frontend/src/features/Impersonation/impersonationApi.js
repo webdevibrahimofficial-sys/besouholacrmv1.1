@@ -1,4 +1,3 @@
-import axios from 'axios'
 import { api } from '@utils/api'
 
 export const impersonationApi = {
@@ -15,10 +14,7 @@ export const impersonationApi = {
     return api.delete('/api/super-admin/impersonation/current', { skipAuthRedirect: true })
   },
   exchange(token) {
-    return axios.post('/api/impersonation/exchange', { token }, {
-      baseURL: api.defaults.baseURL,
-      headers: { Accept: 'application/json' },
-    })
+    return api.post('/api/impersonation/exchange', { token }, { skipAuthRedirect: true })
   },
   currentTenant() {
     return api.get('/api/impersonation/current', { skipAuthRedirect: true })

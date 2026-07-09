@@ -16,7 +16,8 @@ use Illuminate\Support\Facades\Http;
 class AuthController extends Controller
 {
     public function __construct(
-        private readonly UserPanelContextService $panelContext
+        private readonly UserPanelContextService $panelContext,
+        private readonly \App\Services\AdminImpersonationService $impersonationService
     ) {
     }
 
@@ -306,15 +307,7 @@ class AuthController extends Controller
 
         $session = app('impersonation_session');
 
-        return [
-            'active' => true,
-            'session_id' => $session->id,
-            'admin_user_id' => $session->admin_user_id,
-            'tenant_id' => $session->tenant_id,
-            'mode' => $session->mode,
-            'reason' => $session->reason,
-            'expires_at' => optional($session->expires_at)->toISOString(),
-        ];
+        return $this->impersonationService->serializeActiveContext($session);
     }
 
     public function loginRedirect(Request $request)

@@ -6,6 +6,7 @@ use App\Models\AdminImpersonationSession;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -25,6 +26,12 @@ class AdminImpersonationService
 
     public function ensureActorCanImpersonate(User $user): void
     {
+        // Super-admin permission checks run under Spatie teams, so we must
+        // evaluate them in the admin's own system-tenant context.
+        if ($user->tenant_id) {
+            setPermissionsTeamId($user->tenant_id);
+        }
+
         if (!$user->is_super_admin || !$user->can('system.tenants.impersonate')) {
             throw new HttpException(403, 'You are not allowed to start support access sessions.');
         }
@@ -36,7 +43,7 @@ class AdminImpersonationService
         $status = trim((string) $request->input('status', 'active'));
         $limit = min(max((int) $request->integer('limit', 20), 1), 100);
 
-        $query = Tenant::query()
+        $query = $this->tenantQuery()
             ->whereNull('archived_at')
             ->withCount(['users' => function ($builder) {
                 $builder->withoutGlobalScopes();
@@ -85,6 +92,11 @@ class AdminImpersonationService
         $this->ensureImpersonationStorageAvailable();
         $this->ensureActorCanImpersonate($admin);
 
+        $tenant = $this->findTenantById($tenant->getKey());
+        if (!$tenant) {
+            throw new HttpException(404, 'Tenant not found.');
+        }
+
         $tenantAdmin = $this->resolvePrimaryTenantUser($tenant);
         if (!$this->canImpersonateTenant($tenant, $tenantAdmin)) {
             throw new HttpException(422, $tenantAdmin
@@ -93,7 +105,7 @@ class AdminImpersonationService
         }
 
         $rawBridgeToken = Str::random(64);
-        $session = DB::connection('landlord')->transaction(function () use ($admin, $tenant, $tenantAdmin, $request, $payload, $rawBridgeToken) {
+        $session = DB::transaction(function () use ($admin, $tenant, $tenantAdmin, $request, $payload, $rawBridgeToken) {
             AdminImpersonationSession::query()
                 ->where('admin_user_id', $admin->id)
                 ->where('status', self::STATUS_ACTIVE)
@@ -124,11 +136,13 @@ class AdminImpersonationService
             ]);
         });
 
+        $session->setRelation('tenant', $tenant);
         $redirectUrl = $this->buildTenantCallbackUrl($tenant, $rawBridgeToken);
 
         return [
             'message' => 'Support access session started.',
-            'session' => $this->serializeSession($session->fresh(['tenant'])),
+            'session' => $this->serializeSession($session->fresh()),
+            'tenant' => $this->serializeTenant($tenant),
             'redirect_url' => $redirectUrl,
             'bridge_token' => $rawBridgeToken,
         ];
@@ -157,7 +171,8 @@ class AdminImpersonationService
         $admin = User::withoutGlobalScopes()->findOrFail($session->admin_user_id);
         $this->ensureActorCanImpersonate($admin);
 
-        $supportToken = $admin->createToken('support_access');
+        $tenantUser = User::withoutGlobalScopes()->findOrFail($session->tenant_user_id);
+        $supportToken = $tenantUser->createToken('support_access');
 
         if ($supportToken->accessToken) {
             $supportToken->accessToken->forceFill([
@@ -177,16 +192,9 @@ class AdminImpersonationService
         return [
             'message' => 'Support access session established.',
             'token' => $supportToken->plainTextToken,
-            'user' => $admin,
+            'user' => $tenantUser,
             'tenant' => $tenant->only(['id', 'name', 'slug', 'domain']),
-            'impersonation' => [
-                'active' => true,
-                'session_id' => $session->id,
-                'admin_user_id' => $session->admin_user_id,
-                'mode' => $session->mode,
-                'reason' => $session->reason,
-                'expires_at' => optional($session->expires_at)->toISOString(),
-            ],
+            'impersonation' => $this->serializeActiveContext($session),
         ];
     }
 
@@ -197,7 +205,6 @@ class AdminImpersonationService
         }
 
         $session = AdminImpersonationSession::query()
-            ->with('tenant')
             ->where('admin_user_id', $admin->id)
             ->where('status', self::STATUS_ACTIVE)
             ->latest('id')
@@ -206,6 +213,13 @@ class AdminImpersonationService
         if ($session && optional($session->expires_at)->isPast()) {
             $this->expire($session);
             return null;
+        }
+
+        if ($session) {
+            $tenant = $this->findTenantById($session->tenant_id);
+            if ($tenant) {
+                $session->setRelation('tenant', $tenant);
+            }
         }
 
         return $session;
@@ -222,7 +236,6 @@ class AdminImpersonationService
         }
 
         $session = AdminImpersonationSession::query()
-            ->with('tenant')
             ->where('support_session_token_id', $token->id)
             ->where('status', self::STATUS_ACTIVE)
             ->latest('id')
@@ -231,6 +244,13 @@ class AdminImpersonationService
         if ($session && optional($session->expires_at)->isPast()) {
             $this->expire($session);
             return null;
+        }
+
+        if ($session) {
+            $tenant = $this->findTenantById($session->tenant_id);
+            if ($tenant) {
+                $session->setRelation('tenant', $tenant);
+            }
         }
 
         return $session;
@@ -251,7 +271,13 @@ class AdminImpersonationService
             'ended_reason' => $reason,
         ])->save();
 
-        return $session->fresh(['tenant']);
+        $session = $session->fresh();
+        $tenant = $this->findTenantById($session->tenant_id);
+        if ($tenant) {
+            $session->setRelation('tenant', $tenant);
+        }
+
+        return $session;
     }
 
     public function attachContext(AdminImpersonationSession $session, Request $request): void
@@ -261,7 +287,7 @@ class AdminImpersonationService
             throw new HttpException(401, 'Support access session has expired.');
         }
 
-        $tenant = Tenant::query()->find($session->tenant_id);
+        $tenant = $this->findTenantById($session->tenant_id);
         if (!$tenant) {
             throw new HttpException(404, 'Tenant not found for support access session.');
         }
@@ -296,7 +322,7 @@ class AdminImpersonationService
         ])->save();
 
         activity('super_admin')
-            ->performedOn($session->tenant)
+            ->performedOn($session->relationLoaded('tenant') ? $session->getRelation('tenant') : $this->findTenantById($session->tenant_id))
             ->withProperties([
                 'tenant_id' => $session->tenant_id,
                 'session_id' => $session->id,
@@ -308,16 +334,46 @@ class AdminImpersonationService
 
     public function serializeSession(AdminImpersonationSession $session): array
     {
+        $tenant = $session->relationLoaded('tenant')
+            ? $session->getRelation('tenant')
+            : $this->findTenantById($session->tenant_id);
+        $admin = User::withoutGlobalScopes()->find($session->admin_user_id);
+
         return [
             'id' => $session->id,
             'tenant_id' => $session->tenant_id,
-            'tenant_name' => $session->tenant?->name,
-            'tenant_slug' => $session->tenant?->slug,
+            'tenant_name' => $tenant?->name,
+            'tenant_slug' => $tenant?->slug,
             'admin_user_id' => $session->admin_user_id,
+            'admin_name' => $admin?->name,
+            'admin_email' => $admin?->email,
             'mode' => $session->mode,
             'reason' => $session->reason,
             'status' => $session->status,
             'started_at' => optional($session->started_at)->toISOString(),
+            'expires_at' => optional($session->expires_at)->toISOString(),
+            'remaining_seconds' => $session->expires_at ? max(0, now()->diffInSeconds($session->expires_at, false)) : null,
+        ];
+    }
+
+    public function serializeActiveContext(AdminImpersonationSession $session): array
+    {
+        $admin = User::withoutGlobalScopes()->find($session->admin_user_id);
+        $tenant = $session->relationLoaded('tenant')
+            ? $session->getRelation('tenant')
+            : $this->findTenantById($session->tenant_id);
+
+        return [
+            'active' => true,
+            'session_id' => $session->id,
+            'admin_user_id' => $session->admin_user_id,
+            'admin_name' => $admin?->name,
+            'admin_email' => $admin?->email,
+            'tenant_id' => $session->tenant_id,
+            'tenant_name' => $tenant?->name,
+            'tenant_slug' => $tenant?->slug,
+            'mode' => $session->mode,
+            'reason' => $session->reason,
             'expires_at' => optional($session->expires_at)->toISOString(),
             'remaining_seconds' => $session->expires_at ? max(0, now()->diffInSeconds($session->expires_at, false)) : null,
         ];
@@ -340,6 +396,32 @@ class AdminImpersonationService
             })
             ->orderBy('id')
             ->first();
+    }
+
+    protected function tenantQuery(): Builder
+    {
+        return Tenant::on($this->tenantConnection());
+    }
+
+    protected function findTenantById(int|string $tenantId): ?Tenant
+    {
+        return $this->tenantQuery()->find($tenantId);
+    }
+
+    protected function tenantConnection(): string
+    {
+        return (string) config('database.default', 'mysql');
+    }
+
+    protected function serializeTenant(Tenant $tenant): array
+    {
+        return [
+            'id' => $tenant->id,
+            'name' => $tenant->name,
+            'slug' => $tenant->slug,
+            'domain' => $tenant->domain,
+            'status' => $tenant->status,
+        ];
     }
 
     protected function buildTenantCallbackUrl(Tenant $tenant, string $bridgeToken): string
@@ -376,7 +458,7 @@ class AdminImpersonationService
         }
 
         try {
-            return $this->impersonationStorageAvailable = Schema::connection('landlord')->hasTable(
+            return $this->impersonationStorageAvailable = Schema::hasTable(
                 (new AdminImpersonationSession())->getTable()
             );
         } catch (Throwable $exception) {

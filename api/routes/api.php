@@ -216,9 +216,6 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', 
     Route::get('impersonation/current', [SuperAdminImpersonationController::class, 'current']);
     Route::delete('impersonation/current', [SuperAdminImpersonationController::class, 'destroy']);
 
-    Route::post('impersonate/{tenant}', [SuperAdminImpersonationController::class , 'impersonate']);
-    Route::post('impersonate/stop', [SuperAdminImpersonationController::class , 'stop']);
-
     Route::get('backups/dashboard', [SuperAdminBackupController::class , 'dashboard']);
     Route::get('backups', [SuperAdminBackupController::class , 'history']);
     Route::get('backups/restores', [SuperAdminBackupController::class , 'restoreHistory']);
@@ -718,5 +715,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
         Route::apiResource('projects', \App\Http\Controllers\ProjectController::class);
         Route::apiResource('properties', PropertyController::class);
         Route::apiResource('item-categories', \App\Http\Controllers\ItemCategoryController::class);
+        Route::get('cancel-reasons/{cancelReason}/usage', [\App\Http\Controllers\CancelReasonController::class, 'usage']);
+        Route::post('cancel-reasons/{cancelReason}/replace-and-delete', [\App\Http\Controllers\CancelReasonController::class, 'replaceAndDelete']);
         Route::apiResource('cancel-reasons', \App\Http\Controllers\CancelReasonController::class);
     });

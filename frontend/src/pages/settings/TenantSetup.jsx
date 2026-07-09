@@ -361,27 +361,7 @@ const TenantSetup = () => {
         return
       }
 
-      const impersonateResponse = await axios.post(`/api/super-admin/impersonate/${tenant.id}`)
-      const apiTenant = impersonateResponse?.data?.tenant || {}
-
-      const slug =
-        apiTenant.slug ||
-        tenant.slug ||
-        (tenant.domain ? tenant.domain.split('.')[0] : null)
-
-      if (!slug) {
-        toast.error(t('tenant_missing_slug', 'Tenant is missing slug'))
-        return
-      }
-
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('impersonateTenantSlug', slug)
-      }
-
-      await fetchCompanyInfo()
-      toast.success(t('logged_in_as_tenant', 'You are now viewing this tenant workspace'))
-
-      navigate('/dashboard')
+      toast.error(t('Support access is temporarily unavailable'))
     } catch (error) {
       console.error('Failed to login as tenant:', error)
       toast.error(t('failed_login_as_tenant', 'Failed to login as tenant'))
@@ -3068,4 +3048,3 @@ const StatusBadge = ({ status }) => {
 };
 
 export default TenantSetup;
-

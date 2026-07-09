@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::connection('landlord')->create('admin_impersonation_sessions', function (Blueprint $table) {
+        Schema::create('admin_impersonation_sessions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('admin_user_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('tenant_id')->constrained('tenants')->cascadeOnDelete();
@@ -43,6 +43,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::connection('landlord')->dropIfExists('admin_impersonation_sessions');
+        Schema::dropIfExists('admin_impersonation_sessions');
     }
 };

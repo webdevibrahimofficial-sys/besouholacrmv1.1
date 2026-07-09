@@ -35,6 +35,11 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\ResolveTenant::class
         );
 
+        $middleware->appendToPriorityList(
+            \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            \App\Http\Middleware\AttachImpersonationContext::class
+        );
+
         $middleware->validateCsrfTokens(except: [
             'broadcasting/auth',
             'api/broadcasting/auth',

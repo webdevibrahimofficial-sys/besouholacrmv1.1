@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\AdminImpersonationService;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class ImpersonationController extends Controller
@@ -49,13 +50,14 @@ class ImpersonationController extends Controller
         }
 
         $actor = $request->user();
-        $panelToken = $actor->createToken('admin_panel');
+        $adminUser = User::withoutGlobalScopes()->findOrFail($session->admin_user_id);
+        $panelToken = $adminUser->createToken('admin_panel');
         $plainToken = $panelToken->plainTextToken;
 
         $session = $this->impersonationService->end($session, $actor, 'tenant_workspace_exit');
 
         activity('super_admin')
-            ->causedBy($actor)
+            ->causedBy($adminUser)
             ->performedOn($session->tenant)
             ->withProperties([
                 'tenant_id' => $session->tenant_id,

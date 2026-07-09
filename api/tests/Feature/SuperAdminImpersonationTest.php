@@ -80,6 +80,7 @@ class SuperAdminImpersonationTest extends TestCase
 
     public function test_super_admin_can_start_support_access_session(): void
     {
+        setPermissionsTeamId(null);
         Sanctum::actingAs($this->superAdmin);
 
         $response = $this->postJson("/api/super-admin/tenants/{$this->tenant->id}/impersonation", [

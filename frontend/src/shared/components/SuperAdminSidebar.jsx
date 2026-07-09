@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@shared/context/ThemeProvider';
-import { useAppState } from '@shared/context/AppStateProvider';
 import { api as axios } from '@utils/api';
 import { isSecureQuickSwitchEnabled } from '@utils/features';
 import { toast } from 'react-hot-toast';
@@ -36,9 +35,7 @@ import darkLogoCollapse from '@assets/be-souhola-logo-dark-collapse.png';
 export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setCollapsed }) {
   const { t, i18n } = useTranslation();
   const location = useLocation();
-  const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
-  const { fetchCompanyInfo } = useAppState();
 
   const [showQuickSwitch, setShowQuickSwitch] = useState(false);
   const [quickSwitchLoading, setQuickSwitchLoading] = useState(false);
@@ -219,7 +216,7 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
 
   const isImpersonating = secureQuickSwitchEnabled
     ? !!currentImpersonation
-    : (typeof window !== 'undefined' && !!window.localStorage.getItem('impersonateTenantSlug'));
+    : false;
 
   const handleLoginAsTenant = async (tenant) => {
     try {
@@ -242,24 +239,7 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
         return
       }
 
-      const impersonateResponse = await axios.post(`/api/super-admin/impersonate/${tenant.id}`);
-      const apiTenant = impersonateResponse?.data?.tenant || {};
-      const slug = apiTenant.slug || tenant.slug || (tenant.domain ? tenant.domain.split('.')[0] : null);
-
-      if (!slug) {
-        toast.error(t('Tenant is missing slug'));
-        return;
-      }
-
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('impersonateTenantSlug', slug);
-      }
-
-      await fetchCompanyInfo();
-      toast.success(t('You are now viewing this tenant workspace'));
-      setShowQuickSwitch(false);
-
-      navigate('/dashboard');
+      toast.error(t('Support access is temporarily unavailable'));
     } catch (error) {
       console.error('Failed to login as tenant:', error);
       toast.error(t('Failed to login as tenant'));
@@ -275,7 +255,8 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
         await impersonationApi.exitSystem();
         setCurrentImpersonation(null);
       } else {
-        await axios.post('/api/super-admin/impersonate/stop');
+        toast.error(t('Support access is temporarily unavailable'));
+        return;
       }
       if (typeof window !== 'undefined') {
         clearImpersonationHints();

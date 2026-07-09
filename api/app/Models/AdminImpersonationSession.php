@@ -8,8 +8,6 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class AdminImpersonationSession extends Model
 {
-    protected $connection = 'landlord';
-
     protected $fillable = [
         'admin_user_id',
         'tenant_id',

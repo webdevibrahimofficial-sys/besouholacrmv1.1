@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Services\AdminImpersonationService;
 use Closure;
 use Illuminate\Http\Request;
+use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\Response;
 
 class AttachImpersonationContext
@@ -19,7 +20,14 @@ class AttachImpersonationContext
         $user = $request->user();
         $token = $user?->currentAccessToken();
 
-        if (!$user || !$token) {
+        if (!$token) {
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                $token = PersonalAccessToken::findToken($bearerToken);
+            }
+        }
+
+        if (!$token) {
             return $next($request);
         }
 
