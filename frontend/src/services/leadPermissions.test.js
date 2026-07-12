@@ -3,6 +3,7 @@ import {
   getLeadPermissionFlags,
   hasLeadPermission,
   isPrivilegedLeadUser,
+  isTenantAdminUser,
 } from './leadPermissions'
 
 describe('canManagerAddActionForLead', () => {
@@ -71,6 +72,10 @@ describe('canManagerAddActionForLead', () => {
 })
 
 describe('lead module permission helpers', () => {
+  test('treats primary tenant admin as tenant admin even without role', () => {
+    expect(isTenantAdminUser({ is_primary_admin: true, role: null })).toBe(true)
+  })
+
   test('grants all lead permissions to tenant admin', () => {
     const user = { role: 'Tenant Admin' }
     expect(isPrivilegedLeadUser(user)).toBe(true)

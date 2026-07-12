@@ -139,7 +139,7 @@ export default function ForgotPassword() {
           </motion.div>
         </div>
 
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-soft-light"></div>
+        <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-20 mix-blend-soft-light"></div>
       </motion.div>
 
       {/* Right Panel - Form (55%) */}

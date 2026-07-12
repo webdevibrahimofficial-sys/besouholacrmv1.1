@@ -15,7 +15,6 @@ import {
   ChevronRight,
   Zap,
   RefreshCw,
-  Copy
 } from 'lucide-react'
 import { api } from '../../utils/api'
 
@@ -113,8 +112,7 @@ export default function MetaSettings({ onClose }) {
   // State
   const [activeTab, setActiveTab] = useState('overview')
   const [settings, setSettings] = useState({})
-  const [appSettings, setAppSettings] = useState({ app_id: '', app_secret: '', verify_token: '', webhook_url: null })
-  const [savingAppSettings, setSavingAppSettings] = useState(false)
+  const [sharedMetaConfigured, setSharedMetaConfigured] = useState(false)
   
   // Multi-account State
   const [connections, setConnections] = useState([])
@@ -137,10 +135,15 @@ export default function MetaSettings({ onClose }) {
   const [enableCapi, setEnableCapi] = useState(false)
   const [autoSync, setAutoSync] = useState(true)
   const [fieldMap, setFieldMap] = useState({ name: 'name', email: 'email', phone: 'phone', utm_source: 'utm_source', utm_campaign: 'utm_campaign' })
+  const [formMap, setFormMap] = useState({})
+  const [leadForms, setLeadForms] = useState([])
+  const [selectedFormId, setSelectedFormId] = useState('')
+  const [loadingForms, setLoadingForms] = useState(false)
+  const [syncWarnings, setSyncWarnings] = useState([])
+  const [tenantHealth, setTenantHealth] = useState(null)
   
   // Validation
   const [validationErrors, setValidationErrors] = useState({})
-  const [appValidationErrors, setAppValidationErrors] = useState({})
 
   // Auto-save State
   const [saveStatus, setSaveStatus] = useState('idle') // idle, pending, saving, saved, error
@@ -166,15 +169,15 @@ export default function MetaSettings({ onClose }) {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [data, appData] = await Promise.all([
-        metaService.loadSettings(),
-        metaService.loadAppSettings().catch(() => ({}))
-      ])
+      const data = await metaService.loadSettings()
       
       setConnections(data.connections || [])
       setBusinesses(data.businesses || [])
       setAdAccounts(data.ad_accounts || [])
       setPages(data.pages || [])
+      setSharedMetaConfigured(!!data.shared_meta_configured)
+      setSyncWarnings(data.sync_warnings || [])
+      setTenantHealth(data.tenant_health || null)
 
       const saved = data.settings || {}
       setEnableCapi(!!saved.enableCapi)
@@ -185,24 +188,9 @@ export default function MetaSettings({ onClose }) {
       if (saved.fieldMap && typeof saved.fieldMap === 'object') {
         setFieldMap(prev => ({ ...prev, ...saved.fieldMap }))
       }
-      setAppSettings(prev => ({
-        ...prev,
-        app_id: appData.app_id || '',
-        app_secret: '',
-        verify_token: '',
-        webhook_url: appData.webhook_url || null,
-        app_secret_masked: appData.app_secret_masked || null,
-        verify_token_set: !!appData.verify_token_set
-      }))
-      
-      // Load global settings (Pixel, etc. might still be relevant globally or per account)
-      // For now, assume global settings are in data.settings (if any) or separate
-      // The current backend status endpoint returns `settings` inside the integration object if single, 
-      // but we moved to multi-account. 
-      // Let's assume we still might have global settings in the response or we need to fetch them.
-      // The updated MetaAuthController::status doesn't return a global settings object anymore, 
-      // but we can assume default empty or fetch from a different endpoint if needed.
-      // For now, we'll keep the existing state for events/capi/etc. initialized with defaults.
+      if (saved.formMap && typeof saved.formMap === 'object') {
+        setFormMap(saved.formMap)
+      }
 
     } catch {
       showToast('error', 'Failed to load settings')
@@ -263,51 +251,27 @@ export default function MetaSettings({ onClose }) {
     return () => clearTimeout(timer)
   }, [loading])
 
-  const handleSaveAppSettings = async () => {
-    const appId = String(appSettings.app_id || '').trim()
-    if (!appId) {
-      setAppValidationErrors(prev => ({ ...prev, app_id: 'App ID is required' }))
-      showToast('error', 'App ID is required')
-      return
-    }
-    if (!/^\d+$/.test(appId)) {
-      setAppValidationErrors(prev => ({ ...prev, app_id: 'App ID must be numbers only' }))
-      showToast('error', 'App ID must be numbers only')
-      return
-    }
-    // Secret must be set at least once (either masked already exists, or user entered a new one)
-    if (!appSettings.app_secret_masked && !String(appSettings.app_secret || '').trim()) {
-      setAppValidationErrors(prev => ({ ...prev, app_secret: 'App Secret is required' }))
-      showToast('error', 'App Secret is required')
-      return
+  useEffect(() => {
+    if (activeTab !== 'leads' || loading) return
+
+    const loadForms = async () => {
+      setLoadingForms(true)
+      try {
+        const res = await metaService.loadLeadForms()
+        const forms = res.forms || []
+        setLeadForms(forms)
+        if (!selectedFormId && forms.length > 0) {
+          setSelectedFormId(forms[0].id)
+        }
+      } catch {
+        showToast('error', isArabic ? 'فشل تحميل نماذج الليدز' : 'Failed to load lead forms')
+      } finally {
+        setLoadingForms(false)
+      }
     }
 
-    setSavingAppSettings(true)
-    try {
-      await metaService.saveAppSettings({
-        app_id: appId,
-        app_secret: appSettings.app_secret || undefined,
-        verify_token: appSettings.verify_token || undefined,
-      })
-      showToast('success', 'Tenant Meta App settings saved')
-      await loadData()
-    } catch {
-      showToast('error', 'Failed to save tenant app settings')
-    } finally {
-      setSavingAppSettings(false)
-    }
-  }
-
-  const handleCopyWebhookUrl = async () => {
-    if (!appSettings.webhook_url) return
-
-    try {
-      await navigator.clipboard.writeText(appSettings.webhook_url)
-      showToast('success', isArabic ? 'تم نسخ رابط الويب هوك' : 'Webhook URL copied')
-    } catch {
-      showToast('error', isArabic ? 'تعذر نسخ الرابط' : 'Failed to copy webhook URL')
-    }
-  }
+    loadForms()
+  }, [activeTab, loading, isArabic, selectedFormId])
 
   const validateNumeric = (key, value) => {
     if (value && !/^\d+$/.test(value)) {
@@ -334,10 +298,8 @@ export default function MetaSettings({ onClose }) {
     try {
       e?.preventDefault?.()
       e?.stopPropagation?.()
-      const appId = String(appSettings.app_id || '').trim()
-      const canConnect = /^\d+$/.test(appId) && (!!appSettings.app_secret_masked || !!String(appSettings.app_secret || '').trim())
-      if (!canConnect) {
-        showToast('error', 'Configure Tenant Meta App ID and Secret first')
+      if (!sharedMetaConfigured) {
+        showToast('error', isArabic ? 'تكامل ميتا غير مفعّل. تواصل مع مسؤول النظام.' : 'Meta integration is not enabled. Contact your system administrator.')
         return
       }
       await metaService.connectMeta()
@@ -402,6 +364,18 @@ export default function MetaSettings({ onClose }) {
   }
 
 
+  const handleSaveFormMapping = async () => {
+    if (!selectedFormId) return
+    try {
+      const mapping = formMap[selectedFormId] || fieldMap
+      await metaService.saveFormMapping(selectedFormId, mapping)
+      setFormMap(prev => ({ ...prev, [selectedFormId]: mapping }))
+      showToast('success', isArabic ? 'تم حفظ تعيين النموذج' : 'Form mapping saved')
+    } catch {
+      showToast('error', isArabic ? 'فشل حفظ تعيين النموذج' : 'Failed to save form mapping')
+    }
+  }
+
   const handleToggleAsset = async (type, id, currentStatus) => {
     try {
       await metaService.toggleAsset(type, id, !currentStatus)
@@ -437,11 +411,47 @@ export default function MetaSettings({ onClose }) {
 
   const renderOverview = () => {
     const sameId = (left, right) => String(left ?? '') === String(right ?? '')
-    const appId = String(appSettings.app_id || '').trim()
-    const canConnect = /^\d+$/.test(appId) && (!!appSettings.app_secret_masked || !!String(appSettings.app_secret || '').trim())
+    const canConnect = sharedMetaConfigured
 
     return (
     <div className="space-y-6">
+      {!sharedMetaConfigured && (
+        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
+          {isArabic
+            ? 'تكامل ميتا غير مفعّل بعد. يجب على مسؤول النظام ضبط تطبيق ميتا المشترك من لوحة إدارة النظام.'
+            : 'Meta integration is not enabled yet. A system administrator must configure the shared Meta App in System Admin settings.'}
+        </div>
+      )}
+
+      {syncWarnings.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+          <p className="font-medium mb-2">{isArabic ? 'تحذيرات المزامنة' : 'Sync warnings'}</p>
+          <ul className="list-disc pl-5 space-y-1">
+            {syncWarnings.map((warning, index) => (
+              <li key={`${warning.page_id || warning.type}-${index}`}>
+                {warning.message || warning.type}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {connections.some(conn => conn.needs_reauth) && (
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-200">
+          {isArabic
+            ? 'هذا الاتصال يحتاج إعادة ربط بفيسبوك بعد تحديث تكامل ميتا.'
+            : 'This connection needs to be reconnected with Facebook after the Meta integration update.'}
+        </div>
+      )}
+
+      {connections.length > 0 && !connections.some(conn => conn.needs_reauth) && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
+          {isArabic
+            ? 'إذا تم تحديث تكامل ميتا مؤخراً، أعد ربط حساب فيسبوك لضمان استمرار استقبال الليدز ومزامنة الحملات.'
+            : 'If Meta integration was recently updated, reconnect your Facebook account to keep receiving leads and syncing campaigns.'}
+        </div>
+      )}
+
       {/* Header / Connect Button */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
@@ -452,99 +462,12 @@ export default function MetaSettings({ onClose }) {
           type="button"
           onClick={handleConnect}
           disabled={!canConnect}
-          title={!canConnect ? (isArabic ? 'احفظ إعدادات تطبيق ميتا الخاصة بالتينانت (App ID + Secret) أولًا' : 'Save Tenant Meta App settings (App ID + Secret) first') : ''}
+          title={!canConnect ? (isArabic ? 'تكامل ميتا غير مفعّل من إدارة النظام' : 'Meta integration is not enabled by system admin') : ''}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-[#1877F2] px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-[#166fe5] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           <Facebook className="h-4 w-4" />
           {isArabic ? 'إضافة حساب جديد' : 'Add New Account'}
         </button>
-      </div>
-
-      <div className="rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/40 sm:p-5">
-        <h4 className="text-sm font-semibold text-theme mb-2">{isArabic ? 'تطبيق ميتا الخاص بالتينانت' : 'Tenant Meta App'}</h4>
-        <p className="mb-4 text-xs leading-6 text-theme/70">
-          {isArabic
-            ? 'احفظ بيانات التطبيق أولًا، وبعدها استخدم رابط الويب هوك داخل Meta Developer.'
-            : 'Save the app credentials first, then use the generated webhook URL inside Meta Developer.'}
-        </p>
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <InputField
-            label={isArabic ? 'معرّف التطبيق' : 'App ID'}
-            value={appSettings.app_id}
-            onChange={(v) => {
-              const next = v?.trim?.() ?? v
-              setAppSettings(prev => ({ ...prev, app_id: next }))
-              if (next && !/^\d+$/.test(String(next))) {
-                setAppValidationErrors(prev => ({ ...prev, app_id: isArabic ? 'يجب أن يكون معرّف التطبيق أرقامًا فقط' : 'App ID must be numbers only' }))
-              } else {
-                setAppValidationErrors(prev => {
-                  const n = { ...prev }
-                  delete n.app_id
-                  return n
-                })
-              }
-            }}
-            placeholder={isArabic ? 'مثال: 123456789012345' : 'e.g. 123456789012345'}
-            error={appValidationErrors.app_id}
-          />
-          <InputField
-            label={isArabic ? 'سر التطبيق (اتركه فارغًا للاحتفاظ بالقيمة الحالية)' : 'App Secret (leave empty to keep current)'}
-            value={appSettings.app_secret}
-            onChange={(v) => {
-              setAppSettings(prev => ({ ...prev, app_secret: v }))
-              setAppValidationErrors(prev => {
-                const n = { ...prev }
-                delete n.app_secret
-                return n
-              })
-            }}
-            placeholder={appSettings.app_secret_masked || (isArabic ? 'سر تطبيق ميتا' : 'Meta App Secret')}
-            type="password"
-            error={appValidationErrors.app_secret}
-          />
-          <InputField
-            label={isArabic ? 'رمز التحقق (اختياري)' : 'Verify Token (optional)'}
-            value={appSettings.verify_token}
-            onChange={(v) => setAppSettings(prev => ({ ...prev, verify_token: v }))}
-            placeholder={appSettings.verify_token_set ? (isArabic ? 'مُعدّ مسبقًا' : 'Already configured') : (isArabic ? 'رمز تحقق الويب هوك' : 'Webhook verify token')}
-          />
-          <div className="flex h-full flex-col rounded-2xl border border-dashed border-gray-300 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/40">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-theme">
-                {isArabic ? 'رابط الويب هوك' : 'Webhook URL'}
-              </span>
-              {appSettings.webhook_url ? (
-                <button
-                  type="button"
-                  onClick={handleCopyWebhookUrl}
-                  className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-theme transition hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  {isArabic ? 'نسخ' : 'Copy'}
-                </button>
-              ) : null}
-            </div>
-            {appSettings.webhook_url ? (
-              <div className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-3 text-xs leading-6 text-theme shadow-sm break-all dark:border-gray-700 dark:bg-gray-900/60">
-                {appSettings.webhook_url}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-xs leading-6 text-theme/70 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
-                {isArabic ? 'احفظ الإعدادات لإنشاء رابط الويب هوك' : 'Save settings to generate webhook URL'}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={handleSaveAppSettings}
-            disabled={savingAppSettings}
-            className="inline-flex w-full items-center justify-center rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 disabled:opacity-50 sm:w-auto"
-          >
-            {savingAppSettings ? (isArabic ? 'جارٍ الحفظ...' : 'Saving...') : (isArabic ? 'حفظ إعدادات التطبيق' : 'Save App Settings')}
-          </button>
-        </div>
       </div>
 
       {/* Connections List */}
@@ -830,9 +753,68 @@ export default function MetaSettings({ onClose }) {
         </div>
       </div>
 
-      {/* Field Mapping */}
+      {/* Per-form Field Mapping */}
       <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-medium text-theme mb-4">Field Mapping</h3>
+        <h3 className="text-lg font-medium text-theme mb-4">{isArabic ? 'تعيين الحقول لكل نموذج' : 'Per-Form Field Mapping'}</h3>
+        {loadingForms ? (
+          <p className="text-sm text-theme">{isArabic ? 'جاري تحميل النماذج...' : 'Loading forms...'}</p>
+        ) : leadForms.length === 0 ? (
+          <p className="text-sm text-theme">{isArabic ? 'لا توجد نماذج ليدز نشطة.' : 'No active lead forms found.'}</p>
+        ) : (
+          <>
+            <select
+              value={selectedFormId}
+              onChange={(e) => setSelectedFormId(e.target.value)}
+              className="mb-4 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-transparent text-theme sm:text-sm py-2 px-3"
+            >
+              {leadForms.map((form) => (
+                <option key={form.id} value={form.id}>
+                  {form.name} ({form.page_name})
+                </option>
+              ))}
+            </select>
+
+            <div className="space-y-4">
+              {Object.entries(formMap[selectedFormId] || fieldMap).map(([key, value]) => (
+                <div key={key} className="flex items-center group">
+                  <div className="w-1/3 text-sm font-medium text-theme flex items-center">
+                    <span className="bg-white/50 px-2 py-1 rounded text-xs font-mono mr-2 text-blue">META</span>
+                    {key}
+                  </div>
+                  <div className="mx-4 text-blue">
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      value={value}
+                      onChange={(e) => setFormMap(prev => ({
+                        ...prev,
+                        [selectedFormId]: {
+                          ...(prev[selectedFormId] || fieldMap),
+                          [key]: e.target.value,
+                        },
+                      }))}
+                      className="block w-full rounded-md border-gray-700 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-900 text-theme py-2 px-3"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSaveFormMapping}
+              className="mt-4 inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700"
+            >
+              {isArabic ? 'حفظ تعيين النموذج' : 'Save Form Mapping'}
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Default Field Mapping */}
+      <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-medium text-theme mb-4">{isArabic ? 'تعيين الحقول الافتراضي' : 'Default Field Mapping'}</h3>
         <p className="text-sm text-theme mb-6">
           Map your Facebook Lead Form fields (left) to your CRM fields (right).
         </p>
@@ -863,6 +845,28 @@ export default function MetaSettings({ onClose }) {
 
   const renderDiagnostics = () => (
     <div className="h-full flex flex-col space-y-6">
+      {tenantHealth && (
+        <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-medium text-theme mb-4 flex items-center">
+            <Activity className="w-5 h-5 mr-2 text-theme" />
+            {isArabic ? 'صحة التكامل' : 'Integration Health'}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <div className="flex justify-between"><span>{isArabic ? 'تطبيق مشترك' : 'Shared app'}</span><span>{tenantHealth.shared_meta_configured ? 'OK' : 'Missing'}</span></div>
+            <div className="flex justify-between"><span>{isArabic ? 'صفحات نشطة' : 'Active pages'}</span><span>{tenantHealth.active_pages ?? 0}</span></div>
+            <div className="flex justify-between"><span>{isArabic ? 'تحتاج إعادة ربط' : 'Needs reauth'}</span><span>{tenantHealth.connections_needing_reauth ?? 0}</span></div>
+            <div className="flex justify-between"><span>{isArabic ? 'آخر ليد' : 'Last lead'}</span><span>{tenantHealth.last_lead_at || '—'}</span></div>
+            {tenantHealth.subscribe_summary && (
+              <div className="sm:col-span-2 text-theme/80">
+                {isArabic ? 'اشتراك webhook:' : 'Webhook subscribe:'}{' '}
+                {tenantHealth.subscribe_summary.subscribed ?? 0} {isArabic ? 'نجح' : 'ok'},{' '}
+                {tenantHealth.subscribe_summary.failed ?? 0} {isArabic ? 'فشل' : 'failed'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-medium text-theme mb-4 flex items-center">
           <Terminal className="w-5 h-5 mr-2 text-theme" />

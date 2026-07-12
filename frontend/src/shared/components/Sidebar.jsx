@@ -8,10 +8,11 @@ import darkLogo from '../../assets/be-souhola-logo-dark.png'
 import lightLogoCollapse from '../../assets/be-souhola-logo-light-collapse.png'
 import darkLogoCollapse from '../../assets/be-souhola-logo-dark-collapse.png'
 import { useAppState } from '@shared/context/AppStateProvider'
+import { isTenantAdminUser } from '@services/leadPermissions'
+import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
 import { useTranslation } from 'react-i18next';
 import { useStages } from '@hooks/useStages';
 import { ICON_MAP } from '../../components/settings/IconSelector';
-import { isSystemAdminContext } from '@utils/authRouting'
 
 
 // دالة ترجع أيقونة مناسبة لكل عنصر
@@ -452,7 +453,7 @@ const getMarketingItemIcon = (key) => {
 }
 
 export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, setCollapsed }) => {
-  const { activeModules, user, company, permissions, subscriptionPlan, panelMode, canAccess, crmSettings, inventoryBadges } = useAppState()
+  const { activeModules, user, company, canAccess, crmSettings, inventoryBadges } = useAppState()
   const { theme, resolvedTheme } = useTheme()
   const { t, i18n } = useTranslation();
 
@@ -474,28 +475,32 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const navRef = useRef(null)
   const role = user?.role || ''
   const roleLower = role.toLowerCase()
-  const companyTypeLower = String(company?.company_type || '').toLowerCase()
-  const isRealEstateTenant = companyTypeLower.includes('real')
+  const isRealEstateTenant = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
   const isSalesPerson = roleLower.includes('sales person') || roleLower.includes('salesperson')
   const isTeamLeader = roleLower.includes('team leader') || roleLower.includes('teamleader')
-  const isTenantAdmin =
-    roleLower === 'admin' ||
-    roleLower === 'tenant admin' ||
-    roleLower === 'tenant-admin'
+  const isTenantAdmin = isTenantAdminUser(user)
   const isDirectorRole = role === 'Director' || roleLower.includes('director')
   const isOperationManagerRole = roleLower.includes('operation manager') || roleLower.includes('operations manager')
-  const isSuperAdmin = isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })
+  const isSuperAdmin = !!(
+    user?.is_super_admin || 
+    roleLower.includes('super admin') || 
+    roleLower.includes('superadmin') || 
+    roleLower === 'owner' ||
+    String(user?.email || '').toLowerCase() === 'system@besouhoula.com' ||
+    String(user?.email || '').toLowerCase() === 'admin@example.com' ||
+    String(user?.email || '').toLowerCase() === 'admin@besouhoula.com'
+  )
   const hasFullSettingsAccess = isSuperAdmin || isTenantAdmin || isDirectorRole || isOperationManagerRole
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const controlModulePerms = Array.isArray(modulePermissions.Control) ? modulePermissions.Control : []
   const effectiveControlPerms = controlModulePerms.length ? controlModulePerms : (() => {
-    if (role === 'Sales Admin') return ['addRegions', 'addArea', 'addSource', 'userManagement', 'assignLeads', 'showReports', 'addDepartment']
-    if (role === 'Operation Manager') return ['showReports', 'addDepartment']
-    if (role === 'Branch Manager') return ['assignLeads', 'showReports']
+    if (role === 'Sales Admin') return ['addRegions', 'addArea', 'addSource', 'userManagement', 'allowActionOnTeam', 'assignLeads', 'showReports', 'addDepartment']
+    if (role === 'Operation Manager') return ['allowActionOnTeam', 'showReports', 'addDepartment']
+    if (role === 'Branch Manager') return ['allowActionOnTeam', 'assignLeads', 'showReports']
     if (role === 'Director') return ['userManagement', 'assignLeads', 'exportLeads', 'showReports', 'multiAction', 'salesComment']
     if (role === 'Sales Manager') return ['assignLeads', 'showReports']
-    if (role === 'Team Leader') return ['assignLeads', 'showReports']
+    if (role === 'Team Leader') return ['allowActionOnTeam', 'assignLeads', 'showReports']
     if (role === 'Sales Person') return ['showReports']
     if (role === 'Customer Manager') return ['showReports']
     if (role === 'Support Manager') return ['showReports']
@@ -503,26 +508,23 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     return []
   })()
 
-  const canViewCompanyDetails = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings'))
+  const canViewCompanyDetails = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewCompanySetupSection = false
   const canViewSystemSettingsSection =
-    !isTeamLeader &&
-    (
-      hasFullSettingsAccess ||
-      effectiveControlPerms.some(p =>
-        ['addStage', 'addSource', 'addRegions', 'addArea', 'addInputs', 'editConfigurationSettings'].includes(p)
-      )
+    hasFullSettingsAccess ||
+    effectiveControlPerms.some(p =>
+      ['addStage', 'addSource', 'addRegions', 'addArea', 'addInputs', 'editConfigurationSettings'].includes(p)
     )
-  const canViewPipelineStages = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('addStage'))
+  const canViewPipelineStages = hasFullSettingsAccess || effectiveControlPerms.includes('addStage')
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
-  const canViewAgenciesSettings = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('userManagement'))
-  const canViewSourcesSettings = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('addSource'))
+  const canViewAgenciesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('userManagement')
+  const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')
   const canViewLocationsSettings =
-    !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.some(p => ['addRegions', 'addArea'].includes(p)))
-  const canViewFormInputsSettings = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('addInputs'))
-  const canViewConfigurationsSection = !isTeamLeader && (hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings'))
+    hasFullSettingsAccess || effectiveControlPerms.some(p => ['addRegions', 'addArea'].includes(p))
+  const canViewFormInputsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addInputs')
+  const canViewConfigurationsSection = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
 
   const canSeeMyLeadsLink = !isSalesPerson
   const isSalesAdminRole = roleLower.includes('sales admin')
@@ -533,7 +535,9 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   
   // New: Sales Person Visibility Logic
   // Pending and Duplicate cards/links should NOT be visible to Sales Person
-  const canSeePendingCard = !isSalesPerson;
+  const canSeeContractCollectionsSection =
+    canAccess('contract_collections') && !isSalesPerson && !isTeamLeader
+
   const canSeeDuplicateCard = !isSalesPerson;
 
   const canSeeMarketingModules =
@@ -556,30 +560,14 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     isBranchManagerRole
 
   const canViewUserManagementSection =
-    !isTeamLeader &&
-    (
-      isSuperAdmin ||
-      isTenantAdmin ||
-      isDirectorRole ||
-      isOperationManagerRole ||
-      effectiveControlPerms.includes('userManagement')
-    )
-
-  const contractCollectionsPerms = Array.isArray(modulePermissions.ContractCollections)
-    ? modulePermissions.ContractCollections
-    : []
-  const canViewContractCollectionsSection =
-    canAccess('contract_collections') &&
-    !isTeamLeader &&
-    (
-      contractCollectionsPerms.length === 0 ||
-      contractCollectionsPerms.includes('showModule') ||
-      contractCollectionsPerms.includes('viewContracts') ||
-      contractCollectionsPerms.includes('viewInstallments')
-    )
+    user?.is_super_admin ||
+    isTenantAdmin ||
+    isDirectorRole ||
+    isOperationManagerRole ||
+    effectiveControlPerms.includes('userManagement')
 
   const canSeeReportsLink =
-    isSuperAdmin ||
+    user?.is_super_admin ||
     isTenantAdmin ||
     isDirectorRole ||
     isOperationManagerRole ||
@@ -593,7 +581,16 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
 
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const isInventoryActive = location.pathname.startsWith('/inventory');
-  const [leadMgmtOpen, setLeadMgmtOpen] = useState(false)
+  const [leadMgmtOpen, setLeadMgmtOpen] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('leadMgmtOpen');
+        if (saved === 'true') return true;
+        if (saved === 'false') return false;
+      }
+    } catch { }
+    return false; // مقفولة افتراضيًا
+  })
   const isLeadMgmtActive = location.pathname.startsWith('/leads') || location.pathname.startsWith('/recycle');
   // أغلق قائمة الليد تلقائيًا عند الانتقال لأي مسار خارج الليد/الريسايكل
   useEffect(() => {
@@ -602,7 +599,14 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('leadMgmtOpen', 'false') } } catch { }
     }
   }, [location.pathname, isLeadMgmtActive])
-  const [stagesOpen, setStagesOpen] = useState(false)
+  // افتح قسم إدارة العملاء تلقائيًا عند التواجد في مسارات الليد/الريسايكل
+  useEffect(() => {
+    if (isLeadMgmtActive) {
+      setLeadMgmtOpen(true)
+      try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('leadMgmtOpen', 'true') } } catch { }
+    }
+  }, [isLeadMgmtActive])
+  const [stagesOpen, setStagesOpen] = useState(true)
   const isMarketingActive = location.pathname.startsWith('/marketing') || location.pathname.startsWith('/reports/marketing')
   const isRecycleActive = location.pathname.startsWith('/recycle')
 
@@ -916,13 +920,6 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const inventoryChildren = useMemo(() => {
     const showBrokerFlag = crmSettings?.showBroker !== false
     const showDeveloperFlag = crmSettings?.showDeveloper !== false
-    const activeModuleSet = new Set((activeModules || []).map(module => String(module || '').trim()))
-    const hasInventoryUmbrella = activeModuleSet.has('inventory')
-    const hasExplicitRealEstateInventory =
-      ['projects', 'properties', 'developers', 'brokers', 'requests'].some(module => activeModuleSet.has(module))
-    const hasExplicitGeneralInventory =
-      ['items', 'orders', 'products', 'suppliers', 'warehouse', 'stockManagement', 'inventoryTransactions'].some(module => activeModuleSet.has(module))
-
     const reChildren = [
       { to: '/inventory/projects', key: 'Projects', module: 'projects' },
       { to: '/inventory/properties', key: 'Properties', module: 'properties' },
@@ -932,44 +929,20 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     ].filter(item => canAccess(item.module) && (item.module !== 'developers' || showDeveloperFlag) && (item.module !== 'brokers' || showBrokerFlag));
 
     const genChildren = [
-      { to: '/inventory/categories', key: 'Categories', module: 'items' }, // Categories is part of Items
+      { to: '/inventory/categories', key: 'Categories', module: 'items' },
       { to: '/inventory/items', key: 'Items', module: 'items' },
       { to: '/inventory/requests', key: 'Order Requests', module: 'orders' },
     ].filter(item => canAccess(item.module));
 
-    const groups = [];
-    const shouldShowRealEstateInventory =
-      reChildren.length > 0 && (
-        isSuperAdmin ||
-        hasExplicitRealEstateInventory ||
-        (hasInventoryUmbrella && isRealEstateTenant && !hasExplicitGeneralInventory)
-      )
+    const children = isRealEstateTenant ? reChildren : genChildren
+    if (children.length === 0) return []
 
-    const shouldShowGeneralInventory =
-      genChildren.length > 0 && (
-        isSuperAdmin ||
-        hasExplicitGeneralInventory ||
-        (hasInventoryUmbrella && !isRealEstateTenant && !hasExplicitRealEstateInventory)
-      )
-
-    if (shouldShowRealEstateInventory) {
-      groups.push({
-        key: 'Real Estate Inventory',
-        isSection: true,
-        children: reChildren
-      });
-    }
-
-    if (shouldShowGeneralInventory) {
-      groups.push({
-        key: 'General Inventory',
-        isSection: true,
-        children: genChildren
-      });
-    }
-
-    return groups;
-  }, [company, activeModules, canAccess, crmSettings]);
+    return [{
+      key: isRealEstateTenant ? 'Real Estate Inventory' : 'General Inventory',
+      isSection: true,
+      children,
+    }]
+  }, [company, activeModules, canAccess, crmSettings, isRealEstateTenant]);
 
   const marketingChildren = [
     { to: '/marketing', key: 'Dashboard' },
@@ -1473,7 +1446,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Inventory section with full-view submenu */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || inventoryOpen) && ['items', 'orders', 'projects', 'properties', 'developers', 'brokers', 'requests'].some(key => canAccess(key)) && (
+        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || inventoryOpen) && inventoryChildren.length > 0 && (
           <div className="w-full">
             {inventoryOpen ? (
               <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-gray-100' : 'bg-gray-900'} px-2 py-1`}>
@@ -1755,7 +1728,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Contract & Collections section (Real Estate only) */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || ccOpen) && canViewContractCollectionsSection && (
+        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || ccOpen) && canSeeContractCollectionsSection && (
           <div className="w-full">
             {ccOpen && (
               <div className={`${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} sticky top-0 z-10 section-header flex items-center mb-2 px-2 py-1`}>

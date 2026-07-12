@@ -31,6 +31,7 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
   `
   
   const [recentCalls, setRecentCalls] = useState([]);
+  const employeeIdsKey = Array.isArray(employeeIds) ? employeeIds.join(',') : '';
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -48,7 +49,7 @@ const RecentPhoneCalls = ({ employee, employeeIds = [], dateFrom, dateTo, stageF
     };
     run();
     return () => { cancelled = true; };
-  }, [employeeIds, managerId, dateFrom, dateTo]);
+  }, [employeeIdsKey, managerId, dateFrom, dateTo]);
 
   const callsWithDates = useMemo(() => recentCalls.map((call) => ({
     ...call,

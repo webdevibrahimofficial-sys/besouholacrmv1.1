@@ -29,6 +29,7 @@ const TENANT_ADMIN_ROLES = new Set(['admin', 'tenant admin', 'tenant-admin'])
 const SUPER_ADMIN_ROLES = new Set(['super admin', 'superadmin', 'owner'])
 
 export function isTenantAdminUser(user) {
+  if (user?.is_primary_admin) return true
   return toRoleList(user).some((role) => TENANT_ADMIN_ROLES.has(role))
 }
 

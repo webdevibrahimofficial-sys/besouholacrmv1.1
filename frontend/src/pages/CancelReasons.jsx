@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { api } from '@utils/api'
@@ -91,6 +91,15 @@ export default function CancelReasons() {
   const [newReason, setNewReason] = useState({ title: '', title_ar: '' })
   const [editingIndex, setEditingIndex] = useState(null)
   const [showNew, setShowNew] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteUsageCount, setDeleteUsageCount] = useState(0)
+  const [replacementReasonId, setReplacementReasonId] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
+
+  const replacementOptions = useMemo(
+    () => reasons.filter(r => String(r?.id ?? '') !== String(deleteTarget?.id ?? '')),
+    [reasons, deleteTarget]
+  )
 
   useEffect(() => {
     const fetchReasons = async () => {
@@ -130,12 +139,71 @@ export default function CancelReasons() {
     } catch (_) {}
   }
 
+  const closeDeleteModal = () => {
+    setDeleteTarget(null)
+    setDeleteUsageCount(0)
+    setReplacementReasonId('')
+    setDeleteBusy(false)
+  }
+
   const deleteRow = async (row) => {
     try {
       if (!row?.id) return
+      const usageRes = await api.get(`/api/cancel-reasons/${row.id}/usage`)
+      const linkedActionsCount = Number(usageRes.data?.linked_actions_count || 0)
+
+      if (linkedActionsCount > 0) {
+        setDeleteTarget(row)
+        setDeleteUsageCount(linkedActionsCount)
+        setReplacementReasonId('')
+        return
+      }
+
+      const confirmed = window.confirm(isRtl ? 'هل أنت متأكد من حذف السبب؟' : 'Are you sure you want to delete this reason?')
+      if (!confirmed) {
+        return
+      }
+
       await api.delete(`/api/cancel-reasons/${row.id}`)
       setReasons(prev => (prev || []).filter(r => r.id !== row.id))
-    } catch (_) {}
+    } catch (error) {
+      const linkedActionsCount = Number(error?.response?.data?.linked_actions_count || 0)
+      if (error?.response?.status === 409 || linkedActionsCount > 0) {
+        setDeleteTarget(row)
+        setDeleteUsageCount(linkedActionsCount || 0)
+        setReplacementReasonId('')
+        return
+      }
+    }
+  }
+
+  const confirmDeleteReplacement = async () => {
+    if (!deleteTarget?.id) return
+    if (deleteUsageCount > 0 && !replacementReasonId) {
+      return
+    }
+
+    setDeleteBusy(true)
+    try {
+      if (deleteUsageCount > 0) {
+        await api.post(`/api/cancel-reasons/${deleteTarget.id}/replace-and-delete`, {
+          replacement_reason_id: Number(replacementReasonId),
+        })
+      } else {
+        await api.delete(`/api/cancel-reasons/${deleteTarget.id}`)
+      }
+
+      setReasons(prev => (prev || []).filter(r => r.id !== deleteTarget.id))
+      closeDeleteModal()
+    } catch (error) {
+      const linkedActionsCount = Number(error?.response?.data?.linked_actions_count || 0)
+      if (error?.response?.status === 409 || linkedActionsCount > 0) {
+        setDeleteUsageCount(linkedActionsCount || deleteUsageCount || 0)
+        return
+      }
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   return (
@@ -251,6 +319,86 @@ export default function CancelReasons() {
           )}
         </div>
       </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/50 px-4 py-6">
+          <div className={`w-full max-w-lg rounded-2xl border shadow-2xl ${resolvedTheme === 'dark' ? 'border-gray-700 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
+            <div className="border-b border-gray-200/60 px-5 py-4 dark:border-gray-700/60">
+              <div className="text-lg font-semibold">
+                {t('Replace Reason Before Delete')}
+              </div>
+              <div className="mt-1 text-sm text-[var(--muted-text)]">
+                {deleteUsageCount > 0
+                  ? t('This reason is used by existing cancelled leads. Pick a replacement reason, then delete it safely.')
+                  : t('This reason can be deleted directly.')}
+              </div>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <div className="rounded-xl border border-dashed border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800 dark:border-orange-500/40 dark:bg-orange-900/20 dark:text-orange-200">
+                <div className="font-medium">
+                  {t('Current Reason')}: {deleteTarget.title}
+                </div>
+                {deleteTarget.title_ar ? (
+                  <div className="mt-1 text-xs opacity-80">{deleteTarget.title_ar}</div>
+                ) : null}
+                {deleteUsageCount > 0 ? (
+                  <div className="mt-2">
+                    {t('Linked usages')}: {deleteUsageCount}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">
+                  {t('Replacement Reason')}
+                </label>
+                <select
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  value={replacementReasonId}
+                  onChange={(e) => setReplacementReasonId(e.target.value)}
+                  disabled={deleteBusy}
+                >
+                  <option value="">{t('Select replacement reason')}</option>
+                  {replacementOptions.map((reason) => (
+                    <option key={reason.id} value={reason.id}>
+                      {reason.title}{reason.title_ar ? ` - ${reason.title_ar}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {deleteUsageCount > 0 ? (
+                  <div className="text-xs text-[var(--muted-text)]">
+                    {t('The old reason text will be rewritten for all linked cancelled actions.')}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-200/60 px-5 py-4 dark:border-gray-700/60">
+              <button
+                type="button"
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                onClick={closeDeleteModal}
+                disabled={deleteBusy}
+              >
+                {t('Cancel')}
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={confirmDeleteReplacement}
+                disabled={deleteBusy || (deleteUsageCount > 0 && !replacementReasonId)}
+              >
+                {deleteBusy
+                  ? t('Saving...')
+                  : deleteUsageCount > 0
+                    ? t('Replace & Delete')
+                    : t('Delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

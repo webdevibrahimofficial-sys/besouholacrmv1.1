@@ -23,6 +23,8 @@ import TopPerformersWidget from './components/TopPerformersWidget';
 import ActiveUsersChart from './components/ActiveUsersChart';
 import exportDashboardChartsToPdf from './utils/exportDashboardChartsToPdf';
 
+const EMPTY_EMPLOYEE_IDS = [];
+
 const ExportButtonContent = ({ label = 'Export' }) => (
   <>
     <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -295,6 +297,18 @@ export const Dashboard = () => {
     }
     return res;
   }, [isTeamLeader, user, allUsers]);
+  const dashboardEmployeeIds = useMemo(() => {
+    if (isTeamLeader && subordinateSalespersonIds.length) {
+      return subordinateSalespersonIds;
+    }
+    if (effectiveEmployeeId && !showSalesLimited) {
+      return [Number(effectiveEmployeeId)];
+    }
+    return EMPTY_EMPLOYEE_IDS;
+  }, [isTeamLeader, subordinateSalespersonIds, effectiveEmployeeId, showSalesLimited]);
+  const dashboardManagerId = useMemo(() => (
+    (isTeamLeader && !effectiveEmployeeId) ? Number(user?.id || 0) : undefined
+  ), [isTeamLeader, effectiveEmployeeId, user?.id]);
   const [activeUsersData, setActiveUsersData] = useState([]);
 
   useEffect(() => {
@@ -310,12 +324,15 @@ export const Dashboard = () => {
         const { data } = await axios.get('/api/dashboard-data/active-users', { params });
         if (!cancelled && Array.isArray(data)) {
             const transformed = data.map(u => {
-                const lastSeen = u.last_active ? new Date(u.last_active) : null;
+                const presenceLastTick = u.presence_last_tick_at ? new Date(u.presence_last_tick_at) : null;
+                const tokenLastSeen = u.last_active ? new Date(u.last_active) : null;
+                const lastSeen = presenceLastTick || tokenLastSeen;
                 const isOnline = lastSeen && (new Date() - lastSeen < 15 * 60 * 1000); // 15 mins threshold
                  return {
                      name: u.name,
                      active: isOnline,
                      lastSeen: lastSeen,
+                     presenceLastTick: presenceLastTick,
                      role: u.role,
                      avatar: u.avatar,
                      actions_count: u.actions_count,
@@ -1221,7 +1238,7 @@ export const Dashboard = () => {
                 </button>
               </div>
               <div className={`${commentsOpenMobile ? 'block' : 'hidden'} md:block`}>
-              <Comments employee={effectiveEmployeeName} employeeIds={(isTeamLeader && subordinateSalespersonIds.length) ? subordinateSalespersonIds : ((effectiveEmployeeId && !showSalesLimited) ? [Number(effectiveEmployeeId)] : [])} dateFrom={dateFrom} dateTo={dateTo} stageFilter={selectedStageFilter} managerId={(isTeamLeader && !effectiveEmployeeId) ? Number(user?.id || 0) : undefined} />
+              <Comments employee={effectiveEmployeeName} employeeIds={dashboardEmployeeIds} dateFrom={dateFrom} dateTo={dateTo} stageFilter={selectedStageFilter} managerId={dashboardManagerId} />
               </div>
             </div>
             <div className="p-4 glass-panel rounded-lg shadow-md lg:col-span-1">
@@ -1241,11 +1258,11 @@ export const Dashboard = () => {
               <div className={`${recentCallsOpenMobile ? 'block' : 'hidden'} md:block`}>
                 <RecentPhoneCalls
                   employee={effectiveEmployeeName}
-                  employeeIds={(isTeamLeader && subordinateSalespersonIds.length) ? subordinateSalespersonIds : ((effectiveEmployeeId && !showSalesLimited) ? [Number(effectiveEmployeeId)] : [])}
+                  employeeIds={dashboardEmployeeIds}
                   dateFrom={dateFrom}
                   dateTo={dateTo}
                   stageFilter={selectedStageFilter}
-                  managerId={(isTeamLeader && !effectiveEmployeeId) ? Number(user?.id || 0) : undefined}
+                  managerId={dashboardManagerId}
                   onCountChange={setRecentCallsCount}
                 />
               </div>

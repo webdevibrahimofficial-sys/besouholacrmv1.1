@@ -152,6 +152,7 @@ const TenantSetup = () => {
   const [tenantCounts, setTenantCounts] = useState({ current: 0, archived: 0 });
   const [filters, setFilters] = useState({
     search: '',
+    tenant_id: '',
     plan: 'all',
     status: 'all',
     company_type: 'all',
@@ -188,6 +189,7 @@ const TenantSetup = () => {
     const nextView = params.get('view') || 'current';
     const nextFilters = {
       search: params.get('search') || '',
+      tenant_id: params.get('tenant_id') || '',
       plan: params.get('plan') || 'all',
       status: params.get('status') || 'all',
       company_type: params.get('company_type') || 'all',
@@ -211,6 +213,7 @@ const TenantSetup = () => {
     const params = new URLSearchParams(location.search);
     const urlFilters = {
       search: params.get('search') || '',
+      tenant_id: params.get('tenant_id') || '',
       plan: params.get('plan') || 'all',
       status: params.get('status') || 'all',
       company_type: params.get('company_type') || 'all',
@@ -238,6 +241,7 @@ const TenantSetup = () => {
         if (reqParams.status === 'all') delete reqParams.status;
         if (reqParams.company_type === 'all') delete reqParams.company_type;
         if (reqParams.country === 'all') delete reqParams.country;
+        if (!reqParams.tenant_id) delete reqParams.tenant_id;
         if (!reqParams.users_count) delete reqParams.users_count;
         if (!reqParams.start_date) delete reqParams.start_date;
         if (!reqParams.end_date) delete reqParams.end_date;
@@ -267,6 +271,7 @@ const TenantSetup = () => {
     setDebouncedSearch('');
     setFilters({
       search: '',
+      tenant_id: '',
       plan: 'all',
       status: 'all',
       company_type: 'all',
@@ -275,6 +280,10 @@ const TenantSetup = () => {
       start_date: '',
       end_date: ''
     });
+
+    if (!isCreateRoute) {
+      navigate(`/system/tenants?view=${tenantView}`, { replace: true });
+    }
   };
 
   const closeCreateModal = () => {
@@ -317,6 +326,7 @@ const TenantSetup = () => {
       if (params.status === 'all') delete params.status;
       if (params.company_type === 'all') delete params.company_type;
       if (params.country === 'all') delete params.country;
+      if (!params.tenant_id) delete params.tenant_id;
       if (!params.users_count) delete params.users_count;
       if (!params.start_date) delete params.start_date;
       if (!params.end_date) delete params.end_date;
@@ -757,6 +767,14 @@ const TenantSetup = () => {
               </div>
 
               <div className="space-y-4">
+                {filters.tenant_id ? (
+                  <div className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-medium ${isDark ? 'border-blue-500/30 bg-blue-500/10 text-blue-200' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
+                    <span>{t('Exact tenant filter active')}</span>
+                    <span className="rounded-full bg-white/70 px-2 py-0.5 font-semibold text-current">
+                      #{filters.tenant_id}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <div className="space-y-2">
                     <label className={`flex items-center gap-2 ${labelClass}`}>

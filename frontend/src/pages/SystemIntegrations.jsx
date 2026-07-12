@@ -10,18 +10,24 @@ export default function SystemIntegrations() {
   const [saving, setSaving] = useState(false)
   const [showSecret, setShowSecret] = useState(false)
   const [activeTab, setActiveTab] = useState('meta')
+  const [metaHealth, setMetaHealth] = useState(null)
+  const [webhookTest, setWebhookTest] = useState(null)
+  const [testingWebhook, setTestingWebhook] = useState(false)
   
   const [settings, setSettings] = useState({
     meta_app_id: '',
     meta_app_secret: '',
     meta_verify_token: '',
+    meta_webhook_url: '',
+    meta_configured: false,
     google_client_id: '',
     google_client_secret: '',
     google_developer_token: '',
   })
 
-  // Meta webhook is now tenant-specific and generated inside each tenant's Meta settings.
-  const googleWebhookUrl = `${import.meta.env.VITE_API_BASE || 'https://api.yourdomain.com'}/api/google/webhook`
+  const apiBase = import.meta.env.VITE_API_BASE || import.meta.env.VITE_SERVER_URL || 'https://api.yourdomain.com'
+  const metaWebhookUrl = settings.meta_webhook_url || `${apiBase.replace(/\/$/, '')}/api/meta/webhook`
+  const googleWebhookUrl = `${apiBase.replace(/\/$/, '')}/api/google/webhook`
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -32,6 +38,8 @@ export default function SystemIntegrations() {
         meta_app_id: res.data.meta_app_id || '',
         meta_app_secret: res.data.meta_app_secret || '',
         meta_verify_token: res.data.meta_verify_token || '',
+        meta_webhook_url: res.data.meta_webhook_url || '',
+        meta_configured: Boolean(res.data.meta_configured),
         google_client_id: res.data.google_client_id || '',
         google_client_secret: res.data.google_client_secret || '',
         google_developer_token: res.data.google_developer_token || '',
@@ -44,13 +52,43 @@ export default function SystemIntegrations() {
     }
   }, [t])
 
+  const fetchMetaHealth = useCallback(async () => {
+    try {
+      const res = await api.get('/api/super-admin/meta/health')
+      setMetaHealth(res.data)
+    } catch (error) {
+      console.error('Failed to fetch Meta health:', error)
+    }
+  }, [])
+
   useEffect(() => {
     fetchSettings()
-  }, [fetchSettings])
+    fetchMetaHealth()
+  }, [fetchSettings, fetchMetaHealth])
 
   const handleChange = (e) => {
     const { name, value } = e.target
     setSettings(prev => ({ ...prev, [name]: value }))
+  }
+
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true)
+    setWebhookTest(null)
+    try {
+      const res = await api.post('/api/super-admin/meta/test-webhook')
+      setWebhookTest(res.data)
+      if (res.data?.ok) {
+        toast.success(t('Webhook verification succeeded'))
+      } else {
+        toast.error(t('Webhook verification failed'))
+      }
+    } catch (error) {
+      console.error('Webhook test failed:', error)
+      toast.error(t('Webhook verification failed'))
+      setWebhookTest({ ok: false, message: error?.response?.data?.message || 'Request failed' })
+    } finally {
+      setTestingWebhook(false)
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -170,7 +208,7 @@ export default function SystemIntegrations() {
                         {t('Meta App Configuration')}
                       </h2>
                       <p className="text-sm text-[var(--muted-text)]">
-                        {t('Configure your Meta App settings for Facebook Login and Webhooks.')}
+                        {t('Configure the shared Meta App used by all tenants for Facebook Login and Lead Ads webhooks.')}
                       </p>
                     </div>
                   </div>
@@ -206,7 +244,7 @@ export default function SystemIntegrations() {
                           name="meta_app_secret"
                           value={settings.meta_app_secret}
                           onChange={handleChange}
-                          placeholder="e.g. a1b2c3d4e5..."
+                          placeholder={t('Leave blank to keep existing secret')}
                           className="block w-full rounded-lg border-gray-300 dark:border-gray-600 bg-transparent text-theme focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2.5 pr-10 transition-colors"
                         />
                         <button
@@ -255,9 +293,35 @@ export default function SystemIntegrations() {
                       <label className="block text-xs font-semibold text-[var(--muted-text)] uppercase tracking-wider mb-2">
                         {t('Webhook URL')}
                       </label>
-                      <p className="text-sm text-[var(--muted-text)]">
-                        {t('Meta webhook URLs are now generated per tenant from the tenant Meta settings screen after saving the tenant app configuration.')}
+                      <div className="flex gap-2 items-center">
+                        <code className="flex-1 font-mono text-sm text-theme bg-white dark:bg-gray-800 px-3 py-2 rounded border border-gray-200 dark:border-gray-600 break-all">
+                          {metaWebhookUrl}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(metaWebhookUrl)}
+                          className="p-2 text-[var(--muted-text)] hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                          title={t('Copy to clipboard')}
+                        >
+                          <FaCopy className="w-5 h-5" />
+                        </button>
+                      </div>
+                      <p className="mt-2 text-sm text-[var(--muted-text)]">
+                        {t('Use this single webhook URL in your Meta App settings. Events are routed to tenants by page_id.')}
                       </p>
+                      <button
+                        type="button"
+                        onClick={handleTestWebhook}
+                        disabled={testingWebhook || !settings.meta_configured}
+                        className="mt-3 inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {testingWebhook ? t('Verifying...') : t('Verify Webhook')}
+                      </button>
+                      {webhookTest && (
+                        <p className={`mt-2 text-sm ${webhookTest.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {webhookTest.message}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -421,6 +485,12 @@ export default function SystemIntegrations() {
             </h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
+                <span className="text-sm text-[var(--muted-text)]">{t('Meta App')}</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${settings.meta_configured ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'}`}>
+                  {settings.meta_configured ? t('Configured') : t('Not configured')}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--muted-text)]">{t('Environment')}</span>
                 <span className="px-2 py-1 bg-gray-700 rounded text-xs font-medium text-theme">
                   {import.meta.env.MODE}
@@ -430,6 +500,30 @@ export default function SystemIntegrations() {
                 <span className="text-sm text-[var(--muted-text)]">{t('API Version')}</span>
                 <span className="text-sm font-mono text-theme">v1.0</span>
               </div>
+              {metaHealth && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--muted-text)]">{t('Connected tenants')}</span>
+                    <span className="text-sm font-mono text-theme">{metaHealth.connected_tenants ?? 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--muted-text)]">{t('Active pages')}</span>
+                    <span className="text-sm font-mono text-theme">{metaHealth.active_pages ?? 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--muted-text)]">{t('Needs reauth')}</span>
+                    <span className="text-sm font-mono text-theme">{metaHealth.connections_needing_reauth ?? 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--muted-text)]">{t('Page conflicts')}</span>
+                    <span className="text-sm font-mono text-theme">{metaHealth.page_conflicts ?? 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--muted-text)]">{t('Rate limits (24h)')}</span>
+                    <span className="text-sm font-mono text-theme">{metaHealth.rate_limit_events_24h ?? 0}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import axios from 'axios';
 import { api } from '../utils/api';
 import { ensureEcho, getEcho } from '../echo';
 
@@ -86,14 +87,15 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 export const useNotifications = (user) => {
+    const userId = user?.id;
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [echoInstance, setEchoInstance] = useState(null);
 
     // Fetch initial notifications
-    const fetchNotifications = useCallback(async () => {
-        if (!user || !user.id) return;
-        
+    const fetchNotifications = useCallback(async ({ signal } = {}) => {
+        if (!userId) return;
+
         // Skip if offline
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
             return;
@@ -101,8 +103,12 @@ export const useNotifications = (user) => {
 
         try {
             // Fetch combined notifications and unread count in one call
-            const { data } = await api.get('/api/notifications', { timeout: 15000 });
-            
+            const { data } = await api.get('/api/notifications', {
+                timeout: 30000,
+                signal,
+                suppressErrorLog: true,
+            });
+
             const rawNotifications = data.notifications?.data || [];
             const preciseCount = data.unread_count || 0;
 
@@ -126,33 +132,55 @@ export const useNotifications = (user) => {
                     link: n.data.link
                 };
             });
-            
+
             const active = mapped.filter(n => !n.archived);
             setNotifications(active);
             setUnreadCount(preciseCount);
 
         } catch (error) {
+            if (axios.isCancel(error) || error?.code === 'ERR_CANCELED') {
+                return;
+            }
+            if (error?.code === 'ECONNABORTED') {
+                console.debug('Notifications fetch timed out; will retry on next poll.');
+                return;
+            }
             // Log as warning to avoid console spam during network issues
             console.warn('Failed to fetch notifications (likely network issue):', error.message);
         }
-    }, [user]);
+    }, [userId]);
 
     useEffect(() => {
-        fetchNotifications();
+        if (!userId) return;
+
+        const controller = new AbortController();
+        let cancelled = false;
+
+        const runFetch = () => {
+            if (!cancelled) {
+                fetchNotifications({ signal: controller.signal });
+            }
+        };
+
+        // Defer until dashboard-critical requests finish to avoid queueing behind them.
+        const deferId = window.setTimeout(runFetch, 3000);
 
         // Poll for new notifications every 2 minutes (120000ms) to keep badge in sync and reduce server load
-        const interval = setInterval(fetchNotifications, 120000);
+        const interval = setInterval(runFetch, 120000);
 
         const handleUpdate = () => fetchNotifications();
         window.addEventListener('notificationsUpdated', handleUpdate);
         return () => {
+            cancelled = true;
+            window.clearTimeout(deferId);
+            controller.abort();
             clearInterval(interval);
             window.removeEventListener('notificationsUpdated', handleUpdate);
         };
-    }, [fetchNotifications]);
+    }, [userId, fetchNotifications]);
 
     useEffect(() => {
-        if (!user || !user.id) return;
+        if (!userId) return;
 
         const reverbEnabled = String(import.meta.env.VITE_REVERB_ENABLED || '').toLowerCase() === 'true';
         const appKey = import.meta.env.VITE_REVERB_APP_KEY;
@@ -170,7 +198,7 @@ export const useNotifications = (user) => {
             setEchoInstance(echo);
 
             // Channel name must match what Laravel sends
-            const channelName = `App.Models.User.${user.id}`;
+            const channelName = `App.Models.User.${userId}`;
             
             // Listen to notification events
             echo.private(channelName)
@@ -221,7 +249,7 @@ export const useNotifications = (user) => {
         } catch (err) {
             console.warn('Realtime notifications disabled (WebSocket not available)', err);
         }
-    }, [user]);
+    }, [userId]);
 
     const registerWebPush = useCallback(async () => {
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) {

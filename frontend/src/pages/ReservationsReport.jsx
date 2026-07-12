@@ -39,6 +39,7 @@ export default function ReservationsReport() {
   const [raw, setRaw] = useState([])
   const [sourceList, setSourceList] = useState(['all'])
   const [projectList, setProjectList] = useState(['all'])
+  const [unitOrItemList, setUnitOrItemList] = useState(['all'])
   const [usersList, setUsersList] = useState([])
   const [leadOwnerNames, setLeadOwnerNames] = useState({})
   const [deletingReservationId, setDeletingReservationId] = useState(null)
@@ -105,6 +106,46 @@ export default function ReservationsReport() {
   }, [companyType, raw])
 
   useEffect(() => {
+    const fetchUnitsOrItems = async () => {
+      try {
+        let names = []
+
+        if (companyType === 'real estate') {
+          const res = await api.get('/api/properties?all=1')
+          const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          names = data.map((p) => String(
+            p.unit_code || p.unit_number || p.unitCode || p.unitNumber || p.name || p.title || ''
+          ).trim()).filter(Boolean)
+        } else if (companyType === 'general') {
+          const res = await api.get('/api/items?all=1')
+          const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          names = data.map((it) => String(it.name || it.product || it.title || '').trim()).filter(Boolean)
+        } else {
+          const [propsRes, itemsRes] = await Promise.all([
+            api.get('/api/properties?all=1').catch(() => ({ data: [] })),
+            api.get('/api/items?all=1').catch(() => ({ data: [] })),
+          ])
+          const props = Array.isArray(propsRes.data) ? propsRes.data : (propsRes.data?.data || [])
+          const items = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data?.data || [])
+          names = [
+            ...props.map((p) => String(p.unit_code || p.unit_number || p.name || p.title || '').trim()),
+            ...items.map((it) => String(it.name || it.product || it.title || '').trim()),
+          ].filter(Boolean)
+        }
+
+        const fromRaw = raw.map((r) => String(r.unitOrItemName || '').trim()).filter(Boolean)
+        const unique = Array.from(new Set([...names, ...fromRaw])).sort((a, b) => a.localeCompare(b))
+        setUnitOrItemList(['all', ...unique])
+      } catch (e) {
+        console.error('Failed to fetch units/items for reservations report', e)
+        const fromRaw = raw.map((r) => String(r.unitOrItemName || '').trim()).filter(Boolean)
+        setUnitOrItemList(['all', ...Array.from(new Set(fromRaw))])
+      }
+    }
+    fetchUnitsOrItems()
+  }, [companyType, raw])
+
+  useEffect(() => {
     const fetchSources = async () => {
       try {
         const res = await api.get('/api/sources?active=1')
@@ -119,6 +160,51 @@ export default function ReservationsReport() {
     }
     fetchSources()
   }, [])
+
+  const formatReservationType = (row) => {
+    const rowId = String(row?.id || '')
+    if (rowId.startsWith('RE-')) return isRTL ? 'وحدة' : 'unit'
+    if (rowId.startsWith('INV-')) return isRTL ? 'صنف' : 'item'
+    if (companyType === 'real estate') return isRTL ? 'وحدة' : 'unit'
+    if (companyType === 'general') return isRTL ? 'صنف' : 'item'
+    return ''
+  }
+
+  const isRealEstateReservationRow = (row) => String(row?.id || '').startsWith('RE-')
+
+  const resolveReservationValue = (item) => {
+    const meta = item?.meta_data || item?.metaData || {}
+    const total = meta?.total ?? meta?.reservation_amount ?? meta?.amount ?? item?.amount
+    if (total !== null && total !== undefined && total !== '') {
+      return typeof total === 'number' ? total : parseFloat(total) || 0
+    }
+    const price = parseFloat(meta?.price ?? item?.price ?? 0) || 0
+    const qty = parseInt(item?.quantity ?? meta?.quantity ?? 1, 10) || 1
+    return price * qty
+  }
+
+  const openPropertyByUnit = (row) => {
+    const unitValue = String(row?.unitOrItemName || '').trim()
+    if (!unitValue || !isRealEstateReservationRow(row)) return
+    navigate(`/inventory/properties?unit=${encodeURIComponent(unitValue)}`)
+  }
+
+  const renderUnitOrItemCell = (row) => {
+    const value = String(row?.unitOrItemName || '').trim()
+    if (!value) return '-'
+    if (isRealEstateReservationRow(row)) {
+      return (
+        <button
+          type="button"
+          onClick={() => openPropertyByUnit(row)}
+          className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+        >
+          {value}
+        </button>
+      )
+    }
+    return value
+  }
 
   const resolveHandledBy = (item) => {
     const meta = item?.meta_data || item?.metaData || {}
@@ -183,7 +269,7 @@ export default function ReservationsReport() {
         customer: item.customer || item.customer_name || '',
         contact: item.phone || '',
         reservationDateTime: item.date || item.created_at || '',
-        type: item.type || 'Booking',
+        type: 'unit',
         status: item.status || '',
         value: typeof item.amount === 'number' ? item.amount : parseFloat(item.amount || '0') || 0,
         handledBy: resolveHandledBy(item),
@@ -192,6 +278,7 @@ export default function ReservationsReport() {
         lastAction: item.updated_at || item.date || '',
         source: item.source || '',
         project: item.project || '',
+        unitOrItemName: item.unit || item.meta_data?.unit || item.metaData?.unit || '',
         meta_data: item.meta_data || null
       })) : []
 
@@ -201,15 +288,16 @@ export default function ReservationsReport() {
         customer: item.customer_name || '',
         contact: item.phone || item.customer_phone || item.meta_data?.customer_phone || item.metaData?.customer_phone || '',
         reservationDateTime: item.created_at || '',
-        type: item.type || '',
+        type: 'item',
         status: item.status || '',
-        value: 0,
+        value: resolveReservationValue(item),
         handledBy: resolveHandledBy(item),
         manager: '',
         createdOn: item.created_at || '',
         lastAction: item.updated_at || '',
         source: item.source || item.meta_data?.source || item.metaData?.source || '',
-        project: item.product || item.property_unit || '',
+        project: item.project || item.meta_data?.project || item.metaData?.project || '',
+        unitOrItemName: item.product || item.property_unit || item.meta_data?.product || item.metaData?.product || '',
         meta_data: item.meta_data || null
       })) : []
 
@@ -431,13 +519,14 @@ export default function ReservationsReport() {
 
   const exportToExcel = () => {
     const dataToExport = filtered.map(r => ({
-      [isRTL ? 'العميل' : 'Customer']: r.customer,
+      [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: resolveSalesPersonDisplay(r),
+      [isRTL ? 'العميل' : 'Lead Name']: r.customer,
       [isRTL ? 'رقم الهاتف' : 'Contact']: r.contact,
       [isRTL ? 'المصدر' : 'Source']: r.source,
       [projectColumnLabel]: r.project,
-      [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: resolveSalesPersonDisplay(r),
-      [isRTL ? 'نوع الحجز' : 'Reservation Type']: r.type,
-      [isRTL ? 'القيمة' : 'Amount']: r.value,
+      [isRTL ? 'نوع الحجز' : 'Reservation Type']: formatReservationType(r),
+      [unitNumberColumnLabel]: r.unitOrItemName,
+      [isRTL ? 'إجمالي المبلغ' : 'Total Amount']: r.value,
       [isRTL ? 'تاريخ الحجز' : 'Reservation Date']: new Date(r.reservationDateTime).toLocaleString(),
       [isRTL ? 'الحالة' : 'Status']: r.status
     }))
@@ -462,30 +551,32 @@ export default function ReservationsReport() {
       const doc = new jsPDF()
       
       const tableColumn = [
-        isRTL ? 'العميل' : "Customer",
-        isRTL ? 'رقم الهاتف' : "Contact",
-        isRTL ? 'تاريخ الحجز' : "Reservation Date",
-        isRTL ? 'النوع' : "Type",
-        isRTL ? 'الحالة' : "Status",
-        isRTL ? 'القيمة' : "Value",
-        isRTL ? 'المسؤول' : "Handled By",
-        isRTL ? 'المصدر' : "Source",
-        projectColumnLabel
+        isRTL ? 'مسؤول المبيعات' : 'Sales Person',
+        isRTL ? 'العميل' : 'Lead Name',
+        isRTL ? 'رقم الهاتف' : 'Contact',
+        isRTL ? 'المصدر' : 'Source',
+        projectColumnLabel,
+        isRTL ? 'نوع الحجز' : 'Reservation Type',
+        unitNumberColumnLabel,
+        isRTL ? 'إجمالي المبلغ' : 'Total Amount',
+        isRTL ? 'تاريخ الحجز' : 'Reservation Date',
+        isRTL ? 'الحالة' : 'Status'
       ]
       
       const tableRows = []
 
       filtered.forEach(r => {
         const rowData = [
+          resolveSalesPersonDisplay(r),
           r.customer,
           r.contact,
-          new Date(r.reservationDateTime).toLocaleString(),
-          r.type,
-          r.status,
-          r.value,
-          resolveSalesPersonDisplay(r),
           r.source,
-          r.project
+          r.project,
+          formatReservationType(r),
+          r.unitOrItemName,
+          r.value,
+          new Date(r.reservationDateTime).toLocaleString(),
+          r.status
         ]
         tableRows.push(rowData)
       })
@@ -538,10 +629,11 @@ export default function ReservationsReport() {
   const [manager, setManager] = useState('all')
   const [source, setSource] = useState('all')
   const [project, setProject] = useState('all')
+  const [unitFilter, setUnitFilter] = useState('all')
   const [lastActionDate, setLastActionDate] = useState('')
   const [reservationDateFrom, setReservationDateFrom] = useState('')
   const [reservationDateTo, setReservationDateTo] = useState('')
-  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [showAllFilters, setShowAllFilters] = useState(true)
 
   const staffList = useMemo(() => {
     if (!usersList || usersList.length === 0) {
@@ -616,6 +708,9 @@ export default function ReservationsReport() {
       })()
       const bySource = source === 'all' ? true : r.source === source
       const byProject = project === 'all' ? true : r.project === project
+      const byUnit = unitFilter === 'all'
+        ? true
+        : String(r.unitOrItemName || '').trim() === String(unitFilter).trim()
       const byLastAction = !lastActionDate ? true : String(r.lastAction || '').slice(0, 10) === lastActionDate
       const byReservationDate = (() => {
         if (!reservationDateFrom && !reservationDateTo) return true
@@ -625,9 +720,9 @@ export default function ReservationsReport() {
         if (reservationDateTo && d > reservationDateTo) return false
         return true
       })()
-      return byStaff && byManager && bySource && byProject && byLastAction && byReservationDate
+      return byStaff && byManager && bySource && byProject && byUnit && byLastAction && byReservationDate
     })
-  }, [raw, staff, manager, source, project, lastActionDate, reservationDateFrom, reservationDateTo])
+  }, [raw, staff, manager, source, project, unitFilter, lastActionDate, reservationDateFrom, reservationDateTo])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -741,7 +836,11 @@ export default function ReservationsReport() {
     }
   }, [filtered, projectLabels, isRTL])
 
-  const projectColumnLabel = isRealEstate ? (isRTL ? 'المشروع' : 'Project') : (isRTL ? 'الصنف' : 'Item')
+  const projectColumnLabel = isRTL ? 'المشروع' : 'Project'
+  const unitNumberColumnLabel = isRealEstate
+    ? (isRTL ? 'رقم الوحدة' : 'Unit Number')
+    : (isRTL ? 'اسم الصنف' : 'Item Name')
+  const totalAmountColumnLabel = isRTL ? 'إجمالي المبلغ' : 'Total Amount'
 
   const barOptions = {
     responsive: true,
@@ -828,6 +927,7 @@ export default function ReservationsReport() {
                   setManager('all')
                   setSource('all')
                   setProject('all')
+                  setUnitFilter('all')
                   setLastActionDate('')
                   setReservationDateFrom('')
                   setReservationDateTo('')
@@ -914,15 +1014,31 @@ export default function ReservationsReport() {
                   {projectList.map(p => <option key={p} value={p}>{p === 'all' ? (isRTL ? 'الكل' : 'All') : p}</option>)}
                 </SearchableSelect>
               </div>
-              
+
               {showAllFilters && (
                 <>
-
                   <div className="space-y-1">
-                  <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                    <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                    {isRTL ? 'إلى تاريخ' : 'To Date'}
-                  </label>
+                    <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      <Tag size={12} className="text-blue-500 dark:text-blue-400" />
+                      {isRealEstate ? (isRTL ? 'رقم الوحدة' : 'Unit Number') : (isRTL ? 'اسم الصنف' : 'Item Name')}
+                    </label>
+                    <SearchableSelect
+                      value={unitFilter}
+                      onChange={(v) => {
+                        setUnitFilter(v)
+                        setCurrentPage(1)
+                      }}
+                    >
+                      {unitOrItemList.map((u) => (
+                        <option key={u} value={u}>{u === 'all' ? (isRTL ? 'الكل' : 'All') : u}</option>
+                      ))}
+                    </SearchableSelect>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+                      {isRTL ? 'تاريخ الحجز' : 'Reservation Date'}
+                    </label>
                     <DateRangePicker
                       from={reservationDateFrom}
                       to={reservationDateTo}
@@ -1094,13 +1210,14 @@ export default function ReservationsReport() {
               <thead className={`text-xs uppercase bg-theme-bg dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
                 <tr className="text-left border-b border-theme-border dark:border-gray-700">
                   <th className="py-3 px-4 md:hidden"></th>
+                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
                   <th className="py-2 px-3">{isRTL ? 'اسم العميل' : 'Lead Name'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'رقم الهاتف' : 'Contact'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'المصدر' : 'Source'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{projectColumnLabel}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'نوع الحجز' : 'Reservation Type'}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'القيمة' : 'Amount'}</th>
+                  <th className="py-2 px-3 hidden md:table-cell">{unitNumberColumnLabel}</th>
+                  <th className="py-2 px-3 hidden md:table-cell">{totalAmountColumnLabel}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'تاريخ الحجز' : 'Reservation Date'}</th>
                   <th className="py-2 px-3">{isRTL ? 'إجراءات' : 'Actions'}</th>
                 </tr>
@@ -1108,14 +1225,14 @@ export default function ReservationsReport() {
               <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={10} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                    <td colSpan={11} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                       {isRTL ? 'لا توجد حجوزات تطابق الفلاتر المحددة' : 'No reservations found for selected filters'}
                     </td>
                   </tr>
                 )}
                 {filtered.length > 0 && paginatedRows.length === 0 && (
                   <tr>
-                    <td colSpan={10} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                    <td colSpan={11} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                       {isRTL ? 'لا توجد نتائج' : 'No results'}
                     </td>
                   </tr>
@@ -1134,6 +1251,7 @@ export default function ReservationsReport() {
                           />
                         </button>
                       </td>
+                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</td>
                       <td className={`py-2 px-3 font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                         <div className="flex flex-col">
                           <span>{r.customer}</span>
@@ -1144,9 +1262,9 @@ export default function ReservationsReport() {
                         <div className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{r.contact}</div>
                       </td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.source}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.project}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.type}</td>
+                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</td>
+                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{formatReservationType(r)}</td>
+                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(r)}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{new Date(r.reservationDateTime).toLocaleString()}</td>
                       <td className="py-2 px-3">
@@ -1183,35 +1301,39 @@ export default function ReservationsReport() {
                     </tr>
                     {expandedRows[r.id] && (
                       <tr className="md:hidden bg-white/5 dark:bg-white/5">
-                        <td colSpan={10} className="px-4 py-3">
+                        <td colSpan={11} className="px-4 py-3">
                           <div className="grid grid-cols-2 gap-3 text-xs">
                              <div className="flex flex-col gap-1">
-                                <span className="text-[var(--muted-text)]">{isRTL ? 'الحالة' : 'Status'}</span>
-                                <span className={`px-2 py-0.5 rounded-md w-fit ${statusClass(r.status)}`}>{isRTL ? r.status : r.status}</span>
+                                <span className="text-[var(--muted-text)]">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</span>
+                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</span>
+                             </div>
+                             <div className="flex flex-col gap-1">
+                                <span className="text-[var(--muted-text)]">{projectColumnLabel}</span>
+                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</span>
+                             </div>
+                             <div className="flex flex-col gap-1">
+                                <span className="text-[var(--muted-text)]">{isRTL ? 'نوع الحجز' : 'Reservation Type'}</span>
+                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{formatReservationType(r)}</span>
+                             </div>
+                             <div className="flex flex-col gap-1">
+                                <span className="text-[var(--muted-text)]">{unitNumberColumnLabel}</span>
+                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(r)}</span>
+                             </div>
+                             <div className="flex flex-col gap-1">
+                                <span className="text-[var(--muted-text)]">{totalAmountColumnLabel}</span>
+                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</span>
                              </div>
                              <div className="flex flex-col gap-1">
                                 <span className="text-[var(--muted-text)]">{isRTL ? 'تاريخ الحجز' : 'Reservation Date'}</span>
                                 <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{new Date(r.reservationDateTime).toLocaleString()}</span>
                              </div>
                              <div className="flex flex-col gap-1">
-                                <span className="text-[var(--muted-text)]">{isRTL ? 'النوع' : 'Type'}</span>
-                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.type}</span>
-                             </div>
-                             <div className="flex flex-col gap-1">
-                                <span className="text-[var(--muted-text)]">{isRTL ? 'القيمة' : 'Amount'}</span>
-                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</span>
-                             </div>
-                             <div className="flex flex-col gap-1">
-                                <span className="text-[var(--muted-text)]">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</span>
-                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</span>
-                             </div>
-                             <div className="flex flex-col gap-1">
                                 <span className="text-[var(--muted-text)]">{isRTL ? 'المصدر' : 'Source'}</span>
                                 <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.source}</span>
                              </div>
                              <div className="flex flex-col gap-1">
-                                <span className="text-[var(--muted-text)]">{projectColumnLabel}</span>
-                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.project}</span>
+                                <span className="text-[var(--muted-text)]">{isRTL ? 'الحالة' : 'Status'}</span>
+                                <span className={`px-2 py-0.5 rounded-md w-fit ${statusClass(r.status)}`}>{isRTL ? r.status : r.status}</span>
                              </div>
                           </div>
                         </td>

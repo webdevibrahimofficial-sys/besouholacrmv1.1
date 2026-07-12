@@ -183,6 +183,14 @@ api.interceptors.response.use(
     const status = err?.response?.status
     const errorData = err?.response?.data || {}
     const shouldSkipAuthRedirect = err?.config?.skipAuthRedirect === true
+    const suppressedStatuses = Array.isArray(err?.config?.suppressErrorStatuses)
+      ? err.config.suppressErrorStatuses.map((value) => Number(value))
+      : []
+    const shouldSuppressDebugError =
+      suppressedStatuses.includes(Number(status)) ||
+      err?.config?.suppressErrorLog === true ||
+      err?.code === 'ERR_CANCELED' ||
+      err?.name === 'CanceledError'
     if (status === 401 && typeof window !== 'undefined') {
       const hash = String(window.location.hash || '')
       const isOnLogin = hash.includes('/login')
@@ -214,7 +222,7 @@ api.interceptors.response.use(
       }
     }
 
-    if (apiDebugEnabled) {
+    if (apiDebugEnabled && !shouldSuppressDebugError) {
       console.warn('API ERROR', {
         url: err?.config?.url,
         method: err?.config?.method,

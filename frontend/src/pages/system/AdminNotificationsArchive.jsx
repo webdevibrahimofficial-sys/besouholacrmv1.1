@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { adminNotificationsApi } from '@api/adminNotificationsApi'
 
 const severityTone = {
@@ -10,6 +11,7 @@ const severityTone = {
 }
 
 export default function AdminNotificationsArchive() {
+  const navigate = useNavigate()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ status: 'all', severity: '', category: '', source: '' })
@@ -28,6 +30,16 @@ export default function AdminNotificationsArchive() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const buildTenantManagementUrl = (tenantId, actionUrl = '/system/tenants') => {
+    const baseUrl = actionUrl || '/system/tenants'
+    const query = new URLSearchParams()
+    query.set('view', 'current')
+    if (tenantId) {
+      query.set('tenant_id', String(tenantId))
+    }
+    return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${query.toString()}`
   }
 
   useEffect(() => {
@@ -84,7 +96,19 @@ export default function AdminNotificationsArchive() {
                 <button className="rounded-md border px-2 py-1 text-xs" onClick={() => adminNotificationsApi.archive(item.id).then(load)}>Archive</button>
               ) : null}
               {item.action_url ? (
-                <a className="rounded-md border px-2 py-1 text-xs" href={`/#${item.action_url}`}>Open</a>
+                <button
+                  type="button"
+                  className="rounded-md border px-2 py-1 text-xs"
+                  onClick={() => {
+                    if (item.action_url.startsWith('/system/tenants')) {
+                      navigate(buildTenantManagementUrl(item.related_tenant_id, item.action_url))
+                      return
+                    }
+                    navigate(item.action_url)
+                  }}
+                >
+                  Open
+                </button>
               ) : null}
             </div>
           </div>

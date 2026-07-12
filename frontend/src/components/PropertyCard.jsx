@@ -1,10 +1,13 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { FaEye, FaEdit, FaTrash, FaFilePdf, FaShareAlt, FaHome, FaMapMarkerAlt, FaTags, FaUndoAlt } from 'react-icons/fa'
+import { FaEye, FaEdit, FaTrash, FaFilePdf, FaShareAlt, FaHome, FaMapMarkerAlt, FaTags, FaUndoAlt, FaHashtag } from 'react-icons/fa'
 
 const getApiOrigin = () => {
-  const apiUrl = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || 'https://api.besouholacrm.net/api'
-  const clean = String(apiUrl).replace(/\/+$/, '')
+  const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://api.besouholacrm.net/api'
+  const clean = String(apiUrl).trim().replace(/\/+$/, '')
+  if (clean.startsWith('/')) {
+    return 'https://api.besouholacrm.net'
+  }
   return clean.endsWith('/api') ? clean.slice(0, -4) : clean
 }
 
@@ -79,6 +82,10 @@ const getPublicFilesUrl = (path) => {
 }
 
 export default function PropertyCard({ p, isRTL, onView, onEdit, onShare, onDelete, onRevertSoldToAvailable, dynamicFields = [] }) {
+  const unitCode = String(p.unitCode || p.unit_code || p.code || '').trim()
+  const unitNumber = String(p.unitNumber || p.unit_number || '').trim()
+  const propertyTitle = p.adTitle || p.title || p.name || (isRTL ? 'عقار' : 'Property')
+
   const downloadPaymentPlanPdf = () => {
     const plans = Array.isArray(p.installmentPlans) ? p.installmentPlans : []
     if (plans.length === 0) return
@@ -114,9 +121,19 @@ export default function PropertyCard({ p, isRTL, onView, onEdit, onShare, onDele
     <div className="glass-panel rounded-xl overflow-hidden">
       <div className="p-2 sm:p-3">
         <div className={`flex items-center gap-3 min-w-0 mb-2`}>
-          <h3 className="font-semibold text-sm sm:text-base truncate flex-1" title={p.adTitle || p.title || p.unitCode || p.code}>
-            {p.adTitle || p.title || p.unitCode || p.code || (isRTL ? 'عقار' : 'Property')}
-          </h3>
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <h3 className="font-semibold text-sm sm:text-base truncate" title={propertyTitle}>
+              {propertyTitle}
+            </h3>
+            {unitCode && (
+              <span
+                className="text-[10px] sm:text-xs px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium shrink-0"
+                title={isRTL ? 'كود الوحدة' : 'Unit Code'}
+              >
+                {unitCode}
+              </span>
+            )}
+          </div>
 
           <div className={`flex items-center gap-1`}>
             {onView && (<button
@@ -202,6 +219,12 @@ export default function PropertyCard({ p, isRTL, onView, onEdit, onShare, onDele
       {/* Compact details aligned with Add Property */}
       <div className="p-2 sm:p-3">
           <div className={`grid grid-cols-2 lg:grid-cols-3 gap-2 text-[11px] sm:text-xs leading-snug ${isRTL ? 'text-end' : 'text-start'}`}>
+          <div className={`glass-panel tinted-orange px-1.5 py-1 rounded-md flex items-center gap-1.5 min-w-0`} style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+            <FaHashtag className="opacity-70 w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+            <span className="min-w-0" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+              {isRTL ? 'رقم الوحدة' : 'Unit Number'}: <span className="font-semibold">{unitNumber || '-'}</span>
+            </span>
+          </div>
           <div className={`glass-panel tinted-blue px-1.5 py-1 rounded-md flex items-center gap-1.5 min-w-0`} style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
             <FaMapMarkerAlt className="opacity-70 w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
             <span className="min-w-0" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{p.address || p.city || '-'}</span>

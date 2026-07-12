@@ -316,6 +316,7 @@ export const Leads = () => {
   const [creationDateFrom, setCreationDateFrom] = useState('')
   const [creationDateTo, setCreationDateTo] = useState('')
   const [oldStageFilter, setOldStageFilter] = useState([])
+  const [cancelReasonFilter, setCancelReasonFilter] = useState('')
   const [closedDateFrom, setClosedDateFrom] = useState('')
   const [closedDateTo, setClosedDateTo] = useState('')
   const [campaignFilter, setCampaignFilter] = useState([])
@@ -423,6 +424,7 @@ export const Leads = () => {
   const [campaignsList, setCampaignsList] = useState([])
   const [countriesList, setCountriesList] = useState([])
   const [usersList, setUsersList] = useState([])
+  const [cancelReasonsList, setCancelReasonsList] = useState([])
 
   const resolveCountryLabel = useCallback((raw) => {
     const value = String(raw || '').trim()
@@ -440,11 +442,12 @@ export const Leads = () => {
   useEffect(() => {
     const fetchOptions = async () => {
       try {
-        const [sourcesRes, stagesRes, campaignsRes, usersRes] = await Promise.all([
+        const [sourcesRes, stagesRes, campaignsRes, usersRes, cancelReasonsRes] = await Promise.all([
           api.get('/api/sources?active=1'),
           api.get('/api/stages?active=1'),
           api.get('/api/campaigns'),
-          api.get('/api/users')
+          api.get('/api/users'),
+          api.get('/api/cancel-reasons')
         ])
         
         const sourcesData = Array.isArray(sourcesRes.data) ? sourcesRes.data : (sourcesRes.data?.data || [])
@@ -459,6 +462,9 @@ export const Leads = () => {
 
         const usersData = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || [])
         setUsersList(usersData)
+
+        const cancelReasonsData = Array.isArray(cancelReasonsRes.data) ? cancelReasonsRes.data : (cancelReasonsRes.data?.data || [])
+        setCancelReasonsList(cancelReasonsData)
 
       } catch (e) {
         console.error('Failed to fetch options', e)
@@ -499,6 +505,43 @@ export const Leads = () => {
   
   const textColor = isLight ? 'text-black' : 'text-white'
   const bgColor = 'bg-white dark:bg-gray-900'
+
+  const resolveInventoryOptionLabel = useCallback((entry) => {
+    if (!entry) return ''
+    return String(
+      entry.name ||
+      entry.name_ar ||
+      entry.title ||
+      entry.code ||
+      ''
+    ).trim()
+  }, [])
+
+  const resolveLeadProjectFilterComparableValues = useCallback((lead) => {
+    const values = new Set()
+    const primaryId = String(
+      (String(company?.company_type || '').toLowerCase() === 'general'
+        ? lead?.item_id
+        : lead?.project_id) ?? ''
+    ).trim()
+    if (primaryId) values.add(primaryId)
+
+    const fallbackNames = [
+      lead?.project_name,
+      lead?.projectName,
+      lead?.project,
+      lead?.item_name,
+      lead?.itemName,
+      lead?.item,
+    ]
+
+    fallbackNames.forEach((value) => {
+      const normalized = String(value || '').trim()
+      if (normalized) values.add(normalized.toLowerCase())
+    })
+
+    return values
+  }, [company?.company_type])
   
   const normStageKey = (s) => String(s || '').toLowerCase().replace(/\s+/g, '').replace(/-/g, '')
   const staticStageAliases = useMemo(() => ({
@@ -622,6 +665,26 @@ if (!s) {
     setSortOrder(nextSortRule.sortOrder)
     setStageFilter(normalized)
   }
+
+  const selectedStageRows = useMemo(() => {
+    const selected = Array.isArray(stageFilter) ? stageFilter : []
+    if (selected.length === 0) return []
+
+    return stagesList.filter((stage) => {
+      const normalizedStageName = normalizeStageFilterValue(stage?.name || '')
+      return normalizedStageName && selected.includes(normalizedStageName)
+    })
+  }, [stageFilter, stagesList])
+
+  const hasCancelStageSelected = useMemo(() => {
+    return selectedStageRows.some((stage) => String(stage?.type || '').trim().toLowerCase() === 'cancel')
+  }, [selectedStageRows])
+
+  useEffect(() => {
+    if (!hasCancelStageSelected && cancelReasonFilter) {
+      setCancelReasonFilter('')
+    }
+  }, [hasCancelStageSelected, cancelReasonFilter])
 
   const parseComparableDate = (value) => {
     if (!value) return null
@@ -815,6 +878,7 @@ if (!s) {
         manager_id: filters.managerIds.length > 0 ? filters.managerIds[0] : null,
         assigned_to: effectiveAssignedTo.length > 0 ? effectiveAssignedTo : null,
         old_stage: filters.oldStage.length > 0 ? filters.oldStage : null,
+        cancel_reason: filters.cancelReason || null,
         created_by: filters.createdBy.length > 0 ? filters.createdBy : null,
         created_from: filters.createdFrom,
         created_to: filters.createdTo,
@@ -853,6 +917,7 @@ if (!s) {
           assignedTo: salesPersonFilter,
           managerAssignedTo: managerScopedAssignedToFilter,
           oldStage: oldStageFilter,
+          cancelReason: cancelReasonFilter,
           createdBy: createdByFilter,
           createdFrom: creationDateFrom,
           createdTo: creationDateTo,
@@ -990,6 +1055,7 @@ if (!s) {
       search: filters.search,
       stage: stageForApi.length > 0 ? stageForApi : null,
       old_stage: filters.oldStage.length > 0 ? filters.oldStage : null,
+      cancel_reason: filters.cancelReason || null,
       // When the user is viewing "Cold Calls" stage, the table should be driven by stage (not source),
       // even if a source filter is currently selected.
       source: !isColdCallsStageView && filters.source.length > 0 ? filters.source : null,
@@ -1044,6 +1110,7 @@ if (!s) {
         managerIds: managerFilter,
         assignedTo: salesPersonFilter,
         managerAssignedTo: managerScopedAssignedToFilter,
+        cancelReason: cancelReasonFilter,
         createdBy: createdByFilter,
         createdFrom: creationDateFrom,
         createdTo: creationDateTo,
@@ -1076,6 +1143,7 @@ if (!s) {
     searchTerm,
     stageFilter,
     oldStageFilter,
+    cancelReasonFilter,
     sourceFilter,
     agencyFilter,
     priorityFilter,
@@ -1746,6 +1814,7 @@ if (!s) {
     probability: ['probability', 'الاحتمالية'],
     nextActionDate: ['next action date', 'nextactiondate', 'next_action_date', 'تاريخ الإجراء القادم', 'تاريخ الاكشن القادم', 'تاريخ المتابعة'],
     nextActionTime: ['next action time', 'nextactiontime', 'next_action_time', 'وقت الإجراء القادم', 'وقت الاكشن القادم', 'وقت المتابعة'],
+    cancelReason: ['cancel reason', 'cancelreason', 'cancel_reason', 'reason', 'reason text', 'reason title', 'سبب الالغاء', 'سبب الإلغاء'],
     notes: ['notes', 'ملاحظات'],
     comment: ['comment', 'تعليق', 'comments', 'تعليق إضافي']
   }
@@ -1755,6 +1824,7 @@ if (!s) {
     phone: ['mobile', 'phone', 'contact', 'Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„', 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ', 'Ø§Ù„Ù‡Ø§ØªÙ'],
     phone_country: ['phone country', 'phone_country', 'country code', 'countrycode', 'Ø±Ù…Ø² Ø§Ù„Ø¯ÙˆÙ„Ø©', 'ÙƒÙˆØ¯ Ø§Ù„Ø¯ÙˆÙ„Ø©'],
     stage: ['stage', 'status', 'action type', 'Ø§Ù„Ù…Ø±Ø­Ù„Ø©', 'Ø§Ù„Ø§Ø³ØªÙŠØ¯Ø¬'],
+    cancel_reason: ['cancel reason', 'cancelreason', 'cancel_reason', 'reason', 'reason text', 'reason title', 'سبب الالغاء', 'سبب الإلغاء'],
     action_at: ['action date', 'follow date', 'date', 'history date', 'ØªØ§Ø±ÙŠØ®', 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'],
     follow_date: ['follow date', 'next follow date', 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'],
     assigned_to: ['sales rep', 'sales person', 'assigned to', 'assignedto', 'Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨', 'Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„'],
@@ -1892,6 +1962,7 @@ if (!s) {
         probability: Number(findValue(row, headerMap.probability)) || 0,
         next_action_date,
         next_action_time,
+        cancel_reason: String(findValue(row, headerMap.cancelReason) || '').trim(),
         notes: String(findValue(row, headerMap.notes) || '').trim(),
         comment: String(findValue(row, headerMap.comment) || '').trim(),
       }
@@ -1916,6 +1987,37 @@ if (!s) {
       mapping,
       activeSheetName,
     }
+  }
+
+  const extractImportErrorMessage = (err) => {
+    const responseData = err?.response?.data || {}
+    const directMessage =
+      String(responseData?.error || '').trim() ||
+      String(responseData?.message || '').trim()
+
+    if (directMessage) return directMessage
+
+    if (responseData?.errors && typeof responseData.errors === 'object') {
+      const flattened = Object.values(responseData.errors)
+        .flat()
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+
+      if (flattened.length > 0) {
+        return flattened.join(' | ')
+      }
+    }
+
+    if (typeof err?.message === 'string' && err.message.trim()) {
+      return err.message.trim()
+    }
+
+    const status = err?.response?.status
+    if (status) {
+      return `Import failed with HTTP ${status}`
+    }
+
+    return ''
   }
 
   const handleExcelUpload = async () => {
@@ -2065,7 +2167,7 @@ if (!s) {
           errorMessage: err?.message,
         })
       }
-      setImportError('import.readFileError')
+      setImportError(extractImportErrorMessage(err) || 'import.readFileError')
     } finally {
       setImporting(false)
     }
@@ -2163,8 +2265,7 @@ if (!s) {
         })
       }
 
-      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || ''
-      setHistoryImportError(backendMessage || 'import.readFileError')
+      setHistoryImportError(extractImportErrorMessage(err) || 'import.readFileError')
     } finally {
       setHistoryImporting(false)
     }
@@ -2353,11 +2454,21 @@ if (!s) {
         return filter.some(f => String(f).toLowerCase() === v);
       }
 
+      const matchesProjectFilter = (filter, lead) => {
+        if (!Array.isArray(filter) || filter.length === 0) return true
+        const comparable = resolveLeadProjectFilterComparableValues(lead)
+        return filter.some((selected) => {
+          const raw = String(selected || '').trim()
+          if (!raw) return false
+          return comparable.has(raw) || comparable.has(raw.toLowerCase())
+        })
+      }
+
       // Server handled: search, stage, source, priority, campaign, assignedTo (salesPerson),
       // date ranges that exist in the API, and sort.
       // We remove these from client-side filtering/sorting to prevent conflicts.
       
-      const matchesProject = matchesMulti(projectFilter, lead.project)
+      const matchesProject = matchesProjectFilter(projectFilter, lead)
       
       // Manager filtering is handled on the backend so the table stays aligned
       // with the stats cards and includes manager-assigned leads.
@@ -2393,7 +2504,7 @@ if (!s) {
       whatsappIntentsFilter, actionTypeFilter, duplicateStatusFilter, assignDateFrom, assignDateTo,
       lastActionFrom, lastActionTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo, closedDateFrom, closedDateTo,
       emailFilter, expectedRevenueFilter, 
-      isAdminOrManager, canShowCreator, sortBy, applyStageSortRule])
+      isAdminOrManager, canShowCreator, sortBy, applyStageSortRule, resolveLeadProjectFilterComparableValues])
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -3393,6 +3504,7 @@ if (!s) {
                 setCreationDateFrom('')
                 setCreationDateTo('')
                 setOldStageFilter([])
+                setCancelReasonFilter('')
                 setClosedDateFrom('')
                 setClosedDateTo('')
                 setCampaignFilter([])
@@ -3501,7 +3613,12 @@ if (!s) {
                 value={projectFilter}
                 multiple={true}
                 onChange={setProjectFilter}
-                options={projectsList.map(p => ({ value: p.name, label: p.name }))}
+                options={projectsList
+                  .map(p => ({
+                    value: String(p.id ?? ''),
+                    label: resolveInventoryOptionLabel(p),
+                  }))
+                  .filter(opt => opt.value && opt.label)}
                 placeholder={t('All')}
                 isRTL={isRtl}
               />
@@ -3565,6 +3682,27 @@ if (!s) {
                   isRTL={isRtl}
                 />
               </div>
+
+              {hasCancelStageSelected && (
+                <div className="space-y-1">
+                  <label className={`flex items-center gap-1 text-xs font-medium ${theme === 'light' ? 'text-black' : 'text-white'}`}>
+                    <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z" />
+                    </svg>
+                    {isRtl ? 'سبب الإلغاء' : 'Cancel Reason'}
+                  </label>
+                  <SearchableSelect
+                    value={cancelReasonFilter}
+                    onChange={setCancelReasonFilter}
+                    options={cancelReasonsList.map((reason) => ({
+                      value: String(reason?.id ?? ''),
+                      label: isRtl ? (reason?.title_ar || reason?.title || '') : (reason?.title || reason?.title_ar || ''),
+                    })).filter((option) => option.value && option.label)}
+                    placeholder={t('All')}
+                    isRTL={isRtl}
+                  />
+                </div>
+              )}
 
               {/* Manager Filter */}
               {!['sales person', 'team leader'].includes(userRole) && (

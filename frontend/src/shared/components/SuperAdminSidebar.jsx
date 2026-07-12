@@ -180,13 +180,39 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
     const loadTenants = async () => {
       setQuickSwitchLoading(true);
       try {
-        const response = secureQuickSwitchEnabled
-          ? await impersonationApi.quickSwitchTenants({ status: 'active', limit: 25, search: quickSwitchSearch.trim() || undefined })
-          : await axios.get('/api/super-admin/tenants', {
-              params: { status: 'active', page: 1 },
+        let tenants = [];
+
+        if (secureQuickSwitchEnabled) {
+          try {
+            const response = await impersonationApi.quickSwitchTenants({
+              status: 'active',
+              limit: 25,
+              search: quickSwitchSearch.trim() || undefined,
             });
+            tenants = response.data?.data || [];
+          } catch (error) {
+            if (error?.response?.status !== 403) {
+              throw error;
+            }
+
+            const fallbackResponse = await axios.get('/api/super-admin/tenants', {
+              params: {
+                status: 'active',
+                page: 1,
+                search: quickSwitchSearch.trim() || undefined,
+              },
+            });
+            tenants = fallbackResponse.data?.tenants?.data || [];
+          }
+        } else {
+          const response = await axios.get('/api/super-admin/tenants', {
+            params: { status: 'active', page: 1, search: quickSwitchSearch.trim() || undefined },
+          });
+          tenants = response.data?.tenants?.data || [];
+        }
+
         if (!active) return;
-        setActiveTenants(secureQuickSwitchEnabled ? (response.data?.data || []) : (response.data?.tenants?.data || []));
+        setActiveTenants((Array.isArray(tenants) ? tenants : []).filter((tenant) => tenant?.can_impersonate !== false));
       } catch (error) {
         if (!active) return;
         console.error('Failed to load active tenants:', error);
@@ -242,7 +268,10 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
       toast.error(t('Support access is temporarily unavailable'));
     } catch (error) {
       console.error('Failed to login as tenant:', error);
-      toast.error(t('Failed to login as tenant'));
+      const message = error?.response?.status === 403
+        ? t('You do not have permission to start support access.')
+        : t('Failed to login as tenant');
+      toast.error(message);
     } finally {
       setImpersonatingId(null);
     }

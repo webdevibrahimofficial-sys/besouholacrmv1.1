@@ -52,8 +52,6 @@ const isSalesPersonRole = (role) => {
   return r === 'sales person' || r === 'salesperson';
 };
 
-const isTeamLeaderRole = (role) => normalizeRoleValue(role) === 'team leader';
-
 const isAdminRole = (role) => {
   const r = normalizeRoleValue(role);
   return r === 'admin' || r === 'tenant admin' || r === 'super admin';
@@ -62,74 +60,27 @@ const isAdminRole = (role) => {
 const getRoleFilteredPermissions = (group, perms, role) => {
   const list = Array.isArray(perms) ? perms : [];
 
-  if (isSalesPersonRole(role)) {
-    if (group === 'Leads') {
-      const hiddenLeadPerms = new Set(['viewDuplicateLeads', 'actOnDuplicateLeads']);
-      return list.filter(perm => !hiddenLeadPerms.has(perm));
-    }
-
-    if (group === 'Inventory') {
-      const hiddenInventoryPerms = new Set([
-        'addProject',
-        'exportProject',
-        'revertSoldProperty',
-        'deleteInventory',
-        'addDeveloper',
-      ]);
-      return list.filter(perm => !hiddenInventoryPerms.has(perm));
-    }
-
+  if (!isSalesPersonRole(role)) {
     return list;
   }
 
-  if (isTeamLeaderRole(role) && group === 'Inventory') {
+  if (group === 'Leads') {
+    const hiddenLeadPerms = new Set(['viewDuplicateLeads', 'actOnDuplicateLeads']);
+    return list.filter(perm => !hiddenLeadPerms.has(perm));
+  }
+
+  if (group === 'Inventory') {
     const hiddenInventoryPerms = new Set([
       'addProject',
       'exportProject',
+      'revertSoldProperty',
       'deleteInventory',
+      'addDeveloper',
     ]);
     return list.filter(perm => !hiddenInventoryPerms.has(perm));
   }
 
-  if (isTeamLeaderRole(role) && group === 'Control') {
-    const hiddenControlPerms = new Set([
-      'addRegions',
-      'addArea',
-      'addStage',
-      'addSource',
-      'userManagement',
-      'addUsers',
-      'editUsers',
-      'toggleUsers',
-      'changeUserPassword',
-      'deleteUsers',
-      'editConfigurationSettings',
-      'addInputs',
-      'addDepartment',
-    ]);
-    return list.filter(perm => !hiddenControlPerms.has(perm));
-  }
-
   return list;
-};
-
-const shouldShowPermissionGroup = (role, group) => {
-  if (role === 'Team Leader') {
-    return !['Marketing', 'ContractCollections'].includes(group);
-  }
-  if (['Marketing Manager', 'Marketing Moderator'].includes(role)) {
-    return !['Customers', 'Support'].includes(group);
-  }
-  if (['Customer Manager', 'Customer Team Leader', 'Customer Agent'].includes(role)) {
-    return ['Customers', 'Inventory'].includes(group);
-  }
-  if (role === 'Sales Person') {
-    return !['Marketing', 'Control', 'ContractCollections'].includes(group);
-  }
-  if (['Support Manager', 'Support Team Leader', 'Support Agent'].includes(role)) {
-    return ['Customers', 'Support'].includes(group);
-  }
-  return true;
 };
 
 const ARABIC_DIGIT_MAP = {
@@ -265,7 +216,6 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   });
   const [customPerms, setCustomPerms] = useState({});
   const [errors, setErrors] = useState({});
-  const [submitError, setSubmitError] = useState('');
   const [activeTab, setActiveTab] = useState('info'); // 'info' | 'account' | 'notifications'
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -495,8 +445,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Inventory: [],
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage'],
         Customers: ['convertFromLead', 'addCustomer', 'showModule'],
+        ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
         Support: ['showModule'],
-        Control: ['addRegions','addArea','addSource','userManagement','assignLeads','checkInOutApprovals','showReports','addDepartment']
+        Control: ['addRegions','addArea','addSource','userManagement','allowActionOnTeam','assignLeads','checkInOutApprovals','showReports','addDepartment']
       })
     } else if (form.role === 'Operation Manager') {
       setCustomPerms({
@@ -504,16 +455,18 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Inventory: ['addCategory','addItems'],
         Marketing: [],
         Customers: ['editInfo','showModule'],
+        ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
         Support: ['showModule','addTickets','sla','reports'],
-        Control: ['checkInOutApprovals','showReports','addDepartment']
+        Control: ['allowActionOnTeam','checkInOutApprovals','showReports','addDepartment']
       })
     } else if (form.role === 'Branch Manager') {
       setCustomPerms({
         Leads: ['addLead','importLeads','editInfo','addAction'],
         Inventory: ['addCategory','addItems'],
         Customers: ['addCustomer','editInfo','showModule'],
+        ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
         Support: ['showModule'],
-        Control: ['assignLeads','checkInOutApprovals','showReports']
+        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Director') {
       setCustomPerms({
@@ -521,6 +474,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Inventory: [],
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage','integration'],
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
+        ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt', 'exportReports'],
         Support: ['showModule'],
         Control: ['userManagement','assignLeads','checkInOutApprovals','exportLeads','showReports','multiAction','salesComment']
       })
@@ -528,13 +482,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       setCustomPerms({
         Leads: ['addLead','importLeads','editInfo','addAction'],
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
+        ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
         Control: ['assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Team Leader') {
       setCustomPerms({
         Leads: ['addLead','importLeads','addAction'],
         Customers: ['editInfo','showModule'],
-        Control: ['assignLeads','checkInOutApprovals','showReports']
+        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Sales Person') {
       setCustomPerms({
@@ -663,8 +618,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     });
   };
 
-  // Auto-grant Leads.addAction for every user (hidden in UI).
+  // Auto-grant for Sales Person: Leads.addAction (hidden in UI).
   useEffect(() => {
+    if (!isSalesPersonRole(form.role)) return;
     setCustomPerms((prev) => {
       const next = { ...(prev || {}) };
       const leads = Array.isArray(next.Leads) ? next.Leads : [];
@@ -762,7 +718,6 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    setSubmitError('');
     const clientErrors = validate();
     if (Object.keys(clientErrors).length > 0) {
       const firstErrorKey = Object.keys(clientErrors)[0];
@@ -812,7 +767,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       (allowedSources.length ? allowedSources : ['']).forEach(value => formData.append('allowed_sources[]', value));
       (allowedProjects.length ? allowedProjects : ['']).forEach(value => formData.append('allowed_projects[]', value));
 
-      formData.append('permissions[Leads][]', 'addAction');
+      // Auto-grant for Sales Person: Leads.addAction (not user-configurable in UI).
+      if (isSalesPersonRole(form.role)) {
+        formData.append('permissions[Leads][]', 'addAction');
+      }
 
       Object.entries(customPerms || {}).forEach(([group, perms]) => {
         const baseAllowed = group === 'Reports' ? null : (PERMISSIONS[group] || []);
@@ -822,7 +780,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
           : roleFilteredAllowed;
         (perms || []).forEach((perm) => {
           if (allowed && !allowed.includes(perm)) return;
-          if (group === 'Leads' && perm === 'addAction') return;
+          if (isSalesPersonRole(form.role) && group === 'Leads' && perm === 'addAction') return;
           formData.append(`permissions[${group}][]`, perm);
         });
       });
@@ -857,13 +815,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       else navigate('/user-management/users');
     } catch (error) {
       console.error('Failed to save user', error);
-      const statusCode = Number(error.response?.status || 0);
       const errorMsg = error.response?.data?.message || (isArabic ? 'فشل حفظ البيانات' : 'Failed to save data');
       const validationErrors = error.response?.data?.errors ? Object.values(error.response.data.errors).flat().join('\n') : '';
-
-      if (statusCode === 403) {
-        setSubmitError(errorMsg);
-      }
 
       // If backend returned Laravel validation errors (422), map them to our form fields and scroll to the first one.
       if (error.response?.status === 422 && error.response?.data?.errors) {
@@ -936,14 +889,6 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       </div>
 
         <form onSubmit={onSubmit} className="space-y-6">
-        {submitError && (
-          <div className="rounded-2xl border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">
-            <div className="flex items-start gap-2">
-              <AlertCircle size={18} className="mt-0.5 shrink-0" />
-              <span>{submitError}</span>
-            </div>
-          </div>
-        )}
         <div className="w-full overflow-x-auto pb-2 mb-6">
           <div className="inline-flex p-1 bg-[rgba(255,255,255,0.04)] rounded-xl border border-white/5 min-w-full md:min-w-0">
             <button 
@@ -1400,11 +1345,28 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 </div>
                 <div className="flex flex-col gap-4 mt-3">
                   {Object.entries(PERMISSIONS)
-                    .filter(([group]) => shouldShowPermissionGroup(form.role, group))
+                    .filter(([group]) => {
+                      if (form.role === 'Team Leader') {
+                        return !['Marketing'].includes(group);
+                      }
+                      if (['Marketing Manager', 'Marketing Moderator'].includes(form.role)) {
+                        return !['Customers', 'Support'].includes(group);
+                      }
+                      if (['Customer Manager', 'Customer Team Leader', 'Customer Agent'].includes(form.role)) {
+                        return ['Customers', 'Inventory'].includes(group);
+                      }
+                      if (form.role === 'Sales Person') {
+                        return !['Marketing', 'Control', 'ContractCollections'].includes(group);
+                      }
+                      if (['Support Manager', 'Support Team Leader', 'Support Agent'].includes(form.role)) {
+                        return ['Customers', 'Support'].includes(group);
+                      }
+                      return true;
+                    })
                     .map(([group, perms]) => {
                     const groupPerms = customPerms[group] || [];
-                    const lockedPerms = [];
-                    const baseUiPerms = group === 'Leads'
+                    const lockedPerms = (isSalesPersonRole(form.role) && group === 'Leads') ? ['addAction'] : [];
+                    const baseUiPerms = (isSalesPersonRole(form.role) && group === 'Leads')
                       ? perms.filter(p => p !== 'addAction')
                       : perms;
                     const uiPerms = getRoleFilteredPermissions(group, baseUiPerms, form.role);
@@ -1454,6 +1416,11 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                               );
                             })}
                           </div>
+                          {isSalesPersonRole(form.role) && group === 'Leads' && (
+                            <div className="mt-3 text-xs text-base-content/60">
+                              {isArabic ? 'صلاحية إضافة إجراء يتم تفعيلها تلقائياً لمندوب المبيعات.' : 'Add Action is enabled automatically for Sales Person.'}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

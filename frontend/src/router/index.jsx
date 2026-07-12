@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { lazyRetry } from '../utils/lazyRetry'
-import { shouldUseAdminPanel } from '../utils/authRouting'
 
 const SuperAdminLayout = lazyRetry(() => import('../components/SuperAdminLayout'))
 
@@ -13,7 +12,6 @@ const Login = lazyRetry(() => import('../features/Auth/Login'))
 const ForgotPassword = lazyRetry(() => import('../features/Auth/ForgotPassword'))
 const ResetPassword = lazyRetry(() => import('../features/Auth/ResetPassword'))
 const AuthCallback = lazyRetry(() => import('../features/Auth/AuthCallback'))
-const ImpersonationCallback = lazyRetry(() => import('../features/Impersonation/ImpersonationCallback'))
 const GoogleAuthCallback = lazyRetry(() => import('../features/Auth/GoogleAuthCallback'))
 
 // --- Pages (Root) ---
@@ -27,8 +25,6 @@ const Terms = lazyRetry(() => import('../pages/Terms'))
 const WelcomeContact = lazyRetry(() => import('../pages/WelcomeContact'))
 const ContactUs = lazyRetry(() => import('../pages/ContactUs'))
 const Tasks = lazyRetry(() => import('../pages/Tasks'))
-const SystemTasks = lazy(() => import('../pages/SystemTasks'))
-const SystemAdminUsers = lazy(() => import('../pages/SystemAdminUsers'))
 const Notifications = lazyRetry(() => import('../pages/Notifications'))
 
 // --- Landing Pages ---
@@ -65,7 +61,6 @@ const Suppliers = lazyRetry(() => import('../pages/Suppliers'))
 const Warehouse = lazyRetry(() => import('../pages/Warehouse'))
 const StockManagement = lazyRetry(() => import('../pages/StockManagement'))
 const InventoryTransactions = lazyRetry(() => import('../pages/InventoryTransactions'))
-const SystemTransactions = lazy(() => import('../pages/SystemTransactions'))
 const Products = lazyRetry(() => import('../pages/Products'))
 
 // --- Real Estate ---
@@ -114,7 +109,6 @@ const ReportPlaceholder = lazy(() => import('../pages/ReportPlaceholder'))
 const CampaignDurationReport = lazy(() => import('../pages/CampaignDurationReport'))
 const ABCampaignComparison = lazy(() => import('../pages/ABCampaignComparison'))
 const ResponseTimeReport = lazy(() => import('../pages/ResponseTimeReport'))
-const CancellationReport = lazy(() => import('../pages/CancellationReport'))
 
 // --- Settings ---
 const ProfileSettings = lazy(() => import('../pages/settings/profile/ProfileSettings'))
@@ -167,14 +161,10 @@ const MatchingSettings = lazy(() => import('../pages/settings/operations/Matchin
 const RentConfiguration = lazy(() => import('../pages/settings/operations/RentConfiguration'))
 
 // --- System Admin ---
-const SystemAdminDashboard  = lazy(() => import('../pages/SystemAdminDashboard'))
-const TenantSetup           = lazy(() => import('../pages/settings/TenantSetup'))
-const SystemSubscriptions   = lazy(() => import('../pages/SystemSubscriptions'))
-const SystemSettings        = lazy(() => import('../pages/SystemSettings'))
-const SystemIntegrations    = lazy(() => import('../pages/SystemIntegrations'))
-const SystemErrorLog        = lazy(() => import('../pages/SystemErrorLog'))
-const AdminNotificationsArchive = lazy(() => import('../pages/system/AdminNotificationsArchive'))
-const AdminNotificationSettings = lazy(() => import('../pages/system/AdminNotificationSettings'))
+const SystemAdminDashboard = lazy(() => import('../pages/SystemAdminDashboard'))
+const TenantSetup = lazy(() => import('../pages/settings/TenantSetup'))
+const SystemIntegrations = lazy(() => import('../pages/SystemIntegrations'))
+const SystemErrorLog = lazy(() => import('../pages/SystemErrorLog'))
 
 // --- User Management ---
 const UserManagementUsers = lazy(() => import('@features/Users/Users.jsx'))
@@ -197,6 +187,13 @@ function ProtectedModuleRoute({ moduleKey, requiredPermission }) {
   const { canAccess, user } = useAppState()
   if (!moduleKey) return <Outlet />
   const roleLower = String(user?.role || '').toLowerCase()
+  if (moduleKey === 'contract_collections') {
+    const isSalesPerson = roleLower.includes('sales person') || roleLower.includes('salesperson')
+    const isTeamLeader = roleLower.includes('team leader') || roleLower.includes('teamleader')
+    if (isSalesPerson || isTeamLeader) {
+      return <Navigate to="/dashboard" replace />
+    }
+  }
   if (moduleKey === 'campaigns') {
     const isSalesPerson = roleLower.includes('sales person') || roleLower.includes('salesperson')
     const isTeamLeader = roleLower.includes('team leader') || roleLower.includes('teamleader')
@@ -235,34 +232,29 @@ function ProtectedModuleRoute({ moduleKey, requiredPermission }) {
 }
 
 function SuperAdminRoute() {
-  const { user, impersonation, permissions, subscriptionPlan, panelMode } = useAppState()
+  const { user, subscription } = useAppState()
+  const roleLower = String(user?.role || '').toLowerCase()
+  const emailLower = String(user?.email || '').toLowerCase()
+  const isSuperAdmin =
+    !!user?.is_super_admin ||
+    subscription?.plan === 'super_admin' ||
+    roleLower === 'owner' ||
+    roleLower.includes('super admin') ||
+    roleLower.includes('superadmin') ||
+    emailLower === 'system@besouhoula.com' ||
+    emailLower === 'admin@example.com' ||
+    emailLower === 'admin@besouhoula.com'
 
-  if (!shouldUseAdminPanel(user, null, { permissions, subscriptionPlan, panelMode }) && !impersonation?.active) {
+  if (!isSuperAdmin) {
     return <Navigate to="/dashboard" replace />
   }
-
-  if (impersonation?.active) {
-    return <Navigate to="/dashboard" replace />
-  }
-
   return <Outlet />
 }
-
-function DashboardRoute() {
-  const { user, impersonation, permissions, subscriptionPlan, panelMode } = useAppState()
-
-  if (shouldUseAdminPanel(user, impersonation, { permissions, subscriptionPlan, panelMode })) {
-    return <Navigate to="/system/dashboard" replace />
-  }
-
-  return <Dashboard />
-}
-
 function SubscriptionGuard() { 
   const { bootstrapped, user } = useAppState();
   
   // 1. التحقق إذا كان الرابط الحالي هو رابط استلام التوكن
-  const isAuthCallback = window.location.hash.includes('/auth/callback') || window.location.hash.includes('/auth/impersonation-callback');
+  const isAuthCallback = window.location.hash.includes('/auth/callback');
 
   // 2. التحقق من وجود توكن في الكوكيز أو LocalStorage أو SessionStorage
   const hasToken = (() => {
@@ -281,11 +273,7 @@ function SubscriptionGuard() {
   }
 
   // السماح بالدخول إذا كان المسار هو callback أو إذا وجدنا توكن
-  if (isAuthCallback) {
-    return <Outlet />;
-  }
-
-  if (hasToken && user) {
+  if (isAuthCallback || hasToken) {
     return <Outlet />;
   }
 
@@ -308,7 +296,6 @@ export default function AppRouter() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
-        <Route path="/auth/impersonation-callback" element={<ImpersonationCallback />} />
         <Route path="/auth/google/callback" element={<GoogleAuthCallback />} />
         <Route path="/suspended" element={<Suspended />} />
         <Route path="/signup" element={<Suspended />} /> {/* Placeholder, should be Signup */}
@@ -324,7 +311,7 @@ export default function AppRouter() {
 
         <Route element={<SubscriptionGuard />}>        
           <Route element={<Layout />}>        
-            <Route path="/dashboard" element={<DashboardRoute />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route element={<ProtectedModuleRoute moduleKey="customers" />}>
               <Route path="/customers" element={<Customers />} />
             </Route>
@@ -403,7 +390,6 @@ export default function AppRouter() {
               <Route path="/reports/sales/meetings" element={<MeetingsReport />} />
               <Route path="/reports/sales/proposals" element={<ProposalsReport />} />
               <Route path="/reports/sales/revenue" element={<RevenueReport />} />
-              <Route path="/reports/sales/cancellation" element={<CancellationReport />} />
               <Route path="/reports/leads" element={<LeadsReport />} />
               <Route path="/reports/team" element={<TeamPerformanceReport />} />
               <Route path="/reports/sms" element={<ReportPlaceholder titleKey="Sms Report" descKey="reports.sms.desc" />} />
@@ -437,7 +423,7 @@ export default function AppRouter() {
               <Route path="/settings/system/form-inputs/items" element={<AddItemInputs />} />
               <Route path="/settings/system/form-inputs/properties" element={<AddPropertiesInputs />} />
               <Route path="/settings/system/form-inputs/brokers" element={<AddBrokerInputs />} />
-              <Route path="/settings/system/audit-logs" element={<Navigate to="/user-management/activity-logs" replace />} />
+              <Route path="/settings/system/audit-logs" element={<AuditLogs />} />
               
               <Route path="/settings/notifications" element={<Navigate to="/settings/notifications/general" replace />} />
               <Route path="/settings/notifications/general" element={<NotificationsSettings />} />
@@ -502,27 +488,24 @@ export default function AppRouter() {
             <Route element={<SuperAdminRoute />}>
               <Route path="/system" element={<Navigate to="/system/dashboard" replace />} />
               <Route path="/system/dashboard" element={<SystemAdminDashboard />} />
-              <Route path="/system/admin-users" element={<SystemAdminUsers />} />
               <Route path="/system/tenants" element={<TenantSetup />} />
               <Route path="/system/tenants/new" element={<TenantSetup />} />
               
-              {/* Dedicated Super Admin pages (Phase 3) */}
-              <Route path="/system/subscriptions" element={<SystemSubscriptions />} />
-              <Route path="/system/settings"      element={<SystemSettings />} />
-              <Route path="/system/audit-logs" element={<AuditLogs />} />
+              {/* Mapped Routes for Sidebar Items */}
+              <Route path="/system/subscriptions" element={<TenantSetup section="subscriptions" />} />
+              <Route path="/system/modules" element={<TenantSetup section="modules" />} />
+              <Route path="/system/settings" element={<TenantSetup section="admin-settings" />} />
               
               <Route path="/system/integrations" element={<SystemIntegrations />} />
               <Route path="/system/website" element={<WebsiteCms />} />
               <Route path="/system/error-log" element={<SystemErrorLog />} />
-              <Route path="/system/notifications" element={<AdminNotificationsArchive />} />
-              <Route path="/system/notifications/settings" element={<AdminNotificationSettings />} />
               <Route path="/system/backup" element={<Backup />} />
-              <Route path="/system/transactions" element={<SystemTransactions />} />
+              <Route path="/system/transactions" element={<InventoryTransactions />} />
               
               {/* Profile & Tasks for Super Admin */}
               <Route path="/system/profile" element={<ProfileSettings />} />
               <Route path="/system/security" element={<SecuritySettings />} />
-              <Route path="/system/tasks" element={<SystemTasks />} />
+              <Route path="/system/tasks" element={<Tasks />} />
             </Route>
           </Route>
         </Route>

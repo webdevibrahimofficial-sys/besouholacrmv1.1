@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAppState } from '@shared/context/AppStateProvider';
-import { shouldUseAdminPanel } from '@utils/authRouting';
+import { resolvePostLoginPath, redirectAfterLogin } from '@utils/authRouting';
 import { useTheme } from '@shared/context/ThemeProvider';
 import { api } from '@utils/api';
 import { useTranslation } from 'react-i18next';
@@ -89,6 +89,28 @@ export default function Login() {
   const loginDebugEnabled = String(import.meta.env.VITE_API_DEBUG || (import.meta.env.DEV ? 'true' : 'false')).toLowerCase() === 'true'
     || window.localStorage.getItem('api_debug') === '1';
 
+  const goAfterLogin = (res, profile = null) => {
+    const routingOptions = {
+      permissions: res?.user_permissions ?? profile?.user_permissions ?? profile?.permissions ?? permissions,
+      subscriptionPlan: res?.subscription_plan ?? profile?.subscription_plan ?? subscriptionPlan,
+      panelMode: res?.panel_mode ?? profile?.panel_mode ?? panelMode,
+    };
+    const destinationUser = res?.user || profile?.user || null;
+    const hasToken = window.localStorage.getItem('token') || window.sessionStorage.getItem('token');
+    const path = res?.next_path
+      || ((hasToken || destinationUser)
+        ? resolvePostLoginPath(
+          destinationUser || { is_primary_admin: true },
+          res?.impersonation ?? profile?.impersonation ?? impersonation,
+          routingOptions,
+        )
+        : null);
+
+    if (path) {
+      redirectAfterLogin(navigate, path);
+    }
+  };
+
   useEffect(() => {
     if (!bootstrapped) return;
 
@@ -96,11 +118,10 @@ export default function Login() {
     const cookieToken = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
     
     if ((token || cookieToken) && user) {
-      if (shouldUseAdminPanel(user, impersonation, { permissions, subscriptionPlan, panelMode })) {
-        navigate('/system/dashboard', { replace: true });
-      } else {
-        navigate('/dashboard', { replace: true });
-      }
+      redirectAfterLogin(
+        navigate,
+        resolvePostLoginPath(user, impersonation, { permissions, subscriptionPlan, panelMode }),
+      );
     }
   }, [navigate, user, impersonation, permissions, subscriptionPlan, panelMode, bootstrapped]);
 
@@ -163,9 +184,11 @@ export default function Login() {
           }
           const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: 'Logged in' } });
           window.dispatchEvent(evt);
+          let profile = null;
           try {
-            await fetchCompanyInfo();
+            profile = await fetchCompanyInfo();
           } catch {}
+          goAfterLogin(null, profile);
           setLoading(false);
           return;
         }
@@ -186,13 +209,12 @@ export default function Login() {
         }
 
         if (res?.next_path) {
-          navigate(res.next_path, { replace: true });
+          goAfterLogin(res);
           setLoading(false);
           return;
         }
-        
-        // For same-origin/local successful logins, wait for AppStateProvider user state
-        // and let the existing login-page effect perform the final redirect.
+
+        goAfterLogin(res);
         setLoading(false);
         return;
       }
@@ -297,7 +319,7 @@ export default function Login() {
         </div>
 
         {/* Decorative pattern overlay */}
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-soft-light"></div>
+        <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-20 mix-blend-soft-light"></div>
       </motion.div>
 
       {/* Right Panel - Form (55%) */}

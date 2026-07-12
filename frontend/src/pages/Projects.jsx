@@ -62,8 +62,11 @@ function pickImage(seed) {
 }
 
 const getApiOrigin = () => {
-  const apiUrl = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || 'https://api.besouholacrm.net/api'
-  const clean = String(apiUrl).replace(/\/+$/, '')
+  const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://api.besouholacrm.net/api'
+  const clean = String(apiUrl).trim().replace(/\/+$/, '')
+  if (clean.startsWith('/')) {
+    return 'https://api.besouholacrm.net'
+  }
   return clean.endsWith('/api') ? clean.slice(0, -4) : clean
 }
 import { useCompanySetup } from './settings/company-setup/store/CompanySetupContext.jsx'
@@ -267,6 +270,9 @@ export default function Projects() {
   const [_importLogs, setImportLogs] = useState([])
   const [showCreateUnitModal, setShowCreateUnitModal] = useState(false)
   const [unitProject, setUnitProject] = useState(null)
+  const [deleteProjectState, setDeleteProjectState] = useState(null)
+  const [deleteProjectOptions, setDeleteProjectOptions] = useState([])
+  const [deleteProjectBusy, setDeleteProjectBusy] = useState(false)
 
   const [filters, setFilters] = useState({
     search: '',
@@ -275,6 +281,7 @@ export default function Projects() {
     city: '',
     status: '',
     country: '',
+    tenancyType: '',
     category: '',
     paymentPlan: '',
     createdBy: '',
@@ -453,6 +460,7 @@ export default function Projects() {
       minSpace: Number(p.min_space) || 0,
       maxSpace: Number(p.max_space) || 0,
       units: Number(p.properties_count ?? p.propertiesCount ?? p.units_count ?? p.unitsCount ?? p.units) || 0,
+      leadsCount: Number(p.leads_count ?? p.leadsCount ?? 0) || 0,
       phases: Number(p.phases) || 0,
       docs: Number(p.docs) || 0,
       completion: Number(p.completion) || 0,
@@ -490,6 +498,17 @@ export default function Projects() {
     }
   }
 
+  const mapProjectsResponse = (payload) => {
+    const rows = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.data)
+        ? payload.data
+        : (Array.isArray(payload?.data?.data)
+          ? payload.data.data
+          : []))
+    return rows.map(p => mapProject(p))
+  }
+
   const fetchProjects = async () => {
     try {
       setLoading(true)
@@ -506,7 +525,7 @@ export default function Projects() {
         api.get('/api/users'),
         api.get('/api/developers'),
       ])
-      const mapped = (projectsData.data || []).map(p => mapProject(p))
+      const mapped = mapProjectsResponse(projectsData)
       setProjects(mapped)
       setDbCities(citiesData || [])
       setDbCountries(countriesData?.data || countriesData || [])
@@ -710,15 +729,85 @@ export default function Projects() {
       addToast('error', isRTL ? 'لا تملك صلاحية الحذف' : 'You do not have permission to delete')
       return
     }
+    if ((Number(proj.leadsCount) || 0) > 0) {
+      try {
+        const res = await api.get('/api/projects?all=1')
+        const allProjects = mapProjectsResponse(res?.data)
+        const replacementProjects = allProjects.filter(item => item.id !== proj.id)
+        if (replacementProjects.length === 0) {
+          addToast('error', isRTL ? 'لا يوجد مشروع بديل لنقل الليدز إليه' : 'No replacement project is available to move the leads')
+          return
+        }
+        setDeleteProjectOptions(replacementProjects)
+        setDeleteProjectState({
+          project: proj,
+          targetProjectId: String(replacementProjects[0].id),
+          leadCount: Number(proj.leadsCount) || 0,
+        })
+      } catch (err) {
+        console.error('Failed to load replacement projects', err)
+        const replacementProjects = projects.filter(item => item.id !== proj.id)
+        if (replacementProjects.length === 0) {
+          addToast('error', isRTL ? 'لا يوجد مشروع بديل لنقل الليدز إليه' : 'No replacement project is available to move the leads')
+          return
+        }
+        setDeleteProjectOptions(replacementProjects)
+        setDeleteProjectState({
+          project: proj,
+          targetProjectId: String(replacementProjects[0].id),
+          leadCount: Number(proj.leadsCount) || 0,
+        })
+      }
+      return
+    }
+
     if (window.confirm(isRTL ? 'هل أنت متأكد من حذف هذا المشروع؟' : 'Are you sure you want to delete this project?')) {
       try {
         await api.delete(`/api/projects/${proj.id}`)
-        setProjects(prev => prev.filter(p => p.id !== proj.id))
+        await fetchProjects()
         addToast('success', isRTL ? 'تم حذف المشروع' : 'Project deleted')
       } catch (err) {
         console.error('Failed to delete project', err)
         addToast('error', isRTL ? 'فشل حذف المشروع' : 'Failed to delete project')
       }
+    }
+  }
+
+  const confirmProjectDelete = async () => {
+    if (!deleteProjectState?.project) return
+    const targetProjectId = Number(deleteProjectState.targetProjectId)
+    if (!targetProjectId) {
+      addToast('error', isRTL ? 'اختر مشروعًا بديلًا أولًا' : 'Please choose a replacement project first')
+      return
+    }
+
+    setDeleteProjectBusy(true)
+    try {
+      await api.delete(`/api/projects/${deleteProjectState.project.id}`, {
+        data: { reassign_leads_to: targetProjectId }
+      })
+      setDeleteProjectState(null)
+      setDeleteProjectOptions([])
+      await fetchProjects()
+      addToast(
+        'success',
+        isRTL
+          ? 'تم نقل الليدز المرتبطة وحذف المشروع'
+          : 'Related leads were moved and the project was deleted'
+      )
+    } catch (err) {
+      console.error('Failed to delete project with lead reassignment', err)
+      const status = err?.response?.status
+      const serverMessage = err?.response?.data?.message
+      addToast(
+        'error',
+        serverMessage || (isRTL ? 'فشل حذف المشروع' : 'Failed to delete project')
+      )
+      if (status === 409) {
+        setDeleteProjectOptions(prev => prev.length ? prev : projects.filter(item => item.id !== deleteProjectState.project.id))
+      }
+    } finally {
+      setDeleteProjectBusy(false)
     }
   }
 
@@ -941,6 +1030,20 @@ export default function Projects() {
 
   const allCountries = useMemo(() => Array.from(new Set(projects.map(p => p.country || 'Egypt'))).sort(), [projects])
   const allProjects = useMemo(() => Array.from(new Set(projects.map(p => p.name))).sort(), [projects])
+  const allTenancyTypes = useMemo(() => {
+    const values = projects
+      .map((p) => (
+        p.tenancyType ||
+        p.tenancy_type ||
+        p.tenantType ||
+        p.tenant_type ||
+        p.meta_data?.tenancy_type ||
+        ''
+      ))
+      .filter(Boolean)
+
+    return Array.from(new Set(values)).sort((a, b) => String(a).localeCompare(String(b)))
+  }, [projects])
   const allCategories = ['Residential', 'Commercial', 'Administrative', 'Medical', 'Coastal', 'Mixed Use']
   // const allPaymentPlans = useMemo(() => Array.from(new Set(projects.map(p => p.paymentPlan).filter(Boolean))).sort(), [projects])
   const allPaymentPlans = [] // Disabled as paymentPlan is now an array of objects
@@ -979,6 +1082,17 @@ export default function Projects() {
       if (filters.city && filters.city !== 'All' && p.city !== filters.city) return false
       if (filters.status && filters.status !== 'All' && p.status !== filters.status) return false
       if (filters.country && !(p.country || 'Egypt').toLowerCase().includes(filters.country.toLowerCase())) return false
+      if (filters.tenancyType) {
+        const projectTenancyType = String(
+          p.tenancyType ||
+          p.tenancy_type ||
+          p.tenantType ||
+          p.tenant_type ||
+          p.meta_data?.tenancy_type ||
+          ''
+        ).toLowerCase()
+        if (projectTenancyType !== String(filters.tenancyType).toLowerCase()) return false
+      }
       if (filters.category && !(p.category || '').toLowerCase().includes(filters.category.toLowerCase())) return false
       if (filters.createdBy && Number(p.createdBy) !== Number(filters.createdBy)) return false
       if (filters.createdDateFrom || filters.createdDateTo) {
@@ -1029,6 +1143,7 @@ export default function Projects() {
       city: '',
       status: '',
       country: '',
+      tenancyType: '',
       category: '',
       paymentPlan: '',
       createdBy: '',
@@ -1061,6 +1176,7 @@ export default function Projects() {
     createdDate: isRTL ? 'تاريخ الإنشاء' : 'Created Date',
     category: isRTL ? 'التصنيف' : 'Category',
     country: isRTL ? 'الدولة' : 'Country',
+    tenancyType: isRTL ? 'نوع التينانسي' : 'Tenancy Type',
     priceRange: isRTL ? 'نطاق السعر' : 'Price Range',
     spaceRange: isRTL ? 'نطاق المساحة' : 'Space Range'
   }
@@ -1231,7 +1347,18 @@ export default function Projects() {
               />
             </div>
 
-            {/* 8. Created By */}
+            {/* 8. Tenancy Type */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaTags className="text-blue-500" size={10} /> {Label.tenancyType}</label>
+              <SearchableSelect
+                options={allTenancyTypes}
+                value={filters.tenancyType}
+                onChange={val => setFilters({ ...filters, tenancyType: val })}
+                isRTL={isRTL}
+              />
+            </div>
+
+            {/* 9. Created By */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaUser className="text-blue-500" size={10} /> {Label.createdBy}</label>
               <SearchableSelect
@@ -1242,7 +1369,7 @@ export default function Projects() {
               />
             </div>
 
-            {/* 9. Created Date */}
+            {/* 10. Created Date */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaFilter className="text-blue-500" size={10} /> {Label.createdDate}</label>
               <DateRangePicker
@@ -1254,7 +1381,7 @@ export default function Projects() {
               />
             </div>
 
-            {/* 10. Price Range */}
+            {/* 11. Price Range */}
             <div className="col-span-1 md:col-span-2">
               <RangeSlider
                 min={priceLimits.min}
@@ -1266,7 +1393,7 @@ export default function Projects() {
               />
             </div>
 
-            {/* 11. Space Range */}
+            {/* 12. Space Range */}
             <div className="col-span-1 md:col-span-2">
               <RangeSlider
                 min={spaceLimits.min}
@@ -1367,6 +1494,192 @@ export default function Projects() {
             dbCountries={dbCountries}
             developerOptions={developerOptions}
           />
+        </div>
+      )}
+
+      {/* Delete Project Transfer Modal */}
+      {deleteProjectState && (
+        <div className="fixed inset-0 z-[10200] overflow-y-auto px-4 py-4 sm:py-6">
+          <div
+            className={`absolute inset-0 backdrop-blur-md transition-opacity ${isLight ? 'bg-slate-950/30' : 'bg-slate-950/70'}`}
+            onClick={() => {
+              if (!deleteProjectBusy) {
+                setDeleteProjectState(null)
+                setDeleteProjectOptions([])
+              }
+            }}
+          />
+          <div
+            className={`relative mx-auto my-auto w-full max-w-2xl overflow-hidden rounded-[28px] border shadow-2xl max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col ${
+              isLight
+                ? 'bg-white/96 border-slate-200/90'
+                : 'bg-slate-900/96 border-slate-700/80'
+            }`}
+            dir={isRTL ? 'rtl' : 'ltr'}
+          >
+            <div className={`absolute inset-x-0 top-0 h-1.5 ${isLight ? 'bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400' : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500'}`} />
+            <div className={`absolute -top-24 ${isRTL ? '-left-16' : '-right-16'} h-56 w-56 rounded-full blur-3xl ${isLight ? 'bg-blue-200/50' : 'bg-cyan-500/10'}`} />
+            <div className={`absolute -bottom-20 ${isRTL ? '-right-10' : '-left-10'} h-44 w-44 rounded-full blur-3xl ${isLight ? 'bg-emerald-100/70' : 'bg-blue-600/10'}`} />
+
+            <div className="relative overflow-y-auto p-5 sm:p-8 space-y-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <div
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${
+                      isLight
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-300'
+                    }`}
+                  >
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${isLight ? 'text-blue-700/80' : 'text-cyan-300/85'}`}>
+                      {isRTL ? 'نقل الليدز أولًا' : 'Move leads first'}
+                    </p>
+                    <h3 className={`mt-2 text-2xl font-bold sm:text-[2rem] ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    {isRTL ? 'تغيير المشروع قبل الحذف' : 'Change project before deleting'}
+                    </h3>
+                    <p className={`mt-2 max-w-xl text-sm leading-6 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                      {isRTL
+                        ? 'قبل حذف المشروع، ننقل كل الليدز المرتبطة إلى مشروع آخر حتى تظل البيانات مترابطة وواضحة.'
+                        : 'Before deleting this project, move every related lead to another project so the data stays connected and clean.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={`rounded-full p-2 transition-colors ${
+                    isLight
+                      ? 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                      : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                  }`}
+                  onClick={() => {
+                    if (!deleteProjectBusy) {
+                      setDeleteProjectState(null)
+                      setDeleteProjectOptions([])
+                    }
+                  }}
+                >
+                  <FaTimes />
+                </button>
+              </div>
+
+              <div
+                className={`rounded-3xl border p-5 ${
+                  isLight
+                    ? 'border-slate-200 bg-gradient-to-br from-slate-50 to-white'
+                    : 'border-slate-700/70 bg-white/[0.04]'
+                }`}
+              >
+                <div className="flex  gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="min-w-0">
+                    <span className={`text-sm ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isRTL ? 'المشروع الذي سيتم حذفه' : 'Project to delete'}
+                    </span>
+                    <div className={`mt-1 text-xl font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      {deleteProjectState.project?.name || '-'}
+                    </div>
+                  </div>
+                  <div
+                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                      isLight
+                        ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                        : 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/20'
+                    }`}
+                  >
+                    <FaTrash className="h-3 w-3" />
+                    {isRTL ? 'سيتم حذفه بعد النقل' : 'Deleted after transfer'}
+                  </div>
+                </div>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <div className={`rounded-2xl p-4 glass-panel tinted-amber ${isLight ? 'hover:bg-amber-50' : 'hover:bg-amber-900/10'} transition-colors`}>
+                    <div className={`text-xs font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{isRTL ? 'عدد الليدز المرتبطة' : 'Related leads'}</div>
+                    <div className={`mt-2 text-3xl font-black tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>{deleteProjectState.leadCount || 0}</div>
+                    <div className={`mt-1 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isRTL ? 'سيتم نقلهم جميعًا تلقائيًا' : 'All of them will be moved automatically'}
+                    </div>
+                  </div>
+                  <div className={`rounded-2xl p-4 glass-panel tinted-blue ${isLight ? 'hover:bg-blue-50' : 'hover:bg-blue-900/10'} transition-colors`}>
+                    <div className={`text-xs font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{isRTL ? 'الإجراء المطلوب' : 'Required action'}</div>
+                    <div className={`mt-2 text-sm leading-6 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
+                      {isRTL
+                        ? 'اختر مشروعًا لنقل جميع الليدز المرتبطة إليه قبل الحذف.'
+                        : 'Choose a project to receive all related leads before deletion.'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-sm font-semibold ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
+                  {isRTL ? 'المشروع البديل' : 'Replacement project'}
+                </label>
+                <select
+                  className={`w-full rounded-2xl border px-4 py-3.5 text-base shadow-sm outline-none transition-all ${
+                    isLight
+                      ? 'border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-100'
+                      : 'border-slate-600 bg-slate-950/70 text-white focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10'
+                  }`}
+                  value={deleteProjectState.targetProjectId}
+                  onChange={(e) => setDeleteProjectState(prev => prev ? { ...prev, targetProjectId: e.target.value } : prev)}
+                  disabled={deleteProjectBusy}
+                >
+                  {deleteProjectOptions.map(project => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div
+                className={`rounded-2xl border p-4 text-sm leading-7 ${
+                  isLight
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
+                }`}
+              >
+                {isRTL
+                  ? 'لن يتم حذف المشروع قبل نقل كل الليدز المرتبطة إلى المشروع المختار.'
+                  : 'The project will not be deleted until every related lead is moved to the selected project.'}
+              </div>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className={`rounded-2xl px-5 py-3 text-sm font-semibold transition-colors ${
+                    isLight
+                      ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      : 'border border-slate-700 bg-slate-800/70 text-slate-200 hover:bg-slate-800'
+                  }`}
+                  onClick={() => {
+                    if (!deleteProjectBusy) {
+                      setDeleteProjectState(null)
+                      setDeleteProjectOptions([])
+                    }
+                  }}
+                  disabled={deleteProjectBusy}
+                >
+                  {isRTL ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-2xl px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all disabled:opacity-60 ${
+                    isLight
+                      ? 'bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 shadow-blue-200'
+                      : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-cyan-900/30'
+                  }`}
+                  onClick={confirmProjectDelete}
+                  disabled={deleteProjectBusy}
+                >
+                  {deleteProjectBusy
+                    ? (isRTL ? 'جارٍ النقل...' : 'Moving...')
+                    : (isRTL ? 'نقل وحذف' : 'Move & Delete')}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

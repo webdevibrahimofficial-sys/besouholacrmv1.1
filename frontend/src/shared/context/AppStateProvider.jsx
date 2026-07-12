@@ -5,6 +5,8 @@ import { captureDeviceInfo, saveDeviceForUser } from '@utils/device'
 import { api } from '@utils/api'
 import { preloadRotationSettings } from '@services/rotationService'
 import { isSystemAdminContext, shouldUseAdminPanel } from '@utils/authRouting'
+import { isTenantAdminUser } from '@services/leadPermissions'
+import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
 import i18n from '../../i18n'
 import { ensureEcho, disconnectEcho } from '../../echo'
 
@@ -31,6 +33,9 @@ export function AppStateProvider({ children }) {
     const end = subscription.end_date ? new Date(subscription.end_date) : null
     return end ? end.getTime() >= Date.now() : true
   }, [subscription])
+
+  const userId = user?.id ?? null
+  const isSuperAdminUser = Boolean(user?.is_super_admin)
 
   const setProfile = useCallback((payload) => {
     if (!payload) return
@@ -208,6 +213,27 @@ export function AppStateProvider({ children }) {
       payload = await fetchCompanyInfo()
     } catch {
       payload = result || null
+      if (payload?.user) {
+        setProfile({
+          user: payload.user,
+          company: payload.tenant || payload.company || null,
+          impersonation: payload.impersonation || null,
+          subscription_plan: payload.subscription_plan || null,
+          panel_mode: payload.panel_mode || null,
+          user_permissions: payload.user_permissions || [],
+          enabled_modules: payload.enabled_modules || result?.enabled_modules || [],
+        })
+      } else if (result?.token) {
+        setProfile({
+          user: result.user || null,
+          company: result.tenant || result.company || null,
+          impersonation: result.impersonation || null,
+          subscription_plan: result.subscription_plan || null,
+          panel_mode: result.panel_mode || null,
+          user_permissions: result.user_permissions || [],
+          enabled_modules: result.enabled_modules || [],
+        })
+      }
     }
     try {
       const uid = payload?.user?.id || email
@@ -230,13 +256,15 @@ export function AppStateProvider({ children }) {
 
     return {
       ...result,
-      user: payload?.user || null,
-      tenant: payload?.company || payload?.tenant || null,
-      impersonation: payload?.impersonation || null,
+      user: payload?.user || result?.user || null,
+      tenant: payload?.company || payload?.tenant || result?.tenant || null,
+      impersonation: payload?.impersonation || result?.impersonation || null,
       user_permissions: payload?.user_permissions || payload?.permissions || result?.user_permissions || [],
       subscription_plan: payload?.subscription_plan || result?.subscription_plan || null,
       panel_mode: payload?.panel_mode || result?.panel_mode || null,
       is_system_admin: payload?.is_system_admin ?? result?.is_system_admin ?? null,
+      enabled_modules: payload?.enabled_modules || result?.enabled_modules || [],
+      next_path: result?.next_path || null,
     }
   }, [fetchCompanyInfo])
 
@@ -289,7 +317,7 @@ export function AppStateProvider({ children }) {
   }, [navigate])
 
   useEffect(() => {
-    if (!bootstrapped || !user || user?.is_super_admin) return undefined
+    if (!bootstrapped || !userId || isSuperAdminUser) return undefined
 
     let cancelled = false
 
@@ -299,7 +327,11 @@ export function AppStateProvider({ children }) {
       }
 
       try {
-        await api.get('/api/me')
+        const res = await api.get('/api/me')
+        const payload = res?.data?.data || res?.data
+        if (payload) {
+          setProfile(payload)
+        }
       } catch {
         // Global API interceptor handles redirect/logout for blocked tenants or revoked tokens.
       }
@@ -312,20 +344,16 @@ export function AppStateProvider({ children }) {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [bootstrapped, user])
+  }, [bootstrapped, userId, isSuperAdminUser, setProfile])
 
   const canAccess = useCallback((moduleKey, requiredPermission = null) => {
     if (!moduleKey) return false
     
     const roleLower = String(user?.role || '').toLowerCase()
     const isSuperAdmin = isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })
-    const companyTypeLower = String(company?.company_type || '').toLowerCase()
-    const isRealEstateTenant = companyTypeLower.includes('real')
+    const isRealEstateTenant = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
     
-    const isTenantAdmin =
-      roleLower === 'admin' ||
-      roleLower === 'tenant admin' ||
-      roleLower === 'tenant-admin'
+    const isTenantAdmin = isTenantAdminUser(user)
 
     if (isSuperAdmin) return true
 
@@ -337,24 +365,28 @@ export function AppStateProvider({ children }) {
     // Tenant Admin has full access to reports regardless of module settings
     if (isTenantAdmin && moduleKey === 'reports') return true
 
+    const inventoryFallbackModules = isRealEstateTenant
+      ? [
+          'projects',
+          'properties',
+          'developers',
+          'brokers',
+          'requests',
+          'buyerRequests',
+          'sellerRequests',
+        ]
+      : [
+          'items',
+          'products',
+          'suppliers',
+          'warehouse',
+          'stockManagement',
+          'inventoryTransactions',
+          'orders',
+        ]
+
     const expandedModulesMap = {
-      inventory: [
-        'inventory',
-        'items',
-        'products',
-        'suppliers',
-        'warehouse',
-        'stockManagement',
-        'inventoryTransactions',
-        'projects',
-        'properties',
-        'developers',
-        'brokers',
-        'requests',
-        'buyerRequests',
-        'sellerRequests',
-        'orders',
-      ],
+      inventory: ['inventory', ...inventoryFallbackModules],
       sales: [
         'leads',
         'customers',
@@ -363,20 +395,20 @@ export function AppStateProvider({ children }) {
         'quotations',
         'invoices'
       ],
-      items: ['items', 'inventory'],
-      orders: ['orders', 'inventory', 'sales'],
-      products: ['products', 'inventory'],
-      suppliers: ['suppliers', 'inventory'],
-      warehouse: ['warehouse', 'inventory'],
-      stockManagement: ['stockManagement', 'inventory'],
-      inventoryTransactions: ['inventoryTransactions', 'inventory'],
-      projects: ['projects', 'inventory'],
-      properties: ['properties', 'inventory'],
-      developers: ['developers', 'inventory'],
-      brokers: ['brokers', 'inventory'],
-      requests: ['requests', 'inventory'],
-      buyerRequests: ['buyerRequests', 'inventory'],
-      sellerRequests: ['sellerRequests', 'inventory'],
+      items: isRealEstateTenant ? ['items'] : ['items', 'inventory'],
+      orders: isRealEstateTenant ? ['orders', 'sales'] : ['orders', 'inventory', 'sales'],
+      products: isRealEstateTenant ? ['products'] : ['products', 'inventory'],
+      suppliers: isRealEstateTenant ? ['suppliers'] : ['suppliers', 'inventory'],
+      warehouse: isRealEstateTenant ? ['warehouse'] : ['warehouse', 'inventory'],
+      stockManagement: isRealEstateTenant ? ['stockManagement'] : ['stockManagement', 'inventory'],
+      inventoryTransactions: isRealEstateTenant ? ['inventoryTransactions'] : ['inventoryTransactions', 'inventory'],
+      projects: isRealEstateTenant ? ['projects', 'inventory'] : ['projects'],
+      properties: isRealEstateTenant ? ['properties', 'inventory'] : ['properties'],
+      developers: isRealEstateTenant ? ['developers', 'inventory'] : ['developers'],
+      brokers: isRealEstateTenant ? ['brokers', 'inventory'] : ['brokers'],
+      requests: isRealEstateTenant ? ['requests', 'inventory'] : ['requests'],
+      buyerRequests: isRealEstateTenant ? ['buyerRequests', 'inventory'] : ['buyerRequests'],
+      sellerRequests: isRealEstateTenant ? ['sellerRequests', 'inventory'] : ['sellerRequests'],
     }
 
     const keysToCheck = expandedModulesMap[moduleKey] || [moduleKey]
@@ -389,7 +421,7 @@ export function AppStateProvider({ children }) {
     }
     
     return true
-  }, [activeModules, permissions, user, company, subscriptionPlan])
+  }, [activeModules, permissions, user, company, subscriptionPlan, crmSettings])
 
   const value = useMemo(() => ({
     user,
@@ -415,6 +447,8 @@ export function AppStateProvider({ children }) {
     }), [user, company, impersonation, subscription, subscriptionPlan, panelMode, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges, saveUiPreference])
 
 useEffect(() => {
+  if (bootstrapped) return
+
   const isImpersonationCallback = location.pathname === '/auth/impersonation-callback'
 
   if (isImpersonationCallback) {
@@ -453,7 +487,7 @@ useEffect(() => {
   } else {
     setBootstrapped(true);
   }
-}, [fetchCompanyInfo, location.pathname, location.search, location.hash]);
+}, [bootstrapped, fetchCompanyInfo, location.pathname]);
 
  useEffect(() => {
    if (!bootstrapped || !user) return
@@ -469,10 +503,10 @@ useEffect(() => {
  }, [bootstrapped, user, impersonation, permissions, subscriptionPlan, panelMode, navigate])
 
  useEffect(() => {
-   if (!user) return
+   if (!userId || isSuperAdminUser) return
    if (isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })) return
    refreshInventoryBadges()
- }, [user, subscription, refreshInventoryBadges, permissions, subscriptionPlan, panelMode])
+ }, [userId, isSuperAdminUser, refreshInventoryBadges])
 
   return (
     <AppStateContext.Provider value={value}>

@@ -122,16 +122,16 @@ const Tooltip = ({ text }) => (
   </div>
 )
 
-const FileUploader = ({ label, subLabel, files, onDrop, accept = "*", multiple = true }) => (
+const FileUploader = ({ label, subLabel, files, onDrop, onRemove, accept = "*", multiple = true }) => (
   <div className="border-2 border-dashed border-black dark:border-gray-600 rounded-xl p-6 text-center hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer relative">
     <input
       type="file"
       multiple={multiple}
       accept={accept}
       onChange={(e) => onDrop(Array.from(e.target.files || []))}
-      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      className="absolute inset-0 z-0 w-full h-full opacity-0 cursor-pointer"
     />
-    <div className="flex flex-col items-center justify-center gap-2 pointer-events-none">
+    <div className="relative z-10 flex flex-col items-center justify-center gap-2 pointer-events-none">
       <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-full flex items-center justify-center">
         <FaCloudUploadAlt size={24} />
       </div>
@@ -139,27 +139,44 @@ const FileUploader = ({ label, subLabel, files, onDrop, accept = "*", multiple =
       <p className="text-xs text-[var(--muted-text)]">{subLabel}</p>
     </div>
     {files && files.length > 0 && (
-      <div className="mt-4 flex flex-wrap gap-2 justify-center pointer-events-none">
+      <div className="relative z-10 mt-4 flex flex-wrap gap-2 justify-center">
         {files.map((f, i) => (
-          <div key={i} className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded truncate max-w-[150px]">
-            {(() => {
-              if (!f) return ''
-              if (typeof f === 'string') return f.split('/').pop()
-              if (f instanceof File) return f.name
-              if (typeof f === 'object') {
-                const name = f.name || f.originalName || f.file_name || ''
-                if (name) return name
-                const u = f.url || f.path || f.src || ''
-                return typeof u === 'string' ? u.split('/').pop() : ''
-              }
-              return String(f)
-            })()}
+          <div key={i} className="group flex items-center gap-2 text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded max-w-[180px]">
+            <span className="min-w-0 truncate" title={getMediaFileLabel(f)}>{getMediaFileLabel(f)}</span>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onRemove(f, i)
+                }}
+                className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-gray-500 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-500/20 dark:hover:text-red-400 transition-colors"
+                aria-label="Remove file"
+                title="Remove file"
+              >
+                <FaTrash size={10} />
+              </button>
+            )}
           </div>
         ))}
       </div>
     )}
   </div>
 )
+
+const getMediaFileLabel = (file) => {
+  if (!file) return ''
+  if (typeof file === 'string') return file.split('/').pop()
+  if (file instanceof File) return file.name
+  if (typeof file === 'object') {
+    const name = file.name || file.originalName || file.file_name || ''
+    if (name) return name
+    const u = file.url || file.path || file.src || ''
+    return typeof u === 'string' ? u.split('/').pop() : ''
+  }
+  return String(file)
+}
 
 // --- Main Component ---
 export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'create', initialValues = null, dbCities = [], dbCountries = [], developerOptions = [] }) {
@@ -476,6 +493,16 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
     const newPlans = [...formData.paymentPlans]
     newPlans[index][field] = value
     setFormData(prev => ({ ...prev, paymentPlans: newPlans }))
+  }
+
+  const removeMediaFile = (field, index) => {
+    setFormData(prev => {
+      const current = Array.isArray(prev[field]) ? prev[field] : []
+      return {
+        ...prev,
+        [field]: current.filter((_, i) => i !== index),
+      }
+    })
   }
 
   // --- Render Steps ---
@@ -825,27 +852,29 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
         {/* Logo */}
         <div className="space-y-2">
           <label className="label">{inputLanguage === 'ar' ? 'شعار المشروع' : 'Project Logo'}</label>
-          <FileUploader
-            label={inputLanguage === 'ar' ? 'تحميل الشعار' : 'Upload Logo'}
-            subLabel="PNG, JPG"
-            files={formData.logo}
-            onDrop={(files) => setFormData(prev => ({ ...prev, logo: files }))}
-            accept="image/*"
-            multiple={false}
-          />
+        <FileUploader
+          label={inputLanguage === 'ar' ? 'تحميل الشعار' : 'Upload Logo'}
+          subLabel="PNG, JPG"
+          files={formData.logo}
+          onDrop={(files) => setFormData(prev => ({ ...prev, logo: files }))}
+          onRemove={(_, index) => removeMediaFile('logo', index)}
+          accept="image/*"
+          multiple={false}
+        />
         </div>
 
         {/* Main Image */}
         <div className="space-y-2">
           <label className="label">{inputLanguage === 'ar' ? 'الصورة الرئيسية' : 'Main Image'}</label>
-          <FileUploader
-            label={inputLanguage === 'ar' ? 'تحميل الصورة' : 'Upload Cover'}
-            subLabel="High Quality"
-            files={formData.mainImage}
-            onDrop={(files) => setFormData(prev => ({ ...prev, mainImage: files }))}
-            accept="image/*"
-            multiple={false}
-          />
+        <FileUploader
+          label={inputLanguage === 'ar' ? 'تحميل الصورة' : 'Upload Cover'}
+          subLabel="High Quality"
+          files={formData.mainImage}
+          onDrop={(files) => setFormData(prev => ({ ...prev, mainImage: files }))}
+          onRemove={(_, index) => removeMediaFile('mainImage', index)}
+          accept="image/*"
+          multiple={false}
+        />
         </div>
       </div>
 
@@ -857,6 +886,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
           subLabel={inputLanguage === 'ar' ? 'اسحب وأفلت الصور' : 'Drag & Drop Photos'}
           files={formData.gallery}
           onDrop={(files) => setFormData(prev => ({ ...prev, gallery: [...prev.gallery, ...files] }))}
+          onRemove={(_, index) => removeMediaFile('gallery', index)}
           accept="image/*"
         />
       </div>
@@ -869,6 +899,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
           subLabel="Image or PDF"
           files={formData.masterPlan}
           onDrop={(files) => setFormData(prev => ({ ...prev, masterPlan: [...prev.masterPlan, ...files] }))}
+          onRemove={(_, index) => removeMediaFile('masterPlan', index)}
           accept="image/*,.pdf"
         />
       </div>

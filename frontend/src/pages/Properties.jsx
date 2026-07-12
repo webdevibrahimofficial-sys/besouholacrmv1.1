@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDynamicFields } from '../hooks/useDynamicFields'
 // import { projectsData } from '../data/projectsData' // Removed manual mock data
@@ -18,8 +19,11 @@ import ImportPropertiesModal from '../components/ImportPropertiesModal'
 import toast from 'react-hot-toast'
 
 const getApiOrigin = () => {
-  const apiUrl = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || 'https://api.besouholacrm.net/api'
-  const clean = String(apiUrl).replace(/\/+$/, '')
+  const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://api.besouholacrm.net/api'
+  const clean = String(apiUrl).trim().replace(/\/+$/, '')
+  if (clean.startsWith('/')) {
+    return 'https://api.besouholacrm.net'
+  }
   return clean.endsWith('/api') ? clean.slice(0, -4) : clean
 }
 
@@ -244,6 +248,7 @@ const RangeSlider = ({ min, max, value, onChange, label, isRTL, unit = '' }) => 
 }
 
 export default function Properties() {
+  const [searchParams] = useSearchParams()
   const { i18n } = useTranslation()
   const isRTL = String(i18n.language || '').startsWith('ar')
   const { isLight } = useTheme()
@@ -570,6 +575,10 @@ export default function Properties() {
     fetchData()
   }, [])
 
+  const resolvePropertyUnitValue = (property) => String(
+    property?.unitCode || property?.unitNumber || property?.unit || property?.unit_code || ''
+  ).trim()
+
   const { user, company, refreshInventoryBadges } = useAppState()
 
   useEffect(() => {
@@ -652,6 +661,15 @@ export default function Properties() {
     floor: ''
   })
 
+  useEffect(() => {
+    const unitParam = String(searchParams.get('unit') || '').trim()
+    if (!unitParam) return
+    setShowAllFilters(true)
+    setFilters((prev) => (
+      prev.unit === unitParam ? prev : { ...prev, unit: unitParam }
+    ))
+  }, [searchParams])
+
   const [showImportModal, setShowImportModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [isEdit, setIsEdit] = useState(false)
@@ -713,8 +731,6 @@ export default function Properties() {
     return Array.from(set).sort()
   }, [properties])
 
-  const allUnits = useMemo(() => Array.from(new Set(properties.map(p => p.unitCode || p.unit || p.unit_code).filter(Boolean))).sort(), [properties])
-
   const allProjects = useMemo(() => {
     const fromProjects = dbProjects.map(p => ((isRTL ? p.name_ar : p.name) || p.name || p.title || '').trim())
     const fromProps = properties.map(p => (p.project || '').trim())
@@ -758,7 +774,7 @@ export default function Properties() {
           const name = String(p?.name || '').toLowerCase()
           const developer = String(p?.developer || '').toLowerCase()
           const city = String(p?.city || '').toLowerCase()
-          const unit = String(p?.unit || '').toLowerCase()
+          const unit = String(p?.unitCode || p?.unitNumber || p?.unit || p?.unit_code || '').toLowerCase()
           if (!name.includes(q) &&
             !developer.includes(q) &&
             !city.includes(q) &&
@@ -779,7 +795,7 @@ export default function Properties() {
       // 4. Status
       if (filters.status && filters.status !== 'All' && p.status !== filters.status) return false
       // 5. Unit Code
-      if (filters.unit && p.unit !== filters.unit) return false
+      if (filters.unit && resolvePropertyUnitValue(p) !== String(filters.unit).trim()) return false
       // 6. City
       if (filters.city && filters.city !== 'All' && p.city !== filters.city) return false
 
@@ -1029,7 +1045,7 @@ export default function Properties() {
     developer: isRTL ? 'المطور' : 'Developer',
     city: isRTL ? 'المدينة' : 'City',
     status: isRTL ? 'الحالة' : 'Status',
-    unitCode: isRTL ? 'كود الوحدة' : 'Unit Code',
+    unitCode: isRTL ? 'رقم الوحدة' : 'Unit Number',
     type: isRTL ? 'النوع' : 'Type',
     paymentPlan: isRTL ? 'خطة الدفع' : 'Payment Plan',
     priceRange: isRTL ? 'نطاق السعر' : 'Price Range',
@@ -1207,6 +1223,17 @@ export default function Properties() {
                 isRTL={isRTL}
               />
             </div>
+
+            {/* 3.2 Unit Number */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaSearch className="text-blue-500" size={10} /> {Label.unitCode}</label>
+              <input
+                className="input w-full"
+                value={filters.unit}
+                onChange={(e) => setFilters({ ...filters, unit: e.target.value })}
+                placeholder={isRTL ? 'رقم الوحدة...' : 'Unit number...'}
+              />
+            </div>
           </div>
 
           {/* Collapsible Section (Rest of the filters) */}
@@ -1223,18 +1250,7 @@ export default function Properties() {
               />
             </div>
 
-            {/* 4. Unit Code */}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaSearch className="text-blue-500" size={10} /> {Label.unitCode}</label>
-              <SearchableSelect
-                options={allUnits}
-                value={filters.unit}
-                onChange={val => setFilters({ ...filters, unit: val })}
-                isRTL={isRTL}
-              />
-            </div>
-
-            {/* 5. Payment Plan */}
+            {/* 4. Payment Plan */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaFilter className="text-blue-500" size={10} /> {Label.paymentPlan}</label>
               <SearchableSelect

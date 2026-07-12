@@ -61,6 +61,8 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
     isSystemAdmin: responseData?.is_system_admin,
   }
   const useAdminPanel = shouldUseAdminPanel(user, responseData?.impersonation, routingOptions)
+  const normalizeHost = (host) => String(host || '').replace(/^www\./i, '').toLowerCase();
+  const isLocalHostname = (host) => ['localhost', '127.0.0.1'].includes(normalizeHost(host));
 
   if (useAdminPanel) {
     if (typeof window !== 'undefined' && token) {
@@ -110,32 +112,24 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
       const tok = token ? encodeURIComponent(token) : '';
       const nextPath = useAdminPanel ? '/system/dashboard' : '/dashboard';
       const encodedNext = encodeURIComponent(nextPath);
-      const normalizeHost = (host) => String(host || '').replace(/^www\./i, '').toLowerCase();
-      const isLocalHost = ['localhost', '127.0.0.1'].includes(normalizeHost(window.location.hostname));
+      const isLocalHost = isLocalHostname(window.location.hostname);
       let shouldHardRedirect = true;
 
-      if (isLocalHost) {
-        return {
-          token,
-          redirected: false,
-          redirect_mode: 'local_hash',
-          next_path: nextPath,
-          redirect_url: redirectUrl || null,
-          user,
-          tenant: responseData?.tenant,
-          tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
-        };
-      }
-
       try {
-        const redirectOrigin = new URL(redirectUrl).origin;
+        const redirectTarget = new URL(redirectUrl, window.location.origin);
+        const redirectOrigin = redirectTarget.origin;
         const currentOrigin = window.location.origin;
-        const redirectHost = new URL(redirectOrigin).hostname;
+        const redirectHost = redirectTarget.hostname;
         const currentHost = window.location.hostname;
 
         const sameExactOrigin = redirectOrigin === currentOrigin;
         const sameCanonicalHost = normalizeHost(redirectHost) === normalizeHost(currentHost);
-        shouldHardRedirect = !(sameExactOrigin || sameCanonicalHost);
+        const localhostTenantSwitch =
+          isLocalHost
+          && normalizeHost(redirectHost).endsWith('.localhost')
+          && normalizeHost(redirectHost) !== normalizeHost(currentHost);
+
+        shouldHardRedirect = localhostTenantSwitch || !(sameExactOrigin || sameCanonicalHost);
       } catch {
         shouldHardRedirect = !redirectUrl.startsWith(window.location.origin);
       }
@@ -151,6 +145,19 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
           tenant: responseData?.tenant,
           panel_mode: responseData?.panel_mode,
           subscription_plan: responseData?.subscription_plan,
+          tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
+        };
+      }
+
+      if (isLocalHost) {
+        return {
+          token,
+          redirected: false,
+          redirect_mode: 'local_hash',
+          next_path: nextPath,
+          redirect_url: redirectUrl || null,
+          user,
+          tenant: responseData?.tenant,
           tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
         };
       }
@@ -175,11 +182,13 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
     redirected: false,
     redirect_mode: 'none',
     redirect_url: redirectUrl || null,
+    next_path: useAdminPanel ? '/system/dashboard' : '/dashboard',
     user,
     tenant: responseData?.tenant,
     panel_mode: responseData?.panel_mode,
     subscription_plan: responseData?.subscription_plan,
     user_permissions: responseData?.user_permissions,
+    enabled_modules: responseData?.enabled_modules,
     tenant_subdomain_url: responseData?.tenant_subdomain_url || null,
   };
 }

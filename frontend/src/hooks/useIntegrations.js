@@ -17,19 +17,20 @@ export function useIntegrations() {
   const [websiteConnected, setWebsiteConnected] = useState(false)
   const [tenantConfig, setTenantConfig] = useState(null)
 
-  // Initialize status from local storage or services
-  useEffect(() => {
-    // Check Meta Status
+  const refreshMetaStatus = () => {
     metaService.loadSettings().then(metaSettings => {
       const connections = Array.isArray(metaSettings?.connections) ? metaSettings.connections : []
       setMetaConnected(connections.length > 0)
-    }).catch(() => setMetaConnected(false))
+      setMetaConfigured(!!metaSettings?.shared_meta_configured)
+    }).catch(() => {
+      setMetaConnected(false)
+      setMetaConfigured(false)
+    })
+  }
 
-    metaService.loadAppSettings().then(app => {
-      const appId = String(app?.app_id || '').trim()
-      const hasSecret = !!app?.app_secret_masked
-      setMetaConfigured(!!appId && /^\d+$/.test(appId) && hasSecret)
-    }).catch(() => setMetaConfigured(false))
+  // Initialize status from local storage or services
+  useEffect(() => {
+    refreshMetaStatus()
 
     websiteIntegrationService.listConnections()
       .then((connections) => {
@@ -62,7 +63,7 @@ export function useIntegrations() {
       connected: metaConnected,
       status: metaConnected ? 'Connected' : (metaConfigured ? 'Ready to connect' : 'Meta App not configured'),
       requiresSetup: !metaConfigured && !metaConnected,
-      disabledReason: !metaConfigured && !metaConnected ? 'To connect Meta, add your Meta App ID (numbers) and App Secret first' : null,
+      disabledReason: !metaConfigured && !metaConnected ? 'Meta integration must be configured by a system administrator first' : null,
     },
     { 
       id: 'website', 
@@ -122,7 +123,6 @@ export function useIntegrations() {
 
     const supported = ['meta', 'google-ads', 'website']
     if (supported.includes(integrationId)) {
-      // If Meta isn't configured yet, send user to settings instead of failing
       if (integrationId === 'meta' && !metaConfigured && !metaConnected) {
         setActiveIntegration('meta')
         return
@@ -146,17 +146,7 @@ export function useIntegrations() {
 
   const closeSettings = () => {
     setActiveIntegration(null)
-    // Refresh connection status
-    metaService.loadSettings().then(metaSettings => {
-      const connections = Array.isArray(metaSettings?.connections) ? metaSettings.connections : []
-      setMetaConnected(connections.length > 0)
-    }).catch(() => setMetaConnected(false))
-
-    metaService.loadAppSettings().then(app => {
-      const appId = String(app?.app_id || '').trim()
-      const hasSecret = !!app?.app_secret_masked
-      setMetaConfigured(!!appId && /^\d+$/.test(appId) && hasSecret)
-    }).catch(() => setMetaConfigured(false))
+    refreshMetaStatus()
 
     websiteIntegrationService.listConnections()
       .then((connections) => {

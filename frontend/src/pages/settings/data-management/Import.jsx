@@ -25,6 +25,7 @@ const fieldAliases = {
     phone_country: ['country code', 'countrycode', 'phone country', 'phonecountry', 'dial code', 'dialcode'],
     stage: ['stage', 'last action', 'last action no action', 'lastactionnoaction', 'action stage', 'status'],
     action_type: ['action type', 'actiontype', 'type'],
+    cancel_reason: ['cancel reason', 'cancelreason', 'cancel_reason', 'reason', 'reason text', 'reason title'],
     action_at: ['follow date', 'followdate', 'action date', 'actiondate', 'last action date', 'lastactiondate', 'date'],
     assigned_to: ['sales rep', 'salesrep', 'sales person', 'salesperson', 'assigned to', 'assignedto'],
     comment: ['comment', 'comments', 'last comment', 'lastcomment', 'notes', 'note'],
@@ -136,7 +137,7 @@ export default function Import() {
   const targetFields = useMemo(() => ({
     customers: ['id','name','phone','email','status'],
     leads: ['id','name','phone','source','status','priority','creation_date'],
-    lead_history: ['name', 'phone', 'phone_country', 'stage', 'action_type', 'action_at', 'assigned_to', 'comment'],
+    lead_history: ['name', 'phone', 'phone_country', 'stage', 'action_type', 'cancel_reason', 'action_at', 'assigned_to', 'comment'],
     products: ['id','name','sku','price','stock'],
     users: ['id','name','email','role'],
     projects: ['id','name','city','status'],

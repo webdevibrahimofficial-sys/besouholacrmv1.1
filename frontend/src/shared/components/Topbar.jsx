@@ -192,13 +192,6 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
     <>
       <button
         type="button"
-        onClick={() => { window.location.href = '/#/system/tenants' }}
-        className={`rounded-full px-3 py-2 text-xs font-semibold transition-all duration-200 ${isLight ? 'bg-sky-100 text-sky-800 hover:bg-sky-200 border border-sky-200' : 'bg-sky-900/50 text-sky-100 hover:bg-sky-900/70 border border-sky-700/60'}`}
-      >
-        {t('Back to Admin Panel')}
-      </button>
-      <button
-        type="button"
         disabled={isExitingSupportAccess}
         onClick={handleExitSupportAccess}
         className={`rounded-full px-3 py-2 text-xs font-semibold transition-all duration-200 ${isLight ? 'bg-rose-100 text-rose-700 hover:bg-rose-200 border border-rose-200' : 'bg-rose-900/40 text-rose-100 hover:bg-rose-900/60 border border-rose-700/60'} disabled:opacity-60`}
@@ -549,7 +542,6 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
             {isSupportAccessActive && (
               <>
                 <div className="h-px bg-[var(--divider)]"></div>
-                <button onClick={() => { window.location.href = '/#/system/tenants' }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--content-text)] hover:bg-[var(--table-row-hover)]" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">↩</span><span>{t('Back to Admin Panel')}</span></button>
                 <button onClick={handleExitSupportAccess} disabled={isExitingSupportAccess} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 hover:bg-[var(--table-row-hover)] disabled:opacity-60" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">✕</span><span>{isExitingSupportAccess ? t('Exiting...') : t('Exit Support Access')}</span></button>
               </>
             )}

@@ -100,6 +100,7 @@ const ImportLeadsModal = ({
     const tail = {
       'Sales Person': 'اسم البائع',
       'Stage': 'new',
+      'Cancel Reason': '',
       'Creation Date': '2026-04-01',
       'Last Action Date': '2026-04-01',
       'Next Action Date': '2026-04-01',

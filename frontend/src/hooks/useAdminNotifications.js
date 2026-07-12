@@ -44,6 +44,8 @@ export function useAdminNotifications(user) {
       category: n.category || 'system',
       source: n.source || 'system',
       actionUrl: n.action_url,
+      relatedTenantId: n.related_tenant_id || null,
+      data: n.data || {},
       read: !!n.read_at,
       archived: !!n.archived_at,
       createdAt: n.created_at,

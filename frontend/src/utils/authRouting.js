@@ -49,6 +49,33 @@ export function shouldUseAdminPanel(subject, impersonation, options = {}) {
   return isSystemAdminContext(subject, options)
 }
 
+/** Default post-login route for the authenticated user. */
+export function resolvePostLoginPath(subject, impersonation, options = {}) {
+  return shouldUseAdminPanel(subject, impersonation, options)
+    ? '/system/dashboard'
+    : '/dashboard'
+}
+
+/** Navigate after login; HashRouter fallback if SPA routing does not commit. */
+export function redirectAfterLogin(navigate, path) {
+  const normalizedPath = String(path || '/dashboard').startsWith('/')
+    ? String(path || '/dashboard')
+    : `/${String(path || 'dashboard')}`
+  const targetHash = `#${normalizedPath}`
+
+  try {
+    navigate(normalizedPath, { replace: true })
+  } catch {}
+
+  window.setTimeout(() => {
+    const currentPath = (window.location.hash || '#/').replace(/^#/, '').split('?')[0] || '/'
+    if (currentPath === '/login' || currentPath === '/') {
+      const base = `${window.location.origin}${window.location.pathname}${window.location.search}`
+      window.location.replace(`${base}${targetHash}`)
+    }
+  }, 0)
+}
+
 /** Tenant workspace — regular users, or super admin during support access. */
 export function shouldUseTenantWorkspace(subject, impersonation, options = {}) {
   const user = subject?.user ?? subject

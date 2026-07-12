@@ -288,6 +288,16 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
     });
   };
 
+  const buildTenantManagementUrl = (tenantId, actionUrl = '/system/tenants') => {
+    const baseUrl = actionUrl || '/system/tenants';
+    const query = new URLSearchParams();
+    query.set('view', 'current');
+    if (tenantId) {
+      query.set('tenant_id', String(tenantId));
+    }
+    return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${query.toString()}`;
+  };
+
   const filteredAdminNotifications = adminNotifications.filter((item) => {
     if (notificationTab === 'active' && item.archived) return false;
     if (notificationTab === 'unread' && (item.read || item.archived)) return false;
@@ -517,6 +527,10 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
                                     await markAsRead(item.id).catch(() => {});
                                   }
                                   setAdminNotificationsOpen(false);
+                                  if (item.actionUrl.startsWith('/system/tenants')) {
+                                    navigate(buildTenantManagementUrl(item.relatedTenantId, item.actionUrl));
+                                    return;
+                                  }
                                   navigate(item.actionUrl);
                                 }}
                                 className="text-emerald-500 hover:text-emerald-600"

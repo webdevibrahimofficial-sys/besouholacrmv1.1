@@ -44,16 +44,6 @@ export const metaService = {
     }
   },
 
-  loadAppSettings: async () => {
-    const res = await api.get('/api/auth/meta/app-settings')
-    return res.data
-  },
-
-  saveAppSettings: async (payload) => {
-    const res = await api.put('/api/auth/meta/app-settings', payload)
-    return res.data
-  },
-
   disconnectConnection: async (connectionId) => {
     try {
       await api.post('/api/auth/meta/disconnect', { connection_id: connectionId })
@@ -136,6 +126,21 @@ export const metaService = {
 
   sendCapiTest: async (payload) => {
     const res = await api.post(`/api/meta/capi/test`, payload)
+    return res.data
+  },
+
+  loadLeadForms: async () => {
+    const res = await api.get('/api/auth/meta/forms')
+    return res.data
+  },
+
+  saveFormMapping: async (formId, mapping) => {
+    const res = await api.post('/api/auth/meta/forms/map', { form_id: formId, mapping })
+    return res.data
+  },
+
+  loadTenantHealth: async () => {
+    const res = await api.get('/api/auth/meta/health')
     return res.data
   },
 

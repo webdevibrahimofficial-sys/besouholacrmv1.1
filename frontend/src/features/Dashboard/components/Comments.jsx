@@ -19,6 +19,7 @@ export const Comments = ({ employee, employeeIds = [], dateFrom, dateTo, stageFi
   `
   
   const [recentComments, setRecentComments] = useState([]);
+  const employeeIdsKey = Array.isArray(employeeIds) ? employeeIds.join(',') : '';
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -36,7 +37,7 @@ export const Comments = ({ employee, employeeIds = [], dateFrom, dateTo, stageFi
     };
     run();
     return () => { cancelled = true; };
-  }, [employeeIds, managerId, dateFrom, dateTo]);
+  }, [employeeIdsKey, managerId, dateFrom, dateTo]);
 
   const withDates = recentComments.map((c) => ({
     ...c,

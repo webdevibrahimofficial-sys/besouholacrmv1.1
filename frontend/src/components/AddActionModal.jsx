@@ -153,6 +153,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     rentAttachment: null,
     closingRevenue: '',
     cancelReason: '',
+    cancelReasonId: '',
+    cancelReasonTitleAr: '',
     doneMeeting: false
   });
 
@@ -936,8 +938,12 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     const { name, value, type, checked, files } = e.target;
 
     if (name === 'cancelReason') {
+      const selectedOption = e.target.selectedOptions?.[0];
+      const selectedId = selectedOption?.dataset?.reasonId || '';
+      const selectedText = selectedOption?.dataset?.reasonLabel || value;
+      const selectedTextAr = selectedOption?.dataset?.reasonTitleAr || '';
       setActionData(prev => {
-        const newReason = value;
+        const newReason = selectedText;
         const prevNotes = String(prev.notes || '');
         const lastAuto = String(cancelAutoNotesRef.current || '');
         const shouldAutoFillNotes =
@@ -952,6 +958,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         return {
           ...prev,
           cancelReason: newReason,
+          cancelReasonId: selectedId,
+          cancelReasonTitleAr: selectedTextAr,
           notes: shouldAutoFillNotes ? newReason : prev.notes,
         };
       });
@@ -1125,6 +1133,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           cleanedData.comments = [
             {
               text: reason,
+              reasonId: cleanedData.cancelReasonId ? Number(cleanedData.cancelReasonId) : undefined,
+              cancelReasonId: cleanedData.cancelReasonId ? Number(cleanedData.cancelReasonId) : undefined,
+              reasonTitle: reason,
+              reasonTitleAr: cleanedData.cancelReasonTitleAr || '',
               userId: user?.id,
               userName: user?.name,
               createdAt: new Date().toISOString(),
@@ -1871,13 +1883,19 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
               <div className="relative">
                 <select
                   name="cancelReason"
-                  value={actionData.cancelReason}
+                  value={actionData.cancelReasonId || ''}
                   onChange={handleInputChange}
                   className={`${isLight ? `w-full appearance-none px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900` : `w-full appearance-none px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white`}`}
                 >
                   <option value="">{isArabic ? 'اختر السبب' : 'Select Reason'}</option>
                   {cancelReasons.map((r) => (
-                    <option key={r.id} value={isArabic && r.title_ar ? r.title_ar : r.title}>
+                    <option
+                      key={r.id}
+                      value={r.id}
+                      data-reason-id={r.id}
+                      data-reason-label={isArabic && r.title_ar ? r.title_ar : r.title}
+                      data-reason-title-ar={r.title_ar || ''}
+                    >
                       {isArabic && r.title_ar ? r.title_ar : r.title}
                     </option>
                   ))}

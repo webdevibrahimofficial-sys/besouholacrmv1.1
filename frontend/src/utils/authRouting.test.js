@@ -2,6 +2,7 @@ import {
   hasActiveImpersonation,
   isSuperAdminUser,
   isSystemAdminContext,
+  resolvePostLoginPath,
   shouldUseAdminPanel,
   shouldUseTenantWorkspace,
 } from './authRouting'
@@ -44,5 +45,11 @@ describe('authRouting', () => {
   test('regular tenant users always use tenant workspace', () => {
     expect(shouldUseAdminPanel(tenantUser, null)).toBe(false)
     expect(shouldUseTenantWorkspace(tenantUser, null)).toBe(true)
+  })
+
+  test('resolvePostLoginPath returns dashboard routes', () => {
+    expect(resolvePostLoginPath(superAdmin, null)).toBe('/system/dashboard')
+    expect(resolvePostLoginPath(tenantUser, null)).toBe('/dashboard')
+    expect(resolvePostLoginPath(superAdmin, { active: true })).toBe('/dashboard')
   })
 })

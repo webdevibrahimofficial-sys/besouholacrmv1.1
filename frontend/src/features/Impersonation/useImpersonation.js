@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { impersonationApi } from './impersonationApi'
 import { useAppState } from '@shared/context/AppStateProvider'
+import { isSystemAdminContext } from '@utils/authRouting'
 
 export function useImpersonation(enabled = true) {
-  const { impersonation: appImpersonation } = useAppState()
+  const {
+    impersonation: appImpersonation,
+    user,
+    permissions,
+    subscriptionPlan,
+    panelMode,
+  } = useAppState()
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(false)
+  const isSystemPanel = isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })
   const canCheckSession = enabled
     && typeof window !== 'undefined'
     && !String(window.location.hash || '').includes('/login')
@@ -23,12 +31,14 @@ export function useImpersonation(enabled = true) {
 
     setLoading(true)
     try {
-      const { data } = await impersonationApi.currentTenant()
+      const { data } = await (isSystemPanel
+        ? impersonationApi.currentSystem()
+        : impersonationApi.currentTenant())
       const next = data?.active ? data?.session || null : null
       setSession(next)
       return next
     } catch (error) {
-      if (error?.response?.status === 401) {
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
         setSession(null)
         return null
       }
@@ -36,14 +46,16 @@ export function useImpersonation(enabled = true) {
     } finally {
       setLoading(false)
     }
-  }, [canCheckSession])
+  }, [canCheckSession, isSystemPanel])
 
   const exit = useCallback(async () => {
-    const { data } = await impersonationApi.exitTenant()
+    const { data } = await (isSystemPanel
+      ? impersonationApi.exitSystem()
+      : impersonationApi.exitTenant())
     setSession(null)
     try { window.sessionStorage.removeItem('impersonation_bootstrap') } catch {}
     return data
-  }, [])
+  }, [isSystemPanel])
 
   useEffect(() => {
     if (appImpersonation?.active) {

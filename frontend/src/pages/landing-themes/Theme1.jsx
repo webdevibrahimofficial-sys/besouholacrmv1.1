@@ -188,7 +188,7 @@ export default function Theme1({ data }) {
              <div className="w-full h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100/40 via-gray-50 to-gray-50" />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-gray-50/80 via-gray-50/30 to-transparent" />
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 brightness-100 contrast-150 mix-blend-overlay"></div>
+          <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-5 brightness-100 contrast-150 mix-blend-overlay"></div>
         </div>
 
         {/* Content */}
