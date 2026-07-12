@@ -96,6 +96,7 @@ const SalesActivitiesReport = lazyRetry(() => import('../pages/SalesActivitiesRe
 const LeadsPipelineReport = lazyRetry(() => import('../pages/LeadsPipelineReport'))
 const ReservationsReport = lazyRetry(() => import('../pages/ReservationsReport'))
 const ClosedDealsReport = lazyRetry(() => import('../pages/ClosedDealsReport'))
+const CancellationReport = lazyRetry(() => import('../pages/CancellationReport'))
 const RentReport = lazyRetry(() => import('../pages/RentReport'))
 const CheckInReport = lazyRetry(() => import('../pages/CheckInReport'))
 const CustomersReport = lazyRetry(() => import('../pages/CustomersReport'))
@@ -390,6 +391,7 @@ export default function AppRouter() {
               <Route path="/reports/sales/pipeline" element={<LeadsPipelineReport />} />
               <Route path="/reports/sales/reservations" element={<ReservationsReport />} />
               <Route path="/reports/sales/closed-deals" element={<ClosedDealsReport />} />
+              <Route path="/reports/sales/cancellation" element={<CancellationReport />} />
               <Route path="/reports/sales/rent" element={<RentReport />} />
               <Route path="/reports/sales/check-in" element={<CheckInReport />} />
               <Route path="/reports/sales/customers" element={<CustomersReport />} />
