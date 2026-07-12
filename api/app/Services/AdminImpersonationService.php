@@ -161,8 +161,15 @@ class AdminImpersonationService
             throw new AuthenticationException('Invalid or expired impersonation token.');
         }
 
-        if (!app()->bound('tenant') || (int) app('tenant')->id !== (int) $session->tenant_id) {
-            throw new HttpException(403, 'IMPERSONATION_TENANT_MISMATCH');
+        $tenant = Tenant::query()->findOrFail($session->tenant_id);
+
+        // The bridge token is already scoped to a single tenant session, so bind that
+        // tenant here to avoid brittle callback failures when the frontend host/header
+        // context is missing or stale during the first exchange request.
+        if (!app()->bound('tenant') || (int) app('tenant')->id !== (int) $tenant->id) {
+            app()->instance('tenant', $tenant);
+            app()->instance('current_tenant_id', $tenant->id);
+            setPermissionsTeamId($tenant->id);
         }
 
         $admin = User::withoutGlobalScopes()->findOrFail($session->admin_user_id);
@@ -183,8 +190,6 @@ class AdminImpersonationService
             'support_session_token_id' => $supportToken->accessToken?->id,
             'last_seen_at' => now(),
         ])->save();
-
-        $tenant = Tenant::query()->findOrFail($session->tenant_id);
 
         return [
             'message' => 'Support access session established.',

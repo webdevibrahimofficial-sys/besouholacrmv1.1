@@ -45,6 +45,7 @@ export default function ImpersonationCallback() {
         const response = await impersonationApi.exchange(token)
         const supportToken = response?.data?.token
         const impersonation = response?.data?.impersonation
+        const tenant = response?.data?.tenant
 
         if (!supportToken) {
           window.sessionStorage.removeItem('impersonation_exchange_token')
@@ -55,25 +56,21 @@ export default function ImpersonationCallback() {
 
         persistAuthToken(supportToken)
 
-
-
         if (impersonation?.active) {
-
           try {
-
             window.sessionStorage.setItem('impersonation_bootstrap', JSON.stringify(impersonation))
-
           } catch {
-
             // ignore storage errors
-
           }
-
         }
 
+        const currentHost = String(window.location.hostname || '').toLowerCase()
+        const expectedHost = String(tenant?.domain || '').toLowerCase()
+        const redirectOrigin = expectedHost && expectedHost !== currentHost
+          ? `${window.location.protocol}//${expectedHost}`
+          : window.location.origin
 
-
-        window.location.replace(`${window.location.origin}/#/dashboard`)
+        window.location.replace(`${redirectOrigin}/#/dashboard`)
       } catch {
         try {
           window.sessionStorage.removeItem('impersonation_exchange_token')

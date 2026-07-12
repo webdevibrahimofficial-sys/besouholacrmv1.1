@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class CreateTenantCommand extends Command
@@ -61,8 +62,9 @@ class CreateTenantCommand extends Command
             $tenant->saveQuietly();
 
             if ($type === 'dedicated') {
-                $dbHost = config('database.connections.mysql.host');
-                $dbPort = config('database.connections.mysql.port');
+                $landlordConnection = config('multitenancy.landlord_database_connection_name', 'landlord');
+                $dbHost = config("database.connections.{$landlordConnection}.host");
+                $dbPort = config("database.connections.{$landlordConnection}.port");
 
                 $databaseName = 'tenant_' . $tenant->id . '_' . Str::random(6);
                 $username = 'tenant_' . $tenant->id . '_' . Str::lower(Str::random(4));
@@ -79,10 +81,11 @@ class CreateTenantCommand extends Command
 
                 $this->info("Creating dedicated database '{$databaseName}' and user '{$username}'...");
 
-                DB::statement("CREATE DATABASE `{$databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                DB::statement("CREATE USER '{$username}'@'%' IDENTIFIED BY '{$password}'");
-                DB::statement("GRANT ALL PRIVILEGES ON `{$databaseName}`.* TO '{$username}'@'%'");
-                DB::statement('FLUSH PRIVILEGES');
+                $landlordDb = DB::connection($landlordConnection);
+                $landlordDb->statement("CREATE DATABASE `{$databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                $landlordDb->statement("CREATE USER '{$username}'@'%' IDENTIFIED BY '{$password}'");
+                $landlordDb->statement("GRANT ALL PRIVILEGES ON `{$databaseName}`.* TO '{$username}'@'%'");
+                $landlordDb->statement('FLUSH PRIVILEGES');
 
                 $tenant->db_connection_details = $dbDetails;
                 $tenant->saveQuietly();
@@ -105,6 +108,8 @@ class CreateTenantCommand extends Command
                 if ($migrateExitCode !== 0) {
                     throw new \RuntimeException('Dedicated tenant migrations failed: ' . trim(Artisan::output()));
                 }
+
+                $this->syncTenantRecordToDedicatedDatabase($tenant, $connectionName);
             }
 
             if ($adminData) {
@@ -122,5 +127,47 @@ class CreateTenantCommand extends Command
             $this->error('Failed to create tenant: ' . $e->getMessage());
             return self::FAILURE;
         }
+    }
+
+    protected function syncTenantRecordToDedicatedDatabase(Tenant $tenant, string $connectionName): void
+    {
+        if (!Schema::connection($connectionName)->hasTable('tenants')) {
+            return;
+        }
+
+        $columns = Schema::connection($connectionName)->getColumnListing('tenants');
+        $timestamp = now();
+
+        $payload = [
+            'id' => $tenant->id,
+            'name' => $tenant->name,
+            'domain' => $tenant->domain,
+            'slug' => $tenant->slug,
+            'status' => $tenant->status,
+            'subscription_plan' => $tenant->subscription_plan,
+            'company_type' => $tenant->company_type,
+            'users_limit' => $tenant->users_limit,
+            'start_date' => optional($tenant->start_date)->toDateString(),
+            'end_date' => optional($tenant->end_date)->toDateString(),
+            'country' => $tenant->country,
+            'city' => $tenant->city,
+            'state' => $tenant->state,
+            'address_line_1' => $tenant->address_line_1,
+            'address_line_2' => $tenant->address_line_2,
+            'tenancy_type' => $tenant->tenancy_type,
+            'website_url' => $tenant->website_url,
+            'profile' => $tenant->profile ? json_encode($tenant->profile) : null,
+            'db_connection_details' => $tenant->db_connection_details ? json_encode($tenant->db_connection_details) : null,
+            'meta_data' => $tenant->meta_data ? json_encode($tenant->meta_data) : null,
+            'created_at' => $tenant->created_at ?? $timestamp,
+            'updated_at' => $timestamp,
+        ];
+
+        $filteredPayload = array_intersect_key($payload, array_flip($columns));
+
+        DB::connection($connectionName)->table('tenants')->updateOrInsert(
+            ['id' => $tenant->id],
+            $filteredPayload
+        );
     }
 }

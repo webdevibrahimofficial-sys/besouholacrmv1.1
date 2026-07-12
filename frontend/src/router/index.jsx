@@ -164,6 +164,7 @@ const RentConfiguration = lazy(() => import('../pages/settings/operations/RentCo
 // --- System Admin ---
 const SystemAdminDashboard = lazy(() => import('../pages/SystemAdminDashboard'))
 const SystemTransactions = lazy(() => import('../pages/SystemTransactions'))
+const SystemSubscriptions = lazy(() => import('../pages/SystemSubscriptions'))
 const TenantSetup = lazy(() => import('../pages/settings/TenantSetup'))
 const SystemIntegrations = lazy(() => import('../pages/SystemIntegrations'))
 const SystemErrorLog = lazy(() => import('../pages/SystemErrorLog'))
@@ -497,7 +498,7 @@ export default function AppRouter() {
               <Route path="/system/tenants/new" element={<TenantSetup />} />
               
               {/* Mapped Routes for Sidebar Items */}
-              <Route path="/system/subscriptions" element={<TenantSetup section="subscriptions" />} />
+              <Route path="/system/subscriptions" element={<SystemSubscriptions />} />
               <Route path="/system/modules" element={<TenantSetup section="modules" />} />
               <Route path="/system/settings" element={<TenantSetup section="admin-settings" />} />
               

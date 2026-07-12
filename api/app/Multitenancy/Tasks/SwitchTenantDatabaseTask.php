@@ -72,7 +72,10 @@ class SwitchTenantDatabaseTask implements SwitchTenantTask
     protected function baseTenantConnectionConfig(): array
     {
         if ($this->tenantTemplate === null) {
-            $this->tenantTemplate = config("database.connections.{$this->tenantDatabaseConnectionName()}", []);
+            $this->tenantTemplate = array_filter(
+                config("database.connections.{$this->tenantDatabaseConnectionName()}", []),
+                static fn ($value) => $value !== null
+            );
         }
 
         if ($this->sharedTemplate === null) {
