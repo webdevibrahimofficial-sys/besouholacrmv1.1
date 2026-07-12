@@ -269,6 +269,11 @@ export function AppStateProvider({ children }) {
   }, [fetchCompanyInfo])
 
   const logout = useCallback(async () => {
+    const logoutToken =
+      window.localStorage.getItem('token') ||
+      window.sessionStorage.getItem('token') ||
+      null
+
     // 1. Clear state immediately to stop UI from trying to fetch user-dependent data
     setUser(null)
     setCompany(null)
@@ -312,7 +317,7 @@ export function AppStateProvider({ children }) {
     
     // 4. Call service logout (clears tokens again and calls API)
     try {
-      await svcLogout()
+      await svcLogout({ tokenOverride: logoutToken })
     } catch {}
   }, [navigate])
 

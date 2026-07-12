@@ -193,9 +193,27 @@ export const login = async (email, password, subdomain, rememberMe = false) => {
   };
 }
 
-export const logout = async () => {
+export const logout = async ({ tokenOverride } = {}) => {
+  const token =
+    tokenOverride ||
+    window.localStorage.getItem('token') ||
+    window.sessionStorage.getItem('token')
+
   try {
-    await api.post('/api/logout')
+    if (token) {
+      await api.post(
+        '/api/logout',
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          skipAuthRedirect: true,
+          suppressErrorStatuses: [401],
+          suppressErrorLog: true,
+        }
+      )
+    }
   } catch {}
   window.localStorage.removeItem('token')
   window.sessionStorage.removeItem('token')

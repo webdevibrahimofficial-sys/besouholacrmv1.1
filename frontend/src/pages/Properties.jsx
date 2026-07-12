@@ -575,10 +575,6 @@ export default function Properties() {
     fetchData()
   }, [])
 
-  const resolvePropertyUnitValue = (property) => String(
-    property?.unitCode || property?.unitNumber || property?.unit || property?.unit_code || ''
-  ).trim()
-
   const { user, company, refreshInventoryBadges } = useAppState()
 
   useEffect(() => {
@@ -764,6 +760,25 @@ export default function Properties() {
 
   const allBuildings = useMemo(() => buildings.map(b => b.name), [buildings])
   const allOwners = useMemo(() => thirdParties.filter(t => t.type === 'Owner').map(t => t.name), [thirdParties])
+  const allUnitNumbers = useMemo(() => {
+    // Show the unit number only; fall back to unit code when a property has no number.
+    const values = properties.map((property) => {
+      const unitNumber = String(property?.unitNumber || property?.unit_number || '').trim()
+      if (unitNumber) return unitNumber
+      return String(property?.unitCode || property?.unit_code || '').trim()
+    }).filter(Boolean)
+    const urlUnit = String(searchParams.get('unit') || '').trim()
+    if (urlUnit) values.push(urlUnit)
+    return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b))
+  }, [properties, searchParams])
+
+  const matchesUnitFilter = (property, filterValue) => {
+    const target = String(filterValue || '').trim()
+    if (!target) return true
+    const unitNumber = String(property?.unitNumber || property?.unit_number || '').trim()
+    const unitCode = String(property?.unitCode || property?.unit_code || '').trim()
+    return unitNumber === target || unitCode === target
+  }
 
   const filtered = useMemo(() => {
     return properties.filter(p => {
@@ -794,8 +809,8 @@ export default function Properties() {
       if (filters.type && filters.type !== 'All' && (p.type || 'Apartment') !== filters.type) return false
       // 4. Status
       if (filters.status && filters.status !== 'All' && p.status !== filters.status) return false
-      // 5. Unit Code
-      if (filters.unit && resolvePropertyUnitValue(p) !== String(filters.unit).trim()) return false
+      // 5. Unit Number
+      if (filters.unit && !matchesUnitFilter(p, filters.unit)) return false
       // 6. City
       if (filters.city && filters.city !== 'All' && p.city !== filters.city) return false
 
@@ -1227,11 +1242,11 @@ export default function Properties() {
             {/* 3.2 Unit Number */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1"><FaSearch className="text-blue-500" size={10} /> {Label.unitCode}</label>
-              <input
-                className="input w-full"
+              <SearchableSelect
+                options={allUnitNumbers}
                 value={filters.unit}
-                onChange={(e) => setFilters({ ...filters, unit: e.target.value })}
-                placeholder={isRTL ? 'رقم الوحدة...' : 'Unit number...'}
+                onChange={val => setFilters({ ...filters, unit: val })}
+                isRTL={isRTL}
               />
             </div>
           </div>

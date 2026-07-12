@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FaSearch, FaTimes, FaUser, FaUserTie, FaUsers } from 'react-icons/fa'
 import SearchableSelect from '@components/SearchableSelect'
+import AvatarImage from '@components/AvatarImage'
 import { useTheme } from '@shared/context/ThemeProvider'
 
 const ROLE_RANKS = {
@@ -349,8 +350,8 @@ export default function UserDeleteReassignModal({
                         {selectedUser?.id === user.id ? <div className="h-2 w-2 rounded-full bg-blue-500" /> : null}
                       </div>
                       <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-gray-200">
-                        {user.avatar ? (
-                          <img src={user.avatar} alt={user.name} className="h-full w-full object-cover" />
+                        {(user.avatar || user.avatar_url) ? (
+                          <AvatarImage user={user} alt={user.name} className="h-full w-full object-cover" />
                         ) : (
                           <FaUser className="text-xs text-gray-400" />
                         )}

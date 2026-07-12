@@ -446,7 +446,7 @@ class ReportsController extends Controller
                 in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager']);
 
             $buildQuery = function () use ($user, $isAdminOrDirector) {
-                $query = $this->tenantConnection()->table('leads')
+                $query = Lead::query()
                     ->join('lead_actions', 'lead_actions.lead_id', '=', 'leads.id')
                     ->where('lead_actions.action_type', 'meeting')
                     ->whereNull('leads.deleted_at');

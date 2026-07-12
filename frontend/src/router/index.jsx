@@ -13,6 +13,7 @@ const ForgotPassword = lazyRetry(() => import('../features/Auth/ForgotPassword')
 const ResetPassword = lazyRetry(() => import('../features/Auth/ResetPassword'))
 const AuthCallback = lazyRetry(() => import('../features/Auth/AuthCallback'))
 const GoogleAuthCallback = lazyRetry(() => import('../features/Auth/GoogleAuthCallback'))
+const ImpersonationCallback = lazyRetry(() => import('../features/Impersonation/ImpersonationCallback'))
 
 // --- Pages (Root) ---
 const Suspended = lazyRetry(() => import('../pages/Suspended'))
@@ -254,7 +255,9 @@ function SubscriptionGuard() {
   const { bootstrapped, user } = useAppState();
   
   // 1. التحقق إذا كان الرابط الحالي هو رابط استلام التوكن
-  const isAuthCallback = window.location.hash.includes('/auth/callback');
+  const isAuthCallback =
+    window.location.hash.includes('/auth/callback') ||
+    window.location.hash.includes('/auth/impersonation-callback');
 
   // 2. التحقق من وجود توكن في الكوكيز أو LocalStorage أو SessionStorage
   const hasToken = (() => {
@@ -297,6 +300,7 @@ export default function AppRouter() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/auth/google/callback" element={<GoogleAuthCallback />} />
+        <Route path="/auth/impersonation-callback" element={<ImpersonationCallback />} />
         <Route path="/suspended" element={<Suspended />} />
         <Route path="/signup" element={<Suspended />} /> {/* Placeholder, should be Signup */}
         <Route path="/subscription-expired" element={<SubscriptionExpired />} />

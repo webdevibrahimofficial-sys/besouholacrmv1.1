@@ -86,14 +86,11 @@ class SystemAdminPermissionService
 
         $this->applyTeamContext($user);
 
-        if ($user->roles()->where('tenant_id', $systemTenant->id)->exists()) {
+        if ($user->roles()->where('roles.tenant_id', $systemTenant->id)->exists()) {
             return false;
         }
 
-        Permission::findOrCreate([
-            'name' => self::IMPERSONATE_PERMISSION,
-            'guard_name' => 'web',
-        ]);
+        Permission::findOrCreate(self::IMPERSONATE_PERMISSION, 'web');
 
         $user->givePermissionTo(self::IMPERSONATE_PERMISSION);
 
