@@ -163,6 +163,7 @@ const RentConfiguration = lazy(() => import('../pages/settings/operations/RentCo
 
 // --- System Admin ---
 const SystemAdminDashboard = lazy(() => import('../pages/SystemAdminDashboard'))
+const SystemAdminUsers = lazy(() => import('../pages/SystemAdminUsers'))
 const SystemTasks = lazy(() => import('../pages/SystemTasks'))
 const SystemSettings = lazy(() => import('../pages/SystemSettings'))
 const SystemTransactions = lazy(() => import('../pages/SystemTransactions'))
@@ -496,6 +497,7 @@ export default function AppRouter() {
             <Route element={<SuperAdminRoute />}>
               <Route path="/system" element={<Navigate to="/system/dashboard" replace />} />
               <Route path="/system/dashboard" element={<SystemAdminDashboard />} />
+              <Route path="/system/admin-users" element={<SystemAdminUsers />} />
               <Route path="/system/tenants" element={<TenantSetup />} />
               <Route path="/system/tenants/new" element={<TenantSetup />} />
               
