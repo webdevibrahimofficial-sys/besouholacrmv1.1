@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class CcCustomerUnit extends Model
+class CcCustomerUnit extends TenantModel
 {
     use HasFactory;
 
@@ -47,4 +47,3 @@ class CcCustomerUnit extends Model
         return $this->hasOne(CcPaymentPlanVersion::class, 'customer_unit_id')->where('is_active', true);
     }
 }
-

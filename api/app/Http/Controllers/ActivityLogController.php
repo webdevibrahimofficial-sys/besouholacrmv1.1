@@ -15,6 +15,27 @@ class ActivityLogController extends Controller
 {
     use \App\Traits\UserHierarchyTrait;
 
+    protected function tenantConnectionName(): string
+    {
+        if (app()->bound('tenant') && app('tenant')) {
+            return app('tenant')->tenancy_type === 'dedicated'
+                ? config('multitenancy.tenant_database_connection_name', 'tenant-dedicated')
+                : config('database.default', 'mysql');
+        }
+
+        return config('database.default', 'mysql');
+    }
+
+    protected function tenantConnection()
+    {
+        return DB::connection($this->tenantConnectionName());
+    }
+
+    protected function tenantSchema()
+    {
+        return Schema::connection($this->tenantConnectionName());
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -479,7 +500,7 @@ class ActivityLogController extends Controller
             $dateTo = null;
         }
 
-        $query = DB::table('activity_log')
+        $query = $this->tenantConnection()->table('activity_log')
             ->join('leads', function ($join) {
             $join->on('leads.id', '=', 'activity_log.subject_id');
         })
@@ -876,9 +897,13 @@ class ActivityLogController extends Controller
 
         // Sum online time within the requested range (or today by default).
         // Guarded to avoid runtime errors if migrations haven't run yet.
-        if (Schema::hasTable('user_presence_daily')) {
-            $presenceAgg = DB::table('user_presence_daily')
-                ->select('user_id', DB::raw('SUM(total_seconds) as working_seconds'))
+        if ($this->tenantSchema()->hasTable('user_presence_daily')) {
+            $presenceAgg = $this->tenantConnection()->table('user_presence_daily')
+                ->select(
+                    'user_id',
+                    DB::raw('SUM(total_seconds) as working_seconds'),
+                    DB::raw('MAX(last_tick_at) as presence_last_tick_at')
+                )
                 ->where('tenant_id', $tenantId)
                 ->whereBetween('date', [$presenceFrom, $presenceTo])
                 ->groupBy('user_id');
@@ -890,9 +915,11 @@ class ActivityLogController extends Controller
             // Ensure we still hydrate User models while keeping the join result.
             $query->select('users.*');
             $query->addSelect(DB::raw('COALESCE(presence.working_seconds, 0) as working_seconds'));
+            $query->addSelect(DB::raw('presence.presence_last_tick_at as presence_last_tick_at'));
         } else {
             $query->select('users.*');
             $query->addSelect(DB::raw('0 as working_seconds'));
+            $query->addSelect(DB::raw('NULL as presence_last_tick_at'));
         }
 
         if ($shouldFilter) {
@@ -925,6 +952,7 @@ class ActivityLogController extends Controller
             'role' => $u->role ?? $u->getRoleAttribute(),
             'active' => true,
             'last_active' => $u->last_active_at ?\Carbon\Carbon::parse($u->last_active_at)->toIso8601String() : null,
+            'presence_last_tick_at' => $u->presence_last_tick_at ? \Carbon\Carbon::parse($u->presence_last_tick_at)->toIso8601String() : null,
             'actions_count' => $u->actions_count,
             'working_seconds' => (int) ($u->working_seconds ?? 0),
             'working_minutes' => (int) floor(((int) ($u->working_seconds ?? 0)) / 60),

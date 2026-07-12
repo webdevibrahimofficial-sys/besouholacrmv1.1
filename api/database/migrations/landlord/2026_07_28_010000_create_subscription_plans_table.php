@@ -9,7 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('subscription_plans', function (Blueprint $table) {
+        Schema::connection('landlord')->create('subscription_plans', function (Blueprint $table) {
             $table->id();
             $table->string('code')->unique();
             $table->string('name');
@@ -23,7 +23,7 @@ return new class extends Migration
 
         $now = now();
 
-        DB::table('subscription_plans')->insert([
+        DB::connection('landlord')->table('subscription_plans')->insert([
             [
                 'code' => 'basic',
                 'name' => 'Basic',
@@ -64,6 +64,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('subscription_plans');
+        Schema::connection('landlord')->dropIfExists('subscription_plans');
     }
 };

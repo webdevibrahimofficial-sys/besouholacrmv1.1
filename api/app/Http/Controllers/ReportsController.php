@@ -27,6 +27,11 @@ class ReportsController extends Controller
 {
     use UserHierarchyTrait;
 
+    private function tenantConnection()
+    {
+        return DB::connection(config('multitenancy.tenant_database_connection_name'));
+    }
+
     private function parseActionDetails($details): array
     {
         if (is_array($details)) {
@@ -89,7 +94,7 @@ class ReportsController extends Controller
         return 0.0;
     }
 
-    private function extractCancelReasonFromAction(LeadAction $action): string
+    private function extractCancelReasonFromAction(LeadAction $action, array $cancelReasonLabelById = []): string
     {
         $details = $this->parseActionDetails($action->details);
 
@@ -98,11 +103,20 @@ class ReportsController extends Controller
             'cancel_reason',
             'reason',
             'reason_text',
+            'cancel_reason_id',
+            'cancelReasonId',
         ];
 
         foreach ($directKeys as $key) {
             $value = trim((string) ($details[$key] ?? ''));
             if ($value !== '') {
+                if (in_array($key, ['cancel_reason_id', 'cancelReasonId'], true)) {
+                    $reasonId = (int) $value;
+                    if ($reasonId > 0 && isset($cancelReasonLabelById[$reasonId])) {
+                        return (string) $cancelReasonLabelById[$reasonId];
+                    }
+                }
+
                 return $value;
             }
         }
@@ -115,9 +129,16 @@ class ReportsController extends Controller
                 }
 
                 $kind = strtolower(trim((string) ($comment['kind'] ?? '')));
-                $text = trim((string) ($comment['text'] ?? ''));
-                if ($kind === 'cancel_reason' && $text !== '') {
-                    return $text;
+                if ($kind === 'cancel_reason') {
+                    $reasonId = (int) ($comment['cancel_reason_id'] ?? $comment['cancelReasonId'] ?? $comment['reasonId'] ?? 0);
+                    if ($reasonId > 0 && isset($cancelReasonLabelById[$reasonId])) {
+                        return (string) $cancelReasonLabelById[$reasonId];
+                    }
+
+                    $text = trim((string) ($comment['text'] ?? ''));
+                    if ($text !== '') {
+                        return $text;
+                    }
                 }
             }
         }
@@ -425,7 +446,7 @@ class ReportsController extends Controller
                 in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager']);
 
             $buildQuery = function () use ($user, $isAdminOrDirector) {
-                $query = DB::table('leads')
+                $query = $this->tenantConnection()->table('leads')
                     ->join('lead_actions', 'lead_actions.lead_id', '=', 'leads.id')
                     ->where('lead_actions.action_type', 'meeting')
                     ->whereNull('leads.deleted_at');
@@ -672,7 +693,11 @@ class ReportsController extends Controller
         $cancelReasonFilter = trim((string) $request->input('cancel_reason', ''));
         $tenantCancelReasonRows = CancelReason::query()
             ->when($user->tenant_id, fn ($query) => $query->where('tenant_id', $user->tenant_id))
-            ->get(['title', 'title_ar']);
+            ->get(['id', 'title', 'title_ar']);
+        $cancelReasonLabelById = [];
+        foreach ($tenantCancelReasonRows as $reasonRow) {
+            $cancelReasonLabelById[(int) $reasonRow->id] = $this->normalizeReportLabel($reasonRow->title ?: $reasonRow->title_ar, 'No Reason');
+        }
         $cancelReasonCandidates = [];
         if ($cancelReasonFilter !== '') {
             $cancelReasonCandidates[$this->normalizeLooseText($cancelReasonFilter)] = true;
@@ -923,7 +948,7 @@ class ReportsController extends Controller
                 continue;
             }
 
-            $rawReason = $this->extractCancelReasonFromAction($action);
+            $rawReason = $this->extractCancelReasonFromAction($action, $cancelReasonLabelById);
             $reason = $resolveConfiguredCancelReason($rawReason);
             if (!empty($cancelReasonCandidates) && !isset($cancelReasonCandidates[$this->normalizeLooseText($reason)])) {
                 continue;

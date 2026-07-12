@@ -9,7 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('task_categories', function (Blueprint $table) {
+        Schema::connection('landlord')->create('task_categories', function (Blueprint $table) {
             $table->id();
             $table->string('code')->unique();
             $table->string('name');
@@ -21,7 +21,7 @@ return new class extends Migration
 
         $now = now();
 
-        DB::table('task_categories')->insert([
+        DB::connection('landlord')->table('task_categories')->insert([
             [
                 'code' => 'operations',
                 'name' => 'Operations',
@@ -81,6 +81,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('task_categories');
+        Schema::connection('landlord')->dropIfExists('task_categories');
     }
 };

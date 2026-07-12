@@ -63,7 +63,6 @@ use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\InitializeTenancy;
 use App\Http\Middleware\SetTenantTimezone;
 use App\Http\Middleware\EnsureTenantSubscriptionActive;
-use Illuminate\Support\Facades\Broadcast;
 
 /* |-------------------------------------------------------------------------- | API Routes |-------------------------------------------------------------------------- | | Here is where you can register API routes for your application. These | routes are loaded by the RouteServiceProvider and all of them will | be assigned to the "api" middleware group. Make something great! | */
 
@@ -89,15 +88,16 @@ Route::post('/tenants/register', [TenantRegistrationController::class , 'registe
 // Throttling depends on the cache store (often Redis). If the cache store is down, throttling can throw and turn
 // logins into HTTP 500. We explicitly disable the throttle middleware here and rely on upstream WAF/rate-limits.
 Route::post('/login', [AuthController::class , 'login'])
+    ->middleware([ResolveTenant::class, InitializeTenancy::class])
     ->withoutMiddleware([\Illuminate\Routing\Middleware\ThrottleRequests::class]); // Generic Login (Central)
 Route::post('/auth/2fa/verify', [AuthController::class , 'verifyTwoFactor'])
+    ->middleware([ResolveTenant::class, InitializeTenancy::class])
     ->withoutMiddleware([\Illuminate\Routing\Middleware\ThrottleRequests::class]);
 Route::post('/crm/login-redirect', [AuthController::class , 'loginRedirect'])
+    ->middleware([ResolveTenant::class, InitializeTenancy::class])
     ->withoutMiddleware([\Illuminate\Routing\Middleware\ThrottleRequests::class]);
 Route::get('/meta/webhook', [MetaWebhookController::class , 'verify']);
 Route::post('/meta/webhook', [MetaWebhookController::class , 'receive']);
-Route::get('/meta/webhook/{tenantWebhookKey}', [MetaWebhookController::class , 'verify']);
-Route::post('/meta/webhook/{tenantWebhookKey}', [MetaWebhookController::class , 'receive']);
 Route::post('/meta/mock/webhook/{page_id}', [\App\Http\Controllers\MetaMockController::class, 'triggerMockLead']);
 Route::post('/internal/mock/google-ads/campaigns/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockCampaigns']);
 Route::post('/internal/mock/google-ads/leads/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockLeads']);
@@ -106,12 +106,8 @@ Route::post('/mock/tenant/{tenant}/google-ads/{account}/leads', [\App\Http\Contr
 Route::post('/google/webhook', [\App\Http\Controllers\GoogleWebhookController::class, 'receive']);
 Route::get('/auth/google/callback', [\App\Http\Controllers\GoogleAuthController::class, 'callback']);
 Route::get('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback'])->name('meta.callback');
-Route::post('/facebook/data-deletion', function () {
-    return response()->json([
-        'url' => 'https://besouholacrm.net/privacy',
-        'confirmation_code' => (string) Str::uuid(),
-    ]);
-});
+Route::post('/facebook/data-deletion', [\App\Http\Controllers\MetaDataDeletionController::class, 'handle']);
+Route::get('/facebook/data-deletion/status', [\App\Http\Controllers\MetaDataDeletionController::class, 'status']);
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'verify']);
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'receive']);
 // Internal webhook for WhatsApp Mirror microservice (protected by internal token)
@@ -233,6 +229,10 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum', 
     Route::get('settings', [\App\Http\Controllers\SystemSettingController::class, 'index']);
     Route::post('settings', [\App\Http\Controllers\SystemSettingController::class, 'update']);
 
+    // Meta shared app health & webhook verification
+    Route::get('meta/health', [\App\Http\Controllers\SuperAdminMetaController::class, 'health']);
+    Route::post('meta/test-webhook', [\App\Http\Controllers\SuperAdminMetaController::class, 'testWebhook']);
+
     // Dashboard Stats
     Route::get('stats', [SuperAdminController::class, 'stats']);
 });
@@ -294,18 +294,16 @@ Route::middleware([ResolveTenant::class])
     });
 
 // Protected Routes (Accessible via any domain, Tenant context resolved via Auth)
- Route::middleware([
+Route::middleware([
      ResolveTenant::class ,
-     'auth:sanctum',
-     \App\Http\Middleware\TrackUserPresence::class,
-     InitializeTenancy::class ,
-     SetTenantTimezone::class ,
+      'auth:sanctum',
+      InitializeTenancy::class ,
+      \App\Http\Middleware\TrackUserPresence::class,
+      SetTenantTimezone::class ,
      EnsureTenantSubscriptionActive::class,
-     'check_api_key_expiration',
+    'check_api_key_expiration',
     'throttle:api',
 ])->group(function () {
-
-    Broadcast::routes(); // Now inherits auth:sanctum and InitializeTenancy
 
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
@@ -414,9 +412,6 @@ Route::middleware([ResolveTenant::class])
     Route::post('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback']);
     Route::get('/auth/meta/status', [\App\Http\Controllers\MetaAuthController::class, 'status']);
     Route::post('/auth/meta/settings', [\App\Http\Controllers\MetaAuthController::class, 'updateSettings']);
-    Route::get('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'appSettings']);
-    Route::put('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'updateAppSettings']);
-    Route::delete('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'clearAppSettings']);
     Route::post('/auth/meta/disconnect', [\App\Http\Controllers\MetaAuthController::class, 'disconnect']);
     Route::post('/auth/meta/sync', [\App\Http\Controllers\MetaAuthController::class, 'sync']);
     Route::post('/auth/meta/asset/toggle', [\App\Http\Controllers\MetaAuthController::class, 'toggleAsset']);
@@ -424,6 +419,8 @@ Route::middleware([ResolveTenant::class])
     Route::post('/auth/meta/page/link', [\App\Http\Controllers\MetaAuthController::class, 'linkPage']);
     Route::get('/auth/meta/forms', [MetaLeadFormController::class, 'index']);
     Route::post('/auth/meta/forms/map', [MetaLeadFormController::class, 'map']);
+    Route::get('/auth/meta/health', [\App\Http\Controllers\MetaAuthController::class, 'health']);
+    Route::post('/meta/capi/test', [\App\Http\Controllers\MetaCapiController::class, 'test']);
     
     // Meta Mock Mode Routes
     Route::post('/meta/mock/leads/{tenantId}', [\App\Http\Controllers\MetaMockController::class, 'triggerMockLead']);

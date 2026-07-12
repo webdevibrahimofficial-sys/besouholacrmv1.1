@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Model;
  * WhatsApp LID (@lid) to a real phone number, independent of any single
  * group snapshot or in-memory map on the Node side.
  */
-class WhatsappContact extends Model
+class WhatsappContact extends TenantModel
 {
     use HasFactory;
 

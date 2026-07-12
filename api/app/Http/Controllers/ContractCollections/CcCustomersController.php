@@ -49,6 +49,11 @@ class CcCustomersController extends BaseCcController
             $query->where('source', $source);
         }
 
+        $user = $request->user();
+        if ($user && !$this->isTenantAdmin($user) && $this->isSalesPerson($user)) {
+            $query->where('sales_owner_id', (int) $user->id);
+        }
+
         $perPage = (int) $request->query('per_page', 25);
         if ($perPage <= 0) {
             $perPage = 25;

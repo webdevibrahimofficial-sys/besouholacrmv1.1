@@ -16,7 +16,7 @@ return [
     /**
      * This is model that will be used to for push subscriptions.
      */
-    'model' => \NotificationChannels\WebPush\PushSubscription::class,
+    'model' => \App\Models\TenantPushSubscription::class,
 
     /**
      * This is the name of the table that will be created by the migration and
@@ -28,7 +28,10 @@ return [
      * This is the database connection that will be used by the migration and
      * the PushSubscription model shipped with this package.
      */
-    'database_connection' => env('WEBPUSH_DB_CONNECTION', env('DB_CONNECTION', 'mysql')),
+    'database_connection' => env(
+        'WEBPUSH_DB_CONNECTION',
+        env('TENANT_DB_CONNECTION', config('database.default', 'mysql'))
+    ),
 
     /**
      * The Guzzle client options used by Minishlink\WebPush.

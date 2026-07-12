@@ -61,10 +61,12 @@ class AdminEventNotificationService
 
     public function notifyTenantExpiringSoon(Tenant $tenant, int $daysLeft): Collection
     {
+        $tenantName = $tenant->name ?: 'Tenant';
+
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'tenant_subscription_expiring_soon',
-            title: 'Tenant subscription expiring soon',
-            body: "Tenant {$tenant->name} expires in {$daysLeft} day(s).",
+            title: "{$tenantName} subscription expiring soon",
+            body: "{$tenantName} expires in {$daysLeft} day(s).",
             category: 'subscription',
             severity: $daysLeft <= 3 ? 'critical' : 'warning',
             source: 'subscription',
@@ -78,6 +80,7 @@ class AdminEventNotificationService
             actionUrl: '/system/tenants',
             channels: ['in_app'],
             dedupeKey: 'tenant_expiring:' . $tenant->id . ':' . optional($tenant->end_date)->toDateString(),
+            dedupeWindowMinutes: 1440,
         ));
     }
 
@@ -155,6 +158,49 @@ class AdminEventNotificationService
             actionUrl: '/system/integrations',
             channels: ['in_app', 'email'],
             dedupeKey: 'integration_disconnected:' . $tenantId . ':' . strtolower($provider) . ':' . now()->toDateString(),
+        ));
+    }
+
+    public function notifyMetaReauthRequired(int $tenantId, string $tenantName, string $reason): Collection
+    {
+        return $this->notifications->notify(new AdminNotificationPayload(
+            type: 'meta_reauth_required',
+            title: 'Meta reconnection required',
+            body: "{$tenantName} must reconnect Meta after the shared app migration. {$reason}",
+            category: 'integration',
+            severity: 'warning',
+            source: 'meta',
+            relatedTenantId: $tenantId,
+            data: [
+                'tenant_id' => $tenantId,
+                'tenant_name' => $tenantName,
+                'provider' => 'meta',
+                'reason' => $reason,
+            ],
+            actionUrl: '/system/integrations',
+            channels: ['in_app'],
+            dedupeKey: 'meta_reauth_required:' . $tenantId . ':' . now()->toDateString(),
+        ));
+    }
+
+    public function notifyMetaRateLimit(string $endpoint, int $code, string $message): Collection
+    {
+        return $this->notifications->notify(new AdminNotificationPayload(
+            type: 'meta_rate_limit',
+            title: 'Meta API rate limit reached',
+            body: "Meta API rate limit on {$endpoint} (code {$code}): {$message}",
+            category: 'integration',
+            severity: 'warning',
+            source: 'meta',
+            data: [
+                'endpoint' => $endpoint,
+                'code' => $code,
+                'message' => $message,
+            ],
+            actionUrl: '/system/integrations',
+            channels: ['in_app'],
+            dedupeKey: 'meta_rate_limit:' . now()->format('Y-m-d-H-i'),
+            dedupeWindowMinutes: 15,
         ));
     }
 

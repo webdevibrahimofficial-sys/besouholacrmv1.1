@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use App\Models\Tenant;
 use App\Services\AdminEventNotificationService;
+use App\Services\TenantBootstrapper;
 use App\Services\UserPanelContextService;
 
 use App\Mail\TwoFactorCodeEmail;
@@ -111,6 +112,96 @@ class AuthController extends Controller
         return null;
     }
 
+    protected function activateTenantContext(Tenant $tenant): void
+    {
+        app()->instance('tenant', $tenant);
+        app()->instance('current_tenant_id', $tenant->id);
+        setPermissionsTeamId($tenant->id);
+        $tenant->makeCurrent();
+    }
+
+    protected function clearTenantContext(): void
+    {
+        Tenant::forgetCurrent();
+        app()->forgetInstance('tenant');
+        app()->forgetInstance('current_tenant_id');
+        setPermissionsTeamId(null);
+    }
+
+    protected function findUserWithinTenant(Tenant $tenant, string $email): ?User
+    {
+        if ($tenant->tenancy_type === 'dedicated') {
+            try {
+                $this->activateTenantContext($tenant);
+
+                return User::withoutGlobalScopes()
+                    ->where('email', $email)
+                    ->first();
+            } finally {
+                $this->clearTenantContext();
+            }
+        }
+
+        return \App\Models\SharedUser::query()
+            ->withoutGlobalScopes()
+            ->where('email', $email)
+            ->first();
+    }
+
+    protected function findDedicatedUserAcrossTenants(string $email): ?array
+    {
+        foreach (Tenant::query()->where('tenancy_type', 'dedicated')->cursor() as $candidateTenant) {
+            $user = $this->findUserWithinTenant($candidateTenant, $email);
+
+            if ($user) {
+                return ['user' => $user, 'tenant' => $candidateTenant];
+            }
+        }
+
+        return null;
+    }
+
+    protected function resolveLoginContext(Request $request, ?\App\Models\Tenant $tenant): array
+    {
+        if ($tenant) {
+            return [
+                'user' => $this->findUserWithinTenant($tenant, (string) $request->email),
+                'tenant' => $tenant,
+            ];
+        }
+
+        $sharedSuperAdmin = \App\Models\SharedUser::query()
+            ->withoutGlobalScopes()
+            ->where('email', $request->email)
+            ->where('is_super_admin', true)
+            ->first();
+
+        if ($sharedSuperAdmin) {
+            return ['user' => $sharedSuperAdmin, 'tenant' => null];
+        }
+
+        $landlordSuperAdmin = \App\Models\LandlordUser::query()
+            ->withoutGlobalScopes()
+            ->where('email', $request->email)
+            ->where('is_super_admin', true)
+            ->first();
+
+        if ($landlordSuperAdmin) {
+            return ['user' => $landlordSuperAdmin, 'tenant' => null];
+        }
+
+        $sharedUser = \App\Models\SharedUser::query()
+            ->withoutGlobalScopes()
+            ->where('email', $request->email)
+            ->first();
+
+        if ($sharedUser) {
+            return ['user' => $sharedUser, 'tenant' => null];
+        }
+
+        return $this->findDedicatedUserAcrossTenants((string) $request->email) ?? ['user' => null, 'tenant' => null];
+    }
+
     public function login(Request $request)
     {
         $request->validate([
@@ -120,9 +211,13 @@ class AuthController extends Controller
         ]);
 
         $tenant = app(\App\Contracts\TenantResolverInterface::class)->resolveFromRequest($request);
+        $loginContext = $this->resolveLoginContext($request, $tenant);
+        $user = $loginContext['user'];
+        $tenant = $loginContext['tenant'];
 
-        // 2. Authenticate User (Bypass Global Scopes)
-        $user = User::withoutGlobalScopes()->where('email', $request->email)->first();
+        if ($tenant instanceof Tenant && (!app()->bound('tenant') || !app('tenant'))) {
+            $this->activateTenantContext($tenant);
+        }
 
         if ($user) {
             \Illuminate\Support\Facades\Log::info('Login attempt for: ' . $request->email . ' | User Found: ' . $user->id);
@@ -131,6 +226,11 @@ class AuthController extends Controller
         }
 
         $authOk = app(\App\Contracts\AuthenticatorInterface::class)->verifyCredentials($user, (string) $request->password);
+        \Illuminate\Support\Facades\Log::info('Auth login:credentials_checked', [
+            'email' => $request->email,
+            'auth_ok' => $authOk,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
         if (!$authOk) {
             \Illuminate\Support\Facades\Log::warning('Login failed: Invalid credentials for ' . $request->email);
             if ($user?->is_super_admin) {
@@ -158,6 +258,11 @@ class AuthController extends Controller
         }
 
         if ($tenant) {
+            \Illuminate\Support\Facades\Log::info('Auth login:tenant_context_present', [
+                'tenant_id' => $tenant->id,
+                'tenant_type' => $tenant->tenancy_type,
+                'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+            ]);
             if ($user->tenant_id !== $tenant->id && !$user->is_super_admin) {
                 return response()->json(['message' => 'You do not have access to this workspace'], 403);
             }
@@ -176,7 +281,11 @@ class AuthController extends Controller
             }
         }
 
-        $tenant = app()->bound('tenant') ? app('tenant') : null;
+        $tenant = app()->bound('tenant') ? app('tenant') : $tenant;
+        \Illuminate\Support\Facades\Log::info('Auth login:pre_2fa', [
+            'tenant_id' => $tenant?->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
 
         // Final check
         if ($tenant && $user->tenant_id !== $tenant->id && !$user->is_super_admin) {
@@ -200,6 +309,12 @@ class AuthController extends Controller
             return response()->json(['requires_2fa' => true, 'message' => 'Two-factor authentication code sent']);
         }
 
+        \Illuminate\Support\Facades\Log::info('Auth login:before_issue_token', [
+            'user_id' => $user->id,
+            'tenant_id' => $tenant?->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
+
         return $this->issueToken($user, $request, $tenant);
     }
 
@@ -211,7 +326,14 @@ class AuthController extends Controller
             'subdomain' => 'nullable|string',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+        $loginContext = $this->resolveLoginContext($request, $tenant);
+        $user = $loginContext['user'];
+        $tenant = $loginContext['tenant'];
+
+        if ($tenant instanceof Tenant && (!app()->bound('tenant') || !app('tenant'))) {
+            $this->activateTenantContext($tenant);
+        }
 
         if (!$user) {
             return response()->json(['message' => 'User not found'], 404);
@@ -228,8 +350,8 @@ class AuthController extends Controller
 
         app(\App\Contracts\TwoFactorInterface::class)->clear($user);
 
-        // Resolve Tenant strictly from host
-        $tenant = app(\App\Contracts\TenantResolverInterface::class)->resolveFromRequest($request);
+        // ResolveTenant/InitializeTenancy already established the dedicated connection.
+        $tenant = app()->bound('tenant') ? app('tenant') : $tenant;
         if ($tenant) {
             app()->instance('tenant', $tenant);
             if ($user->tenant_id !== $tenant->id && !$user->is_super_admin) {
@@ -248,7 +370,17 @@ class AuthController extends Controller
 
     protected function issueToken($user, $request, $tenant)
     {
+        \Illuminate\Support\Facades\Log::info('Auth issueToken:start', [
+            'user_id' => $user->id,
+            'tenant_id' => $tenant?->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
+
         $token = app(\App\Contracts\TokenIssuerInterface::class)->issue($user, $request);
+        \Illuminate\Support\Facades\Log::info('Auth issueToken:token_issued', [
+            'user_id' => $user->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
 
         try {
             activity('auth')
@@ -257,16 +389,39 @@ class AuthController extends Controller
                 ->log('logged_in');
         } catch (\Throwable $e) {
         }
+        \Illuminate\Support\Facades\Log::info('Auth issueToken:activity_logged', [
+            'user_id' => $user->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
 
         $impersonation = $this->resolveImpersonationPayload();
         $profileTenant = $this->panelContext->resolveTenantForProfile($user, $tenant, $impersonation);
+        \Illuminate\Support\Facades\Log::info('Auth issueToken:tenant_resolved', [
+            'user_id' => $user->id,
+            'profile_tenant_id' => $profileTenant?->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
         $panelPayload = $this->panelContext->buildPayload($user, $profileTenant, $impersonation);
+        \Illuminate\Support\Facades\Log::info('Auth issueToken:panel_built', [
+            'user_id' => $user->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
         $enabledModules = $this->resolveEnabledModules($user, $profileTenant, $panelPayload);
+        \Illuminate\Support\Facades\Log::info('Auth issueToken:modules_resolved', [
+            'user_id' => $user->id,
+            'modules_count' => is_countable($enabledModules) ? count($enabledModules) : null,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
+        $serializedUser = $this->serializeAuthUser($user);
+        \Illuminate\Support\Facades\Log::info('Auth issueToken:user_serialized', [
+            'user_id' => $user->id,
+            'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
+        ]);
 
         return response()->json(array_merge([
             'token' => $token,
             'redirect_url' => $this->resolveFrontendRedirectUrl($user, $profileTenant, $panelPayload),
-            'user' => $this->serializeAuthUser($user),
+            'user' => $serializedUser,
             'tenant' => $profileTenant,
             'company' => $profileTenant,
             'enabled_modules' => $enabledModules,
@@ -282,6 +437,9 @@ class AuthController extends Controller
         $boundTenant = app()->bound('tenant') ? app('tenant') : null;
         $impersonation = $this->resolveImpersonationPayload();
         $tenant = $this->panelContext->resolveTenantForProfile($user, $boundTenant, $impersonation);
+        if ($tenant) {
+            $tenant->refresh();
+        }
         $panelPayload = $this->panelContext->buildPayload($user, $tenant, $impersonation);
 
         if (!$tenant && !$this->panelContext->isSystemAdmin($user)) {
@@ -319,8 +477,13 @@ class AuthController extends Controller
         ]);
 
         $tenant = app(\App\Contracts\TenantResolverInterface::class)->resolveFromRequest($request);
+        $loginContext = $this->resolveLoginContext($request, $tenant);
+        $user = $loginContext['user'];
+        $tenant = $loginContext['tenant'];
 
-        $user = User::withoutGlobalScopes()->where('email', $request->email)->first();
+        if ($tenant instanceof Tenant && (!app()->bound('tenant') || !app('tenant'))) {
+            $this->activateTenantContext($tenant);
+        }
 
         if ($user) {
             \Illuminate\Support\Facades\Log::info('LoginRedirect attempt for: ' . $request->email . ' | User Found: ' . $user->id);
@@ -400,10 +563,66 @@ class AuthController extends Controller
 
     protected function serializeAuthUser(User $user): array
     {
+        $previousTeamId = getPermissionsTeamId();
+
+        try {
+            if ($user->tenant_id) {
+                setPermissionsTeamId($user->tenant_id);
+            }
+
+            $user->unsetRelation('roles');
+            $user->load('roles');
+
+            $tenant = app()->bound('tenant') ? app('tenant') : null;
+            if (!$tenant && $user->tenant_id) {
+                $tenant = Tenant::query()->find($user->tenant_id);
+            }
+
+            if ($tenant && $user->roles->isEmpty() && $this->isPrimaryTenantAdmin($user)) {
+                app(TenantBootstrapper::class)->ensureTenantAdminRole($user, $tenant);
+                $user->unsetRelation('roles');
+                $user->load('roles');
+            }
+        } finally {
+            setPermissionsTeamId($previousTeamId);
+        }
+
         $data = $user->toArray();
         $data['is_super_admin'] = $this->panelContext->isSystemAdmin($user);
+        $data['is_primary_admin'] = $this->isPrimaryTenantAdmin($user);
+
+        if (empty($data['role'])) {
+            $data['role'] = $user->roles->first()?->name ?? $user->job_title;
+        }
+
+        if (empty($data['role']) && !empty($data['is_primary_admin'])) {
+            $data['role'] = 'Tenant Admin';
+        }
 
         return $data;
+    }
+
+    protected function isPrimaryTenantAdmin(User $user): bool
+    {
+        if ($user->is_super_admin) {
+            return true;
+        }
+
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+        if (!$tenant && $user->tenant_id) {
+            $tenant = Tenant::query()->find($user->tenant_id);
+        }
+
+        if (!$tenant) {
+            return false;
+        }
+
+        $owner = User::withoutGlobalScopes()
+            ->where('tenant_id', $tenant->id)
+            ->orderBy('id')
+            ->first();
+
+        return $owner && (int) $owner->id === (int) $user->id;
     }
 
     protected function resolveEnabledModules(User $user, ?Tenant $tenant, array $panelPayload): array

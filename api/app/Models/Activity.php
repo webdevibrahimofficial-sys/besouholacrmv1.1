@@ -8,9 +8,14 @@ use App\Models\Scopes\TenantActivityScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Spatie\Multitenancy\Models\Concerns\UsesTenantConnection;
+use Spatie\Multitenancy\Models\Concerns\UsesLandlordConnection;
 
 class Activity extends SpatieActivity
 {
+    use UsesTenantConnection;
+    use UsesLandlordConnection;
+
     protected $fillable = [
         'log_name',
         'description',
@@ -41,6 +46,71 @@ class Activity extends SpatieActivity
         });
     }
 
+    public function getConnectionName()
+    {
+        if ($this->shouldUseLandlordConnection()) {
+            return $this->landlordDatabaseConnectionName();
+        }
+
+        return $this->resolveTenantActivityConnectionName();
+    }
+
+    protected function resolveTenantActivityConnectionName(): string
+    {
+        $tenantConnection = $this->tenantDatabaseConnectionName();
+        $tenantConfig = config("database.connections.{$tenantConnection}", []);
+
+        if ($this->connectionConfigLooksUsable($tenantConfig)) {
+            return $tenantConnection;
+        }
+
+        return (string) config('database.default', 'mysql');
+    }
+
+    protected function connectionConfigLooksUsable(array $config): bool
+    {
+        $driver = (string) ($config['driver'] ?? '');
+        if ($driver === 'sqlite') {
+            return !empty($config['database']);
+        }
+
+        if (!empty($config['url']) || !empty($config['unix_socket'])) {
+            return true;
+        }
+
+        return !empty($config['host']) && !empty($config['database']) && !empty($config['username']);
+    }
+
+    protected function shouldUseLandlordConnection(): bool
+    {
+        // This method is called while Eloquent is resolving the model's
+        // connection. Reading attributes through magic properties here can
+        // recurse back into getConnectionName(), so only inspect the raw
+        // attribute array.
+        $attributes = $this->attributes;
+        $logName = $attributes['log_name'] ?? null;
+        $subjectType = $attributes['subject_type'] ?? null;
+
+        if ($logName === 'super_admin') {
+            return true;
+        }
+
+        if ($subjectType === Tenant::class) {
+            return true;
+        }
+
+        // Relationship loading can happen before subject_type is populated.
+        if ($subjectType === null) {
+            return true;
+        }
+
+        $currentTenantKey = config('multitenancy.current_tenant_container_key', 'currentTenant');
+        $hasCurrentTenant = (app()->bound($currentTenantKey) && app($currentTenantKey))
+            || (app()->bound('tenant') && app('tenant'));
+
+        return !$hasCurrentTenant;
+    }
+
     protected static function resolveTenantIdForActivity(self $activity): ?int
     {
         $propertiesTenantId = data_get($activity->properties, 'tenant_id');
@@ -62,15 +132,6 @@ class Activity extends SpatieActivity
 
     protected static function resolveTenantIdFromSubject(self $activity): ?int
     {
-        $subject = $activity->subject;
-        if ($subject instanceof Tenant) {
-            return (int) $subject->getKey();
-        }
-
-        if ($subject instanceof Model && !empty($subject->tenant_id)) {
-            return (int) $subject->tenant_id;
-        }
-
         if ($activity->subject_type === Tenant::class && !empty($activity->subject_id)) {
             return (int) $activity->subject_id;
         }

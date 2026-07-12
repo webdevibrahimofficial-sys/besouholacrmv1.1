@@ -51,14 +51,8 @@ class ResolveTenant
 
         // قائمة بالراوتات التي لا تتطلب وجود Tenant (مثل تسجيل الدخول، إنشاء مستأجر جديد، الخ)
         $excludedRoutes = [
-            'api/crm/login-redirect',
-            'crm/login-redirect',
             'api/tenants/register',
             'tenants/register',
-            'api/login',
-            'login',
-            'api/auth/2fa/verify',
-            'auth/2fa/verify',
             'sanctum/csrf-cookie'
         ];
 
@@ -105,6 +99,12 @@ class ResolveTenant
         $slug = $request->route('tenant');
 
         if (!$slug) {
+            // Login requests on a central API/localhost carry the workspace explicitly.
+            $requestedSubdomain = strtolower(trim((string) $request->input('subdomain', '')));
+            if ($requestedSubdomain !== '' && preg_match('/^[a-z0-9-]+$/', $requestedSubdomain)) {
+                $slug = $requestedSubdomain;
+            }
+
             // Fallback 1: Check X-Tenant or X-Tenant-Id header explicitly
             if (!$slug && ($request->hasHeader('X-Tenant') || $request->hasHeader('X-Tenant-Id'))) {
                 $slug = $request->header('X-Tenant') ?: $request->header('X-Tenant-Id');

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Tenant;
 use App\Models\Module;
+use App\Services\TenantService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -81,6 +82,8 @@ class TenantModuleController extends Controller
             
             $tenant->modules()->syncWithoutDetaching($syncData);
         });
+
+        app(TenantService::class)->forgetTenantCache($tenant);
 
         return response()->json(['message' => 'Tenant modules updated successfully']);
     }

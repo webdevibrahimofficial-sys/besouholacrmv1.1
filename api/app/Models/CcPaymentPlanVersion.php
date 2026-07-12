@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class CcPaymentPlanVersion extends Model
+class CcPaymentPlanVersion extends TenantModel
 {
     use HasFactory;
 
@@ -39,4 +39,3 @@ class CcPaymentPlanVersion extends Model
         return $this->belongsTo(CcCustomerUnit::class, 'customer_unit_id');
     }
 }
-

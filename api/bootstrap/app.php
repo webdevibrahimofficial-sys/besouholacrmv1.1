@@ -15,7 +15,20 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withBroadcasting(
         __DIR__.'/../routes/channels.php',
-        ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']],
+        [
+            'prefix' => 'api',
+            'middleware' => [
+                'api',
+                \App\Http\Middleware\ResolveTenant::class,
+                'auth:sanctum',
+                \App\Http\Middleware\InitializeTenancy::class,
+                \App\Http\Middleware\TrackUserPresence::class,
+                \App\Http\Middleware\SetTenantTimezone::class,
+                \App\Http\Middleware\EnsureTenantSubscriptionActive::class,
+                'check_api_key_expiration',
+                'throttle:api',
+            ],
+        ],
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(at: '*');

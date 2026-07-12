@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class CcPaymentAllocation extends Model
+class CcPaymentAllocation extends TenantModel
 {
     use HasFactory;
 
@@ -34,4 +34,3 @@ class CcPaymentAllocation extends Model
         return $this->belongsTo(CcInstallment::class, 'installment_id');
     }
 }
-

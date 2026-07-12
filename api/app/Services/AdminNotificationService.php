@@ -47,7 +47,7 @@ class AdminNotificationService
                 continue;
             }
 
-            if ($this->isDuplicate($admin->id, $payload->dedupeKey)) {
+            if ($this->isDuplicate($admin->id, $payload->dedupeKey, $payload->dedupeWindowMinutes)) {
                 continue;
             }
 
@@ -80,7 +80,7 @@ class AdminNotificationService
         return $created;
     }
 
-    protected function isDuplicate(int $adminUserId, ?string $dedupeKey): bool
+    protected function isDuplicate(int $adminUserId, ?string $dedupeKey, int $windowMinutes = 15): bool
     {
         if (! $dedupeKey) {
             return false;
@@ -89,7 +89,7 @@ class AdminNotificationService
         return AdminNotification::query()
             ->where('admin_user_id', $adminUserId)
             ->where('dedupe_key', $dedupeKey)
-            ->where('created_at', '>=', now()->subMinutes(15))
+            ->where('created_at', '>=', now()->subMinutes(max(1, $windowMinutes)))
             ->exists();
     }
 

@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\SystemAdminPermissionService;
 use App\Services\TenantService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -66,7 +67,7 @@ class BootstrapTenantsSeeder extends Seeder
 
         $ownerTenant = Tenant::where('slug', 'owner')->first();
         if ($ownerTenant) {
-            User::updateOrCreate(
+            $user = User::updateOrCreate(
                 ['email' => 'system@besouhoula.com'],
                 [
                     'name' => 'Super Admin',
@@ -75,6 +76,8 @@ class BootstrapTenantsSeeder extends Seeder
                     'is_super_admin' => true,
                 ]
             );
+
+            app(SystemAdminPermissionService::class)->bootstrapLegacySuperAdmin($user);
         }
 
         $this->command?->info('Tenants bootstrapped: owner, besouhola, real-estate.');

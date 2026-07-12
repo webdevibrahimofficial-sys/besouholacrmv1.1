@@ -10,7 +10,7 @@ use App\Models\MetaBusiness;
 use App\Models\MetaAdAccount;
 use App\Models\MetaPage;
 use App\Models\Tenant;
-use App\Services\TenantMetaCredentialsResolver;
+use App\Services\MetaCredentialsResolver;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -27,7 +27,7 @@ class MetaAuthService
 
     public function __construct(
         MetaApiClientInterface $apiClient,
-        TenantMetaCredentialsResolver $credentialsResolver,
+        MetaCredentialsResolver $credentialsResolver,
         AdminEventNotificationService $adminEventNotifications
     )
     {
@@ -154,6 +154,7 @@ class MetaAuthService
                     'agency_id' => $agencyId,
                     'user_access_token' => $longLivedToken,
                     'expires_at' => $expiresAt,
+                    'needs_reauth' => false,
                     'name' => $userName,
                     'email' => $userEmail,
                 ]
@@ -170,11 +171,12 @@ class MetaAuthService
         }
     }
 
-    public function syncAssets(MetaConnection $connection)
+    public function syncAssets(MetaConnection $connection): array
     {
         $accessToken = $connection->user_access_token;
         $tenantId = $connection->tenant_id;
         $agencyId = $connection->agency_id;
+        $syncWarnings = [];
 
         // A. Fetch Businesses
         try {
@@ -236,10 +238,36 @@ class MetaAuthService
         }
 
         foreach ($pages as $pageData) {
+            $pageId = (string) ($pageData['id'] ?? '');
+            if ($pageId === '') {
+                continue;
+            }
+
+            $existingOwner = MetaPage::withoutGlobalScopes()
+                ->where('page_id', $pageId)
+                ->where('is_active', true)
+                ->where('tenant_id', '!=', $tenantId)
+                ->first();
+
+            if ($existingOwner) {
+                $syncWarnings[] = [
+                    'type' => 'page_conflict',
+                    'page_id' => $pageId,
+                    'page_name' => $pageData['name'] ?? $pageId,
+                    'message' => "Page {$pageId} is already linked to another tenant.",
+                ];
+                Log::warning('Meta page sync skipped due to cross-tenant conflict', [
+                    'tenant_id' => $tenantId,
+                    'page_id' => $pageId,
+                    'existing_tenant_id' => $existingOwner->tenant_id,
+                ]);
+                continue;
+            }
+
             MetaPage::updateOrCreate(
                 [
                     'tenant_id' => $tenantId,
-                    'page_id' => $pageData['id'],
+                    'page_id' => $pageId,
                 ],
                 [
                     'connection_id' => $connection->id,
@@ -251,6 +279,76 @@ class MetaAuthService
                 ]
             );
         }
+
+        $subscribeSummary = $this->subscribeSyncedPages($connection);
+        $this->persistSyncResults($tenantId, $syncWarnings, $subscribeSummary);
+
+        return [
+            'sync_warnings' => $syncWarnings,
+            'subscribe_summary' => $subscribeSummary,
+        ];
+    }
+
+    public function subscribeSyncedPages(MetaConnection $connection): array
+    {
+        $summary = [
+            'subscribed' => 0,
+            'failed' => 0,
+            'skipped' => 0,
+            'failures' => [],
+        ];
+
+        $pages = MetaPage::where('tenant_id', $connection->tenant_id)
+            ->where('connection_id', $connection->id)
+            ->where('is_active', true)
+            ->get();
+
+        foreach ($pages as $page) {
+            if (!$page->page_token) {
+                $summary['skipped']++;
+                continue;
+            }
+
+            try {
+                $this->subscribePageToLeadgenWebhook($page->page_id, $page->page_token);
+                $summary['subscribed']++;
+            } catch (\Throwable $e) {
+                $summary['failed']++;
+                $summary['failures'][] = [
+                    'page_id' => $page->page_id,
+                    'page_name' => $page->page_name,
+                    'error' => $e->getMessage(),
+                ];
+                Log::warning('Failed to auto-subscribe Meta page webhook', [
+                    'tenant_id' => $connection->tenant_id,
+                    'page_id' => $page->page_id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info('Meta page webhook auto-subscribe completed', [
+            'tenant_id' => $connection->tenant_id,
+            'connection_id' => $connection->id,
+            'summary' => $summary,
+        ]);
+
+        return $summary;
+    }
+
+    protected function persistSyncResults(int|string $tenantId, array $syncWarnings, array $subscribeSummary): void
+    {
+        $integration = Integration::firstOrCreate(
+            ['tenant_id' => $tenantId, 'provider' => 'meta'],
+            ['status' => 'active']
+        );
+
+        $settings = is_array($integration->settings) ? $integration->settings : [];
+        $settings['sync_warnings'] = $syncWarnings;
+        $settings['subscribe_summary'] = $subscribeSummary;
+        $settings['last_sync_at'] = now()->toIso8601String();
+        $integration->settings = $settings;
+        $integration->save();
     }
 
     protected function fetchGraphApi($endpoint, $token, $params = [])

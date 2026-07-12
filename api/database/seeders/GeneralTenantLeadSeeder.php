@@ -46,44 +46,47 @@ class GeneralTenantLeadSeeder extends Seeder
         $leadModel = new Lead();
 
         foreach ($tenants as $tenant) {
-            $userIds = User::query()
-                ->where('tenant_id', $tenant->id)
-                ->pluck('id')
-                ->all();
+            $tenant->execute(function () use ($tenant, $rows, $leadModel) {
+                $userIds = User::query()
+                    ->where('tenant_id', $tenant->id)
+                    ->pluck('id')
+                    ->all();
 
-            $assignedPool = $userIds ?: [null];
-            $createdByPool = $userIds ?: [null];
+                $assignedPool = $userIds ?: [null];
+                $createdByPool = $userIds ?: [null];
+                $connection = DB::connection(config('multitenancy.tenant_database_connection_name'));
 
-            foreach ($rows as $index => $row) {
-                $createdAt = $row['created_at'];
-                unset($row['created_at']);
+                foreach ($rows as $index => $row) {
+                    $createdAt = $row['created_at'];
+                    unset($row['created_at']);
 
-                $payload = array_merge($row, [
-                    'tenant_id' => $tenant->id,
-                    'type' => 'Company',
-                    'assigned_to' => $assignedPool[$index % count($assignedPool)],
-                    'created_by' => $createdByPool[$index % count($createdByPool)],
-                    'probability' => match ($row['stage']) {
-                        'Closed Won' => 100,
-                        'Negotiation' => 75,
-                        'Proposal' => 60,
-                        'Qualified' => 45,
-                        'Contacted' => 25,
-                        default => 10,
-                    },
-                    'last_contact' => $createdAt,
-                    'created_at' => $createdAt,
-                    'updated_at' => $createdAt,
-                ]);
-
-                DB::table($leadModel->getTable())->updateOrInsert(
-                    [
+                    $payload = array_merge($row, [
                         'tenant_id' => $tenant->id,
-                        'email' => $payload['email'],
-                    ],
-                    $payload
-                );
-            }
+                        'type' => 'Company',
+                        'assigned_to' => $assignedPool[$index % count($assignedPool)],
+                        'created_by' => $createdByPool[$index % count($createdByPool)],
+                        'probability' => match ($row['stage']) {
+                            'Closed Won' => 100,
+                            'Negotiation' => 75,
+                            'Proposal' => 60,
+                            'Qualified' => 45,
+                            'Contacted' => 25,
+                            default => 10,
+                        },
+                        'last_contact' => $createdAt,
+                        'created_at' => $createdAt,
+                        'updated_at' => $createdAt,
+                    ]);
+
+                    $connection->table($leadModel->getTable())->updateOrInsert(
+                        [
+                            'tenant_id' => $tenant->id,
+                            'email' => $payload['email'],
+                        ],
+                        $payload
+                    );
+                }
+            });
         }
 
         $this->command?->info(sprintf(

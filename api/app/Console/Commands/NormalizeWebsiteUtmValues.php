@@ -5,9 +5,12 @@ namespace App\Console\Commands;
 use App\Models\Tenant;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Spatie\Multitenancy\Models\Concerns\UsesTenantConnection;
 
 class NormalizeWebsiteUtmValues extends Command
 {
+    use UsesTenantConnection;
+
     protected $signature = 'analytics:normalize-utm
         {--dry-run : Preview affected row counts without writing any changes}
         {--tenant= : Limit to a single tenant by slug (safe way to test first)}';
@@ -41,16 +44,22 @@ class NormalizeWebsiteUtmValues extends Command
     {
         $isDryRun = (bool) $this->option('dry-run');
         $tenantSlug = $this->option('tenant');
-        $tenantId = null;
+        $tenants = Tenant::query()
+            ->when($tenantSlug, fn ($query) => $query->where('slug', $tenantSlug))
+            ->orderBy('id')
+            ->get();
+
+        if ($tenants->isEmpty()) {
+            $this->error($tenantSlug
+                ? "Tenant not found for slug: {$tenantSlug}"
+                : 'No tenants found to normalize.'
+            );
+            return self::FAILURE;
+        }
 
         if ($tenantSlug) {
-            $tenant = Tenant::query()->where('slug', $tenantSlug)->first();
-            if (!$tenant) {
-                $this->error("Tenant not found for slug: {$tenantSlug}");
-                return self::FAILURE;
-            }
-            $tenantId = $tenant->id;
-            $this->info("Scoped to tenant: {$tenant->slug} (id={$tenantId})");
+            $tenant = $tenants->first();
+            $this->info("Scoped to tenant: {$tenant->slug} (id={$tenant->id})");
         }
 
         $this->info($isDryRun ? 'Running in DRY-RUN mode (no data will change).' : 'Running LIVE (data will be updated).');
@@ -60,7 +69,14 @@ class NormalizeWebsiteUtmValues extends Command
 
         foreach (self::TARGETS as $table => $columns) {
             foreach ($columns as $column => $mode) {
-                $affected = $this->normalizeColumn($table, $column, $mode, $tenantId, $isDryRun);
+                $affected = 0;
+
+                foreach ($tenants as $tenant) {
+                    $affected += (int) $tenant->execute(function () use ($table, $column, $mode, $tenant, $isDryRun) {
+                        return $this->normalizeColumn($table, $column, $mode, (int) $tenant->id, $isDryRun);
+                    });
+                }
+
                 $totalAffected += $affected;
 
                 $this->line(sprintf(
@@ -93,10 +109,11 @@ class NormalizeWebsiteUtmValues extends Command
         $targetExpression = $mode === 'lower'
             ? "LOWER(TRIM({$column}))"
             : "TRIM({$column})";
+        $connection = DB::connection($this->getTenantConnectionName());
 
         // Rows that need a change: non-null, and either the value differs from
         // its normalized form, or the trimmed value is an empty string (-> NULL).
-        $matchQuery = DB::table($table)
+        $matchQuery = $connection->table($table)
             ->whereNotNull($column)
             ->where(function ($query) use ($column, $targetExpression) {
                 $query->whereRaw("{$column} != {$targetExpression}")
@@ -113,7 +130,7 @@ class NormalizeWebsiteUtmValues extends Command
             return $affected;
         }
 
-        $updateQuery = DB::table($table)
+        $updateQuery = $connection->table($table)
             ->whereNotNull($column)
             ->where(function ($query) use ($column, $targetExpression) {
                 $query->whereRaw("{$column} != {$targetExpression}")

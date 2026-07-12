@@ -14,6 +14,11 @@ class AgencyController extends Controller
 {
     use AppliesAgencyScope;
 
+    protected function tenantConnection()
+    {
+        return DB::connection(config('multitenancy.tenant_database_connection_name'));
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -182,7 +187,7 @@ class AgencyController extends Controller
 
     protected function linkedUsersCount(Agency $agency): int
     {
-        return DB::table('users')
+        return $this->tenantConnection()->table('users')
             ->where('tenant_id', $agency->tenant_id)
             ->where('agency_id', $agency->key)
             ->count();

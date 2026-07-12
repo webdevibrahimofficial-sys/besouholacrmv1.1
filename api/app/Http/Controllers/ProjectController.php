@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Project;
+use App\Models\Lead;
 use App\Models\Property;
 use App\Traits\InventoryDeleteAuthorization;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use App\Jobs\SyncProjectToWebsiteJob;
 
 class ProjectController extends Controller
@@ -14,7 +16,7 @@ class ProjectController extends Controller
 
     public function index(Request $request)
     {
-        $query = Project::query()->withCount(['properties']);
+        $query = Project::query()->withCount(['properties', 'leads']);
 
         if ($request->has('tenant_id')) {
             $query->where('tenant_id', $request->tenant_id);
@@ -196,7 +198,46 @@ class ProjectController extends Controller
         if ($resp = $this->authorizeInventoryDelete($request, 'realestate')) {
             return $resp;
         }
-        $project->delete();
+
+        $project->loadCount('leads');
+        $leadCount = (int) ($project->leads_count ?? 0);
+        $reassignTo = $request->input('reassign_leads_to');
+
+        if ($leadCount > 0 && !$reassignTo) {
+            return response()->json([
+                'message' => 'This project has related leads and must be reassigned before deletion.',
+                'lead_count' => $leadCount,
+                'requires_reassignment' => true,
+            ], 409);
+        }
+
+        $targetProject = null;
+        if ($leadCount > 0) {
+            $targetProject = Project::query()->whereKey($reassignTo)->first();
+            if (!$targetProject) {
+                return response()->json([
+                    'message' => 'The selected replacement project was not found.',
+                ], 422);
+            }
+
+            if ((int) $targetProject->id === (int) $project->id) {
+                return response()->json([
+                    'message' => 'You cannot move leads to the same project being deleted.',
+                ], 422);
+            }
+        }
+
+        DB::transaction(function () use ($project, $leadCount, $targetProject) {
+            if ($leadCount > 0 && $targetProject) {
+                Lead::where('project_id', $project->id)->update([
+                    'project_id' => $targetProject->id,
+                    'project' => $targetProject->name,
+                ]);
+            }
+
+            $project->delete();
+        });
+
         return response()->json(null, 204);
     }
 }

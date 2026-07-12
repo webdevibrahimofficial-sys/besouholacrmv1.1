@@ -21,12 +21,13 @@ class GoogleAuthService
     protected $developerToken;
     protected $redirectUri;
 
-    public function __construct()
+    public function __construct(protected IntegrationSecretsService $secrets)
     {
         $this->clientId = SystemSetting::where('key', 'google_client_id')->value('value')
             ?? config('services.google.client_id');
-        $this->clientSecret = SystemSetting::where('key', 'google_client_secret')->value('value')
+        $storedSecret = SystemSetting::where('key', 'google_client_secret')->value('value')
             ?? config('services.google.client_secret');
+        $this->clientSecret = $this->secrets->decryptSecret($storedSecret) ?? $storedSecret;
         $this->developerToken = SystemSetting::where('key', 'google_developer_token')->value('value');
         $this->redirectUri = config('services.google.redirect');
 

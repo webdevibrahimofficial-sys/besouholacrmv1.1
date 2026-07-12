@@ -31,6 +31,10 @@ class AttachImpersonationContext
             return $next($request);
         }
 
+        if (!$token instanceof PersonalAccessToken) {
+            return $next($request);
+        }
+
         $session = $this->impersonationService->currentForSupportToken($token);
         if (!$session) {
             return $next($request);

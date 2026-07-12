@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class SubscriptionPlanPrice extends Model
+class SubscriptionPlanPrice extends LandlordModel
 {
     protected $fillable = [
         'subscription_plan_id',

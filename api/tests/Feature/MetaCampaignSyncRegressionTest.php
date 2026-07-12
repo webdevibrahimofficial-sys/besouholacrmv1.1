@@ -7,7 +7,6 @@ use App\Models\AdSet;
 use App\Models\Campaign;
 use App\Models\CampaignInsight;
 use App\Models\Tenant;
-use App\Models\TenantMetaApp;
 use App\Services\MetaAuthService;
 use App\Services\MetaCampaignService;
 use App\Services\MetaInsightService;
@@ -30,15 +29,6 @@ class MetaCampaignSyncRegressionTest extends TestCase
             'name' => 'Meta Campaign Regression Tenant',
             'slug' => 'meta-campaign-regression-tenant',
             'status' => 'active',
-        ]);
-
-        TenantMetaApp::create([
-            'tenant_id' => $this->tenant->id,
-            'app_id' => 'tenant-app-id',
-            'app_secret' => 'tenant-app-secret',
-            'verify_token' => 'tenant-verify-token',
-            'webhook_key' => 'tenant-webhook-key',
-            'is_active' => true,
         ]);
 
         config([

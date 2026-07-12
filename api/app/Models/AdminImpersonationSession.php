@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Laravel\Sanctum\PersonalAccessToken;
 
-class AdminImpersonationSession extends Model
+class AdminImpersonationSession extends LandlordModel
 {
     protected $fillable = [
         'admin_user_id',

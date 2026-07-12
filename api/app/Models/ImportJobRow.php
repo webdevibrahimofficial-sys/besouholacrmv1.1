@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ImportJobRow extends Model
+class ImportJobRow extends TenantModel
 {
     use HasFactory;
 
@@ -34,4 +34,3 @@ class ImportJobRow extends Model
         return $this->belongsTo(ImportJob::class, 'job_id');
     }
 }
-

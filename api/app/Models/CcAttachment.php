@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
-class CcAttachment extends Model
+class CcAttachment extends TenantModel
 {
     use HasFactory;
 

@@ -16,6 +16,7 @@ class MetaConnection extends Model
         'fb_user_id',
         'user_access_token',
         'expires_at',
+        'needs_reauth',
         'name',
         'email',
     ];
@@ -23,6 +24,7 @@ class MetaConnection extends Model
     protected $casts = [
         'user_access_token' => EncryptCast::class,
         'expires_at' => 'datetime',
+        'needs_reauth' => 'boolean',
     ];
 
     protected $hidden = [

@@ -19,8 +19,7 @@ class SuperAdminImpersonationController extends Controller
     public function quickSwitchTenants(Request $request)
     {
         $this->ensureSecureQuickSwitchEnabled();
-        $user = $request->user();
-        $this->impersonationService->ensureActorCanImpersonate($user);
+        $this->impersonationService->ensureActorCanImpersonate($request->user());
 
         return response()->json([
             'data' => $this->impersonationService->listEligibleTenants($request),
@@ -58,7 +57,6 @@ class SuperAdminImpersonationController extends Controller
     {
         $this->ensureSecureQuickSwitchEnabled();
         $user = $request->user();
-        $this->impersonationService->ensureActorCanImpersonate($user);
 
         $session = $this->impersonationService->currentForAdmin($user);
 
@@ -72,7 +70,6 @@ class SuperAdminImpersonationController extends Controller
     {
         $this->ensureSecureQuickSwitchEnabled();
         $user = $request->user();
-        $this->impersonationService->ensureActorCanImpersonate($user);
 
         $session = $this->impersonationService->currentForAdmin($user);
         if (!$session) {

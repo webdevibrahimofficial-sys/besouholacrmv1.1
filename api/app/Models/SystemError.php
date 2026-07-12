@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class SystemError extends Model
+class SystemError extends TenantModel
 {
     protected $fillable = [
         'tenant_id',

@@ -17,6 +17,11 @@ use Throwable;
 
 class AdminImpersonationService
 {
+    public function __construct(
+        private readonly SystemAdminPermissionService $systemAdminPermissions
+    ) {
+    }
+
     public const STATUS_ACTIVE = 'active';
     public const STATUS_ENDED = 'ended';
     public const STATUS_EXPIRED = 'expired';
@@ -26,15 +31,7 @@ class AdminImpersonationService
 
     public function ensureActorCanImpersonate(User $user): void
     {
-        // Super-admin permission checks run under Spatie teams, so we must
-        // evaluate them in the admin's own system-tenant context.
-        if ($user->tenant_id) {
-            setPermissionsTeamId($user->tenant_id);
-        }
-
-        if (!$user->is_super_admin || !$user->can('system.tenants.impersonate')) {
-            throw new HttpException(403, 'You are not allowed to start support access sessions.');
-        }
+        $this->systemAdminPermissions->ensureCanImpersonateTenants($user);
     }
 
     public function listEligibleTenants(Request $request): array

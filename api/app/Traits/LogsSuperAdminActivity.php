@@ -15,18 +15,22 @@ trait LogsSuperAdminActivity
         Model|Role|null $subject = null,
         array $properties = []
     ): void {
-        $logger = activity('super_admin')
-            ->withProperties($properties)
-            ->event($event);
+        try {
+            $logger = activity('super_admin')
+                ->withProperties($properties)
+                ->event($event);
 
-        if ($actor) {
-            $logger->causedBy($actor);
+            if ($subject) {
+                $logger->performedOn($subject);
+            }
+
+            if ($actor) {
+                $logger->causedBy($actor);
+            }
+
+            $logger->log($description);
+        } catch (\Throwable $exception) {
+            report($exception);
         }
-
-        if ($subject) {
-            $logger->performedOn($subject);
-        }
-
-        $logger->log($description);
     }
 }

@@ -39,6 +39,11 @@ class Project extends Model
         return $this->hasMany(Property::class, 'project_id');
     }
 
+    public function leads()
+    {
+        return $this->hasMany(Lead::class, 'project_id');
+    }
+
     public function units()
     {
         return $this->hasMany(Unit::class, 'project_id');

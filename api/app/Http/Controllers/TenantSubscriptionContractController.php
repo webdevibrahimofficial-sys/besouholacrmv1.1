@@ -109,7 +109,7 @@ class TenantSubscriptionContractController extends Controller
 
     private function contractsTableExists(): bool
     {
-        return Schema::hasTable('tenant_subscription_contracts');
+        return Schema::connection('landlord')->hasTable('tenant_subscription_contracts');
     }
 
     private function ensureContractsTableExists(): void

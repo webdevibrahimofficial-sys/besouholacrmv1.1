@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class ContractTemplate extends Model
+class ContractTemplate extends TenantModel
 {
     protected $table = 'contract_templates';
 

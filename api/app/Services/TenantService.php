@@ -6,6 +6,7 @@ use App\Models\Module;
 use App\Models\Source;
 use App\Models\SubscriptionPlan;
 use App\Models\Tenant;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 
 class TenantService
@@ -75,15 +76,31 @@ class TenantService
 
     public function ensureDefaultSources(Tenant $tenant): void
     {
-        Source::withoutGlobalScopes()->firstOrCreate(
-            [
-                'tenant_id' => $tenant->id,
-                'name' => 'WhatsApp Mirror',
-            ],
-            [
-                'is_active' => true,
-            ]
-        );
+        $tenant->execute(function () use ($tenant) {
+            Source::withoutGlobalScopes()->firstOrCreate(
+                [
+                    'tenant_id' => $tenant->id,
+                    'name' => 'WhatsApp Mirror',
+                ],
+                [
+                    'is_active' => true,
+                ]
+            );
+        });
+    }
+
+    public function forgetTenantCache(Tenant $tenant, ?string $previousSlug = null): void
+    {
+        Cache::forget("tenant_modules_enabled_{$tenant->id}");
+
+        $slugs = array_filter(array_unique([
+            $previousSlug,
+            $tenant->slug,
+        ]));
+
+        foreach ($slugs as $slug) {
+            Cache::forget("tenant_{$slug}");
+        }
     }
 
     public function syncTenantModules(Tenant $tenant, string $plan, array $customModules = [])
@@ -109,6 +126,8 @@ class TenantService
         }
 
         if (empty($modules)) {
+            $tenant->modules()->sync([]);
+            $this->forgetTenantCache($tenant);
             return;
         }
 
@@ -150,6 +169,7 @@ class TenantService
         })->toArray();
 
         $tenant->modules()->sync($syncData);
+        $this->forgetTenantCache($tenant);
     }
 
     protected function getModulesForPlan(string $plan, string $companyType = 'General'): array
@@ -159,11 +179,11 @@ class TenantService
             $overrides = is_array($dbPlan->company_type_overrides) ? $dbPlan->company_type_overrides : [];
             $overrideModules = $overrides[$companyType] ?? null;
 
-            if (is_array($overrideModules) && !empty($overrideModules)) {
-                return array_values(array_unique($overrideModules));
-            }
+            $modules = is_array($overrideModules) && !empty($overrideModules)
+                ? $overrideModules
+                : (is_array($dbPlan->modules) ? $dbPlan->modules : []);
 
-            return array_values(array_unique(is_array($dbPlan->modules) ? $dbPlan->modules : []));
+            return $this->expandInventoryModules($modules, $companyType);
         }
 
         $basicBase = ['dashboard', 'reports', 'users', 'settings', 'leads'];
@@ -199,5 +219,17 @@ class TenantService
         
         // General
         return ['items', 'orders'];
+    }
+
+    protected function expandInventoryModules(array $modules, string $companyType = 'General'): array
+    {
+        if (!in_array('inventory', $modules, true)) {
+            return array_values(array_unique($modules));
+        }
+
+        return array_values(array_unique(array_merge(
+            $modules,
+            $this->getInventoryModules($companyType)
+        )));
     }
 }

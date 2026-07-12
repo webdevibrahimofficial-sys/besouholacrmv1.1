@@ -58,7 +58,7 @@ class CreateTenantCommand extends Command
             $tenant->status = 'active';
             $tenant->tenancy_type = $type;
             $tenant->subscription_plan = $tenant->subscription_plan ?? 'core';
-            $tenant->save();
+            $tenant->saveQuietly();
 
             if ($type === 'dedicated') {
                 $dbHost = config('database.connections.mysql.host');
@@ -85,7 +85,7 @@ class CreateTenantCommand extends Command
                 DB::statement('FLUSH PRIVILEGES');
 
                 $tenant->db_connection_details = $dbDetails;
-                $tenant->save();
+                $tenant->saveQuietly();
 
                 $connectionName = 'tenant-dedicated';
 
@@ -93,13 +93,18 @@ class CreateTenantCommand extends Command
                     Config::get("database.connections.tenant-dedicated", []),
                     $dbDetails
                 ));
+                Config::set('webpush.database_connection', $connectionName);
 
                 DB::purge($connectionName);
 
-                Artisan::call('migrate', [
+                $migrateExitCode = Artisan::call('migrate', [
                     '--database' => $connectionName,
                     '--force' => true,
                 ]);
+
+                if ($migrateExitCode !== 0) {
+                    throw new \RuntimeException('Dedicated tenant migrations failed: ' . trim(Artisan::output()));
+                }
             }
 
             if ($adminData) {

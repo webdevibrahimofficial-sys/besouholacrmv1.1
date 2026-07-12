@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use App\Models\Tenant;
+use App\Services\SystemAdminPermissionService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
@@ -37,6 +38,8 @@ class CreateSuperAdminSeeder extends Seeder
                 'is_super_admin' => true,
             ]
         );
+
+        app(SystemAdminPermissionService::class)->bootstrapLegacySuperAdmin($user);
 
         $this->command->info('Super Admin created: system@besouhoula.com / SystemAdmin123!');
     }

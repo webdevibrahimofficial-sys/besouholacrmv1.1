@@ -24,6 +24,16 @@ class LeadActionController extends Controller
 {
     use ResolvesNotificationRecipients, UserHierarchyTrait;
 
+    private function tenantConnection()
+    {
+        return DB::connection(config('multitenancy.tenant_database_connection_name'));
+    }
+
+    private function tenantSchema()
+    {
+        return Schema::connection(config('multitenancy.tenant_database_connection_name'));
+    }
+
     private function resolveActionStageNames(LeadAction $action): array
     {
         $details = is_array($action->details) ? $action->details : [];
@@ -247,11 +257,11 @@ class LeadActionController extends Controller
     private function writeMeetingAudit(LeadAction $leadAction, ?string $fromStatus, string $toStatus, ?int $userId): void
     {
         try {
-            if (!Schema::hasTable('lead_action_status_audits')) {
+            if (!$this->tenantSchema()->hasTable('lead_action_status_audits')) {
                 return;
             }
             $lead = $leadAction->lead ?? Lead::find($leadAction->lead_id);
-            DB::table('lead_action_status_audits')->insert([
+            $this->tenantConnection()->table('lead_action_status_audits')->insert([
                 'tenant_id' => $lead?->tenant_id,
                 'lead_action_id' => $leadAction->id,
                 'lead_id' => $leadAction->lead_id,

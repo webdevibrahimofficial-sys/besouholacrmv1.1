@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ErpSyncLog extends Model
+class ErpSyncLog extends TenantModel
 {
     use HasFactory;
 
@@ -28,4 +28,3 @@ class ErpSyncLog extends Model
         return $this->belongsTo(Tenant::class);
     }
 }
-

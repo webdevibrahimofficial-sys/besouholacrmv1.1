@@ -3,22 +3,23 @@
 namespace Tests\Feature;
 
 use App\Models\Tenant;
-use App\Models\TenantMetaApp;
 use App\Services\MetaAuthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\FacebookProvider;
 use Mockery;
+use Tests\Support\SeedsSharedMetaApp;
 use Tests\TestCase;
 
 class MetaOauthScopesTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsSharedMetaApp;
 
     public function test_minimal_mode_uses_public_profile_and_email_scopes(): void
     {
-        $tenant = $this->createTenantMetaApp();
+        $tenant = $this->createTenant();
 
         config([
             'services.meta.mock_mode' => false,
@@ -41,7 +42,7 @@ class MetaOauthScopesTest extends TestCase
 
     public function test_normal_mode_uses_scopes_from_configuration(): void
     {
-        $tenant = $this->createTenantMetaApp();
+        $tenant = $this->createTenant();
 
         config([
             'services.meta.mock_mode' => false,
@@ -62,7 +63,7 @@ class MetaOauthScopesTest extends TestCase
         $this->assertSame('https://facebook.test/oauth', $url);
     }
 
-    protected function createTenantMetaApp(): Tenant
+    protected function createTenant(): Tenant
     {
         $tenant = Tenant::create([
             'id' => 'tenant_meta_oauth',
@@ -71,14 +72,7 @@ class MetaOauthScopesTest extends TestCase
             'status' => 'active',
         ]);
 
-        TenantMetaApp::create([
-            'tenant_id' => $tenant->id,
-            'app_id' => 'tenant-app-id',
-            'app_secret' => 'tenant-app-secret',
-            'verify_token' => 'tenant-verify-token',
-            'webhook_key' => 'tenant-webhook-key',
-            'is_active' => true,
-        ]);
+        $this->seedSharedMetaApp('shared-app-id', 'shared-app-secret', 'shared-verify-token');
 
         return $tenant;
     }
@@ -91,7 +85,7 @@ class MetaOauthScopesTest extends TestCase
                 'Meta OAuth redirect initiated',
                 Mockery::on(function (array $context) use ($tenantId, $redirectUri, $expectedScopes, $minimalMode) {
                     return (string) ($context['tenant_id'] ?? null) === (string) $tenantId
-                        && ($context['app_id'] ?? null) === 'tenant-app-id'
+                        && ($context['app_id'] ?? null) === 'shared-app-id'
                         && ($context['redirect_uri'] ?? null) === $redirectUri
                         && ($context['scopes'] ?? null) === $expectedScopes
                         && ($context['minimal_scope_mode'] ?? null) === $minimalMode;
@@ -104,8 +98,8 @@ class MetaOauthScopesTest extends TestCase
         Socialite::shouldReceive('buildProvider')
             ->once()
             ->with(FacebookProvider::class, Mockery::on(function (array $config) use ($redirectUri) {
-                return ($config['client_id'] ?? null) === 'tenant-app-id'
-                    && ($config['client_secret'] ?? null) === 'tenant-app-secret'
+                return ($config['client_id'] ?? null) === 'shared-app-id'
+                    && ($config['client_secret'] ?? null) === 'shared-app-secret'
                     && ($config['redirect'] ?? null) === $redirectUri;
             }))
             ->andReturn($provider);

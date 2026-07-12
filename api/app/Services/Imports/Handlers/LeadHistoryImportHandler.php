@@ -2,6 +2,7 @@
 
 namespace App\Services\Imports\Handlers;
 
+use App\Models\CancelReason;
 use App\Models\ImportJob;
 use App\Models\ImportJobRow;
 use App\Models\InventoryRequest;
@@ -94,6 +95,8 @@ class LeadHistoryImportHandler implements ImportHandler
 
             $stageRaw = trim((string) ($normalized['stage'] ?? ''));
             $actionTypeRaw = trim((string) ($normalized['action_type'] ?? $normalized['actionType'] ?? $normalized['type'] ?? ''));
+            $cancelReasonRaw = trim((string) ($normalized['cancel_reason'] ?? $normalized['cancelReason'] ?? $normalized['reason'] ?? $normalized['reason_text'] ?? ''));
+            $cancelReason = $this->resolveCancelReason($tenantId, $cancelReasonRaw);
             $comment = trim((string) ($normalized['comment'] ?? ''));
             $salesRepRaw = trim((string) ($normalized['assigned_to'] ?? $normalized['sales_rep'] ?? ''));
             $actionAt = $this->parseActionAt(
@@ -185,13 +188,15 @@ class LeadHistoryImportHandler implements ImportHandler
 
             $stageMeta = $this->mapHistoryStage($stageRaw);
             $stageMeta['action_type'] = $this->resolveHistoryActionType($actionTypeRaw, (string) ($stageMeta['action_type'] ?? ''));
-            $fingerprint = $this->historyFingerprint($lead, $stageRaw, $actionAt, $salesRepRaw, $comment);
+            $fingerprint = $this->historyFingerprint($lead, $stageRaw, $actionAt, $salesRepRaw, $comment, $cancelReason?->id ? 'id:' . $cancelReason->id : $cancelReasonRaw);
 
             try {
                 $createdAction = $this->createHistoryAction(
                     $lead,
                     $stageMeta,
                     $stageRaw,
+                    $cancelReasonRaw,
+                    $cancelReason,
                     $comment,
                     $actionAt,
                     $actionUserId,
@@ -326,6 +331,10 @@ class LeadHistoryImportHandler implements ImportHandler
             'sales_person',
             'comment',
             'notes',
+            'cancel_reason',
+            'cancelReason',
+            'reason',
+            'reason_text',
         ] as $k) {
             if (!array_key_exists($k, $out) && array_key_exists($k, $rawRow)) {
                 $out[$k] = $rawRow[$k];
@@ -341,6 +350,7 @@ class LeadHistoryImportHandler implements ImportHandler
 
         return match ($key) {
             'actiontype', 'type', 'نوعالاكشن', 'نوعالإجراء', 'الإجراء', 'الاجراء' => 'action_type',
+            'cancelreason', 'reason', 'reasontext', 'reasontitle', 'سببالالغاء', 'سببالإلغاء' => 'cancel_reason',
             default => null,
         };
     }
@@ -349,6 +359,78 @@ class LeadHistoryImportHandler implements ImportHandler
     {
         $normalized = mb_strtolower(trim($header), 'UTF-8');
         return preg_replace('/[\s_\-\/:]+/u', '', $normalized) ?: '';
+    }
+
+    private function resolveCancelReason(?int $tenantId, string $reasonRaw): ?CancelReason
+    {
+        $reasonRaw = trim($reasonRaw);
+        if ($reasonRaw === '') {
+            return null;
+        }
+
+        $normalizedRaw = $this->normalizeCancelReasonText($reasonRaw);
+        $query = CancelReason::query();
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $reasons = $query->orderBy('id')->get();
+        foreach ($reasons as $reason) {
+            $title = $this->normalizeCancelReasonText((string) $reason->title);
+            $titleAr = $this->normalizeCancelReasonText((string) $reason->title_ar);
+
+            if ($normalizedRaw === $title || $normalizedRaw === $titleAr) {
+                return $reason;
+            }
+
+            if ($title !== '' && str_starts_with($normalizedRaw, $title)) {
+                return $reason;
+            }
+
+            if ($titleAr !== '' && str_starts_with($normalizedRaw, $titleAr)) {
+                return $reason;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeCancelReasonText(string $value): string
+    {
+        $normalized = mb_strtolower(trim($value), 'UTF-8');
+        $normalized = preg_replace('/[\s_\-\/:]+/u', '', $normalized) ?: $normalized;
+        return $normalized;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildCancelReasonDetails(?int $cancelReasonId, string $cancelReasonTitle, string $cancelReasonTitleAr): array
+    {
+        $cancelReasonTitle = trim($cancelReasonTitle);
+        $cancelReasonTitleAr = trim($cancelReasonTitleAr);
+
+        $details = [
+            'kind' => 'cancel_reason',
+        ];
+
+        if ($cancelReasonId) {
+            $details['cancel_reason_id'] = $cancelReasonId;
+            $details['reasonId'] = $cancelReasonId;
+        }
+
+        if ($cancelReasonTitle !== '') {
+            $details['text'] = $cancelReasonTitle;
+            $details['reasonTitle'] = $cancelReasonTitle;
+            $details['cancelReason'] = $cancelReasonTitle;
+        }
+
+        if ($cancelReasonTitleAr !== '') {
+            $details['reasonTitleAr'] = $cancelReasonTitleAr;
+            $details['cancelReasonAr'] = $cancelReasonTitleAr;
+        }
+
+        return $details;
     }
 
     private function rowNumberFromOptions(array $options, int $index): int
@@ -637,7 +719,8 @@ class LeadHistoryImportHandler implements ImportHandler
         string $stageRaw,
         Carbon $actionAt,
         string $salesRepRaw,
-        string $comment
+        string $comment,
+        string $cancelReasonKey = ''
     ): string {
         return sha1(json_encode([
             'lead_id' => (int) $lead->id,
@@ -645,6 +728,7 @@ class LeadHistoryImportHandler implements ImportHandler
             'action_at' => $actionAt->format('Y-m-d H:i:s'),
             'sales_rep' => mb_strtolower(trim($salesRepRaw)),
             'comment' => trim($comment),
+            'cancel_reason' => mb_strtolower(trim($cancelReasonKey)),
         ], JSON_UNESCAPED_UNICODE));
     }
 
@@ -652,6 +736,8 @@ class LeadHistoryImportHandler implements ImportHandler
         Lead $lead,
         array $stageMeta,
         string $stageRaw,
+        string $cancelReasonRaw,
+        ?CancelReason $cancelReason,
         string $comment,
         Carbon $actionAt,
         ?int $actionUserId,
@@ -669,6 +755,10 @@ class LeadHistoryImportHandler implements ImportHandler
         }
 
         $description = $comment !== '' ? $comment : $this->fallbackDescription($stageRaw);
+        $cancelReasonTitle = trim((string) ($cancelReason?->title ?: $cancelReasonRaw));
+        $cancelReasonTitleAr = trim((string) ($cancelReason?->title_ar ?: ''));
+        $cancelReasonId = $cancelReason?->id ? (int) $cancelReason->id : null;
+        $cancelDetails = $this->buildCancelReasonDetails($cancelReasonId, $cancelReasonTitle, $cancelReasonTitleAr);
         $details = array_filter(array_merge([
             'date' => $actionAt->toDateString(),
             'time' => $actionAt->format('H:i'),
@@ -678,7 +768,17 @@ class LeadHistoryImportHandler implements ImportHandler
             'history_fingerprint' => $fingerprint,
             'auto_generated' => true,
             'sales_rep_name' => $salesRepRaw !== '' ? $salesRepRaw : null,
+            'cancel_reason_id' => $cancelReasonId,
+            'cancel_reason' => $cancelReasonTitle !== '' ? $cancelReasonTitle : null,
+            'cancel_reason_ar' => $cancelReasonTitleAr !== '' ? $cancelReasonTitleAr : null,
         ], is_array($stageMeta['details'] ?? null) ? $stageMeta['details'] : []), fn ($value) => $value !== null && $value !== '');
+
+        if (!empty($cancelDetails)) {
+            $details['comments'] = array_values(array_merge(
+                is_array($details['comments'] ?? null) ? $details['comments'] : [],
+                [$cancelDetails]
+            ));
+        }
 
         $action = new LeadAction([
             'lead_id' => $lead->id,

@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ImportJob extends Model
+class ImportJob extends TenantModel
 {
     use HasFactory;
 
@@ -43,4 +43,3 @@ class ImportJob extends Model
         return $this->belongsTo(User::class, 'uploaded_by');
     }
 }
-

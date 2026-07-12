@@ -4,87 +4,65 @@ namespace App\Services;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use App\Services\TenantMetaCredentialsResolver;
 
 class MetaWebhookService
 {
-    public function __construct(protected TenantMetaCredentialsResolver $credentialsResolver)
+    public function __construct(protected MetaCredentialsResolver $credentialsResolver)
     {
     }
 
-    public function handleWebhook(Request $request, $tenantId = null)
+    public function handleWebhook(Request $request): void
     {
-        // Allow explicit Postman smoke tests without a Meta signature.
-        if ($request->header('X-Webhook-Test') === 'postman') {
+        $allowPostmanBypass = !app()->environment('production')
+            && $request->header('X-Webhook-Test') === 'postman';
+
+        if ($allowPostmanBypass) {
             Log::info('Postman webhook signature bypassed', [
-                'tenant_id' => $tenantId,
                 'content_length' => strlen((string) $request->getContent()),
             ]);
         } elseif (!config('services.meta.mock_mode')) {
-            // Verify signature
             $signature = $request->header('X-Hub-Signature-256') ?? $request->header('X-Hub-Signature');
-            $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+            $credentials = $this->credentialsResolver->resolveShared();
             $appSecret = $credentials['app_secret'] ?? null;
             $rawBody = (string) $request->getContent();
 
-            Log::info('Meta Signature Debug', [
-                'tenant_id' => $tenantId,
-                'signature_present' => !empty($signature),
-                'signature_header' => $signature ? explode('=', $signature, 2)[0] : null,
-                'payload_len' => strlen($rawBody),
-                'app_secret_len' => strlen((string) $appSecret),
-                'content_type' => $request->header('Content-Type'),
-            ]);
-            Log::info('Meta Signature Full Debug', [
-                'tenant_id' => $tenantId,
-                'signature' => $signature,
-                'content_length' => strlen($rawBody),
-            ]);
-
             if (!$appSecret) {
-                Log::error('Meta webhook rejected: missing app secret');
+                Log::error('Meta webhook rejected: missing shared app secret');
                 abort(500, 'Webhook secret not configured');
             }
-            
-            // Signature format: sha1=... or sha256=...
-            // $signature header contains "algo=hash"
-            
+
             if (!$signature || !$this->verifySignature($rawBody, $signature, $appSecret)) {
-                Log::warning("Invalid webhook signature from " . $request->ip());
+                Log::warning('Invalid webhook signature from ' . $request->ip());
                 abort(403, 'Invalid signature');
             }
 
             Log::info('Meta Signature Verified', [
-                'tenant_id' => $tenantId,
                 'payload_len' => strlen($rawBody),
             ]);
         } else {
-            Log::info("Mock Mode: Skipping webhook signature verification.");
+            Log::info('Mock Mode: Skipping webhook signature verification.');
         }
 
         $payload = $request->all();
-        
+
         if (isset($payload['object']) && $payload['object'] === 'page') {
             $entries = is_array($payload['entry'] ?? null) ? $payload['entry'] : [];
             foreach ($entries as $entry) {
                 $changes = is_array($entry['changes'] ?? null) ? $entry['changes'] : [];
                 foreach ($changes as $change) {
                     Log::info('Meta Webhook Change Observed', [
-                        'tenant_id' => $tenantId,
                         'entry_id' => $entry['id'] ?? null,
                         'field' => $change['field'] ?? null,
-                        'value_keys' => is_array($change['value'] ?? null) ? array_keys($change['value']) : [],
                     ]);
 
                     if (isset($change['field']) && $change['field'] === 'leadgen') {
                         $value = $change['value'] ?? [];
                         $pageId = $entry['id'] ?? ($value['page_id'] ?? null);
                         $leadGenId = $value['leadgen_id'] ?? null;
-                        
+
                         if ($leadGenId && $pageId) {
-                            // Find tenant by page_id
-                            $resolvedTenantId = $tenantId ?: $this->findTenantIdByPageId($pageId);
-                            
+                            $resolvedTenantId = $this->findTenantIdByPageId($pageId);
+
                             if ($resolvedTenantId) {
                                 Log::info('Meta Lead Dispatching', [
                                     'tenant_id' => $resolvedTenantId,
@@ -127,8 +105,20 @@ class MetaWebhookService
 
     protected function findTenantIdByPageId($pageId)
     {
-        // Find MetaPage by page_id
-        $page = \App\Models\MetaPage::where('page_id', $pageId)->first();
+        $pages = \App\Models\MetaPage::where('page_id', $pageId)
+            ->where('is_active', true)
+            ->orderByDesc('updated_at')
+            ->get();
+
+        if ($pages->count() > 1) {
+            Log::warning('Multiple tenants linked to the same Meta page_id', [
+                'page_id' => $pageId,
+                'tenant_ids' => $pages->pluck('tenant_id')->all(),
+            ]);
+        }
+
+        $page = $pages->first();
+
         return $page ? $page->tenant_id : null;
     }
 }

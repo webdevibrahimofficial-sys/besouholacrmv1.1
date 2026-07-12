@@ -52,7 +52,6 @@ return [
     ],
 
     'meta' => [
-        'use_tenant_apps' => env('META_USE_TENANT_APPS', true),
         'mock_mode' => env('META_MOCK_MODE', false),
         'mock_on_local' => env('META_MOCK_ON_LOCAL', false),
         'oauth_minimal_scopes' => env('META_OAUTH_MINIMAL_SCOPES', false),

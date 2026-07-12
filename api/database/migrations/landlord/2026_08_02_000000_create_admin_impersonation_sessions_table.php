@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('admin_impersonation_sessions', function (Blueprint $table) {
+        Schema::connection('landlord')->create('admin_impersonation_sessions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('admin_user_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('tenant_id')->constrained('tenants')->cascadeOnDelete();
@@ -32,17 +32,17 @@ return new class extends Migration
             $table->json('meta_data')->nullable();
             $table->timestamps();
 
-            $table->index(['admin_user_id', 'status']);
-            $table->index(['tenant_id', 'status']);
-            $table->index(['support_session_token_id', 'status']);
-            $table->index(['expires_at', 'status']);
-            $table->index('bridge_token_used_at');
-            $table->index('token_hash');
+            $table->index(['admin_user_id', 'status'], 'imp_sess_admin_status_idx');
+            $table->index(['tenant_id', 'status'], 'imp_sess_tenant_status_idx');
+            $table->index(['support_session_token_id', 'status'], 'imp_sess_token_status_idx');
+            $table->index(['expires_at', 'status'], 'imp_sess_expires_status_idx');
+            $table->index('bridge_token_used_at', 'imp_sess_bridge_used_idx');
+            $table->index('token_hash', 'imp_sess_token_hash_idx');
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('admin_impersonation_sessions');
+        Schema::connection('landlord')->dropIfExists('admin_impersonation_sessions');
     }
 };

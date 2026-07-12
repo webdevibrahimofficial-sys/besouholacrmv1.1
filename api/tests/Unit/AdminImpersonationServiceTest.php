@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\AdminImpersonationService;
+use App\Services\SystemAdminPermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -19,7 +20,7 @@ class AdminImpersonationServiceTest extends TestCase
     {
         Schema::shouldReceive('hasTable')->once()->with('admin_impersonation_sessions')->andReturn(false);
 
-        $service = new AdminImpersonationService();
+        $service = new AdminImpersonationService(app(SystemAdminPermissionService::class));
         $token = new PersonalAccessToken(['id' => 112]);
 
         $this->assertNull($service->currentForSupportToken($token));
@@ -29,7 +30,7 @@ class AdminImpersonationServiceTest extends TestCase
     {
         Schema::shouldReceive('hasTable')->once()->with('admin_impersonation_sessions')->andReturn(false);
 
-        $service = new AdminImpersonationService();
+        $service = new AdminImpersonationService(app(SystemAdminPermissionService::class));
 
         $this->expectException(HttpException::class);
         $this->expectExceptionMessage('Support access is unavailable until the impersonation storage migration is applied.');
@@ -133,12 +134,17 @@ class AdminImpersonationServiceTest extends TestCase
 
     protected function service(): AdminImpersonationServiceTestProxy
     {
-        return new AdminImpersonationServiceTestProxy();
+        return new AdminImpersonationServiceTestProxy(app(SystemAdminPermissionService::class));
     }
 }
 
 class AdminImpersonationServiceTestProxy extends AdminImpersonationService
 {
+    public function __construct(SystemAdminPermissionService $systemAdminPermissions)
+    {
+        parent::__construct($systemAdminPermissions);
+    }
+
     public function resolvePrimaryTenantUserForTest(Tenant $tenant): ?User
     {
         return $this->resolvePrimaryTenantUser($tenant);

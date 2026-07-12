@@ -8,14 +8,13 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('meta:webhook-sign {tenant_id : Tenant id} {path? : File path to raw JSON payload (defaults to STDIN)} {--algo=sha256 : sha256 or sha1}', function () {
+Artisan::command('meta:webhook-sign {path? : File path to raw JSON payload (defaults to STDIN)} {--algo=sha256 : sha256 or sha1}', function () {
     $algo = strtolower((string) $this->option('algo'));
     if (!in_array($algo, ['sha256', 'sha1'], true)) {
         $this->error('Invalid --algo. Use sha256 or sha1.');
         return 2;
     }
 
-    $tenantId = (string) $this->argument('tenant_id');
     $path = $this->argument('path');
     if ($path) {
         if (!is_string($path) || !file_exists($path)) {
@@ -32,13 +31,12 @@ Artisan::command('meta:webhook-sign {tenant_id : Tenant id} {path? : File path t
         return 2;
     }
 
-    $appSecret = \App\Models\TenantMetaApp::where('tenant_id', $tenantId)
-        ->where('is_active', true)
-        ->value('app_secret');
+    $resolver = app(\App\Services\MetaSystemSettingsService::class);
+    $credentials = $resolver->resolveSharedCredentials();
+    $appSecret = trim((string) ($credentials['app_secret'] ?? ''));
 
-    $appSecret = is_string($appSecret) ? trim($appSecret) : $appSecret;
-    if (!$appSecret) {
-        $this->error("Meta app secret is missing for tenant {$tenantId}.");
+    if ($appSecret === '') {
+        $this->error('Shared Meta app secret is not configured.');
         return 2;
     }
 
@@ -50,7 +48,7 @@ Artisan::command('meta:webhook-sign {tenant_id : Tenant id} {path? : File path t
     $this->line('Content-Type: application/json');
 
     return 0;
-})->purpose('Compute Meta webhook signature header for a raw payload');
+})->purpose('Compute Meta webhook signature header for a raw payload using the shared app secret');
 
 Schedule::command('actions:check-upcoming')->everyFiveMinutes();
 Schedule::command('actions:check-delayed')->everyFiveMinutes();

@@ -4,8 +4,8 @@ namespace App\Console\Commands;
 
 use App\Models\Module;
 use App\Models\Tenant;
+use App\Services\TenantService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Cache;
 
 class SyncTenantModulesByCompanyType extends Command
 {
@@ -76,7 +76,7 @@ class SyncTenantModulesByCompanyType extends Command
             if (!empty($changes)) {
                 $this->info("Tenant {$tenant->id} ({$tenant->slug}): " . implode(', ', $changes));
                 if (!$dryRun) {
-                    Cache::forget("tenant_modules_enabled_{$tenant->id}");
+                    app(TenantService::class)->forgetTenantCache($tenant);
                 }
             } else {
                 $this->line("Tenant {$tenant->id} ({$tenant->slug}): no changes");

@@ -16,6 +16,7 @@ class AdminNotificationPayload
         public ?string $actionUrl = null,
         public array $channels = ['in_app'],
         public ?string $dedupeKey = null,
+        public int $dedupeWindowMinutes = 15,
     ) {
     }
 }

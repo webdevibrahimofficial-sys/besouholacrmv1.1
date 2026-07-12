@@ -3,7 +3,9 @@
 namespace App\Services\Meta;
 
 use App\Contracts\MetaApiClientInterface;
-use App\Services\TenantMetaCredentialsResolver;
+use App\Services\AdminEventNotificationService;
+use App\Services\MetaCredentialsResolver;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Http\Client\Response;
@@ -13,15 +15,17 @@ class RealMetaApiClient implements MetaApiClientInterface
     protected $baseUrl = 'https://graph.facebook.com/v19.0';
     protected $credentialsResolver;
 
-    public function __construct(?TenantMetaCredentialsResolver $credentialsResolver = null)
-    {
-        $this->credentialsResolver = $credentialsResolver ?? app(TenantMetaCredentialsResolver::class);
+    public function __construct(
+        ?MetaCredentialsResolver $credentialsResolver = null,
+        protected ?AdminEventNotificationService $adminEventNotifications = null
+    ) {
+        $this->credentialsResolver = $credentialsResolver ?? app(MetaCredentialsResolver::class);
+        $this->adminEventNotifications = $adminEventNotifications ?? app(AdminEventNotificationService::class);
     }
 
     protected function resolveAppSecret(): ?string
     {
-        $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
-        $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+        $credentials = $this->credentialsResolver->resolveShared();
         return $credentials['app_secret'] ?? null;
     }
 
@@ -95,10 +99,24 @@ class RealMetaApiClient implements MetaApiClientInterface
         if ($subcode) $logMsg .= " (Subcode: {$subcode})";
         if ($userMsg) $logMsg .= " UserMsg: {$userMsg}";
 
-        Log::error($logMsg);
+        Log::error($logMsg, [
+            'endpoint' => $endpoint,
+            'code' => $code,
+            'subcode' => $subcode,
+            'rate_limited' => in_array((int) $code, [4, 17, 32, 613], true),
+        ]);
 
         // Check for Rate Limit specifically
-        if ($code == 4 || $code == 17 || $code == 32 || $code == 613) {
+        if (in_array((int) $code, [4, 17, 32, 613], true)) {
+            $counter = (int) Cache::get('meta:rate_limit_events_24h', 0);
+            Cache::put('meta:rate_limit_events_24h', $counter + 1, now()->addDay());
+
+            $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyMetaRateLimit(
+                $endpoint,
+                (int) $code,
+                (string) ($userMsg ?? $message)
+            ));
+
             throw new \Exception("Meta Rate Limit Reached: " . ($userMsg ?? $message));
         }
 

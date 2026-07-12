@@ -15,6 +15,11 @@ use Illuminate\Support\Facades\Log;
 
 class PasswordResetController extends Controller
 {
+    protected function passwordResetTable()
+    {
+        return DB::connection(config('multitenancy.tenant_database_connection_name'))->table('password_reset_tokens');
+    }
+
     public function sendResetLink(Request $request)
     {
         $request->validate([
@@ -41,7 +46,7 @@ class PasswordResetController extends Controller
             $token = Str::random(64);
 
             // 4. Store Token
-            DB::table('password_reset_tokens')->updateOrInsert(
+            $this->passwordResetTable()->updateOrInsert(
                 ['email' => $request->email],
                 [
                     'email' => $request->email,
@@ -89,7 +94,7 @@ class PasswordResetController extends Controller
         }
 
         // 2. Validate Token
-        $resetRecord = DB::table('password_reset_tokens')
+        $resetRecord = $this->passwordResetTable()
             ->where('email', $request->email)
             ->where('token', $request->token)
             ->first();
@@ -100,7 +105,7 @@ class PasswordResetController extends Controller
 
         // 3. Check Expiration (60 minutes)
         if (Carbon::parse($resetRecord->created_at)->addMinutes(60)->isPast()) {
-            DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+            $this->passwordResetTable()->where('email', $request->email)->delete();
             return response()->json(['message' => 'Token expired.'], 400);
         }
 
@@ -144,7 +149,7 @@ class PasswordResetController extends Controller
         }
 
         // 7. Delete Token
-        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+        $this->passwordResetTable()->where('email', $request->email)->delete();
 
         return response()->json(['message' => 'Password reset successfully.']);
     }

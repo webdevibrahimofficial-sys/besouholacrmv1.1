@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class WhatsappMirrorSession extends Model
+class WhatsappMirrorSession extends TenantModel
 {
     protected $fillable = [
         'tenant_id',

@@ -435,9 +435,9 @@ class SubscriptionTransactionController extends Controller
 
     private function subscriptionTablesExist(): bool
     {
-        return Schema::hasTable('tenant_subscription_contracts')
-            && Schema::hasTable('subscription_transactions')
-            && Schema::hasTable('subscription_transaction_items');
+        return Schema::connection('landlord')->hasTable('tenant_subscription_contracts')
+            && Schema::connection('landlord')->hasTable('subscription_transactions')
+            && Schema::connection('landlord')->hasTable('subscription_transaction_items');
     }
 
     private function ensureSubscriptionTablesExist(): void

@@ -64,6 +64,39 @@ class SuperAdminImpersonationTest extends TestCase
         $this->superAdmin->givePermissionTo($permission);
     }
 
+    public function test_legacy_super_admin_without_rbac_can_start_support_access(): void
+    {
+        $systemTenant = Tenant::factory()->create([
+            'slug' => 'owner',
+            'status' => 'active',
+        ]);
+
+        $tenant = Tenant::factory()->create([
+            'slug' => 'tenant-one',
+            'status' => 'active',
+        ]);
+
+        $legacySuperAdmin = User::factory()->create([
+            'tenant_id' => $systemTenant->id,
+            'is_super_admin' => true,
+        ]);
+
+        User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'is_super_admin' => false,
+            'status' => 'Active',
+        ]);
+
+        setPermissionsTeamId(null);
+        Sanctum::actingAs($legacySuperAdmin);
+
+        $this->postJson("/api/super-admin/tenants/{$tenant->id}/impersonation", [
+            'mode' => 'support_access',
+        ])
+            ->assertOk()
+            ->assertJsonPath('session.tenant_id', $tenant->id);
+    }
+
     public function test_non_super_admin_cannot_start_support_access(): void
     {
         $normalUser = User::factory()->create([

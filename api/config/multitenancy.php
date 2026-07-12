@@ -10,8 +10,8 @@ use Illuminate\Queue\CallQueuedClosure;
 use Spatie\Multitenancy\Actions\ForgetCurrentTenantAction;
 use Spatie\Multitenancy\Actions\MakeQueueTenantAwareAction;
 use Spatie\Multitenancy\Actions\MigrateTenantAction;
-use Spatie\Multitenancy\Tasks\SwitchTenantDatabaseTask;
 use App\Multitenancy\Actions\MakeTenantCurrentWithContext;
+use App\Multitenancy\Tasks\SwitchTenantDatabaseTask;
 
 return [
     /*

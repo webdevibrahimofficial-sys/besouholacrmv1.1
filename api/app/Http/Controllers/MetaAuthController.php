@@ -9,11 +9,11 @@ use App\Models\MetaConnection;
 use App\Models\MetaBusiness;
 use App\Models\MetaAdAccount;
 use App\Models\MetaPage;
-use App\Models\TenantMetaApp;
 use App\Models\Integration;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Services\TenantMetaCredentialsResolver;
+use App\Services\MetaSystemSettingsService;
+use App\Services\MetaCredentialsResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -25,12 +25,18 @@ class MetaAuthController extends Controller
     use AppliesAgencyScope;
 
     protected MetaAuthService $metaAuthService;
-    protected TenantMetaCredentialsResolver $credentialsResolver;
+    protected MetaCredentialsResolver $credentialsResolver;
+    protected MetaSystemSettingsService $metaSystemSettings;
 
-    public function __construct(MetaAuthService $metaAuthService, TenantMetaCredentialsResolver $credentialsResolver)
+    public function __construct(
+        MetaAuthService $metaAuthService,
+        MetaCredentialsResolver $credentialsResolver,
+        MetaSystemSettingsService $metaSystemSettings
+    )
     {
         $this->metaAuthService = $metaAuthService;
         $this->credentialsResolver = $credentialsResolver;
+        $this->metaSystemSettings = $metaSystemSettings;
     }
 
     public function redirect(Request $request)
@@ -51,7 +57,7 @@ class MetaAuthController extends Controller
             $this->credentialsResolver->resolveForTenant($user->tenant_id);
         } catch (\Throwable $e) {
             return response()->json([
-                'error' => 'Tenant Meta App is not configured. Please configure tenant app settings first.',
+                'error' => 'Meta integration is not enabled. Please ask your system administrator to configure the shared Meta App.',
             ], 422);
         }
 
@@ -142,16 +148,31 @@ class MetaAuthController extends Controller
         
         $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
         $settings = $this->metaDefaultSettings($integration?->settings);
+        $tenantHealth = app(\App\Services\MetaHealthService::class)->getTenantHealth($tenantId);
 
         return response()->json([
-            'connected' => $connections->isNotEmpty(),
+            'connected' => $connections->exists(),
+            'shared_meta_configured' => $this->metaSystemSettings->isConfigured(),
             'integration_status' => $integration ? $integration->status : 'inactive',
             'settings' => $settings,
+            'sync_warnings' => $tenantHealth['sync_warnings'] ?? [],
+            'subscribe_summary' => $tenantHealth['subscribe_summary'] ?? [],
+            'tenant_health' => $tenantHealth,
             'connections' => $connections->get(),
             'businesses' => $businesses->get(),
             'ad_accounts' => $adAccounts->get(),
             'pages' => $pages->get(),
         ]);
+    }
+
+    public function health(Request $request)
+    {
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+
+        return response()->json(
+            app(\App\Services\MetaHealthService::class)->getTenantHealth($tenantId)
+        );
     }
     
     public function updateSettings(Request $request)
@@ -172,97 +193,6 @@ class MetaAuthController extends Controller
         $integration->save();
 
         return response()->json(['message' => 'Settings updated successfully']);
-    }
-
-    public function appSettings(Request $request)
-    {
-        $this->ensureMetaSettingsAccess($request->user());
-        $tenantId = $request->user()->tenant_id;
-        $record = TenantMetaApp::where('tenant_id', $tenantId)->first();
-
-        $webhookBase = rtrim(config('app.url'), '/');
-        $webhookPath = $record?->webhook_key
-            ? "/api/meta/webhook/{$record->webhook_key}"
-            : null;
-
-        return response()->json([
-            'app_id' => $record?->app_id,
-            'app_secret_masked' => $record?->masked_app_secret,
-            'verify_token_set' => !empty($record?->verify_token),
-            'webhook_key' => $record?->webhook_key,
-            'webhook_url' => $webhookPath ? ($webhookBase . $webhookPath) : null,
-            'is_active' => (bool) ($record?->is_active ?? false),
-            'source' => $record?->is_active ? 'tenant' : 'none',
-        ]);
-    }
-
-    public function updateAppSettings(Request $request)
-    {
-        $this->ensureMetaSettingsAccess($request->user());
-        $tenantId = $request->user()->tenant_id;
-        $payload = $request->validate([
-            'app_id' => 'required|string|max:255',
-            'app_secret' => 'nullable|string|max:2048',
-            'verify_token' => 'nullable|string|max:1024',
-            'is_active' => 'sometimes|boolean',
-        ]);
-
-        $existing = TenantMetaApp::where('tenant_id', $tenantId)->first();
-        if (!$existing) {
-            $existing = new TenantMetaApp();
-            $existing->tenant_id = $tenantId;
-            $existing->webhook_key = $this->credentialsResolver->generateWebhookKey();
-        }
-
-        $existing->app_id = $payload['app_id'];
-        if (!empty($payload['app_secret'])) {
-            $existing->app_secret = $payload['app_secret'];
-        }
-        if (!empty($payload['verify_token'])) {
-            $existing->verify_token = $payload['verify_token'];
-        } elseif (!$existing->verify_token) {
-            $existing->verify_token = Str::random(40);
-        }
-        if (array_key_exists('is_active', $payload)) {
-            $existing->is_active = (bool) $payload['is_active'];
-        }
-        $existing->save();
-
-        return response()->json([
-            'message' => 'Tenant Meta app settings saved.',
-        ]);
-    }
-
-    public function clearAppSettings(Request $request)
-    {
-        $this->ensureMetaSettingsAccess($request->user());
-        $tenantId = $request->user()->tenant_id;
-
-        TenantMetaApp::withoutGlobalScopes()
-            ->where('tenant_id', $tenantId)
-            ->delete();
-
-        Integration::withoutGlobalScopes()
-            ->where('tenant_id', $tenantId)
-            ->where('provider', 'meta')
-            ->update(['status' => 'inactive']);
-
-        return response()->json([
-            'message' => 'Tenant Meta app settings cleared.',
-        ]);
-    }
-
-    protected function ensureMetaSettingsAccess(User $user): void
-    {
-        if ($user->is_super_admin) {
-            return;
-        }
-
-        if ($user->hasRole('Admin') || $user->hasRole('Tenant Admin')) {
-            return;
-        }
-
-        abort(403, 'Only tenant admins can manage Meta App settings.');
     }
 
     protected function metaDefaultSettings($settings = null): array

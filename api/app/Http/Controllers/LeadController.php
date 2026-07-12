@@ -7,6 +7,7 @@ use App\Models\RecycleLead;
 use App\Models\FieldValue;
 use App\Models\Entity;
 use App\Models\CrmSetting;
+use App\Models\CancelReason;
 use App\Models\User;
 use App\Models\Activity;
 use App\Models\Project;
@@ -31,6 +32,11 @@ class LeadController extends Controller
 {
     use \App\Traits\UserHierarchyTrait;
     use \App\Traits\ResolvesNotificationRecipients;
+
+    private function tenantConnection()
+    {
+        return DB::connection(config('multitenancy.tenant_database_connection_name'));
+    }
 
     /**
      * Recipients for duplicate notifications (management roles).
@@ -86,6 +92,48 @@ class LeadController extends Controller
         $query->where(function ($q) use ($expression, $values) {
             foreach ($values as $value) {
                 $q->orWhereRaw("{$expression} = ?", [$value]);
+            }
+        });
+    }
+
+    private function applyProjectIdFilter($query, Request $request, $user): void
+    {
+        if (!$request->filled('project_id')) {
+            return;
+        }
+
+        $projectIds = array_values(array_filter(
+            array_map(fn ($value) => is_numeric($value) ? (int) $value : null, (array) $request->project_id),
+            fn ($value) => !is_null($value)
+        ));
+
+        if (empty($projectIds)) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        $projects = Project::query()
+            ->when(!$user->is_super_admin, fn ($projectQuery) => $projectQuery->where('tenant_id', $user->tenant_id))
+            ->whereIn('id', $projectIds)
+            ->get(['id', 'name', 'name_ar']);
+
+        $projectNames = $projects
+            ->flatMap(function ($project) {
+                return [
+                    trim((string) ($project->name ?? '')),
+                    trim((string) ($project->name_ar ?? '')),
+                ];
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $query->where(function ($projectQuery) use ($projectIds, $projectNames) {
+            $projectQuery->whereIn('leads.project_id', $projectIds);
+
+            if (!empty($projectNames)) {
+                $projectQuery->orWhereIn('leads.project', $projectNames);
             }
         });
     }
@@ -1042,7 +1090,7 @@ class LeadController extends Controller
             $user = $request->user();
             $tenantId = $user->tenant_id;
 
-            $query = DB::table('leads')
+            $query = $this->tenantConnection()->table('leads')
                 ->join('lead_actions', 'lead_actions.lead_id', '=', 'leads.id')
                 ->leftJoin('users', 'users.id', '=', 'leads.assigned_to')
                 ->where('lead_actions.action_type', 'meeting')
@@ -1147,7 +1195,7 @@ class LeadController extends Controller
             $tenantId = $user->tenant_id;
 
             // 1. Get Distinct values directly from DB tables for speed and safety
-            $referredLeadQuery = DB::table('leads')
+            $referredLeadQuery = $this->tenantConnection()->table('leads')
                 ->join('lead_referrals', 'leads.id', '=', 'lead_referrals.lead_id')
                 ->where('leads.tenant_id', $tenantId);
 
@@ -1176,26 +1224,26 @@ class LeadController extends Controller
             $campaigns = (clone $referredLeadQuery)->whereNotNull('leads.campaign')->where('leads.campaign', '!=', '')->distinct()->pluck('leads.campaign');
 
             // Countries (From settings/locations/countries table)
-            $countries = DB::table('countries')
+            $countries = $this->tenantConnection()->table('countries')
                 ->where('tenant_id', $tenantId)
                 ->where('status', true)
                 ->orderBy('name_en')
                 ->get(['id', 'name_en', 'name_ar']);
 
             // Stages
-            $stages = DB::table('stages')->where('tenant_id', $tenantId)->orderBy('order')->get(['id', 'name', 'name_ar', 'icon', 'color']);
+            $stages = $this->tenantConnection()->table('stages')->where('tenant_id', $tenantId)->orderBy('order')->get(['id', 'name', 'name_ar', 'icon', 'color']);
 
             // Managers
-            $managerIds = DB::table('users')->where('tenant_id', $tenantId)->whereNotNull('manager_id')->distinct()->pluck('manager_id');
-            $managers = DB::table('users')->whereIn('id', $managerIds)->get(['id', 'name']);
+            $managerIds = $this->tenantConnection()->table('users')->where('tenant_id', $tenantId)->whereNotNull('manager_id')->distinct()->pluck('manager_id');
+            $managers = $this->tenantConnection()->table('users')->whereIn('id', $managerIds)->get(['id', 'name']);
 
             // Receivers
-            $receiverIds = DB::table('lead_referrals')->where('tenant_id', $tenantId)->distinct()->pluck('user_id');
-            $salesPersons = DB::table('users')->whereIn('id', $receiverIds)->get(['id', 'name']);
+            $receiverIds = $this->tenantConnection()->table('lead_referrals')->where('tenant_id', $tenantId)->distinct()->pluck('user_id');
+            $salesPersons = $this->tenantConnection()->table('users')->whereIn('id', $receiverIds)->get(['id', 'name']);
 
             // Referrers
-            $referrerIds = DB::table('lead_referrals')->where('tenant_id', $tenantId)->distinct()->pluck('referrer_id');
-            $referrers = DB::table('users')->whereIn('id', $referrerIds)->get(['id', 'name']);
+            $referrerIds = $this->tenantConnection()->table('lead_referrals')->where('tenant_id', $tenantId)->distinct()->pluck('referrer_id');
+            $referrers = $this->tenantConnection()->table('users')->whereIn('id', $referrerIds)->get(['id', 'name']);
 
             return response()->json([
                 'stages' => $stages,
@@ -1453,14 +1501,58 @@ class LeadController extends Controller
         }
 
         // 5. Basic Filters
-        foreach (['priority', 'campaign', 'country', 'project_id', 'created_by'] as $filter) {
+        foreach (['priority', 'campaign', 'country', 'created_by'] as $filter) {
             if ($request->filled($filter)) {
                 $query->whereIn("leads.$filter", (array)$request->$filter);
             }
         }
 
+        $this->applyProjectIdFilter($query, $request, $user);
+
         if ($request->filled('agency')) {
             $this->applyMetaDataTextFilter($query, 'agency', (array) $request->agency);
+        }
+
+        if ($request->filled('cancel_reason')) {
+            $cancelReasonIds = array_values(array_filter(
+                array_map(fn ($value) => is_numeric($value) ? (int) $value : null, (array) $request->cancel_reason),
+                fn ($value) => !is_null($value)
+            ));
+
+            if (empty($cancelReasonIds)) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $cancelReasons = CancelReason::query()
+                    ->when(!$user->is_super_admin, fn ($reasonQuery) => $reasonQuery->where('tenant_id', $user->tenant_id))
+                    ->whereIn('id', $cancelReasonIds)
+                    ->get(['id', 'title', 'title_ar']);
+
+                if ($cancelReasons->isEmpty()) {
+                    $query->whereRaw('1 = 0');
+                } else {
+                    $query->whereHas('actions', function ($actionQuery) use ($cancelReasons) {
+                        $actionQuery->where('lead_actions.action_type', 'cancel')
+                            ->where(function ($reasonQuery) use ($cancelReasons) {
+                                foreach ($cancelReasons as $reason) {
+                                    $reasonId = (int) $reason->id;
+                                    $title = trim((string) ($reason->title ?? ''));
+                                    $titleAr = trim((string) ($reason->title_ar ?? ''));
+
+                                    $reasonQuery->orWhere('lead_actions.details->cancel_reason_id', $reasonId);
+
+                                    if ($title !== '') {
+                                        $reasonQuery->orWhere('lead_actions.details->cancel_reason', $title);
+                                    }
+
+                                    if ($titleAr !== '') {
+                                        $reasonQuery->orWhere('lead_actions.details->cancel_reason_ar', $titleAr)
+                                            ->orWhere('lead_actions.details->cancel_reason', $titleAr);
+                                    }
+                                }
+                            });
+                    });
+                }
+            }
         }
 
         // Old Stage Filter
@@ -2142,7 +2234,7 @@ class LeadController extends Controller
         $driver = DB::connection()->getDriverName();
         [$dateExpr, $timeExpr] = $this->buildNextActionExtractExpr($driver, 'la');
 
-        $latestActionIds = DB::table('lead_actions as la')
+        $latestActionIds = $this->tenantConnection()->table('lead_actions as la')
             ->selectRaw('MAX(la.id) as id, la.lead_id')
             ->when(!$this->isAdminUser($user), function ($q) use ($driver) {
                 // Exclude manager-only actions from ordering for non-admins.
@@ -2177,7 +2269,7 @@ class LeadController extends Controller
     {
         $driver = DB::connection()->getDriverName();
 
-        $latestActionIds = DB::table('lead_actions as la')
+        $latestActionIds = $this->tenantConnection()->table('lead_actions as la')
             ->selectRaw('MAX(la.id) as id, la.lead_id')
             ->when(!$this->isAdminUser($user), function ($q) use ($driver) {
                 // Exclude manager-only actions from ordering for non-admins.

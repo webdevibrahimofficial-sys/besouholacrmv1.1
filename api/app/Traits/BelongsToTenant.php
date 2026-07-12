@@ -7,8 +7,11 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 
+
 trait BelongsToTenant
 {
+    use UsesTenantOrSharedConnection;
+
     /**
      * Boot the trait.
      */

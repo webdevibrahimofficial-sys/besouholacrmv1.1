@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class SubscriptionTransactionItem extends Model
+class SubscriptionTransactionItem extends LandlordModel
 {
     protected $fillable = [
         'transaction_id',

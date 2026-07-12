@@ -8,6 +8,11 @@ use Illuminate\Support\Facades\DB;
 
 class AccessLogController extends Controller
 {
+    protected function tenantConnection()
+    {
+        return DB::connection(config('multitenancy.tenant_database_connection_name'));
+    }
+
     public function index(Request $request)
     {
         $authUser = $request->user();
@@ -20,7 +25,7 @@ class AccessLogController extends Controller
             abort(403, 'Tenant context missing');
         }
 
-        $query = DB::table('personal_access_tokens')
+        $query = $this->tenantConnection()->table('personal_access_tokens')
             ->join('users', function ($join) {
                 $join->on('users.id', '=', 'personal_access_tokens.tokenable_id');
             })

@@ -8,14 +8,14 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('tenants', function (Blueprint $table) {
+        Schema::connection('landlord')->table('tenants', function (Blueprint $table) {
             $table->timestamp('archived_at')->nullable()->after('status');
         });
     }
 
     public function down(): void
     {
-        Schema::table('tenants', function (Blueprint $table) {
+        Schema::connection('landlord')->table('tenants', function (Blueprint $table) {
             $table->dropColumn('archived_at');
         });
     }

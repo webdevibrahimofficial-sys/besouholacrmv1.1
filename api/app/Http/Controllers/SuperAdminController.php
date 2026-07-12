@@ -104,6 +104,10 @@ class SuperAdminController extends Controller
             });
         }
 
+        if ($request->filled('tenant_id')) {
+            $query->where('id', (int) $request->input('tenant_id'));
+        }
+
         // Filter by Plan Type
         if ($request->has('plan') && $request->plan && $request->plan !== 'all') {
             $query->where('subscription_plan', $request->plan);
@@ -414,6 +418,7 @@ class SuperAdminController extends Controller
         }
 
         $beforeAttributes = $tenant->only(['name', 'slug', 'subscription_plan', 'company_type', 'status', 'start_date', 'end_date', 'users_limit']);
+        $previousSlug = $tenant->slug;
         $oldPlan = $tenant->subscription_plan;
         $previousStatus = strtolower((string) ($tenant->status ?? ''));
         $previousEndDate = $tenant->end_date;
@@ -459,6 +464,7 @@ class SuperAdminController extends Controller
         }
 
         $tenant->refresh();
+        $this->tenantService->forgetTenantCache($tenant, $previousSlug);
         $currentStatus = strtolower((string) ($tenant->status ?? ''));
         $isBlocked = $this->tenantAccessShouldBeBlocked($tenant);
         $enteredBlockedState = !$wasBlocked && $isBlocked;
@@ -824,13 +830,13 @@ class SuperAdminController extends Controller
 
     protected function subscriptionContractsTableExists(): bool
     {
-        return Schema::hasTable('tenant_subscription_contracts');
+        return Schema::connection('landlord')->hasTable('tenant_subscription_contracts');
     }
 
     protected function subscriptionFeatureTablesExist(): bool
     {
         return $this->subscriptionContractsTableExists()
-            && Schema::hasTable('subscription_transactions')
-            && Schema::hasTable('subscription_transaction_items');
+            && Schema::connection('landlord')->hasTable('subscription_transactions')
+            && Schema::connection('landlord')->hasTable('subscription_transaction_items');
     }
 }

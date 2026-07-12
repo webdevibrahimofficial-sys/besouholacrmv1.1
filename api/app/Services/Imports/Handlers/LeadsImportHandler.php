@@ -2,6 +2,7 @@
 
 namespace App\Services\Imports\Handlers;
 
+use App\Models\CancelReason;
 use App\Models\CrmSetting;
 use App\Models\ImportJob;
 use App\Models\ImportJobRow;
@@ -11,6 +12,7 @@ use App\Models\LeadAction;
 use App\Models\InventoryRequest;
 use App\Models\Project;
 use App\Models\RealEstateRequest;
+use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Visit;
@@ -121,6 +123,8 @@ class LeadsImportHandler implements ImportHandler
             $nextActionTime = trim((string) ($normalized['next_action_time'] ?? $normalized['nextActionTime'] ?? ''));
             $creationDateRaw = trim((string) ($normalized['creation_date'] ?? $normalized['creationDate'] ?? $normalized['created_at'] ?? $normalized['createdAt'] ?? ''));
             $firstActionDateRaw = trim((string) ($normalized['first_action_date'] ?? $normalized['firstActionDate'] ?? $normalized['last_action_date'] ?? $normalized['lastActionDate'] ?? $normalized['action_date'] ?? $normalized['actionDate'] ?? ''));
+            $cancelReasonRaw = trim((string) ($normalized['cancel_reason'] ?? $normalized['cancelReason'] ?? $normalized['reason'] ?? $normalized['reason_text'] ?? ''));
+            $cancelReason = $this->resolveCancelReason($tenantId, $cancelReasonRaw);
             $comment = trim((string) ($normalized['comment'] ?? $normalized['comments'] ?? ''));
             $phoneCountry = trim((string) ($normalized['phone_country'] ?? ''));
             $importAuditFields = array_filter([
@@ -129,6 +133,7 @@ class LeadsImportHandler implements ImportHandler
                 'first_action_date' => $firstActionDateRaw !== '' ? $firstActionDateRaw : null,
                 'next_action_date' => $nextActionDate !== '' ? $nextActionDate : null,
                 'next_action_time' => $nextActionTime !== '' ? $nextActionTime : null,
+                'cancel_reason' => $cancelReason?->title ?: ($cancelReasonRaw !== '' ? $cancelReasonRaw : null),
                 'comment' => $comment !== '' ? $comment : null,
                 'phone_country' => $phoneCountry !== '' ? $phoneCountry : null,
             ], fn ($value) => $value !== null && $value !== '');
@@ -202,6 +207,15 @@ class LeadsImportHandler implements ImportHandler
             $itemId = null;
 
             if ($isGeneral) {
+                if ($itemName === '' && $projectName !== '') {
+                    $itemName = $projectName;
+                    $warnings[] = [
+                        'code' => 'project_used_as_item',
+                        'message' => "Project value '{$projectName}' was used as Item for this general-company import.",
+                        'field' => 'project',
+                    ];
+                }
+
                 if ($itemName === '') {
                     $this->storeRow($job, [
                         'row_number' => $rowNumber,
@@ -242,6 +256,15 @@ class LeadsImportHandler implements ImportHandler
                 $normalized['item_id'] = $itemId;
                 $normalized['item'] = $itemName;
             } else {
+                if ($projectName === '' && $itemName !== '') {
+                    $projectName = $itemName;
+                    $warnings[] = [
+                        'code' => 'item_used_as_project',
+                        'message' => "Item value '{$itemName}' was used as Project for this import.",
+                        'field' => 'item',
+                    ];
+                }
+
                 if ($projectName === '') {
                     $this->storeRow($job, [
                         'row_number' => $rowNumber,
@@ -302,11 +325,22 @@ class LeadsImportHandler implements ImportHandler
             }
 
             $normalized['stage'] = $resolvedStage;
+            $resolvedStageType = $this->resolveStageType($tenantId, $incomingStage, (string) $resolvedStage);
+            $isCancelStage = $this->isCancelStageLike($tenantId, $incomingStage, (string) $resolvedStage, $resolvedStageType);
 
             // Store common template fields inside meta_data (best-effort).
             $meta = is_array($normalized['meta_data'] ?? null) ? ($normalized['meta_data'] ?? []) : [];
             if ($phoneCountry !== '') {
                 $meta['phone_country'] = $phoneCountry;
+            }
+            if ($cancelReason) {
+                $meta['cancel_reason_id'] = (int) $cancelReason->id;
+                $meta['cancel_reason'] = trim((string) $cancelReason->title);
+                if (trim((string) $cancelReason->title_ar) !== '') {
+                    $meta['cancel_reason_ar'] = trim((string) $cancelReason->title_ar);
+                }
+            } elseif ($cancelReasonRaw !== '') {
+                $meta['cancel_reason'] = $cancelReasonRaw;
             }
             $normalized['meta_data'] = $meta;
             if (array_key_exists('phone_country', $normalized)) {
@@ -478,24 +512,35 @@ class LeadsImportHandler implements ImportHandler
                     }
                 }
 
-                $importedOperationalType = $this->mapImportedStageToOperationalType((string) ($normalized['stage'] ?? ''));
+                $importedOperationalType = $this->resolveImportedOperationalType(
+                    $tenantId,
+                    $incomingStage,
+                    (string) ($normalized['stage'] ?? ''),
+                    $resolvedStageType
+                );
+                $shouldIgnoreNextAction = $this->shouldIgnoreNextActionForStage(
+                    $resolvedStageType,
+                    $incomingStage,
+                    (string) ($normalized['stage'] ?? '')
+                );
+                $effectiveNextActionAt = $shouldIgnoreNextAction ? null : $nextActionAt;
                 $shouldCollapseIntoOperationalAction = in_array($importedOperationalType, ['meeting', 'proposal', 'reservation', 'rent', 'follow_up'], true);
 
                 $operationAt = $firstActionDate
-                    ?: $nextActionAt
+                    ?: $effectiveNextActionAt
                     ?: $creationDate
                     ?: now();
 
                 $this->createOperationalRecordsFromImportedStage(
                     $lead,
-                    (string) ($normalized['stage'] ?? ''),
+                    $importedOperationalType,
                     $operationAt,
                     $uploaderId,
                     $isGeneral,
                     array_filter([
                         'imported_comment' => $comment !== '' ? $comment : null,
-                        'imported_next_action_date' => $nextActionAt?->toDateString(),
-                        'imported_next_action_time' => $nextActionAt?->format('H:i'),
+                        'imported_next_action_date' => $effectiveNextActionAt?->toDateString(),
+                        'imported_next_action_time' => $effectiveNextActionAt?->format('H:i'),
                     ], fn ($value) => $value !== null && $value !== '')
                 );
 
@@ -503,10 +548,10 @@ class LeadsImportHandler implements ImportHandler
 
                 // Next action creation (optional, best-effort).
                 // Create a next action only when the imported stage maps to a known operational type.
-                if ($nextActionAt && $importedOperationalType !== null && !$shouldCollapseIntoOperationalAction) {
-                    $time = $nextActionAt->format('H:i');
+                if ($effectiveNextActionAt && $importedOperationalType !== null && !$shouldCollapseIntoOperationalAction) {
+                    $time = $effectiveNextActionAt->format('H:i');
                     try {
-                        $actionCreatedAt = $firstActionDate ?: $creationDate ?: $nextActionAt;
+                        $actionCreatedAt = $firstActionDate ?: $creationDate ?: $effectiveNextActionAt;
                         $nextActionType = match ($importedOperationalType) {
                             'meeting' => 'meeting',
                             'proposal' => 'proposal',
@@ -523,7 +568,7 @@ class LeadsImportHandler implements ImportHandler
                             'stage_id_at_creation' => null,
                             'next_action_type' => $nextActionType,
                             'details' => array_filter([
-                                'date' => $nextActionAt->toDateString(),
+                                'date' => $effectiveNextActionAt->toDateString(),
                                 'time' => $time,
                                 'status' => 'scheduled',
                                 'source' => 'import',
@@ -545,7 +590,7 @@ class LeadsImportHandler implements ImportHandler
                 // Import comments -> record as an action (so it appears in Last Comment + Actions timeline).
                 // If an Action Date is provided in the sheet, use it as the action "performed at" date (and created_at)
                 // so that it counts as an action performed on that date.
-                if ($comment !== '' && !$shouldCollapseIntoOperationalAction && !$nextActionAt) {
+                if ($comment !== '' && !$shouldCollapseIntoOperationalAction && !$effectiveNextActionAt && !$isCancelStage) {
                     $actionDateRaw = trim((string) ($normalized['action_date'] ?? $normalized['actionDate'] ?? $firstActionDateRaw ?? $creationDateRaw ?? ''));
                     $actionAt = $this->parseYmdDate($actionDateRaw);
                     try {
@@ -590,6 +635,27 @@ class LeadsImportHandler implements ImportHandler
                             'code' => 'import_comment_failed',
                             'message' => "Failed to store imported comment ({$e->getMessage()}).",
                             'field' => 'comment',
+                        ];
+                    }
+                }
+
+                if ($isCancelStage || $importedOperationalType === 'cancel') {
+                    try {
+                        $this->createImportedCancelAction(
+                            $lead,
+                            $operationAt,
+                            $lead->assigned_to ?: $uploaderId,
+                            $meta,
+                            $comment,
+                            $cancelReason,
+                            $cancelReasonRaw,
+                            $importedStageName
+                        );
+                    } catch (\Throwable $e) {
+                        $warnings[] = [
+                            'code' => 'import_cancel_failed',
+                            'message' => "Failed to store imported cancel action ({$e->getMessage()}).",
+                            'field' => 'cancel_reason',
                         ];
                     }
                 }
@@ -713,6 +779,8 @@ class LeadsImportHandler implements ImportHandler
             'nextActionDate',
             'next_action_time',
             'nextActionTime',
+            'cancel_reason',
+            'cancelReason',
             'comment',
             'comments',
             'phone_country',
@@ -733,6 +801,7 @@ class LeadsImportHandler implements ImportHandler
             'creationdate', 'createdat', 'created', 'datecreated',
             'تاريخالإنشاء', 'تاريخالانشاء' => 'creation_date',
             'priority', 'leadpriority', 'الأولوية', 'الاولوية', 'اولوية', 'بريورتي' => 'priority',
+            'cancelreason', 'reason', 'reasontext', 'reasontitle', 'سببالالغاء', 'سببالإلغاء' => 'cancel_reason',
             default => null,
         };
     }
@@ -967,13 +1036,12 @@ class LeadsImportHandler implements ImportHandler
 
     private function createOperationalRecordsFromImportedStage(
         Lead $lead,
-        ?string $stage,
+        ?string $operation,
         \Carbon\Carbon $operationAt,
         ?int $uploaderId,
         bool $isGeneral,
         array $supplementalDetails = []
     ): void {
-        $operation = $this->mapImportedStageToOperationalType($stage);
         if (!$operation) {
             return;
         }
@@ -1048,6 +1116,262 @@ class LeadsImportHandler implements ImportHandler
         $action->created_at = $operationAt->copy();
         $action->updated_at = $operationAt->copy();
         $action->save();
+    }
+
+    private function createImportedCancelAction(
+        Lead $lead,
+        \Carbon\Carbon $operationAt,
+        ?int $actorId,
+        array $meta,
+        string $comment,
+        ?CancelReason $cancelReason,
+        string $cancelReasonRaw,
+        string $stageLabel
+    ): void {
+        $resolvedReasonText = trim((string) ($cancelReason?->title ?: $cancelReasonRaw));
+        $resolvedReasonTextAr = trim((string) ($cancelReason?->title_ar ?: ''));
+        $description = $comment !== '' ? $comment : ($resolvedReasonText !== '' ? $resolvedReasonText : 'Imported cancel action');
+
+        $exists = LeadAction::query()
+            ->where('lead_id', $lead->id)
+            ->where('action_type', 'cancel')
+            ->where('description', $description)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        $details = array_filter(array_merge([
+            'date' => $operationAt->toDateString(),
+            'time' => $operationAt->format('H:i'),
+            'status' => 'cancelled',
+            'source' => 'import',
+            'auto_generated' => true,
+            'imported_stage' => $stageLabel !== '' ? $stageLabel : null,
+            'stage_at_creation_name' => $stageLabel !== '' ? $stageLabel : null,
+            'cancel_reason_id' => $cancelReason?->id ? (int) $cancelReason->id : null,
+            'cancel_reason' => $resolvedReasonText !== '' ? $resolvedReasonText : null,
+            'cancel_reason_ar' => $resolvedReasonTextAr !== '' ? $resolvedReasonTextAr : null,
+            'comments' => [[
+                'kind' => 'cancel_reason',
+                'text' => $resolvedReasonText !== '' ? $resolvedReasonText : $cancelReasonRaw,
+                'reasonId' => $cancelReason?->id ? (int) $cancelReason->id : null,
+                'cancel_reason_id' => $cancelReason?->id ? (int) $cancelReason->id : null,
+                'reasonTitle' => $resolvedReasonText !== '' ? $resolvedReasonText : $cancelReasonRaw,
+                'reasonTitleAr' => $resolvedReasonTextAr !== '' ? $resolvedReasonTextAr : null,
+                'userId' => $lead->assigned_to ?: $actorId,
+                'userName' => null,
+                'createdAt' => $operationAt->toIso8601String(),
+            ]],
+        ], $meta), fn ($value) => $value !== null && $value !== '');
+
+        $action = new LeadAction([
+            'lead_id' => $lead->id,
+            'tenant_id' => $lead->tenant_id,
+            'user_id' => $actorId,
+            'action_type' => 'cancel',
+            'description' => $description,
+            'stage_id_at_creation' => null,
+            'next_action_type' => 'cancel',
+            'details' => $details,
+        ]);
+        $action->created_at = $operationAt->copy();
+        $action->updated_at = $operationAt->copy();
+        $action->save();
+    }
+
+    private function resolveCancelReason(?int $tenantId, string $reasonRaw): ?CancelReason
+    {
+        $reasonRaw = trim($reasonRaw);
+        if ($reasonRaw === '') {
+            return null;
+        }
+
+        $normalizedRaw = $this->normalizeCancelReasonText($reasonRaw);
+        $query = CancelReason::query();
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $reasons = $query->orderBy('id')->get();
+        foreach ($reasons as $reason) {
+            $title = $this->normalizeCancelReasonText((string) $reason->title);
+            $titleAr = $this->normalizeCancelReasonText((string) $reason->title_ar);
+
+            if ($normalizedRaw === $title || $normalizedRaw === $titleAr) {
+                return $reason;
+            }
+
+            if ($title !== '' && str_starts_with($normalizedRaw, $title)) {
+                return $reason;
+            }
+
+            if ($titleAr !== '' && str_starts_with($normalizedRaw, $titleAr)) {
+                return $reason;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeCancelReasonText(string $value): string
+    {
+        $normalized = mb_strtolower(trim($value), 'UTF-8');
+        return preg_replace('/[\s_\-\/:]+/u', '', $normalized) ?: '';
+    }
+
+    private function isCancelStageLike(?int $tenantId, string $stageValue, string $fallbackValue = '', ?string $resolvedStageType = null): bool
+    {
+        $stageType = strtolower(trim((string) ($resolvedStageType ?: $this->resolveStageType($tenantId, $stageValue, $fallbackValue))));
+        if ($stageType === 'cancel') {
+            return true;
+        }
+
+        $candidates = array_filter([
+            $stageValue,
+            $fallbackValue,
+        ], fn ($value) => trim((string) $value) !== '');
+
+        foreach ($candidates as $candidate) {
+            $normalized = $this->normalizeCancelReasonText((string) $candidate);
+            if (in_array($normalized, [
+                'refuse',
+                'refused',
+                'refusal',
+                'rejected',
+            ], true)) {
+                return true;
+            }
+
+            if (in_array($normalized, [
+                'cancel',
+                'cancellation',
+                'cancelled',
+                'cancelation',
+                'lost',
+                'lostdeal',
+                'lostdeals',
+                'archive',
+                'archived',
+                'إلغاء',
+                'الغاء',
+                'خسارة',
+            ], true)) {
+                return true;
+            }
+
+            if (str_starts_with($normalized, 'cancel')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function resolveImportedOperationalType(?int $tenantId, string $stageValue, string $fallbackValue = '', ?string $resolvedStageType = null): ?string
+    {
+        $stageType = strtolower(trim((string) ($resolvedStageType ?: $this->resolveStageType($tenantId, $stageValue, $fallbackValue))));
+        $fromType = $this->mapStageTypeToOperationalType($stageType);
+        if ($fromType !== null) {
+            return $fromType;
+        }
+
+        return $this->mapImportedStageToOperationalType($fallbackValue !== '' ? $fallbackValue : $stageValue);
+    }
+
+    private function resolveStageType(?int $tenantId, string $stageValue, string $fallbackValue = ''): ?string
+    {
+        if (!$tenantId) {
+            return null;
+        }
+
+        $stageRow = Stage::query()
+            ->where('tenant_id', $tenantId)
+            ->where(function ($query) use ($stageValue, $fallbackValue) {
+                $query->where('name', trim($stageValue))
+                    ->orWhere('name_ar', trim($stageValue));
+
+                if (trim($fallbackValue) !== '') {
+                    $query->orWhere('name', trim($fallbackValue))
+                        ->orWhere('name_ar', trim($fallbackValue));
+                }
+            })
+            ->first(['type']);
+
+        $stageType = trim((string) ($stageRow?->type ?? ''));
+        return $stageType !== '' ? $stageType : null;
+    }
+
+    private function mapStageTypeToOperationalType(?string $stageType): ?string
+    {
+        $normalized = strtolower(trim((string) $stageType));
+        if ($normalized === '') {
+            return null;
+        }
+
+        return match ($normalized) {
+            'meeting' => 'meeting',
+            'proposal' => 'proposal',
+            'reservation' => 'reservation',
+            'rent' => 'rent',
+            'follow-up', 'follow up', 'follow_up', 'followup' => 'follow_up',
+            'check in', 'check-in', 'check_in', 'checkin' => 'check_in',
+            'cancel' => 'cancel',
+            default => null,
+        };
+    }
+
+    private function shouldIgnoreNextActionForStage(?string $stageType, string $stageValue = '', string $fallbackValue = ''): bool
+    {
+        $normalized = strtolower(trim((string) $stageType));
+        if (in_array($normalized, [
+            'cancel',
+            'closing deals',
+            'closing deal',
+            'closing_deals',
+            'closing-deals',
+            'closingdeals',
+            'closed deals',
+            'closed deal',
+            'closed_deals',
+            'closed-deals',
+            'closeddeals',
+        ], true)) {
+            return true;
+        }
+
+        $fallbackOperation = $this->mapImportedStageToOperationalType($fallbackValue !== '' ? $fallbackValue : $stageValue);
+        if ($fallbackOperation === 'cancel') {
+            return true;
+        }
+
+        $terminalStageNames = [
+            'closing deals',
+            'closing deal',
+            'closingdeals',
+            'closed deals',
+            'closed deal',
+            'closeddeals',
+            'closed',
+        ];
+
+        foreach ([$stageValue, $fallbackValue] as $candidate) {
+            $candidateNormalized = strtolower(trim((string) $candidate));
+            if ($candidateNormalized === '') {
+                continue;
+            }
+
+            $candidateNormalized = str_replace(['_', '-'], ' ', $candidateNormalized);
+            $candidateNormalized = preg_replace('/\s+/u', ' ', $candidateNormalized);
+            $candidateCompact = str_replace(' ', '', $candidateNormalized);
+
+            if (in_array($candidateNormalized, $terminalStageNames, true) || in_array($candidateCompact, $terminalStageNames, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function createImportedReservationRecord(
@@ -1204,6 +1528,14 @@ class LeadsImportHandler implements ImportHandler
             'تشيكإن' => 'check_in',
             'تشيك ان' => 'check_in',
         ];
+
+        if (in_array($normalized, ['cancel', 'cancelled', 'canceled', 'cancellation', 'refuse', 'refused', 'refusal', 'rejected'], true)) {
+            return 'cancel';
+        }
+
+        if (in_array($compact, ['cancel', 'cancelled', 'canceled', 'cancellation', 'refuse', 'refused', 'refusal', 'rejected'], true)) {
+            return 'cancel';
+        }
 
         return $map[$normalized] ?? $map[$compact] ?? null;
     }

@@ -88,8 +88,6 @@ Route::post('/crm/login-redirect', [AuthController::class , 'loginRedirect'])
     ->withoutMiddleware([\Illuminate\Routing\Middleware\ThrottleRequests::class]);
 Route::get('/meta/webhook', [MetaWebhookController::class , 'verify']);
 Route::post('/meta/webhook', [MetaWebhookController::class , 'receive']);
-Route::get('/meta/webhook/{tenantWebhookKey}', [MetaWebhookController::class , 'verify']);
-Route::post('/meta/webhook/{tenantWebhookKey}', [MetaWebhookController::class , 'receive']);
 Route::post('/meta/mock/webhook/{page_id}', [\App\Http\Controllers\MetaMockController::class, 'triggerMockLead']);
 Route::post('/internal/mock/google-ads/campaigns/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockCampaigns']);
 Route::post('/internal/mock/google-ads/leads/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockLeads']);
@@ -98,12 +96,8 @@ Route::post('/mock/tenant/{tenant}/google-ads/{account}/leads', [\App\Http\Contr
 Route::post('/google/webhook', [\App\Http\Controllers\GoogleWebhookController::class, 'receive']);
 Route::get('/auth/google/callback', [\App\Http\Controllers\GoogleAuthController::class, 'callback']);
 Route::get('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback'])->name('meta.callback');
-Route::post('/facebook/data-deletion', function () {
-    return response()->json([
-        'url' => 'https://besouholacrm.net/privacy',
-        'confirmation_code' => (string) Str::uuid(),
-    ]);
-});
+Route::post('/facebook/data-deletion', [\App\Http\Controllers\MetaDataDeletionController::class, 'handle']);
+Route::get('/facebook/data-deletion/status', [\App\Http\Controllers\MetaDataDeletionController::class, 'status']);
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'verify']);
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'receive']);
 // Internal webhook for WhatsApp Mirror microservice (protected by internal token)
@@ -165,6 +159,9 @@ Route::prefix('super-admin')->middleware([ResolveTenant::class, 'auth:sanctum'])
     // Global System Settings
     Route::get('settings', [\App\Http\Controllers\SystemSettingController::class, 'index']);
     Route::post('settings', [\App\Http\Controllers\SystemSettingController::class, 'update']);
+
+    Route::get('meta/health', [\App\Http\Controllers\SuperAdminMetaController::class, 'health']);
+    Route::post('meta/test-webhook', [\App\Http\Controllers\SuperAdminMetaController::class, 'testWebhook']);
 });
 
 // ==================================================================================
@@ -324,9 +321,6 @@ Route::middleware([ResolveTenant::class])
     Route::post('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback']);
     Route::get('/auth/meta/status', [\App\Http\Controllers\MetaAuthController::class, 'status']);
     Route::post('/auth/meta/settings', [\App\Http\Controllers\MetaAuthController::class, 'updateSettings']);
-    Route::get('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'appSettings']);
-    Route::put('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'updateAppSettings']);
-    Route::delete('/auth/meta/app-settings', [\App\Http\Controllers\MetaAuthController::class, 'clearAppSettings']);
     Route::post('/auth/meta/disconnect', [\App\Http\Controllers\MetaAuthController::class, 'disconnect']);
     Route::post('/auth/meta/sync', [\App\Http\Controllers\MetaAuthController::class, 'sync']);
     Route::post('/auth/meta/asset/toggle', [\App\Http\Controllers\MetaAuthController::class, 'toggleAsset']);
@@ -334,6 +328,8 @@ Route::middleware([ResolveTenant::class])
     Route::post('/auth/meta/page/link', [\App\Http\Controllers\MetaAuthController::class, 'linkPage']);
     Route::get('/auth/meta/forms', [MetaLeadFormController::class, 'index']);
     Route::post('/auth/meta/forms/map', [MetaLeadFormController::class, 'map']);
+    Route::get('/auth/meta/health', [\App\Http\Controllers\MetaAuthController::class, 'health']);
+    Route::post('/meta/capi/test', [\App\Http\Controllers\MetaCapiController::class, 'test']);
     
     // Meta Mock Mode Routes
     Route::post('/meta/mock/leads/{tenantId}', [\App\Http\Controllers\MetaMockController::class, 'triggerMockLead']);

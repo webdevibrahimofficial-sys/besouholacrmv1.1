@@ -5,8 +5,6 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 use App\Models\Tenant;
 
@@ -42,12 +40,21 @@ class InitializeTenancy
                         $tenantFromUser = Tenant::find($user->tenant_id);
                         if ($tenantFromUser) {
                             app()->instance('tenant', $tenantFromUser);
+                            $tenant = $tenantFromUser;
                         }
                     }
                 }
             }
         }
 
-        return $next($request);
+        if ($tenant instanceof Tenant && !$tenant->isCurrent()) {
+            $tenant->makeCurrent();
+        }
+
+        try {
+            return $next($request);
+        } finally {
+            Tenant::forgetCurrent();
+        }
     }
 }

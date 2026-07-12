@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Tenant;
 use Closure;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -14,6 +15,36 @@ class TrackUserPresence
     // This matches the frontend's 15 minutes online threshold.
     private const CONTINUOUS_WINDOW_SECONDS = 15 * 60;
 
+    protected function tenantConnectionName(Request $request): string
+    {
+        if (app()->bound('tenant') && app('tenant')) {
+            return app('tenant')->tenancy_type === 'dedicated'
+                ? config('multitenancy.tenant_database_connection_name', 'tenant-dedicated')
+                : config('database.default', 'mysql');
+        }
+
+        $tenantId = $request->user()?->tenant_id;
+        if (!$tenantId) {
+            return config('database.default', 'mysql');
+        }
+
+        $tenant = Tenant::query()->find($tenantId);
+
+        return $tenant && $tenant->tenancy_type === 'dedicated'
+            ? config('multitenancy.tenant_database_connection_name', 'tenant-dedicated')
+            : config('database.default', 'mysql');
+    }
+
+    protected function tenantConnection(Request $request)
+    {
+        return DB::connection($this->tenantConnectionName($request));
+    }
+
+    protected function tenantSchema(Request $request)
+    {
+        return Schema::connection($this->tenantConnectionName($request));
+    }
+
     public function handle(Request $request, Closure $next)
     {
         $response = $next($request);
@@ -22,7 +53,11 @@ class TrackUserPresence
         if (!$user || !$user->tenant_id) {
             return $response;
         }
-        if (!Schema::hasTable('user_presence_daily')) {
+        try {
+            if (!$this->tenantSchema($request)->hasTable('user_presence_daily')) {
+                return $response;
+            }
+        } catch (\Throwable $e) {
             return $response;
         }
 
@@ -38,8 +73,10 @@ class TrackUserPresence
         while ($attempts < 2) {
             $attempts++;
             try {
-                DB::transaction(function () use ($tenantId, $userId, $date, $now) {
-                    $row = DB::table('user_presence_daily')
+                $connection = $this->tenantConnection($request);
+
+                $connection->transaction(function () use ($tenantId, $userId, $date, $now, $connection) {
+                    $row = $connection->table('user_presence_daily')
                         ->where('tenant_id', $tenantId)
                         ->where('user_id', $userId)
                         ->where('date', $date)
@@ -47,7 +84,7 @@ class TrackUserPresence
                         ->first();
 
                     if (!$row) {
-                        DB::table('user_presence_daily')->insert([
+                        $connection->table('user_presence_daily')->insert([
                             'tenant_id' => $tenantId,
                             'user_id' => $userId,
                             'date' => $date,
@@ -80,7 +117,7 @@ class TrackUserPresence
                         $update['total_seconds'] = DB::raw('total_seconds + ' . (int) $addSeconds);
                     }
 
-                    DB::table('user_presence_daily')
+                    $connection->table('user_presence_daily')
                         ->where('id', (int) $row->id)
                         ->update($update);
                 }, 3);

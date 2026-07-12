@@ -27,18 +27,86 @@ abstract class BaseCcController extends Controller
     protected function requireCcPermission(Request $request, string $action): void
     {
         $user = $request->user();
-        if (!$user) abort(401);
-        if ($this->isTenantAdmin($user)) return;
+        if (!$user) {
+            abort(401);
+        }
+        if ($this->isTenantAdmin($user)) {
+            return;
+        }
 
-        $meta = is_array($user->meta_data) ? $user->meta_data : [];
-        $modulePerms = $meta['module_permissions'] ?? [];
-        $modulePerms = is_array($modulePerms) ? $modulePerms : [];
-        $ccPerms = $modulePerms['ContractCollections'] ?? [];
-        $ccPerms = is_array($ccPerms) ? $ccPerms : [];
-
-        if (!in_array($action, $ccPerms, true)) {
+        $perms = $this->resolveCcPermissions($user);
+        if (!in_array($action, $perms, true)) {
             abort(403, 'Unauthorized');
         }
+    }
+
+    protected function resolveCcPermissions(User $user): array
+    {
+        if ($this->isTenantAdmin($user)) {
+            return ['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt', 'exportReports'];
+        }
+
+        if ($this->isSalesPerson($user) || $this->isTeamLeader($user)) {
+            return [];
+        }
+
+        $meta = is_array($user->meta_data) ? $user->meta_data : [];
+        $modulePerms = is_array($meta['module_permissions'] ?? null) ? $meta['module_permissions'] : [];
+
+        $ccPerms = is_array($modulePerms['ContractCollections'] ?? null) ? $modulePerms['ContractCollections'] : [];
+        if ($ccPerms !== []) {
+            return array_values(array_unique($ccPerms));
+        }
+
+        // Legacy users may only have Customers module permissions saved.
+        $customerPerms = is_array($modulePerms['Customers'] ?? null) ? $modulePerms['Customers'] : [];
+        if (in_array('showModule', $customerPerms, true)) {
+            return ['showModule', 'viewContracts', 'viewInstallments'];
+        }
+
+        return $this->defaultCcPermissionsForRole($user);
+    }
+
+    protected function defaultCcPermissionsForRole(User $user): array
+    {
+        $roleLower = strtolower(trim(preg_replace('/[\s_-]+/', ' ', (string) ($user->role ?? $user->job_title ?? ''))));
+
+        if (str_contains($roleLower, 'accountant')) {
+            return ['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt'];
+        }
+
+        $readRoles = [
+            'sales admin',
+            'operation manager',
+            'branch manager',
+            'director',
+            'sales manager',
+            'customer manager',
+            'customer team leader',
+            'customer agent',
+        ];
+
+        foreach ($readRoles as $role) {
+            if (str_contains($roleLower, $role)) {
+                return ['showModule', 'viewContracts', 'viewInstallments'];
+            }
+        }
+
+        return [];
+    }
+
+    protected function isSalesPerson(User $user): bool
+    {
+        $roleLower = strtolower(trim(preg_replace('/[\s_-]+/', ' ', (string) ($user->role ?? $user->job_title ?? ''))));
+
+        return str_contains($roleLower, 'sales person') || str_contains($roleLower, 'salesperson');
+    }
+
+    protected function isTeamLeader(User $user): bool
+    {
+        $roleLower = strtolower(trim(preg_replace('/[\s_-]+/', ' ', (string) ($user->role ?? $user->job_title ?? ''))));
+
+        return str_contains($roleLower, 'team leader') || str_contains($roleLower, 'teamleader');
     }
 }
 
