@@ -343,11 +343,23 @@ export function AppStateProvider({ children }) {
     }
 
     heartbeat()
-    const intervalId = window.setInterval(heartbeat, 20000)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        heartbeat()
+      }
+    }
+
+    const handleWindowFocus = () => {
+      heartbeat()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleWindowFocus)
 
     return () => {
       cancelled = true
-      window.clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleWindowFocus)
     }
   }, [bootstrapped, userId, isSuperAdminUser, setProfile])
 
