@@ -90,7 +90,28 @@ High-level areas pending production:
 
 ### H. Meta / Integrations / Imports
 
-- Meta integration hardening
+- Shared Meta App migration (single app configured in Super Admin for all tenants)
+- Global webhook URL `/api/meta/webhook` with tenant routing by `page_id`
+- Tenant UI simplified to Facebook login + page selection only
+- Encrypted shared `meta_app_secret` in `system_settings`
+- Facebook Data Deletion callback with audit log (`meta_data_deletion_requests`)
+- Post-deploy command: `php artisan meta:invalidate-connections`
+- Meta App Review URLs to configure in Meta Developer Console:
+  - Privacy Policy URL: `{FRONTEND_URL}/privacy`
+  - Data Deletion Callback URL: `{APP_URL}/api/facebook/data-deletion`
+  - Data Deletion Status URL: `{FRONTEND_URL}/privacy/data-deletion`
+- **Post-migration hardening (pending deploy):**
+  - Auto-subscribe pages to `leadgen` webhook after `syncAssets`
+  - Public data deletion status: `GET /api/facebook/data-deletion/status` + `/privacy/data-deletion` page
+  - Cross-tenant `page_id` conflict guard with `sync_warnings` in tenant status API/UI
+  - `needs_reauth` notifications for tenant admins + Super Admin (`meta:invalidate-connections`)
+  - Per-form lead mapping UI + `POST /api/meta/capi/test` diagnostics endpoint
+  - Super Admin Meta health dashboard + webhook verify (`/api/super-admin/meta/health`, `test-webhook`)
+  - Encrypted `google_client_secret` + `php artisan settings:encrypt-secrets`
+  - Meta API rate limit observability (`rate_limit_events_24h` in health endpoint)
+  - `MetaCredentialsResolver` rename (alias `TenantMetaCredentialsResolver` retained)
+  - Runbook: `docs/meta-shared-app-runbook.md`
+  - Tests: `MetaAutoSubscribeTest`, `MetaPageConflictTest`, `MetaDataDeletionStatusTest`, `MetaCapiTest`, `MetaHealthTest`, `GoogleSecretEncryptionTest`
 - OAuth scope/environment improvements
 - asset/campaign sync adjustments
 - safer import flows and history import support
