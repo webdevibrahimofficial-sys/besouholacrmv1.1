@@ -163,6 +163,8 @@ const RentConfiguration = lazy(() => import('../pages/settings/operations/RentCo
 
 // --- System Admin ---
 const SystemAdminDashboard = lazy(() => import('../pages/SystemAdminDashboard'))
+const SystemTasks = lazy(() => import('../pages/SystemTasks'))
+const SystemSettings = lazy(() => import('../pages/SystemSettings'))
 const SystemTransactions = lazy(() => import('../pages/SystemTransactions'))
 const SystemSubscriptions = lazy(() => import('../pages/SystemSubscriptions'))
 const TenantSetup = lazy(() => import('../pages/settings/TenantSetup'))
@@ -500,7 +502,7 @@ export default function AppRouter() {
               {/* Mapped Routes for Sidebar Items */}
               <Route path="/system/subscriptions" element={<SystemSubscriptions />} />
               <Route path="/system/modules" element={<TenantSetup section="modules" />} />
-              <Route path="/system/settings" element={<TenantSetup section="admin-settings" />} />
+              <Route path="/system/settings" element={<SystemSettings />} />
               
               <Route path="/system/integrations" element={<SystemIntegrations />} />
               <Route path="/system/website" element={<WebsiteCms />} />
@@ -512,7 +514,7 @@ export default function AppRouter() {
               {/* Profile & Tasks for Super Admin */}
               <Route path="/system/profile" element={<ProfileSettings />} />
               <Route path="/system/security" element={<SecuritySettings />} />
-              <Route path="/system/tasks" element={<Tasks />} />
+              <Route path="/system/tasks" element={<SystemTasks />} />
             </Route>
           </Route>
         </Route>
