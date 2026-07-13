@@ -173,7 +173,7 @@ function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDele
             >{t('Edit')}</button>
             <button
               className="px-2 py-1 rounded bg-red-600 text-white"
-              onClick={() => onDelete(s.id)}
+              onClick={() => onDelete(s)}
             >{t('Delete')}</button>
           </div>
         )}
@@ -194,6 +194,14 @@ function PipelineStagesManager() {
   const [editingIndex, setEditingIndex] = useState(null)
   const [showNewStage, setShowNewStage] = useState(false)
   const [deleteNotice, setDeleteNotice] = useState(null)
+  const [transferDialog, setTransferDialog] = useState({
+    open: false,
+    stageId: null,
+    stageName: '',
+    linkedCount: 0,
+    targetStageId: '',
+    message: '',
+  })
 
   const fetchStages = async () => {
     try {
@@ -258,6 +266,17 @@ function PipelineStagesManager() {
     return () => window.clearTimeout(timer)
   }, [deleteNotice])
 
+  const closeTransferDialog = () => {
+    setTransferDialog({
+      open: false,
+      stageId: null,
+      stageName: '',
+      linkedCount: 0,
+      targetStageId: '',
+      message: '',
+    })
+  }
+
   const headerClass = resolvedTheme === 'dark' ? 'bg-[#0b2b4f]' : 'bg-gray-100'
   const thBase = 'text-left p-2 border-b'
   const thTone = resolvedTheme === 'dark' ? ' border-gray-700 text-white/80' : ''
@@ -311,7 +330,10 @@ function PipelineStagesManager() {
     }
   }
 
-  const handleDeleteStage = async (id) => {
+  const handleDeleteStage = async (stage) => {
+    const id = stage?.id
+    const stageName = stage?.name || stage?.nameAr || ''
+    if (!id) return
     if (!window.confirm(t('Are you sure you want to delete this stage?'))) return
     try {
       setDeleteNotice(null)
@@ -328,9 +350,13 @@ function PipelineStagesManager() {
       )
 
       if (status === 409 || linkedLeadsCount > 0) {
-        setDeleteNotice({
-          count: linkedLeadsCount,
-          message: t('Cannot delete this stage because {{count}} leads are linked to it. Please move these leads to another stage first.', { count: linkedLeadsCount })
+        setTransferDialog({
+          open: true,
+          stageId: id,
+          stageName,
+          linkedCount: linkedLeadsCount,
+          targetStageId: '',
+          message: err?.response?.data?.message || t('Cannot delete this stage because {{count}} leads are linked to it. Please move these leads to another stage first.', { count: linkedLeadsCount }),
         })
         return
       }
@@ -338,6 +364,31 @@ function PipelineStagesManager() {
       setDeleteNotice({
         count: null,
         message: t('Cannot delete this stage now. Please move any linked leads to another stage first.')
+      })
+    }
+  }
+
+  const confirmTransferAndDelete = async () => {
+    if (!transferDialog.stageId || !transferDialog.targetStageId) {
+      setDeleteNotice({
+        count: transferDialog.linkedCount || null,
+        message: t('Please choose a target stage first.'),
+      })
+      return
+    }
+
+    try {
+      await api.delete(`/api/stages/${transferDialog.stageId}`, {
+        data: { target_stage_id: transferDialog.targetStageId }
+      })
+      closeTransferDialog()
+      setDeleteNotice(null)
+      await fetchStages()
+    } catch (err) {
+      console.error('Failed to transfer leads and delete stage', err)
+      setDeleteNotice({
+        count: transferDialog.linkedCount || null,
+        message: err?.response?.data?.message || t('Failed to move leads and delete this stage.'),
       })
     }
   }
@@ -386,6 +437,74 @@ function PipelineStagesManager() {
             <X size={18} />
           </button>
         </motion.div>
+      )}
+
+      {transferDialog.open && (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/40 px-4">
+          <div className={`w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${
+            isLight ? 'border-gray-200 bg-white text-black' : 'border-gray-700 bg-[#0f172a] text-white'
+          }`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold">{t('Transfer Leads Before Delete')}</h3>
+                <p className="mt-1 text-sm opacity-80">
+                  {t('This stage has {{count}} linked leads. Move them to another stage before deleting "{{stage}}".', {
+                    count: transferDialog.linkedCount || 0,
+                    stage: transferDialog.stageName || t('Stage'),
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                className={`rounded-full p-1 ${isLight ? 'hover:bg-gray-100' : 'hover:bg-white/10'}`}
+                onClick={closeTransferDialog}
+                aria-label={t('Close')}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <label className="text-sm font-medium">{t('Target Stage')}</label>
+              <select
+                className={`w-full rounded-lg border px-3 py-2 ${
+                  isLight ? 'border-gray-300 bg-white text-black' : 'border-gray-600 bg-slate-900 text-white'
+                }`}
+                value={transferDialog.targetStageId}
+                onChange={(e) => setTransferDialog((prev) => ({ ...prev, targetStageId: e.target.value }))}
+              >
+                <option value="">{t('Select Stage')}</option>
+                {pipelineStages
+                  .filter((stage) => String(stage.id) !== String(transferDialog.stageId))
+                  .map((stage) => (
+                    <option key={stage.id} value={stage.id}>
+                      {isRtl ? (stage.nameAr || stage.name) : (stage.name || stage.nameAr)}
+                    </option>
+                  ))}
+              </select>
+              {transferDialog.message ? (
+                <p className={`text-xs ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>{transferDialog.message}</p>
+              ) : null}
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className={`rounded-lg px-4 py-2 text-sm ${isLight ? 'bg-gray-100 text-black hover:bg-gray-200' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                onClick={closeTransferDialog}
+              >
+                {t('Cancel')}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
+                onClick={confirmTransferAndDelete}
+              >
+                {t('Transfer and Delete')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="flex items-center justify-between">
@@ -649,7 +768,7 @@ function PipelineStagesManager() {
                 <button
                   type="button"
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
-                  onClick={() => onDelete(s.id)}
+                  onClick={() => handleDeleteStage(s)}
                 >
                   <Trash2 size={16} />
                   <span>{t('Delete')}</span>

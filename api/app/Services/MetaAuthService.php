@@ -9,7 +9,6 @@ use App\Models\MetaConnection;
 use App\Models\MetaBusiness;
 use App\Models\MetaAdAccount;
 use App\Models\MetaPage;
-use App\Models\Tenant;
 use App\Services\MetaCredentialsResolver;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -24,16 +23,19 @@ class MetaAuthService
     protected $apiClient;
     protected $credentialsResolver;
     protected $adminEventNotifications;
+    protected $accessTokenService;
 
     public function __construct(
         MetaApiClientInterface $apiClient,
         MetaCredentialsResolver $credentialsResolver,
-        AdminEventNotificationService $adminEventNotifications
+        AdminEventNotificationService $adminEventNotifications,
+        MetaAccessTokenService $accessTokenService
     )
     {
         $this->apiClient = $apiClient;
         $this->credentialsResolver = $credentialsResolver;
         $this->adminEventNotifications = $adminEventNotifications;
+        $this->accessTokenService = $accessTokenService;
         $this->redirectUri = config('services.facebook.redirect');
     }
 
@@ -409,117 +411,17 @@ class MetaAuthService
 
     public function refreshToken(MetaConnection $connection)
     {
-        try {
-            // Refresh logic: Exchange current long-lived token for a new one
-            $newTokenData = $this->exchangeForLongLivedToken($connection->user_access_token, $connection->tenant_id);
-            
-            if (empty($newTokenData) || !isset($newTokenData['access_token'])) {
-                Log::warning("Failed to refresh token for connection {$connection->id}");
-                $this->notifyIntegrationIssue($connection, 'Meta token refresh returned an empty response.');
-                return false;
-            }
-
-            $longLivedToken = $newTokenData['access_token'];
-            $expiresIn = $newTokenData['expires_in'] ?? null; // seconds
-            $expiresAt = $expiresIn ? now()->addSeconds($expiresIn) : null;
-
-            $connection->update([
-                'user_access_token' => $longLivedToken,
-                'expires_at' => $expiresAt,
-            ]);
-
-            Log::info("Refreshed Meta token for connection {$connection->id}");
-            return true;
-
-        } catch (\Exception $e) {
-            Log::error("Error refreshing token for connection {$connection->id}: " . $e->getMessage());
-            $this->notifyIntegrationIssue($connection, $e->getMessage());
-            return false;
-        }
-    }
-
-    protected function notifyIntegrationIssue(MetaConnection $connection, string $reason): void
-    {
-        $tenant = Tenant::query()->find($connection->tenant_id);
-        if (!$tenant) {
-            return;
-        }
-
-        $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyIntegrationDisconnected(
-            $tenant->id,
-            $tenant->name,
-            'Meta',
-            $reason
-        ));
+        return $this->accessTokenService->refreshConnection($connection);
     }
 
     public function exchangeForLongLivedToken($shortLivedToken, $tenantId = null)
     {
-        // Use apiClient instead of direct Http call to support mock mode
-        if (!$tenantId) {
-            $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
-        }
-        $credentials = $this->resolveCredentials($tenantId);
-        try {
-            return $this->apiClient->get('/oauth/access_token', [
-                'grant_type' => 'fb_exchange_token',
-                'client_id' => $credentials['app_id'],
-                'client_secret' => $credentials['app_secret'],
-                'fb_exchange_token' => $shortLivedToken,
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Failed to exchange token: " . $e->getMessage());
-            return [];
-        }
+        return $this->accessTokenService->exchangeForLongLivedToken($shortLivedToken, $tenantId);
     }
 
     public function getAccessToken($tenantId)
     {
-        $connection = $this->resolveFallbackConnection($tenantId, false);
-
-        if ($connection) {
-            return $connection->user_access_token;
-        }
-
-        // If no valid token, try to find a single expired connection and refresh it.
-        $connection = $this->resolveFallbackConnection($tenantId, true);
-        
-        if ($connection) {
-            if ($this->refreshToken($connection)) {
-                return $connection->fresh()->user_access_token;
-            }
-        }
-
-        return null;
-    }
-
-    protected function resolveFallbackConnection($tenantId, bool $includeExpired): ?MetaConnection
-    {
-        $query = MetaConnection::where('tenant_id', $tenantId);
-
-        if (!$includeExpired) {
-            $query->where(function ($builder) {
-                $builder->whereNull('expires_at')
-                    ->orWhere('expires_at', '>', now());
-            });
-        }
-
-        $connections = $query
-            ->orderByDesc('updated_at')
-            ->limit(2)
-            ->get();
-
-        if ($connections->count() > 1) {
-            Log::warning('Meta access token fallback is ambiguous for tenant with multiple connections.', [
-                'tenant_id' => $tenantId,
-                'include_expired' => $includeExpired,
-                'connection_ids' => $connections->pluck('id')->all(),
-            ]);
-
-            return null;
-        }
-
-        return $connections->first();
+        return $this->accessTokenService->getTenantAccessToken($tenantId);
     }
 
     public function subscribePageToLeadgenWebhook(string $pageId, string $pageToken): array

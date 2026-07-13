@@ -60,6 +60,12 @@ const formatDescriptionDetails = (details = '') =>
     .map((line) => line.trim())
     .filter(Boolean)
 
+const resolveDisplayUserName = (log, lookupUser, t) =>
+  log?.causer_name || lookupUser?.name || (log?.causer_id ? t('Unknown user') : t('System'))
+
+const resolveDisplayUserEmail = (log, lookupUser) =>
+  log?.causer_email || lookupUser?.email || ''
+
 const stringifyJsonBlock = (value) => {
   try {
     return JSON.stringify(value || {}, null, 2)
@@ -405,7 +411,7 @@ export default function AuditLogs() {
                       {selectedLog.description_summary || selectedLog.description || t('Audit log')}
                     </h2>
                     <p className={`mt-2 text-sm ${mutedTextClass}`}>
-                      {selectedLog.causer_name || t('System')} | {prettyLogName(selectedLog.log_name)} | {formatDateTime(selectedLog.created_at)}
+                      {resolveDisplayUserName(selectedLog, userLookup[selectedLog.causer_id], t)} | {prettyLogName(selectedLog.log_name)} | {formatDateTime(selectedLog.created_at)}
                     </p>
                   </div>
 
@@ -444,8 +450,8 @@ export default function AuditLogs() {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
                       <p className={`text-xs uppercase tracking-[0.2em] ${mutedTextClass}`}>{t('User')}</p>
-                      <p className="mt-2 text-sm font-semibold">{selectedLog.causer_name || t('System')}</p>
-                      <p className={`mt-1 text-sm ${mutedTextClass}`}>{selectedLog.causer_email || '-'}</p>
+                      <p className="mt-2 text-sm font-semibold">{resolveDisplayUserName(selectedLog, userLookup[selectedLog.causer_id], t)}</p>
+                      <p className={`mt-1 text-sm ${mutedTextClass}`}>{resolveDisplayUserEmail(selectedLog, userLookup[selectedLog.causer_id]) || '-'}</p>
                     </div>
                     <div>
                       <p className={`text-xs uppercase tracking-[0.2em] ${mutedTextClass}`}>{t('Tenant')}</p>
@@ -790,10 +796,10 @@ export default function AuditLogs() {
                         <td className="px-4 py-3 text-theme">
                           <div className="min-w-0">
                             <p className="truncate font-medium">
-                              {log.causer_name || user?.name || (log.causer_id ? `#${log.causer_id}` : t('System'))}
+                              {resolveDisplayUserName(log, user, t)}
                             </p>
                             <p className={`truncate text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                              {log.causer_email || user?.email || ''}
+                              {resolveDisplayUserEmail(log, user)}
                             </p>
                           </div>
                         </td>

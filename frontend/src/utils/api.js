@@ -14,9 +14,41 @@ const resolveTenantSlugFromHost = () => {
 
 const getApiBaseUrl = () => {
   const raw = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || '').trim()
-  if (raw) return raw.replace(/\/+$/, '')
   if (typeof window === 'undefined') return ''
-  return `${window.location.origin}/api`
+
+  const currentOrigin = window.location.origin
+  const currentHostname = String(window.location.hostname || '').toLowerCase()
+  const isLocalFrontend =
+    currentHostname === 'localhost' ||
+    currentHostname === '127.0.0.1' ||
+    currentHostname === '0.0.0.0'
+
+  if (raw) {
+    const normalizedRaw = raw.replace(/\/+$/, '')
+
+    // In local Vite development, prefer the same-origin /api proxy instead of
+    // absolute localhost URLs that bypass the proxy and trigger CORS/preflight issues.
+    if (isLocalFrontend) {
+      try {
+        const resolved = new URL(normalizedRaw, currentOrigin)
+        const resolvedHost = String(resolved.hostname || '').toLowerCase()
+        const isLocalApiHost =
+          resolvedHost === 'localhost' ||
+          resolvedHost === '127.0.0.1' ||
+          resolvedHost === '0.0.0.0' ||
+          resolved.origin === currentOrigin
+
+        if (isLocalApiHost) {
+          return '/api'
+        }
+      } catch {
+      }
+    }
+
+    return normalizedRaw
+  }
+
+  return '/api'
 }
 
 const getCookie = (name) => {

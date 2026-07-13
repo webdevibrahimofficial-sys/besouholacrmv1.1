@@ -7,6 +7,8 @@ use App\Models\Project;
 use App\Models\Entity;
 use App\Models\FieldValue;
 use App\Models\CrmSetting;
+use App\Models\LeadAction;
+use App\Models\RealEstateRequest;
 use App\Traits\InventoryDeleteAuthorization;
 use Exception;
 use Illuminate\Http\Request;
@@ -21,6 +23,173 @@ use Carbon\Carbon;
 class PropertyController extends Controller
 {
     use InventoryDeleteAuthorization;
+
+    private function normalizeUnitCode(?string $unitCode): string
+    {
+        return trim((string) $unitCode);
+    }
+
+    private function isHistoricalUnitCodeTaken(?string $unitCode, ?int $tenantId = null): bool
+    {
+        $normalized = $this->normalizeUnitCode($unitCode);
+        if ($normalized === '' || !Schema::hasTable('property_unit_code_histories')) {
+            return false;
+        }
+
+        return DB::table('property_unit_code_histories')
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where('unit_code', $normalized)
+            ->exists();
+    }
+
+    private function rememberRetiredUnitCode(?string $unitCode, ?int $tenantId, ?int $propertyId, string $reason = 'deleted'): void
+    {
+        $normalized = $this->normalizeUnitCode($unitCode);
+        if ($normalized === '' || !Schema::hasTable('property_unit_code_histories')) {
+            return;
+        }
+
+        $exists = DB::table('property_unit_code_histories')
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where('unit_code', $normalized)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        DB::table('property_unit_code_histories')->insert([
+            'tenant_id' => $tenantId,
+            'property_id' => $propertyId,
+            'unit_code' => $normalized,
+            'reason' => $reason,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function normalizeInventoryStatus(?string $status): string
+    {
+        return strtolower(trim((string) $status));
+    }
+
+    private function propertyReferenceValues(Property $property): array
+    {
+        return array_values(array_unique(array_filter([
+            trim((string) ($property->unit_code ?? '')),
+            trim((string) ($property->unit_number ?? '')),
+            trim((string) ($property->name ?? '')),
+            trim((string) ($property->title ?? '')),
+        ])));
+    }
+
+    private function resetPropertyStatusBeforeDelete(Property $property): void
+    {
+        $updates = ['status' => 'Available'];
+        $table = $property->getTable();
+
+        if (Schema::hasColumn($table, 'reserved_at')) $updates['reserved_at'] = null;
+        if (Schema::hasColumn($table, 'reserved_expires_at')) $updates['reserved_expires_at'] = null;
+        if (Schema::hasColumn($table, 'reserved_lead_id')) $updates['reserved_lead_id'] = null;
+        if (Schema::hasColumn($table, 'sold_at')) $updates['sold_at'] = null;
+        if (Schema::hasColumn($table, 'sold_lead_id')) $updates['sold_lead_id'] = null;
+
+        $property->fill($updates);
+        $property->save();
+    }
+
+    private function cancelReservationHistoryForDeletedProperty(Property $property): void
+    {
+        $hasMetaColumn = Schema::hasColumn('real_estate_requests', 'meta_data');
+        $referenceValues = $this->propertyReferenceValues($property);
+        $leadIds = array_values(array_unique(array_filter([
+            (int) ($property->reserved_lead_id ?? 0),
+            (int) ($property->sold_lead_id ?? 0),
+        ])));
+
+        $query = RealEstateRequest::query()
+            ->where('tenant_id', $property->tenant_id)
+            ->where(function ($q) use ($property, $referenceValues, $leadIds, $hasMetaColumn) {
+                $q->where('id', -1);
+
+                if ($hasMetaColumn) {
+                    $q->orWhere('meta_data->property_id', (int) $property->id);
+                }
+
+                foreach ($referenceValues as $value) {
+                    $q->orWhere('unit', $value);
+                }
+
+                foreach ($leadIds as $leadId) {
+                    if ($leadId <= 0) {
+                        continue;
+                    }
+
+                    if (Schema::hasColumn('real_estate_requests', 'lead_id')) {
+                        $q->orWhere('lead_id', $leadId);
+                    }
+
+                    if ($hasMetaColumn) {
+                        $q->orWhere('meta_data->lead_id', $leadId);
+                    }
+                }
+            });
+
+        $requests = $query->get();
+        foreach ($requests as $request) {
+            $request->status = 'Cancelled';
+
+            if ($hasMetaColumn) {
+                $meta = is_array($request->meta_data)
+                    ? $request->meta_data
+                    : (json_decode((string) $request->meta_data, true) ?: []);
+                $meta['report_status'] = 'cancelled';
+                $meta['property_deleted'] = true;
+                $meta['property_deleted_at'] = now()->toIso8601String();
+                $meta['property_deleted_id'] = (int) $property->id;
+                $request->meta_data = $meta;
+            }
+
+            $request->save();
+        }
+    }
+
+    private function cancelClosedDealHistoryForDeletedProperty(Property $property): void
+    {
+        $referenceValues = $this->propertyReferenceValues($property);
+        $soldLeadId = (int) ($property->sold_lead_id ?? 0);
+
+        $query = LeadAction::query()
+            ->where('tenant_id', $property->tenant_id)
+            ->where(function ($q) {
+                $q->where('action_type', 'closing_deals')
+                    ->orWhere('next_action_type', 'closing_deals');
+            });
+
+        if ($soldLeadId > 0) {
+            $query->where('lead_id', $soldLeadId);
+        } else {
+            $query->where(function ($q) use ($property, $referenceValues) {
+                $q->where('details->property_id', (int) $property->id);
+                foreach ($referenceValues as $value) {
+                    $q->orWhere('details->unit', $value)
+                        ->orWhere('details->unit_code', $value)
+                        ->orWhere('details->property_unit', $value);
+                }
+            });
+        }
+
+        $actions = $query->orderByDesc('created_at')->get();
+        foreach ($actions as $action) {
+            $details = is_array($action->details) ? $action->details : [];
+            $details['report_status'] = 'cancelled';
+            $details['property_deleted'] = true;
+            $details['property_deleted_at'] = now()->toIso8601String();
+            $details['property_deleted_id'] = (int) $property->id;
+            $action->details = $details;
+            $action->save();
+        }
+    }
 
     private function normalizeJsonPayload(array $data): array
     {
@@ -390,6 +559,10 @@ class PropertyController extends Controller
                 }
             }
 
+            if (!empty($data['unit_code']) && $this->isHistoricalUnitCodeTaken($data['unit_code'], $data['tenant_id'] ?? null)) {
+                return response()->json(['message' => 'This unit code was used before and cannot be reused'], 422);
+            }
+
             $property = Property::create($data);
 
             if ($request->has('custom_fields') && $entity) {
@@ -437,6 +610,7 @@ class PropertyController extends Controller
 
         try {
             $data = $request->all();
+            $originalUnitCode = $this->normalizeUnitCode($property->unit_code);
 
             foreach ($data as $k => $v) {
                 if ($v === '') {
@@ -465,6 +639,16 @@ class PropertyController extends Controller
             if ($request->has('externalMeterPrice')) $data['external_meter_price'] = $request->input('externalMeterPrice');
             if ($request->has('meterPrice')) $data['meter_price'] = $request->input('meterPrice');
             if ($request->has('descriptionAr')) $data['description_ar'] = $request->input('descriptionAr');
+
+            $incomingUnitCode = array_key_exists('unit_code', $data)
+                ? $this->normalizeUnitCode($data['unit_code'])
+                : $originalUnitCode;
+
+            if ($incomingUnitCode !== '' && $incomingUnitCode !== $originalUnitCode) {
+                if ($this->isHistoricalUnitCodeTaken($incomingUnitCode, $property->tenant_id)) {
+                    return response()->json(['message' => 'This unit code was used before and cannot be reused'], 422);
+                }
+            }
 
             if ($request->has('totalPrice')) {
                 $data['price'] = str_replace(',', '', (string) $request->input('totalPrice'));
@@ -686,6 +870,10 @@ class PropertyController extends Controller
 
             $data = $this->normalizeJsonPayload($data);
 
+            if ($incomingUnitCode !== '' && $incomingUnitCode !== $originalUnitCode) {
+                $this->rememberRetiredUnitCode($originalUnitCode, $property->tenant_id, $property->id, 'updated');
+            }
+
             $property->update($data);
 
             $entity = Entity::where('key', 'properties')->first();
@@ -721,7 +909,26 @@ class PropertyController extends Controller
         if ($resp = $this->authorizeInventoryDelete($request, 'realestate')) {
             return $resp;
         }
-        Property::findOrFail($id)->delete();
+
+        $property = Property::findOrFail($id);
+
+        DB::transaction(function () use ($property) {
+            $status = $this->normalizeInventoryStatus($property->status);
+
+            if ($status === 'reserved') {
+                $this->cancelReservationHistoryForDeletedProperty($property);
+            }
+
+            if ($status === 'sold') {
+                $this->cancelReservationHistoryForDeletedProperty($property);
+                $this->cancelClosedDealHistoryForDeletedProperty($property);
+            }
+
+            $this->rememberRetiredUnitCode($property->unit_code, $property->tenant_id, $property->id, 'deleted');
+            $this->resetPropertyStatusBeforeDelete($property);
+            $property->delete();
+        });
+
         return response()->json(['message' => 'Property deleted']);
     }
 }

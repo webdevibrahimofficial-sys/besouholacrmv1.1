@@ -5,9 +5,29 @@ namespace App\Http\Controllers;
 use App\Models\Stage;
 use App\Models\Lead;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class StageController extends Controller
 {
+    private function stageNames(Stage $stage): array
+    {
+        return array_values(array_unique(array_filter([
+            trim((string) $stage->name),
+            trim((string) $stage->name_ar),
+        ])));
+    }
+
+    private function linkedLeadsQuery(Stage $stage)
+    {
+        $stageNames = $this->stageNames($stage);
+
+        return Lead::query()->where(function ($query) use ($stageNames) {
+            foreach ($stageNames as $stageName) {
+                $query->orWhereRaw('LOWER(TRIM(stage)) = ?', [strtolower($stageName)]);
+            }
+        });
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -88,30 +108,41 @@ class StageController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Stage $stage)
+    public function destroy(Request $request, Stage $stage)
     {
-        $stageNames = array_values(array_filter([
-            trim((string) $stage->name),
-            trim((string) $stage->name_ar),
-        ]));
-
-        $linkedLeadsCount = 0;
-
-        if (!empty($stageNames)) {
-            $linkedLeadsCount = Lead::query()
-                ->where(function ($query) use ($stageNames) {
-                    foreach ($stageNames as $stageName) {
-                        $query->orWhereRaw('LOWER(TRIM(stage)) = ?', [strtolower($stageName)]);
-                    }
-                })
-                ->count();
-        }
+        $linkedLeadsCount = $this->linkedLeadsQuery($stage)->count();
 
         if ($linkedLeadsCount > 0) {
+            $targetStageId = (int) $request->input('target_stage_id');
+
+            if ($targetStageId <= 0) {
+                return response()->json([
+                    'message' => 'Cannot delete this stage while leads are linked to it. Please move these leads to another stage first.',
+                    'linked_leads_count' => $linkedLeadsCount,
+                    'requires_transfer' => true,
+                ], 409);
+            }
+
+            $targetStage = Stage::query()->find($targetStageId);
+            if (!$targetStage || (int) $targetStage->id === (int) $stage->id) {
+                return response()->json([
+                    'message' => 'Please choose a valid target stage before deleting this stage.',
+                ], 422);
+            }
+
+            DB::transaction(function () use ($stage, $targetStage) {
+                $this->linkedLeadsQuery($stage)->update([
+                    'stage' => trim((string) $targetStage->name),
+                ]);
+
+                $stage->delete();
+            });
+
             return response()->json([
-                'message' => 'Cannot delete this stage while leads are linked to it. Please move these leads to another stage first.',
+                'message' => 'Stage deleted and linked leads moved successfully.',
                 'linked_leads_count' => $linkedLeadsCount,
-            ], 409);
+                'moved_to_stage_id' => (int) $targetStage->id,
+            ]);
         }
 
         $stage->delete();

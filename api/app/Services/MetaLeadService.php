@@ -6,20 +6,26 @@ use App\Contracts\MetaApiClientInterface;
 use App\Models\Lead;
 use App\Models\Integration;
 use App\Models\MetaPage;
-use App\Models\MetaConnection;
 use App\Models\Campaign;
 use App\Models\Source;
 use Illuminate\Support\Facades\Log;
-use App\Models\User;
 use App\Notifications\MetaConnectionLostNotification;
 
 class MetaLeadService
 {
     protected $apiClient;
+    protected $accessTokenService;
+    protected $capiService;
 
-    public function __construct(MetaApiClientInterface $apiClient)
-    {
+    public function __construct(
+        MetaApiClientInterface $apiClient,
+        MetaAccessTokenService $accessTokenService,
+        MetaCapiService $capiService,
+        protected TenantAdminResolver $tenantAdmins
+    ) {
         $this->apiClient = $apiClient;
+        $this->accessTokenService = $accessTokenService;
+        $this->capiService = $capiService;
     }
 
     protected function resolveLeadSource(array $data): string
@@ -60,11 +66,8 @@ class MetaLeadService
 
             // Fallback: Find any valid connection if no specific page context or token found yet
             if (!$accessToken) {
-                $connection = $this->resolveFallbackConnection($tenantId);
-                if ($connection) {
-                    $accessToken = $connection->user_access_token;
-                    $tokenSource = $accessToken ? 'fallback_user_token' : null;
-                }
+                $accessToken = $this->accessTokenService->getTenantAccessToken($tenantId);
+                $tokenSource = $accessToken ? 'fallback_user_token' : null;
             }
 
             if (!$accessToken) {
@@ -274,13 +277,17 @@ class MetaLeadService
             'created_at' => isset($data['created_time']) ? \Carbon\Carbon::parse($data['created_time']) : now(),
         ], $additionalAttributes);
 
-        Lead::updateOrCreate(
+        $lead = Lead::updateOrCreate(
             [
                 'meta_id' => $data['id'],
                 'tenant_id' => $tenantId,
             ],
             $leadData
         );
+
+        if (!$this->isPostmanTestLeadId($data['id'] ?? null)) {
+            $this->capiService->sendLeadEventIfEnabled($tenantId, $lead, $integration);
+        }
     }
 
     protected function ensureMetaSourceExists(int $tenantId): void
@@ -335,46 +342,9 @@ class MetaLeadService
         return null;
     }
 
-    protected function resolveFallbackConnection($tenantId): ?MetaConnection
-    {
-        $connections = MetaConnection::where('tenant_id', $tenantId)
-            ->where(function ($query) {
-                $query->whereNull('expires_at')
-                    ->orWhere('expires_at', '>', now());
-            })
-            ->orderByDesc('updated_at')
-            ->limit(2)
-            ->get();
-
-        if ($connections->count() > 1) {
-            Log::warning('Meta lead processing fallback is ambiguous for tenant with multiple connections and no page context.', [
-                'tenant_id' => $tenantId,
-                'connection_ids' => $connections->pluck('id')->all(),
-                'reason' => 'missing_page_context',
-            ]);
-
-            return null;
-        }
-
-        return $connections->first();
-    }
-
     protected function notifyTenantAdmin($tenantId, $reason)
     {
-        // Find users with 'Tenant Admin' role in this tenant
-        // Assuming Spatie roles or similar setup where roles are assigned to users
-        
-        $admins = User::where('tenant_id', $tenantId)
-            ->whereHas('roles', function ($q) {
-                $q->where('name', 'Tenant Admin')
-                  ->orWhere('name', 'Admin'); // Fallback
-            })
-            ->get();
-
-        if ($admins->isEmpty()) {
-            // Fallback: notify the first user of the tenant if no admin found (unlikely)
-            $admins = User::where('tenant_id', $tenantId)->limit(1)->get();
-        }
+        $admins = $this->tenantAdmins->resolveForTenant($tenantId);
 
         foreach ($admins as $admin) {
             try {

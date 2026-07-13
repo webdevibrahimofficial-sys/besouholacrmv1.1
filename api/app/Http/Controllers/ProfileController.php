@@ -75,6 +75,26 @@ class ProfileController extends Controller
         ]);
     }
 
+    /**
+     * Lightweight theme-only update so the frontend theme toggle can persist
+     * immediately without sending the full profile payload (name/email/etc).
+     */
+    public function updateTheme(Request $request)
+    {
+        $validated = $request->validate([
+            'theme_mode' => ['required', 'string', 'in:light,dark,auto,Light,Dark,Auto'],
+        ]);
+
+        $user = $request->user();
+        $user->theme_mode = strtolower($validated['theme_mode']);
+        $user->save();
+
+        return response()->json([
+            'message' => 'Theme updated successfully',
+            'theme_mode' => $user->theme_mode,
+        ]);
+    }
+
     public function preferences(Request $request)
     {
         $validated = $request->validate([

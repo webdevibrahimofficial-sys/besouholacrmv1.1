@@ -1,7 +1,21 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { palette, fonts } from '../../theme.js'
+import { api } from '@utils/api'
+import {
+  DEFAULT_CRM_TIMEZONE,
+  getStoredCrmTimeZone,
+  persistCrmTimeZone,
+  resolveAutoModeByTime,
+} from '@shared/utils/themeAutoMode'
 
-const ThemeContext = createContext({ theme: 'light', setTheme: () => {}, resolvedTheme: 'light' })
+const ThemeContext = createContext({
+  theme: 'light',
+  setTheme: () => {},
+  resolvedTheme: 'light',
+  syncThemeFromUser: () => {},
+  syncCrmTimezone: () => {},
+  crmTimeZone: DEFAULT_CRM_TIMEZONE,
+})
 
 // ─── helper: قراءة الثيم المحفوظ من localStorage ─────────────────────────────
 function readSavedTheme() {
@@ -31,52 +45,63 @@ function applyMode(mode) {
   }
 }
 
-// ─── helper: حساب الوضع الفعلي من إعداد "auto" ────────────────────────────────
-// يستخدم prefers-color-scheme أولاً، ثم يعود للنظام القائم على الساعة كـ fallback
-function resolveAutoMode() {
+// ─── helper: حفظ اختيار المستخدم في الـ DB (fire-and-forget) ─────────────────
+// من غير الحفظ ده، الـ heartbeat اللي بيزامن theme_mode من البروفايل
+// هيرجّع الثيم القديم أول ما النافذة تاخد فوكس تاني.
+function persistThemeToBackend(mode) {
   try {
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'
+    const hasToken =
+      window.localStorage.getItem('token') || window.sessionStorage.getItem('token')
+    if (!hasToken) return
+    api.post('/api/profile/theme', { theme_mode: mode }, {
+      skipAuthRedirect: true,
+      suppressErrorLog: true,
+    }).catch(() => {})
   } catch {}
-  return 'light'
 }
 
 export const ThemeProvider = ({ children }) => {
+  const [crmTimeZone, setCrmTimeZone] = useState(
+    () => getStoredCrmTimeZone() || DEFAULT_CRM_TIMEZONE,
+  )
   const [theme, setThemeState] = useState(() => readSavedTheme())
   const [resolvedTheme, setResolvedTheme] = useState(() => {
     const saved = readSavedTheme()
-    if (saved === 'auto') return resolveAutoMode()
+    if (saved === 'auto') {
+      return resolveAutoModeByTime(getStoredCrmTimeZone() || DEFAULT_CRM_TIMEZONE)
+    }
     return saved === 'dark' ? 'dark' : 'light'
   })
 
   // ─── الدالة العامة لتغيير الثيم (الوحيدة المُصرَّح بها) ───────────────────
-  const setTheme = (val) => {
+  // بتحفظ الاختيار في الـ DB كمان، عشان الـ heartbeat (اللي بيقرا theme_mode
+  // من البروفايل عند رجوع الفوكس) ميرجعش الثيم القديم بعد ما المستخدم بدّله.
+  const setTheme = useCallback((val) => {
     const normalized = String(val).toLowerCase()
     if (normalized !== 'light' && normalized !== 'dark' && normalized !== 'auto') return
     setThemeState(normalized)
-  }
+    persistThemeToBackend(normalized)
+  }, [])
 
   // ─── تطبيق الثيم على DOM وحفظه في localStorage ──────────────────────────────
   useEffect(() => {
     const compute = () => {
-      const mode = theme === 'auto' ? resolveAutoMode() : theme
+      const mode = theme === 'auto' ? resolveAutoModeByTime(crmTimeZone) : theme
       setResolvedTheme(mode)
       applyMode(mode)
     }
 
     compute()
 
-    // في وضع auto: استمع لتغيير تفضيل النظام بدلاً من الـ interval
-    let mediaQuery = null
+    // في وضع auto: أعد الحساب كل دقيقة وعند رجوع التاب (حسب وقت CRM timezone)
     let interval = null
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') compute()
+    }
 
     if (theme === 'auto') {
-      try {
-        mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-        mediaQuery.addEventListener('change', compute)
-      } catch {
-        // fallback للمتصفحات القديمة
-        interval = setInterval(compute, 60000)
-      }
+      interval = setInterval(compute, 60000)
+      document.addEventListener('visibilitychange', onVisibilityChange)
     }
 
     // حفظ الثيم في localStorage بشكل موحّد في مكان واحد
@@ -89,10 +114,10 @@ export const ThemeProvider = ({ children }) => {
     } catch {}
 
     return () => {
-      if (mediaQuery) mediaQuery.removeEventListener('change', compute)
       if (interval) clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [theme])
+  }, [theme, crmTimeZone])
 
   // ─── تطبيق density وdirection عند التحميل الأول ─────────────────────────────
   useEffect(() => {
@@ -112,14 +137,22 @@ export const ThemeProvider = ({ children }) => {
   }, [])
 
   // ─── مزامنة theme_mode من بيانات المستخدم عند تغيير الـ user ─────────────────
-  // (يُستدعى من AppStateProvider بعد login عبر syncThemeFromUser)
-  const syncThemeFromUser = (userThemeMode) => {
+  // (يُستدعى من AppStateProvider بعد login/heartbeat عبر syncThemeFromUser)
+  // مستقرة بـ useCallback عشان تنفع dependency في useCallback/useEffect عند المستهلكين
+  const syncThemeFromUser = useCallback((userThemeMode) => {
     if (!userThemeMode) return
     const normalized = String(userThemeMode).toLowerCase()
     if (normalized === 'light' || normalized === 'dark' || normalized === 'auto') {
       setThemeState(normalized)
     }
-  }
+  }, [])
+
+  // ─── مزامنة timezone من CRM Settings (يُستدعى من AppStateProvider) ─────────
+  const syncCrmTimezone = useCallback((timezone) => {
+    if (!timezone) return
+    persistCrmTimeZone(timezone)
+    setCrmTimeZone(timezone)
+  }, [])
 
   return (
     <ThemeContext.Provider value={{
@@ -127,6 +160,8 @@ export const ThemeProvider = ({ children }) => {
       setTheme,
       resolvedTheme,
       syncThemeFromUser,
+      syncCrmTimezone,
+      crmTimeZone,
       palette,
       fonts,
       isLight: resolvedTheme === 'light',

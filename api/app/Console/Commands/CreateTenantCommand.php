@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -27,6 +28,9 @@ class CreateTenantCommand extends Command
 
     public function handle(): int
     {
+        $tenant = null;
+        $connectionName = 'tenant-dedicated';
+
         $name = $this->option('name') ?: $this->ask('Tenant name');
         $domain = $this->option('domain') ?: $this->ask('Tenant domain (e.g. client.example.com)');
         $slug = $this->option('slug') ?: Str::slug(strtok((string) $domain, '.'));
@@ -59,6 +63,8 @@ class CreateTenantCommand extends Command
             $tenant->status = 'active';
             $tenant->tenancy_type = $type;
             $tenant->subscription_plan = $tenant->subscription_plan ?? 'core';
+            $tenant->company_type = $tenant->company_type ?? 'General';
+            $tenant->users_limit = $tenant->users_limit ?? 5;
             $tenant->saveQuietly();
 
             if ($type === 'dedicated') {
@@ -89,8 +95,6 @@ class CreateTenantCommand extends Command
 
                 $tenant->db_connection_details = $dbDetails;
                 $tenant->saveQuietly();
-
-                $connectionName = 'tenant-dedicated';
 
                 Config::set("database.connections.{$connectionName}", array_merge(
                     Config::get("database.connections.tenant-dedicated", []),
@@ -124,6 +128,17 @@ class CreateTenantCommand extends Command
 
             return self::SUCCESS;
         } catch (\Throwable $e) {
+            Log::error('Dedicated tenant provisioning failed.', [
+                'tenant_id' => $tenant?->id,
+                'slug' => $slug,
+                'tenancy_type' => $type,
+                'error' => $e->getMessage(),
+            ]);
+
+            if ($tenant instanceof Tenant) {
+                $this->cleanupFailedTenant($tenant);
+            }
+
             $this->error('Failed to create tenant: ' . $e->getMessage());
             return self::FAILURE;
         }
@@ -144,9 +159,9 @@ class CreateTenantCommand extends Command
             'domain' => $tenant->domain,
             'slug' => $tenant->slug,
             'status' => $tenant->status,
-            'subscription_plan' => $tenant->subscription_plan,
-            'company_type' => $tenant->company_type,
-            'users_limit' => $tenant->users_limit,
+            'subscription_plan' => $tenant->subscription_plan ?? 'core',
+            'company_type' => $tenant->company_type ?? 'General',
+            'users_limit' => $tenant->users_limit ?? 5,
             'start_date' => optional($tenant->start_date)->toDateString(),
             'end_date' => optional($tenant->end_date)->toDateString(),
             'country' => $tenant->country,
@@ -169,5 +184,43 @@ class CreateTenantCommand extends Command
             ['id' => $tenant->id],
             $filteredPayload
         );
+    }
+
+    protected function cleanupFailedTenant(Tenant $tenant): void
+    {
+        try {
+            if ($tenant->tenancy_type === 'dedicated') {
+                $details = is_array($tenant->db_connection_details) ? $tenant->db_connection_details : [];
+                $databaseName = $details['database'] ?? null;
+                $username = $details['username'] ?? null;
+                $landlordConnection = config('multitenancy.landlord_database_connection_name', 'landlord');
+                $landlordDb = DB::connection($landlordConnection);
+
+                if ($databaseName) {
+                    $landlordDb->statement("DROP DATABASE IF EXISTS `{$databaseName}`");
+                }
+
+                if ($username) {
+                    $landlordDb->statement("DROP USER IF EXISTS '{$username}'@'%'");
+                    $landlordDb->statement('FLUSH PRIVILEGES');
+                }
+            }
+        } catch (\Throwable $cleanupError) {
+            Log::error('Failed to cleanup dedicated tenant resources after command failure.', [
+                'tenant_id' => $tenant->id,
+                'slug' => $tenant->slug,
+                'error' => $cleanupError->getMessage(),
+            ]);
+        }
+
+        try {
+            $tenant->delete();
+        } catch (\Throwable $cleanupError) {
+            Log::error('Failed to delete landlord tenant after command failure.', [
+                'tenant_id' => $tenant->id,
+                'slug' => $tenant->slug,
+                'error' => $cleanupError->getMessage(),
+            ]);
+        }
     }
 }

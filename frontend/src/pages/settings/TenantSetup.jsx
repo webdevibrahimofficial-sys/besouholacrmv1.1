@@ -31,10 +31,9 @@ import {
   ChevronRight,
   ChevronDown,
   Check,
-  X 
+  X,
+  Wallet,
 } from 'lucide-react';
-
-// AVAILABLE_MODULES imported from useTenants hook
 
 const COUNTRIES = [
   "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
@@ -62,6 +61,72 @@ const COUNTRIES = [
   "Yemen",
   "Zambia", "Zimbabwe"
 ];
+
+const PRIORITY_COUNTRIES = ['Egypt', 'Saudi Arabia', 'United Arab Emirates', 'Kuwait', 'Qatar', 'Bahrain', 'Oman', 'Jordan', 'Lebanon'];
+
+const PAYMENT_METHODS = [
+  { value: 'bank_transfer', labelKey: 'bank_transfer', fallback: 'Bank Transfer' },
+  { value: 'instapay', labelKey: 'instapay', fallback: 'InstaPay / Fawry' },
+  { value: 'card', labelKey: 'card', fallback: 'Card / Visa' },
+  { value: 'cash', labelKey: 'cash', fallback: 'Cash' },
+  { value: 'gateway', labelKey: 'gateway', fallback: 'Payment Gateway' },
+];
+
+const DEFAULT_TENANT_FILTERS = {
+  search: '',
+  tenant_id: '',
+  plan: 'all',
+  status: 'all',
+  company_type: 'all',
+  country: 'all',
+  users_count: '',
+  user_usage: 'all',
+  start_date: '',
+  end_date: '',
+  expiration_from: '',
+  expiration_to: '',
+  payment_method: 'all',
+};
+
+const hasAdvancedTenantFilters = (filterState = {}) => (
+  filterState.country !== 'all' ||
+  filterState.user_usage !== 'all' ||
+  Boolean(filterState.users_count) ||
+  Boolean(filterState.start_date) ||
+  Boolean(filterState.end_date) ||
+  Boolean(filterState.expiration_from) ||
+  Boolean(filterState.expiration_to) ||
+  filterState.payment_method !== 'all'
+);
+
+const buildTenantListSearchParams = (view, filterState, searchValue) => {
+  const params = new URLSearchParams();
+  params.set('view', view || 'current');
+
+  const entries = {
+    search: searchValue,
+    tenant_id: filterState.tenant_id,
+    plan: filterState.plan,
+    status: filterState.status,
+    company_type: filterState.company_type,
+    country: filterState.country,
+    users_count: filterState.users_count,
+    user_usage: filterState.user_usage,
+    start_date: filterState.start_date,
+    end_date: filterState.end_date,
+    expiration_from: filterState.expiration_from,
+    expiration_to: filterState.expiration_to,
+    payment_method: filterState.payment_method,
+  };
+
+  Object.entries(entries).forEach(([key, value]) => {
+    if (value && value !== 'all') {
+      params.set(key, value);
+    }
+  });
+
+  return params;
+};
 
 const getInventoryModulesByCompanyType = (companyType = 'General') => {
   if (companyType === 'Real Estate') {
@@ -138,6 +203,7 @@ const TenantSetup = () => {
   // Debounce search to avoid API call on every keystroke
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceTimer = useRef(null);
+  const skipNextUrlSync = useRef(false);
   const handleSearchChange = useCallback((value) => {
     setFilters(prev => ({ ...prev, search: value }));
     clearTimeout(debounceTimer.current);
@@ -150,17 +216,7 @@ const TenantSetup = () => {
   const [tenants, setTenants] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
   const [tenantCounts, setTenantCounts] = useState({ current: 0, archived: 0 });
-  const [filters, setFilters] = useState({
-    search: '',
-    tenant_id: '',
-    plan: 'all',
-    status: 'all',
-    company_type: 'all',
-    country: 'all',
-    users_count: '',
-    start_date: '',
-    end_date: ''
-  });
+  const [filters, setFilters] = useState({ ...DEFAULT_TENANT_FILTERS });
   const [pagination, setPagination] = useState({
     current_page: 1,
     last_page: 1,
@@ -195,16 +251,47 @@ const TenantSetup = () => {
       company_type: params.get('company_type') || 'all',
       country: params.get('country') || 'all',
       users_count: params.get('users_count') || '',
+      user_usage: params.get('user_usage') || 'all',
       start_date: params.get('start_date') || '',
       end_date: params.get('end_date') || '',
+      expiration_from: params.get('expiration_from') || '',
+      expiration_to: params.get('expiration_to') || '',
+      payment_method: params.get('payment_method') || 'all',
     };
 
     console.log('📍 URL changed. nextFilters:', nextFilters);
+    skipNextUrlSync.current = true;
     setTenantView((prev) => (prev === nextView ? prev : nextView));
     setFilters(nextFilters);
     setDebouncedSearch(nextFilters.search);
+    if (hasAdvancedTenantFilters(nextFilters)) {
+      setShowMoreFilters(true);
+    }
     setPagination((prev) => ({ ...prev, current_page: 1 }));
   }, [location.search, isCreateRoute]);
+
+  useEffect(() => {
+    if (isCreateRoute) return;
+    if (skipNextUrlSync.current) {
+      skipNextUrlSync.current = false;
+      return;
+    }
+
+    const params = buildTenantListSearchParams(tenantView, filters, debouncedSearch);
+    const nextSearch = params.toString();
+    const currentSearch = location.search.replace(/^\?/, '');
+
+    if (nextSearch !== currentSearch) {
+      navigate(`/system/tenants?${nextSearch}`, { replace: true });
+    }
+  }, [
+    debouncedSearch,
+    filters,
+    tenantView,
+    isCreateRoute,
+    navigate,
+    location.search,
+  ]);
 
   // Fetch tenants when URL changes
   useEffect(() => {
@@ -219,8 +306,12 @@ const TenantSetup = () => {
       company_type: params.get('company_type') || 'all',
       country: params.get('country') || 'all',
       users_count: params.get('users_count') || '',
+      user_usage: params.get('user_usage') || 'all',
       start_date: params.get('start_date') || '',
       end_date: params.get('end_date') || '',
+      expiration_from: params.get('expiration_from') || '',
+      expiration_to: params.get('expiration_to') || '',
+      payment_method: params.get('payment_method') || 'all',
     };
     const urlView = params.get('view') || 'current';
     
@@ -241,10 +332,14 @@ const TenantSetup = () => {
         if (reqParams.status === 'all') delete reqParams.status;
         if (reqParams.company_type === 'all') delete reqParams.company_type;
         if (reqParams.country === 'all') delete reqParams.country;
+        if (reqParams.user_usage === 'all') delete reqParams.user_usage;
+        if (reqParams.payment_method === 'all') delete reqParams.payment_method;
         if (!reqParams.tenant_id) delete reqParams.tenant_id;
         if (!reqParams.users_count) delete reqParams.users_count;
         if (!reqParams.start_date) delete reqParams.start_date;
         if (!reqParams.end_date) delete reqParams.end_date;
+        if (!reqParams.expiration_from) delete reqParams.expiration_from;
+        if (!reqParams.expiration_to) delete reqParams.expiration_to;
 
         console.log('📤 Sending API request with params:', reqParams);
         const response = await axios.get('/api/super-admin/tenants', { params: reqParams });
@@ -269,17 +364,8 @@ const TenantSetup = () => {
   const resetFilters = () => {
     clearTimeout(debounceTimer.current);
     setDebouncedSearch('');
-    setFilters({
-      search: '',
-      tenant_id: '',
-      plan: 'all',
-      status: 'all',
-      company_type: 'all',
-      country: 'all',
-      users_count: '',
-      start_date: '',
-      end_date: ''
-    });
+    setFilters({ ...DEFAULT_TENANT_FILTERS });
+    setShowMoreFilters(false);
 
     if (!isCreateRoute) {
       navigate(`/system/tenants?view=${tenantView}`, { replace: true });
@@ -326,10 +412,14 @@ const TenantSetup = () => {
       if (params.status === 'all') delete params.status;
       if (params.company_type === 'all') delete params.company_type;
       if (params.country === 'all') delete params.country;
+      if (params.user_usage === 'all') delete params.user_usage;
+      if (params.payment_method === 'all') delete params.payment_method;
       if (!params.tenant_id) delete params.tenant_id;
       if (!params.users_count) delete params.users_count;
       if (!params.start_date) delete params.start_date;
       if (!params.end_date) delete params.end_date;
+      if (!params.expiration_from) delete params.expiration_from;
+      if (!params.expiration_to) delete params.expiration_to;
 
       const response = await axios.get('/api/super-admin/tenants', { params });
       console.log('✅ Tenants fetched with status filter:', params.status, 'Data received:', response.data.tenants.data.length);
@@ -843,59 +933,157 @@ const TenantSetup = () => {
                 </div>
 
                 {showMoreFilters && (
-                <div className="grid grid-cols-1 gap-4 pt-1 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="space-y-2">
-                    <label className={`block ${labelClass}`}>
-                      {t('country', 'Country')}
-                    </label>
-                    <select
-                      className={`${fieldClass} px-3`}
-                      value={filters.country}
-                      onChange={(e) => setFilters({ ...filters, country: e.target.value })}
-                    >
-                      <option value="all">{t('all_countries', 'All Countries')}</option>
-                      {COUNTRIES.map((country) => (
-                        <option key={country} value={country}>{country}</option>
-                      ))}
-                    </select>
+                <div className="space-y-4 border-t border-dashed border-slate-200 pt-4 dark:border-slate-700">
+                  <div>
+                    <h3 className={`text-sm font-semibold ${headingClass}`}>
+                      {t('creation_date', 'Creation Date')}
+                    </h3>
+                    <p className={`mt-1 text-xs ${mutedTextClass}`}>
+                      {t('filter_by_account_creation_period', 'Filter companies by when their account was created.')}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-2 ${labelClass}`}>
+                        <Calendar className="h-4 w-4 text-blue-500" />
+                        {t('creation_date_from', 'From')}
+                      </label>
+                      <input
+                        type="date"
+                        className={`${fieldClass} px-3`}
+                        value={filters.start_date}
+                        onChange={(e) => setFilters({ ...filters, start_date: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-2 ${labelClass}`}>
+                        <Calendar className="h-4 w-4 text-blue-500" />
+                        {t('creation_date_to', 'To')}
+                      </label>
+                      <input
+                        type="date"
+                        className={`${fieldClass} px-3`}
+                        value={filters.end_date}
+                        onChange={(e) => setFilters({ ...filters, end_date: e.target.value })}
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className={`block ${labelClass}`}>
-                      {t('start_date', 'Start Date')}
-                    </label>
-                    <input
-                      type="date"
-                      className={`${fieldClass} px-3`}
-                      value={filters.start_date}
-                      onChange={(e) => setFilters({ ...filters, start_date: e.target.value })}
-                    />
+                  <div>
+                    <h3 className={`text-sm font-semibold ${headingClass}`}>
+                      {t('expiration_date', 'Subscription Expiration')}
+                    </h3>
+                    <p className={`mt-1 text-xs ${mutedTextClass}`}>
+                      {t('filter_by_subscription_expiration_period', 'Find companies whose subscription ends within a specific period.')}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-2 ${labelClass}`}>
+                        <Calendar className="h-4 w-4 text-amber-500" />
+                        {t('expiration_date_from', 'Expires From')}
+                      </label>
+                      <input
+                        type="date"
+                        className={`${fieldClass} px-3`}
+                        value={filters.expiration_from}
+                        onChange={(e) => setFilters({ ...filters, expiration_from: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-2 ${labelClass}`}>
+                        <Calendar className="h-4 w-4 text-amber-500" />
+                        {t('expiration_date_to', 'Expires To')}
+                      </label>
+                      <input
+                        type="date"
+                        className={`${fieldClass} px-3`}
+                        value={filters.expiration_to}
+                        onChange={(e) => setFilters({ ...filters, expiration_to: e.target.value })}
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className={`block ${labelClass}`}>
-                      {t('end_date', 'End Date')}
-                    </label>
-                    <input
-                      type="date"
-                      className={`${fieldClass} px-3`}
-                      value={filters.end_date}
-                      onChange={(e) => setFilters({ ...filters, end_date: e.target.value })}
-                    />
+                  <div>
+                    <h3 className={`text-sm font-semibold ${headingClass}`}>
+                      {t('advanced_filters', 'Advanced Filters')}
+                    </h3>
                   </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-2 ${labelClass}`}>
+                        <Globe className="h-4 w-4 text-blue-500" />
+                        {t('country', 'Country / Region')}
+                      </label>
+                      <select
+                        className={`${fieldClass} px-3`}
+                        value={filters.country}
+                        onChange={(e) => setFilters({ ...filters, country: e.target.value })}
+                      >
+                        <option value="all">{t('all_countries', 'All Countries')}</option>
+                        <optgroup label={t('priority_markets', 'Priority Markets')}>
+                          {PRIORITY_COUNTRIES.map((country) => (
+                            <option key={`priority-${country}`} value={country}>{country}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={t('all_countries', 'All Countries')}>
+                          {COUNTRIES.filter((country) => !PRIORITY_COUNTRIES.includes(country)).map((country) => (
+                            <option key={country} value={country}>{country}</option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
 
-                  <div className="space-y-2">
-                    <label className={`block ${labelClass}`}>
-                      {t('min_users', 'Min Users')}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      className={`${fieldClass} px-3`}
-                      placeholder={t('min_users', 'Min Users')}
-                      value={filters.users_count}
-                      onChange={(e) => setFilters({ ...filters, users_count: e.target.value })}
-                    />
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-2 ${labelClass}`}>
+                        <Wallet className="h-4 w-4 text-emerald-500" />
+                        {t('payment_method', 'Payment Method')}
+                      </label>
+                      <select
+                        className={`${fieldClass} px-3`}
+                        value={filters.payment_method}
+                        onChange={(e) => setFilters({ ...filters, payment_method: e.target.value })}
+                      >
+                        <option value="all">{t('all_payment_methods', 'All Payment Methods')}</option>
+                        {PAYMENT_METHODS.map((method) => (
+                          <option key={method.value} value={method.value}>
+                            {t(method.labelKey, method.fallback)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-2 ${labelClass}`}>
+                        <Users className="h-4 w-4 text-violet-500" />
+                        {t('user_usage', 'User Limit / Usage')}
+                      </label>
+                      <select
+                        className={`${fieldClass} px-3`}
+                        value={filters.user_usage}
+                        onChange={(e) => setFilters({ ...filters, user_usage: e.target.value })}
+                      >
+                        <option value="all">{t('all_user_usage', 'All Usage Levels')}</option>
+                        <option value="at_limit">{t('users_at_limit', 'At maximum users (upgrade candidates)')}</option>
+                        <option value="near_limit">{t('users_near_limit', 'Near limit (90% or more)')}</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={`block ${labelClass}`}>
+                        {t('min_users', 'Minimum Users')}
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        className={`${fieldClass} px-3`}
+                        placeholder={t('min_users_placeholder', 'e.g. 3')}
+                        value={filters.users_count}
+                        onChange={(e) => setFilters({ ...filters, users_count: e.target.value })}
+                      />
+                    </div>
                   </div>
                 </div>
                 )}

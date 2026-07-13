@@ -4,8 +4,7 @@ import ProfileSettingsPanel from '../../../components/settings/ProfileSettingsPa
 
 export default function SettingsProfile() {
   const { t } = useTranslation()
-  const { theme } = useTheme()
-  const isLight = theme === 'light'
+  const { isLight } = useTheme()
   return (
     <>
       <div className="p-3 sm:p-4 md:p-6 bg-[var(--content-bg)] text-[var(--content-text)] space-y-4 sm:space-y-6">

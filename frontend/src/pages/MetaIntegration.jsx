@@ -99,8 +99,8 @@ export default function MetaIntegration() {
           <div className="card glass-card p-4 md:col-span-3">
             <h3 className="text-base font-semibold mb-2">{t('Integration Tips')}</h3>
             <ul className={`text-sm space-y-2 list-disc ${isArabic ? 'pr-5' : 'pl-5'}`}>
-              <li>{t('Meta requires a tenant-specific Meta App (App ID + Secret) before you can connect accounts.')}</li>
-              <li>{t('After saving the Meta App, copy the Webhook URL into your Meta Developer Webhooks settings.')}</li>
+              <li>{t('Meta integration is managed centrally. Contact support if integration is not enabled for your account.')}</li>
+              <li>{t('Webhooks are configured by your system administrator — no manual setup is required on your end.')}</li>
               <li>{t('Then connect a Facebook account to sync businesses, ad accounts, pages, and Lead Ads.')}</li>
               <li>{t('Enable CAPI for better ad optimization and tracking accuracy.')}</li>
               <li>{t('Connect Google Ads to view campaign performance alongside sales data.')}</li>

@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Contracts\MetaApiClientInterface;
 use App\Models\MetaConnection;
 use App\Models\Tenant;
+use App\Services\MetaAccessTokenService;
 use App\Services\MetaAuthService;
+use App\Services\MetaCapiService;
 use App\Services\MetaLeadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
@@ -169,7 +171,16 @@ class MetaMultipleConnectionsTest extends TestCase
         $apiClient = Mockery::mock(MetaApiClientInterface::class);
         $apiClient->shouldNotReceive('get');
 
-        $service = new MetaLeadService($apiClient);
+        $accessTokenService = Mockery::mock(MetaAccessTokenService::class);
+        $accessTokenService->shouldReceive('getTenantAccessToken')
+            ->once()
+            ->with($tenant->id)
+            ->andReturn(null);
+
+        $capiService = Mockery::mock(MetaCapiService::class);
+        $capiService->shouldNotReceive('sendLeadEventIfEnabled');
+
+        $service = new MetaLeadService($apiClient, $accessTokenService, $capiService);
         $service->processLead($tenant->id, 'lead-123');
 
         $this->assertTrue(true);

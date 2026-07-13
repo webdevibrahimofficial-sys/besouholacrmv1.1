@@ -82,4 +82,25 @@ class MetaHealthTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('ok', true);
     }
+
+    public function test_tenant_can_verify_shared_webhook(): void
+    {
+        $this->seedSharedMetaApp('123456', 'shared-secret', 'verify-tenant-health');
+
+        $tenant = Tenant::create([
+            'id' => 'tenant_webhook_test',
+            'name' => 'Tenant Webhook Test',
+            'slug' => 'tenant-webhook-test',
+            'status' => 'active',
+        ]);
+
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+        ]);
+
+        $response = $this->actingAs($user)->postJson('/api/auth/meta/test-webhook');
+
+        $response->assertOk()
+            ->assertJsonPath('ok', true);
+    }
 }

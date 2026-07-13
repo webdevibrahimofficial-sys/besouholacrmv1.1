@@ -14,17 +14,24 @@ export function useIntegrations() {
   const [googleConnected, setGoogleConnected] = useState(false)
   const [metaConnected, setMetaConnected] = useState(false)
   const [metaConfigured, setMetaConfigured] = useState(false)
+  const [metaNeedsAttention, setMetaNeedsAttention] = useState(false)
+  const [metaAttentionLabel, setMetaAttentionLabel] = useState(null)
   const [websiteConnected, setWebsiteConnected] = useState(false)
   const [tenantConfig, setTenantConfig] = useState(null)
 
   const refreshMetaStatus = () => {
     metaService.loadSettings().then(metaSettings => {
       const connections = Array.isArray(metaSettings?.connections) ? metaSettings.connections : []
+      const attention = metaSettings?.attention || {}
       setMetaConnected(connections.length > 0)
       setMetaConfigured(!!metaSettings?.shared_meta_configured)
+      setMetaNeedsAttention(!!attention?.needs_attention)
+      setMetaAttentionLabel(attention?.label || null)
     }).catch(() => {
       setMetaConnected(false)
       setMetaConfigured(false)
+      setMetaNeedsAttention(false)
+      setMetaAttentionLabel(null)
     })
   }
 
@@ -61,7 +68,11 @@ export function useIntegrations() {
       bg: 'bg-blue-600', 
       description: 'Connect Facebook & Instagram for Lead Ads, Pixel, and Messaging',
       connected: metaConnected,
-      status: metaConnected ? 'Connected' : (metaConfigured ? 'Ready to connect' : 'Meta App not configured'),
+      needsAttention: metaConnected && metaNeedsAttention,
+      attentionLabel: metaAttentionLabel,
+      status: metaConnected
+        ? (metaNeedsAttention ? (metaAttentionLabel || 'Needs attention') : 'Connected')
+        : (metaConfigured ? 'Ready to connect' : 'Meta App not configured'),
       requiresSetup: !metaConfigured && !metaConnected,
       disabledReason: !metaConfigured && !metaConnected ? 'Meta integration must be configured by a system administrator first' : null,
     },

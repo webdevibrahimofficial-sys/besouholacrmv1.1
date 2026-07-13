@@ -526,6 +526,51 @@ export default function SystemIntegrations() {
               )}
             </div>
           </div>
+
+          {activeTab === 'meta' && metaHealth && (
+            <div className="card rounded-xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-[var(--muted-text)] uppercase tracking-wider">
+                  {t('Meta Rate Limits')}
+                </h3>
+                {(metaHealth.rate_limit_events_24h ?? 0) > 10 && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                    {t('Elevated')}
+                  </span>
+                )}
+              </div>
+              <div className="mb-4">
+                <div className="text-xs text-[var(--muted-text)]">{t('Events in last 24 hours')}</div>
+                <div className="mt-1 text-3xl font-bold text-theme">{metaHealth.rate_limit_events_24h ?? 0}</div>
+              </div>
+              {Array.isArray(metaHealth.rate_limit_recent) && metaHealth.rate_limit_recent.length > 0 ? (
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900/80 text-[var(--muted-text)]">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">{t('Time')}</th>
+                        <th className="px-3 py-2 font-medium">{t('Code')}</th>
+                        <th className="px-3 py-2 font-medium">{t('Endpoint')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metaHealth.rate_limit_recent.map((event, index) => (
+                        <tr key={`${event.recorded_at}-${index}`} className="border-t border-gray-100 dark:border-gray-800">
+                          <td className="px-3 py-2 whitespace-nowrap text-theme/80">
+                            {event.recorded_at ? new Date(event.recorded_at).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-theme">{event.code}</td>
+                          <td className="px-3 py-2 text-theme/80 break-all">{event.endpoint}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--muted-text)]">{t('No rate limit events recorded in the last 24 hours.')}</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

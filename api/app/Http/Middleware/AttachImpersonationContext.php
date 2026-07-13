@@ -2,10 +2,10 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\PersonalAccessToken;
 use App\Services\AdminImpersonationService;
 use Closure;
 use Illuminate\Http\Request;
-use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\Response;
 
 class AttachImpersonationContext

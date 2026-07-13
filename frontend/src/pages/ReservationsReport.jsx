@@ -114,7 +114,7 @@ export default function ReservationsReport() {
           const res = await api.get('/api/properties?all=1')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
           names = data.map((p) => String(
-            p.unit_code || p.unit_number || p.unitCode || p.unitNumber || p.name || p.title || ''
+            p.unit_number || p.unitNumber || p.unit_code || p.unitCode || p.name || p.title || ''
           ).trim()).filter(Boolean)
         } else if (companyType === 'general') {
           const res = await api.get('/api/items?all=1')
@@ -128,7 +128,7 @@ export default function ReservationsReport() {
           const props = Array.isArray(propsRes.data) ? propsRes.data : (propsRes.data?.data || [])
           const items = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data?.data || [])
           names = [
-            ...props.map((p) => String(p.unit_code || p.unit_number || p.name || p.title || '').trim()),
+            ...props.map((p) => String(p.unit_number || p.unit_code || p.name || p.title || '').trim()),
             ...items.map((it) => String(it.name || it.product || it.title || '').trim()),
           ].filter(Boolean)
         }
@@ -181,6 +181,51 @@ export default function ReservationsReport() {
     const price = parseFloat(meta?.price ?? item?.price ?? 0) || 0
     const qty = parseInt(item?.quantity ?? meta?.quantity ?? 1, 10) || 1
     return price * qty
+  }
+
+  const buildPropertyLookup = (properties) => {
+    const byId = new Map()
+    const byRef = new Map()
+
+    ;(Array.isArray(properties) ? properties : []).forEach((property) => {
+      const id = String(property?.id || '').trim()
+      const unitNumber = String(property?.unit_number || property?.unitNumber || '').trim()
+      const refs = [
+        id,
+        String(property?.unit_code || property?.unitCode || '').trim(),
+        unitNumber,
+        String(property?.name || '').trim(),
+        String(property?.title || '').trim(),
+      ].filter(Boolean)
+
+      if (id) byId.set(id, property)
+      refs.forEach((ref) => byRef.set(ref, property))
+    })
+
+    return { byId, byRef }
+  }
+
+  const resolveReservationUnitName = (item, propertyLookup) => {
+    const meta = item?.meta_data || item?.metaData || {}
+    const propertyId = String(meta?.property_id || '').trim()
+    const storedValue = String(item?.unit || meta?.unit || '').trim()
+
+    const property =
+      (propertyId && propertyLookup.byId.get(propertyId)) ||
+      (storedValue && propertyLookup.byRef.get(storedValue)) ||
+      null
+
+    return String(
+      property?.unit_number ||
+      property?.unitNumber ||
+      storedValue
+    ).trim()
+  }
+
+  const resolveReservationReportStatus = (item) => {
+    const meta = item?.meta_data || item?.metaData || {}
+    const raw = String(meta?.report_status || item?.status || '').trim().toLowerCase()
+    return ['cancelled', 'canceled', 'rejected'].includes(raw) ? 'cancelled' : 'done'
   }
 
   const openPropertyByUnit = (row) => {
@@ -249,28 +294,38 @@ export default function ReservationsReport() {
       const LIMIT = 1000
       let realEstate = []
       let inventory = []
+      let properties = []
 
       if (companyType === 'real estate') {
-         realEstate = await getRealEstateRequests(1, LIMIT)
+         const [re, propsRes] = await Promise.all([
+           getRealEstateRequests(1, LIMIT),
+           api.get('/api/properties?all=1').catch(() => ({ data: [] })),
+         ])
+         realEstate = re
+         properties = Array.isArray(propsRes.data) ? propsRes.data : (propsRes.data?.data || [])
       } else if (companyType === 'general') {
          inventory = await getInventoryRequests(1, LIMIT)
       } else {
-         const [re, inv] = await Promise.all([
+         const [re, inv, propsRes] = await Promise.all([
            getRealEstateRequests(1, LIMIT),
-           getInventoryRequests(1, LIMIT)
+           getInventoryRequests(1, LIMIT),
+           api.get('/api/properties?all=1').catch(() => ({ data: [] })),
          ])
          realEstate = re
          inventory = inv
+         properties = Array.isArray(propsRes.data) ? propsRes.data : (propsRes.data?.data || [])
       }
+
+      const propertyLookup = buildPropertyLookup(properties)
 
       const realEstateRows = Array.isArray(realEstate) ? realEstate.map(item => ({
         id: `RE-${item.id}`,
         leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
         customer: item.customer || item.customer_name || '',
         contact: item.phone || '',
-        reservationDateTime: item.date || item.created_at || '',
+        reservationDateTime: item.created_at || item.date || '',
         type: 'unit',
-        status: item.status || '',
+        status: resolveReservationReportStatus(item),
         value: typeof item.amount === 'number' ? item.amount : parseFloat(item.amount || '0') || 0,
         handledBy: resolveHandledBy(item),
         manager: '',
@@ -278,7 +333,7 @@ export default function ReservationsReport() {
         lastAction: item.updated_at || item.date || '',
         source: item.source || '',
         project: item.project || '',
-        unitOrItemName: item.unit || item.meta_data?.unit || item.metaData?.unit || '',
+        unitOrItemName: resolveReservationUnitName(item, propertyLookup),
         meta_data: item.meta_data || null
       })) : []
 
@@ -289,7 +344,7 @@ export default function ReservationsReport() {
         contact: item.phone || item.customer_phone || item.meta_data?.customer_phone || item.metaData?.customer_phone || '',
         reservationDateTime: item.created_at || '',
         type: 'item',
-        status: item.status || '',
+        status: resolveReservationReportStatus(item),
         value: resolveReservationValue(item),
         handledBy: resolveHandledBy(item),
         manager: '',
@@ -627,6 +682,7 @@ export default function ReservationsReport() {
   // Filters
   const [staff, setStaff] = useState('all')
   const [manager, setManager] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [source, setSource] = useState('all')
   const [project, setProject] = useState('all')
   const [unitFilter, setUnitFilter] = useState('all')
@@ -695,9 +751,18 @@ export default function ReservationsReport() {
     ]
   }, [usersList])
 
+  const statusOptions = useMemo(() => ([
+    { value: 'all', label: isRTL ? 'الكل' : 'All' },
+    { value: 'done', label: 'done' },
+    { value: 'cancelled', label: 'cancelled' },
+  ]), [isRTL])
+
   const filtered = useMemo(() => {
     return raw.filter(r => {
       const byStaff = staff === 'all' ? true : r.handledBy === staff
+      const byStatus = statusFilter === 'all'
+        ? true
+        : String(r.status || '').toLowerCase() === String(statusFilter).toLowerCase()
       const byManager = (() => {
         if (!usersList || manager === 'all') return true
         const mgr = usersList.find(u => String(u.id) === String(manager))
@@ -720,9 +785,9 @@ export default function ReservationsReport() {
         if (reservationDateTo && d > reservationDateTo) return false
         return true
       })()
-      return byStaff && byManager && bySource && byProject && byUnit && byLastAction && byReservationDate
+      return byStaff && byStatus && byManager && bySource && byProject && byUnit && byLastAction && byReservationDate
     })
-  }, [raw, staff, manager, source, project, unitFilter, lastActionDate, reservationDateFrom, reservationDateTo])
+  }, [raw, staff, statusFilter, manager, source, project, unitFilter, lastActionDate, reservationDateFrom, reservationDateTo])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -802,7 +867,7 @@ export default function ReservationsReport() {
   }, [filtered])
   const confirmedReservations = filtered.filter(r => {
     const v = String(r.status || '').toLowerCase()
-    return v === 'confirmed' || v === 'approved' || v === 'converted'
+    return v === 'done'
   }).length
 
   // Charts data
@@ -882,17 +947,11 @@ export default function ReservationsReport() {
 
   const statusClass = (s) => {
     const value = String(s || '').toLowerCase()
-    if (value === 'confirmed' || value === 'approved') {
+    if (value === 'done') {
       return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-    }
-    if (value === 'pending' || value === 'pending_approval') {
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
     }
     if (value === 'cancelled' || value === 'canceled' || value === 'rejected') {
       return 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-    }
-    if (value === 'completed' || value === 'converted') {
-      return 'bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300'
     }
     return `bg-gray-100 dark:bg-gray-900 ${isLight ? 'text-black' : 'text-white'}`
   }
@@ -925,6 +984,7 @@ export default function ReservationsReport() {
                 onClick={() => {
                   setStaff('all')
                   setManager('all')
+                  setStatusFilter('all')
                   setSource('all')
                   setProject('all')
                   setUnitFilter('all')
@@ -982,6 +1042,23 @@ export default function ReservationsReport() {
                       </option>
                     )
                   })}
+                </SearchableSelect>
+              </div>
+              <div className="space-y-1">
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                  <Tag size={12} className="text-blue-500 dark:text-blue-400" />
+                  {isRTL ? 'الحالة' : 'Status'}
+                </label>
+                <SearchableSelect
+                  value={statusFilter}
+                  onChange={(v) => {
+                    setStatusFilter(v)
+                    setCurrentPage(1)
+                  }}
+                >
+                  {statusOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </SearchableSelect>
               </div>
               <div className="space-y-1">
@@ -1219,20 +1296,21 @@ export default function ReservationsReport() {
                   <th className="py-2 px-3 hidden md:table-cell">{unitNumberColumnLabel}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{totalAmountColumnLabel}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'تاريخ الحجز' : 'Reservation Date'}</th>
+                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'الحالة' : 'Status'}</th>
                   <th className="py-2 px-3">{isRTL ? 'إجراءات' : 'Actions'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={11} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                    <td colSpan={12} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                       {isRTL ? 'لا توجد حجوزات تطابق الفلاتر المحددة' : 'No reservations found for selected filters'}
                     </td>
                   </tr>
                 )}
                 {filtered.length > 0 && paginatedRows.length === 0 && (
                   <tr>
-                    <td colSpan={11} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                    <td colSpan={12} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                       {isRTL ? 'لا توجد نتائج' : 'No results'}
                     </td>
                   </tr>
@@ -1267,6 +1345,9 @@ export default function ReservationsReport() {
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(r)}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{new Date(r.reservationDateTime).toLocaleString()}</td>
+                      <td className="py-2 px-3 hidden md:table-cell">
+                        <span className={`px-2 py-0.5 rounded-md w-fit inline-flex ${statusClass(r.status)}`}>{r.status}</span>
+                      </td>
                       <td className="py-2 px-3">
                         <div className="flex items-center gap-2">
                           <button 
@@ -1301,7 +1382,7 @@ export default function ReservationsReport() {
                     </tr>
                     {expandedRows[r.id] && (
                       <tr className="md:hidden bg-white/5 dark:bg-white/5">
-                        <td colSpan={11} className="px-4 py-3">
+                        <td colSpan={12} className="px-4 py-3">
                           <div className="grid grid-cols-2 gap-3 text-xs">
                              <div className="flex flex-col gap-1">
                                 <span className="text-[var(--muted-text)]">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</span>
@@ -1418,3 +1499,4 @@ export default function ReservationsReport() {
     </>
   )
 }
+

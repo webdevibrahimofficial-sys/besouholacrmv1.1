@@ -418,7 +418,9 @@ Route::middleware([
     Route::post('/auth/meta/asset/delete', [\App\Http\Controllers\MetaAuthController::class, 'deleteAsset']);
     Route::post('/auth/meta/page/link', [\App\Http\Controllers\MetaAuthController::class, 'linkPage']);
     Route::get('/auth/meta/forms', [MetaLeadFormController::class, 'index']);
+    Route::get('/auth/meta/forms/{formId}/suggest-mapping', [MetaLeadFormController::class, 'suggestMapping']);
     Route::post('/auth/meta/forms/map', [MetaLeadFormController::class, 'map']);
+    Route::post('/auth/meta/test-webhook', [\App\Http\Controllers\MetaAuthController::class, 'testWebhook']);
     Route::get('/auth/meta/health', [\App\Http\Controllers\MetaAuthController::class, 'health']);
     Route::post('/meta/capi/test', [\App\Http\Controllers\MetaCapiController::class, 'test']);
     
@@ -636,6 +638,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('/v1/leads/{lead}/email-messages', [\App\Http\Controllers\EmailMessageController::class , 'leadMessages']);
     Route::post('/v1/email/send', [\App\Http\Controllers\EmailMessageController::class , 'send']);
     Route::post('/profile', [App\Http\Controllers\ProfileController::class , 'update'])->middleware('impersonation.restrict');
+    Route::post('/profile/theme', [App\Http\Controllers\ProfileController::class , 'updateTheme'])->middleware('impersonation.restrict');
     Route::post('/profile/preferences', [App\Http\Controllers\ProfileController::class , 'preferences']);
     Route::get('/profile/sessions', [App\Http\Controllers\ProfileController::class , 'sessions']);
     Route::delete('/profile/sessions/{id}', [App\Http\Controllers\ProfileController::class , 'revokeSession']);

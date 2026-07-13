@@ -11,10 +11,12 @@ use Illuminate\Support\Facades\Log;
 class MetaInsightService
 {
     protected $apiClient;
+    protected $accessTokenService;
 
-    public function __construct(MetaApiClientInterface $apiClient)
+    public function __construct(MetaApiClientInterface $apiClient, MetaAccessTokenService $accessTokenService)
     {
         $this->apiClient = $apiClient;
+        $this->accessTokenService = $accessTokenService;
     }
 
     public function syncInsights($tenantId, $days = 3)
@@ -29,14 +31,15 @@ class MetaInsightService
         }
 
         foreach ($adAccounts as $adAccount) {
-            $accessToken = $adAccount->business?->connection?->user_access_token;
-            
+            $accessToken = $this->accessTokenService->getAdAccountAccessToken($adAccount);
+
             if (!$accessToken) {
-                 if (config('services.meta.mock_mode')) {
-                     $accessToken = 'mock_access_token_insight_sync';
-                 } else {
-                     continue;
-                 }
+                if (config('services.meta.mock_mode')) {
+                    $accessToken = 'mock_access_token_insight_sync';
+                } else {
+                    Log::warning("No access token found for ad account {$adAccount->ad_account_id} (Tenant: {$tenantId})");
+                    continue;
+                }
             }
 
             $this->syncAdAccountInsights($tenantId, $adAccount, $accessToken, $days);

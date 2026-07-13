@@ -891,7 +891,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const iconContainer = 'flex-shrink-0 nova-icon flex items-center justify-center'
   const activeLink = isLight
     ? `bg-theme-sidebar-active text-theme-sidebar-active-text ${isRTL ? 'active-link-indicator' : 'border-l-4'} border-blue-500 font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]`
-    : `bg-gray-800 text-blue-400 ${isRTL ? 'active-link-indicator' : 'border-l-4'} border-blue-500 font-bold`
+    : `bg-blue-500/20 text-blue-300 ${isRTL ? 'active-link-indicator' : 'border-l-4'} border-blue-400 font-semibold`
   const iconTone = isLight ? 'text-theme-text group-hover:text-blue-600' : 'text-gray-400 group-hover:text-blue-400'
   const backLabel = langCode.startsWith('ar') ? 'رجوع' : 'Back'
 

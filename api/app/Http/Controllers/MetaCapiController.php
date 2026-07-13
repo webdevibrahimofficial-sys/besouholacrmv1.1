@@ -2,16 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Contracts\MetaApiClientInterface;
-use App\Services\MetaSystemSettingsService;
+use App\Services\MetaCapiService;
 use Illuminate\Http\Request;
 
 class MetaCapiController extends Controller
 {
-    public function __construct(
-        protected MetaApiClientInterface $apiClient,
-        protected MetaSystemSettingsService $metaSystemSettings
-    ) {
+    public function __construct(protected MetaCapiService $capiService)
+    {
     }
 
     public function test(Request $request)
@@ -26,36 +23,9 @@ class MetaCapiController extends Controller
             'custom_data' => 'nullable|array',
         ]);
 
-        if (config('services.meta.mock_mode')) {
-            return response()->json([
-                'ok' => true,
-                'mock' => true,
-                'message' => 'CAPI test event accepted in mock mode.',
-                'payload' => $payload,
-            ]);
-        }
+        $tenantId = $request->user()?->tenant_id;
+        $result = $this->capiService->sendTestEvent($tenantId, $payload);
 
-        $credentials = $this->metaSystemSettings->resolveSharedCredentials();
-        $pixelId = $payload['pixel_id'];
-
-        $event = [
-            'event_name' => $payload['event_name'],
-            'event_time' => $payload['event_time'] ?? time(),
-            'action_source' => $payload['action_source'] ?? 'website',
-            'event_source_url' => $payload['event_source_url'] ?? config('app.frontend_url'),
-            'user_data' => $payload['user_data'] ?? [],
-            'custom_data' => $payload['custom_data'] ?? [],
-        ];
-
-        $response = $this->apiClient->post("/{$pixelId}/events", [
-            'data' => [$event],
-            'access_token' => $credentials['app_id'] . '|' . $credentials['app_secret'],
-        ]);
-
-        return response()->json([
-            'ok' => true,
-            'message' => 'CAPI test event sent.',
-            'response' => $response,
-        ]);
+        return response()->json($result);
     }
 }

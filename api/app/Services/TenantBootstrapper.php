@@ -2,10 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\LandlordUser;
 use App\Models\Tenant;
 use App\Models\User;
-use Spatie\Permission\Models\Role;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 
 class TenantBootstrapper
 {
@@ -27,6 +28,7 @@ class TenantBootstrapper
                 ]);
 
                 $this->ensureTenantAdminRole($admin, $tenant);
+                $this->syncAdminToLandlord($admin, $tenant);
             }
 
             return $admin;
@@ -37,14 +39,22 @@ class TenantBootstrapper
     {
         setPermissionsTeamId($tenant->id);
 
+        $connection = $this->workspaceConnectionName($tenant);
         $teamFk = config('permission.column_names.team_foreign_key', 'tenant_id');
+        $timestamp = now();
 
         foreach (self::DEFAULT_ROLES as $roleName) {
-            Role::firstOrCreate([
-                'name' => $roleName,
-                'guard_name' => 'web',
-                $teamFk => $tenant->id,
-            ]);
+            DB::connection($connection)->table('roles')->updateOrInsert(
+                [
+                    'name' => $roleName,
+                    'guard_name' => 'web',
+                    $teamFk => $tenant->id,
+                ],
+                [
+                    'updated_at' => $timestamp,
+                    'created_at' => $timestamp,
+                ]
+            );
         }
     }
 
@@ -52,11 +62,27 @@ class TenantBootstrapper
     {
         setPermissionsTeamId($tenant->id);
         $this->ensureTenantRolesExist($tenant);
+        $connection = $this->workspaceConnectionName($tenant);
+        $teamFk = config('permission.column_names.team_foreign_key', 'tenant_id');
 
         $user->unsetRelation('roles');
 
-        if (!$user->hasRole('Tenant Admin')) {
-            $user->assignRole('Tenant Admin');
+        $roleId = DB::connection($connection)->table('roles')
+            ->where('name', 'Tenant Admin')
+            ->where('guard_name', 'web')
+            ->where($teamFk, $tenant->id)
+            ->value('id');
+
+        if ($roleId) {
+            DB::connection($connection)->table('model_has_roles')->updateOrInsert(
+                [
+                    'role_id' => $roleId,
+                    'model_type' => User::class,
+                    'model_id' => $user->id,
+                    $teamFk => $tenant->id,
+                ],
+                []
+            );
         }
 
         if (empty($user->job_title)) {
@@ -64,5 +90,41 @@ class TenantBootstrapper
         }
 
         $user->unsetRelation('roles');
+    }
+
+    protected function workspaceConnectionName(Tenant $tenant): string
+    {
+        if ($tenant->tenancy_type === 'dedicated') {
+            return config('multitenancy.tenant_database_connection_name', 'tenant-dedicated');
+        }
+
+        return config('database.default', 'mysql');
+    }
+
+    protected function syncAdminToLandlord(User $admin, Tenant $tenant): void
+    {
+        if ($tenant->tenancy_type !== 'dedicated') {
+            return;
+        }
+
+        LandlordUser::withoutGlobalScopes()->updateOrCreate(
+            [
+                'tenant_id' => $tenant->id,
+                'email' => $admin->email,
+            ],
+            [
+                'name' => $admin->name,
+                'password' => $admin->getAuthPassword(),
+                'is_super_admin' => false,
+                'status' => $admin->status ?: 'Active',
+                'job_title' => $admin->job_title ?: 'Tenant Admin',
+                'locale' => $admin->locale,
+                'timezone' => $admin->timezone,
+                'theme_mode' => $admin->theme_mode,
+                'avatar' => $admin->avatar,
+                'phone' => $admin->phone,
+                'username' => $admin->username,
+            ]
+        );
     }
 }

@@ -11,6 +11,7 @@ class MakeTenantCurrentWithContext extends MakeTenantCurrentAction
     {
         parent::execute($tenant);
 
+        app()->instance('tenant', $tenant);
         app()->instance('current_tenant_id', $tenant->id);
 
         if (function_exists('setPermissionsTeamId')) {

@@ -7,6 +7,8 @@ import { preloadRotationSettings } from '@services/rotationService'
 import { isSystemAdminContext, shouldUseAdminPanel } from '@utils/authRouting'
 import { isTenantAdminUser } from '@services/leadPermissions'
 import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
+import { getCrmTimeZone } from '@shared/utils/crmDateTime'
+import { useTheme } from '@shared/context/ThemeProvider'
 import i18n from '../../i18n'
 import { ensureEcho, disconnectEcho } from '../../echo'
 
@@ -15,6 +17,7 @@ const AppStateContext = createContext(null)
 export function AppStateProvider({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { syncThemeFromUser, syncCrmTimezone } = useTheme()
   const [user, setUser] = useState(null)
   const [company, setCompany] = useState(null)
   const [impersonation, setImpersonation] = useState(null)
@@ -63,23 +66,11 @@ export function AppStateProvider({ children }) {
     // Sync Theme Preference from User Profile — DB is the source of truth.
     // This fixes mobile browsers (Android Night Mode / cleared localStorage)
     // where localStorage may be empty or stale, causing wrong theme on load.
+    // IMPORTANT: go through ThemeProvider (single source of truth) instead of
+    // touching the DOM/localStorage directly — otherwise the <html> class and
+    // React's resolvedTheme desync and text keeps the old theme's colors.
     if (rawUser?.theme_mode) {
-      const validThemes = ['light', 'dark', 'auto']
-      if (validThemes.includes(rawUser.theme_mode)) {
-        try {
-          localStorage.setItem('theme', rawUser.theme_mode)
-          const prefsRaw = localStorage.getItem('systemPrefs')
-          const prefs = prefsRaw ? JSON.parse(prefsRaw) : {}
-          prefs.theme = rawUser.theme_mode
-          localStorage.setItem('systemPrefs', JSON.stringify(prefs))
-          // Apply immediately to DOM so ThemeProvider picks it up on next render
-          const resolvedMode = rawUser.theme_mode === 'auto'
-            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-            : rawUser.theme_mode
-          document.documentElement.classList.toggle('dark', resolvedMode === 'dark')
-          document.documentElement.classList.toggle('light', resolvedMode === 'light')
-        } catch {}
-      }
+      syncThemeFromUser(rawUser.theme_mode)
     }
 
     setCompany(payload.company || payload.tenant || null)
@@ -124,7 +115,7 @@ export function AppStateProvider({ children }) {
       modules = payload.activeModules
     }
     setActiveModules(modules)
-  }, [])
+  }, [syncThemeFromUser])
 
   const fetchCompanyInfo = useCallback(async () => {
     const payload = await getProfile()
@@ -146,11 +137,15 @@ export function AppStateProvider({ children }) {
 
     try {
       const res = await api.get('/api/crm-settings')
-      setCrmSettings(res?.data?.settings || null)
+      const settings = res?.data?.settings || null
+      setCrmSettings(settings)
+      if (settings) {
+        syncCrmTimezone(getCrmTimeZone(settings))
+      }
       await preloadRotationSettings()
     } catch {}
     return payload
-  }, [setProfile])
+  }, [setProfile, syncCrmTimezone])
 
   const refreshInventoryBadges = useCallback(async () => {
     try {
@@ -524,6 +519,11 @@ useEffect(() => {
    if (isSystemAdminContext(user, { permissions, subscriptionPlan, panelMode })) return
    refreshInventoryBadges()
  }, [userId, isSuperAdminUser, refreshInventoryBadges])
+
+ useEffect(() => {
+   if (!crmSettings) return
+   syncCrmTimezone(getCrmTimeZone(crmSettings))
+ }, [crmSettings, syncCrmTimezone])
 
   return (
     <AppStateContext.Provider value={value}>

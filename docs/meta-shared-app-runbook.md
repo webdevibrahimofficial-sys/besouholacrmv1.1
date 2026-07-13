@@ -63,7 +63,15 @@ php artisan test --filter="Meta|SharedMeta|GoogleSecret"
 - `page_conflicts` — same `page_id` linked to multiple tenants (blocked by design)
 - `connections_needing_reauth` — tenants that must reconnect OAuth
 - `rate_limit_events_24h` — Meta API rate limit counter (codes 4/17/32/613)
+- `rate_limit_recent` — last 20 rate-limit events (endpoint, code, timestamp) for Super Admin dashboard
 - `subscribe_summary` — webhook auto-subscribe results per sync
+
+## Tenant Go-Live Checklist
+
+Tenants can review readiness in **Marketing → Meta Integration → Go-Live** tab. The checklist combines:
+
+- **Automated checks** from `/api/auth/meta/status` (`go_live` payload)
+- **Manual platform items** (Meta Console webhook, queue worker, token refresh cron) — confirm with DevOps
 
 ## Troubleshooting Leads
 

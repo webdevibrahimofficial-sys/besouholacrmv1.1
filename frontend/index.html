@@ -9,6 +9,24 @@
     <!-- Apply saved theme before React mounts to prevent flash of wrong theme -->
     <script>
       (function() {
+        function resolveAutoByCrmTime() {
+          var tz = 'Africa/Cairo';
+          try {
+            var prefs = JSON.parse(localStorage.getItem('systemPrefs') || '{}');
+            if (prefs.crmTimeZone) tz = prefs.crmTimeZone;
+          } catch (e) {}
+          try {
+            var hour = Number(new Intl.DateTimeFormat('en-US', {
+              timeZone: tz,
+              hour: 'numeric',
+              hour12: false,
+            }).format(new Date()));
+            return (hour >= 18 || hour < 6) ? 'dark' : 'light';
+          } catch (e) {
+            return 'light';
+          }
+        }
+
         try {
           var theme = localStorage.getItem('theme');
           if (!theme) {
@@ -17,7 +35,7 @@
           var resolved = theme === 'dark' ? 'dark'
             : theme === 'light' ? 'light'
             : theme === 'auto'
-              ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+              ? resolveAutoByCrmTime()
               : 'light'; // default to light if nothing saved
           document.documentElement.classList.add(resolved);
         } catch (e) {

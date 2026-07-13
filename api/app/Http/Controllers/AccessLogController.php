@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\SharedUser;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,7 @@ class AccessLogController extends Controller
             ->join('users', function ($join) {
                 $join->on('users.id', '=', 'personal_access_tokens.tokenable_id');
             })
-            ->where('personal_access_tokens.tokenable_type', '=', User::class);
+            ->whereIn('personal_access_tokens.tokenable_type', $this->userMorphTypes());
 
         if ($tenantId) {
             $query->where('users.tenant_id', $tenantId);
@@ -77,6 +78,14 @@ class AccessLogController extends Controller
         });
 
         return response()->json($data);
+    }
+
+    protected function userMorphTypes(): array
+    {
+        return [
+            User::class,
+            SharedUser::class,
+        ];
     }
 
     protected function formatTimestamp($value): ?string

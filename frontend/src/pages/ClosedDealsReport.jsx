@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
@@ -19,6 +20,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 export default function ClosedDealsReport() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
@@ -27,6 +29,8 @@ export default function ClosedDealsReport() {
   const companyType = String(company?.company_type || '').toLowerCase()
   const isRealEstate = companyType === 'real estate'
   const projectLabel = isRealEstate ? t('Project') : t('Item')
+  const dealTypeValue = isRealEstate ? 'unit' : 'item'
+  const unitOrItemLabel = isRealEstate ? 'Unit Number' : 'Item'
   const closedByProjectTitle = isRealEstate
     ? t('Closed Deals by Project')
     : (isRTL ? 'الصفقات المغلقة حسب المنتج' : 'Closed Deals by Item')
@@ -79,6 +83,26 @@ export default function ClosedDealsReport() {
     return raw.slice(0, 10)
   }
 
+  const formatDateTime = (value) => {
+    if (!value) return ''
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value)
+    return date.toLocaleString()
+  }
+
+  const resolveDealReportStatus = (details) => {
+    const raw = String(details?.report_status || '').trim().toLowerCase()
+    return ['cancelled', 'canceled'].includes(raw) ? 'cancelled' : 'done'
+  }
+
+  const dealStatusClass = (status) => {
+    const value = String(status || '').trim().toLowerCase()
+    if (value === 'cancelled' || value === 'canceled') {
+      return 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+    }
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+  }
+
   const resolveProjectOrItem = (lead) => {
     if (isRealEstate) {
       return (
@@ -97,6 +121,55 @@ export default function ClosedDealsReport() {
       lead.project ||
       ''
     )
+  }
+
+  const resolveUnitOrItemName = (lead, details) => {
+    if (isRealEstate) {
+      return (
+        details?.unit ||
+        details?.unit_number ||
+        details?.unitNumber ||
+        details?.property_unit ||
+        lead?.meta_data?.payment_plan?.unitNo ||
+        lead?.meta_data?.payment_plan?.unit_no ||
+        ''
+      )
+    }
+
+    return (
+      details?.item_name ||
+      details?.product ||
+      (lead?.item && (lead.item.name || lead.item.title || lead.item.product)) ||
+      lead?.item_name ||
+      (lead?.meta_data && (lead.meta_data.lead_item_name || lead.meta_data.item_name)) ||
+      itemsList.find(it => String(it.id) === String(lead?.item_id || ''))?.name ||
+      ''
+    )
+  }
+
+  const openPropertyByUnit = (deal) => {
+    const unitValue = String(deal?.unitOrItemName || '').trim()
+    if (!isRealEstate || !unitValue) return
+    navigate(`/inventory/properties?unit=${encodeURIComponent(unitValue)}`)
+  }
+
+  const renderUnitOrItemCell = (deal) => {
+    const value = String(deal?.unitOrItemName || '').trim()
+    if (!value) return '-'
+
+    if (isRealEstate) {
+      return (
+        <button
+          type="button"
+          onClick={() => openPropertyByUnit(deal)}
+          className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+        >
+          {value}
+        </button>
+      )
+    }
+
+    return value
   }
 
   useEffect(() => {
@@ -166,11 +239,14 @@ export default function ClosedDealsReport() {
             leadName: lead.name || lead.company || '',
             contact: lead.phone || '',
             value,
-            dealType: a.next_action_type || a.action_type || '',
+            dealType: dealTypeValue,
             project: resolveProjectOrItem(lead),
+            unitOrItemName: resolveUnitOrItemName(lead, details),
             source: lead.source || '',
+            closedDateTime: closedDateRaw,
             closedDate: normalizeDate(closedDateRaw),
             lastActionDate: normalizeDate(lastActionDateRaw),
+            status: resolveDealReportStatus(details),
             salesperson,
             salespersonId: salespersonId !== null && salespersonId !== undefined && salespersonId !== ''
               ? String(salespersonId)
@@ -184,7 +260,7 @@ export default function ClosedDealsReport() {
       }
     }
     fetchDeals()
-  }, [itemsList, isRealEstate])
+  }, [dealTypeValue, itemsList, isRealEstate])
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -479,14 +555,16 @@ export default function ClosedDealsReport() {
 
   const handleExportExcel = () => {
     const rows = filtered.map(d => ({
+      [t('Sales Person')]: d.salesperson,
       [t('Lead Name')]: d.leadName,
       [t('Contact')]: d.contact,
       [t('Source')]: d.source,
       [projectLabel]: d.project,
       [t('Deal Type')]: d.dealType,
+      [unitOrItemLabel]: d.unitOrItemName,
       [t('Deal Value')]: d.value,
-      [t('Sales Person')]: d.salesperson,
-      [t('Closed Deal Date')]: d.closedDate
+      [t('Closed Deal Date')]: formatDateTime(d.closedDateTime),
+      [t('Status')]: d.status
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -783,6 +861,7 @@ export default function ClosedDealsReport() {
             <div key={deal.id} className=" rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
               <div className="flex justify-between items-start">
                 <div>
+                  <p className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{deal.salesperson}</p>
                   <h3 className={`font-semibold ${isLight ? 'text-black' : 'text-white'} text-lg`}>{deal.leadName}</h3>
                   <p className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{deal.contact}</p>
                 </div>
@@ -800,16 +879,20 @@ export default function ClosedDealsReport() {
                   <p className="font-medium dark:text-gray-200">{deal.project}</p>
                 </div>
                 <div className="space-y-1">
+                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{unitOrItemLabel}</p>
+                  <div className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(deal)}</div>
+                </div>
+                <div className="space-y-1">
                   <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Source')}</p>
                   <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{deal.source}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Sales Person')}</p>
-                  <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{deal.salesperson}</p>
+                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Closed Date')}</p>
+                  <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{formatDateTime(deal.closedDateTime)}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Closed Date')}</p>
-                  <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{deal.closedDate}</p>
+                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Status')}</p>
+                  <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${dealStatusClass(deal.status)}`}>{deal.status}</span>
                 </div>
               </div>
 
@@ -843,28 +926,34 @@ export default function ClosedDealsReport() {
           <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
             <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
               <tr>
+                <th className="px-4 py-3">{t('Sales Person')}</th>
                 <th className="px-4 py-3">{t('Lead Name')}</th>
                 <th className="px-4 py-3">{t('Contact')}</th>
                 <th className="px-4 py-3">{t('Source')}</th>
                 <th className="px-4 py-3">{projectLabel}</th>
                 <th className="px-4 py-3">{t('Deal Type')}</th>
+                <th className="px-4 py-3">{unitOrItemLabel}</th>
                 <th className="px-4 py-3 text-center">{t('Deal Value')}</th>
-                <th className="px-4 py-3">{t('Sales Person')}</th>
                 <th className="px-4 py-3">{t('Closed Deal Date')}</th>
+                <th className="px-4 py-3">{t('Status')}</th>
                 <th className="px-4 py-3 text-center">{t('Actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
               {paginatedData.map(deal => (
                 <tr key={deal.id} className="hover:bg-white/5 dark:hover:bg-white/5 transition-colors">
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.salesperson}</td>
                   <td className={`px-4 py-3 font-medium ${isLight ? 'text-black' : 'text-white'}`}>{deal.leadName}</td>
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.contact}</td>
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.source}</td>
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.project}</td>
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.dealType}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(deal)}</td>
                   <td className={`px-4 py-3 text-center font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{deal.value.toLocaleString()} EGP</td>
-                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.salesperson}</td>
-                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.closedDate}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{formatDateTime(deal.closedDateTime)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${dealStatusClass(deal.status)}`}>{deal.status}</span>
+                  </td>
                   <td className="px-4 py-3 text-center">
                     <div className="inline-flex items-center gap-2">
                       <button
@@ -887,7 +976,7 @@ export default function ClosedDealsReport() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                  <td colSpan={11} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                     {t('No closed deals found')}
                   </td>
                 </tr>

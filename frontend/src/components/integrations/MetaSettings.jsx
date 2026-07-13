@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { metaService } from '../../services/metaService'
 import { 
@@ -15,8 +15,35 @@ import {
   ChevronRight,
   Zap,
   RefreshCw,
+  BookOpen,
+  ClipboardCheck,
 } from 'lucide-react'
 import { api } from '../../utils/api'
+import { useAppState } from '../../shared/context/AppStateProvider'
+import MetaSetupGuide from './meta/MetaSetupGuide'
+import MetaGoLiveChecklist from './meta/MetaGoLiveChecklist'
+
+const normalizeAgencyKey = (value) => {
+  const normalized = String(value ?? '').trim()
+  return normalized || null
+}
+
+const sameAgency = (left, right) => normalizeAgencyKey(left) === normalizeAgencyKey(right)
+
+const isTenantAdminUser = (user) => {
+  if (!user) return false
+  if (user.is_super_admin || user.is_primary_admin) return true
+
+  const roleValues = [
+    user.role,
+    user.job_title,
+    ...(Array.isArray(user.roles) ? user.roles.map((role) => role?.name || role) : []),
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase().trim())
+
+  return roleValues.some((role) => ['admin', 'tenant admin', 'tenant-admin', 'owner'].includes(role))
+}
 
 // --- Components ---
 
@@ -108,9 +135,12 @@ const Toggle = ({ label, checked, onChange, description }) => (
 
 export default function MetaSettings({ onClose }) {
   const { i18n } = useTranslation()
+  const { user } = useAppState()
   const isArabic = i18n.language === 'ar'
+  const isTenantAdmin = isTenantAdminUser(user)
+  const lockedAgencyId = !isTenantAdmin ? normalizeAgencyKey(user?.agency_id) : null
   // State
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState('setup')
   const [settings, setSettings] = useState({})
   const [sharedMetaConfigured, setSharedMetaConfigured] = useState(false)
   
@@ -139,8 +169,13 @@ export default function MetaSettings({ onClose }) {
   const [leadForms, setLeadForms] = useState([])
   const [selectedFormId, setSelectedFormId] = useState('')
   const [loadingForms, setLoadingForms] = useState(false)
+  const [testingWebhook, setTestingWebhook] = useState(false)
+  const [detectingMapping, setDetectingMapping] = useState(false)
   const [syncWarnings, setSyncWarnings] = useState([])
   const [tenantHealth, setTenantHealth] = useState(null)
+  const [goLive, setGoLive] = useState(null)
+  const [agencies, setAgencies] = useState([])
+  const [selectedAgencyId, setSelectedAgencyId] = useState(lockedAgencyId || '')
   
   // Validation
   const [validationErrors, setValidationErrors] = useState({})
@@ -166,10 +201,16 @@ export default function MetaSettings({ onClose }) {
 
   // Effects
   
-  const loadData = useCallback(async () => {
+  const activeAgencyId = lockedAgencyId || normalizeAgencyKey(selectedAgencyId)
+  const hasConnectionForActiveAgency = useMemo(
+    () => connections.some((conn) => sameAgency(conn.agency_id, activeAgencyId)),
+    [connections, activeAgencyId]
+  )
+
+  const loadData = useCallback(async (agencyId = null) => {
     setLoading(true)
     try {
-      const data = await metaService.loadSettings()
+      const data = await metaService.loadSettings(agencyId)
       
       setConnections(data.connections || [])
       setBusinesses(data.businesses || [])
@@ -178,6 +219,7 @@ export default function MetaSettings({ onClose }) {
       setSharedMetaConfigured(!!data.shared_meta_configured)
       setSyncWarnings(data.sync_warnings || [])
       setTenantHealth(data.tenant_health || null)
+      setGoLive(data.go_live || null)
 
       const saved = data.settings || {}
       setEnableCapi(!!saved.enableCapi)
@@ -199,6 +241,30 @@ export default function MetaSettings({ onClose }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isTenantAdmin) return
+
+    api.get('/api/agencies?active=1')
+      .then((res) => {
+        const items = Array.isArray(res.data) ? res.data : []
+        setAgencies(items)
+      })
+      .catch(() => setAgencies([]))
+  }, [isTenantAdmin])
+
+  useEffect(() => {
+    if (lockedAgencyId) {
+      setSelectedAgencyId(lockedAgencyId)
+      return
+    }
+
+    const pendingAgencyId = localStorage.getItem('pending_meta_agency_id')
+    if (pendingAgencyId) {
+      setSelectedAgencyId(pendingAgencyId)
+      localStorage.removeItem('pending_meta_agency_id')
+    }
+  }, [lockedAgencyId])
+
   const handleCallback = useCallback(async (code) => {
     setLoading(true)
     try {
@@ -206,8 +272,8 @@ export default function MetaSettings({ onClose }) {
       showToast('success', 'Connected successfully')
       window.history.replaceState({}, document.title, window.location.pathname)
       await loadData()
-    } catch {
-      showToast('error', 'Failed to connect Meta account')
+    } catch (error) {
+      showToast('error', error?.response?.data?.error || 'Failed to connect Meta account')
       await loadData()
     }
   }, [loadData])
@@ -220,8 +286,18 @@ export default function MetaSettings({ onClose }) {
       return
     }
 
-    loadData()
-  }, [handleCallback, loadData])
+    loadData(activeAgencyId)
+  }, [handleCallback, loadData, activeAgencyId])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const metaParam = params.get('meta')
+    if (metaParam === 'connected') {
+      setActiveTab('setup')
+      showToast('success', isArabic ? 'تم ربط ميتا بنجاح! أكمل خطوات الإعداد.' : 'Meta connected! Complete the setup steps.')
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [isArabic])
 
   useEffect(() => {
     if (loading || !isLoaded.current) return
@@ -252,12 +328,12 @@ export default function MetaSettings({ onClose }) {
   }, [loading])
 
   useEffect(() => {
-    if (activeTab !== 'leads' || loading) return
+    if ((activeTab !== 'leads' && activeTab !== 'setup') || loading) return
 
     const loadForms = async () => {
       setLoadingForms(true)
       try {
-        const res = await metaService.loadLeadForms()
+        const res = await metaService.loadLeadForms(activeAgencyId)
         const forms = res.forms || []
         setLeadForms(forms)
         if (!selectedFormId && forms.length > 0) {
@@ -302,9 +378,17 @@ export default function MetaSettings({ onClose }) {
         showToast('error', isArabic ? 'تكامل ميتا غير مفعّل. تواصل مع مسؤول النظام.' : 'Meta integration is not enabled. Contact your system administrator.')
         return
       }
-      await metaService.connectMeta()
-    } catch {
-      showToast('error', 'Failed to start Meta connection. Please login again and retry.')
+      if (isTenantAdmin && !activeAgencyId) {
+        showToast('error', isArabic ? 'اختر الأجينسي أولاً قبل ربط حساب ميتا.' : 'Select an agency before connecting a Meta account.')
+        return
+      }
+      if (hasConnectionForActiveAgency) {
+        showToast('error', isArabic ? 'هذه الأجينسي لديها اتصال ميتا بالفعل. افصله أولاً.' : 'This agency already has a Meta connection. Disconnect it first.')
+        return
+      }
+      await metaService.connectMeta(activeAgencyId)
+    } catch (error) {
+      showToast('error', error?.response?.data?.error || 'Failed to start Meta connection. Please login again and retry.')
     }
   }
 
@@ -376,6 +460,62 @@ export default function MetaSettings({ onClose }) {
     }
   }
 
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true)
+    log('Testing webhook endpoint...', 'info')
+    try {
+      const res = await metaService.testWebhook()
+      log(res.message || 'Webhook verification succeeded.', 'success')
+      showToast('success', res.message || (isArabic ? 'نجح اختبار الويب هوك' : 'Webhook test passed'))
+      await loadData(activeAgencyId)
+    } catch (error) {
+      const message = error?.response?.data?.message || (isArabic ? 'فشل اختبار الويب هوك' : 'Webhook test failed')
+      log(message, 'error')
+      showToast('error', message)
+    } finally {
+      setTestingWebhook(false)
+    }
+  }
+
+  const handleAutoDetectMapping = async () => {
+    setDetectingMapping(true)
+    try {
+      let forms = leadForms
+      if (forms.length === 0) {
+        const res = await metaService.loadLeadForms(activeAgencyId)
+        forms = res.forms || []
+        setLeadForms(forms)
+      }
+
+      if (forms.length === 0) {
+        showToast('error', isArabic ? 'لا توجد نماذج ليدز نشطة.' : 'No active lead forms found.')
+        setActiveTab('overview')
+        return
+      }
+
+      const formId = forms[0].id
+      const suggestion = await metaService.suggestFormMapping(formId, activeAgencyId)
+      const mapping = suggestion.suggested_mapping || {}
+
+      if (Object.keys(mapping).length === 0) {
+        showToast('error', isArabic ? 'لم يتم اكتشاف تعيين تلقائي. عيّن الحقول يدوياً.' : 'No fields could be auto-detected. Map manually.')
+        setSelectedFormId(formId)
+        setActiveTab('leads')
+        return
+      }
+
+      await metaService.saveFormMapping(formId, mapping)
+      setFormMap((prev) => ({ ...prev, [formId]: mapping }))
+      setSelectedFormId(formId)
+      showToast('success', isArabic ? 'تم اكتشاف التعيين وحفظه بنجاح' : 'Field mapping auto-detected and saved')
+      setActiveTab('leads')
+    } catch (error) {
+      showToast('error', error?.response?.data?.message || (isArabic ? 'فشل الاكتشاف التلقائي' : 'Auto-detect failed'))
+    } finally {
+      setDetectingMapping(false)
+    }
+  }
+
   const handleToggleAsset = async (type, id, currentStatus) => {
     try {
       await metaService.toggleAsset(type, id, !currentStatus)
@@ -409,12 +549,93 @@ export default function MetaSettings({ onClose }) {
 
   // --- Renderers ---
 
+  const renderGoLive = () => (
+    <MetaGoLiveChecklist goLive={goLive} onOpenTab={setActiveTab} />
+  )
+
+  const renderSetupGuide = () => (
+    <MetaSetupGuide
+      sharedMetaConfigured={sharedMetaConfigured}
+      connections={connections}
+      pages={pages}
+      hasConnectionForActiveAgency={hasConnectionForActiveAgency}
+      activeAgencyId={activeAgencyId}
+      isTenantAdmin={isTenantAdmin}
+      agencies={agencies}
+      selectedAgencyId={selectedAgencyId}
+      onSelectAgency={setSelectedAgencyId}
+      autoSync={autoSync}
+      enableCapi={enableCapi}
+      pixelId={settings.pixelId}
+      tenantHealth={tenantHealth}
+      formMap={formMap}
+      leadFormsCount={leadForms.length}
+      loading={loading}
+      syncing={syncing}
+      testingWebhook={testingWebhook}
+      detectingMapping={detectingMapping}
+      onConnect={handleConnect}
+      onSync={handleSync}
+      onOpenTab={setActiveTab}
+      onTestWebhook={handleTestWebhook}
+      onAutoDetectMapping={handleAutoDetectMapping}
+    />
+  )
+
   const renderOverview = () => {
     const sameId = (left, right) => String(left ?? '') === String(right ?? '')
-    const canConnect = sharedMetaConfigured
+    const canConnect = sharedMetaConfigured && !hasConnectionForActiveAgency && (!isTenantAdmin || !!activeAgencyId)
+    // Admins must pick a specific agency before they can toggle/delete/link assets,
+    // otherwise a click would act across agencies without an agency filter.
+    const canManageAssets = !isTenantAdmin || !!activeAgencyId
+    const connectDisabledReason = !sharedMetaConfigured
+      ? (isArabic ? 'تكامل ميتا غير مفعّل من إدارة النظام' : 'Meta integration is not enabled by system admin')
+      : isTenantAdmin && !activeAgencyId
+        ? (isArabic ? 'اختر الأجينسي أولاً' : 'Select an agency first')
+        : hasConnectionForActiveAgency
+          ? (isArabic ? 'هذه الأجينسي لديها اتصال ميتا بالفعل' : 'This agency already has a Meta connection')
+          : ''
 
     return (
     <div className="space-y-6">
+      {isTenantAdmin && (
+        <div className="rounded-2xl border border-gray-200 bg-white/70 p-4 dark:border-gray-700 dark:bg-gray-900/30">
+          <label className="block text-sm font-medium text-theme mb-2">
+            {isArabic ? 'الأجينسي' : 'Agency'}
+          </label>
+          <select
+            value={selectedAgencyId}
+            onChange={(e) => setSelectedAgencyId(e.target.value)}
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-transparent text-theme sm:text-sm py-2 px-3"
+          >
+            <option value="">{isArabic ? 'كل الأجينسيات' : 'All agencies'}</option>
+            {agencies.map((agency) => (
+              <option key={agency.id} value={agency.key}>
+                {agency.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs text-theme/70">
+            {isArabic
+              ? 'اختر أجينسي محددة لربط حساب ميتا أو إدارة اتصالها. عرض "كل الأجينسيات" للمراجعة فقط.'
+              : 'Select a specific agency to connect or manage its Meta account. Use "All agencies" for read-only overview.'}
+          </p>
+        </div>
+      )}
+
+      {!isTenantAdmin && lockedAgencyId && (
+        <div className="rounded-2xl border border-gray-200 bg-white/70 p-4 text-sm text-theme dark:border-gray-700 dark:bg-gray-900/30">
+          {isArabic ? 'أنت تعرض وتدير اتصال الأجينسي المرتبطة بحسابك.' : 'You are viewing and managing the Meta connection for your assigned agency.'}
+        </div>
+      )}
+
+      {isTenantAdmin && !activeAgencyId && connections.length > 0 && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
+          {isArabic
+            ? 'أنت تعرض كل الأجينسيات للقراءة فقط. اختر أجينسي محددة من القائمة بالأعلى لتفعيل تعديل أو حذف أو ربط الأصول.'
+            : 'You are viewing all agencies in read-only mode. Select a specific agency above to enable toggling, deleting, or linking assets.'}
+        </div>
+      )}
       {!sharedMetaConfigured && (
         <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
           {isArabic
@@ -439,16 +660,20 @@ export default function MetaSettings({ onClose }) {
       {connections.some(conn => conn.needs_reauth) && (
         <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-200">
           {isArabic
-            ? 'هذا الاتصال يحتاج إعادة ربط بفيسبوك بعد تحديث تكامل ميتا.'
-            : 'This connection needs to be reconnected with Facebook after the Meta integration update.'}
+            ? 'هذا الاتصال يحتاج انتباه. افصل الاتصال الحالي أولاً، ثم اربط حساب فيسبوك مرة أخرى.'
+            : 'This connection needs attention. Disconnect the current account first, then connect Facebook again.'}
         </div>
       )}
 
       {connections.length > 0 && !connections.some(conn => conn.needs_reauth) && (
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
-          {isArabic
-            ? 'إذا تم تحديث تكامل ميتا مؤخراً، أعد ربط حساب فيسبوك لضمان استمرار استقبال الليدز ومزامنة الحملات.'
-            : 'If Meta integration was recently updated, reconnect your Facebook account to keep receiving leads and syncing campaigns.'}
+          {hasConnectionForActiveAgency
+            ? (isArabic
+              ? 'هذه الأجينسي لديها اتصال ميتا فعّال. افصل الاتصال أولاً إذا كنت تريد ربط حساب فيسبوك مختلف.'
+              : 'This agency already has an active Meta connection. Disconnect it first if you need to connect a different Facebook account.')
+            : (isArabic
+              ? 'يمكنك الآن ربط حساب فيسبوك لهذه الأجينسي.'
+              : 'You can now connect a Facebook account for this agency.')}
         </div>
       )}
 
@@ -462,11 +687,13 @@ export default function MetaSettings({ onClose }) {
           type="button"
           onClick={handleConnect}
           disabled={!canConnect}
-          title={!canConnect ? (isArabic ? 'تكامل ميتا غير مفعّل من إدارة النظام' : 'Meta integration is not enabled by system admin') : ''}
+          title={connectDisabledReason}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-[#1877F2] px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-[#166fe5] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           <Facebook className="h-4 w-4" />
-          {isArabic ? 'إضافة حساب جديد' : 'Add New Account'}
+          {hasConnectionForActiveAgency
+            ? (isArabic ? 'افصل الحالي للربط' : 'Disconnect to Connect')
+            : (isArabic ? 'ربط حساب ميتا' : 'Connect Meta Account')}
         </button>
       </div>
 
@@ -525,13 +752,15 @@ export default function MetaSettings({ onClose }) {
                                <div className="text-sm font-medium text-theme">{biz.business_name}</div>
                                <div className="text-xs text-theme/60">Business ID: {biz.fb_business_id}</div>
                              </div>
-                             <button 
-                               onClick={() => handleDeleteAsset('business', biz.id)}
-                               className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                               title="Delete Business"
-                             >
-                               <Trash2 className="w-4 h-4" />
-                             </button>
+                             {canManageAssets && (
+                               <button 
+                                 onClick={() => handleDeleteAsset('business', biz.id)}
+                                 className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                                 title="Delete Business"
+                               >
+                                 <Trash2 className="w-4 h-4" />
+                               </button>
+                             )}
                            </div>
                            
                            {/* Ad Accounts List */}
@@ -549,18 +778,22 @@ export default function MetaSettings({ onClose }) {
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${acc.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-300'}`}>
                                         {acc.is_active ? 'Active' : 'Inactive'}
                                       </span>
-                                      <Toggle 
-                                        label="" 
-                                        checked={acc.is_active} 
-                                        onChange={() => handleToggleAsset('ad_account', acc.id, acc.is_active)} 
-                                      />
-                                      <button 
-                                        onClick={() => handleDeleteAsset('ad_account', acc.id)}
-                                        className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                                        title="Delete Ad Account"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
+                                      {canManageAssets && (
+                                        <>
+                                          <Toggle 
+                                            label="" 
+                                            checked={acc.is_active} 
+                                            onChange={() => handleToggleAsset('ad_account', acc.id, acc.is_active)} 
+                                          />
+                                          <button 
+                                            onClick={() => handleDeleteAsset('ad_account', acc.id)}
+                                            className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                                            title="Delete Ad Account"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                  </div>
                                ))
@@ -599,39 +832,52 @@ export default function MetaSettings({ onClose }) {
                            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
                               {/* Link to Ad Account */}
                               <div className="w-full sm:w-48">
-                                <select 
-                                  className="block w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                                  value={page.ad_account_id || ''}
-                                  onChange={(e) => handleLinkPage(page.id, e.target.value || null)}
-                                >
-                                  <option value="">-- No Ad Account --</option>
-                                  {adAccounts.filter(a => {
-                                    const relatedBusiness = businesses.find(b => sameId(b.id, a.business_id))
-                                    return sameId(relatedBusiness?.connection_id, conn.id)
-                                  }).map(acc => (
-                                    <option key={acc.id} value={acc.id}>
-                                      {acc.name} ({acc.ad_account_id})
-                                    </option>
-                                  ))}
-                                </select>
+                                {canManageAssets ? (
+                                  <select 
+                                    className="block w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    value={page.ad_account_id || ''}
+                                    onChange={(e) => handleLinkPage(page.id, e.target.value || null)}
+                                  >
+                                    <option value="">-- No Ad Account --</option>
+                                    {adAccounts.filter(a => {
+                                      const relatedBusiness = businesses.find(b => sameId(b.id, a.business_id))
+                                      return sameId(relatedBusiness?.connection_id, conn.id)
+                                    }).map(acc => (
+                                      <option key={acc.id} value={acc.id}>
+                                        {acc.name} ({acc.ad_account_id})
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span className="block text-xs text-theme/60">
+                                    {(() => {
+                                      const linked = adAccounts.find(a => sameId(a.id, page.ad_account_id))
+                                      return linked ? `${linked.name} (${linked.ad_account_id})` : (isArabic ? 'غير مرتبط' : 'Not linked')
+                                    })()}
+                                  </span>
+                                )}
                               </div>
 
                               <div className="flex items-center space-x-2 self-end sm:self-auto">
                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${page.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-300'}`}>
                                   {page.is_active ? 'Active' : 'Inactive'}
                                 </span>
-                                <Toggle 
-                                  label="" 
-                                  checked={page.is_active} 
-                                  onChange={() => handleToggleAsset('page', page.id, page.is_active)} 
-                                />
-                                <button 
-                                  onClick={() => handleDeleteAsset('page', page.id)}
-                                  className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                                  title="Delete Page"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {canManageAssets && (
+                                  <>
+                                    <Toggle 
+                                      label="" 
+                                      checked={page.is_active} 
+                                      onChange={() => handleToggleAsset('page', page.id, page.is_active)} 
+                                    />
+                                    <button 
+                                      onClick={() => handleDeleteAsset('page', page.id)}
+                                      className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                                      title="Delete Page"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
                               </div>
                            </div>
                         </div>
@@ -873,7 +1119,7 @@ export default function MetaSettings({ onClose }) {
           Integration Diagnostics
         </h3>
         
-        <div className="flex space-x-3 mb-6">
+        <div className="flex flex-wrap gap-3 mb-6">
            <button
              onClick={handleTestPixel}
              disabled={testing}
@@ -881,6 +1127,14 @@ export default function MetaSettings({ onClose }) {
            >
              <Zap className="w-4 h-4 mr-2 text-yellow-500" />
              Test Pixel Event
+           </button>
+           <button
+             onClick={handleTestWebhook}
+             disabled={testingWebhook}
+             className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-theme bg-transparent hover:bg-gray-700 focus:outline-none disabled:opacity-50"
+           >
+             <ShieldCheck className="w-4 h-4 mr-2 text-blue-500" />
+             {testingWebhook ? (isArabic ? 'جاري الاختبار...' : 'Testing...') : (isArabic ? 'اختبار الويب هوك' : 'Test Webhook')}
            </button>
         </div>
 
@@ -943,6 +1197,20 @@ export default function MetaSettings({ onClose }) {
           
           <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
             <TabButton 
+              active={activeTab === 'setup'} 
+              id="setup" 
+              icon={BookOpen} 
+              label={isArabic ? 'دليل الإعداد' : 'Setup Guide'} 
+              onClick={setActiveTab} 
+            />
+            <TabButton 
+              active={activeTab === 'go-live'} 
+              id="go-live" 
+              icon={ClipboardCheck} 
+              label={isArabic ? 'جاهزية الإطلاق' : 'Go-Live'} 
+              onClick={setActiveTab} 
+            />
+            <TabButton 
               active={activeTab === 'overview'} 
               id="overview" 
               icon={LayoutDashboard} 
@@ -979,6 +1247,8 @@ export default function MetaSettings({ onClose }) {
           <div className="sticky top-0 z-10 px-4 py-4 border-b border-gray-200 dark:border-gray-800 bg-transparent backdrop-blur flex justify-between items-center sm:px-8 sm:py-5">
              <div>
                <h1 className="text-2xl font-bold text-theme">
+                 {activeTab === 'setup' && (isArabic ? 'دليل إعداد ميتا' : 'Meta Setup Guide')}
+                 {activeTab === 'go-live' && (isArabic ? 'قائمة جاهزية الإطلاق' : 'Go-Live Checklist')}
                  {activeTab === 'overview' && (isArabic ? 'نظرة عامة على الحساب' : 'Account Overview')}
                  {activeTab === 'pixel' && (isArabic ? 'إعداد التتبع' : 'Tracking Configuration')}
                  {activeTab === 'leads' && (isArabic ? 'مزامنة العملاء المحتملين' : 'Lead Generation')}
@@ -1011,6 +1281,8 @@ export default function MetaSettings({ onClose }) {
               </div>
             ) : (
               <>
+                {activeTab === 'setup' && renderSetupGuide()}
+                {activeTab === 'go-live' && renderGoLive()}
                 {activeTab === 'overview' && renderOverview()}
                 {activeTab === 'pixel' && renderPixel()}
                 {activeTab === 'leads' && renderLeadSync()}

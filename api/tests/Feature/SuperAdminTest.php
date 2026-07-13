@@ -133,4 +133,41 @@ class SuperAdminTest extends TestCase
 
         Carbon::setTestNow();
     }
+
+    public function test_super_admin_can_filter_tenants_by_expiration_date_range()
+    {
+        Sanctum::actingAs($this->superAdmin);
+
+        $this->tenantA->forceFill(['end_date' => '2026-07-20'])->save();
+        $this->tenantB->forceFill(['end_date' => '2026-08-15'])->save();
+
+        $response = $this->getJson('/api/super-admin/tenants?view=current&expiration_from=2026-07-01&expiration_to=2026-07-31');
+
+        $response->assertStatus(200);
+
+        $tenantNames = collect($response->json('tenants.data'))->pluck('name');
+
+        $this->assertTrue($tenantNames->contains('Tenant A'));
+        $this->assertFalse($tenantNames->contains('Tenant B'));
+    }
+
+    public function test_super_admin_can_filter_tenants_at_user_limit()
+    {
+        Sanctum::actingAs($this->superAdmin);
+
+        $this->tenantA->forceFill(['users_limit' => 2])->save();
+        $this->tenantB->forceFill(['users_limit' => 10])->save();
+
+        User::factory()->count(1)->create(['tenant_id' => $this->tenantA->id]);
+        User::factory()->count(1)->create(['tenant_id' => $this->tenantB->id]);
+
+        $response = $this->getJson('/api/super-admin/tenants?view=current&user_usage=at_limit');
+
+        $response->assertStatus(200);
+
+        $tenantNames = collect($response->json('tenants.data'))->pluck('name');
+
+        $this->assertTrue($tenantNames->contains('Tenant A'));
+        $this->assertFalse($tenantNames->contains('Tenant B'));
+    }
 }

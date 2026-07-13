@@ -1189,6 +1189,9 @@ class LeadActionController extends Controller
             }
 
             if ($targetProperty) {
+                $details['property_id'] = (int) $targetProperty->id;
+                $details['unit'] = $details['unit'] ?? ($targetProperty->unit_number ?? $targetProperty->unit_code ?? $targetProperty->name ?? $targetProperty->title ?? null);
+                $details['report_status'] = $details['report_status'] ?? 'done';
                 $targetProperty->status = 'Sold';
                 $targetProperty->sold_at = now();
                 $targetProperty->sold_lead_id = $lead->id;
@@ -1206,6 +1209,9 @@ class LeadActionController extends Controller
                 $targetUnit->reserved_lead_id = null;
                 $targetUnit->save();
             }
+
+            $leadAction->details = $details;
+            $leadAction->save();
         }
 
         if ($request->next_action_type === 'reservation' || $request->type === 'reservation') {
@@ -1215,13 +1221,14 @@ class LeadActionController extends Controller
                     $project = \App\Models\Project::find($request->reservationProject);
 
                     $unitName = null;
+                    $property = null;
                     $unit = \App\Models\Unit::find($request->reservationUnit);
                     if ($unit) {
                         $unitName = $unit->name;
                     } else {
                         $property = Property::find($request->reservationUnit);
                         if ($property) {
-                            $unitName = $property->unit_code ?? $property->name ?? $property->title ?? (string)$property->id;
+                            $unitName = $property->unit_number ?? $property->unit_code ?? $property->name ?? $property->title ?? (string)$property->id;
                         }
                     }
 
@@ -1274,6 +1281,8 @@ class LeadActionController extends Controller
                         'source' => $reservationLead->source ?? '',
                         'meta_data' => [
                             'lead_id' => $reservationLead->id,
+                            'property_id' => $property?->id,
+                            'unit' => $unitName ?? (string) $request->reservationUnit,
                             'created_by_name' => Auth::user()->name ?? '',
                             'created_by_id' => Auth::id()
                         ]

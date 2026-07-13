@@ -18,11 +18,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use App\Support\AppliesAgencyScope;
+use App\Support\AppliesMetaAgencyScope;
 
 class MetaAuthController extends Controller
 {
-    use AppliesAgencyScope;
+    use AppliesMetaAgencyScope;
 
     protected MetaAuthService $metaAuthService;
     protected MetaCredentialsResolver $credentialsResolver;
@@ -46,11 +46,22 @@ class MetaAuthController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
+        $targetAgency = $this->resolveTargetAgencyId($request, $user);
+        if ($targetAgency['error']) {
+            return response()->json(['error' => $targetAgency['error']], 422);
+        }
+
+        if ($this->hasExistingConnection($user->tenant_id, $targetAgency['agency_id'])) {
+            return response()->json([
+                'error' => 'This agency already has a connected Meta account. Disconnect it first before connecting another.',
+            ], 409);
+        }
+
         $state = Str::random(64);
         Cache::put('meta_oauth_state:' . $state, [
             'tenant_id' => $user->tenant_id,
             'user_id' => $user->id,
-            'agency_id' => $this->currentAgencyId($user),
+            'agency_id' => $targetAgency['agency_id'],
         ], now()->addMinutes(10));
 
         try {
@@ -70,10 +81,22 @@ class MetaAuthController extends Controller
         try {
             $user = $request->user();
             $tenantId = $user?->tenant_id;
-            $agencyId = $this->currentAgencyId($user);
+            $agencyId = $this->normalizeMetaAgencyKey($user?->agency_id);
+            $state = $request->input('state') ?? $request->query('state');
+
+            if ($state) {
+                $ctx = Cache::get('meta_oauth_state:' . $state);
+                if (is_array($ctx) && !empty($ctx['tenant_id']) && !empty($ctx['user_id'])) {
+                    $stateUser = User::find($ctx['user_id']);
+                    if ($stateUser && (string) $stateUser->tenant_id === (string) $ctx['tenant_id']) {
+                        $user = $stateUser;
+                        $tenantId = $ctx['tenant_id'];
+                        $agencyId = $this->normalizeMetaAgencyKey($ctx['agency_id'] ?? null);
+                    }
+                }
+            }
 
             if (!$tenantId) {
-                $state = $request->input('state') ?? $request->query('state');
                 if (!$state) {
                     return response()->json(['error' => 'Missing state'], 422);
                 }
@@ -89,11 +112,25 @@ class MetaAuthController extends Controller
                 }
 
                 $tenantId = $ctx['tenant_id'];
-                $agencyId = trim((string) ($ctx['agency_id'] ?? '')) ?: null;
+                $agencyId = $this->normalizeMetaAgencyKey($ctx['agency_id'] ?? null);
+            } elseif ($state) {
+                Cache::forget('meta_oauth_state:' . $state);
             }
             
             $this->credentialsResolver->resolveForTenant($tenantId);
             app()->instance('current_tenant_id', $tenantId);
+
+            if ($this->hasExistingConnection($tenantId, $agencyId)) {
+                $message = 'This agency already has a connected Meta account. Disconnect it first before connecting another.';
+
+                if ($request->expectsJson()) {
+                    return response()->json(['error' => $message], 409);
+                }
+
+                $frontendBase = config('app.frontend_url', 'https://besouholacrm.net');
+                return redirect()->away($frontendBase . '/#/marketing/meta-integration?meta=already_connected');
+            }
+
             $connection = $this->metaAuthService->handleCallback($tenantId, $agencyId);
             
             // Ensure Integration record exists and is active
@@ -135,20 +172,24 @@ class MetaAuthController extends Controller
     {
         $user = $request->user();
         $tenantId = $user->tenant_id;
+        $agencyFilter = $this->resolveMetaAgencyFilter($request, $user);
 
         $connections = MetaConnection::where('tenant_id', $tenantId);
         $businesses = MetaBusiness::where('tenant_id', $tenantId);
         $adAccounts = MetaAdAccount::with('business')->where('tenant_id', $tenantId);
         $pages = MetaPage::where('tenant_id', $tenantId);
 
-        $this->applyAgencyScope($connections, $user);
-        $this->applyAgencyScope($businesses, $user);
-        $this->applyAgencyScope($adAccounts, $user);
-        $this->applyAgencyScope($pages, $user);
+        $this->applyMetaAgencyFilter($connections, $agencyFilter);
+        $this->applyMetaAgencyFilter($businesses, $agencyFilter);
+        $this->applyMetaAgencyFilter($adAccounts, $agencyFilter);
+        $this->applyMetaAgencyFilter($pages, $agencyFilter);
         
         $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
         $settings = $this->metaDefaultSettings($integration?->settings);
-        $tenantHealth = app(\App\Services\MetaHealthService::class)->getTenantHealth($tenantId);
+        $metaHealth = app(\App\Services\MetaHealthService::class);
+        $tenantHealth = $metaHealth->getTenantHealth($tenantId);
+        $attention = $metaHealth->getTenantAttention($tenantId);
+        $goLive = $metaHealth->getTenantGoLiveChecklist($tenantId);
 
         return response()->json([
             'connected' => $connections->exists(),
@@ -158,11 +199,25 @@ class MetaAuthController extends Controller
             'sync_warnings' => $tenantHealth['sync_warnings'] ?? [],
             'subscribe_summary' => $tenantHealth['subscribe_summary'] ?? [],
             'tenant_health' => $tenantHealth,
+            'attention' => $attention,
+            'go_live' => $goLive,
+            'meta_agency' => [
+                'filter' => $agencyFilter,
+                'can_select_agency' => $this->isMetaTenantAdmin($user),
+                'locked_agency_id' => (!$this->isMetaTenantAdmin($user) && filled($user->agency_id))
+                    ? $this->normalizeMetaAgencyKey($user->agency_id)
+                    : null,
+            ],
             'connections' => $connections->get(),
             'businesses' => $businesses->get(),
             'ad_accounts' => $adAccounts->get(),
             'pages' => $pages->get(),
         ]);
+    }
+
+    protected function hasExistingConnection(int|string $tenantId, ?string $agencyId = null): bool
+    {
+        return $this->hasMetaConnectionForAgency($tenantId, $agencyId);
     }
 
     public function health(Request $request)
@@ -214,15 +269,16 @@ class MetaAuthController extends Controller
 
         $user = $request->user();
         $tenantId = $user->tenant_id;
+        $agencyFilter = $this->resolveMetaAgencyFilter($request, $user);
         
         if ($request->type === 'ad_account') {
             $assetQuery = MetaAdAccount::where('tenant_id', $tenantId);
-            $this->applyAgencyScope($assetQuery, $user);
+            $this->applyMetaAgencyFilter($assetQuery, $agencyFilter);
             $asset = $assetQuery->findOrFail($request->id);
             $asset->update(['is_active' => $request->is_active]);
         } else {
             $assetQuery = MetaPage::where('tenant_id', $tenantId);
-            $this->applyAgencyScope($assetQuery, $user);
+            $this->applyMetaAgencyFilter($assetQuery, $agencyFilter);
             $asset = $assetQuery->findOrFail($request->id);
             $asset->update(['is_active' => $request->is_active]);
             $this->syncPageWebhookSubscription($asset, (bool) $request->is_active);
@@ -265,13 +321,13 @@ class MetaAuthController extends Controller
         $tenantId = $user->tenant_id;
 
         $pageQuery = MetaPage::where('tenant_id', $tenantId);
-        $this->applyAgencyScope($pageQuery, $user);
+        $this->applyMetaAgencyFilter($pageQuery, $this->resolveMetaAgencyFilter($request, $user));
         $page = $pageQuery->findOrFail($request->page_id);
         
         if ($request->ad_account_id) {
             // Verify ad account belongs to tenant
             $adAccountQuery = MetaAdAccount::where('tenant_id', $tenantId);
-            $this->applyAgencyScope($adAccountQuery, $user);
+            $this->applyMetaAgencyFilter($adAccountQuery, $this->resolveMetaAgencyFilter($request, $user));
             $adAccount = $adAccountQuery->findOrFail($request->ad_account_id);
             $page->update(['ad_account_id' => $adAccount->id]);
         } else {
@@ -290,10 +346,11 @@ class MetaAuthController extends Controller
 
         $user = $request->user();
         $tenantId = $user->tenant_id;
+        $agencyFilter = $this->resolveMetaAgencyFilter($request, $user);
 
         if ($request->type === 'business') {
             $businessQuery = MetaBusiness::where('tenant_id', $tenantId);
-            $this->applyAgencyScope($businessQuery, $user);
+            $this->applyMetaAgencyFilter($businessQuery, $agencyFilter);
             $asset = $businessQuery->findOrFail($request->id);
             // Optional: Check if it has ad accounts and warn? Or cascade delete?
             // Laravel relationships usually handle cascade if configured, otherwise we manual delete.
@@ -303,12 +360,12 @@ class MetaAuthController extends Controller
             $asset->delete();
         } elseif ($request->type === 'ad_account') {
             $adAccountQuery = MetaAdAccount::where('tenant_id', $tenantId);
-            $this->applyAgencyScope($adAccountQuery, $user);
+            $this->applyMetaAgencyFilter($adAccountQuery, $agencyFilter);
             $asset = $adAccountQuery->findOrFail($request->id);
             $asset->delete();
         } elseif ($request->type === 'page') {
             $pageQuery = MetaPage::where('tenant_id', $tenantId);
-            $this->applyAgencyScope($pageQuery, $user);
+            $this->applyMetaAgencyFilter($pageQuery, $agencyFilter);
             $asset = $pageQuery->findOrFail($request->id);
             $asset->delete();
         }
@@ -319,36 +376,38 @@ class MetaAuthController extends Controller
     public function disconnect(Request $request)
     {
         $user = $request->user();
+        $tenantId = $user->tenant_id;
         $connectionId = $request->input('connection_id');
+        $agencyFilter = $this->resolveMetaAgencyFilter($request, $user);
+        $disconnectedAgencyIds = [];
 
         if ($connectionId) {
-            $query = MetaConnection::where('tenant_id', $user->tenant_id)->where('id', $connectionId);
-            $this->applyAgencyScope($query, $user);
-            $query->delete();
+            $query = MetaConnection::where('tenant_id', $tenantId)->where('id', $connectionId);
+            $this->applyMetaAgencyFilter($query, $agencyFilter);
+            $connection = $query->firstOrFail();
+            $disconnectedAgencyIds[] = $this->normalizeMetaAgencyKey($connection->agency_id);
+            $connection->delete();
         } else {
-            // Disconnect all if no specific ID
-            $query = MetaConnection::where('tenant_id', $user->tenant_id);
-            $this->applyAgencyScope($query, $user);
+            $query = MetaConnection::where('tenant_id', $tenantId);
+            $this->applyMetaAgencyFilter($query, $agencyFilter);
+            $disconnectedAgencyIds = $query->pluck('agency_id')
+                ->map(fn ($agencyId) => $this->normalizeMetaAgencyKey($agencyId))
+                ->unique()
+                ->values()
+                ->all();
             $query->delete();
         }
 
-        // Check if any connections remain
-        $remainingQuery = MetaConnection::where('tenant_id', $user->tenant_id);
-        $this->applyAgencyScope($remainingQuery, $user);
-        $remainingConnections = $remainingQuery->exists();
+        foreach ($disconnectedAgencyIds as $agencyId) {
+            if (!$this->hasExistingConnection($tenantId, $agencyId)) {
+                $this->deleteMetaAssetsForAgency($tenantId, $agencyId);
+            }
+        }
 
+        $remainingConnections = MetaConnection::where('tenant_id', $tenantId)->exists();
         if (!$remainingConnections) {
-            $pageDelete = MetaPage::where('tenant_id', $user->tenant_id);
-            $adDelete = MetaAdAccount::where('tenant_id', $user->tenant_id);
-            $businessDelete = MetaBusiness::where('tenant_id', $user->tenant_id);
-            $this->applyAgencyScope($pageDelete, $user);
-            $this->applyAgencyScope($adDelete, $user);
-            $this->applyAgencyScope($businessDelete, $user);
-            $pageDelete->delete();
-            $adDelete->delete();
-            $businessDelete->delete();
             Integration::updateOrCreate(
-                ['tenant_id' => $user->tenant_id, 'provider' => 'meta'],
+                ['tenant_id' => $tenantId, 'provider' => 'meta'],
                 ['status' => 'inactive']
             );
         }
@@ -369,5 +428,37 @@ class MetaAuthController extends Controller
             Log::error("Meta Sync Error: " . $e->getMessage());
             return response()->json(['error' => 'Failed to start sync'], 500);
         }
+    }
+
+    public function testWebhook(Request $request)
+    {
+        $credentials = $this->metaSystemSettings->resolveSharedCredentials();
+        $verifyToken = $credentials['verify_token'] ?? '';
+        $webhookUrl = rtrim((string) config('app.url'), '/') . '/api/meta/webhook';
+
+        if ($verifyToken === '') {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Webhook verify token is not configured by the system administrator.',
+            ], 422);
+        }
+
+        $internalRequest = Request::create('/api/meta/webhook', 'GET', [
+            'hub.mode' => 'subscribe',
+            'hub.verify_token' => $verifyToken,
+            'hub.challenge' => 'TENANT_META_TEST',
+        ]);
+        $internalResponse = app()->handle($internalRequest);
+        $body = trim((string) $internalResponse->getContent());
+        $ok = $internalResponse->getStatusCode() === 200 && $body === 'TENANT_META_TEST';
+
+        return response()->json([
+            'ok' => $ok,
+            'webhook_url' => $webhookUrl,
+            'status' => $internalResponse->getStatusCode(),
+            'message' => $ok
+                ? 'Webhook endpoint is reachable and verification succeeded.'
+                : 'Webhook verification failed. Contact your system administrator.',
+        ], $ok ? 200 : 422);
     }
 }

@@ -17,9 +17,10 @@ const buildWebhookVerificationUrl = (token, webhookUrl) => {
 
 export const metaService = {
   // Local Storage Management (Keep for fallback/cache if needed, but primary is API)
-  loadSettings: async () => {
+  loadSettings: async (agencyId = null) => {
     try {
-      const res = await api.get('/api/auth/meta/status')
+      const params = agencyId ? { agency_id: agencyId } : {}
+      const res = await api.get('/api/auth/meta/status', { params })
       return res.data
     } catch {
       return {}
@@ -47,20 +48,32 @@ export const metaService = {
   disconnectConnection: async (connectionId) => {
     try {
       await api.post('/api/auth/meta/disconnect', { connection_id: connectionId })
-    } catch {}
+    } catch (e) {
+      console.error("Failed to disconnect meta connection", e)
+      throw e
+    }
   },
 
   resetSettings: async () => {
     try {
       await api.post('/api/auth/meta/disconnect')
-    } catch {}
+    } catch (e) {
+      console.error("Failed to reset meta settings", e)
+      throw e
+    }
   },
 
   // Auth Helpers
-  connectMeta: async () => {
+  connectMeta: async (agencyId = null) => {
     try {
       localStorage.setItem('pending_integration_provider', 'meta')
-      const res = await api.get('/api/auth/meta/redirect')
+      if (agencyId) {
+        localStorage.setItem('pending_meta_agency_id', agencyId)
+      } else {
+        localStorage.removeItem('pending_meta_agency_id')
+      }
+      const params = agencyId ? { agency_id: agencyId } : {}
+      const res = await api.get('/api/auth/meta/redirect', { params })
       if (res.data && res.data.url) {
         window.location.href = res.data.url
       }
@@ -129,13 +142,25 @@ export const metaService = {
     return res.data
   },
 
-  loadLeadForms: async () => {
-    const res = await api.get('/api/auth/meta/forms')
+  loadLeadForms: async (agencyId = null) => {
+    const params = agencyId ? { agency_id: agencyId } : {}
+    const res = await api.get('/api/auth/meta/forms', { params })
     return res.data
   },
 
   saveFormMapping: async (formId, mapping) => {
     const res = await api.post('/api/auth/meta/forms/map', { form_id: formId, mapping })
+    return res.data
+  },
+
+  suggestFormMapping: async (formId, agencyId = null) => {
+    const params = agencyId ? { agency_id: agencyId } : {}
+    const res = await api.get(`/api/auth/meta/forms/${formId}/suggest-mapping`, { params })
+    return res.data
+  },
+
+  testWebhook: async () => {
+    const res = await api.post('/api/auth/meta/test-webhook')
     return res.data
   },
 

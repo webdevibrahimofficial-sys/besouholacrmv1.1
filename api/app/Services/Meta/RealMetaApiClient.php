@@ -5,7 +5,7 @@ namespace App\Services\Meta;
 use App\Contracts\MetaApiClientInterface;
 use App\Services\AdminEventNotificationService;
 use App\Services\MetaCredentialsResolver;
-use Illuminate\Support\Facades\Cache;
+use App\Services\MetaRateLimitTracker;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Http\Client\Response;
@@ -17,10 +17,12 @@ class RealMetaApiClient implements MetaApiClientInterface
 
     public function __construct(
         ?MetaCredentialsResolver $credentialsResolver = null,
-        protected ?AdminEventNotificationService $adminEventNotifications = null
+        protected ?AdminEventNotificationService $adminEventNotifications = null,
+        protected ?MetaRateLimitTracker $rateLimitTracker = null
     ) {
         $this->credentialsResolver = $credentialsResolver ?? app(MetaCredentialsResolver::class);
         $this->adminEventNotifications = $adminEventNotifications ?? app(AdminEventNotificationService::class);
+        $this->rateLimitTracker = $rateLimitTracker ?? app(MetaRateLimitTracker::class);
     }
 
     protected function resolveAppSecret(): ?string
@@ -108,8 +110,7 @@ class RealMetaApiClient implements MetaApiClientInterface
 
         // Check for Rate Limit specifically
         if (in_array((int) $code, [4, 17, 32, 613], true)) {
-            $counter = (int) Cache::get('meta:rate_limit_events_24h', 0);
-            Cache::put('meta:rate_limit_events_24h', $counter + 1, now()->addDay());
+            $this->rateLimitTracker->record($endpoint, (int) $code, (string) ($userMsg ?? $message));
 
             $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyMetaRateLimit(
                 $endpoint,

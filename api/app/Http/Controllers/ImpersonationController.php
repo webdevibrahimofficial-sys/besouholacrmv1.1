@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\AdminImpersonationService;
+use App\Models\LandlordUser;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -50,7 +51,7 @@ class ImpersonationController extends Controller
         }
 
         $actor = $request->user();
-        $adminUser = User::withoutGlobalScopes()->findOrFail($session->admin_user_id);
+        $adminUser = LandlordUser::withoutGlobalScopes()->findOrFail($session->admin_user_id);
         $panelToken = $adminUser->createToken('admin_panel');
         $plainToken = $panelToken->plainTextToken;
 

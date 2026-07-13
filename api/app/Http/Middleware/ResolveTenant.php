@@ -169,8 +169,11 @@ class ResolveTenant
         // Spatie Permissions
         setPermissionsTeamId($tenant->id);
 
-        // Optional: Set database connection if using multi-database (User chose Shared Database)
-        // Since it's shared database with Scope, we just need the ID binding.
+        // Sanctum authenticates before InitializeTenancy on several tenant routes,
+        // so dedicated workspaces must activate their database connection here.
+        if (!$tenant->isCurrent()) {
+            $tenant->makeCurrent();
+        }
 
         // 5. Remove tenant param from route so controllers don't need to accept it
         $request->route()->forgetParameter('tenant');

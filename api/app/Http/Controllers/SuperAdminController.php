@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Tenant;
 use App\Models\SubscriptionPlan;
+use App\Models\SubscriptionTransaction;
+use App\Models\LandlordUser;
 use App\Models\User;
 use App\Services\AdminEventNotificationService;
 use App\Services\SubscriptionTransactionService;
@@ -14,9 +16,13 @@ use App\Traits\LogsSuperAdminActivity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Config;
+use Throwable;
 
 class SuperAdminController extends Controller
 {
@@ -68,13 +74,14 @@ class SuperAdminController extends Controller
     public function tenants(Request $request)
     {
         $this->authorizeSuperAdmin($request);
+        $this->resetTenantContext();
         $this->tenantStatusService->syncExpiredTenants();
 
         $view = strtolower((string) $request->input('view', 'current'));
         $perPage = (int) $request->integer('per_page', 20);
         $perPage = max(10, min($perPage, 100));
 
-        $query = Tenant::with(['modules'])
+        $query = Tenant::on('landlord')->with(['modules'])
             ->with(['backups' => function ($q) {
                 $q->latest()->limit(1);
             }])
@@ -137,14 +144,58 @@ class SuperAdminController extends Controller
             $query->whereDate('created_at', '<=', $request->input('end_date'));
         }
 
+        // Filter by subscription expiration date range
+        if ($request->filled('expiration_from')) {
+            $query->whereDate('end_date', '>=', $request->input('expiration_from'));
+        }
+
+        if ($request->filled('expiration_to')) {
+            $query->whereDate('end_date', '<=', $request->input('expiration_to'));
+        }
+
+        // Filter by minimum active users count
+        if ($request->filled('users_count')) {
+            $query->having('users_count', '>=', (int) $request->input('users_count'));
+        }
+
+        // Filter by user seat usage (at limit / near limit)
+        $userUsage = strtolower((string) $request->input('user_usage', ''));
+        if ($userUsage === 'at_limit') {
+            $query->whereNotNull('users_limit')
+                ->where('users_limit', '>', 0)
+                ->havingRaw('users_count >= users_limit');
+        } elseif ($userUsage === 'near_limit') {
+            $query->whereNotNull('users_limit')
+                ->where('users_limit', '>', 0)
+                ->havingRaw('users_count >= CEIL(users_limit * 0.9) AND users_count < users_limit');
+        }
+
+        // Filter by latest paid subscription payment method
+        if ($request->filled('payment_method') && $this->subscriptionFeatureTablesExist()) {
+            $paymentMethod = (string) $request->input('payment_method');
+            $transactionsTable = (new SubscriptionTransaction())->getTable();
+
+            $query->whereIn('id', function ($sub) use ($paymentMethod, $transactionsTable) {
+                $sub->select('tenant_id')
+                    ->from("{$transactionsTable} as latest_tx")
+                    ->where('latest_tx.payment_method', $paymentMethod)
+                    ->where('latest_tx.status', 'paid')
+                    ->whereNull('latest_tx.deleted_at')
+                    ->whereRaw("latest_tx.id = (
+                        SELECT MAX(inner_tx.id)
+                        FROM {$transactionsTable} as inner_tx
+                        WHERE inner_tx.tenant_id = latest_tx.tenant_id
+                          AND inner_tx.status = 'paid'
+                          AND inner_tx.deleted_at IS NULL
+                    )");
+            });
+        }
+
         $tenants = $query->latest()->paginate($perPage);
 
         $mapped = $tenants->through(function (Tenant $tenant) {
             $last  = $tenant->backups->first();
-            $owner = User::withoutGlobalScopes()
-                ->where('tenant_id', $tenant->id)
-                ->orderBy('id')
-                ->first();
+            $owner = $this->resolvePrimaryAdmin($tenant);
             $currentContract = $this->subscriptionContractsTableExists()
                 ? $tenant->subscriptionContracts->first()
                 : null;
@@ -215,23 +266,6 @@ class SuperAdminController extends Controller
             'transaction.notes' => 'nullable|string|max:5000',
         ]);
 
-        $exitCode = Artisan::call('tenants:create', [
-            '--name' => $validated['name'],
-            '--domain' => $validated['domain'],
-            '--slug' => $validated['slug'],
-            '--type' => $validated['tenancy_type'],
-            '--admin-name' => $validated['admin_name'],
-            '--admin-email' => $validated['admin_email'],
-            '--admin-password' => $validated['admin_password'],
-        ]);
-
-        if ($exitCode !== 0) {
-            return response()->json([
-                'message' => 'Failed to create tenant',
-                'output' => Artisan::output(),
-            ], 500);
-        }
-
         $isLifetime = $request->boolean('is_lifetime', false);
         $plan = $request->input('plan', 'basic');
 
@@ -253,92 +287,175 @@ class SuperAdminController extends Controller
             ], 422);
         }
 
-        $tenant = Tenant::where('slug', $validated['slug'])->firstOrFail();
+        $tenant = null;
 
-        $tenant->subscription_plan = $plan;
-        $tenant->company_type = $request->input('company_type', 'General');
-        $tenant->users_limit = $request->input('users_limit');
-        $tenant->start_date = $request->input('start_date');
-        $tenant->end_date = $isLifetime ? null : $request->input('end_date');
-        $tenant->country = $request->input('country', $tenant->country);
-        $tenant->city = $request->input('city', $tenant->city);
-        $tenant->state = $request->input('state', $tenant->state);
-        $tenant->address_line_1 = $request->input('address_line_1', $tenant->address_line_1);
-        $tenant->address_line_2 = $request->input('address_line_2', $tenant->address_line_2);
+        try {
+            $exitCode = Artisan::call('tenants:create', [
+                '--name' => $validated['name'],
+                '--domain' => $validated['domain'],
+                '--slug' => $validated['slug'],
+                '--type' => $validated['tenancy_type'],
+                '--admin-name' => $validated['admin_name'],
+                '--admin-email' => $validated['admin_email'],
+                '--admin-password' => $validated['admin_password'],
+            ]);
 
-        $meta = is_array($tenant->meta_data) ? $tenant->meta_data : [];
-        $subscriptionMeta = $meta['subscription'] ?? [];
-        $subscriptionMeta['is_lifetime'] = $isLifetime;
-        $meta['subscription'] = $subscriptionMeta;
-        $tenant->meta_data = $meta;
+            if ($exitCode !== 0) {
+                return response()->json([
+                    'message' => 'Failed to create tenant',
+                    'output' => Artisan::output(),
+                ], 500);
+            }
 
-        $tenant->save();
+            $this->resetTenantContext();
 
-        $modules = $request->input('modules', []);
-        $this->tenantService->syncTenantModules($tenant, $plan, $modules);
+            $tenant = Tenant::on('landlord')->where('slug', $validated['slug'])->firstOrFail();
+            $tenant->setConnection('landlord');
 
-        if ($this->subscriptionFeatureTablesExist() && $request->filled('transaction.amount') && $request->filled('transaction.currency')) {
-            $contract = $this->contractService->createContract($tenant, [
-                'plan_code' => $tenant->subscription_plan,
-                'currency' => strtoupper((string) $request->input('transaction.currency')),
-                'billing_cycle' => $request->input('transaction.billing_cycle', 'monthly'),
-                'agreed_amount' => $request->input('transaction.amount'),
-                'effective_from' => $tenant->start_date?->toDateString() ?? now()->toDateString(),
-                'notes' => $request->input('transaction.notes'),
-            ], $request->user());
+            $tenant->subscription_plan = $plan;
+            $tenant->company_type = $request->input('company_type', 'General');
+            $tenant->users_limit = $request->input('users_limit');
+            $tenant->start_date = $request->input('start_date');
+            $tenant->end_date = $isLifetime ? null : $request->input('end_date');
+            $tenant->country = $request->input('country', $tenant->country);
+            $tenant->city = $request->input('city', $tenant->city);
+            $tenant->state = $request->input('state', $tenant->state);
+            $tenant->address_line_1 = $request->input('address_line_1', $tenant->address_line_1);
+            $tenant->address_line_2 = $request->input('address_line_2', $tenant->address_line_2);
 
-            $transaction = $this->transactionService->record($tenant, [
-                'contract_id' => $contract->id,
-                'type' => 'creation',
-                'currency' => strtoupper((string) $request->input('transaction.currency')),
-                'total_amount' => $request->input('transaction.amount'),
-                'payment_method' => $request->input('transaction.payment_method'),
-                'period_start' => $tenant->start_date?->toDateString(),
-                'period_end' => $tenant->end_date?->toDateString(),
-                'notes' => $request->input('transaction.notes'),
-                'plan_code' => $tenant->subscription_plan,
-                'plan_label' => $tenant->subscription_plan,
-            ], $request->user(), 'auto_system');
+            $meta = is_array($tenant->meta_data) ? $tenant->meta_data : [];
+            $subscriptionMeta = $meta['subscription'] ?? [];
+            $subscriptionMeta['is_lifetime'] = $isLifetime;
+            $meta['subscription'] = $subscriptionMeta;
+            $tenant->meta_data = $meta;
+
+            $tenant->save();
+            $this->syncDedicatedTenantRecord($tenant);
+
+            $modules = $request->input('modules', []);
+            $this->tenantService->syncTenantModules($tenant, $plan, $modules);
+
+            if ($this->subscriptionFeatureTablesExist() && $request->filled('transaction.amount') && $request->filled('transaction.currency')) {
+                $contract = $this->contractService->createContract($tenant, [
+                    'plan_code' => $tenant->subscription_plan,
+                    'currency' => strtoupper((string) $request->input('transaction.currency')),
+                    'billing_cycle' => $request->input('transaction.billing_cycle', 'monthly'),
+                    'agreed_amount' => $request->input('transaction.amount'),
+                    'effective_from' => $tenant->start_date?->toDateString() ?? now()->toDateString(),
+                    'notes' => $request->input('transaction.notes'),
+                ], $request->user());
+
+                $transaction = $this->transactionService->record($tenant, [
+                    'contract_id' => $contract->id,
+                    'type' => 'creation',
+                    'currency' => strtoupper((string) $request->input('transaction.currency')),
+                    'total_amount' => $request->input('transaction.amount'),
+                    'payment_method' => $request->input('transaction.payment_method'),
+                    'period_start' => $tenant->start_date?->toDateString(),
+                    'period_end' => $tenant->end_date?->toDateString(),
+                    'notes' => $request->input('transaction.notes'),
+                    'plan_code' => $tenant->subscription_plan,
+                    'plan_label' => $tenant->subscription_plan,
+                ], $request->user(), 'auto_system');
+
+                $this->logSuperAdminActivity(
+                    $request->user(),
+                    'created',
+                    'tenant_subscription_contract_created',
+                    $contract,
+                    [
+                        'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
+                        'contract' => ['id' => $contract->id, 'plan_code' => $contract->plan_code, 'agreed_amount' => $contract->agreed_amount],
+                    ]
+                );
+
+                $this->logSuperAdminActivity(
+                    $request->user(),
+                    'created',
+                    'subscription_transaction_created',
+                    $transaction,
+                    [
+                        'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
+                        'transaction' => ['id' => $transaction->id, 'type' => $transaction->type, 'total_amount' => $transaction->total_amount, 'currency' => $transaction->currency],
+                    ]
+                );
+            }
 
             $this->logSuperAdminActivity(
                 $request->user(),
                 'created',
-                'tenant_subscription_contract_created',
-                $contract,
+                'tenant_created',
+                $tenant,
                 [
-                    'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
-                    'contract' => ['id' => $contract->id, 'plan_code' => $contract->plan_code, 'agreed_amount' => $contract->agreed_amount],
+                    'attributes' => $tenant->fresh()->only(['id', 'name', 'domain', 'slug', 'subscription_plan', 'status', 'start_date', 'end_date']),
                 ]
             );
 
-            $this->logSuperAdminActivity(
-                $request->user(),
-                'created',
-                'subscription_transaction_created',
-                $transaction,
-                [
-                    'tenant' => ['id' => $tenant->id, 'name' => $tenant->name],
-                    'transaction' => ['id' => $transaction->id, 'type' => $transaction->type, 'total_amount' => $transaction->total_amount, 'currency' => $transaction->currency],
-                ]
-            );
+            $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyTenantCreated($tenant));
+
+            return response()->json([
+                'message' => 'Tenant created successfully',
+                'tenant' => $tenant,
+            ], 201);
+        } catch (Throwable $e) {
+            Log::error('Tenant creation post-provisioning failed.', [
+                'slug' => $validated['slug'],
+                'tenancy_type' => $validated['tenancy_type'],
+                'plan' => $plan,
+                'tenant_id' => $tenant?->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            if ($tenant) {
+                $this->cleanupFailedProvisionedTenant($tenant);
+            }
+
+            return response()->json([
+                'message' => 'Tenant creation failed after provisioning.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    protected function cleanupFailedProvisionedTenant(Tenant $tenant): void
+    {
+        try {
+            if ($tenant->tenancy_type === 'dedicated') {
+                $details = is_array($tenant->db_connection_details) ? $tenant->db_connection_details : [];
+                $databaseName = $details['database'] ?? null;
+                $username = $details['username'] ?? null;
+                $landlordConnection = config('multitenancy.landlord_database_connection_name', 'landlord');
+                $landlordDb = DB::connection($landlordConnection);
+
+                if ($databaseName) {
+                    $landlordDb->statement("DROP DATABASE IF EXISTS `{$databaseName}`");
+                }
+
+                if ($username) {
+                    $landlordDb->statement("DROP USER IF EXISTS '{$username}'@'%'");
+                    $landlordDb->statement('FLUSH PRIVILEGES');
+                }
+            }
+        } catch (Throwable $cleanupError) {
+            Log::error('Failed to cleanup dedicated tenant resources after provisioning error.', [
+                'tenant_id' => $tenant->id,
+                'slug' => $tenant->slug,
+                'error' => $cleanupError->getMessage(),
+            ]);
         }
 
-        $this->logSuperAdminActivity(
-            $request->user(),
-            'created',
-            'tenant_created',
-            $tenant,
-            [
-                'attributes' => $tenant->fresh()->only(['id', 'name', 'domain', 'slug', 'subscription_plan', 'status', 'start_date', 'end_date']),
-            ]
-        );
-
-        $this->adminEventNotifications->safe(fn () => $this->adminEventNotifications->notifyTenantCreated($tenant));
-
-        return response()->json([
-            'message' => 'Tenant created successfully',
-            'tenant' => $tenant,
-        ], 201);
+        try {
+            $tenant->modules()->detach();
+            $tenant->subscriptionContracts()->delete();
+            $tenant->subscriptionTransactions()->delete();
+            $tenant->delete();
+        } catch (Throwable $cleanupError) {
+            Log::error('Failed to remove landlord tenant record after provisioning error.', [
+                'tenant_id' => $tenant->id,
+                'slug' => $tenant->slug,
+                'error' => $cleanupError->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -347,11 +464,10 @@ class SuperAdminController extends Controller
     public function update(Request $request, Tenant $tenant)
     {
         $this->authorizeSuperAdmin($request);
+        $this->resetTenantContext();
+        $tenant->setConnection('landlord');
 
-        $owner = User::withoutGlobalScope('tenant')
-            ->where('tenant_id', $tenant->id)
-            ->orderBy('id')
-            ->first();
+        $owner = $this->resolvePrimaryAdmin($tenant);
 
         $ownerId = optional($owner)->id;
 
@@ -464,6 +580,7 @@ class SuperAdminController extends Controller
         }
 
         $tenant->refresh();
+        $this->syncDedicatedTenantRecord($tenant);
         $this->tenantService->forgetTenantCache($tenant, $previousSlug);
         $currentStatus = strtolower((string) ($tenant->status ?? ''));
         $isBlocked = $this->tenantAccessShouldBeBlocked($tenant);
@@ -831,6 +948,122 @@ class SuperAdminController extends Controller
     protected function subscriptionContractsTableExists(): bool
     {
         return Schema::connection('landlord')->hasTable('tenant_subscription_contracts');
+    }
+
+    protected function resetTenantContext(): void
+    {
+        Tenant::forgetCurrent();
+        app()->forgetInstance('tenant');
+        app()->forgetInstance('current_tenant_id');
+
+        if (function_exists('setPermissionsTeamId')) {
+            setPermissionsTeamId(null);
+        }
+    }
+
+    protected function resolvePrimaryAdmin(Tenant $tenant): ?User
+    {
+        $owner = LandlordUser::withoutGlobalScopes()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_super_admin', false)
+            ->orderBy('id')
+            ->first();
+
+        if ($owner || $tenant->tenancy_type !== 'dedicated') {
+            return $owner;
+        }
+
+        try {
+            $workspaceUser = $tenant->execute(function () use ($tenant) {
+                return User::withoutGlobalScopes()
+                    ->where('tenant_id', $tenant->id)
+                    ->where('is_super_admin', false)
+                    ->orderBy('id')
+                    ->first();
+            });
+
+            if (!$workspaceUser) {
+                return null;
+            }
+
+            return LandlordUser::withoutGlobalScopes()->updateOrCreate(
+                [
+                    'tenant_id' => $tenant->id,
+                    'email' => $workspaceUser->email,
+                ],
+                [
+                    'name' => $workspaceUser->name,
+                    'password' => $workspaceUser->getAuthPassword(),
+                    'is_super_admin' => false,
+                    'status' => $workspaceUser->status ?: 'Active',
+                    'job_title' => $workspaceUser->job_title ?: 'Tenant Admin',
+                    'locale' => $workspaceUser->locale,
+                    'timezone' => $workspaceUser->timezone,
+                    'theme_mode' => $workspaceUser->theme_mode,
+                    'avatar' => $workspaceUser->avatar,
+                    'phone' => $workspaceUser->phone,
+                    'username' => $workspaceUser->username,
+                ]
+            );
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    protected function syncDedicatedTenantRecord(Tenant $tenant): void
+    {
+        if ($tenant->tenancy_type !== 'dedicated') {
+            return;
+        }
+
+        $details = is_array($tenant->db_connection_details) ? $tenant->db_connection_details : [];
+        if (empty($details['database'])) {
+            return;
+        }
+
+        $connectionName = config('multitenancy.tenant_database_connection_name', 'tenant-dedicated');
+        Config::set("database.connections.{$connectionName}", array_merge(
+            config("database.connections.{$connectionName}", []),
+            $details
+        ));
+        DB::purge($connectionName);
+
+        if (!Schema::connection($connectionName)->hasTable('tenants')) {
+            return;
+        }
+
+        $columns = Schema::connection($connectionName)->getColumnListing('tenants');
+        $timestamp = now();
+
+        $payload = [
+            'id' => $tenant->id,
+            'name' => $tenant->name,
+            'domain' => $tenant->domain,
+            'slug' => $tenant->slug,
+            'status' => $tenant->status,
+            'subscription_plan' => $tenant->subscription_plan ?? 'core',
+            'company_type' => $tenant->company_type ?? 'General',
+            'users_limit' => $tenant->users_limit ?? 5,
+            'start_date' => optional($tenant->start_date)->toDateString(),
+            'end_date' => optional($tenant->end_date)->toDateString(),
+            'country' => $tenant->country,
+            'city' => $tenant->city,
+            'state' => $tenant->state,
+            'address_line_1' => $tenant->address_line_1,
+            'address_line_2' => $tenant->address_line_2,
+            'tenancy_type' => $tenant->tenancy_type,
+            'website_url' => $tenant->website_url,
+            'profile' => $tenant->profile ? json_encode($tenant->profile) : null,
+            'db_connection_details' => $tenant->db_connection_details ? json_encode($tenant->db_connection_details) : null,
+            'meta_data' => $tenant->meta_data ? json_encode($tenant->meta_data) : null,
+            'created_at' => $tenant->created_at ?? $timestamp,
+            'updated_at' => $timestamp,
+        ];
+
+        DB::connection($connectionName)->table('tenants')->updateOrInsert(
+            ['id' => $tenant->id],
+            array_intersect_key($payload, array_flip($columns))
+        );
     }
 
     protected function subscriptionFeatureTablesExist(): bool

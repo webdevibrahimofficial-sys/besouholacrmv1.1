@@ -12,10 +12,12 @@ use Illuminate\Support\Facades\Log;
 class MetaCampaignService
 {
     protected $apiClient;
+    protected $accessTokenService;
 
-    public function __construct(MetaApiClientInterface $apiClient)
+    public function __construct(MetaApiClientInterface $apiClient, MetaAccessTokenService $accessTokenService)
     {
         $this->apiClient = $apiClient;
+        $this->accessTokenService = $accessTokenService;
     }
 
     public function syncAll($tenantId)
@@ -38,17 +40,7 @@ class MetaCampaignService
 
     protected function getAccessToken(MetaAdAccount $adAccount)
     {
-        if ($adAccount->access_token) {
-            return $adAccount->access_token;
-        }
-        
-        $token = $adAccount->business?->connection?->user_access_token;
-        
-        if (!$token && config('services.meta.mock_mode')) {
-            return 'mock_access_token_campaign_sync';
-        }
-        
-        return $token;
+        return $this->accessTokenService->getAdAccountAccessToken($adAccount);
     }
 
     public function syncAccount($tenantId, MetaAdAccount $adAccount)

@@ -504,6 +504,9 @@ export const Leads = () => {
   }, [company?.company_type])
   
   const textColor = isLight ? 'text-black' : 'text-white'
+  const pipelineTabSelectedClass = isLight
+    ? 'ring-2 ring-blue-500 !bg-blue-100 !border-blue-300 !text-blue-950 shadow-sm shadow-blue-200/50'
+    : 'ring-2 ring-blue-400 !bg-blue-500/30 !border-blue-400/60 !text-white shadow-md shadow-blue-950/40'
   const bgColor = 'bg-white dark:bg-gray-900'
 
   const resolveInventoryOptionLabel = useCallback((entry) => {
@@ -4074,8 +4077,8 @@ if (!s) {
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4 items-stretch">
         <button
           onClick={() => setStageFilterNormalized([])}
-          className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor} ${
-            stageFilter.length === 0 ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+          className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${
+            stageFilter.length === 0 ? pipelineTabSelectedClass : textColor
           }`}
         >
           <span className="flex items-center gap-2 text-left"><span>Σ</span><span>{t('total leads')}</span></span>
@@ -4098,11 +4101,10 @@ if (!s) {
                     setStageFilterNormalized([s.key]);
                 }
             }}
-            className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor} ${
-               // Highlight active filter
-               (stageFilter.includes(normalizeStageFilterValue(s.key)) || (s.backendKey === 'coldCall' && stageFilter.includes('cold calls'))) 
-               ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-               : ''
+            className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${
+               (stageFilter.includes(normalizeStageFilterValue(s.key)) || (s.backendKey === 'coldCall' && stageFilter.includes('cold calls')))
+               ? pipelineTabSelectedClass
+               : textColor
             }`}
           >
             <span className="flex items-center gap-2 text-left"><span>{renderStageIcon(s.icon)}</span><span>{t(s.key)}</span></span>

@@ -3,22 +3,25 @@
 namespace App\Services;
 
 use App\Models\AdminImpersonationSession;
+use App\Models\LandlordUser;
+use App\Models\PersonalAccessToken;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Throwable;
 
 class AdminImpersonationService
 {
     public function __construct(
-        private readonly SystemAdminPermissionService $systemAdminPermissions
+        private readonly SystemAdminPermissionService $systemAdminPermissions,
+        private readonly TenantBootstrapper $tenantBootstrapper
     ) {
     }
 
@@ -161,21 +164,17 @@ class AdminImpersonationService
             throw new AuthenticationException('Invalid or expired impersonation token.');
         }
 
-        $tenant = Tenant::query()->findOrFail($session->tenant_id);
-
-        // The bridge token is already scoped to a single tenant session, so bind that
-        // tenant here to avoid brittle callback failures when the frontend host/header
-        // context is missing or stale during the first exchange request.
-        if (!app()->bound('tenant') || (int) app('tenant')->id !== (int) $tenant->id) {
-            app()->instance('tenant', $tenant);
-            app()->instance('current_tenant_id', $tenant->id);
-            setPermissionsTeamId($tenant->id);
+        $tenant = $this->findTenantById($session->tenant_id);
+        if (!$tenant) {
+            throw new HttpException(404, 'Tenant not found.');
         }
 
-        $admin = User::withoutGlobalScopes()->findOrFail($session->admin_user_id);
+        $this->activateTenantContext($tenant);
+
+        $admin = LandlordUser::withoutGlobalScopes()->findOrFail($session->admin_user_id);
         $this->ensureActorCanImpersonate($admin);
 
-        $tenantUser = User::withoutGlobalScopes()->findOrFail($session->tenant_user_id);
+        $tenantUser = $this->resolveWorkspaceTenantUser($tenant, $session->tenant_user_id);
         $supportToken = $tenantUser->createToken('support_access');
 
         if ($supportToken->accessToken) {
@@ -339,7 +338,7 @@ class AdminImpersonationService
         $tenant = $session->relationLoaded('tenant')
             ? $session->getRelation('tenant')
             : $this->findTenantById($session->tenant_id);
-        $admin = User::withoutGlobalScopes()->find($session->admin_user_id);
+        $admin = LandlordUser::withoutGlobalScopes()->find($session->admin_user_id);
 
         return [
             'id' => $session->id,
@@ -360,7 +359,7 @@ class AdminImpersonationService
 
     public function serializeActiveContext(AdminImpersonationSession $session): array
     {
-        $admin = User::withoutGlobalScopes()->find($session->admin_user_id);
+        $admin = LandlordUser::withoutGlobalScopes()->find($session->admin_user_id);
         $tenant = $session->relationLoaded('tenant')
             ? $session->getRelation('tenant')
             : $this->findTenantById($session->tenant_id);
@@ -390,7 +389,29 @@ class AdminImpersonationService
 
     protected function resolvePrimaryTenantUser(Tenant $tenant): ?User
     {
-        return User::withoutGlobalScopes()
+        if ($tenant->tenancy_type === 'dedicated') {
+            try {
+                $workspaceUser = $tenant->execute(function () use ($tenant) {
+                    return User::withoutGlobalScopes()
+                        ->where('tenant_id', $tenant->id)
+                        ->where('is_super_admin', false)
+                        ->where(function ($builder) {
+                            $builder->whereNull('status')->orWhere('status', '!=', 'Inactive');
+                        })
+                        ->orderBy('id')
+                        ->first();
+                });
+
+                if ($workspaceUser) {
+                    return $workspaceUser;
+                }
+            } catch (Throwable) {
+                // Fall back to the landlord copy for older dedicated tenants that were
+                // provisioned before workspace users were mirrored correctly.
+            }
+        }
+
+        return LandlordUser::withoutGlobalScopes()
             ->where('tenant_id', $tenant->id)
             ->where('is_super_admin', false)
             ->where(function ($builder) {
@@ -402,7 +423,7 @@ class AdminImpersonationService
 
     protected function tenantQuery(): Builder
     {
-        return Tenant::on($this->tenantConnection());
+        return Tenant::on(config('multitenancy.landlord_database_connection_name', 'landlord'));
     }
 
     protected function findTenantById(int|string $tenantId): ?Tenant
@@ -412,7 +433,92 @@ class AdminImpersonationService
 
     protected function tenantConnection(): string
     {
-        return (string) config('database.default', 'mysql');
+        return (string) config('multitenancy.landlord_database_connection_name', 'landlord');
+    }
+
+    protected function activateTenantContext(Tenant $tenant): void
+    {
+        if (!app()->bound('tenant') || (int) app('tenant')->id !== (int) $tenant->id) {
+            app()->instance('tenant', $tenant);
+        }
+
+        app()->instance('current_tenant_id', $tenant->id);
+
+        if (function_exists('setPermissionsTeamId')) {
+            setPermissionsTeamId($tenant->id);
+        }
+
+        $tenant->makeCurrent();
+    }
+
+    protected function resolveWorkspaceTenantUser(Tenant $tenant, int|string|null $preferredUserId = null): User
+    {
+        $workspaceUser = $tenant->execute(function () use ($tenant, $preferredUserId) {
+            $query = User::withoutGlobalScopes()
+                ->where('tenant_id', $tenant->id)
+                ->where('is_super_admin', false)
+                ->where(function ($builder) {
+                    $builder->whereNull('status')->orWhere('status', '!=', 'Inactive');
+                });
+
+            if ($preferredUserId) {
+                $match = (clone $query)->find($preferredUserId);
+                if ($match) {
+                    return $match;
+                }
+            }
+
+            return $query->orderBy('id')->first();
+        });
+
+        if ($workspaceUser) {
+            return $workspaceUser;
+        }
+
+        $landlordUser = LandlordUser::withoutGlobalScopes()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_super_admin', false)
+            ->where(function ($builder) {
+                $builder->whereNull('status')->orWhere('status', '!=', 'Inactive');
+            })
+            ->orderBy('id')
+            ->firstOrFail();
+
+        return $tenant->execute(function () use ($tenant, $landlordUser) {
+            $mirrored = User::withoutGlobalScopes()
+                ->where('tenant_id', $tenant->id)
+                ->where('email', $landlordUser->email)
+                ->first();
+
+            if (!$mirrored) {
+                $mirrored = User::create([
+                    'name' => $landlordUser->name,
+                    'email' => $landlordUser->email,
+                    'password' => $landlordUser->getAuthPassword(),
+                    'tenant_id' => $tenant->id,
+                    'status' => $landlordUser->status,
+                    'job_title' => $landlordUser->job_title,
+                    'phone' => $landlordUser->phone,
+                    'locale' => $landlordUser->locale,
+                    'timezone' => $landlordUser->timezone,
+                    'theme_mode' => $landlordUser->theme_mode,
+                    'avatar' => $landlordUser->avatar,
+                ]);
+            }
+
+            try {
+                $this->tenantBootstrapper->ensureTenantAdminRole($mirrored, $tenant);
+            } catch (Throwable $exception) {
+                Log::warning('Unable to assign Tenant Admin role during support-access mirror sync.', [
+                    'tenant_id' => $tenant->id,
+                    'user_id' => $mirrored->id,
+                    'email' => $mirrored->email,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+
+            return $mirrored;
+        });
     }
 
     protected function serializeTenant(Tenant $tenant): array

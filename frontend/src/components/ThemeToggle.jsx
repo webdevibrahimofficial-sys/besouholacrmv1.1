@@ -2,8 +2,7 @@ import { useTheme } from '../shared/context/ThemeProvider';
 
 /**
  * Theme Toggle Component
- * Unified theme switcher using Context (no local state)
- * Replaces the old DarkModeToggle component
+ * Unified theme switcher using ThemeProvider context
  */
 
 const SunIcon = () => (

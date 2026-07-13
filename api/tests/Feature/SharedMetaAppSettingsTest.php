@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Integration;
+use App\Models\Agency;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\MetaSystemSettingsService;
@@ -87,7 +88,14 @@ class SharedMetaAppSettingsTest extends TestCase
 
         config(['services.meta.mock_mode' => true]);
 
-        $redirectAfterConfig = $this->actingAs($user)->getJson('/api/auth/meta/redirect');
+        $agency = Agency::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Default Agency',
+            'key' => 'default-agency',
+            'is_active' => true,
+        ]);
+
+        $redirectAfterConfig = $this->actingAs($user)->getJson('/api/auth/meta/redirect?agency_id=' . $agency->key);
         $redirectAfterConfig->assertOk()->assertJsonStructure(['url']);
     }
 

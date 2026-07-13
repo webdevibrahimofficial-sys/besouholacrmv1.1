@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -86,6 +87,8 @@ class AppServiceProvider extends ServiceProvider
             \Illuminate\Support\Facades\URL::forceScheme('https');
             $this->app['request']->server->set('HTTPS', 'on');
         }
+
+        Sanctum::usePersonalAccessTokenModel(\App\Models\PersonalAccessToken::class);
 
         // Register Observers
         \App\Models\Lead::observe(\App\Observers\LeadObserver::class);

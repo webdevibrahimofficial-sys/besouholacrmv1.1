@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Activity;
 use App\Models\LeadAction;
 use App\Models\Lead;
+use App\Models\SharedUser;
+use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +16,101 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class ActivityLogController extends Controller
 {
     use \App\Traits\UserHierarchyTrait;
+
+    protected function resolveCauserIdentity(Activity $activity): array
+    {
+        $causer = $activity->causer;
+
+        if ($causer && ($causer->name || $causer->email)) {
+            return [
+                'name' => $causer->name,
+                'email' => $causer->email,
+                'role' => $causer->job_title ?: $causer->role,
+            ];
+        }
+
+        $properties = $this->normalizeActivityProperties($activity->properties);
+        $fallbackName = data_get($properties, 'causer.name')
+            ?: data_get($properties, 'user.name')
+            ?: data_get($properties, 'userName');
+        $fallbackEmail = data_get($properties, 'causer.email')
+            ?: data_get($properties, 'user.email')
+            ?: data_get($properties, 'userEmail');
+        $fallbackRole = data_get($properties, 'causer.role')
+            ?: data_get($properties, 'user.role');
+
+        if ($fallbackName || $fallbackEmail || $fallbackRole) {
+            return [
+                'name' => $fallbackName,
+                'email' => $fallbackEmail,
+                'role' => $fallbackRole,
+            ];
+        }
+
+        if (!$activity->causer_id || !in_array($activity->causer_type, $this->userMorphTypes(), true)) {
+            return ['name' => null, 'email' => null, 'role' => null];
+        }
+
+        return $this->resolveCauserFromTenantContext($activity);
+    }
+
+    protected function resolveCauserFromTenantContext(Activity $activity): array
+    {
+        $tenantId = (int) ($activity->tenant_id ?: 0);
+        if ($tenantId <= 0) {
+            return ['name' => null, 'email' => null, 'role' => null];
+        }
+
+        $tenant = Tenant::query()->find($tenantId);
+        if (!$tenant) {
+            return ['name' => null, 'email' => null, 'role' => null];
+        }
+
+        $hadCurrentTenantId = app()->bound('current_tenant_id');
+        $previousCurrentTenantId = $hadCurrentTenantId ? app('current_tenant_id') : null;
+        $hadTenantBinding = app()->bound('tenant');
+        $previousTenant = $hadTenantBinding ? app('tenant') : null;
+        $previousCurrentTenant = method_exists(Tenant::class, 'current') ? Tenant::current() : null;
+
+        try {
+            $tenant->makeCurrent();
+
+            $userQuery = User::withoutGlobalScopes()
+                ->whereKey($activity->causer_id);
+
+            if ($tenantId > 0) {
+                $userQuery->where('tenant_id', $tenantId);
+            }
+
+            $user = $userQuery->first();
+
+            return [
+                'name' => $user?->name,
+                'email' => $user?->email,
+                'role' => $user?->job_title ?: $user?->role,
+            ];
+        } catch (\Throwable $e) {
+            return ['name' => null, 'email' => null, 'role' => null];
+        } finally {
+            Tenant::forgetCurrent();
+
+            if ($previousCurrentTenant) {
+                $previousCurrentTenant->makeCurrent();
+            } else {
+                if ($hadCurrentTenantId) {
+                    app()->instance('current_tenant_id', $previousCurrentTenantId);
+                } else {
+                    app()->forgetInstance('current_tenant_id');
+                }
+
+                if ($hadTenantBinding) {
+                    app()->instance('tenant', $previousTenant);
+                } else {
+                    app()->forgetInstance('tenant');
+                }
+            }
+        }
+    }
 
     protected function tenantConnectionName(): string
     {
@@ -53,7 +150,7 @@ class ActivityLogController extends Controller
         }
         if ($request->has('user_id')) {
             $query->where('causer_id', $request->user_id)
-                ->where('causer_type', 'App\Models\User');
+                ->whereIn('causer_type', $this->userMorphTypes());
         }
         if ($request->has('log_name')) {
             $query->where('log_name', $request->log_name);
@@ -87,7 +184,7 @@ class ActivityLogController extends Controller
         $perPage = min($request->input('per_page', 50), 500); // Max 500
         $logs = $query->paginate($perPage);
         $logs->getCollection()->transform(function (Activity $activity) {
-            $causer = $activity->causer;
+            $causerIdentity = $this->resolveCauserIdentity($activity);
             $tenant = $activity->tenant;
             $properties = $this->normalizeActivityProperties($activity->properties);
             $description = $this->buildAuditDescription($activity, $properties);
@@ -103,9 +200,9 @@ class ActivityLogController extends Controller
                 'event' => $activity->event,
                 'causer_id' => $activity->causer_id,
                 'causer_type' => $activity->causer_type,
-                'causer_name' => $causer?->name,
-                'causer_email' => $causer?->email,
-                'causer_role' => $causer?->job_title ?: $causer?->role,
+                'causer_name' => $causerIdentity['name'],
+                'causer_email' => $causerIdentity['email'],
+                'causer_role' => $causerIdentity['role'],
                 'tenant_id' => $activity->tenant_id,
                 'tenant_name' => $tenant?->name,
                 'tenant_domain' => $tenant?->domain ?: $tenant?->slug,
@@ -509,7 +606,7 @@ class ActivityLogController extends Controller
         })
             ->where('activity_log.subject_type', '=', Lead::class)
             ->whereNotNull('activity_log.causer_id')
-            ->where('activity_log.causer_type', '=', User::class)
+            ->whereIn('activity_log.causer_type', $this->userMorphTypes())
             ->whereColumn('leads.assigned_to', 'activity_log.causer_id');
 
         if ($tenantId) {
@@ -771,7 +868,7 @@ class ActivityLogController extends Controller
         if ($request->has('tenant_id'))
             $query->where('tenant_id', $request->tenant_id);
         if ($request->has('user_id'))
-            $query->where('causer_id', $request->user_id)->where('causer_type', 'App\Models\User');
+            $query->where('causer_id', $request->user_id)->whereIn('causer_type', $this->userMorphTypes());
         if ($request->has('log_name'))
             $query->where('log_name', $request->log_name);
         if ($request->has('subject_type'))
@@ -937,7 +1034,7 @@ class ActivityLogController extends Controller
 
         $query->addSelect(['last_active_at' => \Laravel\Sanctum\PersonalAccessToken::select('last_used_at')
             ->whereColumn('tokenable_id', 'users.id')
-            ->where('tokenable_type', User::class)
+            ->whereIn('tokenable_type', $this->userMorphTypes())
             ->latest('last_used_at')
             ->limit(1)
         ]);
@@ -961,6 +1058,14 @@ class ActivityLogController extends Controller
         });
 
         return response()->json($data);
+    }
+
+    protected function userMorphTypes(): array
+    {
+        return [
+            User::class,
+            SharedUser::class,
+        ];
     }
 
     protected function mapModule(Activity $activity): string

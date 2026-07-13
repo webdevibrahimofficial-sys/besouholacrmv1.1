@@ -111,10 +111,12 @@ class MetaWebhookService
             ->get();
 
         if ($pages->count() > 1) {
-            Log::warning('Multiple tenants linked to the same Meta page_id', [
+            Log::error('Meta webhook rejected: multiple tenants linked to the same page_id', [
                 'page_id' => $pageId,
                 'tenant_ids' => $pages->pluck('tenant_id')->all(),
             ]);
+
+            return null;
         }
 
         $page = $pages->first();
