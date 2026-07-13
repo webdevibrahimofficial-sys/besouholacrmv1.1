@@ -11,8 +11,6 @@ export default function ImpersonationCallback() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    let active = true
-
     const run = async () => {
       try {
         const qs = window.location.search && window.location.search.length > 1
@@ -70,7 +68,10 @@ export default function ImpersonationCallback() {
           ? `${window.location.protocol}//${expectedHost}`
           : window.location.origin
 
-        window.location.replace(`${redirectOrigin}/#/dashboard`)
+        // Force a fresh document load after support access exchange so the app
+        // reboots with the tenant token and fetches enabled modules/permissions
+        // from scratch instead of reusing the callback page's in-memory state.
+        window.location.replace(`${redirectOrigin}/?support_bootstrap=${Date.now()}#/dashboard`)
       } catch {
         try {
           window.sessionStorage.removeItem('impersonation_exchange_token')
@@ -84,13 +85,6 @@ export default function ImpersonationCallback() {
 
 
     run()
-
-    return () => {
-
-      active = false
-
-    }
-
   }, [navigate])
 
 

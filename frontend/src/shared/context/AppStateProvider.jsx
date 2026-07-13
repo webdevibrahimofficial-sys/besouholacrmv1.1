@@ -462,6 +462,7 @@ useEffect(() => {
   if (bootstrapped) return
 
   const isImpersonationCallback = location.pathname === '/auth/impersonation-callback'
+  let cancelled = false
 
   if (isImpersonationCallback) {
     setBootstrapped(true)
@@ -485,19 +486,53 @@ useEffect(() => {
 
   const token = lsToken || ssToken || cookieToken;
   if (token) {
-    fetchCompanyInfo()
-      .catch((err) => {
-        // Only clear if 401 Unauthorized
-        if (err?.response?.status === 401) {
-          window.localStorage.removeItem('token');
-          window.sessionStorage.removeItem('token');
+    const retryBootstrapFetch = async () => {
+      try {
+        await fetchCompanyInfo()
+        return
+      } catch (err) {
+        const status = Number(err?.response?.status || 0)
+        if (status !== 401) {
+          throw err
         }
-      })
+
+        // Cross-subdomain redirects can briefly race token persistence on the
+        // first dashboard load. Retry once after rehydrating from cookie before
+        // treating the session as invalid.
+        const latestCookieToken = getCookie('token')
+        const latestLocalToken = window.localStorage.getItem('token')
+        const latestSessionToken = window.sessionStorage.getItem('token')
+        const recoveredToken = latestLocalToken || latestSessionToken || latestCookieToken
+
+        if (latestCookieToken && !latestLocalToken && !latestSessionToken) {
+          window.sessionStorage.setItem('token', latestCookieToken)
+        }
+
+        if (recoveredToken) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250))
+          await fetchCompanyInfo()
+          return
+        }
+
+        window.localStorage.removeItem('token');
+        window.sessionStorage.removeItem('token');
+        throw err
+      }
+    }
+
+    retryBootstrapFetch()
+      .catch(() => {})
       .finally(() => {
-        setBootstrapped(true);
+        if (!cancelled) {
+          setBootstrapped(true);
+        }
       });
   } else {
     setBootstrapped(true);
+  }
+
+  return () => {
+    cancelled = true
   }
 }, [bootstrapped, fetchCompanyInfo, location.pathname]);
 
