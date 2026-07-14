@@ -109,7 +109,7 @@ function summarizeDisconnect(statusCode, lastDisconnect) {
   };
 }
 
-function shouldStopReconnect(sock, statusCode, lastDisconnect) {
+function shouldStopReconnect(sock, statusCode, lastDisconnect, attemptCount = 0) {
   const message = String(lastDisconnect?.error?.message || '').toLowerCase();
   const hasConnectedBefore = !!sock?.hasEverConnected;
 
@@ -126,6 +126,19 @@ function shouldStopReconnect(sock, statusCode, lastDisconnect) {
       stop: true,
       reason: 'corrupted_auth_state',
       detail: 'Auth state looks corrupted (Bad MAC / decrypt failure). Waiting for disconnect + re-pair.',
+    };
+  }
+
+  if (
+    hasConnectedBefore
+    && statusCode === 401
+    && message.includes('connection failure')
+    && attemptCount >= 3
+  ) {
+    return {
+      stop: true,
+      reason: 're_pair_required',
+      detail: 'WhatsApp session is no longer trusted after repeated 401 connection failures. Pair again to restore reliable sending.',
     };
   }
 
@@ -923,7 +936,7 @@ export async function initSession(tenantId) {
         });
 
         const attemptCount = incrementReconnectAttempts(key);
-        const reconnectDecision = shouldStopReconnect(sock, statusCode, lastDisconnect);
+        const reconnectDecision = shouldStopReconnect(sock, statusCode, lastDisconnect, attemptCount);
         console.log(`[Reconnect Decision] Tenant ${key}`, {
           attemptCount,
           stop: reconnectDecision.stop,

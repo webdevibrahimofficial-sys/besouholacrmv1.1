@@ -15,6 +15,20 @@ function formatWhatsAppJid(to) {
   return `${digits}@s.whatsapp.net`;
 }
 
+function resolveSendTarget(formattedTo, exists) {
+  const firstMatch = Array.isArray(exists) ? exists.find((entry) => entry?.exists) : null;
+
+  if (firstMatch?.lid) {
+    return String(firstMatch.lid).trim();
+  }
+
+  if (firstMatch?.jid) {
+    return String(firstMatch.jid).trim();
+  }
+
+  return formattedTo;
+}
+
 function normalizeMediaType(mediaType) {
   const normalized = String(mediaType || '').trim().toLowerCase();
 
@@ -125,6 +139,8 @@ router.post('/sessions/:tenantId/send', async (req, res) => {
       exists,
     });
 
+    const sendTarget = resolveSendTarget(formattedTo, exists);
+
     registerLidPhoneMappings(
       tenantId,
       (Array.isArray(exists) ? exists : []).map((entry) => ({
@@ -133,12 +149,13 @@ router.post('/sessions/:tenantId/send', async (req, res) => {
       }))
     );
 
-    const result = await sock.sendMessage(formattedTo, { text: body });
+    const result = await sock.sendMessage(sendTarget, { text: body });
 
     console.log('[Sent Result]', {
       tenantId,
       id: result?.key?.id,
       remoteJid: result?.key?.remoteJid,
+      sendTarget,
       fromMe: result?.key?.fromMe,
     });
 
@@ -191,6 +208,7 @@ router.post('/sessions/:tenantId/send-media', async (req, res) => {
 
     const formattedTo = formatWhatsAppJid(to);
     const exists = await sock.onWhatsApp(formattedTo);
+    const sendTarget = resolveSendTarget(formattedTo, exists);
 
     registerLidPhoneMappings(
       tenantId,
@@ -201,12 +219,12 @@ router.post('/sessions/:tenantId/send-media', async (req, res) => {
     );
 
     const payload = await buildMediaPayload(mediaType, mediaUrl, caption, filename);
-    const result = await sock.sendMessage(formattedTo, payload);
+    const result = await sock.sendMessage(sendTarget, payload);
 
     return res.json({
       success: true,
       messageId: result?.key?.id || null,
-      remoteJid: result?.key?.remoteJid || formattedTo,
+      remoteJid: result?.key?.remoteJid || sendTarget,
       mediaType: normalizeMediaType(mediaType),
     });
   } catch (error) {
