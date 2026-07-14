@@ -13,6 +13,7 @@ import AvatarImage from '@components/AvatarImage'
 import { isSystemAdminContext } from '@utils/authRouting'
 import { useImpersonation } from '@features/Impersonation/useImpersonation'
 import { clearImpersonationHints, persistAuthToken } from '@utils/authToken'
+import { applyLanguage } from '../../i18n'
 
 const FlagUS = () => (
   <svg viewBox="0 0 640 480" className="w-5 h-3.5 object-cover rounded-[2px] shadow-sm flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
@@ -344,10 +345,10 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
               </IconButton>
               {isLanguageOpen && (
                 <div className={`dropdown-panel absolute top-12 ${isRTL ? 'left-0' : 'right-0'} w-44 backdrop-blur-md ${isLight ? 'bg-white/80 border border-white/30' : 'bg-gray-900/80 border border-gray-600/30'} rounded-xl shadow-2xl z-50`} role="menu" aria-label={t('Language')}>
-                  <button className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm hover:bg-[var(--table-row-hover)]" onClick={() => { i18n.changeLanguage('en'); try { localStorage.setItem('language', 'en') } catch {} setIsLanguageOpen(false) }}>
+                  <button className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm hover:bg-[var(--table-row-hover)]" onClick={() => { applyLanguage('en'); setIsLanguageOpen(false) }}>
                     <FlagUS /> English
                   </button>
-                  <button className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm hover:bg-[var(--table-row-hover)]" onClick={() => { i18n.changeLanguage('ar'); try { localStorage.setItem('language', 'ar') } catch {} setIsLanguageOpen(false) }}>
+                  <button className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm hover:bg-[var(--table-row-hover)]" onClick={() => { applyLanguage('ar'); setIsLanguageOpen(false) }}>
                     <FlagEG /> Arabic
                   </button>
                 </div>
@@ -498,10 +499,10 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
               {isMobileLanguageOpen && (
                 <div ref={mobileLanguageRef} className={`col-span-4 mt-2 rounded-lg border ${isLight ? 'bg-white border-gray-200' : 'bg-gray-900 border-gray-700'} p-2`}>
                   <div className="grid grid-cols-2 gap-2">
-                    <button className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm ${isLight ? 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700'}`} onClick={() => { i18n.changeLanguage('en'); try { localStorage.setItem('language', 'en') } catch {} setIsExtrasOpen(false) }}>
+                    <button className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm ${isLight ? 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700'}`} onClick={() => { applyLanguage('en'); setIsExtrasOpen(false) }}>
                       <FlagUS /> English
                     </button>
-                    <button className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm ${isLight ? 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700'}`} onClick={() => { i18n.changeLanguage('ar'); try { localStorage.setItem('language', 'ar') } catch {} setIsExtrasOpen(false) }}>
+                    <button className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm ${isLight ? 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700'}`} onClick={() => { applyLanguage('ar'); setIsExtrasOpen(false) }}>
                       <FlagEG /> Arabic
                     </button>
                   </div>

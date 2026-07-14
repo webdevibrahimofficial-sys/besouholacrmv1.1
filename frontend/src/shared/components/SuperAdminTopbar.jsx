@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { api } from '@utils/api';
 import { useAdminNotifications } from '@hooks/useAdminNotifications';
+import { applyLanguage } from '../../i18n';
 
 const FlagUS = () => (
   <svg viewBox="0 0 640 480" className="w-5 h-3.5 object-cover rounded-[2px] shadow-sm flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
@@ -590,7 +591,7 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => { i18n.changeLanguage('en'); setIsLanguageOpen(false); }}
+                  onClick={() => { applyLanguage('en'); setIsLanguageOpen(false); }}
                   className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition ${dropdownItemClass} ${isLight ? 'text-left' : ''}`}
                 >
                   <FlagUS /> <span>English</span>
@@ -598,7 +599,7 @@ export default function SuperAdminTopbar({ onMobileToggle, mobileSidebarOpen }) 
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => { i18n.changeLanguage('ar'); setIsLanguageOpen(false); }}
+                  onClick={() => { applyLanguage('ar'); setIsLanguageOpen(false); }}
                   className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition ${dropdownItemClass} ${isLight ? 'text-left' : ''}`}
                 >
                   <FlagEG /> <span>العربية</span>

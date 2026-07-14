@@ -606,7 +606,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('leadMgmtOpen', 'true') } } catch { }
     }
   }, [isLeadMgmtActive])
-  const [stagesOpen, setStagesOpen] = useState(true)
+  const [stagesOpen, setStagesOpen] = useState(false)
   const isMarketingActive = location.pathname.startsWith('/marketing') || location.pathname.startsWith('/reports/marketing')
   const isRecycleActive = location.pathname.startsWith('/recycle')
 

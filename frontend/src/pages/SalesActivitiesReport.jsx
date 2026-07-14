@@ -34,7 +34,7 @@ const ActionStageTooltip = ({ data, isRTL, position }) => {
     >
       <div className="relative">
         <p className="text-xs font-bold mb-3 border-b border-slate-100 dark:border-slate-700 pb-2 text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-          {isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â²Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â·ÃƒËœÃ‚Â© ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â±ÃƒËœÃ‚Â­Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Activities by Stage'}
+          {isRTL ? 'توزيع الأنشطة حسب المرحلة' : 'Activities by Stage'}
         </p>
         <div className="space-y-2.5">
           {data.map((item, index) => {
@@ -1076,15 +1076,15 @@ export default function SalesActivitiesReport() {
   }, [filteredActions])
 
   const whatsAppData = useMemo(() => ([
-    { label: isRTL ? 'Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§ÃƒËœÃ‚ÂªÃƒËœÃ‚Â³ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨' : 'WhatsApp', value: channelCounts.whatsapp, color: '#25D366' },
+    { label: isRTL ? 'واتساب' : 'WhatsApp', value: channelCounts.whatsapp, color: '#25D366' },
   ]), [channelCounts, isRTL])
 
   const emailsData = useMemo(() => ([
-    { label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¯' : 'Emails', value: channelCounts.email, color: '#2563eb' },
+    { label: isRTL ? 'البريد' : 'Emails', value: channelCounts.email, color: '#2563eb' },
   ]), [channelCounts, isRTL])
 
   const googleMeetData = useMemo(() => ([
-    { label: isRTL ? 'ÃƒËœÃ‚ÂºÃƒâ„¢Ã‹â€ ÃƒËœÃ‚ÂºÃƒâ„¢Ã¢â‚¬Å¾ Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã…Â ÃƒËœÃ‚Âª' : 'Google Meet', value: channelCounts.meet, color: '#10b981' },
+    { label: isRTL ? 'غوغل ميت' : 'Google Meet', value: channelCounts.meet, color: '#10b981' },
   ]), [channelCounts, isRTL])
 
   const kpiData = useMemo(() => {
@@ -1146,19 +1146,19 @@ export default function SalesActivitiesReport() {
       const doc = new jsPDF()
       
       const tableColumn = [
-        isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¤Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Å¾ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Salesperson',
-        isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Total Leads',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â£ÃƒËœÃ‚Â®ÃƒËœÃ‚Â±ÃƒËœÃ‚Â©' : 'Delayed',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Actions',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã†â€™ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Calls',
-        isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'Answer',
-        isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ Ãƒâ„¢Ã…Â ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'No Answer',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â±ÃƒËœÃ‚Â­Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Action by Stage',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target',
-        isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª (Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡)' : 'Total Revenue (Team)',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total Target',
-        isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â² ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total Achievement'
+        isRTL ? 'مسؤول المبيعات' : 'Salesperson',
+        isRTL ? 'إجمالي العملاء' : 'Total Leads',
+        isRTL ? 'المتأخرة' : 'Delayed',
+        isRTL ? 'الإجراءات' : 'Actions',
+        isRTL ? 'المكالمات' : 'Calls',
+        isRTL ? 'تم الرد' : 'Answer',
+        isRTL ? 'لم يتم الرد' : 'No Answer',
+        isRTL ? 'الإجراء حسب المرحلة' : 'Action by Stage',
+        isRTL ? 'الإيرادات' : 'Revenue',
+        isRTL ? 'الهدف' : 'Target',
+        isRTL ? 'إجمالي الإيرادات (فريق)' : 'Total Revenue (Team)',
+        isRTL ? 'الهدف الكلي' : 'Total Target',
+        isRTL ? 'الإنجاز الكلي' : 'Total Achievement'
       ]
       const tableRows = []
 
@@ -1181,7 +1181,7 @@ export default function SalesActivitiesReport() {
         tableRows.push(rowData)
       })
 
-      doc.text(isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Activities Report', 14, 15)
+      doc.text(isRTL ? 'تقرير نشاطات المبيعات' : 'Sales Activities Report', 14, 15)
       autoTable.default(doc, {
         head: [tableColumn],
         body: tableRows,
@@ -1203,18 +1203,18 @@ export default function SalesActivitiesReport() {
 
   const handleExport = async () => {
     const dataToExport = filteredData.map(row => ({
-      [isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¤Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Å¾ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Salesperson']: row.salesperson,
-      [isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Total Leads']: row.totalLeads,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â£ÃƒËœÃ‚Â®ÃƒËœÃ‚Â±ÃƒËœÃ‚Â©' : 'Delayed']: row.delayed,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Actions']: row.actions,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã†â€™ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Calls']: row.calls,
-      [isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'Answer']: row.answered,
-      [isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ Ãƒâ„¢Ã…Â ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'No Answer']: row.noAnswer,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue']: row.revenue,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target']: row.target,
-      [isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª (Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡)' : 'Total Revenue (Team)']: row.totalRevenue,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total Target']: row.totalTarget,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â² ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  %' : 'Total Achievement %']: `${row.totalAchievement}%`
+      [isRTL ? 'مسؤول المبيعات' : 'Salesperson']: row.salesperson,
+      [isRTL ? 'إجمالي العملاء' : 'Total Leads']: row.totalLeads,
+      [isRTL ? 'المتأخرة' : 'Delayed']: row.delayed,
+      [isRTL ? 'الإجراءات' : 'Actions']: row.actions,
+      [isRTL ? 'المكالمات' : 'Calls']: row.calls,
+      [isRTL ? 'تم الرد' : 'Answer']: row.answered,
+      [isRTL ? 'لم يتم الرد' : 'No Answer']: row.noAnswer,
+      [isRTL ? 'الإيرادات' : 'Revenue']: row.revenue,
+      [isRTL ? 'الهدف' : 'Target']: row.target,
+      [isRTL ? 'إجمالي الإيرادات (فريق)' : 'Total Revenue (Team)']: row.totalRevenue,
+      [isRTL ? 'الهدف الكلي' : 'Total Target']: row.totalTarget,
+      [isRTL ? 'الإنجاز الكلي %' : 'Total Achievement %']: `${row.totalAchievement}%`
     }))
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(dataToExport)
@@ -1268,7 +1268,7 @@ export default function SalesActivitiesReport() {
             segments={segments}
             size={170}
             centerValue={total}
-            centerLabel={isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total'}
+            centerLabel={isRTL ? 'الإجمالي' : 'Total'}
           />
         </div>
         <div className="mt-4 flex flex-wrap justify-center gap-3">
@@ -1293,8 +1293,8 @@ export default function SalesActivitiesReport() {
       {/* Back Btn & Header */}
       <div className="mb-6">
         <BackButton to="/reports" />
-        <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'}  mb-2`}>{isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Activities Report'}</h1>
-        <p className={`${isLight ? 'text-black' : 'text-white'} text-sm`}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â© Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Monitor sales activities and performance'}</p>
+        <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'}  mb-2`}>{isRTL ? 'تقرير نشاطات المبيعات' : 'Sales Activities Report'}</h1>
+        <p className={`${isLight ? 'text-black' : 'text-white'} text-sm`}>{isRTL ? 'متابعة نشاطات أداء فريق المبيعات' : 'Monitor sales activities and performance'}</p>
       </div>
 
       {/* Filter Panel */}
@@ -1309,7 +1309,7 @@ export default function SalesActivitiesReport() {
               onClick={() => setShowAllFilters(prev => !prev)} 
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
             >
-              {showAllFilters ? (isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â®Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Hide') : (isRTL ? 'ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¶ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾' : 'Show All')}
+              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'عرض الكل' : 'Show All')}
               <ChevronDown size={12} className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`} />
             </button>
             <button 
@@ -1327,30 +1327,30 @@ export default function SalesActivitiesReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <User size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Ù…Ø³Ø¤ÙˆÙ„ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª' : 'Sales Person'}
+                {isRTL ? 'مسؤول المبيعات' : 'Sales Person'}
               </label>
-              <SearchableSelect options={salesPersonOptions} value={salesPersonFilter} onChange={setSalesPersonFilter} placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Select'} multiple isRTL={isRTL} icon={<User size={16} />} />
+              <SearchableSelect options={salesPersonOptions} value={salesPersonFilter} onChange={setSalesPersonFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<User size={16} />} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Users size={12} className="text-blue-500 dark:text-blue-400" />
                 {isRTL ? 'المدير' : 'Manager'}
               </label>
-              <SearchableSelect options={managerOptions} value={managerFilter} onChange={setManagerFilter} placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Select'} multiple isRTL={isRTL} icon={<Users size={16} />} />
+              <SearchableSelect options={managerOptions} value={managerFilter} onChange={setManagerFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<Users size={16} />} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Layers size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Ù…Ø±Ø­Ù„Ø© Ø§Ù„Ø¨ÙŠØ¹' : 'Stage pipeline'}
+                {isRTL ? 'مرحلة البيع' : 'Stage pipeline'}
               </label>
-              <SearchableSelect options={stageOptions} value={stageFilter} onChange={setStageFilter} placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Select'} multiple isRTL={isRTL} icon={<Layers size={16} />} />
+              <SearchableSelect options={stageOptions} value={stageFilter} onChange={setStageFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<Layers size={16} />} />
             </div>
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <Tag size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Ø§Ù„Ù…ØµØ¯Ø±' : 'Source'}
+                {isRTL ? 'المصدر' : 'Source'}
               </label>
-              <SearchableSelect options={sourceOptions} value={sourceFilter} onChange={setSourceFilter} placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Select'} multiple isRTL={isRTL} icon={<Tag size={16} />} />
+              <SearchableSelect options={sourceOptions} value={sourceFilter} onChange={setSourceFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<Tag size={16} />} />
             </div>
           </div>
           {/* Collapsible Section (Dates) */}
@@ -1358,15 +1358,15 @@ export default function SalesActivitiesReport() {
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                  <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                 {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â´ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â£Ãƒâ„¢Ã‹â€  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂªÃƒËœÃ‚Â¬' : 'Project or product'}
+                 {isRTL ? 'المشروع أو المنتج' : 'Project or product'}
                </label>
-              <SearchableSelect options={projectOptions} value={projectFilter} onChange={setProjectFilter} placeholder={isRTL ? 'ÃƒËœÃ‚Â§ÃƒËœÃ‚Â®ÃƒËœÃ‚ÂªÃƒËœÃ‚Â±' : 'Select'} multiple isRTL={isRTL} icon={<Briefcase size={16} />} />
+              <SearchableSelect options={projectOptions} value={projectFilter} onChange={setProjectFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<Briefcase size={16} />} />
             </div>           
              
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                  <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                 {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â® ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â¹Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â ' : 'Assign Date'}
+                 {isRTL ? 'تاريخ التعيين' : 'Assign Date'}
                </label>
                <DateRangePicker
                  from={assignDateFrom}
@@ -1382,7 +1382,7 @@ export default function SalesActivitiesReport() {
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                       <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                     {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â® ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Creation Date'}
+                     {isRTL ? 'تاريخ الإنشاء' : 'Creation Date'}
                     </label>
                <DateRangePicker
                  from={creationDateFrom}
@@ -1398,7 +1398,7 @@ export default function SalesActivitiesReport() {
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                  <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                 {isRTL ? 'تاريخ الإجراء' : 'Action Date'}
+                  {isRTL ? 'تاريخ الإجراء' : 'Action Date'}
                </label>
                <DateRangePicker
                  from={actionDateFrom}
@@ -1414,7 +1414,7 @@ export default function SalesActivitiesReport() {
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                  <Clock size={12} className="text-blue-500 dark:text-blue-400" />
-                 {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â® ÃƒËœÃ‚Â¢ÃƒËœÃ‚Â®ÃƒËœÃ‚Â± ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Last Action Date'}
+                 {isRTL ? 'تاريخ آخر إجراء' : 'Last Action Date'}
                </label>
                <DateRangePicker
                  from={lastActionDateFrom}
@@ -1430,7 +1430,7 @@ export default function SalesActivitiesReport() {
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                  <CheckCircle size={12} className="text-blue-500 dark:text-blue-400" />
-                 {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â® ÃƒËœÃ‚Â¥ÃƒËœÃ‚ÂºÃƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¡ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Close Deals Date'}
+                 {isRTL ? 'تاريخ إغلاق الصفقات' : 'Close Deals Date'}
                </label>
                <DateRangePicker
                  from={closeDealsDateFrom}
@@ -1446,13 +1446,13 @@ export default function SalesActivitiesReport() {
              <div className="space-y-1">
                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                      <Activity size={12} className="text-blue-500 dark:text-blue-400" />
-                     {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Action Type'}
+                     {isRTL ? 'نوع الإجراء' : 'Action Type'}
                     </label>
               <SearchableSelect
                 options={actionTypeOptions}
                 value={actionTypeFilter}
                 onChange={setActionTypeFilter}
-                placeholder={isRTL ? 'ÃƒËœÃ‚Â§ÃƒËœÃ‚Â®ÃƒËœÃ‚ÂªÃƒËœÃ‚Â±' : 'Select'}
+                placeholder={isRTL ? 'اختر' : 'Select'}
                 multiple
                 isRTL={isRTL}
                 icon={<Activity size={16} />}
@@ -1466,28 +1466,28 @@ export default function SalesActivitiesReport() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
           {
-            title: isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã†â€™ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Total calls',
+            title: isRTL ? 'إجمالي المكالمات' : 'Total calls',
             value: kpiData.totalCalls,
             icon: Phone,
             color: 'text-blue-600 dark:text-blue-400',
             bgColor: 'bg-blue-50 dark:bg-blue-900/20',
           },
           {
-            title: isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Total Action',
+            title: isRTL ? 'إجمالي الإجراءات' : 'Total Action',
             value: kpiData.totalAction,
             icon: Activity,
             color: 'text-purple-600 dark:text-purple-400',
             bgColor: 'bg-purple-50 dark:bg-purple-900/20',
           },
           {
-            title: isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Total Revenue',
+            title: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue',
             value: kpiData.totalRevenue.toLocaleString(),
             icon: DollarSign,
             color: 'text-green-600 dark:text-green-400',
             bgColor: 'bg-green-50 dark:bg-green-900/20',
           },
           {
-            title: isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚Â­Ãƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Total Achievement From Target',
+            title: isRTL ? 'تحقيق الهدف' : 'Total Achievement From Target',
             value: `${kpiData.achievementFromTarget}%`,
             icon: Target,
             color: 'text-orange-600 dark:text-orange-400',
@@ -1527,23 +1527,23 @@ export default function SalesActivitiesReport() {
 
       {/* Charts Section - Full width */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-           {renderPieChart(isRTL ? 'Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§ÃƒËœÃ‚ÂªÃƒËœÃ‚Â³ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨' : 'WhatsApp', whatsAppData)}
-           {renderPieChart(isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™ÃƒËœÃ‚ÂªÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã…Â ' : 'Emails', emailsData)}
-           {renderPieChart(isRTL ? 'ÃƒËœÃ‚Â¬Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Å¾ Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã…Â ÃƒËœÃ‚Âª' : 'Google Meet', googleMeetData)}
-           {renderPieChart(isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â±ÃƒËœÃ‚Â­Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Actions by Stage', actionsByStageData)}
+           {renderPieChart(isRTL ? 'واتساب' : 'WhatsApp', whatsAppData)}
+           {renderPieChart(isRTL ? 'البريد الإلكتروني' : 'Emails', emailsData)}
+           {renderPieChart(isRTL ? 'جوجل ميت' : 'Google Meet', googleMeetData)}
+           {renderPieChart(isRTL ? 'الإجراءات حسب المرحلة' : 'Actions by Stage', actionsByStageData)}
       </div>
 
       {/* Table Section */}
       <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden">
         <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
-          <h2 className={`${isLight ? 'text-black' : 'text-white'} text{'-lg'} font-bold dark:text-2xl`}>{`${isRTL ? 'ÃƒËœÃ‚Â¸ÃƒËœÃ‚Â±ÃƒËœÃ‚Â© ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â© ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â° Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â´ÃƒËœÃ‚Â§ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Activities Overview'}`}</h2>
+          <h2 className={`${isLight ? 'text-black' : 'text-white'} text{'-lg'} font-bold dark:text-2xl`}>{`${isRTL ? 'نظرة عامة على نشاطات المبيعات' : 'Sales Activities Overview'}`}</h2>
           {canExport && (
             <div className="relative" ref={exportMenuRef}>
               <button 
                 onClick={() => setShowExportMenu(!showExportMenu)} 
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >
-                <FaFileExport /> {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±' : 'Export'}
+                <FaFileExport /> {isRTL ? 'تصدير' : 'Export'}
                 <FaChevronDown className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`} size={12} />
               </button>
               
@@ -1553,13 +1553,13 @@ export default function SalesActivitiesReport() {
                     onClick={handleExport}
                     className="w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 dark:text-white"
                   >
-                    <FaFileExcel className="text-green-600" /> {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â€šÂ¬ Excel' : 'Export to Excel'}
+                    <FaFileExcel className="text-green-600" /> {isRTL ? 'تصدير كـ Excel' : 'Export to Excel'}
                   </button>
                   <button 
                     onClick={exportToPdf}
                     className="w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 dark:text-white"
                   >
-                    <FaFilePdf className="text-red-600" /> {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â€šÂ¬ PDF' : 'Export to PDF'}
+                    <FaFilePdf className="text-red-600" /> {isRTL ? 'تصدير كـ PDF' : 'Export to PDF'}
                   </button>
                 </div>
               )}
@@ -1572,19 +1572,19 @@ export default function SalesActivitiesReport() {
             <thead className={`text-xs uppercase ${isLight ? 'text-black ' : 'text-white'}`}>
               <tr>
                 <th className="md:hidden px-4 py-3 border-b border-theme-border dark:border-gray-700/50"></th>
-                <th className={`px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-start ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¤Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Å¾ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Salesperson'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Total Leads'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â£ÃƒËœÃ‚Â®ÃƒËœÃ‚Â±ÃƒËœÃ‚Â©' : 'Delayed'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Actions'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã†â€™ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Calls'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'Answer'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ Ãƒâ„¢Ã…Â ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'No Answer'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-start ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â±ÃƒËœÃ‚Â­Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Action by Stage'}</th>
-                <th className={`px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Total Revenue'}</th>
-                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total Target'}</th>
-                <th className={`px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â² ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total Achievement'}</th>
+                <th className={`px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-start ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'مسؤول المبيعات' : 'Salesperson'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'إجمالي العملاء' : 'Total Leads'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'المتأخرة' : 'Delayed'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الإجراءات' : 'Actions'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'المكالمات' : 'Calls'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'تم الرد' : 'Answer'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'لم يتم الرد' : 'No Answer'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 border-b border-theme-border dark:border-gray-700/50 text-start ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الإجراء حسب المرحلة' : 'Action by Stage'}</th>
+                <th className={`px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} dark:text-white`}>{isRTL ? 'الإيرادات' : 'Revenue'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الهدف' : 'Target'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'إجمالي الإيرادات' : 'Total Revenue'}</th>
+                <th className={`hidden md:table-cell px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الهدف الكلي' : 'Total Target'}</th>
+                <th className={`px-4 py-3 text-center border-b border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الإنجاز الكلي' : 'Total Achievement'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
@@ -1594,7 +1594,7 @@ export default function SalesActivitiesReport() {
                       colSpan={13}
                     className="px-4 py-6 text-center text-[var(--muted-text)]"
                   >
-                    {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'No data'}
+                    {isRTL ? 'لا توجد بيانات' : 'No data'}
                   </td>
                 </tr>
               )}
@@ -1604,7 +1604,7 @@ export default function SalesActivitiesReport() {
                       colSpan={13}
                     className="px-4 py-6 text-center text-[var(--muted-text)]"
                   >
-                    {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â¯ Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â¦ÃƒËœÃ‚Â¬' : 'No results'}
+                    {isRTL ? 'لا توجد نتائج' : 'No results'}
                   </td>
                 </tr>
               )}
@@ -1641,7 +1641,7 @@ export default function SalesActivitiesReport() {
                         >
                           <PieChartIcon size={14} className="text-blue-500 group-hover:scale-110 transition-transform" />
                           <span className="text-xs font-semibold dark:text-slate-200 uppercase">
-                            {isRTL ? 'ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¶ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â²Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹' : 'View Stats'}
+                            {isRTL ? 'عرض التوزيع' : 'View Stats'}
                           </span>
                         </button>
                         
@@ -1663,31 +1663,31 @@ export default function SalesActivitiesReport() {
                       <td colSpan={3} className="px-4 py-3">
                         <div className="grid grid-cols-2 gap-3 text-sm">
                             <div className="flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Total Leads'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'إجمالي العملاء' : 'Total Leads'}:</span>
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{row.totalLeads}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â£ÃƒËœÃ‚Â®ÃƒËœÃ‚Â±ÃƒËœÃ‚Â©' : 'Delayed'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'المتأخرة' : 'Delayed'}:</span>
                               <span className="text-red-500">{row.delayed}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Actions' : 'Actions'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الإجراءات' : 'Actions'}:</span>
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{row.actions}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã†â€™ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Calls'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'المكالمات' : 'Calls'}:</span>
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{row.calls}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'Answer'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'تم الرد' : 'Answer'}:</span>
                               <span className="text-emerald-600">{row.answered}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ Ãƒâ„¢Ã…Â ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¯' : 'No Answer'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'لم يتم الرد' : 'No Answer'}:</span>
                               <span className="text-rose-500">{row.noAnswer}</span>
                             </div>
                             <div className="col-span-2 space-y-2 py-2 border-t border-white/5 mt-1">
-                              <span className="text-[var(--muted-text)] block mb-1">{isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â²Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª:' : 'Actions Distribution:'}</span>
+                              <span className="text-[var(--muted-text)] block mb-1">{isRTL ? 'توزيع الإجراءات:' : 'Actions Distribution:'}</span>
                               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                                 {row.action_by_stage.map((s, idx) => (
                                   <div key={idx} className="flex justify-between items-center text-xs">
@@ -1701,17 +1701,17 @@ export default function SalesActivitiesReport() {
                               </div>
                             </div>
                             <div className="col-span-2 flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الهدف' : 'Target'}:</span>
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{row.target.toLocaleString()}</span>
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Total Revenue'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'إجمالي الإيرادات' : 'Total Revenue'}:</span>
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{row.totalRevenue.toLocaleString()}</span>
                             </div>
                             <div className="col-span-2 flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total Target'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{isRTL ? 'الهدف الكلي' : 'Total Target'}:</span>
                               <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'} `}>{row.totalTarget.toLocaleString()}</span>
                             </div>
                             <div className="col-span-2 flex justify-between">
-                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â² ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Total Achievement'}:</span>
+                              <span className={`text-[var(--muted-text)] ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الإنجاز الكلي' : 'Total Achievement'}:</span>
                               <span className={`font-bold ${row.totalAchievement >= 100 ? 'text-green-500' : 'text-orange-500'}`}>{row.totalAchievement}%</span>
                             </div>
                         </div>
@@ -1726,7 +1726,7 @@ export default function SalesActivitiesReport() {
         <div className="px-4 py-3  border-t border-theme-border dark:border-gray-700/60 flex sm:flex-row items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
             {isRTL
-              ? `ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¸Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Â± ${Math.min((currentPage - 1) * entriesPerPage + 1, filteredData.length)}-${Math.min(currentPage * entriesPerPage, filteredData.length)} Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Â  ${filteredData.length}`
+              ? `إظهار ${Math.min((currentPage - 1) * entriesPerPage + 1, filteredData.length)}-${Math.min(currentPage * entriesPerPage, filteredData.length)} من ${filteredData.length}`
               : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, filteredData.length)}-${Math.min(currentPage * entriesPerPage, filteredData.length)} of ${filteredData.length}`}
           </div>
           <div className="flex items-center gap-4">
@@ -1735,7 +1735,7 @@ export default function SalesActivitiesReport() {
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                title={isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â³ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨Ãƒâ„¢Ã¢â‚¬Å¡' : 'Prev'}
+                title={isRTL ? 'السابق' : 'Prev'}
               >
                 {isRTL ? (
                   <ChevronRight className="w-4 h-4" />
@@ -1745,14 +1745,14 @@ export default function SalesActivitiesReport() {
               </button>
               <span className="text-sm whitespace-nowrap">
                 {isRTL
-                  ? `ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒËœÃ‚Â­ÃƒËœÃ‚Â© ${currentPage} Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Â  ${pageCount}`
+                  ? `الصفحة ${currentPage} من ${pageCount}`
                   : `Page ${currentPage} of ${pageCount}`}
               </span>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                 disabled={currentPage === pageCount}
-                title={isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Next'}
+                title={isRTL ? 'التالي' : 'Next'}
               >
                 {isRTL ? (
                   <ChevronLeft className="w-4 h-4" />
@@ -1763,7 +1763,7 @@ export default function SalesActivitiesReport() {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
-                {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾ ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒËœÃ‚Â­ÃƒËœÃ‚Â©:' : 'Per page:'}
+                {isRTL ? 'لكل صفحة:' : 'Per page:'}
               </span>
               <select
                 className="input w-24 text-sm py-0 px-2 h-8"

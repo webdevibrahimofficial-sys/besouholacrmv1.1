@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, Globe, Loader2, CheckCircle, Check } from 'lucide-react';
 import lightLogo from '../../assets/be-souhola-logo-light.png';
 import DarkLogo from '../../assets/be-souhola-logo-dark.png';
+import { applyLanguage } from '../../i18n';
 
 
 // --- Components ---
@@ -258,7 +259,7 @@ export default function Login() {
 
   const toggleLanguage = () => {
     const newLang = i18n.language === 'en' ? 'ar' : 'en';
-    i18n.changeLanguage(newLang);
+    applyLanguage(newLang);
     document.documentElement.dir = newLang === 'ar' ? 'rtl' : 'ltr';
   };
 

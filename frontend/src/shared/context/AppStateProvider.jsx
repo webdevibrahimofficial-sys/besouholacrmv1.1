@@ -9,7 +9,7 @@ import { isTenantAdminUser } from '@services/leadPermissions'
 import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
 import { getCrmTimeZone } from '@shared/utils/crmDateTime'
 import { useTheme } from '@shared/context/ThemeProvider'
-import i18n from '../../i18n'
+import i18n, { getStoredLanguage, normalizeLanguage, persistLanguage } from '../../i18n'
 import { ensureEcho, disconnectEcho } from '../../echo'
 
 const AppStateContext = createContext(null)
@@ -54,12 +54,19 @@ export function AppStateProvider({ children }) {
     
     setUser(rawUser)
 
-    // Sync Language Preference from User Profile
-    if (rawUser && rawUser.locale) {
-      const currentLng = i18n.language;
-      if (currentLng !== rawUser.locale) {
-        i18n.changeLanguage(rawUser.locale);
-        localStorage.setItem('language', rawUser.locale);
+    // Respect an explicit local language choice and only fall back to profile locale
+    // when the browser has no saved preference yet.
+    if (rawUser?.locale) {
+      const storedLanguage = getStoredLanguage()
+      const profileLanguage = normalizeLanguage(rawUser.locale)
+      const nextLanguage = storedLanguage || profileLanguage
+
+      if (!storedLanguage && profileLanguage) {
+        persistLanguage(profileLanguage)
+      }
+
+      if (nextLanguage && i18n.language !== nextLanguage) {
+        void i18n.changeLanguage(nextLanguage)
       }
     }
 

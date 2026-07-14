@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, CheckCircle, Globe, Loader2, Eye, EyeOff } from 
 import lightLogo from '../../assets/be-souhola-logo-light.png';
 import DarkLogo from '../../assets/be-souhola-logo-dark.png';
 import { api } from '../../utils/api';
+import { applyLanguage } from '../../i18n';
 
 const FloatingInput = ({ 
   id, 
@@ -121,7 +122,7 @@ export default function ResetPassword() {
 
   const toggleLanguage = () => {
     const newLang = i18n.language === 'en' ? 'ar' : 'en';
-    i18n.changeLanguage(newLang);
+    applyLanguage(newLang);
     document.documentElement.dir = newLang === 'ar' ? 'rtl' : 'ltr';
   };
 

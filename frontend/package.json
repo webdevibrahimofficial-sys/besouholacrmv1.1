@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "test": "jest",
+    "check:encoding": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-mojibake.ps1",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

@@ -1,9 +1,69 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
+const DEFAULT_LANGUAGE = 'en';
+const LANGUAGE_STORAGE_KEYS = ['language', 'lang'];
+const SUPPORTED_LANGUAGES = new Set(['en', 'ar']);
+
+export const normalizeLanguage = (language) => {
+  const normalized = String(language || '').trim().toLowerCase();
+  return SUPPORTED_LANGUAGES.has(normalized) ? normalized : null;
+};
+
+export const persistLanguage = (language) => {
+  const normalized = normalizeLanguage(language) || DEFAULT_LANGUAGE;
+
+  try {
+    LANGUAGE_STORAGE_KEYS.forEach((key) => window.localStorage.setItem(key, normalized));
+
+    const prefsRaw = window.localStorage.getItem('systemPrefs');
+    const prefs = prefsRaw ? JSON.parse(prefsRaw) : {};
+    window.localStorage.setItem('systemPrefs', JSON.stringify({
+      ...(prefs || {}),
+      language: normalized,
+    }));
+  } catch (err) {
+    console.error('Error saving language to localStorage', err);
+  }
+
+  return normalized;
+};
+
+export const getStoredLanguage = () => {
+  try {
+    for (const key of LANGUAGE_STORAGE_KEYS) {
+      const storedValue = normalizeLanguage(window.localStorage.getItem(key));
+      if (storedValue) return storedValue;
+    }
+
+    const prefsRaw = window.localStorage.getItem('systemPrefs');
+    if (prefsRaw) {
+      const prefs = JSON.parse(prefsRaw);
+      const prefsLanguage = normalizeLanguage(prefs?.language);
+      if (prefsLanguage) return prefsLanguage;
+    }
+  } catch (err) {
+    console.error('Error reading language from localStorage', err);
+  }
+
+  return null;
+};
+
+export const applyLanguage = (language) => {
+  const normalized = persistLanguage(language);
+
+  if (i18n.language !== normalized) {
+    void i18n.changeLanguage(normalized);
+  } else {
+    setDocumentDirection(normalized);
+  }
+
+  return normalized;
+};
+
 // Function to set document direction based on language
 const setDocumentDirection = (language) => {
-  const lng = String(language || 'en');
+  const lng = normalizeLanguage(language) || DEFAULT_LANGUAGE;
   document.documentElement.dir = lng.startsWith('ar') ? 'rtl' : 'ltr';
   document.documentElement.lang = lng;
 };
@@ -13,7 +73,8 @@ const setDocumentDirection = (language) => {
 // setDocumentDirection(i18n.language || 'en');
 
 i18n.on('languageChanged', (lng) => {
-  setDocumentDirection(lng || 'en');
+  const normalized = persistLanguage(lng);
+  setDocumentDirection(normalized);
 });
 
 const resources = {
@@ -1160,6 +1221,12 @@ const resources = {
       "Are you sure you want to accept the selected check-ins?": "Are you sure you want to accept the selected check-ins?",
       "Are you sure you want to reject the selected check-ins?": "Are you sure you want to reject the selected check-ins?",
       "Bulk Action": "Bulk Action",
+      "Assign Referral To": "Assign Referral To",
+      "Assign Referral": "Assign Referral",
+      "To Customer": "To Customer",
+      "Keep & Save": "Keep & Save",
+      "Transfer": "Transfer",
+      "Enable Duplicate": "Enable Duplicate",
       "Accept Selected": "Accept Selected",
       "Reject Selected": "Reject Selected",
       "All Salespersons": "All Salespersons",
@@ -1182,6 +1249,9 @@ const resources = {
       "Pending (Cold)": "Pending (Cold)",
       "Follow up": "Follow up",
       "Meeting": "Meeting",
+      "closed": "Closed",
+      "calling": "Calling",
+      "refuse": "Refuse",
       
 
       
@@ -1925,6 +1995,9 @@ const resources = {
       'New Lead': 'عميل جديد',
       'Cold Call': 'مكالمة باردة',
       'follow up': 'متابعة',
+      'closed': 'مغلق',
+      'calling': 'اتصال',
+      'refuse': 'رفض',
       'Actions at CRM': 'الإجراءات في CRM',
       'Follow Ups': 'المتابعات',
       'Completed': 'مكتمل',
@@ -3456,6 +3529,12 @@ const resources = {
       'Are you sure you want to accept the selected check-ins?': 'هل أنت متأكد من قبول عمليات التسجيل المحددة؟',
       'Are you sure you want to reject the selected check-ins?': 'هل أنت متأكد من رفض عمليات التسجيل المحددة؟',
       'Bulk Action': 'إجراء جماعي',
+      'Assign Referral To': 'تعيين الإحالة إلى',
+      'Assign Referral': 'تعيين الإحالة',
+      'To Customer': 'تحويل إلى عميل',
+      'Keep & Save': 'الاحتفاظ والحفظ',
+      'Transfer': 'نقل',
+      'Enable Duplicate': 'السماح بالتكرار',
       'Accept Selected': 'قبول المحدد',
       'Reject Selected': 'رفض المحدد',
       'All Salespersons': 'كل المندوبين',
@@ -4505,38 +4584,16 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
-    lng: (() => {
-      // محاولة جلب اللغة فوراً وبشكل متزامن قبل بدء أي شيء
-      try {
-        const directLang = window.localStorage.getItem('language') || window.localStorage.getItem('lang');
-        if (directLang) return directLang;
-
-        const prefsRaw = window.localStorage.getItem('systemPrefs');
-        if (prefsRaw) {
-          const prefs = JSON.parse(prefsRaw);
-          if (prefs?.language) return prefs.language;
-        }
-      } catch (err) {
-        console.error("Error reading language from localStorage", err);
-      }
-      return 'en'; // اجعل الإنجليزية هي اللغة الافتراضية دائماً عند الفشل أو كبداية
-    })(),
-    fallbackLng: 'en',
+    lng: getStoredLanguage() || DEFAULT_LANGUAGE,
+    fallbackLng: DEFAULT_LANGUAGE,
     interpolation: { escapeValue: false }
   }, (err) => {
     // هذه الخطوة هي المفتاح: تعيين الاتجاه فور انتهاء المكتبة من التحميل
     if (!err) {
-      const currentLang = i18n.language || 'ar';
-      document.documentElement.dir = currentLang.startsWith('ar') ? 'rtl' : 'ltr';
-      document.documentElement.lang = currentLang;
+      const currentLang = normalizeLanguage(i18n.language) || getStoredLanguage() || DEFAULT_LANGUAGE;
+      persistLanguage(currentLang);
+      setDocumentDirection(currentLang);
     }
   });
-
-// مراقبة تغيير اللغة أثناء تصفح المستخدم
-i18n.on('languageChanged', (lng) => {
-  const dir = lng.startsWith('ar') ? 'rtl' : 'ltr';
-  document.documentElement.dir = dir;
-  document.documentElement.lang = lng;
-});
 
 export default i18n;

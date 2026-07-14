@@ -492,8 +492,8 @@ export default function RevenueReport() {
       // Add revenue from filtered records
       filtered.forEach(r => {
         const id = r.salespersonId
-        const name = r.salesperson || (isRTL ? 'ÃƒËœÃ‚ÂºÃƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã‚Â' : 'Unknown')
-        const manager = r.manager || (isRTL ? 'ÃƒËœÃ‚ÂºÃƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã‚Â' : 'Unknown')
+        const name = r.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
+        const manager = r.manager || (isRTL ? 'غير معروف' : 'Unknown')
         
         let key
         if (salesGrouping === 'team') {
@@ -524,12 +524,12 @@ export default function RevenueReport() {
         labels,
         datasets: [
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target',
+            label: isRTL ? 'الهدف' : 'Target',
             data: targets,
             backgroundColor: 'rgba(148, 163, 184, 0.8)'
           },
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'Actual Revenue',
+            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
             data: revenues,
             backgroundColor: 'rgba(59, 130, 246, 0.85)'
           }
@@ -539,7 +539,7 @@ export default function RevenueReport() {
 
     if (timeGrouping === 'monthly') {
       const monthLabels = isRTL 
-        ? ['Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±', 'Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±', 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§ÃƒËœÃ‚Â±ÃƒËœÃ‚Â³', 'ÃƒËœÃ‚Â£ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¾', 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã…Â Ãƒâ„¢Ã‹â€ ', 'Ãƒâ„¢Ã…Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã‹â€ ', 'Ãƒâ„¢Ã…Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â Ãƒâ„¢Ã‹â€ ', 'ÃƒËœÃ‚Â£ÃƒËœÃ‚ÂºÃƒËœÃ‚Â³ÃƒËœÃ‚Â·ÃƒËœÃ‚Â³', 'ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±', 'ÃƒËœÃ‚Â£Ãƒâ„¢Ã†â€™ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±', 'Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±', 'ÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â±']
+        ? ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
         : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
       const targets = new Array(12).fill(0)
       const revenues = new Array(12).fill(0)
@@ -557,12 +557,12 @@ export default function RevenueReport() {
         labels: monthLabels,
         datasets: [
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target',
+            label: isRTL ? 'الهدف' : 'Target',
             data: targets,
             backgroundColor: 'rgba(148, 163, 184, 0.8)'
           },
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'Actual Revenue',
+            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
             data: revenues,
             backgroundColor: 'rgba(59, 130, 246, 0.85)'
           }
@@ -572,7 +572,7 @@ export default function RevenueReport() {
 
     if (timeGrouping === 'quarterly') {
       const labels = isRTL 
-        ? ['ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Å¾', 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â«ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã…Â ', 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â«ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â«', 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹']
+        ? ['الربع الأول', 'الربع الثاني', 'الربع الثالث', 'الربع الرابع']
         : ['Q1', 'Q2', 'Q3', 'Q4']
       const targets = new Array(4).fill(0)
       const revenues = new Array(4).fill(0)
@@ -590,12 +590,12 @@ export default function RevenueReport() {
         labels,
         datasets: [
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target',
+            label: isRTL ? 'الهدف' : 'Target',
             data: targets,
             backgroundColor: 'rgba(148, 163, 184, 0.8)'
           },
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'Actual Revenue',
+            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
             data: revenues,
             backgroundColor: 'rgba(59, 130, 246, 0.85)'
           }
@@ -605,7 +605,7 @@ export default function RevenueReport() {
 
     if (timeGrouping === 'semi_annual') {
       const labels = isRTL 
-        ? ['ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Å¾', 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â«ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã…Â ']
+        ? ['النصف الأول', 'النصف الثاني']
         : ['H1', 'H2']
       const targets = new Array(2).fill(0)
       const revenues = new Array(2).fill(0)
@@ -623,12 +623,12 @@ export default function RevenueReport() {
         labels,
         datasets: [
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target',
+            label: isRTL ? 'الهدف' : 'Target',
             data: targets,
             backgroundColor: 'rgba(148, 163, 184, 0.8)'
           },
           {
-            label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'Actual Revenue',
+            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
             data: revenues,
             backgroundColor: 'rgba(59, 130, 246, 0.85)'
           }
@@ -654,12 +654,12 @@ export default function RevenueReport() {
       labels,
       datasets: [
         {
-          label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target',
+          label: isRTL ? 'الهدف' : 'Target',
           data: targets,
           backgroundColor: 'rgba(148, 163, 184, 0.8)'
         },
         {
-          label: isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'Actual Revenue',
+          label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
           data: revenues,
           backgroundColor: 'rgba(59, 130, 246, 0.85)'
         }
@@ -671,15 +671,15 @@ export default function RevenueReport() {
     const xTitle =
       chartMode === 'salesperson'
         ? salesGrouping === 'team'
-          ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡' : 'Team')
-          : (isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Person')
+          ? (isRTL ? 'الفريق' : 'Team')
+          : (isRTL ? 'موظف المبيعات' : 'Sales Person')
         : timeGrouping === 'monthly'
-          ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â´Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â±' : 'Month')
+          ? (isRTL ? 'الشهر' : 'Month')
           : timeGrouping === 'quarterly'
-            ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹' : 'Quarter')
+            ? (isRTL ? 'الربع' : 'Quarter')
             : timeGrouping === 'semi_annual'
-              ? (isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â©' : 'Half Year')
-              : (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â©' : 'Year')
+              ? (isRTL ? 'نصف السنة' : 'Half Year')
+              : (isRTL ? 'السنة' : 'Year')
 
     return {
       responsive: true,
@@ -740,7 +740,7 @@ export default function RevenueReport() {
   const revenueByProjectSegments = useMemo(() => {
     const map = new Map()
     filtered.forEach(r => {
-      const key = r.project || (isRTL ? 'ÃƒËœÃ‚ÂºÃƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã‚Â' : 'Unknown')
+      const key = r.project || (isRTL ? 'غير معروف' : 'Unknown')
       map.set(key, (map.get(key) || 0) + (r.revenue || 0))
     })
     const baseColors = ['#3b82f6', '#10b981', '#f97316', '#a855f7', '#ef4444', '#22c55e']
@@ -754,7 +754,7 @@ export default function RevenueReport() {
   const revenueBySourceSegments = useMemo(() => {
     const map = new Map()
     filtered.forEach(r => {
-      const key = r.source || (isRTL ? 'ÃƒËœÃ‚ÂºÃƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã‚Â' : 'Unknown')
+      const key = r.source || (isRTL ? 'غير معروف' : 'Unknown')
       map.set(key, (map.get(key) || 0) + (r.revenue || 0))
     })
     const baseColors = ['#3b82f6', '#10b981', '#f97316', '#a855f7', '#ef4444', '#22c55e']
@@ -787,7 +787,7 @@ export default function RevenueReport() {
       
       if (!byDate) return
 
-      const key = r.salesperson || (isRTL ? 'ÃƒËœÃ‚ÂºÃƒâ„¢Ã…Â ÃƒËœÃ‚Â± Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã‚Â' : 'Unknown')
+      const key = r.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
       const uid = r.salespersonId ? String(r.salespersonId) : key
 
       if (!map.has(key)) {
@@ -834,15 +834,15 @@ export default function RevenueReport() {
   const handleExportExcel = () => {
     if (!canExport) return
     const rows = filtered.map(r => ({
-      [isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Person']: r.salesperson,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±' : 'Manager']: r.manager,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯ÃƒËœÃ‚Â±' : 'Source']: r.source,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â´ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹' : projectLabel]: r.project,
-      [isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â©' : 'Deal Type']: r.dealType,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â­ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Status']: r.status,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â®' : 'Date']: r.date,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target']: r.target,
-      [isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue']: r.revenue
+      [isRTL ? 'موظف المبيعات' : 'Sales Person']: r.salesperson,
+      [isRTL ? 'المدير' : 'Manager']: r.manager,
+      [isRTL ? 'المصدر' : 'Source']: r.source,
+      [isRTL ? 'المشروع' : projectLabel]: r.project,
+      [isRTL ? 'نوع الصفقة' : 'Deal Type']: r.dealType,
+      [isRTL ? 'الحالة' : 'Status']: r.status,
+      [isRTL ? 'التاريخ' : 'Date']: r.date,
+      [isRTL ? 'الهدف' : 'Target']: r.target,
+      [isRTL ? 'الإيرادات' : 'Revenue']: r.revenue
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -861,15 +861,15 @@ export default function RevenueReport() {
     if (!canExport) return
     const doc = new jsPDF(isRTL ? 'p' : 'p', 'pt', 'a4')
     const tableColumn = [
-      isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Person',
-      isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±' : 'Manager',
-      isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â´ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹' : projectLabel,
-      isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯ÃƒËœÃ‚Â±' : 'Source',
-      isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â©' : 'Deal Type',
-      isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â­ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Status',
-      isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â®' : 'Date',
-      isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target',
-      isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue'
+      isRTL ? 'موظف المبيعات' : 'Sales Person',
+      isRTL ? 'المدير' : 'Manager',
+      isRTL ? 'المشروع' : projectLabel,
+      isRTL ? 'المصدر' : 'Source',
+      isRTL ? 'نوع الصفقة' : 'Deal Type',
+      isRTL ? 'الحالة' : 'Status',
+      isRTL ? 'التاريخ' : 'Date',
+      isRTL ? 'الهدف' : 'Target',
+      isRTL ? 'الإيرادات' : 'Revenue'
     ]
     const tableRows = []
 
@@ -888,7 +888,7 @@ export default function RevenueReport() {
       tableRows.push(rowData)
     })
 
-    doc.text(isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Targets & Revenue Report', 40, 40, {
+    doc.text(isRTL ? 'تقرير الأهداف والإيرادات' : 'Targets & Revenue Report', 40, 40, {
       align: isRTL ? 'right' : 'left'
     })
     
@@ -938,7 +938,7 @@ export default function RevenueReport() {
             segments={data}
             size={170}
             centerValue={total.toLocaleString()}
-            centerLabel={isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue'}
+            centerLabel={isRTL ? 'الإيرادات' : 'Revenue'}
           />
         </div>
         <div className="mt-4 flex flex-wrap justify-center gap-3">
@@ -963,10 +963,10 @@ export default function RevenueReport() {
           <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500">
             <Target size={20} />
           </span>
-          {isRTL ? 'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Targets & Revenue'}
+          {isRTL ? 'تقرير الأهداف والإيرادات' : 'Targets & Revenue'}
         </h1>
         <p className={`${isLight ? 'text-black' : 'text-white'} text-sm opacity-80`}>
-          {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂªÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â© Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â² Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã†â€™' : 'Track sales targets, actual revenue and achievement for your team'}
+          {isRTL ? 'تتبع أهداف المبيعات والإيرادات الفعلية والإنجاز لفريقك' : 'Track sales targets, actual revenue and achievement for your team'}
         </p>
       </div>
 
@@ -974,14 +974,14 @@ export default function RevenueReport() {
         <div className="flex justify-between items-center mb-3">
           <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} font-semibold`}>
             <Filter size={20} className="text-blue-500 dark:text-blue-400" />
-            <h3>{isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'Filter'}</h3>
+            <h3>{isRTL ? 'تصفية' : 'Filter'}</h3>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAllFilters(prev => !prev)}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
             >
-              {showAllFilters ? (isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â®Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡' : 'Hide') : (isRTL ? 'ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¶ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾' : 'Show All')}
+              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'عرض الكل' : 'Show All')}
               <ChevronDown
                 size={12}
                 className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`}
@@ -991,7 +991,7 @@ export default function RevenueReport() {
               onClick={clearFilters}
               className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
             >
-              {isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â© ÃƒËœÃ‚ÂªÃƒËœÃ‚Â¹Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â ' : 'Reset'}
+              {isRTL ? 'إعادة تعيين' : 'Reset'}
             </button>
           </div>
         </div>
@@ -1001,13 +1001,13 @@ export default function RevenueReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <User size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Person'}
+                {isRTL ? 'موظف المبيعات' : 'Sales Person'}
               </label>
               <SearchableSelect
                 options={salespersonOptions}
                 value={salesPersonFilter}
                 onChange={v => setSalesPersonFilter(v)}
-                placeholder={isRTL ? 'ÃƒËœÃ‚Â§ÃƒËœÃ‚Â®ÃƒËœÃ‚ÂªÃƒËœÃ‚Â±' : 'Select'}
+                placeholder={isRTL ? 'اختر' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1015,13 +1015,13 @@ export default function RevenueReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Users size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±' : 'Manager'}
+                {isRTL ? 'المدير' : 'Manager'}
               </label>
               <SearchableSelect
                 options={managerOptions}
                 value={managerFilter}
                 onChange={v => setManagerFilter(v)}
-                placeholder={isRTL ? 'ÃƒËœÃ‚Â§ÃƒËœÃ‚Â®ÃƒËœÃ‚ÂªÃƒËœÃ‚Â±' : 'Select'}
+                placeholder={isRTL ? 'اختر' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1029,13 +1029,13 @@ export default function RevenueReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Tag size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯ÃƒËœÃ‚Â±' : 'Source'}
+                {isRTL ? 'المصدر' : 'Source'}
               </label>
               <SearchableSelect
                 options={normalizedSourceOptions}
                 value={sourceFilter}
                 onChange={v => setSourceFilter(v)}
-                placeholder={isRTL ? 'ÃƒËœÃ‚Â§ÃƒËœÃ‚Â®ÃƒËœÃ‚ÂªÃƒËœÃ‚Â±' : 'Select'}
+                placeholder={isRTL ? 'اختر' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1049,7 +1049,7 @@ export default function RevenueReport() {
                 options={normalizedProjectOptions}
                 value={projectFilter}
                 onChange={v => setProjectFilter(v)}
-                placeholder={isRTL ? 'Ã˜Â§Ã˜Â®Ã˜ÂªÃ˜Â±' : 'Select'}
+                placeholder={isRTL ? '????' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1064,7 +1064,7 @@ export default function RevenueReport() {
             <div className="space-y-1 md:col-span-2 lg:col-span-2">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â·ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¡ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â®' : 'Date Range'}
+                {isRTL ? 'نطاق التاريخ' : 'Date Range'}
               </label>
               <DateRangePicker
                 from={dateFromFilter}
@@ -1080,13 +1080,13 @@ export default function RevenueReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â©' : 'Deal Type'}
+                {isRTL ? 'نوع الصفقة' : 'Deal Type'}
               </label>
               <SearchableSelect
                 options={dealTypeOptions}
                 value={dealTypeFilter}
                 onChange={v => setDealTypeFilter(v)}
-                placeholder={isRTL ? 'Ã˜Â§Ã˜Â®Ã˜ÂªÃ˜Â±' : 'Select'}
+                placeholder={isRTL ? '????' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1094,13 +1094,13 @@ export default function RevenueReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Target size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â­ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Status'}
+                {isRTL ? 'الحالة' : 'Status'}
               </label>
               <SearchableSelect
                 options={statusOptions}
                 value={statusFilter}
                 onChange={v => setStatusFilter(v)}
-                placeholder={isRTL ? 'Ø§Ø®ØªØ±' : 'Select'}
+                placeholder={isRTL ? '????' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1111,10 +1111,10 @@ export default function RevenueReport() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Total Target', value: `${totalTarget.toLocaleString()} EGP`, accent: 'bg-slate-500' },
-          { label: isRTL ? 'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â  ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Total Revenue', value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-emerald-500' },
-          { label: isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â© ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â²' : 'Achievement %', value: `${achievementPercent}%`, accent: 'bg-indigo-500' },
-          { label: isRTL ? 'ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Deals Count', value: filtered.length, accent: 'bg-amber-500' }
+          { label: isRTL ? 'إجمالي الهدف' : 'Total Target', value: `${totalTarget.toLocaleString()} EGP`, accent: 'bg-slate-500' },
+          { label: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue', value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-emerald-500' },
+          { label: isRTL ? 'نسبة الإنجاز' : 'Achievement %', value: `${achievementPercent}%`, accent: 'bg-indigo-500' },
+          { label: isRTL ? 'عدد الصفقات' : 'Deals Count', value: filtered.length, accent: 'bg-amber-500' }
         ].map(card => (
           <div
             key={card.label}
@@ -1136,15 +1136,15 @@ export default function RevenueReport() {
               <Target size={18} className="text-blue-500" />
               {chartMode === 'salesperson'
                 ? salesGrouping === 'team'
-                  ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡' : 'Targets & Revenue by Team')
-                  : (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Targets & Revenue by Salesperson')
+                  ? (isRTL ? 'الأهداف والإيرادات حسب الفريق' : 'Targets & Revenue by Team')
+                  : (isRTL ? 'الأهداف والإيرادات حسب موظف المبيعات' : 'Targets & Revenue by Salesperson')
                 : timeGrouping === 'monthly'
-                  ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â´Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â±' : 'Targets & Revenue by Month')
+                  ? (isRTL ? 'الأهداف والإيرادات حسب الشهر' : 'Targets & Revenue by Month')
                   : timeGrouping === 'quarterly'
-                    ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹' : 'Targets & Revenue by Quarter')
+                    ? (isRTL ? 'الأهداف والإيرادات حسب الربع' : 'Targets & Revenue by Quarter')
                     : timeGrouping === 'semi_annual'
-                      ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â©' : 'Targets & Revenue by Half Year')
-                      : (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â©' : 'Targets & Revenue by Year')}
+                      ? (isRTL ? 'الأهداف والإيرادات حسب نصف السنة' : 'Targets & Revenue by Half Year')
+                      : (isRTL ? 'الأهداف والإيرادات حسب السنة' : 'Targets & Revenue by Year')}
             </div>
             <div className="flex items-center gap-3">
               <div className="inline-flex items-center gap-2 bg-black/5 dark:bg-white/5 rounded-full p-1">
@@ -1160,7 +1160,7 @@ export default function RevenueReport() {
                         : `${isLight ? 'text-black' : 'text-white'}`
                     }`}
                   >
-                    {salesGrouping === 'team' ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡' : 'Team') : (isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Person')}
+                    {salesGrouping === 'team' ? (isRTL ? 'الفريق' : 'Team') : (isRTL ? 'موظف المبيعات' : 'Sales Person')}
                   </button>
                   <button
                     type="button"
@@ -1194,7 +1194,7 @@ export default function RevenueReport() {
                             : `${isLight ? 'text-black' : 'text-white'}`
                         }`}
                       >
-                        {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Person'}
+                        {isRTL ? 'موظف المبيعات' : 'Sales Person'}
                       </button>
                       <button
                         type="button"
@@ -1208,7 +1208,7 @@ export default function RevenueReport() {
                             : `${isLight ? 'text-black' : 'text-white'}`
                         }`}
                       >
-                        {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¡' : 'Team'}
+                        {isRTL ? 'الفريق' : 'Team'}
                       </button>
                     </div>
                   )}
@@ -1227,12 +1227,12 @@ export default function RevenueReport() {
                     }`}
                   >
                     {timeGrouping === 'monthly'
-                      ? (isRTL ? 'ÃƒËœÃ‚Â´Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ' : 'Months')
+                      ? (isRTL ? 'شهري' : 'Months')
                       : timeGrouping === 'quarterly'
-                        ? (isRTL ? 'ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã…Â ' : 'Quarterly')
+                        ? (isRTL ? 'ربع سنوي' : 'Quarterly')
                         : timeGrouping === 'semi_annual'
-                          ? (isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚Â ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã…Â ' : 'Semi Annual')
-                          : (isRTL ? 'ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã…Â ' : 'Yearly')}
+                          ? (isRTL ? 'نصف سنوي' : 'Semi Annual')
+                          : (isRTL ? 'سنوي' : 'Yearly')}
                   </button>
                   <button
                     type="button"
@@ -1266,7 +1266,7 @@ export default function RevenueReport() {
                             : `${isLight ? 'text-black' : 'text-white'}`
                         }`}
                       >
-                        {isRTL ? 'ÃƒËœÃ‚Â´Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ' : 'Monthly'}
+                        {isRTL ? 'شهري' : 'Monthly'}
                       </button>
                       <button
                         type="button"
@@ -1280,7 +1280,7 @@ export default function RevenueReport() {
                             : `${isLight ? 'text-black' : 'text-white'}`
                         }`}
                       >
-                        {isRTL ? 'ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã…Â ' : 'Quarterly'}
+                        {isRTL ? 'ربع سنوي' : 'Quarterly'}
                       </button>
                       <button
                         type="button"
@@ -1294,7 +1294,7 @@ export default function RevenueReport() {
                             : `${isLight ? 'text-black' : 'text-white'}`
                         }`}
                       >
-                        {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚Â ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã…Â ' : 'Semi Annual'}
+                        {isRTL ? 'نصف سنوي' : 'Semi Annual'}
                       </button>
                       <button
                         type="button"
@@ -1308,7 +1308,7 @@ export default function RevenueReport() {
                             : `${isLight ? 'text-black' : 'text-white'}`
                         }`}
                       >
-                        {isRTL ? 'ÃƒËœÃ‚Â³Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã…Â ' : 'Yearly'}
+                        {isRTL ? 'سنوي' : 'Yearly'}
                       </button>
                     </div>
                   )}
@@ -1327,8 +1327,8 @@ export default function RevenueReport() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {renderPieCard(
           revenuePieMode === 'project' 
-            ? (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â´ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹' : revenueByProjectLabel)
-            : (isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚Â­ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯ÃƒËœÃ‚Â±' : 'Revenue by source'),
+            ? (isRTL ? 'الإيرادات حسب المشروع' : revenueByProjectLabel)
+            : (isRTL ? 'الإيرادات حسب المصدر' : 'Revenue by source'),
           revenuePieMode === 'project' ? revenueByProjectSegments : revenueBySourceSegments,
           <div className="inline-flex items-center gap-1  rounded-full p-0.5">
             <button
@@ -1340,7 +1340,7 @@ export default function RevenueReport() {
                   : `${isLight ? 'text-black' : 'text-white'}`
               }`}
             >
-              {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â´ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹' : projectLabel}
+              {isRTL ? 'المشروع' : projectLabel}
             </button>
             <button
               type="button"
@@ -1351,7 +1351,7 @@ export default function RevenueReport() {
                   : `${isLight ? 'text-black' : 'text-white'}`
               }`}
             >
-              {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯ÃƒËœÃ‚Â±' : 'Source'}
+              {isRTL ? 'المصدر' : 'Source'}
             </button>
           </div>
         )}
@@ -1360,7 +1360,7 @@ export default function RevenueReport() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Trophy size={18} className="text-yellow-400" />
-              <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â¶Ãƒâ„¢Ã¢â‚¬Å¾ ÃƒËœÃ‚Â£ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡Ãƒâ„¢Ã¢â‚¬Â¹' : 'The Best Achiever'}</div>
+              <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الأفضل أداءً' : 'The Best Achiever'}</div>
             </div>
           </div>
           <div className="space-y-2">
@@ -1383,7 +1383,7 @@ export default function RevenueReport() {
                       )}
                     </div>
                     <div className="text-xs text-[var(--muted-text)]">
-                      {isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue'}: {user.revenue.toLocaleString()} EGP
+                      {isRTL ? 'الإيرادات' : 'Revenue'}: {user.revenue.toLocaleString()} EGP
                     </div>
                   </div>
                 </div>
@@ -1391,7 +1391,7 @@ export default function RevenueReport() {
               </div>
             ))}
             {bestAchievers.length === 0 && (
-              <div className="text-xs text-[var(--muted-text)]">{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚ÂªÃƒËœÃ‚Â± ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â­ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'No data for current filters'}</div>
+              <div className="text-xs text-[var(--muted-text)]">{isRTL ? 'لا توجد بيانات للفلاتر الحالية' : 'No data for current filters'}</div>
             )}
           </div>
         </div>
@@ -1399,7 +1399,7 @@ export default function RevenueReport() {
 
       <div className="backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden">
         <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
-          <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¸ÃƒËœÃ‚Â±ÃƒËœÃ‚Â© ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â© ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â° ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â£Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§Ãƒâ„¢Ã‚Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Targets & Revenue Overview'}</h2>
+          <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نظرة عامة على الأهداف والإيرادات' : 'Targets & Revenue Overview'}</h2>
           {canExport && (
             <div className="relative">
               <button
@@ -1407,7 +1407,7 @@ export default function RevenueReport() {
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >
                 <FaFileExport />
-                {isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±' : 'Export'}
+                {isRTL ? 'تصدير' : 'Export'}
                 <ChevronDown
                   className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`}
                   size={16}
@@ -1422,14 +1422,14 @@ export default function RevenueReport() {
                     className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/60 ${isLight ? 'text-black' : 'text-white'}`}
                   >
                     <FaFileExcel className="text-emerald-500" />
-                    <span>{isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â° Excel' : 'Export to Excel'}</span>
+                    <span>{isRTL ? 'تصدير إلى Excel' : 'Export to Excel'}</span>
                   </button>
                   <button
                     onClick={handleExportPdf}
                     className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/60 ${isLight ? 'text-black' : 'text-white'}`}
                   >
                     <FaFilePdf className="text-red-500" />
-                    <span>{isRTL ? 'ÃƒËœÃ‚ÂªÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â± ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â° PDF' : 'Export to PDF'}</span>
+                    <span>{isRTL ? 'تصدير إلى PDF' : 'Export to PDF'}</span>
                   </button>
                 </div>
               )}
@@ -1456,15 +1456,15 @@ export default function RevenueReport() {
               const achievement = effectiveTarget ? Math.round((row.revenue / effectiveTarget) * 100) : 0
               
               const dealTypeLabel = {
-                'Reservation': isRTL ? 'ÃƒËœÃ‚Â­ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â²' : 'Reservation',
-                'Contract': isRTL ? 'ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â¯' : 'Contract',
-                'Proposal': isRTL ? 'ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¶ ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±' : 'Proposal'
+                'Reservation': isRTL ? 'حجز' : 'Reservation',
+                'Contract': isRTL ? 'عقد' : 'Contract',
+                'Proposal': isRTL ? 'عرض سعر' : 'Proposal'
               }[row.dealType] || row.dealType
 
               const statusLabel = {
-                'Closed Won': isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂºÃƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Å¡ (Ãƒâ„¢Ã‚ÂÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â²)' : 'Closed Won',
-                'Closed Lost': isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂºÃƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Å¡ (ÃƒËœÃ‚Â®ÃƒËœÃ‚Â³ÃƒËœÃ‚Â§ÃƒËœÃ‚Â±ÃƒËœÃ‚Â©)' : 'Closed Lost',
-                'In Progress': isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‚ÂÃƒâ„¢Ã…Â ÃƒËœÃ‚Â°' : 'In Progress'
+                'Closed Won': isRTL ? 'مغلق (فوز)' : 'Closed Won',
+                'Closed Lost': isRTL ? 'مغلق (خسارة)' : 'Closed Lost',
+                'In Progress': isRTL ? 'قيد التنفيذ' : 'In Progress'
               }[row.status] || row.status
 
               const statusColors = {
@@ -1489,19 +1489,19 @@ export default function RevenueReport() {
                 {/* Details Grid */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â´ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹' : projectLabel}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'المشروع' : projectLabel}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{row.project}</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯ÃƒËœÃ‚Â±' : 'Source'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'المصدر' : 'Source'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{row.source}</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â©' : 'Deal Type'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نوع الصفقة' : 'Deal Type'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{dealTypeLabel}</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â®' : 'Date'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'التاريخ' : 'Date'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{row.date}</span>
                   </div>
                 </div>
@@ -1509,18 +1509,18 @@ export default function RevenueReport() {
                 {/* Financials & Achievement */}
                 <div className=" rounded-lg p-3 space-y-3">
                   <div className="flex justify-between items-center">
-                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target'}</span>
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الهدف' : 'Target'}</span>
                       <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{effectiveTarget.toLocaleString()} EGP</span>
                   </div>
                   <div className="flex justify-between items-center">
-                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue'}</span>
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الإيرادات' : 'Revenue'}</span>
                       <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{row.revenue.toLocaleString()} EGP</span>
                   </div>
                   
                   {/* Progress Bar */}
                   <div className="space-y-1 pt-1">
                       <div className="flex justify-between text-xs">
-                          <span className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â© ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â²' : 'Achievement'}</span>
+                          <span className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نسبة الإنجاز' : 'Achievement'}</span>
                           <span className={`${achievement >= 100 ? 'text-emerald-600' : 'text-blue-600'} font-medium`}>{achievement}%</span>
                       </div>
                       <div className="w-full  rounded-full h-1.5 overflow-hidden">
@@ -1536,7 +1536,7 @@ export default function RevenueReport() {
           })}
             {paginatedData.length === 0 && (
               <div className={`text-center py-8 ${isLight ? 'text-black' : 'text-white'}`}>
-                  {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'No data'}
+                  {isRTL ? 'لا توجد بيانات' : 'No data'}
               </div>
           )}
         </div>
@@ -1546,16 +1546,16 @@ export default function RevenueReport() {
           <table className={`w-full text-xs text-left rtl:text-right ${isLight ? 'text-black' : 'text-white'}`}>
             <thead className="text-[0.68rem] uppercase  bg-white/5 dark:bg-white/5 dark:te text-[var(--muted-text)]">
               <tr>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¸Ãƒâ„¢Ã‚Â ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¨Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Sales Person'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¯Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±' : 'Manager'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â´ÃƒËœÃ‚Â±Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹' : projectLabel}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂµÃƒËœÃ‚Â¯ÃƒËœÃ‚Â±' : 'Source'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â©' : 'Deal Type'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â­ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â©' : 'Status'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â®' : 'Date'}</th>
-                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‚Â' : 'Target'}</th>
-                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª' : 'Revenue'}</th>
-                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â© ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â§ÃƒËœÃ‚Â²' : 'Achievement %'}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'موظف المبيعات' : 'Sales Person'}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'المدير' : 'Manager'}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'المشروع' : projectLabel}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'المصدر' : 'Source'}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'نوع الصفقة' : 'Deal Type'}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'الحالة' : 'Status'}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'التاريخ' : 'Date'}</th>
+                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الهدف' : 'Target'}</th>
+                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الإيرادات' : 'Revenue'}</th>
+                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة الإنجاز' : 'Achievement %'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/30 dark:divide-gray-800">
@@ -1563,15 +1563,15 @@ export default function RevenueReport() {
                 const achievement = row.target ? Math.round((row.revenue / row.target) * 100) : 0
                 
                 const dealTypeLabel = {
-                  'Reservation': isRTL ? 'ÃƒËœÃ‚Â­ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â²' : 'Reservation',
-                  'Contract': isRTL ? 'ÃƒËœÃ‚Â¹Ãƒâ„¢Ã¢â‚¬Å¡ÃƒËœÃ‚Â¯' : 'Contract',
-                  'Proposal': isRTL ? 'ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±ÃƒËœÃ‚Â¶ ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â±' : 'Proposal'
+                  'Reservation': isRTL ? 'حجز' : 'Reservation',
+                  'Contract': isRTL ? 'عقد' : 'Contract',
+                  'Proposal': isRTL ? 'عرض سعر' : 'Proposal'
                 }[row.dealType] || row.dealType
 
                 const statusLabel = {
-                  'Closed Won': isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂºÃƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Å¡ (Ãƒâ„¢Ã‚ÂÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â²)' : 'Closed Won',
-                  'Closed Lost': isRTL ? 'Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂºÃƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Å¡ (ÃƒËœÃ‚Â®ÃƒËœÃ‚Â³ÃƒËœÃ‚Â§ÃƒËœÃ‚Â±ÃƒËœÃ‚Â©)' : 'Closed Lost',
-                  'In Progress': isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â Ãƒâ„¢Ã‚ÂÃƒâ„¢Ã…Â ÃƒËœÃ‚Â°' : 'In Progress'
+                  'Closed Won': isRTL ? 'مغلق (فوز)' : 'Closed Won',
+                  'Closed Lost': isRTL ? 'مغلق (خسارة)' : 'Closed Lost',
+                  'In Progress': isRTL ? 'قيد التنفيذ' : 'In Progress'
                 }[row.status] || row.status
 
                 return (
@@ -1601,7 +1601,7 @@ export default function RevenueReport() {
                     colSpan={10}
                     className="px-4 py-6 text-center text-xs text-[var(--muted-text)]"
                   >
-                    {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â³ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª ÃƒËœÃ‚ÂªÃƒËœÃ‚Â·ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨Ãƒâ„¢Ã¢â‚¬Å¡ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚ÂªÃƒËœÃ‚Â± ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â­ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â©' : 'No records match current filters'}
+                    {isRTL ? 'لا توجد سجلات تطابق الفلاتر الحالية' : 'No records match current filters'}
                   </td>
                 </tr>
               )}
@@ -1612,7 +1612,7 @@ export default function RevenueReport() {
         <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
             {isRTL
-              ? `ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¸Ãƒâ„¢Ã¢â‚¬Â¡ÃƒËœÃ‚Â§ÃƒËœÃ‚Â± ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Â  ${totalRecords}`
+              ? `إظهار ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} من ${totalRecords}`
               : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} of ${totalRecords}`}
           </div>
           <div className="flex items-center gap-4">
@@ -1621,7 +1621,7 @@ export default function RevenueReport() {
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                title={isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â³ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¨Ãƒâ„¢Ã¢â‚¬Å¡' : 'Prev'}
+                title={isRTL ? 'السابق' : 'Prev'}
               >
                 {isRTL ? (
                   <ChevronRight className="w-4 h-4" />
@@ -1631,14 +1631,14 @@ export default function RevenueReport() {
               </button>
               <span className="text-sm whitespace-nowrap">
                 {isRTL
-                  ? `ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒËœÃ‚Â­ÃƒËœÃ‚Â© ${currentPage} Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Â  ${pageCount}`
+                  ? `الصفحة ${currentPage} من ${pageCount}`
                   : `Page ${currentPage} of ${pageCount}`}
               </span>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                 disabled={currentPage === pageCount}
-                title={isRTL ? 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â ' : 'Next'}
+                title={isRTL ? 'التالي' : 'Next'}
               >
                 {isRTL ? (
                   <ChevronLeft className="w-4 h-4" />
@@ -1649,7 +1649,7 @@ export default function RevenueReport() {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
-                {isRTL ? 'Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã†â€™Ãƒâ„¢Ã¢â‚¬Å¾ ÃƒËœÃ‚ÂµÃƒâ„¢Ã‚ÂÃƒËœÃ‚Â­ÃƒËœÃ‚Â©:' : 'Per page:'}
+                {isRTL ? 'لكل صفحة:' : 'Per page:'}
               </span>
               <select
                 className="input w-24 text-sm py-0 px-2 h-8"
