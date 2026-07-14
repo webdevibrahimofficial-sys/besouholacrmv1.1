@@ -17,6 +17,8 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ProcessIncomingMirrorMessage implements ShouldQueue
 {
@@ -51,6 +53,7 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         $direction = $fromMe ? 'outbound' : 'inbound';
         $pushName = $msgData['pushName'] ?? $msgData['push_name'] ?? null;
         $messageBody = $msgData['body'] ?? '';
+        $messageType = $this->resolveMessageType($msgData);
         $isUnresolvedLid = (bool) ($msgData['is_unresolved_lid'] ?? false);
         $rawIdentifiers = [
             'message_id' => $msgData['message_id'] ?? null,
@@ -74,17 +77,35 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         $resolvedLeadId = $lead?->id;
 
         try {
+            $enrichedPayload = $this->payload;
+            $storedMedia = $this->persistIncomingMedia($tenantId, $msgData);
+            if ($storedMedia) {
+                $enrichedPayload['message']['media'] = array_merge(
+                    is_array($enrichedPayload['message']['media'] ?? null) ? $enrichedPayload['message']['media'] : [],
+                    $storedMedia
+                );
+                $enrichedPayload['request'] = array_merge(
+                    is_array($enrichedPayload['request'] ?? null) ? $enrichedPayload['request'] : [],
+                    [
+                        'attachment_path' => $storedMedia['attachment_path'],
+                        'mime_type' => $storedMedia['mime_type'] ?? null,
+                        'original_name' => $storedMedia['original_name'] ?? null,
+                        'caption' => $storedMedia['caption'] ?? null,
+                    ]
+                );
+            }
+
             $attributes = [
                 'tenant_id' => $tenantId,
                 'provider' => 'mirror',
                 'direction' => $direction,
                 'from' => $from,
                 'to' => $to,
-                'type' => $msgData['type'] ?? 'text',
+                'type' => $messageType,
                 'status' => $direction === 'outbound' ? 'sent_to_session' : 'received',
                 'message_id' => $msgData['message_id'] ?? null,
                 'body' => $msgData['body'] ?? '',
-                'raw' => $this->payload,
+                'raw' => $enrichedPayload,
             ];
 
             if (Schema::hasColumn('whatsapp_messages', 'source')) {
@@ -108,6 +129,13 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
             );
 
             $updates = [];
+            if (
+                ($attributes['type'] ?? 'text') === 'text'
+                && in_array((string) ($message->type ?? ''), ['image', 'video', 'audio', 'document', 'sticker'], true)
+            ) {
+                $attributes['type'] = $message->type;
+            }
+
             foreach (['from', 'to', 'body', 'direction', 'status', 'type'] as $field) {
                 if (($message->{$field} ?? null) !== ($attributes[$field] ?? null)) {
                     $updates[$field] = $attributes[$field] ?? null;
@@ -215,5 +243,75 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
 
         $digits = preg_replace('/\D+/', '', explode('@', $raw)[0] ?? '') ?: '';
         return $digits !== '' ? $digits : null;
+    }
+
+    private function resolveMessageType(array $msgData): string
+    {
+        $type = strtolower(trim((string) ($msgData['type'] ?? '')));
+        if (in_array($type, ['image', 'video', 'audio', 'document', 'sticker', 'text'], true)) {
+            return $type;
+        }
+
+        $mediaType = strtolower(trim((string) data_get($msgData, 'media.type', '')));
+        if (in_array($mediaType, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
+            return $mediaType;
+        }
+
+        return 'text';
+    }
+
+    private function persistIncomingMedia(int $tenantId, array $msgData): ?array
+    {
+        $media = is_array($msgData['media'] ?? null) ? $msgData['media'] : null;
+        $base64 = is_string($media['base64'] ?? null) ? $media['base64'] : null;
+
+        if (!$media || !$base64) {
+            return null;
+        }
+
+        $mediaType = strtolower(trim((string) ($media['type'] ?? 'document')));
+        $extension = $this->resolveExtensionFromMime(
+            (string) ($media['mime_type'] ?? ''),
+            $mediaType
+        );
+        $originalName = trim((string) ($media['file_name'] ?? '')) ?: "whatsapp-{$mediaType}.{$extension}";
+        $safeFileName = Str::uuid()->toString() . '.' . $extension;
+        $path = "{$tenantId}/whatsapp/incoming/{$safeFileName}";
+        $binary = base64_decode($base64, true);
+
+        if ($binary === false || $binary === '') {
+            return null;
+        }
+
+        Storage::disk('tenants')->put($path, $binary);
+
+        return [
+            'attachment_path' => $path,
+            'media_url' => app(\App\Services\TenantStorageService::class)->getUrl($path),
+            'mime_type' => $media['mime_type'] ?? null,
+            'original_name' => $originalName,
+            'caption' => $media['caption'] ?? null,
+            'type' => $mediaType,
+        ];
+    }
+
+    private function resolveExtensionFromMime(string $mimeType, string $mediaType = 'document'): string
+    {
+        $mimeType = strtolower(trim($mimeType));
+
+        return match (true) {
+            str_contains($mimeType, 'jpeg'), str_contains($mimeType, 'jpg') => 'jpg',
+            str_contains($mimeType, 'png') => 'png',
+            str_contains($mimeType, 'gif') => 'gif',
+            str_contains($mimeType, 'webp') => 'webp',
+            str_contains($mimeType, 'mp4') => 'mp4',
+            str_contains($mimeType, 'mpeg') => 'mp3',
+            str_contains($mimeType, 'ogg') => 'ogg',
+            str_contains($mimeType, 'pdf') => 'pdf',
+            $mediaType === 'image' => 'jpg',
+            $mediaType === 'video' => 'mp4',
+            $mediaType === 'audio' => 'mp3',
+            default => 'bin',
+        };
     }
 }

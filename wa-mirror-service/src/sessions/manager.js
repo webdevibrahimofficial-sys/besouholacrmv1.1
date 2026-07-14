@@ -1,5 +1,6 @@
 import makeWASocket, {
   DisconnectReason,
+  downloadContentFromMessage,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
@@ -268,6 +269,118 @@ function extractMessageBody(message) {
     || extractMessageBody(message.protocolMessage?.editedMessage)
     || ''
   );
+}
+
+function unwrapMessageForMedia(message) {
+  if (!message) {
+    return null;
+  }
+
+  if (message.imageMessage) {
+    return { type: 'image', payload: message.imageMessage };
+  }
+
+  if (message.videoMessage) {
+    return { type: 'video', payload: message.videoMessage };
+  }
+
+  if (message.audioMessage) {
+    return { type: 'audio', payload: message.audioMessage };
+  }
+
+  if (message.documentMessage) {
+    return { type: 'document', payload: message.documentMessage };
+  }
+
+  if (message.stickerMessage) {
+    return { type: 'sticker', payload: message.stickerMessage };
+  }
+
+  return (
+    unwrapMessageForMedia(message.ephemeralMessage?.message)
+    || unwrapMessageForMedia(message.viewOnceMessage?.message)
+    || unwrapMessageForMedia(message.viewOnceMessageV2?.message)
+    || unwrapMessageForMedia(message.viewOnceMessageV2Extension?.message)
+    || unwrapMessageForMedia(message.documentWithCaptionMessage?.message)
+    || unwrapMessageForMedia(message.editedMessage?.message)
+    || unwrapMessageForMedia(message.protocolMessage?.editedMessage)
+    || null
+  );
+}
+
+function extensionFromMimeType(mimeType, mediaType) {
+  const normalized = String(mimeType || '').toLowerCase().trim();
+
+  if (normalized.includes('jpeg') || normalized.includes('jpg')) return 'jpg';
+  if (normalized.includes('png')) return 'png';
+  if (normalized.includes('gif')) return 'gif';
+  if (normalized.includes('webp')) return 'webp';
+  if (normalized.includes('mp4')) return 'mp4';
+  if (normalized.includes('mpeg')) return 'mp3';
+  if (normalized.includes('ogg')) return 'ogg';
+  if (normalized.includes('pdf')) return 'pdf';
+
+  if (mediaType === 'image') return 'jpg';
+  if (mediaType === 'video') return 'mp4';
+  if (mediaType === 'audio') return 'mp3';
+
+  return 'bin';
+}
+
+async function bufferFromReadableStream(stream) {
+  const chunks = [];
+
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  return Buffer.concat(chunks);
+}
+
+async function extractMediaForWebhook(message) {
+  const mediaEntry = unwrapMessageForMedia(message);
+  if (!mediaEntry?.payload) {
+    return null;
+  }
+
+  const mimeType = String(mediaEntry.payload.mimetype || '').trim() || null;
+  const caption = (
+    mediaEntry.payload.caption
+    || mediaEntry.payload.fileName
+    || null
+  );
+  const fileName = mediaEntry.payload.fileName
+    || `whatsapp-${mediaEntry.type}.${extensionFromMimeType(mimeType, mediaEntry.type)}`;
+
+  try {
+    const stream = await downloadContentFromMessage(mediaEntry.payload, mediaEntry.type);
+    const buffer = await bufferFromReadableStream(stream);
+
+    return {
+      type: mediaEntry.type,
+      mime_type: mimeType,
+      caption,
+      file_name: fileName,
+      size_bytes: buffer.length,
+      base64: buffer.toString('base64'),
+    };
+  } catch (error) {
+    console.error('[Media Extract Error]', {
+      message: error.message,
+      type: mediaEntry.type,
+      mimeType,
+      fileName,
+    });
+
+    return {
+      type: mediaEntry.type,
+      mime_type: mimeType,
+      caption,
+      file_name: fileName,
+      base64: null,
+      download_error: error.message,
+    };
+  }
 }
 
 function fireWebhook(tenantId, payload) {
@@ -948,6 +1061,7 @@ export async function initSession(tenantId) {
 
         const isFromMe = !!msg.key.fromMe;
         const extractedBody = extractMessageBody(msg.message);
+        const mediaPayload = await extractMediaForWebhook(msg.message);
         // For outbound (fromMe) messages the counterpart is the remoteJid.
         // remoteJid can be a LID (e.g. "195893592608918@lid") instead of a real
         // E.164 number. Detect @lid and fall back to senderPn/participantPn.
@@ -1017,6 +1131,7 @@ export async function initSession(tenantId) {
             is_unresolved_lid: isUnresolvedLid,
             pushName: resolvedPushName,
             body: extractedBody,
+            type: mediaPayload?.type || 'text',
             timestamp: msg.messageTimestamp,
             message_id: msg.key.id,
             sender_pn: msg.key?.senderPn || null,
@@ -1025,6 +1140,7 @@ export async function initSession(tenantId) {
             remote_jid: msg.key?.remoteJid || null,
             sender: extractRemotePhone(msg.key?.sender) || null,
             author: extractRemotePhone(msg.key?.participant) || extractRemotePhone(msg?.participant) || null,
+            media: mediaPayload,
           },
         });
       }

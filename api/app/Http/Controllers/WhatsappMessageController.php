@@ -300,19 +300,42 @@ class WhatsappMessageController extends Controller
 
     private function extractMediaPayload(WhatsappMessage $message, int $tenantId): ?array
     {
+        $raw = is_array($message->raw) ? $message->raw : [];
+        $requestPayload = is_array($raw['request'] ?? null) ? $raw['request'] : [];
+        $mirrorConfig = is_array($raw['mirror'] ?? null) ? $raw['mirror'] : [];
+        $mirrorMessage = is_array($raw['message'] ?? null) ? $raw['message'] : [];
+        $mirrorMedia = is_array($mirrorMessage['media'] ?? null) ? $mirrorMessage['media'] : [];
+
         $type = (string) ($message->type ?? '');
+        $requestMimeType = trim((string) ($requestPayload['mime_type'] ?? ''));
+        $inferredTypeFromMime = $requestMimeType !== '' ? $this->resolveMediaTypeFromMime($requestMimeType) : '';
+
+        if (!in_array($type, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
+            $type = strtolower(trim((string) (
+                $mirrorConfig['media_type']
+                ?? $mirrorMedia['type']
+                ?? $inferredTypeFromMime
+            )));
+        }
+
         if (!in_array($type, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
             return null;
         }
 
-        $raw = is_array($message->raw) ? $message->raw : [];
-        $requestPayload = is_array($raw['request'] ?? null) ? $raw['request'] : [];
         $typePayload = is_array($raw[$type] ?? null) ? $raw[$type] : [];
-        $mirrorMessage = is_array($raw['message'] ?? null) ? $raw['message'] : [];
 
         $url = $requestPayload['attachment_path'] ?? null
             ? app(TenantStorageService::class)->getUrl($requestPayload['attachment_path'])
-            : ($requestPayload['attachment_url'] ?? $typePayload['link'] ?? $typePayload['url'] ?? $mirrorMessage['media_url'] ?? $mirrorMessage['url'] ?? null);
+            : (
+                $requestPayload['attachment_url']
+                ?? $typePayload['link']
+                ?? $typePayload['url']
+                ?? $mirrorMedia['media_url']
+                ?? $mirrorMessage['media_url']
+                ?? $mirrorMedia['url']
+                ?? $mirrorMessage['url']
+                ?? null
+            );
 
         if (!$url && $message->provider === 'meta' && $this->extractMetaMediaId($raw, $type)) {
             $url = URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(60));
@@ -324,9 +347,9 @@ class WhatsappMessageController extends Controller
 
         return [
             'url' => $url,
-            'mime_type' => $requestPayload['mime_type'] ?? $typePayload['mime_type'] ?? $mirrorMessage['mime_type'] ?? null,
-            'filename' => $requestPayload['original_name'] ?? $typePayload['filename'] ?? $mirrorMessage['file_name'] ?? null,
-            'caption' => $requestPayload['caption'] ?? $typePayload['caption'] ?? $mirrorMessage['caption'] ?? $message->body,
+            'mime_type' => $requestPayload['mime_type'] ?? $typePayload['mime_type'] ?? $mirrorMedia['mime_type'] ?? $mirrorMessage['mime_type'] ?? null,
+            'filename' => $requestPayload['original_name'] ?? $typePayload['filename'] ?? $mirrorMedia['original_name'] ?? $mirrorMedia['file_name'] ?? $mirrorMessage['file_name'] ?? null,
+            'caption' => $requestPayload['caption'] ?? $typePayload['caption'] ?? $mirrorMedia['caption'] ?? $mirrorMessage['caption'] ?? $message->body,
             'type' => $type,
         ];
     }
