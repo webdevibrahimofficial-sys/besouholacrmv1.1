@@ -70,6 +70,11 @@ export const sendWhatsappMedia = async ({ recipient_number, attachment, caption 
   return res?.data
 }
 
+export const getWhatsappCapabilities = async () => {
+  const res = await api.get('/api/v1/whatsapp/capabilities')
+  return res?.data
+}
+
 export const whatsappService = {
   loadSettings: getWhatsappSettings,
   saveSettings: updateWhatsappSettings,
@@ -96,6 +101,7 @@ export const whatsappService = {
   sendWhatsappTemplate,
   sendWhatsappText,
   sendWhatsappMedia,
+  getWhatsappCapabilities,
 }
 
 // WhatsApp Mirror microservice API helpers

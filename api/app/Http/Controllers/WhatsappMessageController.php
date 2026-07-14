@@ -41,6 +41,18 @@ class WhatsappMessageController extends Controller
         return response()->json($result);
     }
 
+    public function capabilitiesV1(Request $request, WhatsappProviderResolver $providerResolver)
+    {
+        $user = Auth::user();
+        $providerKey = $providerResolver->activeProviderKey((int) $user->tenant_id);
+
+        return response()->json([
+            'provider' => $providerKey,
+            'media_supported' => $providerKey === 'meta',
+            'templates_supported' => $providerKey === 'meta',
+        ]);
+    }
+
     public function leadMessages(Request $request, $leadId)
     {
         $user = Auth::user();

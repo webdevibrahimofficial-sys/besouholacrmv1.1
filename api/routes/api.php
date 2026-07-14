@@ -555,6 +555,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
 
     // WhatsApp v1 Endpoints
     Route::get('/v1/leads/{lead}/whatsapp-messages', [\App\Http\Controllers\WhatsappMessageController::class , 'leadMessages']);
+    Route::get('/v1/whatsapp/capabilities', [\App\Http\Controllers\WhatsappMessageController::class , 'capabilitiesV1']);
     Route::post('/v1/whatsapp/send-template', [\App\Http\Controllers\WhatsappMessageController::class , 'sendTemplateV1']);
     Route::post('/v1/whatsapp/send-text', [\App\Http\Controllers\WhatsappMessageController::class , 'sendTextV1']);
     Route::post('/v1/whatsapp/send-media', [\App\Http\Controllers\WhatsappMessageController::class , 'sendMediaV1']);

@@ -15,7 +15,7 @@ import { saveRequest as saveRealEstateRequest } from '../../data/realEstateReque
 import { saveRequest as saveInventoryRequest } from '../../data/inventoryRequests';
 import { api } from '../../utils/api';
 import { ensureEcho, getEcho } from '../../echo';
-import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, sendWhatsappMedia, getWhatsappTemplates, getWhatsappMirrorStatus } from '../../services/whatsappService';
+import { getLeadWhatsappMessages, sendWhatsappTemplate, sendWhatsappText, sendWhatsappMedia, getWhatsappTemplates, getWhatsappMirrorStatus, getWhatsappCapabilities } from '../../services/whatsappService';
 import { getLeadEmailMessages, sendEmailText } from '../../services/emailService';
 import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
@@ -53,6 +53,15 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       setWaMirrorStatus(data || null);
     } catch {
       setWaMirrorStatus({ status: 'unknown' });
+    }
+  }, []);
+
+  const loadWhatsappCapabilities = useCallback(async () => {
+    try {
+      const data = await getWhatsappCapabilities();
+      setWhatsappCapabilities(data || { provider: 'meta', media_supported: true, templates_supported: true });
+    } catch {
+      setWhatsappCapabilities({ provider: 'meta', media_supported: true, templates_supported: true });
     }
   }, []);
 
@@ -194,6 +203,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     reloadWhatsappMessages(lead.id)
       .finally(() => setWaLoading(false));
     loadWhatsappMirrorStatus();
+    loadWhatsappCapabilities();
     setEmailLoading(true);
     getLeadEmailMessages(lead.id)
       .then(data => {
@@ -215,7 +225,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     getEmailTemplates()
       .then(list => setEmailTemplates(Array.isArray(list) ? list : []))
       .catch(() => { });
-  }, [isOpen, activeTab, lead?.id, loadWhatsappMirrorStatus, reloadWhatsappMessages]);
+  }, [isOpen, activeTab, lead?.id, loadWhatsappCapabilities, loadWhatsappMirrorStatus, reloadWhatsappMessages]);
   useEffect(() => {
     if (!isOpen) return;
     const tenantId = user?.tenant_id || company?.tenant_id || company?.tenantId || company?.id;
@@ -379,6 +389,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   }, [waMessages]);
   const [waLoading, setWaLoading] = useState(false);
   const [waMirrorStatus, setWaMirrorStatus] = useState(null);
+  const [whatsappCapabilities, setWhatsappCapabilities] = useState({ provider: 'meta', media_supported: true, templates_supported: true });
   const [emailMessages, setEmailMessages] = useState([]);
   const [emailLoading, setEmailLoading] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -491,6 +502,26 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     }
   };
 
+  const mediaAttachmentsSupported = whatsappCapabilities?.media_supported !== false;
+  const whatsappTemplatesSupported = whatsappCapabilities?.templates_supported !== false;
+  const whatsappProviderLabel = whatsappCapabilities?.provider === 'mirror'
+    ? 'WhatsApp Mirror'
+    : 'Meta WhatsApp';
+
+  const handleWhatsappAttachmentButtonClick = () => {
+    if (!mediaAttachmentsSupported) {
+      showToast(
+        'error',
+        isArabic
+          ? 'إرسال المرفقات متاح فقط عند استخدام مزود واتساب Meta.'
+          : 'Attachments are available only when the active WhatsApp provider is Meta.'
+      );
+      return;
+    }
+
+    whatsappAttachmentInputRef.current?.click();
+  };
+
   const appendWhatsappEmoji = (emoji) => {
     setTextBody((prev) => `${prev || ''}${emoji}`);
     setShowWhatsappEmojiPicker(false);
@@ -600,6 +631,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       return;
     }
 
+    if (selectedWhatsappAttachment && !mediaAttachmentsSupported) {
+      showToast(
+        'error',
+        isArabic
+          ? 'المرفقات غير مدعومة مع مزود واتساب الحالي. احذف المرفق أو بدّل المزود إلى Meta.'
+          : 'Attachments are not supported with the active WhatsApp provider. Remove the file or switch the provider to Meta.'
+      );
+      return;
+    }
+
     setSendingText(true);
     try {
       let res;
@@ -641,11 +682,20 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       await Promise.all([
         reloadWhatsappMessages(lead.id),
         loadWhatsappMirrorStatus(),
+        loadWhatsappCapabilities(),
       ]);
     } finally {
       setWaLoading(false);
     }
-  }, [lead?.id, loadWhatsappMirrorStatus, reloadWhatsappMessages, waLoading]);
+  }, [lead?.id, loadWhatsappCapabilities, loadWhatsappMirrorStatus, reloadWhatsappMessages, waLoading]);
+
+  useEffect(() => {
+    if (mediaAttachmentsSupported || !selectedWhatsappAttachment) {
+      return;
+    }
+
+    clearWhatsappAttachment();
+  }, [mediaAttachmentsSupported, selectedWhatsappAttachment]);
   const showWhatsAppSection = commFilter !== 'email';
   const showEmailSection = commFilter !== 'whatsapp';
   const waMirrorIsConnected = waMirrorStatus?.status === 'connected';
@@ -3579,8 +3629,20 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                       <div className={`hidden text-[11px] sm:block sm:text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>{`${textBody.length} / 1000`}</div>
                       <button
                         type="button"
-                        onClick={() => setShowWhatsappTemplatePicker((prev) => !prev)}
-                        className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-medium shadow-sm transition-all sm:h-auto sm:gap-2 sm:rounded-2xl sm:px-3 sm:py-2 sm:text-xs ${isLight ? 'border-gray-200 bg-white text-slate-700 hover:bg-slate-50' : 'border-slate-700 bg-slate-800 text-white hover:bg-slate-700'} ${isArabic ? 'flex-row-reverse' : ''}`}
+                        onClick={() => {
+                          if (!whatsappTemplatesSupported) {
+                            showToast(
+                              'error',
+                              isArabic
+                                ? 'القوالب متاحة فقط عند استخدام مزود واتساب Meta.'
+                                : 'Templates are available only when the active WhatsApp provider is Meta.'
+                            );
+                            return;
+                          }
+                          setShowWhatsappTemplatePicker((prev) => !prev);
+                        }}
+                        disabled={!whatsappTemplatesSupported}
+                        className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-medium shadow-sm transition-all sm:h-auto sm:gap-2 sm:rounded-2xl sm:px-3 sm:py-2 sm:text-xs ${isLight ? 'border-gray-200 bg-white text-slate-700 hover:bg-slate-50' : 'border-slate-700 bg-slate-800 text-white hover:bg-slate-700'} ${isArabic ? 'flex-row-reverse' : ''} ${!whatsappTemplatesSupported ? 'cursor-not-allowed opacity-60' : ''}`}
                       >
                         <FaFileAlt className="text-slate-500" />
                         <span>{isArabic ? 'القوالب' : 'Templates'}</span>
@@ -3676,8 +3738,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                         </div>
                         <button
                           type="button"
-                          onClick={() => whatsappAttachmentInputRef.current?.click()}
-                          className={`inline-flex h-8 items-center gap-1 rounded-xl border px-2 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-2.5 sm:text-xs ${isLight ? 'border-gray-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm' : 'border-slate-700 bg-slate-900/80 text-white hover:bg-slate-800'}`}
+                          onClick={handleWhatsappAttachmentButtonClick}
+                          disabled={!mediaAttachmentsSupported}
+                          className={`inline-flex h-8 items-center gap-1 rounded-xl border px-2 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-2.5 sm:text-xs ${isLight ? 'border-gray-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm' : 'border-slate-700 bg-slate-900/80 text-white hover:bg-slate-800'} ${!mediaAttachmentsSupported ? 'cursor-not-allowed opacity-60' : ''}`}
                         >
                           <FaPaperclip />
                           <span>{isArabic ? 'مرفق' : 'Attach'}</span>
@@ -3693,6 +3756,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                       </button>
                     </div>
                     </div>
+                    {(!mediaAttachmentsSupported || !whatsappTemplatesSupported) && (
+                      <div className={`mt-3 rounded-xl border px-3 py-2 text-xs sm:text-sm ${isLight ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-amber-500/30 bg-amber-500/10 text-amber-200'}`}>
+                        {isArabic
+                          ? `بعض ميزات واتساب غير متاحة لأن المزود النشط هو ${whatsappProviderLabel} وليس Meta.`
+                          : `Some WhatsApp features are unavailable because the active provider is ${whatsappProviderLabel}, not Meta.`}
+                      </div>
+                    )}
                     {selectedWhatsappAttachment && (
                       <div className={`mt-3 rounded-xl border p-3 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800/60'}`}>
                         <div className="flex items-start justify-between gap-3">
