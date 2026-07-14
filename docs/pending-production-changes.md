@@ -99,10 +99,10 @@ High-level areas pending production:
 - Meta App Review URLs to configure in Meta Developer Console:
   - Privacy Policy URL: `{FRONTEND_URL}/privacy`
   - Data Deletion Callback URL: `{APP_URL}/api/facebook/data-deletion`
-  - Data Deletion Status URL: `{FRONTEND_URL}/privacy/data-deletion`
+  - Data Deletion Status URL: `{FRONTEND_URL}/privacy/dataDeletion`
 - **Post-migration hardening (pending deploy):**
   - Auto-subscribe pages to `leadgen` webhook after `syncAssets`
-  - Public data deletion status: `GET /api/facebook/data-deletion/status` + `/privacy/data-deletion` page
+  - Public data deletion status: `GET /api/facebook/data-deletion/status` + `/privacy/dataDeletion` page
   - Cross-tenant `page_id` conflict guard with `sync_warnings` in tenant status API/UI
   - `needs_reauth` notifications for tenant admins + Super Admin (`meta:invalidate-connections`)
   - Per-form lead mapping UI + `POST /api/meta/capi/test` diagnostics endpoint

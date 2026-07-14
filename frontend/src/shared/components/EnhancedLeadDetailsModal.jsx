@@ -128,6 +128,23 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     } catch { }
   };
 
+  const getApiErrorMessage = (error, fallbackMessage) => {
+    const data = error?.response?.data;
+    if (typeof data?.message === 'string' && data.message.trim()) {
+      return data.message.trim();
+    }
+
+    const validationMessages = data?.errors && typeof data.errors === 'object'
+      ? Object.values(data.errors).flat().filter(Boolean)
+      : [];
+
+    if (validationMessages.length > 0) {
+      return validationMessages.join(' ');
+    }
+
+    return fallbackMessage;
+  };
+
   const handlePickLeadAttachments = () => {
     if (uploadingLeadAttachments) return;
     leadAttachmentInputRef.current?.click();
@@ -608,7 +625,10 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     } catch (error) {
       showToast(
         'error',
-        error?.response?.data?.message || (isArabic ? 'فشل إرسال الرسالة أو المرفق' : 'Failed to send message or attachment')
+        getApiErrorMessage(
+          error,
+          isArabic ? 'فشل إرسال الرسالة أو المرفق' : 'Failed to send message or attachment'
+        )
       );
     } finally {
       setSendingText(false);

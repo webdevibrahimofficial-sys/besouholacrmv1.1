@@ -15,17 +15,14 @@ class MetaLeadService
 {
     protected $apiClient;
     protected $accessTokenService;
-    protected $capiService;
 
     public function __construct(
         MetaApiClientInterface $apiClient,
         MetaAccessTokenService $accessTokenService,
-        MetaCapiService $capiService,
         protected TenantAdminResolver $tenantAdmins
     ) {
         $this->apiClient = $apiClient;
         $this->accessTokenService = $accessTokenService;
-        $this->capiService = $capiService;
     }
 
     protected function resolveLeadSource(array $data): string
@@ -285,9 +282,7 @@ class MetaLeadService
             $leadData
         );
 
-        if (!$this->isPostmanTestLeadId($data['id'] ?? null)) {
-            $this->capiService->sendLeadEventIfEnabled($tenantId, $lead, $integration);
-        }
+        // CAPI Lead events are dispatched once via LeadObserver::created.
     }
 
     protected function ensureMetaSourceExists(int $tenantId): void

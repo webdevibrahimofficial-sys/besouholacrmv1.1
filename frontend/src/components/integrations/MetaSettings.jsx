@@ -4,7 +4,6 @@ import { metaService } from '../../services/metaService'
 import { 
   Activity, 
   Database,
-  Terminal,
   LayoutDashboard,
   CheckCircle,
   XCircle,
@@ -16,12 +15,11 @@ import {
   Zap,
   RefreshCw,
   BookOpen,
-  ClipboardCheck,
+  HelpCircle,
 } from 'lucide-react'
 import { api } from '../../utils/api'
 import { useAppState } from '../../shared/context/AppStateProvider'
 import MetaSetupGuide from './meta/MetaSetupGuide'
-import MetaGoLiveChecklist from './meta/MetaGoLiveChecklist'
 
 const normalizeAgencyKey = (value) => {
   const normalized = String(value ?? '').trim()
@@ -48,7 +46,7 @@ const isTenantAdminUser = (user) => {
 // --- Components ---
 
 const StatusBadge = ({ connected }) => (
-  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${connected ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-white text-gray-700 border border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700'}`}>
+  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${connected ? 'bg-green-100 text-green-800 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border dark:border-emerald-400/20' : 'bg-white/90 text-gray-700 border border-gray-200 dark:bg-white/5 dark:text-slate-200 dark:border-white/10'}`}>
     {connected ? (
       <>
         <CheckCircle className="w-3 h-3 mr-1" />
@@ -66,26 +64,26 @@ const StatusBadge = ({ connected }) => (
 const TabButton = ({ active, id, icon: Icon, label, onClick }) => (
   <button
     onClick={() => onClick(id)}
-    className={`flex items-center w-full px-4 py-3 text-sm font-medium transition-colors duration-200 border-l-4 ${
+    className={`flex items-center w-full px-4 py-3 text-sm font-medium transition-all duration-200 border-l-4 ${
       active 
-        ? 'bg-blue-50 border-blue-600 text-blue-700 dark:bg-blue-900/10 dark:text-blue-400 dark:border-blue-500' 
-        : 'border-transparent text-theme hover:bg-white/80 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-gray-200'
+        ? 'bg-blue-50/90 border-blue-600 text-blue-700 shadow-sm dark:border-blue-400 dark:bg-[linear-gradient(90deg,rgba(37,99,235,0.26),rgba(29,78,216,0.10))] dark:text-blue-100' 
+        : 'border-transparent text-theme hover:bg-white/80 hover:text-gray-900 dark:hover:bg-slate-800/80 dark:hover:text-slate-100'
     }`}
   >
-    <Icon className={`w-5 h-5 mr-3 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-theme'}`} />
+    <Icon className={`w-5 h-5 mr-3 ${active ? 'text-blue-600 dark:text-blue-300' : 'text-theme'}`} />
     {label}
   </button>
 )
 
 const InputField = ({ label, value, onChange, placeholder, icon: Icon, error, helperText, disabled, type = 'text' }) => (
   <div className="mb-4">
-    <label className="block text-sm font-medium text-theme mb-1">
+    <label className="block text-sm font-medium text-theme dark:text-slate-100 mb-1">
       {label}
     </label>
     <div className="relative rounded-md shadow-sm">
       {Icon && (
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <Icon className="h-4 w-4 text-theme" />
+          <Icon className="h-4 w-4 text-theme dark:text-slate-300" />
         </div>
       )}
       <input
@@ -94,9 +92,9 @@ const InputField = ({ label, value, onChange, placeholder, icon: Icon, error, he
           Icon ? 'pl-10' : 'pl-3'
         } ${
           error 
-            ? 'border-red-300 text-red-900 placeholder-red-300 focus:ring-red-500 focus:border-red-500 dark:border-red-800 dark:bg-gray-800' 
-            : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-theme'
-        } ${disabled ? 'bg-gray-100 dark:bg-gray-900 text-theme cursor-not-allowed' : ''} py-2`}
+            ? 'border-red-300 text-red-900 placeholder-red-300 focus:ring-red-500 focus:border-red-500 dark:border-red-500/40 dark:bg-white/5 dark:text-red-100'
+            : 'border-gray-300 bg-white/90 focus:ring-blue-500 focus:border-blue-500 dark:bg-white/5 dark:border-white/10 dark:text-slate-100 dark:placeholder:text-slate-400'
+        } ${disabled ? 'bg-gray-100 dark:bg-white/5 text-theme cursor-not-allowed opacity-70' : ''} py-2`}
         placeholder={placeholder}
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
@@ -104,20 +102,20 @@ const InputField = ({ label, value, onChange, placeholder, icon: Icon, error, he
       />
     </div>
     {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
-    {helperText && !error && <p className="mt-1 text-xs text-theme">{helperText}</p>}
+    {helperText && !error && <p className="mt-1 text-xs text-theme dark:text-slate-400">{helperText}</p>}
   </div>
 )
 
 const Toggle = ({ label, checked, onChange, description }) => (
   <div className="flex items-start justify-between py-3">
     <div className="flex flex-col">
-      <span className="text-sm font-medium text-theme">{label}</span>
-      {description && <span className="text-xs text-theme mt-0.5">{description}</span>}
+      <span className="text-sm font-medium text-theme dark:text-slate-100">{label}</span>
+      {description && <span className="text-xs text-theme dark:text-slate-400 mt-0.5">{description}</span>}
     </div>
     <button
       type="button"
       className={`${
-        checked ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+        checked ? 'bg-blue-600' : 'bg-gray-200 dark:bg-white/15'
       } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
       onClick={() => onChange(!checked)}
     >
@@ -134,13 +132,14 @@ const Toggle = ({ label, checked, onChange, description }) => (
 // --- Main Component ---
 
 export default function MetaSettings({ onClose }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { user } = useAppState()
   const isArabic = i18n.language === 'ar'
   const isTenantAdmin = isTenantAdminUser(user)
   const lockedAgencyId = !isTenantAdmin ? normalizeAgencyKey(user?.agency_id) : null
   // State
-  const [activeTab, setActiveTab] = useState('setup')
+  const [activeTab, setActiveTab] = useState('overview')
+  const [forceShowSetup, setForceShowSetup] = useState(false)
   const [settings, setSettings] = useState({})
   const [sharedMetaConfigured, setSharedMetaConfigured] = useState(false)
   
@@ -173,9 +172,10 @@ export default function MetaSettings({ onClose }) {
   const [detectingMapping, setDetectingMapping] = useState(false)
   const [syncWarnings, setSyncWarnings] = useState([])
   const [tenantHealth, setTenantHealth] = useState(null)
-  const [goLive, setGoLive] = useState(null)
   const [agencies, setAgencies] = useState([])
   const [selectedAgencyId, setSelectedAgencyId] = useState(lockedAgencyId || '')
+  const [webhookTestResult, setWebhookTestResult] = useState(null)
+  const [pixelTestResult, setPixelTestResult] = useState(null)
   
   // Validation
   const [validationErrors, setValidationErrors] = useState({})
@@ -183,20 +183,13 @@ export default function MetaSettings({ onClose }) {
   // Auto-save State
   const [saveStatus, setSaveStatus] = useState('idle') // idle, pending, saving, saved, error
 
-  // Diagnostic State
-  const [logs, setLogs] = useState([])
-  const [testPayload, setTestPayload] = useState(null)
-
   // Refs
   const isLoaded = useRef(false)
+  const initialTabResolved = useRef(false)
 
   function showToast(type, message) {
     setToast({ type, message })
     setTimeout(() => setToast(null), 3000)
-  }
-
-  function log(message, type = 'info') {
-    setLogs(prev => [{ time: new Date().toLocaleTimeString(), message, type }, ...prev])
   }
 
   // Effects
@@ -206,6 +199,34 @@ export default function MetaSettings({ onClose }) {
     () => connections.some((conn) => sameAgency(conn.agency_id, activeAgencyId)),
     [connections, activeAgencyId]
   )
+  const activePagesCount = useMemo(
+    () => pages.filter((page) => page?.is_active).length,
+    [pages]
+  )
+  const setupCoreComplete = useMemo(() => {
+    const subscribed = Number(tenantHealth?.subscribe_summary?.subscribed ?? 0)
+    return Boolean(
+      sharedMetaConfigured &&
+      hasConnectionForActiveAgency &&
+      activePagesCount > 0 &&
+      autoSync &&
+      subscribed > 0
+    )
+  }, [sharedMetaConfigured, hasConnectionForActiveAgency, activePagesCount, autoSync, tenantHealth])
+  const showSetupInNav = !setupCoreComplete || forceShowSetup
+  const activeTitle = useMemo(() => {
+    if (activeTab === 'setup') return isArabic ? 'دليل إعداد ميتا' : 'Meta Setup Guide'
+    if (activeTab === 'overview') return isArabic ? 'نظرة عامة على الحساب' : 'Account Overview'
+    if (activeTab === 'pixel') return isArabic ? 'إعداد التتبع' : 'Tracking Configuration'
+    if (activeTab === 'leads') return isArabic ? 'مزامنة العملاء المحتملين' : 'Lead Generation'
+    return isArabic ? 'مزامنة ميتا' : 'Meta Sync'
+  }, [activeTab, isArabic])
+  const isConnected = connections.length > 0
+
+  const openSetupGuide = useCallback(() => {
+    setForceShowSetup(true)
+    setActiveTab('setup')
+  }, [])
 
   const loadData = useCallback(async (agencyId = null) => {
     setLoading(true)
@@ -219,7 +240,6 @@ export default function MetaSettings({ onClose }) {
       setSharedMetaConfigured(!!data.shared_meta_configured)
       setSyncWarnings(data.sync_warnings || [])
       setTenantHealth(data.tenant_health || null)
-      setGoLive(data.go_live || null)
 
       const saved = data.settings || {}
       setEnableCapi(!!saved.enableCapi)
@@ -293,11 +313,33 @@ export default function MetaSettings({ onClose }) {
     const params = new URLSearchParams(window.location.search)
     const metaParam = params.get('meta')
     if (metaParam === 'connected') {
+      setForceShowSetup(true)
       setActiveTab('setup')
       showToast('success', isArabic ? 'تم ربط ميتا بنجاح! أكمل خطوات الإعداد.' : 'Meta connected! Complete the setup steps.')
       window.history.replaceState({}, document.title, window.location.pathname)
     }
   }, [isArabic])
+
+  useEffect(() => {
+    if (loading || initialTabResolved.current) return
+    initialTabResolved.current = true
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('code') || params.get('meta') === 'connected') return
+    setActiveTab(setupCoreComplete ? 'overview' : 'setup')
+    if (!setupCoreComplete) setForceShowSetup(true)
+  }, [loading, setupCoreComplete])
+
+  useEffect(() => {
+    if (activeTab !== 'setup' && setupCoreComplete) {
+      setForceShowSetup(false)
+    }
+  }, [activeTab, setupCoreComplete])
+
+  useEffect(() => {
+    if (activeTab === 'diagnostics' || activeTab === 'go-live') {
+      setActiveTab(setupCoreComplete ? 'overview' : 'setup')
+    }
+  }, [activeTab, setupCoreComplete])
 
   useEffect(() => {
     if (loading || !isLoaded.current) return
@@ -411,13 +453,10 @@ export default function MetaSettings({ onClose }) {
 
   const handleSync = async () => {
     setSyncing(true)
-    log('Starting manual sync...', 'info')
     try {
       await api.post('/api/auth/meta/sync')
-      log('Sync job dispatched successfully.', 'success')
       showToast('success', 'Sync started in background')
-    } catch (error) {
-      log(`Sync failed: ${error.message}`, 'error')
+    } catch {
       showToast('error', 'Failed to start sync')
     } finally {
       setSyncing(false)
@@ -426,27 +465,29 @@ export default function MetaSettings({ onClose }) {
 
   const handleTestPixel = async () => {
     setTesting(true)
-    log('Generating test pixel event...', 'info')
+    setPixelTestResult(null)
     try {
       const payload = metaService.simulatePixelEvent(settings, events, enableCapi)
-      setTestPayload(payload)
-      log(`Generated payload: ${JSON.stringify(payload, null, 2)}`, 'code')
-      
-      // Simulate API call for "Send to Server"
       if (enableCapi) {
-        log('Sending to Conversions API (CAPI)...', 'info')
         const res = await metaService.sendCapiTest(payload)
-        log(`CAPI Response: ${JSON.stringify(res, null, 2)}`, 'success')
+        const message = isArabic ? 'تم إرسال حدث اختبار للبكسل بنجاح' : 'Test pixel event sent successfully'
+        setPixelTestResult({ ok: true, message, detail: res })
+        showToast('success', message)
       } else {
-        log('CAPI is disabled. Enable it to test server-side events.', 'warning')
+        const message = isArabic
+          ? 'فعّل Conversions API أولاً لإرسال حدث اختبار إلى السيرفر.'
+          : 'Enable Conversions API first to send a server-side test event.'
+        setPixelTestResult({ ok: false, message })
+        showToast('error', message)
       }
     } catch (error) {
-      log(`Test failed: ${error.message}`, 'error')
+      const message = error?.message || (isArabic ? 'فشل اختبار البكسل' : 'Pixel test failed')
+      setPixelTestResult({ ok: false, message })
+      showToast('error', message)
     } finally {
       setTesting(false)
     }
   }
-
 
   const handleSaveFormMapping = async () => {
     if (!selectedFormId) return
@@ -462,15 +503,16 @@ export default function MetaSettings({ onClose }) {
 
   const handleTestWebhook = async () => {
     setTestingWebhook(true)
-    log('Testing webhook endpoint...', 'info')
+    setWebhookTestResult(null)
     try {
       const res = await metaService.testWebhook()
-      log(res.message || 'Webhook verification succeeded.', 'success')
-      showToast('success', res.message || (isArabic ? 'نجح اختبار الويب هوك' : 'Webhook test passed'))
+      const message = res.message || (isArabic ? 'نجح اختبار الويب هوك' : 'Webhook test passed')
+      setWebhookTestResult({ ok: true, message })
+      showToast('success', message)
       await loadData(activeAgencyId)
     } catch (error) {
       const message = error?.response?.data?.message || (isArabic ? 'فشل اختبار الويب هوك' : 'Webhook test failed')
-      log(message, 'error')
+      setWebhookTestResult({ ok: false, message })
       showToast('error', message)
     } finally {
       setTestingWebhook(false)
@@ -549,10 +591,6 @@ export default function MetaSettings({ onClose }) {
 
   // --- Renderers ---
 
-  const renderGoLive = () => (
-    <MetaGoLiveChecklist goLive={goLive} onOpenTab={setActiveTab} />
-  )
-
   const renderSetupGuide = () => (
     <MetaSetupGuide
       sharedMetaConfigured={sharedMetaConfigured}
@@ -595,18 +633,64 @@ export default function MetaSettings({ onClose }) {
         : hasConnectionForActiveAgency
           ? (isArabic ? 'هذه الأجينسي لديها اتصال ميتا بالفعل' : 'This agency already has a Meta connection')
           : ''
+    const lastLeadLabel = tenantHealth?.last_lead_at
+      ? new Date(tenantHealth.last_lead_at).toLocaleString(isArabic ? 'ar' : undefined)
+      : (isArabic ? 'لا يوجد بعد' : 'None yet')
+    const needsReauth = tenantHealth?.connections_needing_reauth
+      ?? connections.filter((conn) => conn.needs_reauth).length
 
     return (
     <div className="space-y-6">
+      {setupCoreComplete && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={openSetupGuide}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--muted-text)] transition-colors hover:text-[var(--primary-color)]"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+            {t('Re-run Setup Guide')}
+          </button>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-gray-200  p-4 dark:border-white/10 dark:bg-white/5 backdrop-blur-xl">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted-text)]">
+          {isArabic ? 'حالة المزامنة' : 'Sync Health'}
+        </h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-gray-200  px-4 py-3 dark:border-white/10 ">
+            <div className="text-xs text-[var(--muted-text)]">{isArabic ? 'آخر ليد مستلم' : 'Last lead synced'}</div>
+            <div className="mt-1 text-sm font-semibold text-theme" title={tenantHealth?.last_lead_at || ''}>
+              {lastLeadLabel}
+            </div>
+          </div>
+          <div className="rounded-xl border border-gray-200  px-4 py-3 dark:border-white/10 ">
+            <div className="text-xs text-[var(--muted-text)]">{isArabic ? 'صفحات نشطة' : 'Active pages'}</div>
+            <div className="mt-1 text-sm font-semibold text-theme">
+              {tenantHealth?.active_pages ?? activePagesCount}
+            </div>
+          </div>
+          <div className={`rounded-xl border px-4 py-3 ${
+            needsReauth > 0
+              ? 'border-amber-300 bg-amber-50/80 dark:border-amber-700 dark:bg-amber-900/20'
+              : 'border-gray-200  dark:border-white/10 '
+          }`}>
+            <div className="text-xs text-[var(--muted-text)]">{isArabic ? 'تحتاج إعادة ربط' : 'Needs reauth'}</div>
+            <div className="mt-1 text-sm font-semibold text-theme">{needsReauth}</div>
+          </div>
+        </div>
+      </div>
+
       {isTenantAdmin && (
-        <div className="rounded-2xl border border-gray-200 bg-white/70 p-4 dark:border-gray-700 dark:bg-gray-900/30">
+        <div className="rounded-2xl border border-gray-200  p-4 dark:border-white/10 dark:bg-white/5 backdrop-blur-xl">
           <label className="block text-sm font-medium text-theme mb-2">
             {isArabic ? 'الأجينسي' : 'Agency'}
           </label>
           <select
             value={selectedAgencyId}
             onChange={(e) => setSelectedAgencyId(e.target.value)}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-transparent text-theme sm:text-sm py-2 px-3"
+            className="block w-full rounded-xl border border-gray-300 bg-white/85 text-theme sm:text-sm py-2 px-3 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
           >
             <option value="">{isArabic ? 'كل الأجينسيات' : 'All agencies'}</option>
             {agencies.map((agency) => (
@@ -624,7 +708,7 @@ export default function MetaSettings({ onClose }) {
       )}
 
       {!isTenantAdmin && lockedAgencyId && (
-        <div className="rounded-2xl border border-gray-200 bg-white/70 p-4 text-sm text-theme dark:border-gray-700 dark:bg-gray-900/30">
+        <div className="rounded-2xl border border-gray-200  p-4 text-sm text-theme dark:text-slate-200 dark:border-white/10 dark:bg-white/5 backdrop-blur-xl">
           {isArabic ? 'أنت تعرض وتدير اتصال الأجينسي المرتبطة بحسابك.' : 'You are viewing and managing the Meta connection for your assigned agency.'}
         </div>
       )}
@@ -709,16 +793,20 @@ export default function MetaSettings({ onClose }) {
           </div>
         ) : (
           connections.map(conn => (
-            <div key={conn.id} className="bg-transparent rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div key={conn.id} className="overflow-hidden rounded-2xl border border-gray-200 bg-white/45 shadow backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
               {/* Connection Header */}
-              <div className="bg-gray-900/50 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="border-b border-gray-200 bg-white/40 px-4 py-3 flex items-center justify-between dark:border-white/10 dark:bg-white/5">
                 <div className="flex items-center space-x-3">
                    <div className="h-8 w-8 rounded-full bg-[#1877F2] text-white flex items-center justify-center font-bold">
                      {conn.name ? conn.name.charAt(0).toUpperCase() : 'F'}
                    </div>
                    <div>
-                     <h4 className="text-sm font-bold text-theme">{conn.name || 'Facebook User'}</h4>
-                     <p className="text-xs text-theme/60">ID: {conn.fb_user_id}</p>
+                     <h4 className="text-sm font-bold text-theme" title={conn.fb_user_id ? `ID: ${conn.fb_user_id}` : undefined}>
+                       {conn.name || 'Facebook User'}
+                     </h4>
+                     <p className="text-xs text-theme/60">
+                       {isArabic ? 'حساب فيسبوك متصل' : 'Connected Facebook account'}
+                     </p>
                    </div>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -746,11 +834,12 @@ export default function MetaSettings({ onClose }) {
                   ) : (
                     <div className="space-y-4">
                       {businesses.filter(b => sameId(b.connection_id, conn.id)).map(biz => (
-                        <div key={biz.id} className="pl-2 border-l-2 border-gray-200 dark:border-gray-700">
+                        <div key={biz.id} className="pl-2 border-l-2 border-gray-200 dark:border-white/10">
                            <div className="flex items-center justify-between mb-2">
                              <div>
-                               <div className="text-sm font-medium text-theme">{biz.business_name}</div>
-                               <div className="text-xs text-theme/60">Business ID: {biz.fb_business_id}</div>
+                               <div className="text-sm font-medium text-theme" title={biz.fb_business_id ? `Business ID: ${biz.fb_business_id}` : undefined}>
+                                 {biz.business_name}
+                               </div>
                              </div>
                              {canManageAssets && (
                                <button 
@@ -769,10 +858,9 @@ export default function MetaSettings({ onClose }) {
                                <p className="text-xs text-theme/50 italic">No ad accounts.</p>
                               ) : (
                                adAccounts.filter(acc => sameId(acc.business_id, biz.id)).map(acc => (
-                                 <div key={acc.id} className="flex flex-col gap-2 rounded border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-700/30 sm:flex-row sm:items-center sm:justify-between">
+                                 <div key={acc.id} className="flex flex-col gap-2 rounded-xl border border-gray-200  p-2 dark:border-white/10 dark:bg-white/5 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="min-w-0 flex-1">
-                                      <span className="text-xs font-medium text-theme block">{acc.name}</span>
-                                      <span className="text-[10px] text-theme/50 font-mono">{acc.ad_account_id}</span>
+                                      <span className="text-xs font-medium text-theme block" title={acc.ad_account_id || undefined}>{acc.name}</span>
                                     </div>
                                     <div className="flex flex-wrap items-center justify-end gap-3">
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${acc.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-300'}`}>
@@ -807,7 +895,7 @@ export default function MetaSettings({ onClose }) {
 
                 {/* Pages */}
                 <div>
-                  <h5 className="text-xs font-semibold text-theme/60 uppercase tracking-wider mb-3 flex items-center border-t border-gray-100 dark:border-gray-700 pt-4">
+                  <h5 className="text-xs font-semibold text-theme/60 uppercase tracking-wider mb-3 flex items-center border-t border-gray-100 dark:border-white/10 pt-4">
                     <LayoutDashboard className="w-3 h-3 mr-1" />
                     Pages
                   </h5>
@@ -817,24 +905,23 @@ export default function MetaSettings({ onClose }) {
                   ) : (
                     <div className="grid grid-cols-1 gap-3">
                       {pages.filter(p => sameId(p.connection_id, conn.id)).map(page => (
-                        <div key={page.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-gray-700/30 p-3 rounded border border-gray-200 dark:border-gray-700 gap-3">
+                        <div key={page.id} className="flex flex-col sm:flex-row sm:items-center justify-between  dark:bg-white/5 p-3 rounded-xl border border-gray-200 dark:border-white/10 gap-3">
                            <div className="flex items-center space-x-3">
-                              {/* Page Avatar Placeholder */}
                               <div className="h-8 w-8 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 text-xs font-bold">
                                 {page.page_name.charAt(0)}
                               </div>
                               <div>
-                                <div className="text-sm font-medium text-theme">{page.page_name}</div>
-                                <div className="text-xs text-theme/60">{page.page_id}</div>
+                                <div className="text-sm font-medium text-theme" title={page.page_id ? `Page ID: ${page.page_id}` : undefined}>
+                                  {page.page_name}
+                                </div>
                               </div>
                            </div>
 
                            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
-                              {/* Link to Ad Account */}
                               <div className="w-full sm:w-48">
                                 {canManageAssets ? (
                                   <select 
-                                    className="block w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    className="block w-full text-xs rounded-xl border border-gray-300 bg-white/85 dark:border-white/10 dark:bg-slate-950/40 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                     value={page.ad_account_id || ''}
                                     onChange={(e) => handleLinkPage(page.id, e.target.value || null)}
                                   >
@@ -844,7 +931,7 @@ export default function MetaSettings({ onClose }) {
                                       return sameId(relatedBusiness?.connection_id, conn.id)
                                     }).map(acc => (
                                       <option key={acc.id} value={acc.id}>
-                                        {acc.name} ({acc.ad_account_id})
+                                        {acc.name}
                                       </option>
                                     ))}
                                   </select>
@@ -852,7 +939,7 @@ export default function MetaSettings({ onClose }) {
                                   <span className="block text-xs text-theme/60">
                                     {(() => {
                                       const linked = adAccounts.find(a => sameId(a.id, page.ad_account_id))
-                                      return linked ? `${linked.name} (${linked.ad_account_id})` : (isArabic ? 'غير مرتبط' : 'Not linked')
+                                      return linked ? linked.name : (isArabic ? 'غير مرتبط' : 'Not linked')
                                     })()}
                                   </span>
                                 )}
@@ -898,7 +985,7 @@ export default function MetaSettings({ onClose }) {
            <button
             onClick={handleSync}
             disabled={syncing}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-theme bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Sync Assets Now' : 'Sync All Assets'}
@@ -911,7 +998,7 @@ export default function MetaSettings({ onClose }) {
 
   const renderPixel = () => (
     <div className="space-y-6">
-      <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+      <div className="rounded-2xl shadow p-6 border border-gray-200  backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-medium text-theme flex items-center">
             <Activity className="w-5 h-5 mr-2 text-theme" />
@@ -932,10 +1019,10 @@ export default function MetaSettings({ onClose }) {
         <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6 text-theme">
           <Toggle
             label="Enable Conversions API (CAPI)"
-            description="Send events directly from server to improve tracking accuracy."
+            description={t('When enabled, this sends a Lead event to Meta for every new lead in your CRM, not only leads coming from Meta Lead Ads — this improves Meta\'s ad attribution and audience matching across all your lead sources.')}
             checked={enableCapi}
             onChange={setEnableCapi}
-            className="text-theme"
+            className="text-theme dark:text-slate-100"
           />
         </div>
 
@@ -945,7 +1032,7 @@ export default function MetaSettings({ onClose }) {
           </label>
           <div className="grid grid-cols-2 gap-4">
             {Object.keys(events).map(event => (
-              <label key={event} className="relative flex items-start p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-750 cursor-pointer">
+              <label key={event} className="relative flex items-start p-3 rounded-xl border border-gray-200 dark:border-white/10 dark:bg-white/5 hover:bg-white/70 dark:hover:bg-white/10 cursor-pointer">
                 <div className="min-w-0 flex-1 text-sm">
                   <div className="font-medium text-theme">{event}</div>
                 </div>
@@ -961,9 +1048,31 @@ export default function MetaSettings({ onClose }) {
             ))}
           </div>
         </div>
+
+        <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+          <button
+            type="button"
+            onClick={handleTestPixel}
+            disabled={testing || !settings.pixelId}
+            className="inline-flex items-center gap-2 rounded-xl border border-dashed border-amber-500/50 px-4 py-2.5 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-200"
+          >
+            <Zap className="h-4 w-4 text-yellow-500" />
+            {testing
+              ? (isArabic ? 'جاري الإرسال...' : 'Sending...')
+              : (isArabic ? 'إرسال حدث اختبار للبكسل' : 'Send Test Pixel Event')}
+          </button>
+          <p className="mt-2 text-xs text-[var(--muted-text)]">
+            {t('Temporary check only — does not change your Pixel settings.')}
+          </p>
+          {pixelTestResult && (
+            <p className={`mt-2 text-sm ${pixelTestResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+              {pixelTestResult.message}
+            </p>
+          )}
+        </div>
       </div>
 
-      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-100 dark:border-blue-800 flex items-start">
+      <div className="bg-blue-50/80 dark:bg-blue-500/10 rounded-2xl p-4 border border-blue-100 dark:border-blue-400/20 flex items-start backdrop-blur-xl">
         <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3" />
         <div className="text-sm text-blue-800 dark:text-blue-300">
           <p className="font-medium mb-1">Privacy & Data Handling</p>
@@ -975,7 +1084,7 @@ export default function MetaSettings({ onClose }) {
 
   const renderLeadSync = () => (
     <div className="space-y-6">
-      <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+      <div className="rounded-2xl shadow p-6 border border-gray-200  backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-medium text-theme flex items-center">
             <Database className="w-5 h-5 mr-2 text-theme" />
@@ -991,16 +1100,38 @@ export default function MetaSettings({ onClose }) {
           onChange={setAutoSync}
         />
 
-        <div className="mt-6 bg-blue-50 dark:bg-blue-900/20 rounded-md p-4 border border-blue-100 dark:border-blue-800">
+        <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/80 p-4 dark:border-blue-400/20 dark:bg-blue-500/10 backdrop-blur-xl">
           <p className="text-sm text-blue-800 dark:text-blue-300">
-            Note: Webhook configuration is managed by the System Administrator. 
-            Ensure your Facebook Page is connected to the App for leads to sync.
+            {isArabic
+              ? 'إعداد الويب هوك تتم إدارته من مسؤول النظام. تأكد أن صفحتك مربوطة ومفعّلة لاستقبال الليدز.'
+              : 'Webhook configuration is managed by the System Administrator. Ensure your Facebook Page is connected and active for leads to sync.'}
           </p>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={handleTestWebhook}
+              disabled={testingWebhook || !pages.some((p) => p?.is_active)}
+              className="inline-flex items-center gap-2 rounded-xl border border-dashed border-cyan-500/50 px-4 py-2.5 text-sm font-medium text-cyan-800 transition-colors hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-cyan-200"
+            >
+              <ShieldCheck className="h-4 w-4 text-blue-500" />
+              {testingWebhook
+                ? (isArabic ? 'جاري الاختبار...' : 'Testing...')
+                : (isArabic ? 'اختبار الويب هوك' : 'Test Webhook')}
+            </button>
+            <span className="text-xs text-blue-700/80 dark:text-blue-300/80">
+              {t('Temporary check only — does not save settings.')}
+            </span>
+          </div>
+          {webhookTestResult && (
+            <p className={`mt-3 text-sm ${webhookTestResult.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+              {webhookTestResult.message}
+            </p>
+          )}
         </div>
       </div>
 
       {/* Per-form Field Mapping */}
-      <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+      <div className="rounded-2xl shadow p-6 border border-gray-200  backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
         <h3 className="text-lg font-medium text-theme mb-4">{isArabic ? 'تعيين الحقول لكل نموذج' : 'Per-Form Field Mapping'}</h3>
         {loadingForms ? (
           <p className="text-sm text-theme">{isArabic ? 'جاري تحميل النماذج...' : 'Loading forms...'}</p>
@@ -1011,7 +1142,7 @@ export default function MetaSettings({ onClose }) {
             <select
               value={selectedFormId}
               onChange={(e) => setSelectedFormId(e.target.value)}
-              className="mb-4 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-transparent text-theme sm:text-sm py-2 px-3"
+              className="mb-4 block w-full rounded-xl border border-gray-300 bg-white/85 dark:border-white/10 dark:bg-white/5 text-theme dark:text-slate-100 sm:text-sm py-2 px-3"
             >
               {leadForms.map((form) => (
                 <option key={form.id} value={form.id}>
@@ -1040,7 +1171,7 @@ export default function MetaSettings({ onClose }) {
                           [key]: e.target.value,
                         },
                       }))}
-                      className="block w-full rounded-md border-gray-700 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-900 text-theme py-2 px-3"
+                      className="block w-full rounded-xl border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm bg-white/85 dark:border-white/10 dark:bg-slate-950/40 text-theme dark:text-slate-100 py-2 px-3"
                     />
                   </div>
                 </div>
@@ -1059,7 +1190,7 @@ export default function MetaSettings({ onClose }) {
       </div>
 
       {/* Default Field Mapping */}
-      <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+      <div className="rounded-2xl shadow p-6 border border-gray-200  backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
         <h3 className="text-lg font-medium text-theme mb-4">{isArabic ? 'تعيين الحقول الافتراضي' : 'Default Field Mapping'}</h3>
         <p className="text-sm text-theme mb-6">
           Map your Facebook Lead Form fields (left) to your CRM fields (right).
@@ -1079,7 +1210,7 @@ export default function MetaSettings({ onClose }) {
                  <input
                     value={value}
                     onChange={(e) => setFieldMap(prev => ({ ...prev, [key]: e.target.value }))}
-                    className="block w-full rounded-md border-gray-700 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-900 text-theme py-2 px-3"
+                    className="block w-full rounded-xl border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm bg-white/85 dark:border-white/10 dark:bg-slate-950/40 text-theme dark:text-slate-100 py-2 px-3"
                  />
                </div>
             </div>
@@ -1089,97 +1220,16 @@ export default function MetaSettings({ onClose }) {
     </div>
   )
 
-  const renderDiagnostics = () => (
-    <div className="h-full flex flex-col space-y-6">
-      {tenantHealth && (
-        <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-medium text-theme mb-4 flex items-center">
-            <Activity className="w-5 h-5 mr-2 text-theme" />
-            {isArabic ? 'صحة التكامل' : 'Integration Health'}
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            <div className="flex justify-between"><span>{isArabic ? 'تطبيق مشترك' : 'Shared app'}</span><span>{tenantHealth.shared_meta_configured ? 'OK' : 'Missing'}</span></div>
-            <div className="flex justify-between"><span>{isArabic ? 'صفحات نشطة' : 'Active pages'}</span><span>{tenantHealth.active_pages ?? 0}</span></div>
-            <div className="flex justify-between"><span>{isArabic ? 'تحتاج إعادة ربط' : 'Needs reauth'}</span><span>{tenantHealth.connections_needing_reauth ?? 0}</span></div>
-            <div className="flex justify-between"><span>{isArabic ? 'آخر ليد' : 'Last lead'}</span><span>{tenantHealth.last_lead_at || '—'}</span></div>
-            {tenantHealth.subscribe_summary && (
-              <div className="sm:col-span-2 text-theme/80">
-                {isArabic ? 'اشتراك webhook:' : 'Webhook subscribe:'}{' '}
-                {tenantHealth.subscribe_summary.subscribed ?? 0} {isArabic ? 'نجح' : 'ok'},{' '}
-                {tenantHealth.subscribe_summary.failed ?? 0} {isArabic ? 'فشل' : 'failed'}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="bg-transparent rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-medium text-theme mb-4 flex items-center">
-          <Terminal className="w-5 h-5 mr-2 text-theme" />
-          Integration Diagnostics
-        </h3>
-        
-        <div className="flex flex-wrap gap-3 mb-6">
-           <button
-             onClick={handleTestPixel}
-             disabled={testing}
-             className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-theme bg-transparent hover:bg-gray-700 focus:outline-none"
-           >
-             <Zap className="w-4 h-4 mr-2 text-yellow-500" />
-             Test Pixel Event
-           </button>
-           <button
-             onClick={handleTestWebhook}
-             disabled={testingWebhook}
-             className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-theme bg-transparent hover:bg-gray-700 focus:outline-none disabled:opacity-50"
-           >
-             <ShieldCheck className="w-4 h-4 mr-2 text-blue-500" />
-             {testingWebhook ? (isArabic ? 'جاري الاختبار...' : 'Testing...') : (isArabic ? 'اختبار الويب هوك' : 'Test Webhook')}
-           </button>
-        </div>
-
-        <div className="bg-gray-900 rounded-lg p-4 font-mono text-sm h-64 overflow-y-auto border border-gray-800 custom-scrollbar">
-          {logs.length === 0 ? (
-            <div className="text-gray-500 italic text-center mt-20">Ready to test. Logs will appear here.</div>
-          ) : (
-            logs.map((log, i) => (
-              <div key={i} className="mb-1.5 font-mono">
-                <span className="text-gray-500 mr-2">[{log.time}]</span>
-                <span className={`${
-                  log.type === 'error' ? 'text-red-400' : 
-                  log.type === 'success' ? 'text-green-400' : 
-                  log.type === 'warning' ? 'text-yellow-400' : 
-                  log.type === 'code' ? 'text-blue-300' : 'text-gray-300'
-                }`}>
-                  {log.message}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
-
-        {testPayload && (
-          <div className="mt-6">
-            <h4 className="text-sm font-medium text-theme mb-2">Last Test Payload</h4>
-            <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-x-auto border border-gray-800">
-              <pre className="text-green-400">{JSON.stringify(testPayload, null, 2)}</pre>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-
   return (
     <div className="fixed inset-0 z-[150] flex items-start justify-center overflow-y-auto bg-black/50 backdrop-blur-sm p-2 sm:items-center sm:p-6">
-      <div className="card rounded-xl shadow-2xl w-full max-w-5xl h-[92vh] max-h-[92vh] min-h-0 grid grid-cols-1 overflow-hidden border border-gray-200 dark:border-gray-800 sm:h-[85vh] sm:max-h-[85vh] sm:grid-cols-[16rem_1fr]">
+      <div className="card rounded-2xl shadow-2xl w-full max-w-5xl h-[92vh] max-h-[92vh] min-h-0 grid grid-cols-1 overflow-hidden border border-gray-200 dark:border-gray-800 sm:h-[85vh] sm:max-h-[85vh] sm:grid-cols-[16rem_1fr]">
         
         {/* Sidebar */}
         <div className="w-full flex-shrink-0 bg-transparent border-b border-gray-200 dark:border-gray-800 flex flex-col min-h-0 sm:border-b-0 sm:border-r">
           <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800">
             <div className="flex items-start justify-between gap-3">
               <h2 className="text-xl font-bold text-theme flex items-center">
-                <span className="bg-blue-600 text-theme p-1.5 rounded mr-2">
+                <span className="bg-blue-600 text-white p-1.5 rounded mr-2">
                    <Facebook className="w-4 h-4" />
                 </span>
                 {isArabic ? 'مزامنة ميتا' : 'Meta Sync'}
@@ -1193,35 +1243,26 @@ export default function MetaSettings({ onClose }) {
               </button>
             </div>
             <p className="text-xs text-theme mt-2">v2.5.0 • Graph API v19.0</p>
+            <div className="mt-3">
+              <StatusBadge connected={isConnected} />
+            </div>
           </div>
           
           <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
-            <TabButton 
-              active={activeTab === 'setup'} 
-              id="setup" 
-              icon={BookOpen} 
-              label={isArabic ? 'دليل الإعداد' : 'Setup Guide'} 
-              onClick={setActiveTab} 
-            />
-            <TabButton 
-              active={activeTab === 'go-live'} 
-              id="go-live" 
-              icon={ClipboardCheck} 
-              label={isArabic ? 'جاهزية الإطلاق' : 'Go-Live'} 
-              onClick={setActiveTab} 
-            />
+            {showSetupInNav && (
+              <TabButton 
+                active={activeTab === 'setup'} 
+                id="setup" 
+                icon={BookOpen} 
+                label={isArabic ? 'دليل الإعداد' : 'Setup Guide'} 
+                onClick={setActiveTab} 
+              />
+            )}
             <TabButton 
               active={activeTab === 'overview'} 
               id="overview" 
               icon={LayoutDashboard} 
               label={isArabic ? 'نظرة عامة' : 'Overview'} 
-              onClick={setActiveTab} 
-            />
-            <TabButton 
-              active={activeTab === 'pixel'} 
-              id="pixel" 
-              icon={Activity} 
-              label={isArabic ? 'البكسل و CAPI' : 'Pixel & CAPI'} 
               onClick={setActiveTab} 
             />
             <TabButton 
@@ -1232,40 +1273,48 @@ export default function MetaSettings({ onClose }) {
               onClick={setActiveTab} 
             />
             <TabButton 
-              active={activeTab === 'diagnostics'} 
-              id="diagnostics" 
-              icon={Terminal} 
-              label={isArabic ? 'التشخيص' : 'Diagnostics'} 
+              active={activeTab === 'pixel'} 
+              id="pixel" 
+              icon={Activity} 
+              label={isArabic ? 'البكسل و CAPI' : 'Pixel & CAPI'} 
               onClick={setActiveTab} 
             />
+            {setupCoreComplete && !showSetupInNav && (
+              <button
+                type="button"
+                onClick={openSetupGuide}
+                className="mx-4 mt-4 flex w-[calc(100%-2rem)] items-center gap-2 rounded-xl border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-[var(--muted-text)] transition-colors hover:border-blue-400 hover:text-blue-600 dark:border-gray-700 dark:hover:border-blue-500 dark:hover:text-blue-300"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+                {t('Re-run Setup Guide')}
+              </button>
+            )}
           </nav>
         </div>
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-transparent">
           {/* Header */}
-          <div className="sticky top-0 z-10 px-4 py-4 border-b border-gray-200 dark:border-gray-800 bg-transparent backdrop-blur flex justify-between items-center sm:px-8 sm:py-5">
+          <div className="hidden">
              <div>
                <h1 className="text-2xl font-bold text-theme">
                  {activeTab === 'setup' && (isArabic ? 'دليل إعداد ميتا' : 'Meta Setup Guide')}
-                 {activeTab === 'go-live' && (isArabic ? 'قائمة جاهزية الإطلاق' : 'Go-Live Checklist')}
                  {activeTab === 'overview' && (isArabic ? 'نظرة عامة على الحساب' : 'Account Overview')}
                  {activeTab === 'pixel' && (isArabic ? 'إعداد التتبع' : 'Tracking Configuration')}
                  {activeTab === 'leads' && (isArabic ? 'مزامنة العملاء المحتملين' : 'Lead Generation')}
-                 {activeTab === 'diagnostics' && (isArabic ? 'حالة النظام' : 'System Health')}
                </h1>
              </div>
               <div className="flex items-center space-x-4">
                {/* Auto-save Status Indicator */}
                <div className="text-sm font-medium transition-colors duration-300">
                   {saveStatus === 'pending' && <span className="text-gray-400">{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>}
-                  {saveStatus === 'saving' && <span className="text-blue-500 animate-pulse">{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>}
-                  {saveStatus === 'saved' && <span className="text-green-500 flex items-center"><CheckCircle className="w-4 h-4 mr-1"/>{isArabic ? 'تم الحفظ' : 'Saved'}</span>}
+                  {saveStatus === 'saving' && <span className="text-blue-500 dark:text-blue-300 animate-pulse">{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>}
+                  {saveStatus === 'saved' && <span className="text-green-500 dark:text-emerald-300 flex items-center"><CheckCircle className="w-4 h-4 mr-1"/>{isArabic ? 'تم الحفظ' : 'Saved'}</span>}
                   {saveStatus === 'error' && <span className="text-red-500">{isArabic ? 'فشل الحفظ' : 'Save Failed'}</span>}
                </div>
                <button
                  onClick={onClose}
-                 className="hidden sm:inline-flex shrink-0 p-2 text-gray-900 dark:text-gray-100 hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
+                 className="hidden sm:inline-flex shrink-0 rounded-full bg-white/90 p-2 text-gray-900 shadow-md backdrop-blur transition-colors hover:text-gray-500 hover:bg-white dark:bg-slate-900/90 dark:text-gray-100 dark:hover:bg-slate-800"
                >
                  <XCircle className="w-6 h-6 text-gray-900 dark:text-gray-100" />
                </button>
@@ -1273,7 +1322,32 @@ export default function MetaSettings({ onClose }) {
           </div>
 
           {/* Scrollable Body */}
-          <div className="flex-1 overflow-auto p-4 sm:p-8 custom-scrollbar">
+          <div className="flex-1 overflow-auto p-4 sm:p-8 custom-scrollbar space-y-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-theme">{activeTitle}</h1>
+                <p className="text-sm text-theme/70 mt-1">
+                  {isArabic
+                    ? 'اربط فيسبوك، فعّل الصفحات، اضبط استقبال الليدز، وراجع حالة التكامل من مكان واحد.'
+                    : 'Connect Facebook, activate pages, configure lead intake, and review integration health from one place.'}
+                </p>
+              </div>
+              <div className="hidden sm:flex items-center gap-4">
+                <div className="text-sm font-medium transition-colors duration-300">
+                  {saveStatus === 'pending' && <span className="text-gray-400">{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>}
+                  {saveStatus === 'saving' && <span className="text-blue-500 animate-pulse">{isArabic ? 'جارٍ الحفظ...' : 'Saving...'}</span>}
+                  {saveStatus === 'saved' && <span className="text-green-500 flex items-center"><CheckCircle className="w-4 h-4 mr-1"/>{isArabic ? 'تم الحفظ' : 'Saved'}</span>}
+                  {saveStatus === 'error' && <span className="text-red-500">{isArabic ? 'فشل الحفظ' : 'Save Failed'}</span>}
+                </div>
+                <button
+                  onClick={onClose}
+                  className="hidden sm:inline-flex shrink-0 p-2 text-gray-900 dark:text-gray-100 hover:text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800 rounded-full transition-colors bg-white/90 shadow-md backdrop-blur dark:bg-gray-900/90"
+                  aria-label="Close"
+                >
+                  <XCircle className="w-6 h-6 text-gray-900 dark:text-gray-100" />
+                </button>
+              </div>
+            </div>
             {loading ? (
               <div className="flex flex-col items-center justify-center h-full space-y-4">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -1282,11 +1356,9 @@ export default function MetaSettings({ onClose }) {
             ) : (
               <>
                 {activeTab === 'setup' && renderSetupGuide()}
-                {activeTab === 'go-live' && renderGoLive()}
                 {activeTab === 'overview' && renderOverview()}
                 {activeTab === 'pixel' && renderPixel()}
                 {activeTab === 'leads' && renderLeadSync()}
-                {activeTab === 'diagnostics' && renderDiagnostics()}
               </>
             )}
           </div>

@@ -47,7 +47,7 @@ class MetaDataDeletionController extends Controller
 
         $confirmationCode = (string) Str::uuid();
         $statusUrl = rtrim((string) config('app.frontend_url', config('app.url')), '/')
-            . '/privacy/data-deletion?code=' . urlencode($confirmationCode);
+            . '/privacy/dataDeletion?code=' . urlencode($confirmationCode);
 
         $connections = MetaConnection::withoutGlobalScopes()
             ->where('fb_user_id', $fbUserId)

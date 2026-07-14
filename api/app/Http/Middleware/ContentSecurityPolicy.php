@@ -22,6 +22,7 @@ class ContentSecurityPolicy
         // if the backend ever serves HTML content.
         $csp = "default-src 'self'; " .
                "img-src 'self' data: blob: http: https: https://images.unsplash.com https://source.unsplash.com https://dummyimage.com https://*.tile.openstreetmap.org https://mt0.google.com https://mt1.google.com https://mt2.google.com https://mt3.google.com https://unpkg.com https://www.facebook.com https://www.google-analytics.com https://www.googletagmanager.com; " .
+               "media-src 'self' data: blob: http: https:; " .
                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " .
                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://connect.facebook.net https://www.googletagmanager.com https://www.google-analytics.com https://static.cloudflareinsights.com; " .
                "worker-src 'self' blob:; " .

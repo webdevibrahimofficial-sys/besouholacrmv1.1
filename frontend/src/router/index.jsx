@@ -23,6 +23,7 @@ const Pricing = lazyRetry(() => import('../pages/Pricing'))
 const About = lazyRetry(() => import('../pages/About'))
 const Privacy = lazyRetry(() => import('../pages/Privacy'))
 const Terms = lazyRetry(() => import('../pages/Terms'))
+const DataDeletionStatus = lazyRetry(() => import('../pages/DataDeletionStatus'))
 const WelcomeContact = lazyRetry(() => import('../pages/WelcomeContact'))
 const ContactUs = lazyRetry(() => import('../pages/ContactUs'))
 const Tasks = lazyRetry(() => import('../pages/Tasks'))
@@ -314,6 +315,7 @@ export default function AppRouter() {
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/about" element={<About />} />
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/privacy/dataDeletion" element={<DataDeletionStatus />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/welcome/contact" element={<WelcomeContact />} />
         <Route path="/landing-preview" element={<LandingPagePreview />} />

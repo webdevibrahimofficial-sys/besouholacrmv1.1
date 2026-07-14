@@ -18,8 +18,8 @@ import {
 const StepCard = ({ icon: Icon, title, description, complete, helper, actionLabel, onAction, actionDisabled }) => (
   <div className={`rounded-2xl border p-4 transition-colors ${
     complete
-      ? 'border-green-200 bg-green-50/80 dark:border-green-800 dark:bg-green-900/10'
-      : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900/20'
+      ? 'border-green-200 bg-green-50/80 dark:border-emerald-500/30 dark:bg-[linear-gradient(180deg,rgba(6,78,59,0.22),rgba(2,44,34,0.18))]'
+      : 'border-gray-200 bg-white dark:border-blue-500/20 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(17,24,39,0.78))]'
   }`}>
     <div className="flex items-start gap-3">
       <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
@@ -42,7 +42,7 @@ const StepCard = ({ icon: Icon, title, description, complete, helper, actionLabe
               type="button"
               onClick={onAction}
               disabled={actionDisabled}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-theme transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-theme transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-500/20 dark:bg-slate-950/45 dark:hover:bg-slate-800"
             >
               <ExternalLink className="h-4 w-4" />
               {actionLabel}
@@ -56,10 +56,10 @@ const StepCard = ({ icon: Icon, title, description, complete, helper, actionLabe
 
 const ChecklistItem = ({ title, value, accent = 'default' }) => {
   const toneClasses = {
-    default: 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900/20',
-    blue: 'border-blue-200 bg-blue-50/80 dark:border-blue-800 dark:bg-blue-900/10',
-    amber: 'border-amber-200 bg-amber-50/80 dark:border-amber-800 dark:bg-amber-900/10',
-    green: 'border-green-200 bg-green-50/80 dark:border-green-800 dark:bg-green-900/10',
+    default: 'border-gray-200 bg-white dark:border-blue-500/20 dark:bg-slate-900/65',
+    blue: 'border-blue-200 bg-blue-50/80 dark:border-blue-500/30 dark:bg-blue-950/30',
+    amber: 'border-amber-200 bg-amber-50/80 dark:border-amber-500/30 dark:bg-amber-950/20',
+    green: 'border-green-200 bg-green-50/80 dark:border-emerald-500/30 dark:bg-emerald-950/20',
   }
 
   return (
@@ -183,9 +183,9 @@ export default function MetaSetupGuide({
 
     if (!hasFirstLead) {
       return {
-        label: t('Open Diagnostics'),
+        label: t('Open Overview'),
         description: t('Submit a test lead from Facebook or wait for your first real Lead Ad submission.'),
-        onClick: () => onOpenTab('diagnostics'),
+        onClick: () => onOpenTab('overview'),
       }
     }
 
@@ -272,7 +272,7 @@ export default function MetaSetupGuide({
       helper: subscribedCount > 0
         ? t('{{subscribed}} page subscription(s) succeeded.', { subscribed: subscribedCount })
         : failedSubscribeCount > 0
-          ? t('{{failed}} subscription attempt(s) failed. Check diagnostics.', { failed: failedSubscribeCount })
+          ? t('{{failed}} subscription attempt(s) failed. Run Test Webhook or contact support.', { failed: failedSubscribeCount })
           : t('Run a webhook test after activating pages.'),
       complete: subscribedCount > 0,
       actionLabel: testingWebhook ? t('Testing...') : t('Test Webhook'),
@@ -287,8 +287,8 @@ export default function MetaSetupGuide({
         ? t('Last lead received: {{date}}', { date: tenantHealth.last_lead_at })
         : t('No Meta leads received yet.'),
       complete: hasFirstLead,
-      actionLabel: t('Open Diagnostics'),
-      onAction: () => onOpenTab('diagnostics'),
+      actionLabel: t('Open Overview'),
+      onAction: () => onOpenTab('overview'),
     },
   ]
 
@@ -304,8 +304,8 @@ export default function MetaSetupGuide({
         </div>
       )}
 
-      <div className="card overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
-        <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+      <div className="overflow-hidden rounded-[24px] border border-gray-200 bg-white/70 shadow-sm dark:border-blue-500/25 dark:bg-[linear-gradient(180deg,rgba(24,39,78,0.58),rgba(19,30,58,0.78))]">
+        <div className="border-b border-gray-200 px-5 py-4 dark:border-blue-500/25">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold text-theme">
@@ -321,7 +321,7 @@ export default function MetaSetupGuide({
               <div className="w-full lg:w-[22rem]">
                 <label className="mb-1.5 block text-sm font-medium text-theme">{t('Setup Agency')}</label>
                 <select
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-transparent text-theme sm:text-sm py-2 px-3"
+                  className="block w-full rounded-xl border border-gray-300 bg-white/90 text-theme sm:text-sm py-2 px-3 dark:border-blue-500/20 dark:bg-slate-950/70"
                   value={selectedAgencyId}
                   onChange={(e) => onSelectAgency(e.target.value)}
                 >
@@ -339,7 +339,7 @@ export default function MetaSetupGuide({
 
         <div className="p-5 space-y-5">
           <div className="grid gap-5 xl:grid-cols-[1.35fr_0.95fr]">
-            <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-5 dark:border-gray-700 dark:bg-gray-900/20">
+            <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-5 dark:border-blue-500/20 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(19,31,58,0.7))]">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-text)]">
@@ -353,7 +353,7 @@ export default function MetaSetupGuide({
                   </div>
                 </div>
 
-                <div className="min-w-[7rem] rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-center dark:border-blue-800 dark:bg-blue-900/10">
+                <div className="min-w-[7rem] rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-center dark:border-blue-500/30 dark:bg-blue-950/35">
                   <div className="text-xs text-blue-700 dark:text-blue-300">{t('Progress')}</div>
                   <div className="mt-1 text-2xl font-bold text-blue-700 dark:text-blue-200">{progressPercent}%</div>
                 </div>
@@ -391,7 +391,7 @@ export default function MetaSetupGuide({
             </div>
 
             <div className="space-y-4">
-              <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-5 dark:border-blue-800 dark:bg-blue-900/10">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-5 dark:border-blue-500/30 dark:bg-[linear-gradient(180deg,rgba(29,78,216,0.22),rgba(30,41,59,0.7))]">
                 <div className="text-sm font-semibold text-blue-900 dark:text-blue-200">{t('Next recommended action')}</div>
                 <p className="mt-2 text-sm text-blue-800 dark:text-blue-300">{nextAction.description}</p>
                 <button
@@ -406,7 +406,7 @@ export default function MetaSetupGuide({
               </div>
 
               {allCoreStepsDone && !hasFirstLead && (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-5 dark:border-amber-800 dark:bg-amber-900/10">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-5 dark:border-amber-500/30 dark:bg-amber-950/20">
                   <div className="flex items-start gap-3">
                     <Activity className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" />
                     <div>
@@ -420,7 +420,7 @@ export default function MetaSetupGuide({
               )}
 
               {enableCapi && (
-                <div className="rounded-2xl border border-gray-200 p-4 text-sm dark:border-gray-700">
+                <div className="rounded-2xl border border-gray-200 p-4 text-sm dark:border-blue-500/20 dark:bg-slate-950/45">
                   <div className="flex items-center gap-2 font-medium text-theme">
                     <Link2 className="h-4 w-4 text-[#1877F2]" />
                     {t('CAPI enabled')}
@@ -441,7 +441,7 @@ export default function MetaSetupGuide({
             ))}
           </div>
 
-          <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-700">
+          <div className="rounded-2xl border border-gray-200 p-5 dark:border-blue-500/20 dark:bg-slate-950/45">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-300" />
               <h4 className="text-sm font-semibold text-theme">{t('Troubleshooting quick guide')}</h4>
@@ -455,7 +455,7 @@ export default function MetaSetupGuide({
           </div>
 
           {loading ? (
-            <div className="rounded-xl border border-gray-200 p-4 text-sm text-[var(--muted-text)] dark:border-gray-700">
+            <div className="rounded-xl border border-gray-200 p-4 text-sm text-[var(--muted-text)] dark:border-blue-500/20 dark:bg-slate-950/40">
               {t('Loading setup status...')}
             </div>
           ) : null}

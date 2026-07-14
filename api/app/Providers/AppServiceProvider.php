@@ -93,6 +93,7 @@ class AppServiceProvider extends ServiceProvider
         // Register Observers
         \App\Models\Lead::observe(\App\Observers\LeadObserver::class);
         \App\Models\LeadAction::observe(\App\Observers\LeadActionObserver::class);
+        \App\Models\Revenue::observe(\App\Observers\RevenueObserver::class);
 
         Event::listen(NotificationSent::class, SendFcmNotificationForDatabaseChannel::class);
         Queue::failing(function (JobFailed $event) {

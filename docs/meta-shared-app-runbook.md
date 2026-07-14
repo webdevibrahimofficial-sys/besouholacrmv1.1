@@ -9,7 +9,7 @@ Operational guide for the shared Meta (Facebook) application integration after m
 - **Tenant routing** by `page_id` in webhook payloads
 - **Tenant OAuth** links Facebook accounts and syncs pages/ad accounts
 - **Data deletion** callback: `POST /api/facebook/data-deletion`
-- **Deletion status page**: `{FRONTEND_URL}/privacy/data-deletion?code={confirmation_code}`
+- **Deletion status page**: `{FRONTEND_URL}/privacy/dataDeletion?code={confirmation_code}`
 
 ## Meta Developer Console Checklist
 
@@ -22,7 +22,7 @@ Operational guide for the shared Meta (Facebook) application integration after m
    - Subscribe to `leadgen`
 4. **App Review** (if required):
    - Data Deletion Callback URL: `{API_URL}/api/facebook/data-deletion`
-   - Data Deletion Status URL: `{FRONTEND_URL}/privacy/data-deletion`
+   - Data Deletion Status URL: `{FRONTEND_URL}/privacy/dataDeletion`
 5. Ensure app has permissions: `leads_retrieval`, `pages_manage_metadata`, `pages_show_list`, `ads_read`, `business_management`.
 
 ## Deployment Commands

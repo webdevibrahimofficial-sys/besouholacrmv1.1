@@ -102,7 +102,7 @@ export default function MetaIntegration() {
               <li>{t('Meta integration is managed centrally. Contact support if integration is not enabled for your account.')}</li>
               <li>{t('Webhooks are configured by your system administrator — no manual setup is required on your end.')}</li>
               <li>{t('Then connect a Facebook account to sync businesses, ad accounts, pages, and Lead Ads.')}</li>
-              <li>{t('Enable CAPI for better ad optimization and tracking accuracy.')}</li>
+              <li>{t('When CAPI is enabled under Pixel & CAPI with a Pixel ID, new Meta Lead Ads send a Lead event to Meta. Full CRM lifecycle events are not wired yet.')}</li>
               <li>{t('Connect Google Ads to view campaign performance alongside sales data.')}</li>
             </ul>
           </div>

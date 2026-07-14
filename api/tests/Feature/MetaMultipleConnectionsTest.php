@@ -7,8 +7,8 @@ use App\Models\MetaConnection;
 use App\Models\Tenant;
 use App\Services\MetaAccessTokenService;
 use App\Services\MetaAuthService;
-use App\Services\MetaCapiService;
 use App\Services\MetaLeadService;
+use App\Services\TenantAdminResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Tests\TestCase;
@@ -177,10 +177,7 @@ class MetaMultipleConnectionsTest extends TestCase
             ->with($tenant->id)
             ->andReturn(null);
 
-        $capiService = Mockery::mock(MetaCapiService::class);
-        $capiService->shouldNotReceive('sendLeadEventIfEnabled');
-
-        $service = new MetaLeadService($apiClient, $accessTokenService, $capiService);
+        $service = new MetaLeadService($apiClient, $accessTokenService, app(\App\Services\TenantAdminResolver::class));
         $service->processLead($tenant->id, 'lead-123');
 
         $this->assertTrue(true);

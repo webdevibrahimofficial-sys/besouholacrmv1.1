@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use App\Contracts\MetaApiClientInterface;
+use App\Models\CcCustomer;
 use App\Models\Integration;
 use App\Models\Lead;
+use App\Models\Revenue;
+use App\Models\Tenant;
 use Illuminate\Support\Facades\Log;
 
 class MetaCapiService
@@ -54,34 +57,76 @@ class MetaCapiService
 
     public function sendLeadEventIfEnabled(int|string $tenantId, Lead $lead, ?Integration $integration = null): ?array
     {
-        if (!$lead->wasRecentlyCreated) {
+        return $this->sendLifecycleEventIfEnabled(
+            tenantId: $tenantId,
+            eventKey: 'Lead',
+            lead: $lead,
+            integration: $integration,
+            eventBuilder: fn () => $this->buildLeadEvent($lead),
+            logLabel: 'lead'
+        );
+    }
+
+    public function sendCompleteRegistrationEventIfEnabled(int|string $tenantId, Lead $lead, ?Integration $integration = null): ?array
+    {
+        return $this->sendLifecycleEventIfEnabled(
+            tenantId: $tenantId,
+            eventKey: 'CompleteRegistration',
+            lead: $lead,
+            integration: $integration,
+            eventBuilder: fn () => $this->buildCompleteRegistrationEvent($lead),
+            logLabel: 'complete_registration'
+        );
+    }
+
+    public function sendPurchaseEventIfEnabled(int|string $tenantId, Lead $lead, Revenue $revenue, ?Integration $integration = null): ?array
+    {
+        return $this->sendLifecycleEventIfEnabled(
+            tenantId: $tenantId,
+            eventKey: 'Purchase',
+            lead: $lead,
+            integration: $integration,
+            eventBuilder: fn () => $this->buildPurchaseEvent($lead, $revenue),
+            logLabel: 'purchase'
+        );
+    }
+
+    /**
+     * @param  callable(): array<string, mixed>  $eventBuilder
+     */
+    protected function sendLifecycleEventIfEnabled(
+        int|string $tenantId,
+        string $eventKey,
+        Lead $lead,
+        ?Integration $integration,
+        callable $eventBuilder,
+        string $logLabel
+    ): ?array {
+        $settings = $this->resolveSettings($tenantId, $integration);
+        if ($settings === null) {
             return null;
         }
 
-        $integration = $integration ?? Integration::where('tenant_id', $tenantId)
-            ->where('provider', 'meta')
-            ->first();
-        $settings = is_array($integration?->settings) ? $integration->settings : [];
-
-        if (empty($settings['enableCapi'])) {
+        $events = is_array($settings['events'] ?? null) ? $settings['events'] : [];
+        if (empty($events[$eventKey])) {
             return null;
         }
 
         $pixelId = trim((string) ($settings['pixelId'] ?? ''));
         if ($pixelId === '') {
-            Log::info('Meta CAPI skipped: pixel ID not configured.', ['tenant_id' => $tenantId, 'lead_id' => $lead->id]);
-            return null;
-        }
+            Log::info("Meta CAPI skipped: pixel ID not configured.", [
+                'tenant_id' => $tenantId,
+                'lead_id' => $lead->id,
+                'event' => $eventKey,
+            ]);
 
-        $events = is_array($settings['events'] ?? null) ? $settings['events'] : [];
-        if (empty($events['Lead'])) {
             return null;
         }
 
         try {
-            return $this->sendEvent($tenantId, $pixelId, $this->buildLeadEvent($lead));
+            return $this->sendEvent($tenantId, $pixelId, $eventBuilder());
         } catch (\Throwable $e) {
-            Log::warning('Meta CAPI lead event failed.', [
+            Log::warning("Meta CAPI {$logLabel} event failed.", [
                 'tenant_id' => $tenantId,
                 'lead_id' => $lead->id,
                 'error' => $e->getMessage(),
@@ -89,6 +134,24 @@ class MetaCapiService
 
             return null;
         }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function resolveSettings(int|string $tenantId, ?Integration $integration = null): ?array
+    {
+        $integration = $integration ?? Integration::where('tenant_id', $tenantId)
+            ->where('provider', 'meta')
+            ->first();
+
+        $settings = is_array($integration?->settings) ? $integration->settings : [];
+
+        if (empty($settings['enableCapi'])) {
+            return null;
+        }
+
+        return $settings;
     }
 
     /**
@@ -101,6 +164,7 @@ class MetaCapiService
                 'tenant_id' => $tenantId,
                 'pixel_id' => $pixelId,
                 'event_name' => $event['event_name'] ?? null,
+                'event_id' => $event['event_id'] ?? null,
             ]);
 
             return ['mock' => true, 'events_received' => 1];
@@ -136,9 +200,11 @@ class MetaCapiService
     protected function buildLeadEvent(Lead $lead): array
     {
         $metaData = is_array($lead->meta_data) ? $lead->meta_data : [];
-        $eventId = $lead->meta_id ? 'meta_lead_' . $lead->meta_id : 'crm_lead_' . $lead->id;
+        $eventId = $lead->meta_id
+            ? 'meta_lead_' . $lead->meta_id
+            : 'crm_lead_' . $lead->id . '_created';
 
-        $event = [
+        return [
             'event_name' => 'Lead',
             'event_time' => $lead->created_at?->getTimestamp() ?? time(),
             'action_source' => 'system_generated',
@@ -149,8 +215,70 @@ class MetaCapiService
                 'content_name' => $metaData['form_name'] ?? null,
             ]),
         ];
+    }
 
-        return $event;
+    /**
+     * @return array<string, mixed>
+     */
+    protected function buildCompleteRegistrationEvent(Lead $lead): array
+    {
+        return [
+            'event_name' => 'CompleteRegistration',
+            'event_time' => time(),
+            'action_source' => 'system_generated',
+            'event_id' => 'crm_lead_' . $lead->id . '_registered',
+            'user_data' => $this->hashUserData($lead->email, $lead->phone, $lead->name),
+            'custom_data' => [
+                'lead_event_source' => 'crm',
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function buildPurchaseEvent(Lead $lead, Revenue $revenue): array
+    {
+        $currency = trim((string) ($revenue->currency ?? ''));
+        if ($currency === '') {
+            $currency = 'EGP';
+        }
+
+        $customData = array_filter([
+            'value' => (float) $revenue->amount,
+            'currency' => $currency,
+            'lead_event_source' => 'crm',
+            'content_name' => $this->resolvePurchaseContentName($lead, $revenue),
+        ], fn ($value) => $value !== null && $value !== '');
+
+        return [
+            'event_name' => 'Purchase',
+            'event_time' => $revenue->created_at?->getTimestamp() ?? time(),
+            'action_source' => 'system_generated',
+            'event_id' => 'revenue_' . $revenue->id,
+            'user_data' => $this->hashUserData($lead->email, $lead->phone, $lead->name),
+            'custom_data' => $customData,
+        ];
+    }
+
+    protected function resolvePurchaseContentName(Lead $lead, Revenue $revenue): ?string
+    {
+        $tenant = Tenant::query()->find($revenue->tenant_id ?: $lead->tenant_id);
+        if (! $tenant) {
+            return null;
+        }
+
+        $slugs = app(ModuleService::class)->enabledForTenant($tenant)->pluck('slug');
+        if (! $slugs->contains('contract_collections')) {
+            return null;
+        }
+
+        $ccCustomer = CcCustomer::where('lead_id', $lead->id)->first();
+        $contract = $ccCustomer?->contracts()->latest('id')->first();
+
+        $contractNumber = trim((string) ($contract?->contract_number ?? ''));
+
+        return $contractNumber !== '' ? $contractNumber : null;
     }
 
     /**
@@ -173,10 +301,10 @@ class MetaCapiService
 
         if (is_string($name) && trim($name) !== '') {
             $parts = preg_split('/\s+/', trim($name), 2);
-            if (!empty($parts[0])) {
+            if (! empty($parts[0])) {
                 $userData['fn'] = hash('sha256', strtolower(trim($parts[0])));
             }
-            if (!empty($parts[1])) {
+            if (! empty($parts[1])) {
                 $userData['ln'] = hash('sha256', strtolower(trim($parts[1])));
             }
         }

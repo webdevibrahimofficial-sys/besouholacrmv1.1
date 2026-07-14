@@ -2,8 +2,10 @@
 
 namespace App\Observers;
 
-use App\Models\LeadAction;
 use App\Models\Lead;
+use App\Models\LeadAction;
+use App\Services\MetaCapiService;
+use Illuminate\Support\Facades\Log;
 
 class LeadActionObserver
 {
@@ -17,6 +19,31 @@ class LeadActionObserver
             Lead::where('id', $action->lead_id)->update([
                 'last_action_at' => $action->created_at ?? now(),
                 'last_contact' => $action->created_at ?? now(),
+            ]);
+
+            $this->dispatchCompleteRegistrationIfFirstAction($action);
+        }
+    }
+
+    protected function dispatchCompleteRegistrationIfFirstAction(LeadAction $action): void
+    {
+        $actionCount = LeadAction::where('lead_id', $action->lead_id)->count();
+        if ($actionCount !== 1) {
+            return;
+        }
+
+        $lead = Lead::find($action->lead_id);
+        if (! $lead?->tenant_id) {
+            return;
+        }
+
+        try {
+            app(MetaCapiService::class)->sendCompleteRegistrationEventIfEnabled($lead->tenant_id, $lead);
+        } catch (\Throwable $e) {
+            Log::warning('Meta CAPI CompleteRegistration observer dispatch failed.', [
+                'tenant_id' => $lead->tenant_id,
+                'lead_id' => $lead->id,
+                'error' => $e->getMessage(),
             ]);
         }
     }
