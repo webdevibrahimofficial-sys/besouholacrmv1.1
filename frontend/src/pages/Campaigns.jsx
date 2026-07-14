@@ -594,19 +594,19 @@ export default function Campaigns() {
 
           {/* Source */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Source'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'المصدر' : 'Source'}</label>
             <SearchableSelect
               value={filters.source}
               onChange={(val) => setFilters(prev => ({ ...prev, source: val }))}
               options={sources.map(source => ({ value: source.name || source.title || source.value, label: source.name || source.title || source.value }))}
               isRTL={isArabic}
-              placeholder={isArabic ? '????' : 'All'}
+              placeholder={isArabic ? 'الكل' : 'All'}
             />
           </div>
 
           {/* Origin */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Origin'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'المنصة' : 'Origin'}</label>
             <SearchableSelect
               value={filters.provider}
               onChange={(val) => setFilters(prev => ({ ...prev, provider: val }))}
@@ -618,13 +618,13 @@ export default function Campaigns() {
                 { value: 'linkedin', label: providerLabel('linkedin') },
               ]}
               isRTL={isArabic}
-              placeholder={isArabic ? '????' : 'All'}
+              placeholder={isArabic ? 'الكل' : 'All'}
             />
           </div>
 
           {/* Status */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Status'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'الحالة' : 'Status'}</label>
             <SearchableSelect
               value={filters.status}
               onChange={(val) => setFilters(prev => ({ ...prev, status: val }))}
@@ -635,7 +635,7 @@ export default function Campaigns() {
                 { value: 'Ended', label: 'Ended' }
               ]}
               isRTL={isArabic}
-              placeholder={isArabic ? '????' : 'All'}
+              placeholder={isArabic ? 'الكل' : 'All'}
             />
           </div>
 
@@ -643,40 +643,40 @@ export default function Campaigns() {
         <div className={`campaign-filter-advanced mt-4 grid grid-cols-1 md:grid-cols-4 gap-4 transition-all duration-300 overflow-hidden ${showAllFilters ? 'max-h-[1200px] opacity-100 pt-4' : 'max-h-0 opacity-0 pt-0'}`}>
           {/* Budget Type */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??? ?????????' : 'Budget Type'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'نوع الميزانية' : 'Budget Type'}</label>
             <SearchableSelect
               value={filters.budgetType}
               onChange={(val) => setFilters(prev => ({ ...prev, budgetType: val }))}
               options={[
-                { value: 'daily', label: isArabic ? '????' : 'Daily' },
-                { value: 'lifetime', label: isArabic ? '??????' : 'Lifetime' }
+                { value: 'daily', label: isArabic ? 'يومية' : 'Daily' },
+                { value: 'lifetime', label: isArabic ? 'إجمالية' : 'Lifetime' }
               ]}
               isRTL={isArabic}
-              placeholder={isArabic ? '????' : 'All'}
+              placeholder={isArabic ? 'الكل' : 'All'}
             />
           </div>
           {/* Created By */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????' : 'Created By'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'أُنشئت بواسطة' : 'Created By'}</label>
             <SearchableSelect
               value={filters.createdBy}
               onChange={(val) => setFilters(prev => ({ ...prev, createdBy: val }))}
               options={usersList.map(u => ({ value: u.name, label: u.name }))}
               isRTL={isArabic}
-              placeholder={isArabic ? '????' : 'All'}
+              placeholder={isArabic ? 'الكل' : 'All'}
             />
           </div>
           <div className="space-y-2">
             <label className={`campaign-range-label ${isArabic ? 'flex-row-reverse justify-end' : ''}`}>
               <FaRegCalendarAlt className="campaign-range-label__icon" />
-              <span>{isArabic ? '????? ???????' : 'Start Date'}</span>
+              <span>{isArabic ? 'تاريخ البداية' : 'Start Date'}</span>
             </label>
             <DateRangePicker
               from={filters.startDateFrom}
               to={filters.startDateTo}
               isRTL={isArabic}
               onChange={({ from, to }) => setFilters(prev => ({ ...prev, startDateFrom: from, startDateTo: to }))}
-              placeholderText={isArabic ? '?? - ???' : 'From - To'}
+              placeholderText={isArabic ? 'من - إلى' : 'From - To'}
               wrapperClassName="w-full"
               className={`campaign-range-input ${isArabic ? 'text-right' : 'text-left'}`}
               calendarClassName="campaign-range-calendar"
@@ -687,14 +687,14 @@ export default function Campaigns() {
           <div className="space-y-2">
             <label className={`campaign-range-label ${isArabic ? 'flex-row-reverse justify-end' : ''}`}>
               <FaRegCalendarAlt className="campaign-range-label__icon" />
-              <span>{isArabic ? '????? ????????' : 'End Date'}</span>
+              <span>{isArabic ? 'تاريخ الانتهاء' : 'End Date'}</span>
             </label>
             <DateRangePicker
               from={filters.endDateFrom}
               to={filters.endDateTo}
               isRTL={isArabic}
               onChange={({ from, to }) => setFilters(prev => ({ ...prev, endDateFrom: from, endDateTo: to }))}
-              placeholderText={isArabic ? '?? - ???' : 'From - To'}
+              placeholderText={isArabic ? 'من - إلى' : 'From - To'}
               wrapperClassName="w-full"
               className={`campaign-range-input ${isArabic ? 'text-right' : 'text-left'}`}
               calendarClassName="campaign-range-calendar"
@@ -703,11 +703,11 @@ export default function Campaigns() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '????????? ??' : 'Budget Min'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'الميزانية من' : 'Budget Min'}</label>
             <input type="number" className="input w-full text-sm" value={filters.budgetMin} onChange={e => setFilters(p => ({ ...p, budgetMin: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '????????? ???' : 'Budget Max'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'الميزانية إلى' : 'Budget Max'}</label>
             <input type="number" className="input w-full text-sm" value={filters.budgetMax} onChange={e => setFilters(p => ({ ...p, budgetMax: e.target.value }))} />
           </div>
           <div className="space-y-1">
@@ -727,19 +727,19 @@ export default function Campaigns() {
             <input type="number" className="input w-full text-sm" value={filters.cpaMax} onChange={e => setFilters(p => ({ ...p, cpaMax: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '???? ??????? ??' : 'Conv. Rate Min (%)'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'معدل التحويل من %' : 'Conv. Rate Min (%)'}</label>
             <input type="number" className="input w-full text-sm" value={filters.convMin} onChange={e => setFilters(p => ({ ...p, convMin: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '???? ??????? ???' : 'Conv. Rate Max (%)'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'معدل التحويل إلى %' : 'Conv. Rate Max (%)'}</label>
             <input type="number" className="input w-full text-sm" value={filters.convMax} onChange={e => setFilters(p => ({ ...p, convMax: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????? ??????? ??' : 'Cost/Day Min'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'التكلفة اليومية من' : 'Cost/Day Min'}</label>
             <input type="number" className="input w-full text-sm" value={filters.cpdMin} onChange={e => setFilters(p => ({ ...p, cpdMin: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? '??????? ??????? ???' : 'Cost/Day Max'}</label>
+            <label className="text-xs font-medium text-[var(--muted-text)]">{isArabic ? 'التكلفة اليومية إلى' : 'Cost/Day Max'}</label>
             <input type="number" className="input w-full text-sm" value={filters.cpdMax} onChange={e => setFilters(p => ({ ...p, cpdMax: e.target.value }))} />
           </div>
         </div>
