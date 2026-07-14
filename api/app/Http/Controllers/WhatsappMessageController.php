@@ -48,7 +48,7 @@ class WhatsappMessageController extends Controller
 
         return response()->json([
             'provider' => $providerKey,
-            'media_supported' => $providerKey === 'meta',
+            'media_supported' => in_array($providerKey, ['meta', 'mirror'], true),
             'templates_supported' => $providerKey === 'meta',
         ]);
     }
@@ -154,9 +154,9 @@ class WhatsappMessageController extends Controller
         ]);
 
         $providerKey = $providerResolver->activeProviderKey((int) $user->tenant_id);
-        if ($providerKey !== 'meta') {
+        if (!in_array($providerKey, ['meta', 'mirror'], true)) {
             throw ValidationException::withMessages([
-                'attachment' => ['Media sending is currently available only with the Meta WhatsApp provider.'],
+                'attachment' => ['Media sending is currently available only with supported WhatsApp providers.'],
             ]);
         }
 

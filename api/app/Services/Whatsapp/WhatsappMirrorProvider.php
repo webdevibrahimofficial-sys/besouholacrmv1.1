@@ -125,7 +125,94 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         ?string $caption = null,
         ?string $filename = null
     ): array {
-        throw new Exception("Media messages are not supported on WhatsApp Mirror provider.");
+        $response = $this->client->sendMedia($tenantId, $to, $mediaType, $mediaUrl, $caption, $filename);
+
+        if (!$response->successful()) {
+            throw new Exception("WhatsApp Mirror failed to send media: " . $response->body());
+        }
+
+        $data = $response->json();
+        $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
+        $messageId = $data['messageId'] ?? null;
+
+        $defaults = $this->buildMessageAttributes([
+            'tenant_id' => $tenantId,
+            'provider' => 'mirror',
+            'direction' => 'outbound',
+            'to' => $to,
+            'body' => $caption,
+            'type' => $mediaType,
+            'message_id' => $messageId,
+            'status' => 'sent_to_session',
+            'raw' => [
+                'response' => $data,
+                'mirror' => [
+                    'media_type' => $mediaType,
+                    'media_url' => $mediaUrl,
+                    'filename' => $filename,
+                    'caption' => $caption,
+                ],
+            ],
+        ], 'crm_send', $lead?->id);
+
+        if (!$messageId) {
+            Log::warning('[WhatsApp Mirror] Missing messageId in media send response.', [
+                'tenant_id' => $tenantId,
+                'to' => $to,
+                'media_type' => $mediaType,
+                'response' => $data,
+            ]);
+
+            $message = WhatsappMessage::create($defaults);
+        } else {
+            try {
+                $message = WhatsappMessage::firstOrCreate(
+                    [
+                        'tenant_id' => $tenantId,
+                        'message_id' => $messageId,
+                    ],
+                    $defaults
+                );
+            } catch (QueryException $e) {
+                $driverErrorCode = (int) ($e->errorInfo[1] ?? 0);
+
+                if ($driverErrorCode !== 1062) {
+                    throw $e;
+                }
+
+                $message = WhatsappMessage::where('tenant_id', $tenantId)
+                    ->where('message_id', $messageId)
+                    ->firstOrFail();
+            }
+        }
+
+        if (
+            $lead?->id
+            && Schema::hasColumn('whatsapp_messages', 'lead_id')
+            && (int) ($message->lead_id ?? 0) !== (int) $lead->id
+        ) {
+            $message->forceFill(['lead_id' => $lead->id])->save();
+            $message->refresh();
+        }
+
+        event(new InboundWhatsappMessage($tenantId, [
+            'id' => $message->id,
+            'lead_id' => $message->lead_id,
+            'message_id' => $message->message_id,
+            'body' => $message->body,
+            'from' => $message->from,
+            'to' => $message->to,
+            'direction' => $message->direction,
+            'status' => $message->status,
+            'type' => $message->type ?? $mediaType,
+            'timestamp' => $message->created_at?->toISOString(),
+        ]));
+
+        return [
+            'success' => true,
+            'message_id' => $message->message_id,
+            'db_id' => $message->id,
+        ];
     }
 
     public function testConnection(int $tenantId, array $credentials = []): array

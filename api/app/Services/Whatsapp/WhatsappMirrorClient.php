@@ -42,6 +42,23 @@ class WhatsappMirrorClient
         ]);
     }
 
+    public function sendMedia(
+        int $tenantId,
+        string $to,
+        string $mediaType,
+        string $mediaUrl,
+        ?string $caption = null,
+        ?string $filename = null
+    ): Response {
+        return $this->client()->post("/sessions/{$tenantId}/send-media", [
+            'to' => $to,
+            'mediaType' => $mediaType,
+            'mediaUrl' => $mediaUrl,
+            'caption' => $caption,
+            'filename' => $filename,
+        ]);
+    }
+
     public function disconnect(int $tenantId): Response
     {
         return $this->client()->delete("/sessions/{$tenantId}");
