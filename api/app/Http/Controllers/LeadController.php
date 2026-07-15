@@ -596,6 +596,34 @@ class LeadController extends Controller
         return $this->canActOnTeamLead($user, $lead);
     }
 
+    protected function canViewLead($user, Lead $lead): bool
+    {
+        if (!$user || !$lead) {
+            return false;
+        }
+
+        if (!$user->is_super_admin && (int) ($lead->tenant_id ?? 0) !== (int) ($user->tenant_id ?? 0)) {
+            return false;
+        }
+
+        if ($this->isReferralSupervisor($user, $lead)) {
+            return true;
+        }
+
+        $viewableIds = $this->getViewableUserIds($user);
+        if ($viewableIds !== null) {
+            $isManagerLike = $this->isBranchManager($user) || $this->isSalesAdmin($user) || $this->isSalesManager($user) || $this->isTeamLeader($user);
+            if ($isManagerLike) {
+                return in_array((int) ($lead->assigned_to ?? 0), array_map('intval', $viewableIds), true)
+                    || (int) ($lead->manager_id ?? 0) === (int) ($user->id ?? 0);
+            }
+
+            return in_array((int) ($lead->assigned_to ?? 0), array_map('intval', $viewableIds), true);
+        }
+
+        return true;
+    }
+
     protected function appendLeadPermissionsForList($paginatedLeads, $user)
     {
         if (!$paginatedLeads || !method_exists($paginatedLeads, 'getCollection')) {
@@ -3069,7 +3097,13 @@ class LeadController extends Controller
         $user = Auth::user();
         \Illuminate\Support\Facades\Log::info("LeadController@show hit for Lead ID: $id. User Tenant: " . (Auth::check() ? $user->tenant_id : 'guest'));
 
-        $lead = Lead::with([
+        $lead = Lead::findOrFail($id);
+
+        if (!$this->canViewLead($user, $lead)) {
+            abort(403, 'Unauthorized to view this lead');
+        }
+
+        $lead->load([
             'customFieldValues.field', 
             'assignedAgent:id,name', 
             'creator:id,name',
@@ -3093,7 +3127,7 @@ class LeadController extends Controller
                     });
                 }
             }
-        ])->findOrFail($id);
+        ]);
         
         \Illuminate\Support\Facades\Log::info("Lead loaded. Actions count: " . $lead->actions->count());
         

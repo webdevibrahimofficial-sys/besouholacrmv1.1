@@ -60,7 +60,10 @@ class LeadActionCreated extends Notification
             'status' => $details['status'] ?? 'pending',
             'description' => $this->action->description,
             'created_by_name' => $createdByName,
+            'title' => 'New Lead Action',
+            'title_ar' => 'إجراء جديد على الليد',
             'message' => "{$createdByName} added a {$actionType} for lead {$leadName}",
+            'message_ar' => "{$createdByName} أضاف إجراء {$actionType} لليد {$leadName}",
             'link' => "/leads?lead_id={$this->action->lead_id}&action_id={$this->action->id}"
         ];
     }

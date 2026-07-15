@@ -31,6 +31,12 @@ class LeadCreated extends Notification implements ShouldBroadcast
         $leadName = $this->lead->name ?? '';
         $actorName = $this->actorName ?: 'System';
         $isActor = isset($notifiable->name) && (string)($notifiable->name ?? '') === (string)$actorName;
+        $message = $isActor
+            ? "You created lead '{$leadName}'."
+            : "Lead '{$leadName}' has been created by {$actorName}.";
+        $messageAr = $isActor
+            ? "لقد قمت بإنشاء الليد '{$leadName}'."
+            : "تم إنشاء الليد '{$leadName}' بواسطة {$actorName}.";
 
         return [
             'lead_id' => $this->lead->id,
@@ -39,9 +45,9 @@ class LeadCreated extends Notification implements ShouldBroadcast
             'assigned_to_id' => $this->lead->assigned_to,
             'assigned_to_name' => $this->lead->assignedAgent?->name,
             'title' => 'Lead Created',
-            'message' => $isActor
-                ? "You created lead '{$leadName}'."
-                : "Lead '{$leadName}' has been created by {$actorName}.",
+            'title_ar' => 'تم إنشاء ليد',
+            'message' => $message,
+            'message_ar' => $messageAr,
             'link' => "/leads?lead_id={$this->lead->id}",
         ];
     }

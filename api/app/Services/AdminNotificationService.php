@@ -63,7 +63,10 @@ class AdminNotificationService
                 'source' => $payload->source,
                 'dedupe_key' => $payload->dedupeKey,
                 'action_url' => $payload->actionUrl,
-                'data' => $payload->data,
+                'data' => array_merge($payload->data, array_filter([
+                    'title_ar' => $payload->titleAr,
+                    'body_ar' => $payload->bodyAr,
+                ], fn ($value) => $value !== null && $value !== '')),
             ]);
 
             $created->push($notification);
@@ -120,4 +123,3 @@ class AdminNotificationService
         return false;
     }
 }
-

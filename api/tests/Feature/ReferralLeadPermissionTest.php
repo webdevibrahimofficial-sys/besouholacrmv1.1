@@ -16,6 +16,7 @@ class ReferralLeadPermissionTest extends TestCase
 
     protected $tenantId;
     protected $salesUser;
+    protected $otherSalesUser;
     protected $referralUser;
     protected $lead;
 
@@ -34,6 +35,11 @@ class ReferralLeadPermissionTest extends TestCase
         $this->salesUser = User::factory()->create([
             'tenant_id' => $this->tenantId,
             'name' => 'Sales Person',
+        ]);
+
+        $this->otherSalesUser = User::factory()->create([
+            'tenant_id' => $this->tenantId,
+            'name' => 'Other Sales Person',
         ]);
 
         $this->referralUser = User::factory()->create([
@@ -215,5 +221,24 @@ class ReferralLeadPermissionTest extends TestCase
 
         $response->assertStatus(200)
                  ->assertJsonStructure(['campaigns', 'sources', 'users', 'stages', 'managers']);
+    }
+
+    #[Test]
+    public function non_owner_sales_person_cannot_view_lead_details()
+    {
+        $response = $this->actingAs($this->otherSalesUser)
+                         ->getJson("/api/leads/{$this->lead->id}");
+
+        $response->assertStatus(403);
+    }
+
+    #[Test]
+    public function referral_supervisor_can_view_lead_details()
+    {
+        $response = $this->actingAs($this->referralUser)
+                         ->getJson("/api/leads/{$this->lead->id}");
+
+        $response->assertStatus(200)
+                 ->assertJsonFragment(['id' => $this->lead->id]);
     }
 }

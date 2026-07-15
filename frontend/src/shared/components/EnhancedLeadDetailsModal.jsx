@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../context/ThemeProvider';
 import { useAppState } from '../context/AppStateProvider';
 import { FaUser, FaCheckCircle, FaMapMarkerAlt, FaSearch, FaEye, FaDownload, FaCalendarAlt, FaClock, FaPlus, FaUserCheck, FaEdit, FaEllipsisV, FaTimes, FaDollarSign, FaPaperclip, FaPhone, FaEnvelope, FaList, FaCog, FaTrash, FaChevronDown, FaComments, FaFilter, FaWhatsapp, FaFileAlt, FaCopy, FaSyncAlt, FaPaperPlane } from 'react-icons/fa';
@@ -25,6 +26,7 @@ import { buildLeadTransferPayload } from '../utils/leadTransfer'
 const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId, onImportHistory }) => {
   const { theme: contextTheme, resolvedTheme } = useTheme();
   const { user, company, crmSettings } = useAppState();
+  const navigate = useNavigate();
   const theme = resolvedTheme || contextTheme || propTheme;
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -1053,13 +1055,50 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     if (!lead?.id) return;
     if (convertCustomerLoading) return;
 
-    const ok = window.confirm(isArabic ? 'هل تريد تحويل العميل إلى عميل فعلي؟' : 'Convert this lead to a customer?');
+    const ok = window.confirm(isArabic ? 'هل تريد تحويل هذا الليد إلى عميل؟' : 'Convert this lead to a customer?');
     if (!ok) return;
 
     setConvertCustomerLoading(true);
     try {
-      const res = await api.post(`/api/cc/leads/${encodeURIComponent(lead.id)}/convert-to-customer`);
-      const customerId = res?.data?.customer?.id;
+      let customerId = null;
+
+      if (isRealEstateTenant) {
+        const res = await api.post(`/api/cc/leads/${encodeURIComponent(lead.id)}/convert-to-customer`);
+        customerId = res?.data?.customer?.id || null;
+      } else {
+        const sourceLead = effectiveLead || lead || {};
+        const name = String(sourceLead?.name || sourceLead?.company || '').trim();
+        const phone = String(sourceLead?.phone || '').trim();
+        if (!name || !phone || phone.length < 5) {
+          throw new Error('Conversion failed: missing name/phone');
+        }
+
+        const tagsArr = Array.isArray(sourceLead?.tags)
+          ? sourceLead.tags
+          : (sourceLead?.tags ? String(sourceLead.tags).split(',').map((s) => s.trim()).filter(Boolean) : (sourceLead?.source ? [String(sourceLead.source)] : []));
+
+        const payload = {
+          name,
+          phone,
+          email: String(sourceLead?.email || '').trim(),
+          type: String(sourceLead?.type || (sourceLead?.company ? 'Company' : 'Individual')),
+          companyName: sourceLead?.company || '',
+          country: String(sourceLead?.country || '').trim(),
+          city: String(sourceLead?.city || '').trim(),
+          addressLine: String(sourceLead?.address || '').trim(),
+          contacts: sourceLead?.company ? [{
+            name: String(sourceLead?.name || '').trim(),
+            phone: String(sourceLead?.phone || '').trim(),
+            email: String(sourceLead?.email || '').trim(),
+          }] : [],
+          tags: tagsArr,
+          notes: String(sourceLead?.notes || '').trim(),
+          assignedSalesRep: String(sourceLead?.sales || sourceLead?.salesPerson || sourceLead?.assignedTo || '').trim(),
+        };
+
+        const res = await api.post('/api/customers', payload);
+        customerId = res?.data?.id || res?.data?.customer?.id || res?.data?.data?.id || null;
+      }
 
       window.dispatchEvent(new CustomEvent('app:toast', {
         detail: { type: 'success', message: isArabic ? 'تم التحويل إلى عميل' : 'Converted to customer' }
@@ -1068,11 +1107,12 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       setShowHeaderMenu(false);
 
       try {
-        const url = `/contract-collections/customers${customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''}`;
-        window.open(url, '_blank', 'noopener,noreferrer');
+        const baseUrl = isRealEstateTenant ? '/contract-collections/customers' : '/customers';
+        const url = `${baseUrl}${customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''}`;
+        navigate(url);
       } catch (e) {}
     } catch (error) {
-      const msg = error?.response?.data?.message || (isArabic ? 'فشل التحويل' : 'Convert failed');
+      const msg = error?.response?.data?.message || error?.message || 'Convert failed';
       alert(msg);
     } finally {
       setConvertCustomerLoading(false);

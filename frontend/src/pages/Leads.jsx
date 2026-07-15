@@ -53,6 +53,10 @@ export const Leads = () => {
   const { stages, statuses } = useStages()
   const { fields: dynamicFields } = useDynamicFields('leads')
   const isRtl = String(i18n.language || '').startsWith('ar')
+  const isRealEstateTenant = useMemo(() => {
+    const type = String(company?.company_type || '').toLowerCase().trim()
+    return type === 'real estate' || type === 'real_estate' || type === 'realestate'
+  }, [company?.company_type])
 
   const maskPhoneNumber = (phone, phoneCountry) => formatPhoneForDisplay(phone, { showFull: !maskMobileNumber, defaultCountryCode: phoneCountry || defaultDialCode })
 
@@ -143,6 +147,61 @@ export const Leads = () => {
       }))
     }
   }
+
+  const getConvertedCustomerUrl = useCallback((customerId = null) => {
+    const baseUrl = isRealEstateTenant ? '/contract-collections/customers' : '/customers'
+    return customerId ? `${baseUrl}?customer_id=${encodeURIComponent(customerId)}` : baseUrl
+  }, [isRealEstateTenant])
+
+  const extractCreatedCustomerId = useCallback((payload) => {
+    const rawId =
+      payload?.customer?.id ??
+      payload?.data?.customer?.id ??
+      payload?.id ??
+      payload?.data?.id ??
+      null
+
+    return rawId ? Number(rawId) || rawId : null
+  }, [])
+
+  const convertLeadIntoCustomer = useCallback(async (lead) => {
+    if (isRealEstateTenant) {
+      const res = await api.post(`/api/cc/leads/${encodeURIComponent(lead.id)}/convert-to-customer`)
+      return { customerId: extractCreatedCustomerId(res?.data) }
+    }
+
+    const name = String(lead?.name || lead?.company || '').trim()
+    const phone = String(lead?.phone || '').trim()
+    if (!name || !phone || phone.length < 5) {
+      throw new Error(t('Conversion failed: missing name/phone'))
+    }
+
+    const tagsArr = Array.isArray(lead?.tags)
+      ? lead.tags
+      : (lead?.tags ? String(lead.tags).split(',').map(s => s.trim()).filter(Boolean) : (lead?.source ? [String(lead.source)] : []))
+
+    const payload = {
+      name,
+      phone,
+      email: String(lead?.email || '').trim(),
+      type: String(lead?.type || (lead?.company ? 'Company' : 'Individual')),
+      companyName: lead?.company || '',
+      country: String(lead?.country || '').trim(),
+      city: String(lead?.city || '').trim(),
+      addressLine: String(lead?.address || '').trim(),
+      contacts: lead?.company ? [{
+        name: String(lead?.name || '').trim(),
+        phone: String(lead?.phone || '').trim(),
+        email: String(lead?.email || '').trim(),
+      }] : [],
+      tags: tagsArr,
+      notes: String(lead?.notes || '').trim(),
+      assignedSalesRep: String(lead?.sales || lead?.salesPerson || lead?.assignedTo || '').trim(),
+    }
+
+    const res = await api.post('/api/customers', payload)
+    return { customerId: extractCreatedCustomerId(res?.data) }
+  }, [extractCreatedCustomerId, isRealEstateTenant, t])
 
   const formatYmdLocal = (date) => {
     if (!date) return ''
@@ -2916,162 +2975,100 @@ if (!s) {
   // Bulk Convert selected leads to Customers
   const applyBulkConvert = async () => {
     if (crmSettings?.allowConvertToCustomers === false) {
-      alert(i18n.language === 'ar' ? 'تم إيقاف التحويل إلى عملاء من إعدادات النظام' : t('Conversion to customers is disabled in system settings'));
-      return;
+      alert(t('Conversion to customers is disabled in system settings'))
+      return
     }
     const leadsToConvert = leads.filter(l => selectedLeads.includes(l.id))
     if (leadsToConvert.length === 0) return
 
-    const validLeads = []
-    const invalidLeads = []
-    for (const lead of leadsToConvert) {
-      const name = String(lead?.name || lead?.company || '').trim()
-      const phone = String(lead?.phone || '').trim()
-      if (!name || !phone || phone.length < 5) {
-        invalidLeads.push(lead)
-        continue
-      }
-      const tagsArr = Array.isArray(lead?.tags)
-        ? lead.tags
-        : (lead?.tags ? String(lead.tags).split(',').map(s => s.trim()).filter(Boolean) : (lead?.source ? [String(lead.source)] : []))
-
-      const payload = {
-        name,
-        phone,
-        email: String(lead?.email || '').trim(),
-        type: String(lead?.type || (lead?.company ? 'Company' : 'Individual')),
-        companyName: lead?.company || '',
-        country: String(lead?.country || '').trim(),
-        city: String(lead?.city || '').trim(),
-        addressLine: String(lead?.address || '').trim(),
-        contacts: lead?.company ? [{
-          name: String(lead?.name || '').trim(),
-          phone: String(lead?.phone || '').trim(),
-          email: String(lead?.email || '').trim(),
-        }] : [],
-        tags: tagsArr,
-        notes: String(lead?.notes || '').trim(),
-        assignedSalesRep: String(lead?.salesPerson || lead?.assignedTo || '').trim(),
-      }
-      validLeads.push(payload)
-    }
-
     try {
-      // API call to create customers
-      await Promise.all(validLeads.map(p => api.post('/api/customers', p)))
+      const results = await Promise.allSettled(leadsToConvert.map((lead) => convertLeadIntoCustomer(lead)))
+      const convertedIds = []
+      let firstCustomerId = null
 
-      setBulkFeedback({ key: 'bulk.convertSuccess', params: { success: validLeads.length, failed: invalidLeads.length } })
-      
-      // Update local leads to reflect conversion (e.g., change stage to 'converted' or delete)
-      // Optionally we can delete them or just update status
-      const convertedIds = leadsToConvert.filter(l => validLeads.some(v => v.phone === l.phone)).map(l => l.id);
-      
-      // Update status to converted on backend if needed
+      results.forEach((result, index) => {
+        if (result.status !== 'fulfilled') return
+        const convertedLead = leadsToConvert[index]
+        if (!convertedLead?.id) return
+        convertedIds.push(convertedLead.id)
+        if (!firstCustomerId && result.value?.customerId) {
+          firstCustomerId = result.value.customerId
+        }
+      })
+
+      const failedCount = leadsToConvert.length - convertedIds.length
+      setBulkFeedback({ key: 'bulk.convertSuccess', params: { success: convertedIds.length, failed: failedCount } })
+
       if (convertedIds.length > 0) {
-          try {
-            await api.post('/api/leads/bulk-status', {
-                ids: convertedIds,
-                status: 'converted'
-            });
-          } catch (e) { console.warn('Failed to update lead status after conversion', e); }
+        try {
+          await api.post('/api/leads/bulk-status', {
+            ids: convertedIds,
+            status: 'converted'
+          })
+        } catch (e) {
+          console.warn('Failed to update lead status after conversion', e)
+        }
       }
 
-      setLeads(prev => prev.map(l => {
-        if (selectedLeads.includes(l.id)) {
-          const isValid = validLeads.some(v => v.phone === l.phone)
-          if (isValid) return { ...l, stage: 'converted', status: 'converted' }
-          return l
-        }
-        return l
-      }))
+      setLeads(prev => prev.map(l => (
+        convertedIds.includes(l.id) ? { ...l, stage: 'converted', status: 'converted' } : l
+      )))
 
       setSelectedLeads([])
-      fetchLeads();
+      fetchLeads()
 
+      if (convertedIds.length > 0) {
+        alert(t('Lead converted to customer successfully'))
+        navigate(getConvertedCustomerUrl(convertedIds.length === 1 ? firstCustomerId : null))
+      }
     } catch (e) {
       console.error('bulk convert failed', e)
       setBulkFeedback({ key: 'bulk.convertError' })
     }
   }
 
-  // Delete single lead (ظهر فقط إذا كان الصف مُحدد)
+  // Delete single lead
   const handleDeleteLead = async (leadId) => {
-    if (!window.confirm(isRtl ? 'هل أنت متأكد من نقل هذا السجل إلى سلة المحذوفات؟' : 'Are you sure you want to move this lead to recycle bin?')) {
-      return;
+    if (!window.confirm(isRtl ? 'Move this lead to recycle bin?' : 'Are you sure you want to move this lead to recycle bin?')) {
+      return
     }
 
     try {
-      // استدعاء API الحذف من الباك اند
-      await api.delete(`/api/leads/${leadId}`);
-      
-      // تحديث الواجهة بحذف العنصر من القائمة الحالية دون إعادة تحميل الصفحة
-      setLeads(prev => prev.filter(l => l.id !== leadId));
-      fetchLeads();
-      
-      // إظهار رسالة نجاح (اختياري حسب نظام التنبيهات لديك)
-      // toast.success(isRtl ? 'تم النقل إلى سلة المحذوفات' : 'Moved to recycle bin');
-      
+      await api.delete(`/api/leads/${leadId}`)
+      setLeads(prev => prev.filter(l => l.id !== leadId))
+      fetchLeads()
     } catch (error) {
-      console.error('Failed to delete lead:', error);
-      alert(isRtl ? 'فشل حذف السجل' : 'Failed to delete lead');
+      console.error('Failed to delete lead:', error)
+      alert(isRtl ? 'Failed to delete lead' : 'Failed to delete lead')
     }
   }
 
-  // Convert Lead -> Customer (إضافة إلى جدول العملاء)
+  // Convert Lead -> Customer
   const handleConvertCustomer = async (lead) => {
     if (crmSettings?.allowConvertToCustomers === false) {
-      alert(i18n.language === 'ar' ? 'تم إيقاف التحويل إلى عملاء من إعدادات النظام' : t('Conversion to customers is disabled in system settings'));
-      return;
+      alert(t('Conversion to customers is disabled in system settings'))
+      return
     }
+
     try {
-      const name = String(lead?.name || lead?.company || '').trim()
-      const phone = String(lead?.phone || '').trim()
-      if (!name || !phone || phone.length < 5) {
-        alert(i18n.language === 'ar' ? 'لا يمكن التحويل: الاسم/الهاتف مفقود' : t('Conversion failed: missing name/phone'))
-        return
-      }
-      const tagsArr = Array.isArray(lead?.tags)
-        ? lead.tags
-        : (lead?.tags ? String(lead.tags).split(',').map(s => s.trim()).filter(Boolean) : (lead?.source ? [String(lead.source)] : []))
+      const { customerId } = await convertLeadIntoCustomer(lead)
 
-      const payload = {
-        name,
-        phone,
-        email: String(lead?.email || '').trim(),
-        type: String(lead?.type || (lead?.company ? 'Company' : 'Individual')),
-        companyName: lead?.company || '',
-        country: String(lead?.country || '').trim(),
-        city: String(lead?.city || '').trim(),
-        addressLine: String(lead?.address || '').trim(),
-        contacts: lead?.company ? [{
-          name: String(lead?.name || '').trim(),
-          phone: String(lead?.phone || '').trim(),
-          email: String(lead?.email || '').trim(),
-        }] : [],
-        tags: tagsArr,
-        notes: String(lead?.notes || '').trim(),
-        assignedSalesRep: String(lead?.sales || lead?.assignedTo || '').trim(),
-      }
-      
-      await api.post('/api/customers', payload) 
+      alert(t('Lead converted to customer successfully'))
 
-      alert(i18n.language === 'ar' ? 'تم تحويل الليد إلى عميل بنجاح' : t('Lead converted to customer successfully'))
-      
-      // Update local leads: remove the converted lead or update its stage/status
-      // Also update status on backend
       try {
-          await api.put(`/leads/${lead.id}`, { status: 'converted', stage: 'converted' });
-      } catch (e) { console.warn('Failed to update lead status', e); }
+        await api.put(`/leads/${lead.id}`, { status: 'converted', stage: 'converted' })
+      } catch (e) {
+        console.warn('Failed to update lead status', e)
+      }
 
       setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, stage: 'converted', status: 'converted' } : l))
-      fetchLeads();
-
+      fetchLeads()
+      navigate(getConvertedCustomerUrl(customerId))
     } catch (err) {
       console.error('convert customer failed', err)
-      alert(i18n.language === 'ar' ? 'فشل التحويل إلى عميل' : t('Failed to convert to customer'))
+      alert(err?.message || t('Failed to convert to customer'))
     }
   }
-
   // Pagination
   const totalPages = Math.max(1, Number(leadsQueryData?.last_page) || 1);
   const totalItems = Math.max(0, Number(leadsQueryData?.total) || 0);

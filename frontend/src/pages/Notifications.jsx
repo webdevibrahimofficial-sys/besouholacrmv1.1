@@ -7,22 +7,42 @@ import SearchableSelect from '../components/SearchableSelect'
 import Layout from '../components/Layout'
 import NotificationItem from '../shared/components/NotificationItem'
 import TaskDetailsModal from '../components/TaskDetailsModal'
-
-const TYPES = [
-  { value: 'All', label: 'All' },
-  { value: 'task', label: 'Tasks' },
-  { value: 'lead', label: 'Leads' },
-  { value: 'campaign', label: 'Campaigns' },
-  { value: 'inventory', label: 'Inventory' },
-  { value: 'comment', label: 'Comments' },
-  { value: 'system', label: 'System' },
-]
+import { isArabicNotificationLanguage, resolveNotificationText } from '../utils/notificationText'
 
 export function NotificationsContent({ embedded = false, onClose, onOpenTask }) {
   const { t, i18n } = useTranslation()
   const context = useOutletContext();
   const navigate = useNavigate();
   const isRTL = i18n.language === 'ar'
+  const useArabic = isArabicNotificationLanguage(i18n?.language)
+  const uiText = useMemo(() => ({
+    notifications: useArabic ? 'الإشعارات' : 'Notifications',
+    unread: useArabic ? 'غير المقروءة' : 'Unread',
+    all: useArabic ? 'الكل' : 'All',
+    archived: useArabic ? 'المؤرشفة' : 'Archived',
+    search: useArabic ? 'البحث' : 'Search',
+    tasks: useArabic ? 'المهام' : 'Tasks',
+    leads: useArabic ? 'الليدز' : 'Leads',
+    campaigns: useArabic ? 'الحملات' : 'Campaigns',
+    inventory: useArabic ? 'المخزون' : 'Inventory',
+    comments: useArabic ? 'التعليقات' : 'Comments',
+    system: useArabic ? 'النظام' : 'System',
+    noNotifications: useArabic ? 'لا توجد إشعارات' : 'No notifications',
+    triggerTest: useArabic ? 'إرسال إشعار تجريبي' : 'Trigger Test',
+    enablePush: useArabic ? 'تفعيل الإشعارات' : 'Enable Push',
+    markAllRead: useArabic ? 'تعيين الكل كمقروء' : 'Mark all as read',
+    clearRead: useArabic ? 'تحديث المقروءة' : 'Clear read',
+  }), [useArabic])
+
+  const notificationTypes = useMemo(() => ([
+    { value: 'All', label: uiText.all },
+    { value: 'task', label: uiText.tasks },
+    { value: 'lead', label: uiText.leads },
+    { value: 'campaign', label: uiText.campaigns },
+    { value: 'inventory', label: uiText.inventory },
+    { value: 'comment', label: uiText.comments },
+    { value: 'system', label: uiText.system },
+  ]), [uiText])
 
   const [notifications, setNotifications] = useState([])
   // We removed local state for task modal, now delegating to parent via onOpenTask
@@ -32,6 +52,10 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
   const [type, setType] = useState('All')
   const [loading, setLoading] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+
+  const localizeNotificationText = useCallback((payload = {}) => (
+    resolveNotificationText(payload, { useArabic: isArabicNotificationLanguage(i18n?.language) })
+  ), [i18n?.language])
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true)
@@ -99,12 +123,13 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
         else if (typeStr.includes('Task')) derivedType = 'task'
         else if (typeStr.includes('Campaign')) derivedType = 'campaign'
         else if (typeStr.includes('Invoice') || typeStr.includes('Rent')) derivedType = 'inventory'
+        const localized = localizeNotificationText(n.data || {})
 
         return {
           id: n.id,
           type: derivedType,
-          title: n.data.title || n.data.subject || 'Notification',
-          body: n.data.message || n.data.body || '',
+          title: localized.title,
+          body: localized.body,
           createdAt: new Date(n.created_at).getTime(),
           read: !!n.read_at,
           archived: !!n.archived_at,
@@ -130,7 +155,7 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [localizeNotificationText])
 
   // Load data
   useEffect(() => {
@@ -272,26 +297,26 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="page-title text-xl font-semibold">{t('Notifications', 'Notifications')}</h1>
+          <h1 className="page-title text-xl font-semibold">{uiText.notifications}</h1>
           <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-            {unreadCount} {t('Unread', 'Unread')}
+            {unreadCount} {uiText.unread}
           </span>
         </div>
         {!embedded && (
           <div className="flex items-center gap-2">
             <button type="button" onClick={triggerTest} className="btn btn-sm btn-primary">
-              Trigger Test
+              {uiText.triggerTest}
             </button>
             {context?.registerWebPush && (
               <button type="button" onClick={context.registerWebPush} className="btn btn-sm btn-outline">
-                {t('Enable Push', 'Enable Push')}
+                {uiText.enablePush}
               </button>
             )}
             <button type="button" onClick={markAllRead} className="btn btn-sm">
-              {t('Mark all as read', 'Mark all as read')}
+              {uiText.markAllRead}
             </button>
             <button type="button" onClick={clearRead} className="btn btn-sm btn-outline">
-              {t('Clear read', 'Clear read')}
+              {uiText.clearRead}
             </button>
           </div>
         )}
@@ -306,19 +331,19 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
             onClick={() => setTab('all')}
             className={`px-3 py-1.5 text-sm rounded-md border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 active:scale-[0.98] ${tab === 'all' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-gray-50 dark:bg-transparent border-gray-300 dark:border-gray-700 text-gray-800 dark:text-[var(--content-text)] hover:bg-blue-50 dark:hover:bg-blue-900/10 hover:shadow'}`}
           >
-            {t('All')}
+            {uiText.all}
           </button>
           <button
             onClick={() => setTab('unread')}
             className={`px-3 py-1.5 text-sm rounded-md border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 active:scale-[0.98] ${tab === 'unread' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-gray-50 dark:bg-transparent border-gray-300 dark:border-gray-700 text-gray-800 dark:text-[var(--content-text)] hover:bg-blue-50 dark:hover:bg-blue-900/10 hover:shadow'}`}
           >
-            {t('Unread', 'Unread')}
+            {uiText.unread}
           </button>
           <button
             onClick={() => setTab('archived')}
             className={`px-3 py-1.5 text-sm rounded-md border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 active:scale-[0.98] ${tab === 'archived' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-gray-50 dark:bg-transparent border-gray-300 dark:border-gray-700 text-gray-800 dark:text-[var(--content-text)] hover:bg-blue-50 dark:hover:bg-blue-900/10 hover:shadow'}`}
           >
-            {t('Archived', 'Archived')}
+            {uiText.archived}
           </button>
         </div>
 
@@ -328,7 +353,7 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
             <input
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder={t('Search')}
+              placeholder={uiText.search}
               className="w-full rounded-lg border px-3 py-2.5 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-800 border-gray-300 placeholder:text-gray-500 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700"
             />
             <span className="absolute left-2 top-1/2 -translate-y-1/2 opacity-70 text-gray-600 dark:text-gray-300">
@@ -337,10 +362,10 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
           </div>
           <div className="w-40">
             <SearchableSelect
-              options={TYPES}
+              options={notificationTypes}
               value={type}
               onChange={setType}
-              placeholder={t('All')}
+              placeholder={uiText.all}
             />
           </div>
         </div>
@@ -350,7 +375,7 @@ export function NotificationsContent({ embedded = false, onClose, onOpenTask }) 
       <div className="space-y-2">
         {visible.length === 0 ? (
           <div className="text-center py-16 border border-dashed rounded-md text-sm opacity-75">
-            {t('No notifications', 'No notifications')}
+            {uiText.noNotifications}
           </div>
         ) : (
           visible.map(n => (

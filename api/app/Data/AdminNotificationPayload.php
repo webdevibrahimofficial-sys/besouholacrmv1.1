@@ -7,7 +7,9 @@ class AdminNotificationPayload
     public function __construct(
         public string $type,
         public string $title,
+        public ?string $titleAr = null,
         public ?string $body = null,
+        public ?string $bodyAr = null,
         public string $category = 'system',
         public string $severity = 'info',
         public string $source = 'system',
@@ -20,4 +22,3 @@ class AdminNotificationPayload
     ) {
     }
 }
-

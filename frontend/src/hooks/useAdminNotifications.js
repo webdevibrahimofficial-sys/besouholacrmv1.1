@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { adminNotificationsApi } from '@api/adminNotificationsApi'
 import { isAdminNotificationsV1Enabled } from '@utils/features'
+import i18n from '../i18n'
+import { isArabicNotificationLanguage, resolveNotificationText } from '../utils/notificationText'
 
 export function useAdminNotifications(user) {
   const [notifications, setNotifications] = useState([])
@@ -36,10 +38,11 @@ export function useAdminNotifications(user) {
   }, [enabled, fetchNotifications, refreshUnreadCount])
 
   const mappedNotifications = useMemo(() => {
+    const useArabic = isArabicNotificationLanguage(i18n?.language)
     return notifications.map((n) => ({
       id: n.id,
-      title: n.title,
-      body: n.body || '',
+      title: resolveNotificationText(n.data || {}, { useArabic, title: n.title, body: n.body }).title,
+      body: resolveNotificationText(n.data || {}, { useArabic, title: n.title, body: n.body }).body,
       severity: n.severity || 'info',
       category: n.category || 'system',
       source: n.source || 'system',

@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { api } from '../utils/api';
 import { ensureEcho, getEcho } from '../echo';
+import i18n from '../i18n';
+import { isArabicNotificationLanguage, resolveNotificationText } from '../utils/notificationText';
 
 let audioCtx = null;
 
@@ -92,6 +94,8 @@ export const useNotifications = (user) => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [echoInstance, setEchoInstance] = useState(null);
 
+    const isArabic = () => isArabicNotificationLanguage(i18n?.language);
+
     // Fetch initial notifications
     const fetchNotifications = useCallback(async ({ signal } = {}) => {
         if (!userId) return;
@@ -119,12 +123,13 @@ export const useNotifications = (user) => {
                 else if (typeStr.includes('Task')) derivedType = 'task';
                 else if (typeStr.includes('Campaign')) derivedType = 'campaign';
                 else if (typeStr.includes('Invoice') || typeStr.includes('Rent')) derivedType = 'inventory';
+                const localized = resolveNotificationText(n.data || {}, { useArabic: isArabic() });
 
                 return {
                     id: n.id,
                     type: derivedType,
-                    title: n.data.title || n.data.subject || 'Notification',
-                    body: n.data.message || n.data.body || '',
+                    title: localized.title,
+                    body: localized.body,
                     createdAt: new Date(n.created_at).getTime(),
                     read: !!n.read_at,
                     archived: !!n.archived_at,
@@ -209,12 +214,13 @@ export const useNotifications = (user) => {
                     else if (typeStr.includes('Task')) derivedType = 'task';
                     else if (typeStr.includes('Campaign')) derivedType = 'campaign';
                     else if (typeStr.includes('Invoice') || typeStr.includes('Rent')) derivedType = 'inventory';
+                    const localized = resolveNotificationText(notification, { useArabic: isArabic() });
 
                     const newNotif = {
                         id: notification.id,
                         type: derivedType,
-                        title: notification.title || notification.subject || 'Notification',
-                        body: notification.message || notification.body || '',
+                        title: localized.title,
+                        body: localized.body,
                         createdAt: Date.now(),
                         read: false,
                         archived: false,

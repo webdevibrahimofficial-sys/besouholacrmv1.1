@@ -21,7 +21,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'tenant_created',
             title: 'Tenant created',
+            titleAr: 'تم إنشاء تينانت',
             body: "New tenant {$tenant->name} has been provisioned successfully.",
+            bodyAr: "تم إنشاء التينانت {$tenant->name} بنجاح.",
             category: 'tenant',
             severity: 'success',
             source: 'tenant_management',
@@ -43,7 +45,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'tenant_activated',
             title: 'Tenant activated',
+            titleAr: 'تم تفعيل التينانت',
             body: "Tenant {$tenant->name} is now active.",
+            bodyAr: "التينانت {$tenant->name} أصبحت نشطة الآن.",
             category: 'tenant',
             severity: 'success',
             source: 'tenant_management',
@@ -66,7 +70,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'tenant_subscription_expiring_soon',
             title: "{$tenantName} subscription expiring soon",
+            titleAr: "اشتراك {$tenantName} أوشك على الانتهاء",
             body: "{$tenantName} expires in {$daysLeft} day(s).",
+            bodyAr: "سينتهي اشتراك {$tenantName} خلال {$daysLeft} يوم.",
             category: 'subscription',
             severity: $daysLeft <= 3 ? 'critical' : 'warning',
             source: 'subscription',
@@ -91,7 +97,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'backup_failed',
             title: 'Backup failed',
+            titleAr: 'فشل النسخ الاحتياطي',
             body: "Backup failed for {$tenantName}. " . trim((string) $backup->error_message),
+            bodyAr: "فشل النسخ الاحتياطي لـ {$tenantName}. " . trim((string) $backup->error_message),
             category: 'backup',
             severity: 'error',
             source: 'backup',
@@ -118,7 +126,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'payment_failed',
             title: 'Payment failed',
+            titleAr: 'فشل الدفع',
             body: "Payment failed for tenant {$tenant?->name}. Amount: {$amount} {$transaction->currency}.",
+            bodyAr: "فشلت عملية الدفع للتينانت {$tenant?->name}. المبلغ: {$amount} {$transaction->currency}.",
             category: 'billing',
             severity: 'error',
             source: 'billing',
@@ -144,7 +154,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'integration_disconnected',
             title: 'Integration disconnected',
+            titleAr: 'تم فصل التكامل',
             body: "{$provider} integration for {$tenantName} needs attention. {$reason}",
+            bodyAr: "تكامل {$provider} الخاص بـ {$tenantName} يحتاج إلى متابعة. {$reason}",
             category: 'integration',
             severity: 'warning',
             source: strtolower($provider),
@@ -166,7 +178,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'meta_reauth_required',
             title: 'Meta reconnection required',
+            titleAr: 'مطلوب إعادة ربط ميتا',
             body: "{$tenantName} must reconnect Meta after the shared app migration. {$reason}",
+            bodyAr: "يجب على {$tenantName} إعادة ربط ميتا بعد ترحيل التطبيق المشترك. {$reason}",
             category: 'integration',
             severity: 'warning',
             source: 'meta',
@@ -188,7 +202,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'meta_rate_limit',
             title: 'Meta API rate limit reached',
+            titleAr: 'تم الوصول إلى حد ميتا',
             body: "Meta API rate limit on {$endpoint} (code {$code}): {$message}",
+            bodyAr: "تم الوصول إلى حد Meta API على {$endpoint} (الكود {$code}): {$message}",
             category: 'integration',
             severity: 'warning',
             source: 'meta',
@@ -209,7 +225,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'queue_failure',
             title: 'Queue job failed',
+            titleAr: 'فشل مهمة في قائمة الانتظار',
             body: "{$jobName} failed on {$connection}/{$queue}. " . $message,
+            bodyAr: "فشلت المهمة {$jobName} على {$connection}/{$queue}. {$message}",
             category: 'queue',
             severity: 'critical',
             source: 'queue',
@@ -230,7 +248,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'storage_limit_exceeded',
             title: 'Storage limit exceeded',
+            titleAr: 'تم تجاوز حد التخزين',
             body: 'Backup storage usage exceeded the configured threshold.',
+            bodyAr: 'استهلاك تخزين النسخ الاحتياطية تجاوز الحد المسموح.',
             category: 'storage',
             severity: 'warning',
             source: 'backup_storage',
@@ -249,7 +269,9 @@ class AdminEventNotificationService
         return $this->notifications->notify(new AdminNotificationPayload(
             type: 'security_warning',
             title: $title,
+            titleAr: $title,
             body: $message,
+            bodyAr: $message,
             category: 'security',
             severity: 'warning',
             source: 'security',
@@ -268,4 +290,3 @@ class AdminEventNotificationService
         }
     }
 }
-

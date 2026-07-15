@@ -31,9 +31,11 @@ class TaskAssigned extends Notification implements ShouldBroadcast
         return [
             'task_id' => $this->task->id,
             'title' => $this->task->title,
+            'title_ar' => 'تم تعيين مهمة',
             'due_date' => $this->task->due_date,
             'assigned_by' => $this->assignerName,
             'message' => "Task '{$this->task->title}' assigned to you.",
+            'message_ar' => "تم تعيين المهمة '{$this->task->title}' لك.",
             'link' => "/tasks/{$this->task->id}"
         ];
     }

@@ -81,13 +81,22 @@ class LeadActionCommentNotification extends Notification
             $message = "{$commenterName} commented on your {$actionType} for {$leadName}: \"{$preview}\"";
         }
 
+        $messageAr = "{$commenterName} علّق على {$actionType} لليد {$leadName}: \"{$preview}\"";
+        if ($previousComment && isset($previousComment['userId']) && $previousComment['userId'] == $notifiable->id) {
+            $messageAr = "{$commenterName} ردّ على تعليقك على {$actionType} لليد {$leadName}: \"{$preview}\"";
+        } elseif ($isMyAction) {
+            $messageAr = "{$commenterName} علّق على {$actionType} الخاص بك لليد {$leadName}: \"{$preview}\"";
+        }
+
         return [
             'action_id' => $this->action->id,
             'lead_id' => $this->action->lead_id,
             'lead_name' => $leadName,
             'type' => 'comment', // Notification type identifier for frontend
             'title' => "New Comment on {$actionType}",
+            'title_ar' => "تعليق جديد على {$actionType}",
             'message' => $message,
+            'message_ar' => $messageAr,
             'comment_content' => $this->commentContent,
             'commenter_name' => $commenterName,
             'commenter_id' => $this->commenter->id,

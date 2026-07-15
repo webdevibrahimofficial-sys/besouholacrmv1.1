@@ -50,7 +50,9 @@ class LeadAssigned extends Notification implements ShouldBroadcast
             'assigned_to_id' => $this->lead->assigned_to,
             'assigned_to_name' => $this->lead->assignedAgent?->name,
             'title' => 'Lead Assigned',
+            'title_ar' => 'تم تعيين ليد',
             'message' => "Lead '{$this->lead->name}' has been assigned to {$this->lead->assignedAgent?->name}.",
+            'message_ar' => "تم تعيين الليد '{$this->lead->name}' إلى {$this->lead->assignedAgent?->name}.",
             'link' => "/leads?lead_id={$this->lead->id}"
         ];
     }
