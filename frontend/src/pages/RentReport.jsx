@@ -941,7 +941,7 @@ export default function RentReport() {
           ))}
           {filtered.length === 0 && (
             <div className={`text-center py-8 ${isLight ? 'text-black' : 'text-white'}`}>
-              {t('No rent units found')}
+              {isRTL ? 'لم يتم العثور على وحدات إيجار' : t('No rent units found')}
             </div>
           )}
         </div>
@@ -951,14 +951,14 @@ export default function RentReport() {
           <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
             <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
               <tr>
-                <th className="px-4 py-3">{t('Property Info')}</th>
-                <th className="px-4 py-3">{t('Client Name')}</th>
-                <th className="px-4 py-3">{t('Contact Number')}</th>
-                <th className="px-4 py-3">{t('Start Date')}</th>
-                <th className="px-4 py-3">{t('End Date')}</th>
-                <th className="px-4 py-3">{t('Rent Amount')}</th>
-                <th className="px-4 py-3">{t('Sales Person')}</th>
-                <th className="px-4 py-3 text-center">{t('Actions')}</th>
+                <th className="px-4 py-3">{isRTL ? 'معلومات العقار' : t('Property Info')}</th>
+                <th className="px-4 py-3">{isRTL ? 'اسم العميل' : t('Client Name')}</th>
+                <th className="px-4 py-3">{isRTL ? 'رقم التواصل' : t('Contact Number')}</th>
+                <th className="px-4 py-3">{isRTL ? 'تاريخ البداية' : t('Start Date')}</th>
+                <th className="px-4 py-3">{isRTL ? 'تاريخ الانتهاء' : t('End Date')}</th>
+                <th className="px-4 py-3">{isRTL ? 'قيمة الإيجار' : t('Rent Amount')}</th>
+                <th className="px-4 py-3">{isRTL ? 'مندوب المبيعات' : t('Sales Person')}</th>
+                <th className="px-4 py-3 text-center">{isRTL ? 'الإجراءات' : t('Actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
@@ -994,7 +994,7 @@ export default function RentReport() {
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={8} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
-                    {t('No rent units found')}
+                    {isRTL ? 'لم يتم العثور على وحدات إيجار' : t('No rent units found')}
                   </td>
                 </tr>
               )}
@@ -1004,7 +1004,9 @@ export default function RentReport() {
 
         <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
-            {`Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} of ${totalRentUnits}`}
+            {isRTL
+              ? `عرض ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} من أصل ${totalRentUnits}`
+              : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} of ${totalRentUnits}`}
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -1021,7 +1023,7 @@ export default function RentReport() {
                 )}
               </button>
               <span className="text-sm whitespace-nowrap">
-                {`Page ${currentPage} of ${pageCount}`}
+                {isRTL ? `الصفحة ${currentPage} من ${pageCount}` : `Page ${currentPage} of ${pageCount}`}
               </span>
               <button
                 className="btn btn-sm btn-ghost"
@@ -1038,7 +1040,7 @@ export default function RentReport() {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
-                {t('Per page:')}
+                {isRTL ? 'لكل صفحة:' : t('Per page:')}
               </span>
               <select
                 className="input w-24 text-sm py-0 px-2 h-8"

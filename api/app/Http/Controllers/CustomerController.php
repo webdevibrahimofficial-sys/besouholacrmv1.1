@@ -253,7 +253,27 @@ class CustomerController extends Controller
     public function store(Request $request)
     {
         $tenantId = $this->currentTenantId();
-        $request->merge(['phone' => $this->normalizePhone($request->input('phone'))]);
+        $camelCaseAliases = [
+            'companyName' => 'company_name',
+            'addressLine' => 'address',
+            'assignedSalesRep' => 'assigned_to',
+            'createdBy' => 'created_by',
+            'customerCode' => 'customer_code',
+            'taxNumber' => 'tax_number',
+        ];
+
+        $normalizedInput = [];
+        foreach ($camelCaseAliases as $from => $to) {
+            if (
+                $request->exists($from) &&
+                ! $request->exists($to)
+            ) {
+                $normalizedInput[$to] = $request->input($from);
+            }
+        }
+
+        $normalizedInput['phone'] = $this->normalizePhone($request->input('phone'));
+        $request->merge($normalizedInput);
 
         // 1. Validate Standard Fields
         $validator = Validator::make($request->all(), [
@@ -286,6 +306,8 @@ class CustomerController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $validatedData = $validator->validated();
+
         // 2. Validate Custom Fields
         $entity = Entity::where('key', 'customers')->first();
         if ($entity) {
@@ -310,7 +332,7 @@ class CustomerController extends Controller
             DB::beginTransaction();
 
             // 3. Create Customer
-            $customer = Customer::create($request->except('custom_fields'));
+            $customer = Customer::create($validatedData);
             $crm = \App\Models\CrmSetting::first();
             $settings = is_array($crm?->settings) ? $crm->settings : [];
             
