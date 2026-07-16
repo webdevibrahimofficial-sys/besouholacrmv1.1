@@ -38,6 +38,9 @@ export default function SystemIntegrations() {
     meta_verify_token: '',
     meta_webhook_url: '',
     meta_configured: false,
+    whatsapp_oauth_enabled: false,
+    whatsapp_manual_token_default: true,
+    whatsapp_embedded_signup_config_id: '',
     google_client_id: '',
     google_client_secret: '',
     google_developer_token: '',
@@ -57,6 +60,9 @@ export default function SystemIntegrations() {
         meta_verify_token: res.data.meta_verify_token || '',
         meta_webhook_url: res.data.meta_webhook_url || '',
         meta_configured: Boolean(res.data.meta_configured),
+        whatsapp_oauth_enabled: Boolean(res.data.whatsapp_oauth_enabled),
+        whatsapp_manual_token_default: res.data.whatsapp_manual_token_default !== false,
+        whatsapp_embedded_signup_config_id: res.data.whatsapp_embedded_signup_config_id || '',
         google_client_id: res.data.google_client_id || '',
         google_client_secret: res.data.google_client_secret || '',
         google_developer_token: res.data.google_developer_token || '',
@@ -334,6 +340,26 @@ export default function SystemIntegrations() {
                         {webhookTest.message}
                       </p>
                     )}
+                  </div>
+
+                  <div className="rounded-2xl border border-theme-border bg-theme-bg/35 p-4 mt-4">
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[var(--muted-text)]">
+                      {t('WhatsApp Cloud API (same Meta App)')}
+                    </label>
+                    <ul className="space-y-2 text-sm text-[var(--muted-text)]">
+                      <li>{t('Subscribe to WhatsApp Business Account → messages on the same webhook URL above.')}</li>
+                      <li>{t('Required App Review scopes: whatsapp_business_management, whatsapp_business_messaging, business_management')}</li>
+                      <li>
+                        {settings.whatsapp_oauth_enabled
+                          ? t('OAuth / Embedded Signup connect is enabled for tenants (WHATSAPP_OAUTH_ENABLED).')
+                          : t('Manual token entry is the default until WhatsApp App Review is approved.')}
+                      </li>
+                      <li>
+                        {settings.whatsapp_embedded_signup_config_id
+                          ? `${t('Embedded Signup config ID')}: ${settings.whatsapp_embedded_signup_config_id}`
+                          : t('Set WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID in API env for one-click Embedded Signup.')}
+                      </li>
+                    </ul>
                   </div>
                 </div>
               </div>

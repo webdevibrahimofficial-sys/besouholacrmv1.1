@@ -20,7 +20,7 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         $this->client = $client;
     }
 
-    public function sendText(int $tenantId, string $to, string $body): array
+    public function sendText(int $tenantId, string $to, string $body, ?int $channelId = null): array
     {
         $response = $this->client->send($tenantId, $to, $body);
 
@@ -31,6 +31,7 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         $data = $response->json();
 
         $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
+        $resolvedChannelId = $this->resolveChannelId($tenantId, $channelId);
         $messageId = $data['messageId'] ?? null;
 
         if (!$messageId) {
@@ -43,6 +44,7 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
             $message = WhatsappMessage::create($this->buildMessageAttributes(
                 [
                 'tenant_id' => $tenantId,
+                'channel_id' => $resolvedChannelId,
                 'provider' => 'mirror',
                 'direction' => 'outbound',
                 'to' => $to,
@@ -62,6 +64,7 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
                     ],
                     $this->buildMessageAttributes([
                         'tenant_id' => $tenantId,
+                        'channel_id' => $resolvedChannelId,
                         'provider' => 'mirror',
                         'direction' => 'outbound',
                         'to' => $to,
@@ -92,6 +95,15 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
             $message->refresh();
         }
 
+        if (
+            $resolvedChannelId
+            && Schema::hasColumn('whatsapp_messages', 'channel_id')
+            && (int) ($message->channel_id ?? 0) !== (int) $resolvedChannelId
+        ) {
+            $message->forceFill(['channel_id' => $resolvedChannelId])->save();
+            $message->refresh();
+        }
+
         event(new InboundWhatsappMessage($tenantId, [
             'id' => $message->id,
             'lead_id' => $message->lead_id,
@@ -108,11 +120,12 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         return [
             'success' => true,
             'message_id' => $message->message_id,
-            'db_id' => $message->id
+            'db_id' => $message->id,
+            'channel_id' => $resolvedChannelId,
         ];
     }
 
-    public function sendTemplate(int $tenantId, string $to, string $templateName, string $languageCode = 'en_US', array $components = []): array
+    public function sendTemplate(int $tenantId, string $to, string $templateName, string $languageCode = 'en_US', array $components = [], ?int $channelId = null): array
     {
         throw new Exception("Templates are not supported on WhatsApp Mirror provider.");
     }
@@ -123,7 +136,8 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         string $mediaType,
         string $mediaUrl,
         ?string $caption = null,
-        ?string $filename = null
+        ?string $filename = null,
+        ?int $channelId = null
     ): array {
         $response = $this->client->sendMedia($tenantId, $to, $mediaType, $mediaUrl, $caption, $filename);
 
@@ -133,10 +147,12 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
 
         $data = $response->json();
         $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
+        $resolvedChannelId = $this->resolveChannelId($tenantId, $channelId);
         $messageId = $data['messageId'] ?? null;
 
         $defaults = $this->buildMessageAttributes([
             'tenant_id' => $tenantId,
+            'channel_id' => $resolvedChannelId,
             'provider' => 'mirror',
             'direction' => 'outbound',
             'to' => $to,
@@ -195,6 +211,15 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
             $message->refresh();
         }
 
+        if (
+            $resolvedChannelId
+            && Schema::hasColumn('whatsapp_messages', 'channel_id')
+            && (int) ($message->channel_id ?? 0) !== (int) $resolvedChannelId
+        ) {
+            $message->forceFill(['channel_id' => $resolvedChannelId])->save();
+            $message->refresh();
+        }
+
         event(new InboundWhatsappMessage($tenantId, [
             'id' => $message->id,
             'lead_id' => $message->lead_id,
@@ -212,6 +237,7 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
             'success' => true,
             'message_id' => $message->message_id,
             'db_id' => $message->id,
+            'channel_id' => $resolvedChannelId,
         ];
     }
 
@@ -226,6 +252,19 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
         ];
     }
 
+    protected function resolveChannelId(int $tenantId, ?int $channelId): ?int
+    {
+        if ($channelId) {
+            return $channelId;
+        }
+
+        if (! Schema::hasColumn('whatsapp_messages', 'channel_id')) {
+            return null;
+        }
+
+        return app(WhatsappChannelService::class)->findMirrorChannel($tenantId)?->id;
+    }
+
     protected function buildMessageAttributes(array $attributes, string $source, ?int $leadId): array
     {
         if (Schema::hasColumn('whatsapp_messages', 'source')) {
@@ -234,6 +273,10 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
 
         if (Schema::hasColumn('whatsapp_messages', 'lead_id')) {
             $attributes['lead_id'] = $leadId;
+        }
+
+        if (! Schema::hasColumn('whatsapp_messages', 'channel_id')) {
+            unset($attributes['channel_id']);
         }
 
         return $attributes;

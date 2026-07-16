@@ -45,6 +45,8 @@ class Campaign extends Model
         'revenue',
         'roi',
         'profit',
+        'project_id',
+        'item_id',
     ];
 
     protected $casts = [
@@ -59,6 +61,29 @@ class Campaign extends Model
         'profit' => 'decimal:2',
         'meta_data' => 'array',
     ];
+
+    public function project()
+    {
+        return $this->belongsTo(Project::class, 'project_id');
+    }
+
+    public function item()
+    {
+        return $this->belongsTo(Item::class, 'item_id');
+    }
+
+    public function needsInventoryLink(): bool
+    {
+        $fromAds = in_array(strtolower((string) $this->provider), ['meta', 'google'], true)
+            || filled($this->meta_id)
+            || filled($this->google_id);
+
+        if (! $fromAds) {
+            return false;
+        }
+
+        return empty($this->project_id) && empty($this->item_id);
+    }
 
     public function insights()
     {

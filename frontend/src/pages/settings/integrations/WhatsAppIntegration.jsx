@@ -79,7 +79,7 @@ const WhatsAppIntegration = () => {
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
-          WhatsApp Mirror
+          Unassigned
           {pendingContactsCount > 0 && (
             <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
               {pendingContactsCount > 99 ? '99+' : pendingContactsCount}

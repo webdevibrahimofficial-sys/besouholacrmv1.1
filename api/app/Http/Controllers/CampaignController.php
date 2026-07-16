@@ -3,10 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Campaign;
+use App\Models\Item;
+use App\Models\Project;
+use App\Models\Tenant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Http\Resources\CampaignResource;
 use App\Support\AppliesAgencyScope;
+use Illuminate\Validation\ValidationException;
 
 class CampaignController extends Controller
 {
@@ -17,7 +21,7 @@ class CampaignController extends Controller
      */
     public function index(Request $request)
     {
-        $campaigns = Campaign::query();
+        $campaigns = Campaign::query()->with(['project:id,name', 'item:id,name']);
         $this->applyAgencyScope($campaigns, $request->user());
         $campaigns = $campaigns->latest()->get();
         return CampaignResource::collection($campaigns);
@@ -143,14 +147,18 @@ class CampaignController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'agency_id' => 'nullable|string|max:255',
-            'source' => 'nullable|string',
+            'source' => 'required|string',
             'startDate' => 'nullable|date',
             'start_date' => 'nullable|date',
             'endDate' => 'nullable|date',
             'end_date' => 'nullable|date',
-            'totalBudget' => 'nullable|numeric',
-            'total_budget' => 'nullable|numeric',
+            'totalBudget' => 'required|numeric|min:0',
+            'total_budget' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string',
+            'project_id' => 'nullable|integer',
+            'item_id' => 'nullable|integer',
+            'projectId' => 'nullable|integer',
+            'itemId' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -165,6 +173,22 @@ class CampaignController extends Controller
         if ($request->has('startDate')) $data['start_date'] = $request->startDate;
         if ($request->has('endDate')) $data['end_date'] = $request->endDate;
         if ($request->has('landingPage')) $data['landing_page'] = $request->landingPage;
+        if ($request->has('projectId')) $data['project_id'] = $request->projectId;
+        if ($request->has('itemId')) $data['item_id'] = $request->itemId;
+
+        $tenant = Tenant::query()->find($request->user()?->tenant_id);
+        $isGeneral = strtolower(trim((string) ($tenant?->company_type ?? ''))) === 'general';
+        if ($isGeneral) {
+            if (empty($data['item_id'])) {
+                return response()->json(['errors' => ['itemId' => ['Item is required.']]], 422);
+            }
+            $data['project_id'] = null;
+        } else {
+            if (empty($data['project_id'])) {
+                return response()->json(['errors' => ['projectId' => ['Project is required.']]], 422);
+            }
+            $data['item_id'] = null;
+        }
         
         // Auto-assign created_by if logged in
         if (!$request->has('created_by') && $request->user()) {
@@ -175,7 +199,7 @@ class CampaignController extends Controller
 
         $campaign = Campaign::create($data);
 
-        return (new CampaignResource($campaign))
+        return (new CampaignResource($campaign->load(['project:id,name', 'item:id,name'])))
             ->additional(['message' => 'Campaign created successfully'])
             ->response()
             ->setStatusCode(201);
@@ -198,16 +222,20 @@ class CampaignController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'agency_id' => 'nullable|string|max:255',
-            'source' => 'nullable|string',
+            'source' => 'sometimes|required|string',
             'billingModel' => 'nullable|in:cpl,cpa,cpd',
             'meta_data' => 'nullable|array',
             'startDate' => 'nullable|date',
             'start_date' => 'nullable|date',
             'endDate' => 'nullable|date',
             'end_date' => 'nullable|date',
-            'totalBudget' => 'nullable|numeric',
-            'total_budget' => 'nullable|numeric',
+            'totalBudget' => 'sometimes|required|numeric|min:0',
+            'total_budget' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string',
+            'project_id' => 'nullable|integer',
+            'item_id' => 'nullable|integer',
+            'projectId' => 'nullable|integer',
+            'itemId' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -223,6 +251,24 @@ class CampaignController extends Controller
         if ($request->has('startDate')) $data['start_date'] = $request->startDate;
         if ($request->has('endDate')) $data['end_date'] = $request->endDate;
         if ($request->has('landingPage')) $data['landing_page'] = $request->landingPage;
+        if ($request->has('projectId')) $data['project_id'] = $request->projectId;
+        if ($request->has('itemId')) $data['item_id'] = $request->itemId;
+
+        if ($request->has('projectId') || $request->has('itemId') || $request->has('project_id') || $request->has('item_id')) {
+            $tenant = Tenant::query()->find($request->user()?->tenant_id);
+            $isGeneral = strtolower(trim((string) ($tenant?->company_type ?? ''))) === 'general';
+            if ($isGeneral) {
+                if (empty($data['item_id'])) {
+                    return response()->json(['errors' => ['itemId' => ['Item is required.']]], 422);
+                }
+                $data['project_id'] = null;
+            } else {
+                if (empty($data['project_id'])) {
+                    return response()->json(['errors' => ['projectId' => ['Project is required.']]], 422);
+                }
+                $data['item_id'] = null;
+            }
+        }
         $data['agency_id'] = $this->resolveAgencyIdForWrite($request, $request->user()) ?? $campaign->agency_id;
         if ($request->has('billingModel')) {
             $meta = $campaign->meta_data ?? [];
@@ -235,8 +281,73 @@ class CampaignController extends Controller
 
         $campaign->update($data);
 
-        return (new CampaignResource($campaign))
+        return (new CampaignResource($campaign->fresh()->load(['project:id,name', 'item:id,name'])))
             ->additional(['message' => 'Campaign updated successfully']);
+    }
+
+    /**
+     * Link a Meta/Google campaign to a Project (real estate) or Item (general).
+     */
+    public function linkInventory(Request $request, Campaign $campaign)
+    {
+        $this->ensureAgencyOwnership($request->user(), $campaign);
+
+        $tenant = Tenant::query()->find($request->user()->tenant_id);
+        $companyType = strtolower(trim((string) ($tenant?->company_type ?? '')));
+        $isGeneral = $companyType === 'general';
+
+        $validated = $request->validate([
+            'project_id' => 'nullable|integer',
+            'item_id' => 'nullable|integer',
+            'projectId' => 'nullable|integer',
+            'itemId' => 'nullable|integer',
+        ]);
+
+        $projectId = $validated['project_id'] ?? $validated['projectId'] ?? null;
+        $itemId = $validated['item_id'] ?? $validated['itemId'] ?? null;
+
+        if ($isGeneral) {
+            if (! $itemId) {
+                throw ValidationException::withMessages([
+                    'item_id' => ['Item is required for general companies.'],
+                ]);
+            }
+            $item = Item::query()
+                ->where('tenant_id', $request->user()->tenant_id)
+                ->where('id', $itemId)
+                ->first();
+            if (! $item) {
+                throw ValidationException::withMessages([
+                    'item_id' => ['Selected item was not found for this tenant.'],
+                ]);
+            }
+            $campaign->forceFill([
+                'item_id' => $item->id,
+                'project_id' => null,
+            ])->save();
+        } else {
+            if (! $projectId) {
+                throw ValidationException::withMessages([
+                    'project_id' => ['Project is required for real-estate companies.'],
+                ]);
+            }
+            $project = Project::query()
+                ->where('tenant_id', $request->user()->tenant_id)
+                ->where('id', $projectId)
+                ->first();
+            if (! $project) {
+                throw ValidationException::withMessages([
+                    'project_id' => ['Selected project was not found for this tenant.'],
+                ]);
+            }
+            $campaign->forceFill([
+                'project_id' => $project->id,
+                'item_id' => null,
+            ])->save();
+        }
+
+        return (new CampaignResource($campaign->fresh()->load(['project:id,name', 'item:id,name'])))
+            ->additional(['message' => 'Campaign linked successfully']);
     }
 
     public function recordAction(Request $request, Campaign $campaign)

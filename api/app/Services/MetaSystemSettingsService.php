@@ -56,6 +56,11 @@ class MetaSystemSettingsService
             'meta_verify_token' => $credentials['verify_token'] ?? '',
             'meta_webhook_url' => $webhookBase . '/api/meta/webhook',
             'meta_configured' => $this->isConfigured(),
+            'whatsapp_webhook_url' => $webhookBase . '/api/meta/webhook',
+            'whatsapp_oauth_enabled' => (bool) config('services.whatsapp.oauth_enabled', false),
+            'whatsapp_required_scopes' => config('services.whatsapp.scopes', []),
+            'whatsapp_manual_token_default' => ! (bool) config('services.whatsapp.oauth_enabled', false),
+            'whatsapp_embedded_signup_config_id' => trim((string) config('services.whatsapp.embedded_signup_config_id', '')),
         ];
     }
 

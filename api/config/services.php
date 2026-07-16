@@ -59,6 +59,12 @@ return [
 
     'whatsapp' => [
         'webhook_verify_token' => env('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
+        'oauth_enabled' => filter_var(env('WHATSAPP_OAUTH_ENABLED', false), FILTER_VALIDATE_BOOL),
+        'embedded_signup_config_id' => env('WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID'),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('WHATSAPP_SCOPES', 'whatsapp_business_management,whatsapp_business_messaging,business_management'))
+        ))),
     ],
 
     'google' => [

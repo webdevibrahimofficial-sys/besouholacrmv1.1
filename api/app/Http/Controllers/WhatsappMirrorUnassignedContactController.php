@@ -7,8 +7,12 @@ use App\Models\Item;
 use App\Models\Project;
 use App\Models\Source;
 use App\Models\User;
+use App\Models\WhatsappChannel;
+use App\Models\WhatsappMessage;
+use App\Models\WhatsappMessageAttribution;
 use App\Models\WhatsappUnassignedContact;
 use App\Services\Whatsapp\WhatsappUnassignedContactService;
+use App\Support\LeadPhoneMatcher;
 use App\Support\PhoneNormalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -80,8 +84,96 @@ class WhatsappMirrorUnassignedContactController extends Controller
         }
 
         return response()->json(
-            $query->orderByDesc('last_message_at')->paginate($perPage)
+            $this->enrichUnassignedPage(
+                (int) $user->tenant_id,
+                $query->orderByDesc('last_message_at')->paginate($perPage)
+            )
         );
+    }
+
+    private function enrichUnassignedPage(int $tenantId, $paginator)
+    {
+        $items = collect($paginator->items());
+        if ($items->isEmpty()) {
+            return $paginator;
+        }
+
+        $phones = $items->pluck('phone')->filter()->unique()->values()->all();
+        $enrichmentByPhone = [];
+
+        foreach ($phones as $phone) {
+            $variants = LeadPhoneMatcher::buildPhoneVariants((string) $phone);
+            if ($variants === []) {
+                continue;
+            }
+
+            $latestMessage = WhatsappMessage::query()
+                ->where('tenant_id', $tenantId)
+                ->where(function ($q) use ($variants) {
+                    foreach ($variants as $variant) {
+                        $q->orWhere('from', $variant)->orWhere('to', $variant);
+                    }
+                })
+                ->with(['channel:id,display_name,provider,status', 'attribution'])
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->first();
+
+            $channel = $latestMessage?->channel;
+            $attribution = $latestMessage?->attribution
+                ?? WhatsappMessageAttribution::query()
+                    ->where('tenant_id', $tenantId)
+                    ->whereHas('message', function ($q) use ($tenantId, $variants) {
+                        $q->where('tenant_id', $tenantId)
+                            ->where(function ($inner) use ($variants) {
+                                foreach ($variants as $variant) {
+                                    $inner->orWhere('from', $variant)->orWhere('to', $variant);
+                                }
+                            });
+                    })
+                    ->orderByDesc('id')
+                    ->first();
+
+            $provider = $channel?->provider
+                ?? $latestMessage?->provider
+                ?? null;
+
+            if ($provider === WhatsappChannel::PROVIDER_META_CLOUD || $provider === 'meta') {
+                $provider = 'meta_cloud';
+            } elseif ($provider === 'mirror') {
+                $provider = 'mirror';
+            }
+
+            $enrichmentByPhone[$phone] = [
+                'provider' => $provider,
+                'channel_id' => $channel?->id ?? $latestMessage?->channel_id,
+                'channel_name' => $channel?->display_name,
+                'has_ctwa_attribution' => (bool) $attribution,
+                'ctwa_source_id' => $attribution?->source_id,
+                'ctwa_headline' => $attribution?->headline,
+                'ctwa_ad_name' => $attribution?->ad_name,
+                'ctwa_campaign_name' => $attribution?->campaign_name,
+            ];
+        }
+
+        $paginator->setCollection(
+            $items->map(function (WhatsappUnassignedContact $contact) use ($enrichmentByPhone) {
+                $extra = $enrichmentByPhone[$contact->phone] ?? [
+                    'provider' => null,
+                    'channel_id' => null,
+                    'channel_name' => null,
+                    'has_ctwa_attribution' => false,
+                    'ctwa_source_id' => null,
+                    'ctwa_headline' => null,
+                    'ctwa_ad_name' => null,
+                    'ctwa_campaign_name' => null,
+                ];
+
+                return array_merge($contact->toArray(), $extra);
+            })
+        );
+
+        return $paginator;
     }
 
     public function convertToLead(
@@ -172,11 +264,14 @@ class WhatsappMirrorUnassignedContactController extends Controller
             $normalizedPhone = PhoneNormalizer::normalize((string) $contact->phone, null);
         }
 
+        $attribution = $this->findAttributionForPhone((int) $user->tenant_id, (string) $contact->phone);
+        $sourceName = $attribution ? 'WhatsApp CTWA' : 'WhatsApp Mirror';
+
         $leadPayload = array_filter([
             'source' => Source::withoutGlobalScopes()->firstOrCreate(
                 [
                     'tenant_id' => $user->tenant_id,
-                    'name' => 'WhatsApp Mirror',
+                    'name' => $sourceName,
                 ],
                 [
                     'is_active' => true,
@@ -186,7 +281,10 @@ class WhatsappMirrorUnassignedContactController extends Controller
             'phone' => $normalizedPhone !== '' ? $normalizedPhone : trim((string) $contact->phone),
             'email' => trim((string) $request->input('email', '')),
             'company' => trim((string) $request->input('company', '')),
-            'campaign' => trim((string) $request->input('campaign', '')),
+            'campaign' => trim((string) (
+                $request->input('campaign')
+                ?: ($attribution?->campaign_name ?: $attribution?->ad_name ?: $attribution?->headline ?: '')
+            )),
             'country' => trim((string) $request->input('country', '')),
             'notes' => trim((string) $request->input('notes', '')),
             'stage' => trim((string) $request->input('stage', 'New Lead')),
@@ -220,7 +318,19 @@ class WhatsappMirrorUnassignedContactController extends Controller
             $lead->refresh();
         }
 
-        DB::transaction(function () use ($contact, $lead, $user, $unassignedContactService) {
+        if ($attribution) {
+            $meta = is_array($lead->meta_data) ? $lead->meta_data : [];
+            $meta['ctwa'] = array_filter([
+                'source_id' => $attribution->source_id,
+                'headline' => $attribution->headline,
+                'ad_name' => $attribution->ad_name,
+                'campaign_name' => $attribution->campaign_name,
+                'ctwa_clid' => $attribution->ctwa_clid,
+            ]);
+            $lead->forceFill(['meta_data' => $meta])->save();
+        }
+
+        DB::transaction(function () use ($contact, $lead, $user, $unassignedContactService, $attribution) {
             $contact->forceFill([
                 'status' => 'converted',
                 'converted_lead_id' => $lead->id,
@@ -234,6 +344,22 @@ class WhatsappMirrorUnassignedContactController extends Controller
                 $contact->push_name,
                 $contact->last_message_body
             );
+
+            if ($attribution) {
+                WhatsappMessageAttribution::query()
+                    ->where('tenant_id', $user->tenant_id)
+                    ->whereNull('lead_id')
+                    ->whereHas('message', function ($q) use ($user, $contact) {
+                        $variants = LeadPhoneMatcher::buildPhoneVariants((string) $contact->phone);
+                        $q->where('tenant_id', $user->tenant_id)
+                            ->where(function ($inner) use ($variants) {
+                                foreach ($variants as $variant) {
+                                    $inner->orWhere('from', $variant)->orWhere('to', $variant);
+                                }
+                            });
+                    })
+                    ->update(['lead_id' => $lead->id]);
+            }
         });
 
         return response()->json([
@@ -241,5 +367,26 @@ class WhatsappMirrorUnassignedContactController extends Controller
             'lead' => $lead->load(['creator:id,name', 'assignedAgent:id,name']),
             'contact' => $contact->fresh('convertedLead:id,name,phone'),
         ]);
+    }
+
+    private function findAttributionForPhone(int $tenantId, string $phone): ?WhatsappMessageAttribution
+    {
+        $variants = LeadPhoneMatcher::buildPhoneVariants($phone);
+        if ($variants === []) {
+            return null;
+        }
+
+        return WhatsappMessageAttribution::query()
+            ->where('tenant_id', $tenantId)
+            ->whereHas('message', function ($q) use ($tenantId, $variants) {
+                $q->where('tenant_id', $tenantId)
+                    ->where(function ($inner) use ($variants) {
+                        foreach ($variants as $variant) {
+                            $inner->orWhere('from', $variant)->orWhere('to', $variant);
+                        }
+                    });
+            })
+            ->orderByDesc('id')
+            ->first();
     }
 }

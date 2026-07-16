@@ -131,31 +131,63 @@ class MetaCampaignService
         $profit = $revenue - $spend;
         $roi = $spend > 0 ? round(($revenue - $spend) / $spend, 2) : 0;
 
-        Campaign::updateOrCreate(
-            [
-                'tenant_id' => $tenantId,
-                'meta_id' => $data['id'],
-            ],
-            [
-                'name' => $data['name'],
-                'status' => $data['status'], // ACTIVE, PAUSED, ARCHIVED
-                'objective' => $data['objective'] ?? null,
-                'daily_budget' => $dailyBudget,
-                'lifetime_budget' => $lifetimeBudget,
-                'provider' => 'meta',
-                'ad_account_id' => $adAccountId,
-                'start_date' => $data['created_time'] ?? now(), // Approximate
-                'end_date' => null, // Meta doesn't always return end_date easily here without more fields
-                'impressions' => $insights['impressions'] ?? 0,
-                'clicks' => $insights['clicks'] ?? 0,
-                'spend' => $spend,
-                'revenue' => $revenue,
-                'leads' => $leads,
-                'profit' => $profit,
-                'roi' => $roi,
-                'meta_data' => ['raw' => $data],
-            ]
-        );
+        $incomingName = trim((string) ($data['name'] ?? ''));
+        $metaId = (string) $data['id'];
+
+        $existing = Campaign::query()
+            ->where('tenant_id', $tenantId)
+            ->where('meta_id', $metaId)
+            ->first();
+
+        // Same-name campaign (e.g. created manually) → update it instead of creating a duplicate.
+        if (! $existing && $incomingName !== '') {
+            $existing = Campaign::query()
+                ->where('tenant_id', $tenantId)
+                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($incomingName)])
+                ->where(function ($q) use ($metaId) {
+                    $q->whereNull('meta_id')
+                        ->orWhere('meta_id', '')
+                        ->orWhere('meta_id', $metaId);
+                })
+                ->orderByRaw('CASE WHEN meta_id IS NULL OR meta_id = \'\' THEN 0 ELSE 1 END')
+                ->orderByDesc('id')
+                ->first();
+        }
+
+        $metaData = is_array($existing?->meta_data) ? $existing->meta_data : [];
+        $metaData['raw'] = $data;
+
+        $payload = [
+            'name' => $incomingName !== '' ? $incomingName : ($existing?->name ?? $metaId),
+            'meta_id' => $metaId,
+            'status' => $data['status'], // ACTIVE, PAUSED, ARCHIVED
+            'objective' => $data['objective'] ?? null,
+            'daily_budget' => $dailyBudget,
+            'lifetime_budget' => $lifetimeBudget,
+            'provider' => 'meta',
+            'ad_account_id' => $adAccountId,
+            'start_date' => $data['created_time'] ?? ($existing?->start_date ?? now()),
+            'impressions' => $insights['impressions'] ?? 0,
+            'clicks' => $insights['clicks'] ?? 0,
+            'spend' => $spend,
+            'revenue' => $revenue,
+            'leads' => $leads,
+            'profit' => $profit,
+            'roi' => $roi,
+            'meta_data' => $metaData,
+        ];
+
+        // Only set end_date on create when Meta doesn't provide one (preserve manual end_date on update).
+        if (! $existing) {
+            $payload['end_date'] = null;
+            $payload['tenant_id'] = $tenantId;
+        }
+
+        if ($existing) {
+            $existing->fill($payload)->save();
+        } else {
+            Campaign::create($payload);
+        }
     }
 
     public function syncAdSets($tenantId, MetaAdAccount $adAccount, $accessToken)

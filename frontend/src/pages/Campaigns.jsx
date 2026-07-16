@@ -6,10 +6,11 @@ import 'jspdf-autotable'
 import { api, logExportEvent } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { useTheme } from '../shared/context/ThemeProvider'
-import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEdit, FaTrash, FaFileExport, FaFileExcel, FaFilePdf, FaTimes, FaChevronLeft, FaChevronRight, FaRegCalendarAlt } from 'react-icons/fa'
+import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEdit, FaTrash, FaFileExport, FaFileExcel, FaFilePdf, FaTimes, FaChevronLeft, FaChevronRight, FaRegCalendarAlt, FaLink } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { formatCrmDate, formatUiDateTime } from '../shared/utils/crmDateTime'
+import { normalizeTenantCompanyType } from '../shared/utils/tenantCompanyType'
 import './CampaignsDateRange.css'
 
 // Alias for compatibility
@@ -20,8 +21,13 @@ const ChevronRight = FaChevronRight
 export default function Campaigns() {
   const { i18n } = useTranslation()
   const isArabic = (i18n?.language || '').toLowerCase().startsWith('ar')
-  const { user, crmSettings } = useAppState()
+  const { user, crmSettings, company } = useAppState()
   const { isLight } = useTheme()
+  const companyType = normalizeTenantCompanyType(company?.company_type || company?.type || crmSettings?.company_type)
+  const isGeneralCompany = companyType === 'general'
+  const inventoryLabel = isGeneralCompany
+    ? (isArabic ? 'المنتج / Item' : 'Item')
+    : (isArabic ? 'المشروع / Project' : 'Project')
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
   const hasExplicitMarketingPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Marketing')
@@ -101,11 +107,13 @@ export default function Campaigns() {
     )
   }
 
-  const [form, setForm] = useState({
+  const emptyForm = () => ({
     id: null,
     name: '',
     provider: 'manual',
     source: '',
+    projectId: '',
+    itemId: '',
     budgetType: 'daily',
     totalBudget: '',
     currency: 'EGP',
@@ -115,12 +123,16 @@ export default function Campaigns() {
     notes: '',
     status: 'Active'
   })
+  const [form, setForm] = useState(() => emptyForm())
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
   const [landingPages, setLandingPages] = useState([])
   const [leadsData, setLeadsData] = useState([])
   const [sources, setSources] = useState([])
   const [usersList, setUsersList] = useState([])
+  const [inventoryOptions, setInventoryOptions] = useState([])
+  const [linkModal, setLinkModal] = useState({ open: false, campaign: null, selectedId: '' })
+  const [linking, setLinking] = useState(false)
 
   // Load Data
   const fetchCampaigns = async () => {
@@ -175,12 +187,103 @@ export default function Campaigns() {
     }
   }
 
+  const fetchInventoryOptions = async () => {
+    try {
+      const endpoint = isGeneralCompany ? '/api/items?all=1' : '/api/projects?all=1'
+      const { data } = await api.get(endpoint)
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : [])
+      setInventoryOptions(list)
+    } catch (err) {
+      console.error('Failed to load inventory options', err)
+      setInventoryOptions([])
+    }
+  }
+
+  const openLinkModal = (campaign) => {
+    setLinkModal({
+      open: true,
+      campaign,
+      selectedId: String(
+        isGeneralCompany
+          ? (campaign.itemId || campaign.item_id || '')
+          : (campaign.projectId || campaign.project_id || '')
+      ),
+    })
+  }
+
+  const closeLinkModal = () => {
+    setLinkModal({ open: false, campaign: null, selectedId: '' })
+  }
+
+  const handleLinkInventory = async () => {
+    if (!linkModal.campaign?.id || !linkModal.selectedId) return
+    setLinking(true)
+    try {
+      const payload = isGeneralCompany
+        ? { item_id: Number(linkModal.selectedId) }
+        : { project_id: Number(linkModal.selectedId) }
+      await api.post(`/api/campaigns/${linkModal.campaign.id}/link-inventory`, payload)
+      setMessage({ type: 'success', text: isArabic ? 'تم ربط الحملة بنجاح' : 'Campaign linked successfully' })
+      closeLinkModal()
+      await fetchCampaigns()
+    } catch (err) {
+      const msg = err?.response?.data?.message
+        || err?.response?.data?.errors?.item_id?.[0]
+        || err?.response?.data?.errors?.project_id?.[0]
+        || (isArabic ? 'فشل ربط الحملة' : 'Failed to link campaign')
+      setMessage({ type: 'error', text: msg })
+    } finally {
+      setLinking(false)
+    }
+  }
+
+  const renderInventoryCell = (campaign) => {
+    const linkedName = isGeneralCompany
+      ? (campaign.itemName || campaign.item_name)
+      : (campaign.projectName || campaign.project_name)
+    const needsLink = Boolean(campaign.needsInventoryLink)
+    const isAdsCampaign = campaign.provider === 'meta'
+      || campaign.provider === 'google'
+      || campaign.metaId
+      || campaign.googleId
+
+    return (
+      <div className="flex flex-col gap-1.5 min-w-[140px]">
+        {linkedName ? (
+          <span className="text-xs font-medium">{linkedName}</span>
+        ) : needsLink ? (
+          <span className="inline-flex w-fit items-center rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-500 ring-1 ring-red-500/30">
+            {isArabic ? 'يحتاج ربط' : 'Needs link'}
+          </span>
+        ) : (
+          <span className="opacity-50 text-xs">—</span>
+        )}
+        {isAdsCampaign && canManageCampaigns && (
+          <button
+            type="button"
+            onClick={() => openLinkModal(campaign)}
+            className={`inline-flex w-fit items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${
+              needsLink
+                ? 'border-red-400/40 bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                : 'border-gray-400/30 bg-gray-500/10 text-gray-500 hover:bg-gray-500/20'
+            }`}
+          >
+            <FaLink className="w-3 h-3" />
+            {linkedName ? (isArabic ? 'تعديل الربط' : 'Edit link') : (isArabic ? 'ربط' : 'Link')}
+          </button>
+        )}
+      </div>
+    )
+  }
+
   useEffect(() => {
     fetchCampaigns()
     fetchSources()
     fetchUsers()
     fetchLandingPages()
-  }, [])
+    fetchInventoryOptions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGeneralCompany])
 
   // Sync leads data from API for CPL/CPA/Conversion calculations
   useEffect(() => {
@@ -372,7 +475,14 @@ export default function Campaigns() {
   }
 
   function handleEdit(campaign) {
-    setForm({ ...campaign, provider: campaign?.provider || 'manual' })
+    setForm({
+      ...emptyForm(),
+      ...campaign,
+      provider: campaign?.provider || 'manual',
+      projectId: campaign?.projectId || campaign?.project_id || '',
+      itemId: campaign?.itemId || campaign?.item_id || '',
+      totalBudget: campaign?.totalBudget ?? campaign?.total_budget ?? '',
+    })
     setShowForm(true)
     setMessage(null)
   }
@@ -420,17 +530,30 @@ export default function Campaigns() {
   async function onSubmit(e) {
     e.preventDefault()
     if (!canManageCampaigns) return
-    if (!form.name || !form.provider || !form.source) {
-      setMessage({ type: 'error', text: isArabic ? 'من فضلك أدخل اسم الحملة + مصدر الحملة + مصدر الـ CRM' : 'Please enter campaign name, campaign origin, and CRM source' })
+    const inventoryId = isGeneralCompany ? form.itemId : form.projectId
+    if (!form.name || !form.provider || !form.source || !inventoryId || form.totalBudget === '' || form.totalBudget == null) {
+      setMessage({
+        type: 'error',
+        text: isArabic
+          ? `من فضلك أدخل اسم الحملة + المصدر + ${inventoryLabel} + الميزانية`
+          : `Please enter campaign name, CRM source, ${inventoryLabel}, and budget`,
+      })
       return
+    }
+
+    const payload = {
+      ...form,
+      projectId: isGeneralCompany ? null : Number(form.projectId),
+      itemId: isGeneralCompany ? Number(form.itemId) : null,
+      totalBudget: Number(form.totalBudget),
     }
 
     setSaving(true)
     try {
       if (form.id) {
-        await api.put(`/api/campaigns/${form.id}`, form)
+        await api.put(`/api/campaigns/${form.id}`, payload)
       } else {
-        await api.post('/api/campaigns', form)
+        await api.post('/api/campaigns', payload)
       }
       
       await fetchCampaigns()
@@ -438,7 +561,7 @@ export default function Campaigns() {
       setMessage({ type: 'success', text: isArabic ? 'تم حفظ الحملة بنجاح' : 'Campaign saved successfully' })
       setTimeout(() => {
         setShowForm(false)
-        setForm({ name: '', provider: 'manual', source: '', budgetType: 'daily', totalBudget: '', currency: 'EGP', startDate: '', endDate: '', landingPage: '', notes: '', status: 'Active' })
+        setForm(emptyForm())
         setMessage(null)
       }, 1000)
     } catch {
@@ -541,7 +664,7 @@ export default function Campaigns() {
             <button 
               className="btn btn-sm bg-green-600 hover:bg-blue-700 text-white border-none gap-2 flex items-center" 
               onClick={() => {
-                setForm({ id: null, name: '', provider: 'manual', source: '', budgetType: 'daily', totalBudget: '', currency: 'EGP', startDate: '', endDate: '', landingPage: '', notes: '', status: 'Active' })
+                setForm(emptyForm())
                 setShowForm(true)
                 setMessage(null)
               }}
@@ -808,8 +931,14 @@ export default function Campaigns() {
                   {/* Header */}
                   <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-3">
                     <div>
-                      <h4 className="font-semibold text-sm">{campaign.name}</h4>
+                      <h4 className="font-semibold text-sm flex items-center gap-2">
+                        {campaign.needsInventoryLink && (
+                          <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
+                        )}
+                        {campaign.name}
+                      </h4>
                       <p className="text-xs text-[var(--muted-text)]">{campaign.source || '-'}</p>
+                      <div className="mt-2">{renderInventoryCell(campaign)}</div>
                       {showOriginColumn && (
                         <p className="text-[11px] text-[var(--muted-text)]">{isArabic ? 'المنشأ:' : 'Origin:'} {providerLabel(campaign.provider)}</p>
                       )}
@@ -904,6 +1033,7 @@ export default function Campaigns() {
                     </th>
                     <th className="px-4 py-3">{isArabic ? 'اسم الحملة' : 'Campaign Name'}</th>
                     <th className="px-4 py-3">{isArabic ? 'المصدر' : 'Source'}</th>
+                    <th className="px-4 py-3">{inventoryLabel}</th>
                     {showOriginColumn && (
                       <th className="px-4 py-3">{isArabic ? 'المنشأ' : 'Origin'}</th>
                     )}
@@ -930,8 +1060,16 @@ export default function Campaigns() {
                           onChange={() => handleSelectRow(campaign.id)}
                         />
                       </td>
-                      <td className="px-4 py-3 font-medium">{campaign.name}</td>
+                      <td className="px-4 py-3 font-medium">
+                        <div className="flex items-center gap-2">
+                          {campaign.needsInventoryLink && (
+                            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" title={isArabic ? 'يحتاج ربط' : 'Needs link'} />
+                          )}
+                          <span>{campaign.name}</span>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 opacity-80">{campaign.source || '-'}</td>
+                      <td className="px-4 py-3">{renderInventoryCell(campaign)}</td>
                       {showOriginColumn && (
                         <td className="px-4 py-3 opacity-80">{providerLabel(campaign.provider)}</td>
                       )}
@@ -1101,6 +1239,7 @@ export default function Campaigns() {
                 <div>
                   <label className="block dark:!text-white text-sm mb-1">
                     {isArabic ? 'مصدر الـ CRM (Settings)' : 'CRM Source (Settings)'}
+                    <span className="text-red-500">*</span>
                   </label>
                   <SearchableSelect
                     value={form.source}
@@ -1108,6 +1247,28 @@ export default function Campaigns() {
                     options={sources.map(s => ({ value: s.name, label: s.name }))}
                     isRTL={isArabic}
                     placeholder={isArabic ? 'اختر مصدر من الإعدادات' : 'Select a source from Settings'}
+                  />
+                </div>
+
+                {/* Project / Item */}
+                <div>
+                  <label className="block dark:!text-white text-sm mb-1">
+                    {inventoryLabel}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableSelect
+                    value={isGeneralCompany ? String(form.itemId || '') : String(form.projectId || '')}
+                    onChange={(val) => setForm(prev => (
+                      isGeneralCompany
+                        ? { ...prev, itemId: val, projectId: '' }
+                        : { ...prev, projectId: val, itemId: '' }
+                    ))}
+                    options={inventoryOptions.map(opt => ({
+                      value: String(opt.id),
+                      label: opt.name || opt.code || `#${opt.id}`,
+                    }))}
+                    isRTL={isArabic}
+                    placeholder={isArabic ? `اختر ${inventoryLabel}` : `Select ${inventoryLabel}`}
                   />
                 </div>
 
@@ -1169,6 +1330,7 @@ export default function Campaigns() {
                   <div>
                     <label className="block dark:!text-white text-sm font-medium mb-2">
                       {isArabic ? 'الميزانية الإجمالية' : 'Total Budget'}
+                      <span className="text-red-500">*</span>
                       <span className="text-xs font-normal text-gray-500 mx-1">
                         ({form.budgetType === 'daily' ? (isArabic ? 'في اليوم' : 'per day') : (isArabic ? 'للحملة كاملة' : 'for entire campaign')})
                       </span>
@@ -1183,6 +1345,7 @@ export default function Campaigns() {
                         placeholder="0.00" 
                         min="0"
                         step="0.01"
+                        required
                       />
                       <div className={`absolute inset-y-0 ${isArabic ? 'left-0 pl-3' : 'right-0 pr-3'} flex items-center pointer-events-none`}>
                         <span className="text-gray-400 font-bold text-sm">{form.currency || (isArabic ? 'ج.م' : 'EGP')}</span>
@@ -1236,6 +1399,58 @@ export default function Campaigns() {
                   </div>
                 )}
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {linkModal.open && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+          <div className={`w-full max-w-md rounded-2xl border p-5 shadow-xl ${isLight ? 'bg-white border-gray-200' : 'bg-slate-900 border-slate-700'}`}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className={`text-lg font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  {isArabic ? `ربط الحملة بـ ${inventoryLabel}` : `Link campaign to ${inventoryLabel}`}
+                </h3>
+                <p className={`mt-1 text-sm ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
+                  {linkModal.campaign?.name}
+                </p>
+              </div>
+              <button type="button" onClick={closeLinkModal} className="opacity-70 hover:opacity-100">
+                <FaTimes />
+              </button>
+            </div>
+
+            <label className={`mb-1.5 block text-sm font-medium ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
+              {inventoryLabel}
+            </label>
+            <select
+              className="input w-full"
+              value={linkModal.selectedId}
+              onChange={(e) => setLinkModal((prev) => ({ ...prev, selectedId: e.target.value }))}
+            >
+              <option value="">{isArabic ? 'اختر...' : 'Select...'}</option>
+              {inventoryOptions.map((opt) => (
+                <option key={opt.id} value={String(opt.id)}>
+                  {opt.name || opt.code || `#${opt.id}`}
+                </option>
+              ))}
+            </select>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="btn btn-ghost" onClick={closeLinkModal}>
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={linking || !linkModal.selectedId}
+                onClick={handleLinkInventory}
+              >
+                {linking
+                  ? (isArabic ? 'جارٍ الربط...' : 'Linking...')
+                  : (isArabic ? 'حفظ الربط' : 'Save link')}
+              </button>
             </div>
           </div>
         </div>

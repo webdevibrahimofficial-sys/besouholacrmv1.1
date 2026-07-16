@@ -822,6 +822,8 @@ export default function WhatsAppMirrorConnection() {
     setConvertForm({
       ...DEFAULT_CONVERT_FORM,
       name: contact?.push_name || '',
+      source: contact?.has_ctwa_attribution ? 'WhatsApp CTWA' : 'WhatsApp Mirror',
+      campaign: contact?.ctwa_campaign_name || contact?.ctwa_ad_name || contact?.ctwa_headline || '',
       notes: source === 'groups'
         ? (contact?.group_name
           ? (isArabic ? `تم استيراده من جروب واتساب: ${contact.group_name}` : `Imported from WhatsApp group: ${contact.group_name}`)
@@ -1130,8 +1132,36 @@ export default function WhatsAppMirrorConnection() {
           >
             <div className="col-span-3 min-w-0">
               <div className="font-semibold truncate">{contact.push_name || (isArabic ? 'بدون اسم' : 'No name')}</div>
-              {contact.status !== 'converted' && (
-                <div className={`mt-1 text-xs ${mutedTextClass}`}>{isArabic ? 'بانتظار التحويل' : 'Awaiting conversion'}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                {contact.provider === 'meta_cloud' && (
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isLight ? 'bg-sky-50 text-sky-700 ring-1 ring-sky-200' : 'bg-sky-500/10 text-sky-300 ring-1 ring-sky-500/30'
+                  }`}>
+                    Cloud
+                  </span>
+                )}
+                {contact.provider === 'mirror' && (
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isLight ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-200' : 'bg-violet-500/10 text-violet-300 ring-1 ring-violet-500/30'
+                  }`}>
+                    Mirror
+                  </span>
+                )}
+                {contact.has_ctwa_attribution && (
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isLight ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30'
+                  }`}>
+                    CTWA
+                  </span>
+                )}
+                {contact.status !== 'converted' && (
+                  <span className={`text-xs ${mutedTextClass}`}>{isArabic ? 'بانتظار التحويل' : 'Awaiting conversion'}</span>
+                )}
+              </div>
+              {(contact.ctwa_headline || contact.ctwa_campaign_name || contact.channel_name) && (
+                <div className={`mt-1 truncate text-xs ${mutedTextClass}`}>
+                  {contact.ctwa_campaign_name || contact.ctwa_headline || contact.channel_name}
+                </div>
               )}
             </div>
             <div className="col-span-2 break-all">
@@ -1616,7 +1646,7 @@ export default function WhatsAppMirrorConnection() {
                 }`}>
                   {activeDirectory === 'groups'
                     ? (isArabic ? 'أعضاء الجروبات' : 'Group members')
-                    : (isArabic ? 'الأرقام غير المحولة' : 'Unassigned contacts')}
+                  : (isArabic ? 'الأرقام غير المحولة (كل القنوات)' : 'Unassigned contacts (all channels)')}
                 </div>
                 <div className="mt-3 flex  gap-2 lg:flex-row lg:items-center">
                   <h4 className={`text-xl font-semibold tracking-tight ${titleTextClass}`}>{isArabic ? 'جهات واتساب' : 'WhatsApp Contacts'}</h4>
@@ -1626,8 +1656,8 @@ export default function WhatsAppMirrorConnection() {
                     ? 'اعرض أعضاء الجروبات المستوردة من الرقم المربوط، مع فلترة أسرع وتحويل مباشر إلى ليد.'
                     : 'Showing group members pulled from the linked number. Convert them manually to leads.')
                   : (isArabic
-                    ? 'الأرقام التي لم تُطابق ليد موجود ستظهر هنا مع الاسم القادم من واتساب.'
-                    : 'Contacts not matched to existing leads appear here with their WhatsApp display name.')}
+                    ? 'أرقام من Mirror أو Cloud لم تُطابق ليدًا — بما فيها إعلانات Click-to-WhatsApp.'
+                    : 'Numbers from Mirror or Cloud not matched to a lead — including Click-to-WhatsApp ads.')}
                   </p>
                 </div>
               </div>

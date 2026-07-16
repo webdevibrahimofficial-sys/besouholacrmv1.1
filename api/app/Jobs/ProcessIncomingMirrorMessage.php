@@ -4,8 +4,10 @@ namespace App\Jobs;
 
 use App\Events\InboundWhatsappMessage;
 use App\Models\Lead;
+use App\Models\WhatsappChannel;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
+use App\Services\Whatsapp\WhatsappChannelService;
 use App\Services\Whatsapp\WhatsappGroupContactService;
 use App\Services\Whatsapp\WhatsappUnassignedContactService;
 use App\Support\LeadPhoneMatcher;
@@ -69,6 +71,21 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
 
         $session = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
         $ownNumber = $session?->connected_phone_number;
+        $mirrorChannel = app(WhatsappChannelService::class)->findMirrorChannel($tenantId);
+        if (! $mirrorChannel && $session?->status === 'connected') {
+            $mirrorChannel = WhatsappChannel::query()->firstOrCreate(
+                [
+                    'tenant_id' => $tenantId,
+                    'provider' => WhatsappChannel::PROVIDER_MIRROR,
+                ],
+                [
+                    'display_name' => 'WhatsApp Mirror',
+                    'status' => WhatsappChannel::STATUS_CONNECTED,
+                    'supports_ctwa_attribution' => false,
+                ]
+            );
+            $mirrorChannel = app(WhatsappChannelService::class)->syncMirrorChannel($tenantId, $mirrorChannel);
+        }
 
         $from = $direction === 'inbound' ? $counterpartPhone : $ownNumber;
         $to = $direction === 'outbound' ? $counterpartPhone : $ownNumber;
@@ -97,6 +114,7 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
 
             $attributes = [
                 'tenant_id' => $tenantId,
+                'channel_id' => $mirrorChannel?->id,
                 'provider' => 'mirror',
                 'direction' => $direction,
                 'from' => $from,

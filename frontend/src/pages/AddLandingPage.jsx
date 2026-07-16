@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { api } from '../utils/api'
+import { normalizeTenantCompanyType } from '../shared/utils/tenantCompanyType'
 import Editor from 'react-simple-code-editor'
 import { highlight, languages } from 'prismjs/components/prism-core'
 import 'prismjs/components/prism-clike'
@@ -16,17 +17,17 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
   const isRTL = i18n.language === 'ar'
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { company } = useAppState()
+  const { company, crmSettings } = useAppState()
 
-  const companyTypeLower = String(company?.company_type || '').toLowerCase()
-  const isRealEstate =
-    companyTypeLower === 'real estate' ||
-    companyTypeLower === 'realestate' ||
-    companyTypeLower === 'real_estate'
-  const isGeneral =
-    companyTypeLower === 'general' ||
-    companyTypeLower === 'gen' ||
-    companyTypeLower === 'default'
+  const companyType = normalizeTenantCompanyType(
+    company?.company_type,
+    company?.companyType,
+    company?.type,
+    crmSettings?.company_type,
+    crmSettings?.companyType,
+  )
+  const isRealEstate = companyType === 'realestate'
+  const isGeneral = companyType === 'general'
 
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('general')
@@ -35,29 +36,6 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
   const [projects, setProjects] = useState([])
   const [units, setUnits] = useState([])
   const [items, setItems] = useState([])
-
-  useEffect(() => {
-    if (isOpen) {
-        api.get('/api/campaigns').then(res => {
-            setCampaigns(res.data.data || [])
-        }).catch(err => console.error('Failed to fetch campaigns', err))
-
-        api.get('/api/sources').then(res => {
-            setSources(res.data || [])
-        }).catch(err => console.error('Failed to fetch sources', err))
-
-        const req = isGeneral
-          ? api.get('/api/items?all=1')
-          : (isRealEstate ? api.get('/api/projects?all=1') : api.get('/api/units?all=1'))
-        req.then((res) => {
-          const data = res?.data?.data || res?.data || []
-          if (isGeneral) setItems(Array.isArray(data) ? data : [])
-          else if (isRealEstate) setProjects(Array.isArray(data) ? data : [])
-          else setUnits(Array.isArray(data) ? data : [])
-        }).catch(err => console.error('Failed to fetch projects/units', err))
-    }
-  }, [isOpen, isRealEstate, isGeneral])
-
   const [form, setForm] = useState({
     title: '',
     source: '',
@@ -84,6 +62,51 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
     theme: 'theme1',
     leadContextId: '',
   })
+
+  const resolveCampaignInventoryId = (campaign) => {
+    if (!campaign) return ''
+    if (isGeneral) {
+      const id = campaign.itemId ?? campaign.item_id
+      return id != null && id !== '' ? String(id) : ''
+    }
+    if (isRealEstate) {
+      const id = campaign.projectId ?? campaign.project_id
+      return id != null && id !== '' ? String(id) : ''
+    }
+    return ''
+  }
+
+  useEffect(() => {
+    if (isOpen) {
+        api.get('/api/campaigns').then(res => {
+            setCampaigns(res.data.data || [])
+        }).catch(err => console.error('Failed to fetch campaigns', err))
+
+        api.get('/api/sources').then(res => {
+            setSources(res.data || [])
+        }).catch(err => console.error('Failed to fetch sources', err))
+
+        const req = isGeneral
+          ? api.get('/api/items?all=1')
+          : (isRealEstate ? api.get('/api/projects?all=1') : api.get('/api/units?all=1'))
+        req.then((res) => {
+          const data = res?.data?.data || res?.data || []
+          if (isGeneral) setItems(Array.isArray(data) ? data : [])
+          else if (isRealEstate) setProjects(Array.isArray(data) ? data : [])
+          else setUnits(Array.isArray(data) ? data : [])
+        }).catch(err => console.error('Failed to fetch projects/units', err))
+    }
+  }, [isOpen, isRealEstate, isGeneral])
+
+  // If campaign was selected before inventory lists finished loading, re-apply project/item.
+  useEffect(() => {
+    if (!isOpen || !form.campaign_id || form.leadContextId) return
+    const campaign = campaigns.find((c) => String(c.id) === String(form.campaign_id))
+    const inventoryId = resolveCampaignInventoryId(campaign)
+    if (!inventoryId) return
+    setForm((prev) => (prev.leadContextId === inventoryId ? prev : { ...prev, leadContextId: inventoryId }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, form.campaign_id, campaigns, projects, items, isGeneral, isRealEstate])
 
   // Auto-generate URL from Title (Only if creating new)
   useEffect(() => {
@@ -169,8 +192,34 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
 
   if (!isOpen) return null
 
+  const applyCampaignDefaults = (campaign, prev = {}) => {
+    const next = { ...prev }
+    if (!campaign) return next
+
+    if (campaign.source) {
+      next.source = campaign.source
+    }
+
+    const inventoryId = resolveCampaignInventoryId(campaign)
+    if (inventoryId) {
+      next.leadContextId = inventoryId
+    }
+
+    return next
+  }
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
+    if (name === 'campaign_id') {
+      const campaign = campaigns.find((c) => String(c.id) === String(value))
+      setForm((prev) => applyCampaignDefaults(campaign, {
+        ...prev,
+        campaign_id: value,
+        // Reset inventory when switching campaign so stale project doesn't stick
+        leadContextId: '',
+      }))
+      return
+    }
     setForm(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
   }
 
@@ -420,6 +469,22 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
                 />
               </div>
 
+              {/* Linked Campaign */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-[var(--muted-text)] font-medium">{isRTL ? 'الحملة المرتبطة' : 'Linked Campaign'}</label>
+                <select 
+                  name="campaign_id" 
+                  value={form.campaign_id} 
+                  onChange={handleChange} 
+                  className="select w-full bg-transparent border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                >
+                  <option value="">{isRTL ? 'اختر حملة' : 'Select Campaign'}</option>
+                  {campaigns.map(camp => (
+                    <option key={camp.id} value={camp.id}>{camp.name}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Source */}
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-[var(--muted-text)] font-medium">
@@ -438,23 +503,7 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
                 </select>
               </div>
 
-              {/* Linked Campaign */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-[var(--muted-text)] font-medium">{isRTL ? 'الحملة المرتبطة' : 'Linked Campaign'}</label>
-                <select 
-                  name="campaign_id" 
-                  value={form.campaign_id} 
-                  onChange={handleChange} 
-                  className="select w-full bg-transparent border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                >
-                  <option value="">{isRTL ? 'اختر حملة' : 'Select Campaign'}</option>
-                  {campaigns.map(camp => (
-                    <option key={camp.id} value={camp.id}>{camp.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Project / Unit context */}
+              {/* Project / Item / Unit context */}
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-[var(--muted-text)] font-medium">
                   {isGeneral
@@ -473,6 +522,13 @@ export default function AddLandingPage({ isOpen, onClose, onAdd, initialData = n
                     <option key={x.id} value={x.id}>{x.name}</option>
                   ))}
                 </select>
+                {form.campaign_id && !form.leadContextId && (isGeneral || isRealEstate) && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    {isRTL
+                      ? `الحملة المختارة غير مربوطة بـ${isGeneral ? 'آيتم' : 'مشروع'}. اربطها من صفحة الحملات أو اختر يدوياً.`
+                      : `Selected campaign has no linked ${isGeneral ? 'item' : 'project'}. Link it on Campaigns, or pick one manually.`}
+                  </p>
+                )}
               </div>
 
               {/* Email */}

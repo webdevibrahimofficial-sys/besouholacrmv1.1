@@ -65,3 +65,4 @@ Schedule::command('meta:refresh-tokens --days=7')->dailyAt('02:00')->withoutOver
 Schedule::command('gmail:sync')->everyFiveMinutes();
 Schedule::command('erp:sync')->everyFiveMinutes();
 Schedule::command('cc:mark-overdue')->daily();
+Schedule::command('whatsapp:reconcile-channels')->everyFiveMinutes()->withoutOverlapping();

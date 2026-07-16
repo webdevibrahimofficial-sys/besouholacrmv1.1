@@ -645,15 +645,28 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
     setSendingText(true);
     try {
+      const latestChannelId = [...waMessages]
+        .reverse()
+        .find((m) => m?.channel_id != null)?.channel_id ?? null;
+      const sendOptions = {
+        lead_id: lead?.id ?? null,
+        ...(latestChannelId != null ? { channel_id: latestChannelId } : {}),
+      };
+
       let res;
       if (selectedWhatsappAttachment) {
         res = await sendWhatsappMedia({
           recipient_number: digits,
           attachment: selectedWhatsappAttachment,
           caption: textBody.trim(),
+          ...sendOptions,
         });
       } else {
-        res = await sendWhatsappText({ recipient_number: digits, message_body: textBody.trim() });
+        res = await sendWhatsappText({
+          recipient_number: digits,
+          message_body: textBody.trim(),
+          ...sendOptions,
+        });
       }
 
       const ok = !!(res?.ok || res?.success);
@@ -3636,6 +3649,25 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     {waMessages.map((m) => (
                       <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`${m.direction === 'outbound' ? 'bg-green-500 text-white' : 'bg-white text-gray-800'} max-w-[75%] rounded-xl px-3 py-2 border ${m.direction === 'outbound' ? 'border-green-600' : 'border-gray-200'} shadow-sm`}>
+                          {m.attribution && (
+                            <div
+                              className={`mb-1.5 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                m.direction === 'outbound'
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                              }`}
+                              title={[m.attribution.campaign_name, m.attribution.ad_name, m.attribution.headline, m.attribution.source_id]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            >
+                              <span>CTWA</span>
+                              {(m.attribution.headline || m.attribution.campaign_name || m.attribution.source_id) && (
+                                <span className="truncate opacity-90">
+                                  {m.attribution.headline || m.attribution.campaign_name || m.attribution.source_id}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {renderWhatsappMessageMedia(m)}
                           {getWhatsappMessageText(m) ? (
                             <div className="text-sm break-words">{getWhatsappMessageText(m)}</div>

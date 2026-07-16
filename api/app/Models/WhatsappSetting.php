@@ -22,6 +22,7 @@ class WhatsappSetting extends TenantModel
         'status',
         'triggers',
         'auto_replies',
+        'auto_create_ctwa_leads',
     ];
 
     protected $casts = [
@@ -30,6 +31,7 @@ class WhatsappSetting extends TenantModel
         'status' => 'boolean',
         'triggers' => 'array',
         'auto_replies' => 'array',
+        'auto_create_ctwa_leads' => 'boolean',
     ];
 
     public function tenant()

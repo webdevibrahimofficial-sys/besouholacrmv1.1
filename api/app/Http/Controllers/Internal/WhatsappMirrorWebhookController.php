@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Internal;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Models\WhatsappChannel;
 use App\Models\WhatsappMirrorSession;
 use App\Models\WhatsappSetting;
 use App\Jobs\ProcessIncomingMirrorMessage;
 use App\Jobs\ProcessHistorySyncBatch;
+use App\Services\Whatsapp\WhatsappChannelService;
 use App\Services\Whatsapp\WhatsappContactStoreService;
 
 class WhatsappMirrorWebhookController extends Controller
@@ -54,6 +56,25 @@ class WhatsappMirrorWebhookController extends Controller
                     ['tenant_id' => $tenantId],
                     ['provider' => 'mirror']
                 );
+
+                $channelService = app(WhatsappChannelService::class);
+                $mirrorChannel = WhatsappChannel::query()->firstOrCreate(
+                    [
+                        'tenant_id' => $tenantId,
+                        'provider' => WhatsappChannel::PROVIDER_MIRROR,
+                    ],
+                    [
+                        'display_name' => 'WhatsApp Mirror',
+                        'supports_ctwa_attribution' => false,
+                    ]
+                );
+
+                if (! WhatsappChannel::query()->where('tenant_id', $tenantId)->where('is_primary', true)->exists()) {
+                    $mirrorChannel->is_primary = true;
+                    $mirrorChannel->save();
+                }
+
+                $channelService->syncMirrorChannel((int) $tenantId, $mirrorChannel);
             }
         }
 

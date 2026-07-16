@@ -111,4 +111,34 @@ class MetaCampaignSyncRegressionTest extends TestCase
         $this->assertEquals('1.50', (string) $insight->cpc);
         $this->assertEquals('75.00', (string) $insight->cpm);
     }
+
+    public function test_campaign_sync_updates_existing_campaign_with_same_name_instead_of_duplicating(): void
+    {
+        $manual = Campaign::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Mock Campaign 1',
+            'provider' => 'manual',
+            'source' => 'Meta',
+            'status' => 'Active',
+            'project_id' => null,
+            'item_id' => null,
+        ]);
+
+        app(MetaCampaignService::class)->syncAll($this->tenant->id);
+
+        $this->assertSame(
+            1,
+            Campaign::where('tenant_id', $this->tenant->id)
+                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower('Mock Campaign 1')])
+                ->count()
+        );
+
+        $manual->refresh();
+        $this->assertSame('mock_campaign_1', $manual->meta_id);
+        $this->assertSame('meta', $manual->provider);
+        $this->assertEquals(1000, $manual->impressions);
+        $this->assertEquals(50, $manual->clicks);
+        $this->assertEquals('100.00', (string) $manual->spend);
+        $this->assertSame('Meta', $manual->source);
+    }
 }

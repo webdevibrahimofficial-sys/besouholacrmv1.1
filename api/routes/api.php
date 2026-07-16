@@ -106,6 +106,7 @@ Route::post('/mock/tenant/{tenant}/google-ads/{account}/leads', [\App\Http\Contr
 Route::post('/google/webhook', [\App\Http\Controllers\GoogleWebhookController::class, 'receive']);
 Route::get('/auth/google/callback', [\App\Http\Controllers\GoogleAuthController::class, 'callback']);
 Route::get('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback'])->name('meta.callback');
+Route::get('/auth/whatsapp/callback', [\App\Http\Controllers\WhatsappMetaAuthController::class, 'callback'])->name('whatsapp.meta.callback');
 Route::post('/facebook/data-deletion', [\App\Http\Controllers\MetaDataDeletionController::class, 'handle']);
 Route::get('/facebook/data-deletion/status', [\App\Http\Controllers\MetaDataDeletionController::class, 'status']);
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsappWebhookController::class , 'verify']);
@@ -504,6 +505,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('campaigns/dashboard-stats', [\App\Http\Controllers\CampaignController::class , 'dashboardStats']);
     Route::apiResource('campaigns', \App\Http\Controllers\CampaignController::class);
     Route::post('campaigns/{campaign}/record-action', [\App\Http\Controllers\CampaignController::class, 'recordAction']);
+    Route::post('campaigns/{campaign}/link-inventory', [\App\Http\Controllers\CampaignController::class, 'linkInventory']);
     Route::apiResource('landing-pages', \App\Http\Controllers\LandingPageController::class);
 
     Route::apiResource('opportunities', OpportunityController::class);
@@ -605,6 +607,14 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     // WhatsApp Settings
     Route::get('/whatsapp-settings', [\App\Http\Controllers\WhatsappSettingController::class , 'show']);
     Route::put('/whatsapp-settings', [\App\Http\Controllers\WhatsappSettingController::class , 'update']);
+    Route::get('/whatsapp-channels', [\App\Http\Controllers\WhatsappChannelController::class, 'index']);
+    Route::post('/whatsapp-channels/{channel}/set-primary', [\App\Http\Controllers\WhatsappChannelController::class, 'setPrimary']);
+    Route::post('/whatsapp-channels/{mirrorChannel}/start-migration', [\App\Http\Controllers\WhatsappChannelController::class, 'startMigration']);
+    Route::post('/whatsapp-channels/{mirrorChannel}/complete-migration', [\App\Http\Controllers\WhatsappChannelController::class, 'completeMigration']);
+    Route::post('/whatsapp-channels/{channel}/send-migration-verification', [\App\Http\Controllers\WhatsappChannelController::class, 'sendMigrationVerification']);
+    Route::get('/auth/whatsapp/redirect', [\App\Http\Controllers\WhatsappMetaAuthController::class, 'redirect']);
+    Route::get('/auth/whatsapp/status', [\App\Http\Controllers\WhatsappMetaAuthController::class, 'status']);
+    Route::post('/auth/whatsapp/embedded-signup', [\App\Http\Controllers\WhatsappMetaAuthController::class, 'completeEmbedded']);
     Route::apiResource('whatsapp-templates', \App\Http\Controllers\WhatsappTemplateController::class);
  // Rotation Settings
     Route::get('/rotation-settings', [\App\Http\Controllers\RotationSettingController::class , 'show']);

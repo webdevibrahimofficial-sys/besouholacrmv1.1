@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\WhatsappMessage;
 use App\Models\Lead;
 use App\Services\Whatsapp\WhatsappProviderResolver;
+use App\Services\Whatsapp\WhatsappChannelService;
 use App\Services\Whatsapp\MetaCloudApiProvider;
 use App\Services\TenantStorageService;
 use App\Support\LeadPhoneMatcher;
@@ -75,6 +76,7 @@ class WhatsappMessageController extends Controller
                     $q->orWhere('from', $variant)->orWhere('to', $variant);
                 }
             })
+            ->with('attribution')
             ->orderBy('created_at', 'asc')
             ->get()
             ->map(function (WhatsappMessage $m) use ($user) {
@@ -89,6 +91,8 @@ class WhatsappMessageController extends Controller
                     $normalizedStatus = 'unstable';
                 }
 
+                $attribution = $m->attribution;
+
                 return [
                     'body' => $m->body,
                     'direction' => $m->direction,
@@ -97,14 +101,25 @@ class WhatsappMessageController extends Controller
                     'type' => $m->type,
                     'id' => $m->id,
                     'message_id' => $m->message_id,
+                    'channel_id' => $m->channel_id,
                     'media' => $this->extractMediaPayload($m, (int) $user->tenant_id),
+                    'attribution' => $attribution ? [
+                        'source_id' => $attribution->source_id,
+                        'headline' => $attribution->headline,
+                        'ad_name' => $attribution->ad_name,
+                        'campaign_name' => $attribution->campaign_name,
+                        'source_type' => $attribution->source_type,
+                    ] : null,
                 ];
             });
         return response()->json($messages);
     }
 
-    public function sendTemplateV1(Request $request, WhatsappProviderResolver $providerResolver)
-    {
+    public function sendTemplateV1(
+        Request $request,
+        WhatsappProviderResolver $providerResolver,
+        WhatsappChannelService $channelService
+    ) {
         $user = Auth::user();
         $validated = $request->validate([
             'recipient_number' => 'required|string',
@@ -112,38 +127,65 @@ class WhatsappMessageController extends Controller
             'variables' => 'array',
             'variables.*' => 'nullable',
             'language' => 'nullable|string',
+            'channel_id' => 'nullable|integer',
+            'lead_id' => 'nullable|integer',
         ]);
         $recipientNumber = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
-        $provider = $providerResolver->resolve((int) $user->tenant_id);
+        $channelId = $channelService->resolveOutboundChannelId(
+            (int) $user->tenant_id,
+            $recipientNumber,
+            isset($validated['channel_id']) ? (int) $validated['channel_id'] : null,
+            isset($validated['lead_id']) ? (int) $validated['lead_id'] : null
+        );
+        $provider = $providerResolver->resolve((int) $user->tenant_id, $channelId);
         $result = $provider->sendTemplate(
             (int) $user->tenant_id,
             $recipientNumber,
             $validated['template_name'],
             $validated['language'] ?? 'en_US',
-            $validated['variables'] ?? []
+            $validated['variables'] ?? [],
+            $channelId
         );
 
-        return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
+        return response()->json(array_merge([
+            'ok' => (bool) ($result['ok'] ?? $result['success'] ?? true),
+            'channel_id' => $channelId,
+        ], $result));
     }
 
-    public function sendTextV1(Request $request, WhatsappProviderResolver $providerResolver)
-    {
+    public function sendTextV1(
+        Request $request,
+        WhatsappProviderResolver $providerResolver,
+        WhatsappChannelService $channelService
+    ) {
         $user = Auth::user();
         $validated = $request->validate([
             'recipient_number' => 'required|string',
             'message_body' => 'required|string',
+            'channel_id' => 'nullable|integer',
+            'lead_id' => 'nullable|integer',
         ]);
         $digits = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
+        $channelId = $channelService->resolveOutboundChannelId(
+            (int) $user->tenant_id,
+            $digits,
+            isset($validated['channel_id']) ? (int) $validated['channel_id'] : null,
+            isset($validated['lead_id']) ? (int) $validated['lead_id'] : null
+        );
 
-        $provider = $providerResolver->resolve((int) $user->tenant_id);
-        $result = $provider->sendText((int) $user->tenant_id, $digits, $validated['message_body']);
+        $provider = $providerResolver->resolve((int) $user->tenant_id, $channelId);
+        $result = $provider->sendText((int) $user->tenant_id, $digits, $validated['message_body'], $channelId);
 
-        return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
+        return response()->json(array_merge([
+            'ok' => (bool) ($result['ok'] ?? $result['success'] ?? true),
+            'channel_id' => $channelId,
+        ], $result));
     }
 
     public function sendMediaV1(
         Request $request,
         WhatsappProviderResolver $providerResolver,
+        WhatsappChannelService $channelService,
         TenantStorageService $tenantStorageService
     ) {
         $user = Auth::user();
@@ -151,9 +193,19 @@ class WhatsappMessageController extends Controller
             'recipient_number' => 'required|string',
             'caption' => 'nullable|string|max:1024',
             'attachment' => 'required|file|max:51200',
+            'channel_id' => 'nullable|integer',
+            'lead_id' => 'nullable|integer',
         ]);
 
-        $providerKey = $providerResolver->activeProviderKey((int) $user->tenant_id);
+        $digits = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
+        $channelId = $channelService->resolveOutboundChannelId(
+            (int) $user->tenant_id,
+            $digits,
+            isset($validated['channel_id']) ? (int) $validated['channel_id'] : null,
+            isset($validated['lead_id']) ? (int) $validated['lead_id'] : null
+        );
+
+        $providerKey = $providerResolver->activeProviderKey((int) $user->tenant_id, $channelId);
         if (!in_array($providerKey, ['meta', 'mirror'], true)) {
             throw ValidationException::withMessages([
                 'attachment' => ['Media sending is currently available only with supported WhatsApp providers.'],
@@ -162,17 +214,17 @@ class WhatsappMessageController extends Controller
 
         $file = $request->file('attachment');
         $mediaType = $this->resolveMediaTypeFromMime((string) $file->getMimeType());
-        $digits = $this->normalizeRecipientNumber((string) $validated['recipient_number']);
         $upload = $tenantStorageService->upload($file, 'whatsapp/attachments');
 
-        $provider = $providerResolver->resolve((int) $user->tenant_id);
+        $provider = $providerResolver->resolve((int) $user->tenant_id, $channelId);
         $result = $provider->sendMedia(
             (int) $user->tenant_id,
             $digits,
             $mediaType,
             $upload['url'],
             $validated['caption'] ?? null,
-            $file->getClientOriginalName()
+            $file->getClientOriginalName(),
+            $channelId
         );
 
         $message = WhatsappMessage::query()->find($result['db_id'] ?? null);
@@ -188,7 +240,10 @@ class WhatsappMessageController extends Controller
             $message->forceFill(['raw' => $raw])->save();
         }
 
-        return response()->json(array_merge(['ok' => (bool) ($result['ok'] ?? $result['success'] ?? true)], $result));
+        return response()->json(array_merge([
+            'ok' => (bool) ($result['ok'] ?? $result['success'] ?? true),
+            'channel_id' => $channelId,
+        ], $result));
     }
 
     public function streamMediaV1(

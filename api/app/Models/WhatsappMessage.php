@@ -11,6 +11,7 @@ class WhatsappMessage extends TenantModel
 
     protected $fillable = [
         'tenant_id',
+        'channel_id',
         'provider',
         'source',
         'phone_number_id',
@@ -39,5 +40,15 @@ class WhatsappMessage extends TenantModel
     public function lead()
     {
         return $this->belongsTo(Lead::class);
+    }
+
+    public function channel()
+    {
+        return $this->belongsTo(WhatsappChannel::class, 'channel_id');
+    }
+
+    public function attribution()
+    {
+        return $this->hasOne(WhatsappMessageAttribution::class, 'whatsapp_message_id');
     }
 }

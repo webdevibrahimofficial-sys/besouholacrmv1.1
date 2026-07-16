@@ -35,6 +35,50 @@ export const sendWhatsappTest = async ({ api_key, phone_number_id }) => {
   return res?.data
 }
 
+export const getWhatsappChannels = async () => {
+  const res = await api.get('/api/whatsapp-channels')
+  return res?.data?.channels || []
+}
+
+export const setWhatsappChannelPrimary = async (channelId) => {
+  const res = await api.post(`/api/whatsapp-channels/${channelId}/set-primary`)
+  return res?.data
+}
+
+export const startWhatsappChannelMigration = async (mirrorChannelId, cloudChannelId) => {
+  const res = await api.post(`/api/whatsapp-channels/${mirrorChannelId}/start-migration`, {
+    cloud_channel_id: cloudChannelId,
+  })
+  return res?.data
+}
+
+export const completeWhatsappChannelMigration = async (mirrorChannelId, cloudChannelId) => {
+  const res = await api.post(`/api/whatsapp-channels/${mirrorChannelId}/complete-migration`, {
+    cloud_channel_id: cloudChannelId,
+  })
+  return res?.data
+}
+
+export const sendWhatsappMigrationVerification = async (channelId, to) => {
+  const res = await api.post(`/api/whatsapp-channels/${channelId}/send-migration-verification`, { to })
+  return res?.data
+}
+
+export const getWhatsappOAuthStatus = async () => {
+  const res = await api.get('/api/auth/whatsapp/status')
+  return res?.data
+}
+
+export const connectWhatsappViaMeta = async () => {
+  const res = await api.get('/api/auth/whatsapp/redirect')
+  return res?.data
+}
+
+export const completeWhatsappEmbeddedSignup = async (payload) => {
+  const res = await api.post('/api/auth/whatsapp/embedded-signup', payload)
+  return res?.data
+}
+
 export const getWhatsappMessages = async () => {
   const res = await api.get('/api/whatsapp/messages')
   return res?.data || []
@@ -45,21 +89,35 @@ export const getLeadWhatsappMessages = async (leadId) => {
   return res?.data || []
 }
 
-export const sendWhatsappTemplate = async ({ recipient_number, template_name, variables, language = 'en_US' }) => {
-  const res = await api.post('/api/v1/whatsapp/send-template', { recipient_number, template_name, variables, language })
+export const sendWhatsappTemplate = async ({ recipient_number, template_name, variables, language = 'en_US', channel_id, lead_id } = {}) => {
+  const res = await api.post('/api/v1/whatsapp/send-template', {
+    recipient_number,
+    template_name,
+    variables,
+    language,
+    ...(channel_id != null ? { channel_id } : {}),
+    ...(lead_id != null ? { lead_id } : {}),
+  })
   return res?.data
 }
 
-export const sendWhatsappText = async ({ recipient_number, message_body }) => {
-  const res = await api.post('/api/v1/whatsapp/send-text', { recipient_number, message_body })
+export const sendWhatsappText = async ({ recipient_number, message_body, channel_id, lead_id } = {}) => {
+  const res = await api.post('/api/v1/whatsapp/send-text', {
+    recipient_number,
+    message_body,
+    ...(channel_id != null ? { channel_id } : {}),
+    ...(lead_id != null ? { lead_id } : {}),
+  })
   return res?.data
 }
 
-export const sendWhatsappMedia = async ({ recipient_number, attachment, caption = '' }) => {
+export const sendWhatsappMedia = async ({ recipient_number, attachment, caption = '', channel_id, lead_id } = {}) => {
   const formData = new FormData()
   formData.append('recipient_number', recipient_number)
   formData.append('attachment', attachment)
   formData.append('caption', caption)
+  if (channel_id != null) formData.append('channel_id', String(channel_id))
+  if (lead_id != null) formData.append('lead_id', String(lead_id))
 
   const res = await api.post('/api/v1/whatsapp/send-media', formData, {
     headers: {

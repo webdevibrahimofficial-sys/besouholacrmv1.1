@@ -78,6 +78,10 @@ class MetaWebhookService
                 }
             }
         }
+
+        if (isset($payload['object']) && in_array($payload['object'], ['whatsapp_business_account', 'whatsapp_business_phone_number'], true)) {
+            app(\App\Services\Whatsapp\WhatsappInboundService::class)->handlePayload($payload);
+        }
     }
 
     protected function verifySignature($payload, $signatureHeader, $appSecret)

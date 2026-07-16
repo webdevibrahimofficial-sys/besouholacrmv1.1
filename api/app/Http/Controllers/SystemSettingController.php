@@ -46,6 +46,11 @@ class SystemSettingController extends Controller
         $metaPublic = $this->metaSystemSettings->getPublicSettings();
         $settings['meta_webhook_url'] = $metaPublic['meta_webhook_url'];
         $settings['meta_configured'] = $metaPublic['meta_configured'];
+        $settings['whatsapp_webhook_url'] = $metaPublic['whatsapp_webhook_url'] ?? $metaPublic['meta_webhook_url'];
+        $settings['whatsapp_oauth_enabled'] = $metaPublic['whatsapp_oauth_enabled'] ?? false;
+        $settings['whatsapp_required_scopes'] = $metaPublic['whatsapp_required_scopes'] ?? [];
+        $settings['whatsapp_manual_token_default'] = $metaPublic['whatsapp_manual_token_default'] ?? true;
+        $settings['whatsapp_embedded_signup_config_id'] = $metaPublic['whatsapp_embedded_signup_config_id'] ?? '';
 
         return response()->json($settings);
     }

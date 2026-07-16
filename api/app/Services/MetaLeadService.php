@@ -219,6 +219,7 @@ class MetaLeadService
         
         // Find or create campaign locally
         $campaignId = null;
+        $campaign = null;
         if (isset($data['campaign_id'])) {
             $campaign = Campaign::firstOrCreate(
                 ['meta_id' => $data['campaign_id'], 'tenant_id' => $tenantId],
@@ -236,6 +237,16 @@ class MetaLeadService
         $resolvedSource = $this->resolveLeadSource($data);
         $pageContext = $this->resolvePageContext($tenantId, $data);
         $agencyName = $this->resolveAgencyName($data, $pageContext);
+
+        $inventory = [];
+        if ($campaign instanceof Campaign) {
+            if ($campaign->project_id) {
+                $inventory['project_id'] = $campaign->project_id;
+            }
+            if ($campaign->item_id) {
+                $inventory['item_id'] = $campaign->item_id;
+            }
+        }
 
         $leadData = array_merge([
             'name' => $name,
@@ -272,7 +283,7 @@ class MetaLeadService
                 'raw_payload' => $data
             ],
             'created_at' => isset($data['created_time']) ? \Carbon\Carbon::parse($data['created_time']) : now(),
-        ], $additionalAttributes);
+        ], $additionalAttributes, $inventory);
 
         $lead = Lead::updateOrCreate(
             [

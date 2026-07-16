@@ -4,6 +4,7 @@ namespace App\Services\Whatsapp;
 
 use App\Contracts\WhatsappProviderInterface;
 use App\Events\InboundWhatsappMessage;
+use App\Models\WhatsappChannel;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappSetting;
 use App\Support\LeadPhoneMatcher;
@@ -15,20 +16,14 @@ use Illuminate\Validation\ValidationException;
 
 class MetaCloudApiProvider implements WhatsappProviderInterface
 {
-    public function sendTemplate(int $tenantId, string $to, string $template, string $language = 'en_US', array $variables = []): array
+    public function __construct(
+        private readonly WhatsappChannelService $channelService,
+    ) {
+    }
+
+    public function sendTemplate(int $tenantId, string $to, string $template, string $language = 'en_US', array $variables = [], ?int $channelId = null): array
     {
-        $settings = WhatsappSetting::where('tenant_id', $tenantId)->first();
-        if (!$settings) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['الرجاء إعداد تكامل WhatsApp أولاً'],
-            ]);
-        }
-        [$token, $phoneId] = $this->resolveCredentials($settings);
-        if (!$token || !$phoneId) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['الرجاء إعداد phone_number_id و access token قبل الإرسال'],
-            ]);
-        }
+        [$channel, $token, $phoneId] = $this->resolveChannelCredentials($tenantId, $channelId);
         $payload = [
             'messaging_product' => 'whatsapp',
             'to' => $to,
@@ -52,6 +47,7 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
         $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
         $message = WhatsappMessage::create($this->buildMessageAttributes([
             'tenant_id' => $tenantId,
+            'channel_id' => $channel?->id,
             'provider' => 'meta',
             'phone_number_id' => $phoneId,
             'from' => null,
@@ -97,20 +93,9 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
         ];
     }
 
-    public function sendText(int $tenantId, string $to, string $body): array
+    public function sendText(int $tenantId, string $to, string $body, ?int $channelId = null): array
     {
-        $settings = WhatsappSetting::where('tenant_id', $tenantId)->first();
-        if (!$settings) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['الرجاء إعداد تكامل WhatsApp أولاً'],
-            ]);
-        }
-        [$token, $phoneId] = $this->resolveCredentials($settings);
-        if (!$token || !$phoneId) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['الرجاء إعداد phone_number_id و access token قبل الإرسال'],
-            ]);
-        }
+        [$channel, $token, $phoneId] = $this->resolveChannelCredentials($tenantId, $channelId);
         $payload = [
             'messaging_product' => 'whatsapp',
             'to' => $to,
@@ -127,6 +112,7 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
         $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
         $message = WhatsappMessage::create($this->buildMessageAttributes([
             'tenant_id' => $tenantId,
+            'channel_id' => $channel?->id,
             'provider' => 'meta',
             'phone_number_id' => $phoneId,
             'from' => null,
@@ -178,21 +164,10 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
         string $mediaType,
         string $mediaUrl,
         ?string $caption = null,
-        ?string $filename = null
+        ?string $filename = null,
+        ?int $channelId = null
     ): array {
-        $settings = WhatsappSetting::where('tenant_id', $tenantId)->first();
-        if (!$settings) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['Please configure WhatsApp integration first.'],
-            ]);
-        }
-
-        [$token, $phoneId] = $this->resolveCredentials($settings);
-        if (!$token || !$phoneId) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['Phone Number ID and access token are required before sending media.'],
-            ]);
-        }
+        [$channel, $token, $phoneId] = $this->resolveChannelCredentials($tenantId, $channelId);
 
         $payload = [
             'messaging_product' => 'whatsapp',
@@ -223,6 +198,7 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
         $lead = LeadPhoneMatcher::findLeadByPhone($tenantId, $to);
         $message = WhatsappMessage::create($this->buildMessageAttributes([
             'tenant_id' => $tenantId,
+            'channel_id' => $channel?->id,
             'provider' => 'meta',
             'phone_number_id' => $phoneId,
             'from' => null,
@@ -270,15 +246,12 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
 
     public function testConnection(int $tenantId, array $credentials = []): array
     {
-        $settings = WhatsappSetting::where('tenant_id', $tenantId)->first();
-        if (!$settings) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['Please configure WhatsApp integration first.'],
-            ]);
+        if (! empty($credentials['api_key']) || ! empty($credentials['phone_number_id'])) {
+            $token = trim((string) ($credentials['api_key'] ?? ''));
+            $phoneId = trim((string) ($credentials['phone_number_id'] ?? ''));
+        } else {
+            [, $token, $phoneId] = $this->resolveChannelCredentials($tenantId);
         }
-
-        $token = trim((string) ($credentials['api_key'] ?? $settings->api_key ?? ''));
-        $phoneId = trim((string) ($credentials['phone_number_id'] ?? $settings->phone_number_id ?? $settings->api_secret ?? ''));
 
         if ($token === '' || $phoneId === '') {
             throw ValidationException::withMessages([
@@ -303,6 +276,56 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
             'response' => $response->json(),
             'phone_number_id' => $phoneId,
         ];
+    }
+
+    private function resolveChannelCredentials(int $tenantId, ?int $channelId = null): array
+    {
+        $channel = null;
+
+        if ($channelId) {
+            $channel = WhatsappChannel::query()
+                ->where('tenant_id', $tenantId)
+                ->where('id', $channelId)
+                ->first();
+        }
+
+        if (! $channel) {
+            $channel = $this->channelService->findPrimaryOutboundChannel(
+                $tenantId,
+                WhatsappChannel::PROVIDER_META_CLOUD
+            );
+        }
+
+        if ($channel) {
+            $token = trim((string) ($channel->access_token ?? ''));
+            $phoneId = trim((string) ($channel->phone_number_id ?? ''));
+
+            if ($token !== '' && $phoneId !== '') {
+                if (! $channel->canSendOutbound()) {
+                    throw ValidationException::withMessages([
+                        'whatsapp' => ['Selected WhatsApp Cloud channel is not available for outbound messaging.'],
+                    ]);
+                }
+
+                return [$channel, $token, $phoneId];
+            }
+        }
+
+        $settings = WhatsappSetting::where('tenant_id', $tenantId)->first();
+        if (! $settings) {
+            throw ValidationException::withMessages([
+                'whatsapp' => ['الرجاء إعداد تكامل WhatsApp أولاً'],
+            ]);
+        }
+
+        [$token, $phoneId] = $this->resolveCredentials($settings);
+        if ($token === '' || $phoneId === '') {
+            throw ValidationException::withMessages([
+                'whatsapp' => ['الرجاء إعداد phone_number_id و access token قبل الإرسال'],
+            ]);
+        }
+
+        return [null, $token, $phoneId];
     }
 
     private function resolveCredentials(WhatsappSetting $settings): array
@@ -338,6 +361,10 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
             $attributes['lead_id'] = $leadId;
         }
 
+        if (Schema::hasColumn('whatsapp_messages', 'channel_id') && ! array_key_exists('channel_id', $attributes)) {
+            $attributes['channel_id'] = null;
+        }
+
         return $attributes;
     }
 
@@ -366,17 +393,10 @@ class MetaCloudApiProvider implements WhatsappProviderInterface
         return $http->get($url, $query);
     }
 
-    public function downloadMedia(int $tenantId, string $mediaId): array
+    public function downloadMedia(int $tenantId, string $mediaId, ?int $channelId = null): array
     {
-        $settings = WhatsappSetting::where('tenant_id', $tenantId)->first();
-        if (!$settings) {
-            throw ValidationException::withMessages([
-                'whatsapp' => ['Please configure WhatsApp integration first.'],
-            ]);
-        }
-
-        [$token] = $this->resolveCredentials($settings);
-        if (!$token) {
+        [, $token] = $this->resolveChannelCredentials($tenantId, $channelId);
+        if (! $token) {
             throw ValidationException::withMessages([
                 'whatsapp' => ['Access token is required before loading media.'],
             ]);

@@ -2,12 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\WhatsappChannel;
 use App\Models\WhatsappSetting;
+use App\Services\Whatsapp\WhatsappChannelService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class WhatsappSettingController extends Controller
 {
+    public function __construct(
+        private readonly WhatsappChannelService $channelService,
+    ) {
+    }
+
     public function show()
     {
         $user = Auth::user();
@@ -52,6 +59,7 @@ class WhatsappSettingController extends Controller
             'webhook_url' => 'nullable|url',
             'status' => 'boolean',
             'triggers' => 'nullable|array',
+            'auto_create_ctwa_leads' => 'boolean',
         ]);
 
         if (empty($validated['phone_number_id']) && !empty($validated['api_secret'])) {
@@ -70,6 +78,14 @@ class WhatsappSettingController extends Controller
         }
 
         $settings->update($validated);
+
+        $this->channelService->upsertFromSettings((int) $user->tenant_id, array_merge($validated, [
+            'provider' => $validated['provider'] ?? 'meta',
+            'exclude_channel_id' => WhatsappChannel::query()
+                ->where('tenant_id', $user->tenant_id)
+                ->where('provider', WhatsappChannel::PROVIDER_META_CLOUD)
+                ->value('id') ?? 0,
+        ]));
 
         return response()->json($this->serializeSettings($settings->fresh()));
     }
