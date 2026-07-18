@@ -6,9 +6,15 @@ use App\Models\SubscriptionPlan;
 use App\Models\Tenant;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Schema;
 
 class SubscriptionPlanController extends Controller
 {
+    protected function subscriptionPlansHasIconColumn(): bool
+    {
+        return Schema::connection('landlord')->hasColumn((new SubscriptionPlan())->getTable(), 'icon');
+    }
+
     public function index(Request $request)
     {
         $this->authorizeSuperAdmin($request);
@@ -38,6 +44,7 @@ class SubscriptionPlanController extends Controller
     public function store(Request $request)
     {
         $this->authorizeSuperAdmin($request);
+        $hasIconColumn = $this->subscriptionPlansHasIconColumn();
 
         $table = (new SubscriptionPlan())->getConnectionName() . '.' . (new SubscriptionPlan())->getTable();
 
@@ -55,16 +62,21 @@ class SubscriptionPlanController extends Controller
             'display_order' => 'nullable|integer|min:0',
         ]);
 
-        $plan = SubscriptionPlan::create([
+        $payload = [
             'code' => strtolower($validated['code']),
             'name' => $validated['name'],
-            'icon' => $validated['icon'] ?? null,
             'description' => $validated['description'] ?? null,
             'modules' => array_values(array_unique($validated['modules'] ?? [])),
             'company_type_overrides' => $validated['company_type_overrides'] ?? [],
             'is_active' => $request->boolean('is_active', true),
             'display_order' => $validated['display_order'] ?? 0,
-        ]);
+        ];
+
+        if ($hasIconColumn) {
+            $payload['icon'] = $validated['icon'] ?? null;
+        }
+
+        $plan = SubscriptionPlan::create($payload);
 
         return response()->json([
             'message' => 'Subscription plan created successfully.',
@@ -75,6 +87,7 @@ class SubscriptionPlanController extends Controller
     public function update(Request $request, SubscriptionPlan $subscriptionPlan)
     {
         $this->authorizeSuperAdmin($request);
+        $hasIconColumn = $this->subscriptionPlansHasIconColumn();
 
         $table = $subscriptionPlan->getConnectionName() . '.' . $subscriptionPlan->getTable();
 
@@ -98,16 +111,21 @@ class SubscriptionPlanController extends Controller
             'display_order' => 'nullable|integer|min:0',
         ]);
 
-        $subscriptionPlan->update([
+        $payload = [
             'code' => strtolower($validated['code']),
             'name' => $validated['name'],
-            'icon' => $validated['icon'] ?? null,
             'description' => $validated['description'] ?? null,
             'modules' => array_values(array_unique($validated['modules'] ?? [])),
             'company_type_overrides' => $validated['company_type_overrides'] ?? [],
             'is_active' => $request->boolean('is_active', true),
             'display_order' => $validated['display_order'] ?? $subscriptionPlan->display_order,
-        ]);
+        ];
+
+        if ($hasIconColumn) {
+            $payload['icon'] = $validated['icon'] ?? null;
+        }
+
+        $subscriptionPlan->update($payload);
 
         return response()->json([
             'message' => 'Subscription plan updated successfully.',

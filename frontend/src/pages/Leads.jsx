@@ -14,7 +14,7 @@ import * as LucideIcons from 'lucide-react'
 import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEnvelope, FaWhatsapp, FaEye, FaPhone, FaChevronLeft, FaChevronRight, FaClone, FaExchangeAlt, FaUserTie, FaUserCheck, FaTrash, FaDownload, FaList, FaHistory, FaCopy } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
-import ReAssignLeadModal from '../shared/components/ReAssignLeadModal'
+import LeadBulkAssignModal from '../shared/components/LeadBulkAssignModal'
 import ImportLeadsModal from '../components/ImportLeadsModal'
 import ImportLeadHistoryModal from '../components/ImportLeadHistoryModal'
 import AddActionModal from '../components/AddActionModal'
@@ -503,7 +503,7 @@ export const Leads = () => {
       try {
         const [sourcesRes, stagesRes, campaignsRes, usersRes, cancelReasonsRes] = await Promise.all([
           api.get('/api/sources?active=1'),
-          api.get('/api/stages?active=1'),
+          api.get('/api/stages?active=1&workflow_key=sales'),
           api.get('/api/campaigns'),
           api.get('/api/users'),
           api.get('/api/cancel-reasons')
@@ -5649,7 +5649,7 @@ if (!s) {
 
       {/* Bulk Re-Assign Modal */}
       {showBulkAssignModal && (
-        <ReAssignLeadModal
+        <LeadBulkAssignModal
           isOpen={showBulkAssignModal}
           onClose={() => {
             setShowBulkAssignModal(false)
@@ -5660,6 +5660,7 @@ if (!s) {
           onAssign={handleBulkReAssign}
           isArabic={isRtl}
           currentUser={user}
+          selectedCount={selectedLeads.length}
           errorMessage={assignModalError}
           submitting={assignModalSubmitting}
           onClearError={() => setAssignModalError('')}

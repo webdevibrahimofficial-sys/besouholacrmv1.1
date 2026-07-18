@@ -13,7 +13,16 @@ function sortByOrder(list) {
   return [...list].sort((a, b) => Number(a.order) - Number(b.order))
 }
 
-const DEFAULT_TYPE_OPTIONS = ['cold_calls', 'follow_up', 'meeting', 'proposal', 'reservation', 'rent', 'closing_deals', 'cancel']
+const SALES_TYPE_OPTIONS = ['cold_calls', 'follow_up', 'meeting', 'proposal', 'reservation', 'rent', 'closing_deals', 'cancel']
+const TELESALES_TYPE_OPTIONS = ['fresh', 'cold_calls', 'follow_up', 'convert', 'not_interested']
+
+function getTypeOptions(workflowKey, currentType = '') {
+  const baseOptions = workflowKey === 'telesales' ? TELESALES_TYPE_OPTIONS : SALES_TYPE_OPTIONS
+  if (currentType && !baseOptions.includes(currentType)) {
+    return [currentType, ...baseOptions]
+  }
+  return baseOptions
+}
 
 function normalizeStages(list) {
   const arr = Array.isArray(list) ? list : []
@@ -24,16 +33,21 @@ function normalizeStages(list) {
     type: s?.type || 'follow_up',
     notifyTime: s?.notify_time || s?.notifyTime || '',
     delayTime: Number(s?.delay_time ?? s?.delayTime ?? 0),
+    workflowKey: s?.workflow_key || s?.workflowKey || 'sales',
+    isActive: s?.is_active !== false,
     order: s?.order ?? 0,
     color: s?.color || '#3B82F6',
     icon: s?.icon || 'BarChart2',
     iconUrl: s?.iconUrl || '',
+    isLocked: Boolean(s?.meta_data?.locked || s?.metaData?.locked),
+    isDisplayOnly: Boolean(s?.meta_data?.display_only || s?.metaData?.display_only),
   }))
 }
 
 function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDelete, t, onHandleDragStart, onHandleDragEnd }) {
   const isEditing = editingIndex === idx
   const [editState, setEditState] = useState({ ...s })
+  const typeOptions = getTypeOptions(s.workflowKey || 'sales', editState.type || s.type)
 
   useEffect(() => {
     if (isEditing) {
@@ -50,10 +64,10 @@ function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDele
     <>
       <td className="p-2 w-8 text-center">
         <div
-          className="drag-handle cursor-move inline-flex items-center justify-center p-1 text-gray-400 hover:text-gray-600"
-          draggable
-          onDragStart={onHandleDragStart}
-          onDragEnd={onHandleDragEnd}
+          className={`drag-handle inline-flex items-center justify-center p-1 ${s.isLocked ? 'cursor-not-allowed text-gray-300' : 'cursor-move text-gray-400 hover:text-gray-600'}`}
+          draggable={!s.isLocked}
+          onDragStart={s.isLocked ? undefined : onHandleDragStart}
+          onDragEnd={s.isLocked ? undefined : onHandleDragEnd}
         >
            <GripVertical size={16} />
         </div>
@@ -87,7 +101,7 @@ function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDele
             value={editState.type}
             onChange={e => setEditState({ ...editState, type: e.target.value })}
           >
-            {DEFAULT_TYPE_OPTIONS.map(k => (
+            {typeOptions.map(k => (
               <option key={k} value={k}>{t(k)}</option>
             ))}
           </select>
@@ -169,12 +183,14 @@ function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDele
           <div className="flex items-center gap-2">
             <button
               className="px-2 py-1 rounded bg-blue-600 text-white"
+              disabled={s.isLocked}
               onClick={() => setEditingIndex(idx)}
-            >{t('Edit')}</button>
+            >{s.isLocked ? t('Fixed') : t('Edit')}</button>
             <button
-              className="px-2 py-1 rounded bg-red-600 text-white"
+              className={`px-2 py-1 rounded text-white ${s.isLocked ? 'bg-gray-500 cursor-not-allowed' : 'bg-red-600'}`}
+              disabled={s.isLocked}
               onClick={() => onDelete(s)}
-            >{t('Delete')}</button>
+            >{s.isLocked ? t('Protected') : t('Delete')}</button>
           </div>
         )}
       </td>
@@ -182,7 +198,7 @@ function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDele
   )
 }
 
-function PipelineStagesManager() {
+export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline Setup Stages' }) {
   const { t, i18n } = useTranslation()
   const { theme, resolvedTheme } = useTheme()
   const isLight = resolvedTheme !== 'dark'
@@ -205,14 +221,32 @@ function PipelineStagesManager() {
 
   const fetchStages = async () => {
     try {
-      const { data } = await api.get('/api/stages')
-      setPipelineStages(normalizeStages(sortByOrder(data)))
+      const { data } = await api.get('/api/stages', { params: { workflow_key: workflowKey } })
+      const normalized = normalizeStages(sortByOrder(data))
+      if (normalized.length > 0) {
+        setPipelineStages(normalized)
+        return
+      }
     } catch (err) {
       console.error('Failed to fetch stages', err)
     }
+
+    // Backward compatibility: only Sales should fallback to legacy localStorage stages.
+    if (workflowKey === 'sales') {
+      try {
+        const saved = JSON.parse(localStorage.getItem('crmStages') || '[]')
+        const normalized = normalizeStages(sortByOrder(saved))
+        setPipelineStages(normalized)
+        return
+      } catch {
+      }
+    }
+
+    setPipelineStages([])
   }
 
   const [draggedId, setDraggedId] = useState(null)
+  const typeOptions = getTypeOptions(workflowKey, newStage.type)
 
   const moveStage = (fromId, toId) => {
     if (!fromId || !toId || fromId === toId) return
@@ -258,7 +292,7 @@ function PipelineStagesManager() {
 
   useEffect(() => {
     fetchStages()
-  }, [])
+  }, [workflowKey])
 
   useEffect(() => {
     if (!deleteNotice) return undefined
@@ -293,7 +327,9 @@ function PipelineStagesManager() {
         delay_time: Number(newStage.delayTime || 0),
         order: pipelineStages.length + 1,
         color: newStage.color,
-        icon: newStage.icon
+        icon: newStage.icon,
+        workflow_key: workflowKey,
+        is_active: true,
         // iconUrl is not supported in backend yet
       }
       
@@ -320,7 +356,9 @@ function PipelineStagesManager() {
         delay_time: Number(updatedData.delayTime || 0),
         order: updatedData.order,
         color: updatedData.color,
-        icon: updatedData.icon
+        icon: updatedData.icon,
+        workflow_key: workflowKey,
+        is_active: updatedData.isActive !== false,
       }
       await api.put(`/api/stages/${id}`, payload)
       await fetchStages()
@@ -334,6 +372,13 @@ function PipelineStagesManager() {
     const id = stage?.id
     const stageName = stage?.name || stage?.nameAr || ''
     if (!id) return
+    if (stage?.isLocked) {
+      setDeleteNotice({
+        count: null,
+        message: t('This telesales stage is fixed and cannot be deleted.')
+      })
+      return
+    }
     if (!window.confirm(t('Are you sure you want to delete this stage?'))) return
     try {
       setDeleteNotice(null)
@@ -509,7 +554,7 @@ function PipelineStagesManager() {
 
       <div className="flex items-center justify-between">
         <div className={`inline-flex items-center gap-2 font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
-          <span>{t('Pipeline Setup Stages')}</span>
+          <span>{t(title)}</span>
           <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-200">
             {pipelineStages.length}
           </span>
@@ -548,7 +593,7 @@ function PipelineStagesManager() {
                 value={newStage.type}
                 onChange={e => setNewStage(s => ({ ...s, type: e.target.value }))}
               >
-                {DEFAULT_TYPE_OPTIONS.map(k => (
+                {typeOptions.map(k => (
                   <option key={k} value={k}>{t(k)}</option>
                 ))}
               </select>
@@ -684,7 +729,7 @@ function PipelineStagesManager() {
                 className={`border-t ${draggedId === s.id ? 'opacity-50' : ''}`}
                 onDragOver={(e) => e.preventDefault()}
                 onDragEnter={() => {
-                  if (draggedId) moveStage(draggedId, s.id)
+                  if (draggedId && !s.isLocked) moveStage(draggedId, s.id)
                 }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -737,6 +782,11 @@ function PipelineStagesManager() {
                   {t(s.type)}
                 </span>
               </div>
+              {s.isLocked ? (
+                <div className="mt-2 text-[11px] font-medium text-amber-600 dark:text-amber-300">
+                  {t('Fixed telesales stage')}
+                </div>
+              ) : null}
 
               <div className={`mt-3 grid grid-cols-2 gap-2 text-xs ${isLight ? 'text-black' : 'text-white'}`}>
                 <div className="flex items-center gap-2">
@@ -759,19 +809,21 @@ function PipelineStagesManager() {
               <div className="mt-4 flex items-center gap-2">
                 <button
                   type="button"
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+                  className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-white transition ${s.isLocked ? 'bg-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  disabled={s.isLocked}
                   onClick={() => setEditingIndex(idx)}
                 >
                   <Pencil size={16} />
-                  <span>{t('Edit')}</span>
+                  <span>{s.isLocked ? t('Fixed') : t('Edit')}</span>
                 </button>
                 <button
                   type="button"
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+                  className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-white transition ${s.isLocked ? 'bg-gray-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
+                  disabled={s.isLocked}
                   onClick={() => handleDeleteStage(s)}
                 >
                   <Trash2 size={16} />
-                  <span>{t('Delete')}</span>
+                  <span>{s.isLocked ? t('Protected') : t('Delete')}</span>
                 </button>
               </div>
             </div>
@@ -782,7 +834,7 @@ function PipelineStagesManager() {
   )
 }
 
-function ConfigurationManager() {
+function ConfigurationManager({ workflowKey = 'sales', title = 'Pipeline Stages Setup' }) {
   const { t, i18n } = useTranslation()
   const { resolvedTheme } = useTheme()
   const isLight = resolvedTheme !== 'dark'
@@ -793,14 +845,14 @@ function ConfigurationManager() {
       <div className={`p-4 flex justify-between items-center gap-4 mb-6`} dir={isRtl ? 'rtl' : 'ltr'}>
         <div className={`relative inline-flex items-center ${isRtl ? 'flex-row-reverse' : ''} gap-2`}>
           <h1 className={`page-title text-2xl md:text-3xl font-bold ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2 ${isRtl ? 'text-right' : 'text-left'}`} style={{ textAlign: isRtl ? 'right' : 'left' }}>
-            {t('Pipeline Stages Setup')}
+            {t(title)}
           </h1>
           <span aria-hidden className="absolute block h-[1px] rounded bg-gradient-to-r from-blue-500 via-purple-500 to-transparent" style={{ width: 'calc(100% + 8px)', left: isRtl ? 'auto' : '-4px', right: isRtl ? '-4px' : 'auto', bottom: '-4px' }}></span>
         </div>
       </div>
 
       <div className="animate-fadeIn">
-        <PipelineStagesManager />
+        <PipelineStagesManager workflowKey={workflowKey} title={title} />
       </div>
     </div>
   )

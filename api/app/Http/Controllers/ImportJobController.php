@@ -554,6 +554,7 @@ class ImportJobController extends Controller
             'mapping' => 'nullable|array',
             'updateExisting' => 'nullable|boolean',
             'phone_country' => 'nullable|string|max:10',
+            'options' => 'nullable|array',
         ]);
 
         $module = Str::of($validated['module'])->lower()->trim()->toString();
@@ -564,6 +565,7 @@ class ImportJobController extends Controller
         $rows = is_array($validated['rows'] ?? null) ? $validated['rows'] : [];
         $mapping = is_array($validated['mapping'] ?? null) ? $validated['mapping'] : [];
         $fileName = $validated['file_name'] ?? ('import_' . now()->format('Y-m-d_H-i-s'));
+        $options = is_array($validated['options'] ?? null) ? $validated['options'] : [];
 
         $job = ImportJob::create([
             'tenant_id' => $user->tenant_id,
@@ -581,6 +583,7 @@ class ImportJobController extends Controller
                 'update_existing' => $module === 'leads'
                     ? (bool) ($validated['updateExisting'] ?? false)
                     : false,
+                'options' => $options,
             ],
         ]);
 
@@ -588,6 +591,7 @@ class ImportJobController extends Controller
             $importService->run($job, $job->module, $rows, $mapping, [
                 'phone_country' => $validated['phone_country'] ?? null,
                 'row_number_start' => 2,
+                ...$options,
             ]);
 
             $job->refresh();

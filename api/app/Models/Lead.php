@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Traits\BelongsToTenant;
+use App\Services\TelesalesService;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
 
@@ -69,6 +70,8 @@ class Lead extends Model
         'assigned_at' => 'datetime',
         'last_action_at' => 'datetime',
         'last_contact' => 'datetime',
+        'workflow_entered_at' => 'datetime',
+        'transferred_to_sales_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -78,6 +81,16 @@ class Lead extends Model
     public function actions()
     {
         return $this->hasMany(LeadAction::class);
+    }
+
+    public function stageRelation()
+    {
+        return $this->belongsTo(Stage::class, 'stage_id');
+    }
+
+    public function workflowHistory()
+    {
+        return $this->hasMany(LeadWorkflowHistory::class, 'lead_id');
     }
 
     public function latestAction()
@@ -162,6 +175,11 @@ class Lead extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function qualifier()
+    {
+        return $this->belongsTo(User::class, 'qualified_by');
+    }
+
     public function deletedByUser()
     {
         return $this->belongsTo(User::class, 'deleted_by');
@@ -180,9 +198,25 @@ class Lead extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['stage', 'status', 'assigned_to', 'manager_id', 'name', 'phone', 'email', 'company'])
+            ->logOnly(['stage', 'stage_id', 'workflow_key', 'status', 'assigned_to', 'manager_id', 'name', 'phone', 'email', 'company'])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs()
             ->setDescriptionForEvent(fn(string $eventName) => "Lead has been {$eventName}");
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Lead $lead) {
+            if (!empty($lead->workflow_key) && empty($lead->workflow_entered_at)) {
+                $lead->workflow_entered_at = now();
+            }
+
+            if (!empty($lead->stage_id)) {
+                try {
+                    app(TelesalesService::class)->syncLeadStageFields($lead);
+                } catch (\Throwable $e) {
+                }
+            }
+        });
     }
 }

@@ -13,6 +13,8 @@ class Stage extends Model
         'name',
         'name_ar',
         'type',
+        'workflow_key',
+        'is_active',
         'notify_time',
         'delay_time',
         'order',
@@ -25,5 +27,6 @@ class Stage extends Model
     protected $casts = [
         'meta_data' => 'array',
         'delay_time' => 'integer',
+        'is_active' => 'boolean',
     ];
 }

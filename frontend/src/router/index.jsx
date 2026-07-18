@@ -51,10 +51,12 @@ const SalesInvoices = lazyRetry(() => import('../pages/SalesInvoices'))
 
 // --- Leads ---
 const Leads = lazyRetry(() => import('../pages/Leads'))
+const Telesales = lazyRetry(() => import('../pages/Telesales'))
 const ReferralLeads = lazyRetry(() => import('../pages/ReferralLeads'))
 const AddNewLead = lazyRetry(() => import('../pages/AddNewLead'))
 const Recycle = lazyRetry(() => import('../pages/Recycle'))
 const StagesSetup = lazyRetry(() => import('../pages/StagesSetup'))
+const TelesalesStagesSetup = lazyRetry(() => import('../pages/TelesalesStagesSetup'))
 
 // --- Inventory ---
 const Categories = lazyRetry(() => import('../pages/Categories'))
@@ -346,6 +348,11 @@ export default function AppRouter() {
               <Route path="/recycle" element={<Recycle />} />
               <Route path="/stages-setup" element={<StagesSetup />} />
             </Route>
+            <Route path="/telesales" element={<Telesales />} />
+            <Route path="/telesales/my-leads" element={<Telesales />} />
+            <Route path="/telesales/referral" element={<Telesales />} />
+            <Route path="/telesales/historical" element={<Telesales />} />
+            <Route path="/telesales/new" element={<AddNewLead />} />
 
             {/* Inventory Module */}
             <Route element={<ProtectedModuleRoute moduleKey="inventory" />}>
@@ -424,6 +431,7 @@ export default function AppRouter() {
               <Route path="/settings/system/modules" element={<ModulesSettings />} />
               <Route path="/settings/system/security" element={<SecuritySettings />} />
               <Route path="/settings/system/crm" element={<CRMSettings />} />
+              <Route path="/telesales-stages-setup" element={<TelesalesStagesSetup />} />
               <Route path="/settings/system/custom-fields" element={<CustomFields />} />
               <Route path="/settings/system/agencies" element={<Agencies />} />
               <Route path="/settings/system/sources" element={<Sources />} />

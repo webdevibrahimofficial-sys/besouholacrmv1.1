@@ -121,6 +121,8 @@ const resources = {
       'No cancel reasons yet. Add your first reason above.': 'No cancel reasons yet. Add your first reason above.',
       'no_answer': 'No Answer',
       'cold_calls': 'Cold calls',
+      'convert': 'Convert',
+      'not_interested': 'Not Interested',
       'reservation': 'Reservation',
       'rent': 'Rent',
       'closing_deals': 'Closing deals',

@@ -49,6 +49,9 @@ class CrmSettingsController extends Controller
             // If both are null, the backend will fall back to the first available project/item for the tenant (when possible).
             'integrationDefaultProjectId' => null,
             'integrationDefaultItemId' => null,
+            'salesEntryStageIdForTransferredLeads' => null,
+            'defaultWorkflowFallback' => 'sales',
+            'leadWorkflowSourceMappings' => [],
         ];
     }
 

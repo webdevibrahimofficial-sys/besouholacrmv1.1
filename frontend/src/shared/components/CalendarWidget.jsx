@@ -95,7 +95,7 @@ export default function CalendarWidget({ tone }) {
     const fetchFilters = async () => {
       try {
         // Fetch Stages
-        const stagesRes = await api.get('/api/stages')
+        const stagesRes = await api.get('/api/stages', { params: { workflow_key: 'sales' } })
         const stagesData = Array.isArray(stagesRes.data) ? stagesRes.data : (stagesRes.data?.data || [])
         const sOpts = stagesData.map(s => ({ value: s.id, label: s.name }))
         setStageOptions([{ value: 'all', label: t('All Stages') }, ...sOpts])

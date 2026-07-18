@@ -46,9 +46,36 @@ const ReAssignLeadModal = ({
   errorMessage = '',
   submitting = false,
   onClearError,
+  usersOverride = null,
+  rolesOverride = null,
+  title = '',
+  selectedCount = null,
+  assignButtonLabel = '',
+  filterByRoleLabel = '',
+  assignToLabel = '',
+  searchPlaceholder = '',
+  hideAssignMethod = false,
+  hideAssignRole = false,
+  hideOptions = false,
+  freshLabel = '',
+  coldCallLabel = '',
+  salesRoleLabel = '',
+  managerRoleLabel = '',
+  duplicateLabel = '',
 }) => {
   const { theme } = useTheme();
   const isLight = theme === 'light';
+  const resolvedTitle = title || (isArabic ? 'تعيين العميل' : 'Assign Lead');
+  const resolvedAssignButtonLabel = assignButtonLabel || (isArabic ? 'تعيين' : 'Assign');
+  const resolvedFilterByRoleLabel = filterByRoleLabel || (isArabic ? 'تصفية حسب الدور' : 'Filter By Role');
+  const resolvedAssignToLabel = assignToLabel || (isArabic ? 'تعيين إلى' : 'Assign To');
+  const resolvedSearchPlaceholder = searchPlaceholder || (isArabic ? 'بحث في أعضاء الفريق' : 'Search in team members');
+
+  const resolvedFreshLabel = freshLabel || (isArabic ? 'Ø¬Ø¯ÙŠØ¯' : 'Fresh');
+  const resolvedColdCallLabel = coldCallLabel || (isArabic ? 'Ù…ÙƒØ§Ù„Ù…Ø© Ø¨Ø§Ø±Ø¯Ø©' : 'As cold call');
+  const resolvedSalesRoleLabel = salesRoleLabel || (isArabic ? 'ÙƒØªÙŠÙ„ÙŠ Ø³ÙŠÙ„Ø²' : 'As Telesales Agent');
+  const resolvedManagerRoleLabel = managerRoleLabel || (isArabic ? 'ÙƒÙ…Ø¯ÙŠØ± ØªÙŠÙ„ÙŠ Ø³ÙŠÙ„Ø²' : 'As Telesales Manager');
+  const resolvedDuplicateLabel = duplicateLabel || (isArabic ? 'Ù†Ø³Ø® ÙˆØªØ¹ÙŠÙŠÙ† ÙƒØ¬Ø¯ÙŠØ¯' : 'Duplicate and assign as fresh');
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -69,8 +96,24 @@ const ReAssignLeadModal = ({
   useEffect(() => {
     if (isOpen) {
       console.log('ReAssignLeadModal Opened. Current User:', currentUser);
-      fetchUsers();
-      fetchRoles();
+      if (Array.isArray(usersOverride)) {
+        const normalizedUsers = usersOverride.map((u) => ({ ...u, role: getUserRole(u) || u.role || u.job_title || '' }));
+        setUsers(normalizedUsers);
+      } else {
+        fetchUsers();
+      }
+      if (Array.isArray(rolesOverride)) {
+        setRoles(['All', ...rolesOverride.filter(Boolean)]);
+      } else if (Array.isArray(usersOverride)) {
+        const derivedRoles = Array.from(new Set(
+          usersOverride
+            .map((u) => getUserRole(u) || u.role || u.job_title || '')
+            .filter(Boolean)
+        ));
+        setRoles(['All', ...derivedRoles]);
+      } else {
+        fetchRoles();
+      }
       onClearError?.();
       // Reset states
       setSelectedUser(null);
@@ -82,7 +125,7 @@ const ReAssignLeadModal = ({
         clearHistory: false
       });
     }
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUser, onClearError, rolesOverride, usersOverride]);
 
   useEffect(() => {
     if (!isOpen || !errorMessage) return;
@@ -226,9 +269,9 @@ const ReAssignLeadModal = ({
               <FaUserTie />
             </div>
             <div>
-              <h2 className="font-semibold text-lg">{isArabic ? 'تعيين العميل' : 'Assign Lead'}</h2>
+              <h2 className="font-semibold text-lg">{resolvedTitle}</h2>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {selectedUser ? '1' : '0'} {isArabic ? 'محدد' : 'Selected'}
+                {selectedCount ?? (selectedUser ? '1' : '0')} {isArabic ? 'محدد' : 'Selected'}
               </p>
             </div>
           </div>
@@ -268,7 +311,7 @@ const ReAssignLeadModal = ({
           {/* Filter & Search */}
           <div className="flex gap-2">
             <div className="w-1/3">
-              <label className={`block text-xs mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{isArabic ? 'تصفية حسب الدور' : 'Filter By Role'}</label>
+              <label className={`block text-xs mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{resolvedFilterByRoleLabel}</label>
               <select
                 value={filterRole}
                 onChange={(e) => setFilterRole(e.target.value)}
@@ -280,12 +323,12 @@ const ReAssignLeadModal = ({
               </select>
             </div>
             <div className="w-2/3">
-              <label className={`block text-xs mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{isArabic ? 'تعيين إلى' : 'Assign To'}</label>
+              <label className={`block text-xs mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{resolvedAssignToLabel}</label>
               <div className="relative">
                 <FaSearch className={`absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs ${isArabic ? 'right-3 left-auto' : 'left-3'}`} />
                 <input
                   type="text"
-                  placeholder={isArabic ? 'بحث في أعضاء الفريق' : 'Search in team members'}
+                  placeholder={resolvedSearchPlaceholder}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className={`w-full text-sm rounded-lg border pl-9 pr-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 ${isLight ? 'bg-white border-gray-200' : 'bg-slate-800 border-slate-700'} ${isArabic ? 'pr-9 pl-3' : ''}`}
@@ -333,6 +376,7 @@ const ReAssignLeadModal = ({
           </div>
 
           {/* Assign With Options */}
+          {!hideAssignMethod && (
           <div>
             <label className={`block text-xs mb-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{isArabic ? 'طريقة التعيين' : 'Assign With'}</label>
             <div className={`grid grid-cols-2 p-1 rounded-xl border ${isLight ? 'bg-gray-50 border-gray-200' : 'bg-slate-800 border-slate-700'}`}>
@@ -356,9 +400,10 @@ const ReAssignLeadModal = ({
               </button>
             </div>
           </div>
+          )}
 
           {/* Role Selection (Manager vs Sales) */}
-          {selectedUser && (
+          {!hideAssignRole && selectedUser && (
             <div>
               <label className={`block text-xs mb-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{isArabic ? 'الدور في التعيين' : 'Assignment Role'}</label>
               {(() => {
@@ -404,6 +449,7 @@ const ReAssignLeadModal = ({
           )}
 
           {/* Checkboxes */}
+          {!hideOptions && (
           <div className="space-y-3 pt-2">
             {/* Duplicate — mutually exclusive with Same Stage */}
             <label className="flex items-center gap-2 cursor-pointer">
@@ -456,6 +502,7 @@ const ReAssignLeadModal = ({
             </label>
             </div>
           </div>
+          )}
 
         </div>
 
@@ -478,7 +525,7 @@ const ReAssignLeadModal = ({
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
           >
-            {submitting ? (isArabic ? 'جارٍ الإسناد...' : 'Assigning...') : (isArabic ? 'تعيين' : 'Assign')}
+            {submitting ? (isArabic ? 'جارٍ الإسناد...' : 'Assigning...') : resolvedAssignButtonLabel}
           </button>
         </div>
 

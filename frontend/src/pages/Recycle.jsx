@@ -304,7 +304,7 @@ export const Recycle = () => {
         const [sourcesRes, usersRes, stagesRes, countriesRes] = await Promise.all([
           api.get('/api/sources'),
           api.get('/api/users'),
-          api.get('/api/stages?active=1'),
+          api.get('/api/stages?active=1&workflow_key=sales'),
           api.get('/api/countries')
         ])
         

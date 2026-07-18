@@ -11,6 +11,7 @@ use App\Models\CancelReason;
 use App\Models\User;
 use App\Models\Activity;
 use App\Models\Project;
+use App\Models\Stage;
 use App\Models\Tenant;
 use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ use App\Support\LeadStageResolver;
 use App\Support\PhoneNormalizer;
 use App\Support\TenantSourceLookup;
 use App\Services\LeadRotationEngine;
+use App\Services\TelesalesService;
 use Illuminate\Support\Str;
 
 use App\Models\LeadReferral;
@@ -402,6 +404,42 @@ class LeadController extends Controller
         }
 
         return $stage;
+    }
+
+    private function resolveSalesAssignmentStageId(?int $tenantId, string $targetStage, ?int $fallbackStageId = null): ?int
+    {
+        /** @var TelesalesService $telesalesService */
+        $telesalesService = app(TelesalesService::class);
+
+        if ($targetStage === 'same_stage') {
+            return $fallbackStageId ? (int) $fallbackStageId : null;
+        }
+
+        $salesStages = $telesalesService->getStagesForWorkflow($tenantId, TelesalesService::WORKFLOW_SALES, true);
+        if ($salesStages->isEmpty()) {
+            return $fallbackStageId ? (int) $fallbackStageId : null;
+        }
+
+        $targetTokens = $targetStage === 'cold_calls'
+            ? ['cold calls', 'cold call', 'cold_calls', 'cold_call', 'coldcalls']
+            : ['new lead', 'new', 'fresh'];
+
+        $matchedStage = $salesStages->first(function ($stage) use ($targetTokens) {
+            $name = strtolower(trim(str_replace(['_', '-'], ' ', (string) ($stage->name ?? ''))));
+            $type = strtolower(trim(str_replace(['_', '-'], ' ', (string) ($stage->type ?? ''))));
+
+            return in_array($name, $targetTokens, true) || in_array($type, $targetTokens, true);
+        });
+
+        if ($matchedStage) {
+            return (int) $matchedStage->id;
+        }
+
+        if (in_array($targetStage, ['new_lead', 'cold_calls'], true)) {
+            return null;
+        }
+
+        return $fallbackStageId ? (int) $fallbackStageId : null;
     }
 
     /**
@@ -1407,6 +1445,12 @@ class LeadController extends Controller
     private function buildFilteredLeadsQuery(Request $request, $user, bool $includeDuplicates = false)
     {
         $query = Lead::query();
+
+        $workflowFilter = strtolower(trim((string) $request->input('workflow_key', '')));
+        if (!in_array($workflowFilter, [TelesalesService::WORKFLOW_SALES, TelesalesService::WORKFLOW_TELESALES], true)) {
+            $workflowFilter = TelesalesService::WORKFLOW_SALES;
+        }
+        $query->where('leads.workflow_key', $workflowFilter);
 
         // Explicitly enforce tenant scope
         if (!$user->is_super_admin) {
@@ -2752,6 +2796,8 @@ class LeadController extends Controller
             }
 
             $tenantId = $request->user()?->tenant_id;
+            /** @var TelesalesService $telesalesService */
+            $telesalesService = app(TelesalesService::class);
             $sourceInput = trim((string) ($data['source'] ?? ''));
             if ($sourceInput !== '') {
                 $resolvedSourceName = TenantSourceLookup::resolveName($tenantId, $sourceInput);
@@ -2766,15 +2812,47 @@ class LeadController extends Controller
                 $data['source'] = $resolvedSourceName;
             }
 
-            $resolvedStage = LeadStageResolver::resolve($tenantId, $data['stage'] ?? null, true);
-            if ($resolvedStage === null) {
+            $workflowKey = $telesalesService->resolveInitialWorkflow($request->user(), $data);
+            $data['workflow_key'] = $workflowKey;
+            $data['workflow_entered_at'] = now();
+
+            if ($workflowKey === TelesalesService::WORKFLOW_TELESALES && !empty($data['assigned_to'])) {
+                try {
+                    $validatedAssignee = $telesalesService->validateTelesalesAssigneeId((int) $tenantId, (int) $data['assigned_to']);
+
+                    if ($validatedAssignee) {
+                        $data['assigned_to'] = $validatedAssignee->id;
+                        $data['sales_person'] = $validatedAssignee->name;
+                    }
+                } catch (\InvalidArgumentException $e) {
+                    return response()->json([
+                        'errors' => [
+                            'assigned_to' => [$e->getMessage()],
+                        ],
+                    ], 422);
+                }
+            }
+
+            $requestedStageId = !empty($data['stage_id']) ? (int) $data['stage_id'] : null;
+            $resolvedStageId = $telesalesService->resolveEntryStageId($tenantId, $workflowKey, $requestedStageId);
+            if (!$resolvedStageId) {
                 return response()->json([
                     'errors' => [
-                        'stage' => ['Selected stage is not allowed for this tenant.'],
+                        'stage_id' => ['No active stage is configured for the selected workflow.'],
                     ],
                 ], 422);
             }
-            $data['stage'] = $resolvedStage;
+
+            $resolvedStageModel = Stage::find($resolvedStageId);
+            if (!$resolvedStageModel) {
+                return response()->json([
+                    'errors' => [
+                        'stage_id' => ['Selected stage is not allowed for this tenant.'],
+                    ],
+                ], 422);
+            }
+            $data['stage_id'] = $resolvedStageId;
+            $data['stage'] = trim((string) $resolvedStageModel->name);
 
             // Normalize phone for consistent search/duplicate matching
             $rawPhone = isset($data['phone']) ? trim((string) $data['phone']) : '';
@@ -2907,6 +2985,18 @@ class LeadController extends Controller
                 $data['meta_data'] = $meta;
             }
             $lead = Lead::create($data);
+
+            $telesalesService->appendWorkflowHistory($lead, $request->user(), [
+                'from_workflow' => null,
+                'to_workflow' => $workflowKey,
+                'from_stage_id' => null,
+                'to_stage_id' => $lead->stage_id,
+                'action' => 'lead_created',
+                'meta_data' => [
+                    'source' => $lead->source,
+                    'created_via' => 'lead_store',
+                ],
+            ]);
 
             // Notify privileged roles when a duplicate lead is detected (stored inside leads table).
             // This keeps the "management review" workflow consistent.
@@ -3159,6 +3249,12 @@ class LeadController extends Controller
         try {
             $user = $request->user();
             $query = Lead::query();
+
+            $workflowFilter = strtolower(trim((string) $request->input('workflow_key', '')));
+            if (!in_array($workflowFilter, [TelesalesService::WORKFLOW_SALES, TelesalesService::WORKFLOW_TELESALES], true)) {
+                $workflowFilter = TelesalesService::WORKFLOW_SALES;
+            }
+            $query->where('workflow_key', $workflowFilter);
 
             // Exclude referral leads
             $query->whereDoesntHave('referralUsers');
@@ -4199,6 +4295,7 @@ class LeadController extends Controller
                             $this->ensureUserCanBeAssignedLeadSource($user, $lead->source);
                             $this->ensureUserCanBeAssignedLeadProject($user, $this->resolveLeadProjectLabel($lead));
                             $oldAssigneeMap[$lead->id] = $lead->assigned_to;
+                            $resolvedStageId = $this->resolveSalesAssignmentStageId((int) ($lead->tenant_id ?? $request->user()?->tenant_id ?? 0), $targetStage, $lead->stage_id ? (int) $lead->stage_id : null);
 
                             if (empty($lead->manager_id)) {
                                 if ($user && !empty($user->manager_id)) {
@@ -4228,6 +4325,10 @@ class LeadController extends Controller
                                     // same_stage: keep current stage, just mark pending
                                     $lead->status = 'pending';
                                 }
+                            }
+
+                            if (!empty($resolvedStageId)) {
+                                $lead->stage_id = (int) $resolvedStageId;
                             }
 
                             // Clear History = independent visibility flag; does NOT override stage
@@ -5052,7 +5153,7 @@ class LeadController extends Controller
             $skip = [
                 'id', 'created_at', 'updated_at', 'deleted_at', 'deleted_by',
                 'assigned_to', 'sales_person', 'manager_id',
-                'stage', 'status',
+                'stage', 'stage_id', 'status',
                 'history_hidden_before_action_id', 'sales_view_reset_at',
                 'is_duplicate_exception', 'original_lead_id',
                 'last_action_at', 'assigned_at',
@@ -5071,6 +5172,7 @@ class LeadController extends Controller
             $cloneData['original_lead_id']        = $originalLead->id;
             $cloneData['created_by']              = $currentUser->id;
             $cloneData['assigned_at']             = now();
+            $cloneData['stage_id']                = $this->resolveSalesAssignmentStageId((int) ($originalLead->tenant_id ?? $currentUser->tenant_id ?? 0), 'new_lead');
 
             // Determine manager
             if ($user && !empty($user->manager_id)) {
@@ -5172,6 +5274,7 @@ class LeadController extends Controller
         DB::transaction(function() use ($lead, $newAgentId, $targetStage, $historyOption, $duplicateId, $request) {
             // Resolve User
             $user = \App\Models\User::where('id', $newAgentId)->orWhere('name', $newAgentId)->first();
+            $resolvedStageId = $this->resolveSalesAssignmentStageId((int) ($lead->tenant_id ?? $request->user()?->tenant_id ?? 0), (string) $targetStage, $lead->stage_id ? (int) $lead->stage_id : null);
             
             // Scope Rule: Assignee must be in the manager's team (descendants)
             // Or self-assignment
@@ -5246,6 +5349,10 @@ class LeadController extends Controller
                 // Default fallback if something else is sent
                 $lead->stage = 'New Lead';
                 $lead->status = 'new';
+            }
+
+            if (!empty($resolvedStageId)) {
+                $lead->stage_id = (int) $resolvedStageId;
             }
 
             // If resolving a duplicate via transfer

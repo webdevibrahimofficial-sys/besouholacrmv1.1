@@ -97,7 +97,7 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
   useEffect(() => {
     const fetchStages = async () => {
       try {
-        const { data } = await api.get('/api/stages');
+        const { data } = await api.get('/api/stages', { params: { workflow_key: 'sales' } });
         if (data && Array.isArray(data)) {
           const sorted = data.sort((a, b) => (a.order || 0) - (b.order || 0));
           setDbStages(sorted);

@@ -470,7 +470,7 @@ export const Dashboard = () => {
     const fromDb = async () => {
       try {
         if (!hasCachedStages) setStagesLoading(true);
-        const { data } = await axios.get('/api/stages', { params: { _t: Date.now() } });
+        const { data } = await axios.get('/api/stages', { params: { _t: Date.now(), workflow_key: 'sales' } });
         const validColors = new Set(['blue', 'green', 'yellow', 'red', 'purple', 'orange']);
         const normalized = Array.isArray(data)
           ? data.map((s) => {

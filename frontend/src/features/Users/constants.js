@@ -6,6 +6,9 @@ export const ROLES = [
   'Sales Manager',
   'Team Leader',
   'Sales Person',
+  'Telesales Manager',
+  'Telesales Team Leader',
+  'Telesales Agent',
   'Customer Manager',
   'Customer Team Leader',
   'Customer Agent',
@@ -25,6 +28,9 @@ export const ROLE_HIERARCHY = {
   'Sales Manager': ['Sales Admin', 'Branch Manager'],
   'Team Leader': ['Sales Manager', 'Branch Manager', 'Sales Admin'],
   'Sales Person': ['Team Leader', 'Sales Manager', 'Branch Manager', 'Sales Admin', 'Operation Manager'],
+  'Telesales Manager': ['Sales Admin', 'Branch Manager', 'Director', 'Operation Manager'],
+  'Telesales Team Leader': ['Telesales Manager', 'Sales Admin', 'Branch Manager', 'Director', 'Operation Manager'],
+  'Telesales Agent': ['Telesales Team Leader', 'Telesales Manager', 'Sales Admin', 'Branch Manager', 'Director', 'Operation Manager'],
   'Customer Team Leader': ['Customer Manager', 'Sales Admin'],
   'Customer Agent': ['Customer Team Leader', 'Customer Manager', 'Sales Admin'],
   'Customer Manager': ['Sales Admin', 'Branch Manager', 'Director'],
@@ -35,7 +41,7 @@ export const ROLE_HIERARCHY = {
 };
 
 export const PERMISSIONS = {
-  Leads: ['addLead', 'showCreator', 'editInfo', 'editPhone', 'importLeads', 'exportLeads', 'viewDuplicateLeads', 'actOnDuplicateLeads', 'addAction'],
+  Leads: ['addLead', 'showCreator', 'editInfo', 'editPhone', 'importLeads', 'exportLeads', 'viewDuplicateLeads', 'actOnDuplicateLeads', 'addAction', 'receiveLeads'],
   Inventory: [
     'addCategory',
     'addItems',
@@ -52,6 +58,7 @@ export const PERMISSIONS = {
     'showRequests',
   ],
   Marketing: ['showMarketingDashboard', 'showCampaign', 'addLandingPage', 'integration'],
+  Telesales: ['showModule', 'createLead', 'editLead', 'deleteLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads', 'bulkTransferToSales', 'disableModule'],
   Customers: ['showModule', 'convertFromLead', 'addCustomer', 'editInfo', 'deleteCustomer'],
   ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt', 'exportReports'],
   Control: [
@@ -98,6 +105,7 @@ export const PERM_LABELS_AR = {
     Leads: 'الليدز',
     Inventory: 'المخزون',
     Marketing: 'التسويق',
+    Telesales: 'التيليسيلز',
     Customers: 'العملاء',
     Support: 'الدعم',
     Control: 'التحكم',
@@ -158,6 +166,7 @@ export const PERM_LABELS_AR = {
     viewDuplicateLeads: 'عرض الليدز المكررة',
     actOnDuplicateLeads: 'اتخاذ إجراء على الليدز المكررة',
     addAction: 'إضافة إجراء على الليد',
+    receiveLeads: 'استلام الليدز',
     addDepartment: 'إضافة قسم',
     addUsers: 'إضافة مستخدمين',
     editUsers: 'تعديل المستخدمين',

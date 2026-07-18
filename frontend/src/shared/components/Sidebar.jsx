@@ -80,6 +80,12 @@ const getIcon = (key) => {
           <line x1="23" y1="11" x2="17" y2="11" />
         </svg>
       )
+    case 'Telesales':
+      return (
+        <svg {...common} aria-hidden="true">
+          <path d="M4 6a2 2 0 012-2h3l2 4-2 2a11 11 0 005 5l2-2 4 2v3a2 2 0 01-2 2h-1C10.82 20 4 13.18 4 5V4" />
+        </svg>
+      )
     case 'Inventory':
       return (
         <svg {...common} aria-hidden="true">
@@ -493,6 +499,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const hasFullSettingsAccess = isSuperAdmin || isTenantAdmin || isDirectorRole || isOperationManagerRole
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {}
+  const telesalesModulePerms = Array.isArray(modulePermissions.Telesales) ? modulePermissions.Telesales : []
   const controlModulePerms = Array.isArray(modulePermissions.Control) ? modulePermissions.Control : []
   const effectiveControlPerms = controlModulePerms.length ? controlModulePerms : (() => {
     if (role === 'Sales Admin') return ['addRegions', 'addArea', 'addSource', 'userManagement', 'allowActionOnTeam', 'assignLeads', 'showReports', 'addDepartment']
@@ -518,6 +525,9 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewPipelineStages = hasFullSettingsAccess || effectiveControlPerms.includes('addStage')
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
+  const canViewTelesalesModule = canAccess('telesales') && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
+  const canViewTelesalesHistorical = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords')
+  const canViewTelesalesSection = canViewTelesalesModule || canViewTelesalesHistorical
   const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewAgenciesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('userManagement')
   const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')
@@ -581,6 +591,16 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
 
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const isInventoryActive = location.pathname.startsWith('/inventory');
+  const [telesalesOpen, setTelesalesOpen] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('telesalesOpen');
+        if (saved === 'true') return true;
+        if (saved === 'false') return false;
+      }
+    } catch { }
+    return false;
+  })
   const [leadMgmtOpen, setLeadMgmtOpen] = useState(() => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -606,6 +626,19 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('leadMgmtOpen', 'true') } } catch { }
     }
   }, [isLeadMgmtActive])
+  const isTelesalesActive = location.pathname === '/telesales' || location.pathname.startsWith('/telesales/')
+  useEffect(() => {
+    if (!isTelesalesActive) {
+      setTelesalesOpen(false)
+      try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('telesalesOpen', 'false') } } catch { }
+    }
+  }, [location.pathname, isTelesalesActive])
+  useEffect(() => {
+    if (isTelesalesActive) {
+      setTelesalesOpen(true)
+      try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('telesalesOpen', 'true') } } catch { }
+    }
+  }, [isTelesalesActive])
   const [stagesOpen, setStagesOpen] = useState(false)
   const isMarketingActive = location.pathname.startsWith('/marketing') || location.pathname.startsWith('/reports/marketing')
   const isRecycleActive = location.pathname.startsWith('/recycle')
@@ -664,9 +697,9 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   // Active flags for top-level sections
   // إبقاء قائمة Customers مفتوحة عند التنقل في مسارات العملاء والمبيعات الفرعية
   const isCustomersActive = location.pathname.startsWith('/customers') || location.pathname.startsWith('/sales')
-  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/cancel-reasons')
+  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/telesales-stages-setup') || location.pathname.startsWith('/cancel-reasons')
   const isProfileCompanyActive = location.pathname.startsWith('/settings/profile')
-  const isSystemSettingsActive = location.pathname.startsWith('/settings/system') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/cancel-reasons')
+  const isSystemSettingsActive = location.pathname.startsWith('/settings/system') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/telesales-stages-setup') || location.pathname.startsWith('/cancel-reasons')
   const isConfigurationActive = location.pathname.startsWith('/settings/configuration') || location.pathname.startsWith('/settings/integrations') || location.pathname.startsWith('/settings/operations') || location.pathname.startsWith('/settings/notifications')
   const isNotificationsActive = location.pathname.startsWith('/settings/notifications')
   const isLocationsActive = location.pathname.startsWith('/settings/system/locations')
@@ -722,7 +755,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   useEffect(() => { if (isCompanySetupActive) { openOnly('companySetup') } else { setCompanySetupOpen(false) } }, [isCompanySetupActive])
   useEffect(() => { if (isBillingActiveFlag) { openOnly('billing') } else { setBillingOpen(false) } }, [isBillingActiveFlag])
 
-  const isSectionViewOpen = leadMgmtOpen || inventoryOpen || marketingOpen || customersOpen || usersOpen || ccOpen || supportOpen || reportsOpen || settingsOpen
+  const isSectionViewOpen = telesalesOpen || leadMgmtOpen || inventoryOpen || marketingOpen || customersOpen || usersOpen || ccOpen || supportOpen || reportsOpen || settingsOpen
 
   // Auto-open Settings submenu when on any /settings route; close when leaving
   useEffect(() => {
@@ -1268,6 +1301,106 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               <span className="link-label">{t('Dashboard')}</span>
             </span>
           </NavLink>
+        )}
+        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || telesalesOpen) && canViewTelesalesSection && (
+          <div className="w-full">
+            {telesalesOpen && (
+              <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} px-2 py-1`}>
+                <span className="text-sm font-bold link-label">{t('Telesales')}</span>
+                <button type="button" onClick={() => setTelesalesOpen(false)} className={`close-btn text-sm font-semibold ${isLight ? 'text-theme-text hover:text-gray-900' : 'text-gray-200 hover:text-white'} flex items-center gap-2`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  <span>{backLabel}</span>
+                </button>
+              </div>
+            )}
+            {!telesalesOpen && (
+              <NavLink
+                to="/telesales"
+                title={uiCollapsed ? t('Telesales') : ''}
+                end
+                onClick={() => { setTelesalesOpen(true); onClose(); }}
+                className={() => `${baseLink} w-full justify-between`}
+              >
+                <span className="nova-icon-label">
+                  <span className={`${iconContainer} ${iconTone}`}>{getIcon('Telesales')}</span>
+                  <span className="link-label text-[16px]">{t('Telesales')}</span>
+                </span>
+                <span className={`link-label ${isLight ? 'text-theme-text' : 'text-gray-400'} transition-transform`} style={{ transform: telesalesOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </span>
+              </NavLink>
+            )}
+
+            <div
+              className={`${isRTL ? 'mr-0 pr-0 border-r' : 'ml-0 pl-0 border-l'} border-theme-border dark:border-gray-700 space-y-0.5 transition-all`}
+              style={{ maxHeight: telesalesOpen ? '800px' : '0', overflow: 'hidden', opacity: telesalesOpen ? 1 : 0 }}
+            >
+              <NavLink
+                to="/telesales"
+                end
+                title={isCollapsed ? t('All Telesales Leads') : ''}
+                onClick={onClose}
+                className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+              >
+                <span className="nova-icon-label">
+                  <span className={`${iconContainer} ${iconTone}`}>{getIcon('All Leads')}</span>
+                  <span className="text-[15px] link-label">{t('All Telesales Leads')}</span>
+                </span>
+              </NavLink>
+              {canSeeMyLeadsLink && (
+                <NavLink
+                  to="/telesales/my-leads"
+                  title={isCollapsed ? t('My Telesales Leads') : ''}
+                  onClick={onClose}
+                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+                >
+                  <span className="nova-icon-label">
+                    <span className={`${iconContainer} ${iconTone}`}>{getIcon('My Leads')}</span>
+                    <span className="text-[15px] link-label">{t('My Telesales Leads')}</span>
+                  </span>
+                </NavLink>
+              )}
+              <NavLink
+                to="/telesales/referral"
+                title={isCollapsed ? t('Referal Telesales Leads') : ''}
+                onClick={onClose}
+                className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+              >
+                <span className="nova-icon-label">
+                  <span className={`${iconContainer} ${iconTone}`}>{getIcon('Referral Leads')}</span>
+                  <span className="text-[15px] link-label">{t('Referal Telesales Leads')}</span>
+                </span>
+              </NavLink>
+              <NavLink
+                to="/telesales/new"
+                title={isCollapsed ? t('Add Telesales Lead') : ''}
+                onClick={onClose}
+                className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+              >
+                <span className="nova-icon-label">
+                  <span className={`${iconContainer} ${iconTone}`}>{getIcon('Add New Lead')}</span>
+                  <span className="text-[15px] link-label">{t('Add Telesales Lead')}</span>
+                </span>
+              </NavLink>
+              {canViewTelesalesHistorical && (
+                <NavLink
+                  to="/telesales/historical"
+                  title={isCollapsed ? t('History(deleted)') : ''}
+                  onClick={onClose}
+                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+                >
+                  <span className="nova-icon-label">
+                    <span className={`${iconContainer} ${iconTone}`}>🕘</span>
+                    <span className="text-[15px] link-label">{t('History(deleted)')}</span>
+                  </span>
+                </NavLink>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Lead Management (gated by activeModules) */}
@@ -2019,6 +2152,11 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                         {canViewPipelineStages && (
                           <NavLink to="/stages-setup" onClick={onClose} title={isCollapsed ? t('Pipeline Stages Setup') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
                             <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><Kanban size={18} /></span><span className="text-[14px] link-label">{t('Pipeline Stages Setup')}</span></span>
+                          </NavLink>
+                        )}
+                        {canViewPipelineStages && (
+                          <NavLink to="/telesales-stages-setup" onClick={onClose} title={isCollapsed ? t('Telesales Pipeline Setup') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
+                            <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><Kanban size={18} /></span><span className="text-[14px] link-label">{t('Telesales Pipeline Setup')}</span></span>
                           </NavLink>
                         )}
                         {canViewCancelReasons && (

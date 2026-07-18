@@ -17,6 +17,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Visit;
 use App\Services\Imports\Contracts\ImportHandler;
+use App\Services\TelesalesService;
 use App\Support\PhoneNormalizer;
 use App\Support\LeadStageResolver;
 use App\Support\TenantSourceLookup;
@@ -35,6 +36,8 @@ class LeadsImportHandler implements ImportHandler
         $tenantId = $job->tenant_id;
         $uploaderId = $job->uploaded_by;
         $phoneCountryHint = isset($options['phone_country']) ? (string) $options['phone_country'] : null;
+        $forcedWorkflowKey = strtolower(trim((string) ($options['workflow_key'] ?? '')));
+        $isTelesalesImport = $forcedWorkflowKey === TelesalesService::WORKFLOW_TELESALES;
 
         $crm = CrmSetting::first();
         $enableDup = is_array($crm?->settings) ? (bool) ($crm->settings['duplicationSystem'] ?? false) : false;
@@ -307,25 +310,58 @@ class LeadsImportHandler implements ImportHandler
             }
 
             $incomingStage = trim((string) ($normalized['stage'] ?? ''));
-            $resolvedStage = LeadStageResolver::resolve($tenantId, $incomingStage, true);
-            if ($resolvedStage === null) {
-                $stageLabel = $incomingStage !== '' ? $incomingStage : '(empty)';
-                $this->storeRow($job, [
-                    'row_number' => $rowNumber,
-                    'status' => 'skipped',
-                    'reason_code' => 'stage_not_found',
-                    'reason_message' => "Stage '{$stageLabel}' is not allowed for this tenant. Row skipped.",
-                    'raw_data' => $rawRow,
-                    'normalized_data' => $this->withFieldErrors($normalized, ['stage' => "Stage '{$stageLabel}' is not allowed for this tenant."]),
-                    'warnings' => $warnings,
-                    'entity_type' => 'leads',
-                ]);
-                $skippedRows++;
-                continue;
+            if ($isTelesalesImport) {
+                $resolvedTelesalesStage = $this->resolveWorkflowStage($tenantId, TelesalesService::WORKFLOW_TELESALES, $incomingStage);
+                if (!$resolvedTelesalesStage && $incomingStage === '') {
+                    $resolvedTelesalesStage = $this->resolveWorkflowEntryStage($tenantId, TelesalesService::WORKFLOW_TELESALES);
+                }
+
+                if (!$resolvedTelesalesStage) {
+                    $stageLabel = $incomingStage !== '' ? $incomingStage : '(empty)';
+                    $this->storeRow($job, [
+                        'row_number' => $rowNumber,
+                        'status' => 'skipped',
+                        'reason_code' => 'stage_not_found',
+                        'reason_message' => "Telesales stage '{$stageLabel}' is not configured for this tenant. Row skipped.",
+                        'raw_data' => $rawRow,
+                        'normalized_data' => $this->withFieldErrors($normalized, ['stage' => "Telesales stage '{$stageLabel}' is not configured for this tenant."]),
+                        'warnings' => $warnings,
+                        'entity_type' => 'leads',
+                    ]);
+                    $skippedRows++;
+                    continue;
+                }
+
+                $resolvedStage = trim((string) $resolvedTelesalesStage->name);
+                $normalized['workflow_key'] = TelesalesService::WORKFLOW_TELESALES;
+                $normalized['stage_id'] = (int) $resolvedTelesalesStage->id;
+                $normalized['workflow_entered_at'] = now();
+            } else {
+                $resolvedStage = LeadStageResolver::resolve($tenantId, $incomingStage, true);
+                if ($resolvedStage === null) {
+                    $stageLabel = $incomingStage !== '' ? $incomingStage : '(empty)';
+                    $this->storeRow($job, [
+                        'row_number' => $rowNumber,
+                        'status' => 'skipped',
+                        'reason_code' => 'stage_not_found',
+                        'reason_message' => "Stage '{$stageLabel}' is not allowed for this tenant. Row skipped.",
+                        'raw_data' => $rawRow,
+                        'normalized_data' => $this->withFieldErrors($normalized, ['stage' => "Stage '{$stageLabel}' is not allowed for this tenant."]),
+                        'warnings' => $warnings,
+                        'entity_type' => 'leads',
+                    ]);
+                    $skippedRows++;
+                    continue;
+                }
             }
 
             $normalized['stage'] = $resolvedStage;
-            $resolvedStageType = $this->resolveStageType($tenantId, $incomingStage, (string) $resolvedStage);
+            $resolvedStageType = $this->resolveStageType(
+                $tenantId,
+                $incomingStage,
+                (string) $resolvedStage,
+                $isTelesalesImport ? TelesalesService::WORKFLOW_TELESALES : null
+            );
             $isCancelStage = $this->isCancelStageLike($tenantId, $incomingStage, (string) $resolvedStage, $resolvedStageType);
 
             // Store common template fields inside meta_data (best-effort).
@@ -396,6 +432,9 @@ class LeadsImportHandler implements ImportHandler
             if ($enableDup && ($isDbDup || $isInFileDup)) {
                 $normalized['status'] = 'duplicate';
                 $normalized['stage'] = 'Duplicate';
+                if ($isTelesalesImport && array_key_exists('stage_id', $normalized)) {
+                    $normalized['stage_id'] = null;
+                }
                 $meta = is_array($normalized['meta_data'] ?? null) ? ($normalized['meta_data'] ?? []) : [];
                 if ($enteredStage !== '') {
                     $meta['entered_stage'] = $enteredStage;
@@ -1280,8 +1319,16 @@ class LeadsImportHandler implements ImportHandler
         return $this->mapImportedStageToOperationalType($fallbackValue !== '' ? $fallbackValue : $stageValue);
     }
 
-    private function resolveStageType(?int $tenantId, string $stageValue, string $fallbackValue = ''): ?string
+    private function resolveStageType(?int $tenantId, string $stageValue, string $fallbackValue = '', ?string $workflowKey = null): ?string
     {
+        if ($workflowKey) {
+            $stageRow = $this->resolveWorkflowStage($tenantId, $workflowKey, $stageValue)
+                ?: $this->resolveWorkflowStage($tenantId, $workflowKey, $fallbackValue);
+
+            $stageType = trim((string) ($stageRow?->type ?? ''));
+            return $stageType !== '' ? $stageType : null;
+        }
+
         if (!$tenantId) {
             return null;
         }
@@ -1301,6 +1348,75 @@ class LeadsImportHandler implements ImportHandler
 
         $stageType = trim((string) ($stageRow?->type ?? ''));
         return $stageType !== '' ? $stageType : null;
+    }
+
+    private function resolveWorkflowEntryStage(?int $tenantId, string $workflowKey): ?Stage
+    {
+        if (!Schema::hasColumn('stages', 'workflow_key')) {
+            return null;
+        }
+
+        return Stage::query()
+            ->when($tenantId, function ($query) use ($tenantId) {
+                $query->where(function ($scoped) use ($tenantId) {
+                    $scoped->whereNull('tenant_id')->orWhere('tenant_id', $tenantId);
+                });
+            })
+            ->where('workflow_key', $workflowKey)
+            ->where(function ($query) {
+                $query->whereNull('is_active')->orWhere('is_active', true);
+            })
+            ->orderBy('order')
+            ->orderBy('id')
+            ->first();
+    }
+
+    private function resolveWorkflowStage(?int $tenantId, string $workflowKey, string $value): ?Stage
+    {
+        if (!Schema::hasColumn('stages', 'workflow_key')) {
+            return null;
+        }
+
+        $raw = trim($value);
+        if ($raw === '') {
+            return null;
+        }
+
+        $normalized = $this->normalizeWorkflowStageValue($raw);
+
+        $stages = Stage::query()
+            ->when($tenantId, function ($query) use ($tenantId) {
+                $query->where(function ($scoped) use ($tenantId) {
+                    $scoped->whereNull('tenant_id')->orWhere('tenant_id', $tenantId);
+                });
+            })
+            ->where('workflow_key', $workflowKey)
+            ->orderBy('order')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($stages as $stage) {
+            $candidates = array_filter([
+                (string) ($stage->name ?? ''),
+                (string) ($stage->name_ar ?? ''),
+                (string) ($stage->type ?? ''),
+            ], fn ($candidate) => trim((string) $candidate) !== '');
+
+            foreach ($candidates as $candidate) {
+                if ($normalized === $this->normalizeWorkflowStageValue((string) $candidate)) {
+                    return $stage;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeWorkflowStageValue(string $value): string
+    {
+        $normalized = mb_strtolower(trim($value), 'UTF-8');
+        $normalized = str_replace(['_', '-'], ' ', $normalized);
+        return preg_replace('/\s+/u', ' ', $normalized) ?: '';
     }
 
     private function mapStageTypeToOperationalType(?string $stageType): ?string

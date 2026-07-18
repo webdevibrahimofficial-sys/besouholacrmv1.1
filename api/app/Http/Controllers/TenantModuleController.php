@@ -4,13 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\Tenant;
 use App\Models\Module;
+use App\Services\TelesalesService;
 use App\Services\TenantService;
 use Illuminate\Http\Request;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 
 class TenantModuleController extends Controller
 {
+    public function __construct(private readonly TelesalesService $telesalesService)
+    {
+    }
+
     /**
      * Get all modules for a specific tenant with their status.
      */
@@ -57,18 +63,55 @@ class TenantModuleController extends Controller
             abort(403, 'Unauthorized. Super Admin access required.');
         }
 
-        $request->validate([
-            'modules' => 'required|array',
-            'modules.*.id' => 'required|exists:modules,id',
-            'modules.*.is_enabled' => 'required|boolean',
-            'modules.*.config' => 'nullable|array',
-        ]);
-
         $tenant = Tenant::findOrFail($tenantId);
+        $rawModules = $request->input('modules', []);
 
-        DB::transaction(function () use ($tenant, $request) {
+        if (!is_array($rawModules)) {
+            return response()->json([
+                'message' => 'Modules payload must be an array.',
+            ], 422);
+        }
+
+        $firstItem = $rawModules[0] ?? null;
+        $isSlugList = is_string($firstItem) || $firstItem === null;
+
+        if ($isSlugList) {
+            $request->validate([
+                'modules' => 'required|array',
+                'modules.*' => 'required|string|exists:modules,slug',
+            ]);
+        } else {
+            $request->validate([
+                'modules' => 'required|array',
+                'modules.*.id' => 'required|exists:modules,id',
+                'modules.*.is_enabled' => 'required|boolean',
+                'modules.*.config' => 'nullable|array',
+            ]);
+        }
+
+        $modulePayload = $isSlugList
+            ? $this->normalizeSlugModulePayload($tenant, $rawModules)
+            : $rawModules;
+
+        DB::transaction(function () use ($tenant, $modulePayload) {
             $syncData = [];
-            foreach ($request->modules as $moduleData) {
+            foreach ($modulePayload as $moduleData) {
+                $module = Module::find($moduleData['id']);
+                if ($module && $module->slug === TelesalesService::MODULE_SLUG && $moduleData['is_enabled'] === false) {
+                    $activeCount = $this->telesalesService
+                        ->getActiveTelesalesLeadsQuery((int) $tenant->id)
+                        ->whereNull('transferred_to_sales_at')
+                        ->count();
+
+                    if ($activeCount > 0) {
+                        throw new HttpResponseException(response()->json([
+                            'message' => "There are {$activeCount} active leads in the Telesales workflow. Resolve, transfer, or archive them before disabling the module.",
+                            'active_leads_count' => $activeCount,
+                            'requires_resolution' => true,
+                        ], 409));
+                    }
+                }
+
                 $syncData[$moduleData['id']] = [
                     'is_enabled' => $moduleData['is_enabled'],
                     'config' => isset($moduleData['config']) ? json_encode($moduleData['config']) : null,
@@ -86,5 +129,38 @@ class TenantModuleController extends Controller
         app(TenantService::class)->forgetTenantCache($tenant);
 
         return response()->json(['message' => 'Tenant modules updated successfully']);
+    }
+
+    protected function normalizeSlugModulePayload(Tenant $tenant, array $slugs): array
+    {
+        $requestedSlugs = collect($slugs)
+            ->filter(fn ($slug) => is_string($slug) && trim($slug) !== '')
+            ->map(fn ($slug) => trim((string) $slug))
+            ->unique()
+            ->values();
+
+        $allModules = Module::query()->where('is_active', true)->get(['id', 'slug']);
+        $currentlyEnabled = $tenant->modules()
+            ->wherePivot('is_enabled', true)
+            ->pluck('modules.slug')
+            ->map(fn ($slug) => trim((string) $slug))
+            ->filter()
+            ->values();
+
+        $relevantSlugs = $allModules->pluck('slug')
+            ->intersect($requestedSlugs->merge($currentlyEnabled))
+            ->values();
+
+        return $allModules
+            ->whereIn('slug', $relevantSlugs)
+            ->map(function ($module) use ($requestedSlugs) {
+                return [
+                    'id' => (int) $module->id,
+                    'is_enabled' => $requestedSlugs->contains($module->slug),
+                    'config' => null,
+                ];
+            })
+            ->values()
+            ->all();
     }
 }

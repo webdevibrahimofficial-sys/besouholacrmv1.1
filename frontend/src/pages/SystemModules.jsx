@@ -8,9 +8,57 @@ import { toast } from 'react-hot-toast'
 import { Search, Layers } from 'lucide-react'
 import { useTenants, AVAILABLE_MODULES } from '../hooks/useTenants'
 
+function ResolutionNotice({ state, onClose, t }) {
+  if (!state) return null
+
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/55 p-4">
+      <div className="card w-full max-w-lg rounded-2xl border border-amber-300 shadow-xl">
+        <div className="flex items-start justify-between gap-3 border-b border-theme-border p-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-amber-500">{t('Resolution Required')}</p>
+            <h3 className="mt-1 text-lg font-semibold text-theme">{t('Telesales cannot be disabled yet')}</h3>
+          </div>
+          <button onClick={onClose} className="text-xl leading-none text-theme hover:opacity-70">
+            &times;
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
+            {state.message}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-theme-border p-3">
+              <div className="text-xs text-theme opacity-60">{t('Tenant')}</div>
+              <div className="mt-1 font-semibold text-theme">{state.tenantName}</div>
+            </div>
+            <div className="rounded-xl border border-theme-border p-3">
+              <div className="text-xs text-theme opacity-60">{t('Active leads')}</div>
+              <div className="mt-1 font-semibold text-theme">{state.activeLeadsCount || 0}</div>
+            </div>
+          </div>
+
+          <div className="text-sm text-theme opacity-75">
+            {t('Transfer or resolve active telesales leads first, then try disabling the module again.')}
+          </div>
+        </div>
+
+        <div className="flex justify-end border-t border-theme-border p-4">
+          <button onClick={onClose} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
+            {t('Close')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ModulesDrawer({ tenant, onClose, onSaved, updateModules }) {
   const { t } = useTranslation()
   const [saving, setSaving] = useState(false)
+  const [resolutionState, setResolutionState] = useState(null)
   const initial = (tenant.modules || [])
     .map((module) => (typeof module === 'string' ? module : (module.slug || module.name || '')))
     .filter(Boolean)
@@ -35,8 +83,17 @@ function ModulesDrawer({ tenant, onClose, onSaved, updateModules }) {
       toast.success(t('Modules updated for {{name}}', { name: tenant.name }))
       onSaved()
       onClose()
-    } catch {
-      toast.error(t('Failed to update modules'))
+    } catch (error) {
+      const payload = error?.response?.data || {}
+      if (payload?.requires_resolution) {
+        setResolutionState({
+          tenantName: tenant.name,
+          activeLeadsCount: Number(payload.active_leads_count || 0),
+          message: payload.message || t('Resolve active telesales leads before disabling this module.'),
+        })
+      } else {
+        toast.error(payload?.message || t('Failed to update modules'))
+      }
     } finally {
       setSaving(false)
     }
@@ -111,6 +168,7 @@ function ModulesDrawer({ tenant, onClose, onSaved, updateModules }) {
           </div>
         </div>
       </div>
+      <ResolutionNotice state={resolutionState} onClose={() => setResolutionState(null)} t={t} />
     </div>
   )
 }

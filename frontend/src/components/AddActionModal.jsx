@@ -60,7 +60,9 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   useEffect(() => {
     const fetchStages = async () => {
       try {
-        const response = await api.get('/api/stages');
+        const response = await api.get('/api/stages', {
+          params: { workflow_key: lead?.workflow_key || 'sales' }
+        });
         setStages(response.data);
       } catch (error) {
         console.error('Failed to fetch stages:', error);

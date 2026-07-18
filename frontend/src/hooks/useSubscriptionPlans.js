@@ -5,6 +5,7 @@ import { api } from '../utils/api'
 export const AVAILABLE_PLAN_MODULES = [
   { id: 'dashboard', name: 'Dashboard' },
   { id: 'leads', name: 'Leads Management' },
+  { id: 'telesales', name: 'Telesales' },
   { id: 'inventory', name: 'Inventory' },
   { id: 'campaigns', name: 'Marketing Campaigns' },
   { id: 'customers', name: 'Customers' },

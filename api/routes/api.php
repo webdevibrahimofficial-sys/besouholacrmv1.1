@@ -46,6 +46,7 @@ use App\Http\Controllers\SuperAdminNotificationController;
 use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\ShareLinkController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\TelesalesController;
 use App\Http\Controllers\ContractCollections\CcCustomersController;
 use App\Http\Controllers\ContractCollections\CcCustomerUnitsController;
 use App\Http\Controllers\ContractCollections\CcContractsController;
@@ -497,6 +498,14 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::post('leads/duplicates/bulk-action', [LeadController::class , 'bulkDuplicateAction']);
     Route::post('leads/{id}/transfer', [LeadController::class , 'transfer']);
     Route::post('leads/{id}/duplicate-as-fresh', [LeadController::class , 'duplicateAndAssignAsFresh']);
+    Route::get('telesales/leads', [TelesalesController::class, 'index']);
+    Route::get('telesales/historical', [TelesalesController::class, 'historical']);
+    Route::get('telesales/dashboard-summary', [TelesalesController::class, 'dashboardSummary']);
+    Route::get('telesales/assignees', [TelesalesController::class, 'assignees']);
+    Route::get('telesales/module-disable-check', [TelesalesController::class, 'moduleDisableCheck']);
+    Route::post('telesales/leads/bulk-assign', [TelesalesController::class, 'bulkAssign']);
+    Route::post('telesales/leads/bulk-transfer-to-sales', [TelesalesController::class, 'bulkTransferToSales']);
+    Route::post('telesales/leads/{lead}/transfer-to-sales', [TelesalesController::class, 'transferToSales']);
     Route::post('leads/{id}/attachments', [LeadController::class, 'addAttachments']);
     Route::apiResource('leads', LeadController::class);
 

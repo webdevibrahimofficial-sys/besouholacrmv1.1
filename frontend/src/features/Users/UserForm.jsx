@@ -52,6 +52,11 @@ const isSalesPersonRole = (role) => {
   return r === 'sales person' || r === 'salesperson';
 };
 
+const isTelesalesAgentRole = (role) => {
+  const r = normalizeRoleValue(role);
+  return r === 'telesales agent';
+};
+
 const isAdminRole = (role) => {
   const r = normalizeRoleValue(role);
   return r === 'admin' || r === 'tenant admin' || r === 'super admin';
@@ -302,7 +307,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     // If role is empty, assume not manager yet or default
     if (!r) return false
     // Sales roles are not managers in this context
-    const isSales = r.includes('sales person') || r.includes('salesperson') || r.includes('agent') || r.includes('broker')
+    const isSales = r.includes('sales person') || r.includes('salesperson') || r.includes('telesales agent') || r.includes('agent') || r.includes('broker')
     return !isSales
   }, [form.role])
 
@@ -328,6 +333,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       'support manager',
       'support team leader',
       'support agent',
+      'telesales manager',
       'accountant',
     ]);
 
@@ -441,7 +447,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
     if (form.role === 'Sales Admin') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','addAction'],
+        Leads: ['addLead','importLeads','addAction','receiveLeads'],
         Inventory: [],
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage'],
         Customers: ['convertFromLead', 'addCustomer', 'showModule'],
@@ -451,7 +457,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Operation Manager') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','editInfo','editPhone','addAction'],
+        Leads: ['addLead','importLeads','editInfo','editPhone','addAction','receiveLeads'],
         Inventory: ['addCategory','addItems'],
         Marketing: [],
         Customers: ['editInfo','showModule'],
@@ -461,7 +467,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Branch Manager') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','editInfo','addAction'],
+        Leads: ['addLead','importLeads','editInfo','addAction','receiveLeads'],
         Inventory: ['addCategory','addItems'],
         Customers: ['addCustomer','editInfo','showModule'],
         ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
@@ -470,7 +476,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Director') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','editInfo','addAction'],
+        Leads: ['addLead','importLeads','editInfo','addAction','receiveLeads'],
         Inventory: [],
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage','integration'],
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
@@ -480,21 +486,36 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Sales Manager') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','editInfo','addAction'],
+        Leads: ['addLead','importLeads','editInfo','addAction','receiveLeads'],
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
         ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
         Control: ['assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Team Leader') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','addAction'],
+        Leads: ['addLead','importLeads','addAction','receiveLeads'],
         Customers: ['editInfo','showModule'],
         Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Sales Person') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','addAction'],
+        Leads: ['addLead','importLeads','addAction','receiveLeads'],
         Customers: ['showModule'],
+        Control: ['showReports']
+      })
+    } else if (form.role === 'Telesales Manager') {
+      setCustomPerms({
+        Telesales: ['showModule', 'createLead', 'editLead', 'deleteLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads', 'bulkTransferToSales', 'disableModule'],
+        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
+      })
+    } else if (form.role === 'Telesales Team Leader') {
+      setCustomPerms({
+        Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads'],
+        Control: ['allowActionOnTeam','assignLeads','showReports']
+      })
+    } else if (form.role === 'Telesales Agent') {
+      setCustomPerms({
+        Telesales: ['showModule', 'createLead', 'editLead', 'receiveLeads'],
         Control: ['showReports']
       })
     } else if (form.role === 'Marketing Manager') {
@@ -626,6 +647,17 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       const leads = Array.isArray(next.Leads) ? next.Leads : [];
       if (leads.includes('addAction')) return prev;
       next.Leads = [...leads, 'addAction'];
+      return next;
+    });
+  }, [form.role]);
+
+  useEffect(() => {
+    if (!isTelesalesAgentRole(form.role)) return;
+    setCustomPerms((prev) => {
+      const next = { ...(prev || {}) };
+      const telesalesPerms = Array.isArray(next.Telesales) ? next.Telesales : [];
+      if (telesalesPerms.includes('editLead')) return prev;
+      next.Telesales = [...telesalesPerms, 'editLead'];
       return next;
     });
   }, [form.role]);
@@ -1348,6 +1380,12 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     .filter(([group]) => {
                       if (form.role === 'Team Leader') {
                         return !['Marketing'].includes(group);
+                      }
+                      if (form.role === 'Telesales Manager') {
+                        return ['Telesales', 'Control'].includes(group);
+                      }
+                      if (['Telesales Team Leader', 'Telesales Agent'].includes(form.role)) {
+                        return ['Telesales'].includes(group);
                       }
                       if (['Marketing Manager', 'Marketing Moderator'].includes(form.role)) {
                         return !['Customers', 'Support'].includes(group);

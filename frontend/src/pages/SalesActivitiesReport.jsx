@@ -526,7 +526,7 @@ export default function SalesActivitiesReport() {
         const [usersRes, sourcesRes, stagesRes, companyRes] = await Promise.all([
           api.get('/api/users'),
           api.get('/api/sources?active=1'),
-          api.get('/api/stages?active=1'),
+          api.get('/api/stages?active=1&workflow_key=sales'),
           api.get('/api/company-info')
         ])
 

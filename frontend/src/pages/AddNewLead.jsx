@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useAppState } from '@shared/context/AppStateProvider';
 import { useTheme } from '@shared/context/ThemeProvider';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useStages } from '../hooks/useStages';
 import { useState, useEffect, useMemo } from 'react';
@@ -19,6 +19,7 @@ export const AddNewLead = () => {
   const { theme, resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const isRTL = String(i18n.language || '').startsWith('ar');
   const { validatePhone, COUNTRY_CODES } = usePhoneValidation();
@@ -37,7 +38,8 @@ export const AddNewLead = () => {
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
   const [attachments, setAttachments] = useState([]);
-  const { stages, statuses } = useStages();
+  const isTelesalesMode = location.pathname.startsWith('/telesales');
+  const { stages, statuses } = useStages({ workflowKey: isTelesalesMode ? 'telesales' : 'sales' });
   const [assignedTo, setAssignedTo] = useState('');
   const [stage, setStage] = useState('');
   const [status, setStatus] = useState('');
@@ -122,7 +124,9 @@ export const AddNewLead = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await api.get('/api/users');
+        const res = isTelesalesMode
+          ? await api.get('/api/telesales/assignees', { params: { workflow: 'telesales' } })
+          : await api.get('/api/users');
         const data = Array.isArray(res.data) ? res.data : (res.data?.data || []);
         setUsersList(data);
       } catch (e) {
@@ -130,7 +134,7 @@ export const AddNewLead = () => {
       }
     };
     fetchUsers();
-  }, []);
+  }, [isTelesalesMode]);
 
   useEffect(() => {
     if (isSalesPerson && currentUser?.id) {
@@ -220,6 +224,38 @@ export const AddNewLead = () => {
     label: i.name
   })), [itemsList]);
 
+  const normalizeStageValue = (value) => String(value ?? '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const telesalesEntryStageOption = useMemo(() => {
+    if (!isTelesalesMode) return null;
+
+    const list = Array.isArray(stages) ? stages : [];
+    const freshStage = list.find((stageItem) => normalizeStageValue(stageItem?.type) === 'fresh');
+    const firstOperationalStage = list.find((stageItem) => normalizeStageValue(stageItem?.type) !== 'display');
+    const selectedStage = freshStage || firstOperationalStage || list[0] || null;
+
+    if (!selectedStage) return null;
+
+    return {
+      value: selectedStage.name,
+      label: i18n.language === 'ar' ? (selectedStage.nameAr || selectedStage.name) : selectedStage.name,
+    };
+  }, [i18n.language, isTelesalesMode, stages]);
+
+  const pageTitle = isTelesalesMode ? t('Add Telesales Lead') : t('Add New Lead');
+  const pageDescription = isTelesalesMode
+    ? t('This lead will be created inside the telesales workflow and start from the configured telesales entry stage.')
+    : t('Create a new lead inside the sales workflow.');
+  const primaryLeadTitle = isTelesalesMode ? t('Primary Telesales Lead') : t('Primary Lead');
+  const additionalLeadsTitle = isTelesalesMode ? t('Additional Telesales Leads') : t('Additional Leads');
+  const assignedUserLabel = isTelesalesMode ? t('Telesales Assignee') : t('Sales (Assigned To)');
+  const assignedUserPlaceholder = isTelesalesMode ? t('Select telesales user') : t('Select sales Person ');
+  const confirmButtonLabel = isTelesalesMode ? t('Confirm Add Telesales Lead') : t('Confirm Add');
+
   const typeOptions = useMemo(() => [
     { value: 'Company', label: t('Company') },
     { value: 'Individual', label: t('Individual') }
@@ -239,13 +275,15 @@ export const AddNewLead = () => {
 
     const baseSet = new Set(base.map(o => normalize(o.value)));
 
-    const extras = [
-      { value: 'new lead', label: t('new lead') },
-      { value: 'cold calls', label: t('cold calls') },
-    ].filter(o => !baseSet.has(normalize(o.value)));
+    const extras = isTelesalesMode
+      ? []
+      : [
+        { value: 'new lead', label: t('new lead') },
+        { value: 'cold calls', label: t('cold calls') },
+      ].filter(o => !baseSet.has(normalize(o.value)));
 
     return [...extras, ...base];
-  }, [stages, i18n.language, t]);
+  }, [isTelesalesMode, stages, i18n.language, t]);
 
   const priorityOptions = useMemo(() => [
     { value: 'hot', label: t('Hot') },
@@ -276,7 +314,7 @@ export const AddNewLead = () => {
         expectedRevenue: '',
         mobileNumbers: [{ code: mobileNumbers[0]?.code || '', number: '' }],
         email: '',
-        assignedTo: isSalesPerson ? (currentUser?.name || '') : '',
+        assignedTo: isSalesPerson ? String(currentUser?.id || '') : '',
         country: '',
         stage: '',
         status: '',
@@ -422,6 +460,17 @@ export const AddNewLead = () => {
 
   const [phoneErrors, setPhoneErrors] = useState([]); // per index messages
 
+  useEffect(() => {
+    if (!isTelesalesMode) return;
+    if (!telesalesEntryStageOption?.value) return;
+
+    setStage((prev) => prev || telesalesEntryStageOption.value);
+    setExtraLeads((prev) => prev.map((lead) => ({
+      ...lead,
+      stage: lead.stage || telesalesEntryStageOption.value,
+    })));
+  }, [isTelesalesMode, telesalesEntryStageOption]);
+
   const isPrimaryValid =
     name.trim().length > 0 &&
     source.trim().length > 0 &&
@@ -513,12 +562,13 @@ export const AddNewLead = () => {
       formData.append('company', company.trim() || project.trim() || '');
       if (country) formData.append('country', country);
       formData.append('type', type || ((company.trim() || project.trim()) ? 'Company' : 'Individual'));
-      formData.append('stage', stage || 'New');
+      formData.append('stage', isTelesalesMode ? (stage || telesalesEntryStageOption?.value || 'fresh') : (stage || 'New'));
       formData.append('status', status || '');
       formData.append('priority', priority);
       formData.append('source', source);
       if (campaign) formData.append('campaign', campaign);
       if (assignedTo) formData.append('assigned_to', String(assignedTo).trim());
+      if (isTelesalesMode) formData.append('workflow_key', 'telesales');
       const otherPhonesValue = buildOtherPhonesValue(mobileNumbers);
       formData.append('notes', String(note || '').trim());
       if (otherPhonesValue) {
@@ -566,11 +616,12 @@ export const AddNewLead = () => {
           extraFormData.append('company', l.company?.trim() || l.project?.trim() || '');
           if (l.country) extraFormData.append('country', l.country);
           extraFormData.append('type', l.type || ((l.company || l.project) ? 'Company' : 'Individual'));
-          extraFormData.append('stage', l.stage || 'New');
+          extraFormData.append('stage', isTelesalesMode ? (l.stage || telesalesEntryStageOption?.value || 'fresh') : (l.stage || 'New'));
           extraFormData.append('status', l.status || '');
           extraFormData.append('priority', l.priority || 'medium');
           extraFormData.append('source', l.source || '');
-          extraFormData.append('assigned_to', l.assignedTo?.trim() || '');
+          extraFormData.append('assigned_to', String(l.assignedTo || '').trim());
+          if (isTelesalesMode) extraFormData.append('workflow_key', 'telesales');
           const extraOtherPhonesValue = buildOtherPhonesValue(l.mobileNumbers || []);
           extraFormData.append('notes', String(l.note || '').trim());
           if (extraOtherPhonesValue) {
@@ -607,11 +658,20 @@ export const AddNewLead = () => {
       } else {
         alert(t('Lead saved successfully'));
       }
-      navigate('/leads');
+      navigate(isTelesalesMode ? '/telesales' : '/leads');
       
     } catch (error) {
       console.error('Failed to save lead:', error);
-      alert(t('Failed to save lead'));
+      const responseData = error?.response?.data || {};
+      const directMessage =
+        String(responseData?.message || '').trim() ||
+        String(responseData?.error || '').trim();
+
+      const validationMessage = responseData?.errors && typeof responseData.errors === 'object'
+        ? Object.values(responseData.errors).flat().map((item) => String(item || '').trim()).filter(Boolean).join(' | ')
+        : '';
+
+      alert(directMessage || validationMessage || t('Failed to save lead'));
     }
   };
 
@@ -622,7 +682,7 @@ export const AddNewLead = () => {
           <p className="text-sm">{t('You do not have permission to add leads')}</p>
           <button
             type="button"
-            onClick={() => navigate('/leads')}
+            onClick={() => navigate(isTelesalesMode ? '/telesales' : '/leads')}
             className="mt-3 px-3 py-1.5 rounded-md bg-blue-600 text-white"
           >
             {t('Back')}
@@ -635,7 +695,10 @@ export const AddNewLead = () => {
   return (
     <div className={`p-3 sm:p-6 pb-24 bg-[var(--content-bg)] text-[var(--content-text)]`}>
       <div className={`relative flex items-center justify-between mb-2`}>
-        <h1 className={`page-title text-2xl font-bold ${isLight ? 'text-black' : 'text-white'}`}>{t('Add New Lead')}</h1>
+        <div>
+          <h1 className={`page-title text-2xl font-bold ${isLight ? 'text-black' : 'text-white'}`}>{pageTitle}</h1>
+          <p className={`mt-2 text-sm ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>{pageDescription}</p>
+        </div>
         <button
           type="button"
           onClick={() => navigate(-1)}
@@ -660,7 +723,7 @@ export const AddNewLead = () => {
       <div className={`p-4 md:p-6 rounded-lg border ${formTone}`}>
               {/* Two-column layout */}
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold">{t('Primary Lead')}</h2>
+                <h2 className="text-lg font-semibold">{primaryLeadTitle}</h2>
                 <button
                   type="button"
                   onClick={() => setPrimaryCollapsed(!primaryCollapsed)}
@@ -797,14 +860,25 @@ export const AddNewLead = () => {
                   {/* Stage */}
                   <div>
                     <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Stage')}</label>
-                    <SearchableSelect
-                      options={stageOptions}
-                      value={stage}
-                      onChange={setStage}
-                      placeholder={t('Select')}
-                      isRTL={isRTL}
-                      showAllOption={false}
-                    />
+                    {isTelesalesMode ? (
+                      <div className={`w-full rounded-md border px-3 py-2 ${inputTone}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <span>{telesalesEntryStageOption?.label || stage || t('Fresh')}</span>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-blue-100 text-blue-700' : 'bg-blue-900/40 text-blue-200'}`}>
+                            {t('Auto from Telesales Pipeline')}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <SearchableSelect
+                        options={stageOptions}
+                        value={stage}
+                        onChange={setStage}
+                        placeholder={t('Select')}
+                        isRTL={isRTL}
+                        showAllOption={false}
+                      />
+                    )}
                   </div>
 
                   {/* Priority */}
@@ -913,12 +987,12 @@ export const AddNewLead = () => {
                   {/* Sales (Assigned To) */}
                   {!isSalesPerson && (
                   <div>
-                    <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Sales (Assigned To)')}</label>
+                    <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{assignedUserLabel}</label>
                     <SearchableSelect
                       options={userOptions}
                       value={assignedTo}
                       onChange={handleAssignedToChange}
-                      placeholder={t('Select sales Person ')}
+                      placeholder={assignedUserPlaceholder}
                       className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
                       isRTL={isRTL}
                       showAllOption={false}
@@ -1118,20 +1192,38 @@ export const AddNewLead = () => {
                         </div>
                         {!isSalesPerson && (
                         <div>
-                          <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Sales')}</label>
-                          <input type="text" value={l.assignedTo} onChange={(e) => updateExtraLeadField(i, 'assignedTo', e.target.value)} className={`w-full rounded-md border px-3 py-2 ${inputTone}`} />
+                          <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{assignedUserLabel}</label>
+                          <SearchableSelect
+                            options={userOptions}
+                            value={l.assignedTo}
+                            onChange={(val) => updateExtraLeadField(i, 'assignedTo', val)}
+                            placeholder={assignedUserPlaceholder}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                          />
                         </div>
                         )}
                         <div>
                            <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Stage')}</label>
-                           <SearchableSelect
-                             options={stageOptions}
-                             value={l.stage}
-                             onChange={(val) => updateExtraLeadField(i, 'stage', val)}
-                             placeholder={t('Select')}
-                             isRTL={isRTL}
-                             showAllOption={false}
-                           />
+                           {isTelesalesMode ? (
+                             <div className={`w-full rounded-md border px-3 py-2 ${inputTone}`}>
+                               <div className="flex items-center justify-between gap-3">
+                                 <span>{telesalesEntryStageOption?.label || l.stage || t('Fresh')}</span>
+                                 <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-blue-100 text-blue-700' : 'bg-blue-900/40 text-blue-200'}`}>
+                                   {t('Auto from Telesales Pipeline')}
+                                 </span>
+                               </div>
+                             </div>
+                           ) : (
+                             <SearchableSelect
+                               options={stageOptions}
+                               value={l.stage}
+                               onChange={(val) => updateExtraLeadField(i, 'stage', val)}
+                               placeholder={t('Select')}
+                               isRTL={isRTL}
+                               showAllOption={false}
+                             />
+                           )}
                          </div>
                          <div>
                            <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Priority')}</label>
@@ -1163,7 +1255,7 @@ export const AddNewLead = () => {
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className={`text-lg font-bold ${isLight ? 'text-purple-700' : 'text-cyan-300'}`}>
-              {t('Additional Leads')}
+              {additionalLeadsTitle}
             </h2>
             <button
               type="button"
@@ -1184,7 +1276,7 @@ export const AddNewLead = () => {
               disabled={!isFormValid}
               className={`inline-flex items-center gap-2 px-6 py-2 rounded-md font-bold transition-all duration-150 ease-out transform disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none hover:opacity-95 hover:-translate-y-0.5 active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-500/60 shadow-lg hover:shadow-xl ${isLight ? 'bg-green-600 hover:bg-green-700 active:bg-green-800 text-white border-2 border-green-500' : 'bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white border-2 border-emerald-600'}`}
             >
-              {t('Confirm Add')}
+              {confirmButtonLabel}
             </button>
           </div>
         </div>
