@@ -26,6 +26,25 @@ use Illuminate\Support\Facades\Schema;
 
 class LeadsImportHandler implements ImportHandler
 {
+    private function applyDuplicateWorkflowScope($query, ?int $tenantId, ?string $workflowKey): void
+    {
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $normalizedWorkflow = strtolower(trim((string) ($workflowKey ?? '')));
+        if ($normalizedWorkflow === '' || !Schema::hasColumn('leads', 'workflow_key')) {
+            return;
+        }
+
+        $query->where('workflow_key', $normalizedWorkflow);
+
+        if ($normalizedWorkflow === TelesalesService::WORKFLOW_TELESALES
+            && Schema::hasColumn('leads', 'transferred_to_sales_at')) {
+            $query->whereNull('transferred_to_sales_at');
+        }
+    }
+
     /**
      * @param array<int, array<string, mixed>> $rows
      * @param array<string, string> $mapping
@@ -405,9 +424,7 @@ class LeadsImportHandler implements ImportHandler
                 $variantsForSearch = $variants;
 
                 $base = Lead::query();
-                if ($tenantId) {
-                    $base->where('tenant_id', $tenantId);
-                }
+                $this->applyDuplicateWorkflowScope($base, $tenantId, $forcedWorkflowKey);
                 $isDbDup = (clone $base)->whereIn('phone', $variants)->exists();
 
                 if ($isDbDup) {

@@ -1084,21 +1084,41 @@ export const ReferralLeads = () => {
   }, [leads])
 
   const handleAssignLead = async (leadId, newAssignee) => {
+    const assignData = typeof newAssignee === 'object' && newAssignee !== null
+      ? newAssignee
+      : {
+          userId: usersList.find(u => u.name === newAssignee)?.id ?? null,
+          userName: String(newAssignee || '').trim(),
+          assignRole: 'sales',
+          method: 'fresh',
+          options: { sameStage: true, clearHistory: false, duplicate: false },
+        }
+
+    if (!assignData.userId || !assignData.userName) {
+      const evt = new CustomEvent('app:toast', { detail: { type: 'error', message: isRtl ? 'تعذر تحديد المستخدم المسند إليه' : 'Unable to resolve the selected assignee' } });
+      window.dispatchEvent(evt);
+      return;
+    }
+
+    const { stage, history_option } = buildLeadTransferPayload(assignData);
+    const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : stage === 'new_lead' ? 'New Lead' : null;
+    const optimisticStage = nextStageLabel || leads.find(l => l.id === leadId)?.stage || 'Pending';
+
     // Optimistic Update
     const updatedLeads = leads.map(l => l.id === leadId ? { 
       ...l, 
-      assignedTo: newAssignee, 
-      sales_person: newAssignee,
-      assignedAgent: { ...(l.assignedAgent || {}), name: newAssignee },
-      stage: 'Pending' 
+      assignedTo: assignData.userName, 
+      sales_person: assignData.userName,
+      assignedAgent: { ...(l.assignedAgent || {}), id: assignData.userId, name: assignData.userName },
+      ...(nextStageLabel ? { stage: optimisticStage } : {})
     } : l)
     setLeads(updatedLeads)
     setFilteredLeads(prev => prev.map(l => l.id === leadId ? { 
       ...l, 
-      assignedTo: newAssignee, 
-      sales_person: newAssignee,
-      assignedAgent: { ...(l.assignedAgent || {}), name: newAssignee },
-      stage: 'Pending' 
+      assignedTo: assignData.userName, 
+      sales_person: assignData.userName,
+      assignedAgent: { ...(l.assignedAgent || {}), id: assignData.userId, name: assignData.userName },
+      ...(nextStageLabel ? { stage: optimisticStage } : {})
     } : l))
     localStorage.setItem('leadsData', JSON.stringify(updatedLeads))
 
@@ -1106,31 +1126,29 @@ export const ReferralLeads = () => {
     if (selectedLead && selectedLead.id === leadId) {
       setSelectedLead(prev => ({ 
         ...prev, 
-        assignedTo: newAssignee, 
-        sales_person: newAssignee,
-        assignedAgent: { ...(prev.assignedAgent || {}), name: newAssignee },
-        stage: 'Pending' 
+        assignedTo: assignData.userName, 
+        sales_person: assignData.userName,
+        assignedAgent: { ...(prev.assignedAgent || {}), id: assignData.userId, name: assignData.userName },
+        ...(nextStageLabel ? { stage: optimisticStage } : {})
       }))
     }
     if (hoveredLead && hoveredLead.id === leadId) {
       setHoveredLead(prev => ({ 
         ...prev, 
-        assignedTo: newAssignee, 
-        sales_person: newAssignee,
-        assignedAgent: { ...(prev.assignedAgent || {}), name: newAssignee },
-        stage: 'Pending' 
+        assignedTo: assignData.userName, 
+        sales_person: assignData.userName,
+        assignedAgent: { ...(prev.assignedAgent || {}), id: assignData.userId, name: assignData.userName },
+        ...(nextStageLabel ? { stage: optimisticStage } : {})
       }))
     }
     window.dispatchEvent(new CustomEvent('leadsDataUpdated'))
 
     // API Call to sync with backend
     try {
-      const assignedUser = usersList.find(u => u.name === newAssignee);
-      const assignedUserId = assignedUser ? assignedUser.id : null;
-      
-      await api.put(`/api/leads/${leadId}`, {
-        assignedTo: newAssignee,
-        assigned_to_id: assignedUserId
+      await api.post(`/api/leads/${leadId}/transfer`, {
+        assigned_to: assignData.userId,
+        stage,
+        history_option
       });
       fetchLeads();
     } catch (error) {
@@ -2570,7 +2588,7 @@ export const ReferralLeads = () => {
           isOpen={showEditModal}
           onClose={() => setShowEditModal(false)}
           lead={editingLead}
-          assignees={uniqueAssignees}
+          assignees={usersList}
           onAssign={(newAssignee) => handleAssignLead(editingLead.id, newAssignee)}
           canAddAction={canAddAction}
           onSave={(updatedLead) => {
@@ -2588,6 +2606,13 @@ export const ReferralLeads = () => {
           lead={selectedLead}
           onSave={(newAction) => {
             if (newAction && selectedLead) {
+                const nextActionType = newAction.nextAction || newAction.next_action_type || '';
+                const explicitStageName =
+                  newAction.stage_name ||
+                  newAction.stage_label ||
+                  newAction.stageAtCreation ||
+                  newAction.stage_at_creation_name ||
+                  '';
                 let newStage = null;
                 // Helper to normalize string
                 const norm = (str) => String(str || '').toLowerCase().trim();
@@ -2595,10 +2620,10 @@ export const ReferralLeads = () => {
                 let matchedStageObj = null;
 
                 // 1. Try to match by type (most robust, works with renamed stages)
-                const typeMatches = (Array.isArray(stages) ? stages : []).filter(s => s.type === newAction.nextAction);
+                const typeMatches = (Array.isArray(stages) ? stages : []).filter(s => s.type === nextActionType);
                 
                 if (typeMatches.length > 0) {
-                   if (newAction.nextAction === 'follow_up') {
+                   if (nextActionType === 'follow_up') {
                        // Priority 1: Exact "Follow Up" or "Pending" match by name
                        const priorityMatch = typeMatches.find(s => {
                            const n = norm(s.name);
@@ -2625,7 +2650,7 @@ export const ReferralLeads = () => {
 
                 // 2. If no type match, fall back to Name matching
                 if (!matchedStageObj) {
-                    const normalizedNextAction = String(newAction.nextAction || '').replace(/_/g, ' ').toLowerCase();
+                    const normalizedNextAction = String(nextActionType || '').replace(/_/g, ' ').toLowerCase();
 
                     // Expanded map to cover more cases and exact default stage names
                     const actionToStageMap = {
@@ -2638,7 +2663,7 @@ export const ReferralLeads = () => {
                       'follow_up': ['follow up', 'follow-up', 'pending', 'متابعة', 'قيد الانتظار']
                     };
 
-                    let candidates = actionToStageMap[newAction.nextAction] || [];
+                    let candidates = actionToStageMap[nextActionType] || [];
                     if (!candidates.includes(normalizedNextAction)) {
                         candidates = [normalizedNextAction, ...candidates];
                     }
@@ -2664,7 +2689,9 @@ export const ReferralLeads = () => {
                     }
                 }
                 
-                if (matchedStageObj) {
+                if (explicitStageName) {
+                    newStage = explicitStageName;
+                } else if (matchedStageObj) {
                     newStage = matchedStageObj.name;
                 }
                 
@@ -2710,7 +2737,7 @@ export const ReferralLeads = () => {
 
                 // INTEGRATION: Create Order Request for General Reservations
                 // Check for general reservation or if we have general items
-                const isGeneralReservation = newAction.nextAction === 'reservation' && 
+                const isGeneralReservation = nextActionType === 'reservation' && 
                                             (newAction.reservationType === 'general' || 
                                              (newAction.reservationGeneralItems && newAction.reservationGeneralItems.length > 0 && newAction.reservationGeneralItems.some(i => i.item)));
 

@@ -1591,8 +1591,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const handleAddAction = async (newAction) => {
     console.log('إضافة إجراء جديد:', newAction);
 
+    const nextActionType = newAction?.nextAction || newAction?.next_action_type || '';
+    const explicitStageName =
+      newAction?.stage_name ||
+      newAction?.stage_label ||
+      newAction?.stageAtCreation ||
+      newAction?.stage_at_creation_name ||
+      '';
+
     // Save reservation data if applicable
-    if (newAction.nextAction === 'reservation') {
+    if (nextActionType === 'reservation') {
       // ... existing reservation logic (kept as is) ...
       console.log('Processing Reservation. Raw Action:', newAction);
 
@@ -1661,17 +1669,17 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
     // Update Lead Stage if nextAction corresponds to a stage
     let newStage = null;
-    if (newAction.nextAction) {
+    if (nextActionType) {
       // Helper to normalize string
       const norm = (str) => String(str || '').toLowerCase().trim();
 
       let matchedStageObj = null;
 
       // 1. Try to match by type (most robust, works with renamed stages)
-      const typeMatches = (Array.isArray(stages) ? stages : []).filter(s => s.type === newAction.nextAction);
+      const typeMatches = (Array.isArray(stages) ? stages : []).filter(s => s.type === nextActionType);
 
       if (typeMatches.length > 0) {
-        if (newAction.nextAction === 'follow_up') {
+        if (nextActionType === 'follow_up') {
           // Priority 1: Exact "Follow Up" or "Pending" match by name
           const priorityMatch = typeMatches.find(s => {
             const n = norm(s.name);
@@ -1698,7 +1706,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
       // 2. If no type match, fall back to Name matching
       if (!matchedStageObj) {
-        const normalizedNextAction = String(newAction.nextAction).replace(/_/g, ' ').toLowerCase();
+        const normalizedNextAction = String(nextActionType).replace(/_/g, ' ').toLowerCase();
 
         // Expanded map to cover more cases and exact default stage names
         const actionToStageMap = {
@@ -1711,7 +1719,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
           'follow_up': ['follow up', 'follow-up', 'pending', 'متابعة', 'قيد الانتظار']
         };
 
-        let candidates = actionToStageMap[newAction.nextAction] || [];
+        let candidates = actionToStageMap[nextActionType] || [];
         if (!candidates.includes(normalizedNextAction)) {
           candidates = [normalizedNextAction, ...candidates];
         }
@@ -1737,7 +1745,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         }
       }
 
-      if (matchedStageObj) {
+      if (explicitStageName) {
+        newStage = explicitStageName;
+      } else if (matchedStageObj) {
         newStage = matchedStageObj.name;
       }
     }

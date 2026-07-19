@@ -42,6 +42,23 @@ export default function TelesalesBulkAssignModal({
   errorMessage = '',
   submitting = false,
   onClearError,
+  title,
+  assignButtonLabel,
+  assigningButtonLabel,
+  filterByRoleLabel,
+  assignToLabel,
+  searchPlaceholder,
+  assignWithLabel,
+  primaryRoleLabel,
+  secondaryRoleLabel,
+  duplicateOptionLabel,
+  sameStageOptionLabel,
+  clearHistoryOptionLabel,
+  freshOptionLabel,
+  coldCallOptionLabel,
+  showDuplicateOption = true,
+  showSameStageOption = true,
+  showClearHistoryOption = true,
 }) {
   const { resolvedTheme, theme } = useTheme()
   const isLight = (resolvedTheme || theme) === 'light'
@@ -107,6 +124,30 @@ export default function TelesalesBulkAssignModal({
     return isLeadershipRole(role) && !isAgentRole(role)
   }, [selectedUser])
 
+  const resolvedTitle = title || (isArabic ? 'تعيين ليدز التيليسيلز' : 'Assign Telesales Leads')
+  const resolvedAssignButtonLabel = assignButtonLabel || (isArabic ? 'تعيين' : 'Assign')
+  const resolvedAssigningButtonLabel = assigningButtonLabel || (isArabic ? 'جارٍ التنفيذ...' : 'Processing...')
+  const resolvedFilterByRoleLabel = filterByRoleLabel || (isArabic ? 'تصفية حسب الدور' : 'Filter By Role')
+  const resolvedAssignToLabel = assignToLabel || (isArabic ? 'تعيين إلى' : 'Assign To')
+  const resolvedSearchPlaceholder = searchPlaceholder || (isArabic ? 'ابحث في أعضاء الفريق' : 'Search team members')
+  const resolvedAssignWithLabel = assignWithLabel || (isArabic ? 'التعيين كـ' : 'Assign With')
+  const resolvedPrimaryRoleLabel = primaryRoleLabel || (isArabic ? 'كعضو فريق' : 'As Team Member')
+  const resolvedSecondaryRoleLabel = secondaryRoleLabel || (isArabic ? 'كمدير' : 'As Manager')
+  const resolvedDuplicateOptionLabel = duplicateOptionLabel || (isArabic ? 'دبليكيت كجديد' : 'Duplicate as new')
+  const resolvedSameStageOptionLabel = sameStageOptionLabel || (isArabic ? 'نفس المرحلة' : 'Same stage')
+  const resolvedClearHistoryOptionLabel = clearHistoryOptionLabel || (isArabic ? 'مسح السجل' : 'Clear History')
+  const resolvedFreshOptionLabel = freshOptionLabel || (isArabic ? 'كجديد' : 'Fresh')
+  const resolvedColdCallOptionLabel = coldCallOptionLabel || (isArabic ? 'كمكالمة باردة' : 'As cold call')
+  const isConvertToSalesModal =
+    String(title || '').toLowerCase().includes('convert to sales') ||
+    String(assignButtonLabel || '').toLowerCase().includes('convert')
+  const shouldShowDuplicateOption = isConvertToSalesModal ? false : showDuplicateOption
+  const shouldShowSameStageOption = isConvertToSalesModal ? false : showSameStageOption
+  const shouldShowClearHistoryOption = isConvertToSalesModal ? false : showClearHistoryOption
+  const computedFreshOptionLabel = isConvertToSalesModal
+    ? (isArabic ? 'جديد' : 'New')
+    : resolvedFreshOptionLabel
+
   const handleAssign = async () => {
     if (!selectedUser) return
 
@@ -132,7 +173,7 @@ export default function TelesalesBulkAssignModal({
               <FaUserTie />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">{isArabic ? 'تعيين ليدز التيليسيلز' : 'Assign Telesales Leads'}</h2>
+              <h2 className="text-lg font-semibold">{resolvedTitle}</h2>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {selectedCount} {isArabic ? 'محدد' : 'Selected'}
               </p>
@@ -152,7 +193,7 @@ export default function TelesalesBulkAssignModal({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold">
-                    {isArabic ? 'تعذر إسناد الليد للمستخدم المختار' : 'Unable to assign this lead to the selected user'}
+                    {isArabic ? 'تعذر تنفيذ العملية للمستخدم المختار' : 'Unable to complete this action for the selected user'}
                   </p>
                   <p className={`mt-1 text-sm leading-6 ${isLight ? 'text-red-700' : 'text-red-100/90'}`}>{errorMessage}</p>
                 </div>
@@ -163,7 +204,7 @@ export default function TelesalesBulkAssignModal({
           <div className="grid gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
             <div>
               <label className={`mb-1 block text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {isArabic ? 'تصفية حسب دور التيليسيلز' : 'Filter By Telesales Role'}
+                {resolvedFilterByRoleLabel}
               </label>
               <select
                 value={filterRole}
@@ -178,13 +219,13 @@ export default function TelesalesBulkAssignModal({
 
             <div>
               <label className={`mb-1 block text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {isArabic ? 'تعيين إلى' : 'Assign To'}
+                {resolvedAssignToLabel}
               </label>
               <div className="relative">
                 <FaSearch className={`absolute top-1/2 -translate-y-1/2 text-xs text-gray-400 ${isArabic ? 'right-3' : 'left-3'}`} />
                 <input
                   type="text"
-                  placeholder={isArabic ? 'ابحث في أعضاء فريق التيليسيلز' : 'Search telesales team members'}
+                  placeholder={resolvedSearchPlaceholder}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className={`w-full rounded-lg border py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${isLight ? 'border-gray-200 bg-white' : 'border-slate-700 bg-slate-800'} ${isArabic ? 'pr-9 pl-3' : 'pl-9 pr-3'}`}
@@ -223,20 +264,20 @@ export default function TelesalesBulkAssignModal({
 
           <div>
             <label className={`mb-2 block text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              {isArabic ? 'طريقة التعيين' : 'Assign With'}
+              {resolvedAssignWithLabel}
             </label>
             <div className={`grid grid-cols-2 rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
               <button
                 onClick={() => setAssignMethod('fresh')}
                 className={`rounded-lg py-2 text-sm transition-all ${assignMethod === 'fresh' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {isArabic ? 'Fresh' : 'Fresh'}
+                {computedFreshOptionLabel}
               </button>
               <button
                 onClick={() => setAssignMethod('cold_call')}
                 className={`rounded-lg py-2 text-sm transition-all ${assignMethod === 'cold_call' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {isArabic ? 'كمكالمة باردة' : 'As cold call'}
+                {resolvedColdCallOptionLabel}
               </button>
             </div>
           </div>
@@ -252,80 +293,90 @@ export default function TelesalesBulkAssignModal({
                     onClick={() => setAssignRole('sales')}
                     className={`rounded-lg py-2 text-sm transition-all ${assignRole === 'sales' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                   >
-                    {isArabic ? 'كتيليسيلز' : 'As Telesales Agent'}
+                    {resolvedPrimaryRoleLabel}
                   </button>
                   <button
                     onClick={() => setAssignRole('manager')}
                     className={`rounded-lg py-2 text-sm transition-all ${assignRole === 'manager' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                   >
-                    {isArabic ? 'كمدير تيليسيلز' : 'As Telesales Manager'}
+                    {resolvedSecondaryRoleLabel}
                   </button>
                 </div>
               ) : (
                 <div className={`rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
                   <button className="w-full rounded-lg bg-white py-2 text-sm text-slate-900 shadow-sm">
-                    {isArabic ? 'كتيليسيلز' : 'As Telesales Agent'}
+                    {resolvedPrimaryRoleLabel}
                   </button>
                 </div>
               )}
             </div>
           ) : null}
 
-          <div className="space-y-3 pt-2">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={options.duplicate}
-                onChange={(e) => {
-                  const checked = e.target.checked
-                  setOptions((prev) => ({
-                    ...prev,
-                    duplicate: checked,
-                    sameStage: checked ? false : prev.sameStage,
-                  }))
-                }}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                {isArabic ? 'نسخ وتعيين كجديد' : 'Duplicate and assign as fresh'}
-              </span>
-            </label>
+          {(shouldShowDuplicateOption || shouldShowSameStageOption || shouldShowClearHistoryOption) ? (
+            <div className="space-y-3 pt-2">
+              {shouldShowDuplicateOption ? (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.duplicate}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setOptions((prev) => ({
+                        ...prev,
+                        duplicate: checked,
+                        sameStage: checked ? false : prev.sameStage,
+                      }))
+                    }}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    {resolvedDuplicateOptionLabel}
+                  </span>
+                </label>
+              ) : null}
 
-            <div className="flex items-center gap-6">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={options.sameStage}
-                  onChange={(e) => {
-                    const checked = e.target.checked
-                    setOptions((prev) => ({
-                      ...prev,
-                      sameStage: checked,
-                      duplicate: checked ? false : prev.duplicate,
-                    }))
-                  }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  {isArabic ? 'نفس المرحلة' : 'Same stage'}
-                </span>
-              </label>
+              {(shouldShowSameStageOption || shouldShowClearHistoryOption) ? (
+                <div className="flex items-center gap-6">
+                  {shouldShowSameStageOption ? (
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={options.sameStage}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setOptions((prev) => ({
+                            ...prev,
+                            sameStage: checked,
+                            duplicate: checked ? false : prev.duplicate,
+                          }))
+                        }}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {resolvedSameStageOptionLabel}
+                      </span>
+                    </label>
+                  ) : null}
 
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={options.clearHistory}
-                  onChange={(e) => {
-                    setOptions((prev) => ({ ...prev, clearHistory: e.target.checked }))
-                  }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  {isArabic ? 'مسح السجل' : 'Clear History'}
-                </span>
-              </label>
+                  {shouldShowClearHistoryOption ? (
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={options.clearHistory}
+                        onChange={(e) => {
+                          setOptions((prev) => ({ ...prev, clearHistory: e.target.checked }))
+                        }}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {resolvedClearHistoryOptionLabel}
+                      </span>
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-          </div>
+          ) : null}
         </div>
 
         <div className={`flex items-center justify-end gap-3 border-t p-4 ${isLight ? 'border-gray-100 bg-gray-50' : 'border-slate-800 bg-slate-800/50'}`}>
@@ -340,7 +391,7 @@ export default function TelesalesBulkAssignModal({
             disabled={!selectedUser || submitting}
             className={`rounded-lg px-6 py-2 text-sm font-medium shadow-lg shadow-blue-500/20 transition-all ${selectedUser && !submitting ? 'bg-blue-600 text-white hover:scale-[1.02] hover:bg-blue-700' : 'cursor-not-allowed bg-gray-300 text-gray-500'}`}
           >
-            {submitting ? (isArabic ? 'جارٍ الإسناد...' : 'Assigning...') : (isArabic ? 'تعيين' : 'Assign')}
+            {submitting ? resolvedAssigningButtonLabel : resolvedAssignButtonLabel}
           </button>
         </div>
       </div>

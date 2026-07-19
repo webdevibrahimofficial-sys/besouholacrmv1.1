@@ -6,6 +6,7 @@ import { useTheme } from '../shared/context/ThemeProvider.jsx';
 import { useAppState } from '../shared/context/AppStateProvider.jsx';
 import { api } from '../utils/api';
 import { setLastActionStageId } from '../utils/lastActionStage';
+import { buildLeadTransferPayload } from '../shared/utils/leadTransfer';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { flip, offset, shift, size } from '@floating-ui/react';
@@ -43,19 +44,39 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     const en = stage?.name || stage?.name_en || stage?.nameEn || stage?.title || stage?.display_name || stage?.displayName;
     return isArabic ? (ar || en || '') : (en || ar || '');
   };
+  const normalizeStageToken = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const companyTypeLower = String(company?.company_type || '').toLowerCase();
   const isRealEstateTenant = companyTypeLower.includes('real');
   const defaultReservationType = isRealEstateTenant ? 'project' : 'general';
+  const isTelesalesWorkflowLead = String(lead?.workflow_key || '').trim().toLowerCase() === 'telesales';
+  const hiddenTelesalesStageKeys = useMemo(() => new Set([
+    'fresh',
+    'duplicate',
+    'pending',
+    'coldcalls',
+  ]), []);
+  const telesalesPermissions = Array.isArray(user?.meta_data?.module_permissions?.Telesales)
+    ? user.meta_data.module_permissions.Telesales
+    : [];
+  const canConvertTelesalesToSales =
+    user?.is_super_admin ||
+    telesalesPermissions.includes('transferToSales');
 
   const [stages, setStages] = useState([]);
   const [units, setUnits] = useState([]);
   const [projects, setProjects] = useState([]);
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
+  const [salesAssignees, setSalesAssignees] = useState([]);
   const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const cancelAutoNotesRef = useRef('');
   const cancelNotesTouchedRef = useRef(false);
+  const [transferFilterRole, setTransferFilterRole] = useState('All');
+  const [transferSearchQuery, setTransferSearchQuery] = useState('');
+  const [transferSelectedUser, setTransferSelectedUser] = useState(null);
+  const [transferMethod, setTransferMethod] = useState('fresh');
+  const [transferAssignRole, setTransferAssignRole] = useState('sales');
 
   useEffect(() => {
     const fetchStages = async () => {
@@ -70,6 +91,31 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     };
     fetchStages();
   }, []);
+
+  useEffect(() => {
+    if (!isOpen || !isTelesalesWorkflowLead || !canConvertTelesalesToSales) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get('/api/telesales/assignees', { params: { workflow: 'sales' } });
+        const list = Array.isArray(response?.data?.data)
+          ? response.data.data
+          : (Array.isArray(response?.data) ? response.data : []);
+        if (!cancelled) {
+          setSalesAssignees(list);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSalesAssignees([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, isTelesalesWorkflowLead, canConvertTelesalesToSales]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -165,6 +211,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   useEffect(() => {
     if (!isOpen) return;
     setActionData(buildInitialActionData());
+    setTransferFilterRole('All');
+    setTransferSearchQuery('');
+    setTransferSelectedUser(null);
+    setTransferMethod('fresh');
+    setTransferAssignRole('sales');
   }, [isOpen, lead?.id, initialType, initialDate]);
 
   // Reservation type is automatic based on tenant (Real Estate => project, otherwise general).
@@ -470,6 +521,13 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const applyStageSelection = (stageId) => {
     const stage = (Array.isArray(stages) ? stages : []).find(s => String(s.id) === String(stageId));
     if (!stage) return false;
+    const normalizedStageToken = normalizeStageToken(stageLabel(stage) || stage?.type);
+    if (isTelesalesWorkflowLead && hiddenTelesalesStageKeys.has(normalizedStageToken)) {
+      return false;
+    }
+    if (isTelesalesWorkflowLead && !canConvertTelesalesToSales && normalizedStageToken === 'transferred') {
+      return false;
+    }
 
     const stageType = stage.type;
     const newActionType = (['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(stageType)) ? stageType : 'call';
@@ -487,11 +545,17 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   const getStageIdFromStageName = (stageName) => {
     if (!stageName || !Array.isArray(stages) || stages.length === 0) return null;
-    const normalizeStageKey = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-    const normalized = normalizeStageKey(stageName);
+    const normalized = normalizeStageToken(stageName);
     if (!normalized) return null;
 
     const matched = stages.find((s) => {
+      const normalizedStageToken = normalizeStageToken(stageLabel(s) || s?.type);
+      if (isTelesalesWorkflowLead && hiddenTelesalesStageKeys.has(normalizedStageToken)) {
+        return false;
+      }
+      if (isTelesalesWorkflowLead && !canConvertTelesalesToSales && normalizedStageToken === 'transferred') {
+        return false;
+      }
       const names = [
         s.name,
         s.name_en,
@@ -506,11 +570,88 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         s.key,
         s.type,
       ].filter(Boolean);
-      return names.some((n) => normalizeStageKey(n) === normalized);
+      return names.some((n) => normalizeStageToken(n) === normalized);
     });
 
     return matched ? String(matched.id) : null;
   };
+
+  const selectableStages = useMemo(() => {
+    if (!Array.isArray(stages)) return [];
+    if (!isTelesalesWorkflowLead) return stages;
+
+    return stages.filter((stage) => {
+      const normalizedStageToken = normalizeStageToken(stageLabel(stage) || stage?.type);
+      if (hiddenTelesalesStageKeys.has(normalizedStageToken)) return false;
+      if (!canConvertTelesalesToSales && normalizedStageToken === 'transferred') return false;
+      return true;
+    });
+  }, [canConvertTelesalesToSales, hiddenTelesalesStageKeys, isTelesalesWorkflowLead, stages]);
+
+  const selectedStage = useMemo(
+    () => (Array.isArray(stages) ? stages.find((s) => String(s.id) === String(actionData.stage_id || '')) : null),
+    [actionData.stage_id, stages]
+  );
+
+  const isTransferStageSelected = useMemo(() => {
+    if (!selectedStage) return false;
+    const token = normalizeStageToken(selectedStage?.type || stageLabel(selectedStage));
+    return ['transferred', 'transfer', 'convert'].includes(token);
+  }, [selectedStage]);
+
+  const transferRoleOptions = useMemo(
+    () => ['All', ...Array.from(new Set((Array.isArray(salesAssignees) ? salesAssignees : []).map((entry) => String(entry?.role || entry?.job_title || '').trim()).filter(Boolean)))],
+    [salesAssignees]
+  );
+
+  const filteredSalesAssignees = useMemo(() => {
+    return (Array.isArray(salesAssignees) ? salesAssignees : []).filter((entry) => {
+      const role = String(entry?.role || entry?.job_title || '').trim();
+      const matchesRole = transferFilterRole === 'All' || role.toLowerCase() === transferFilterRole.toLowerCase();
+      const query = transferSearchQuery.toLowerCase().trim();
+      const matchesSearch = query === ''
+        || String(entry?.name || '').toLowerCase().includes(query)
+        || String(entry?.email || '').toLowerCase().includes(query);
+      return matchesRole && matchesSearch;
+    });
+  }, [salesAssignees, transferFilterRole, transferSearchQuery]);
+
+  const canAssignTransferAsManager = useMemo(() => {
+    if (!transferSelectedUser) return false;
+    const role = String(transferSelectedUser?.role || transferSelectedUser?.job_title || '').toLowerCase();
+    const isLeadership = role.includes('manager')
+      || role.includes('leader')
+      || role.includes('director')
+      || role.includes('admin')
+      || role.includes('owner')
+      || role.includes('operation manager')
+      || role.includes('operations manager');
+    const isAgent = role.includes('agent')
+      || role.includes('telesales')
+      || role.includes('sales person')
+      || role.includes('salesperson')
+      || role.includes('sales agent');
+
+    return isLeadership && !isAgent;
+  }, [transferSelectedUser]);
+
+  useEffect(() => {
+    if (!transferSelectedUser) return;
+    const role = String(transferSelectedUser?.role || transferSelectedUser?.job_title || '').toLowerCase();
+    const isLeadership = role.includes('manager')
+      || role.includes('leader')
+      || role.includes('director')
+      || role.includes('admin')
+      || role.includes('owner')
+      || role.includes('operation manager')
+      || role.includes('operations manager');
+    const isAgent = role.includes('agent')
+      || role.includes('telesales')
+      || role.includes('sales person')
+      || role.includes('salesperson')
+      || role.includes('sales agent');
+    setTransferAssignRole(isLeadership && !isAgent ? 'manager' : 'sales');
+  }, [transferSelectedUser]);
 
   const getLeadLastActionStageId = () => {
     const hasAnyActions = (() => {
@@ -1096,7 +1237,6 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
     try {
       // Handle file attachments if any
-      const selectedStage = stages.find(s => String(s.id) === String(actionData.stage_id));
       const stageName = selectedStage ? (selectedStage.name_en || selectedStage.name || 'Stage') : 'General';
       const tenantName = company?.name || 'Tenant';
       
@@ -1153,6 +1293,35 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       if ((cleanedData.nextAction === 'meeting' || cleanedData.actionType === 'meeting') && !String(cleanedData.meeting_status || '').trim()) {
         cleanedData.meeting_status = 'scheduled';
         cleanedData.doneMeeting = false;
+      }
+
+      if (isTelesalesWorkflowLead && isTransferStageSelected) {
+        if (!transferSelectedUser?.id) {
+          toast('error', isArabic ? 'من فضلك اختر عضو السيلز' : 'Please select a sales assignee');
+          return;
+        }
+
+        const transferPayload = buildLeadTransferPayload({
+          userId: transferSelectedUser.id,
+          assignRole: transferAssignRole,
+          method: transferMethod === 'cold_call' ? 'cold_call' : 'fresh',
+          options: {},
+        });
+
+        const transferResponse = await api.post(`/api/telesales/leads/${lead.id}/transfer-to-sales`, {
+          assignment_method: 'direct',
+          assigned_to: Number(transferSelectedUser.id),
+          assign_role: transferAssignRole,
+          stage: transferPayload.stage,
+          history_option: transferPayload.history_option,
+          options: {},
+        });
+
+        if (onSave) {
+          onSave(transferResponse?.data?.lead || transferResponse?.data);
+        }
+        onClose();
+        return;
       }
 
       // Construct description from various sources
@@ -1327,6 +1496,12 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     actionData.actionType === 'meeting' ||
     actionData.actionType === 'google_meet';
 
+  const submitButtonLabel = isSubmitting
+    ? (isArabic ? 'جاري التنفيذ...' : 'Processing...')
+    : (isTransferStageSelected
+      ? (isArabic ? 'تحويل' : 'Convert')
+      : (isArabic ? 'حفظ الأكشن' : 'Save Action'));
+
   const content = (
     <div className={overlayWrapper}>
       <div className={containerClasses}>
@@ -1383,7 +1558,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                       className={`${isLight ? `w-full px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900` : `w-full px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white`}`}
                     >
                       <option value="">{isArabic ? 'اختر المرحلة' : 'Select Stage'}</option>
-                      {stages.map(stage => (
+                      {selectableStages.map(stage => (
                         <option key={stage.id} value={stage.id}>
                           {stageLabel(stage)}
                         </option>
@@ -1394,8 +1569,120 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                 </div>
               )}
 
-              {/* Action Type Selection - Only for Follow Up */}
-              {['follow_up'].includes(actionData.nextAction) && (
+              {isTelesalesWorkflowLead && isTransferStageSelected ? (
+                <div className="space-y-5 rounded-2xl border border-slate-700/70 bg-slate-900/30 p-4">
+                  <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+                    <div>
+                      <label className={`mb-2 block text-sm font-medium ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                        {isArabic ? 'تصفية حسب دور السيلز' : 'Filter By Sales Role'}
+                      </label>
+                      <select
+                        value={transferFilterRole}
+                        onChange={(e) => setTransferFilterRole(e.target.value)}
+                        className={`${isLight ? 'w-full rounded-md border border-gray-300 bg-white text-slate-900' : 'w-full rounded-md border border-gray-600 bg-gray-700 text-white'} px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                      >
+                        {transferRoleOptions.map((role) => (
+                          <option key={role} value={role}>{role}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={`mb-2 block text-sm font-medium ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                        {isArabic ? 'تحويل إلى' : 'Assign To'}
+                      </label>
+                      <input
+                        type="text"
+                        value={transferSearchQuery}
+                        onChange={(e) => setTransferSearchQuery(e.target.value)}
+                        placeholder={isArabic ? 'ابحث في أعضاء فريق السيلز' : 'Search sales team members'}
+                        className={`${isLight ? 'w-full rounded-md border border-gray-300 bg-white text-slate-900 placeholder:text-slate-400' : 'w-full rounded-md border border-gray-600 bg-gray-700 text-white placeholder:text-gray-400'} px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                    {filteredSalesAssignees.length > 0 ? filteredSalesAssignees.map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => setTransferSelectedUser(entry)}
+                        className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all ${transferSelectedUser?.id === entry.id
+                          ? (isLight ? 'border-blue-500 bg-blue-50' : 'border-blue-500 bg-blue-900/20')
+                          : (isLight ? 'border-gray-200 hover:bg-gray-50' : 'border-slate-700 hover:bg-slate-800')}`}
+                      >
+                        <div className={`flex h-4 w-4 items-center justify-center rounded-full border ${transferSelectedUser?.id === entry.id ? 'border-blue-500' : 'border-gray-300'}`}>
+                          {transferSelectedUser?.id === entry.id && <div className="h-2 w-2 rounded-full bg-blue-500" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`truncate text-sm font-medium ${isLight ? 'text-slate-900' : 'text-white'}`}>{entry.name}</p>
+                          <p className={`truncate text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{entry.role || entry.job_title || '-'}</p>
+                        </div>
+                      </button>
+                    )) : (
+                      <div className={`rounded-xl border px-4 py-6 text-center text-sm ${isLight ? 'border-gray-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>
+                        {isArabic ? 'لا يوجد أعضاء متاحون' : 'No members found'}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className={`mb-2 block text-sm font-medium ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                      {isArabic ? 'ابدأ في السيلز كـ' : 'Start In Sales As'}
+                    </label>
+                    <div className={`grid grid-cols-2 rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
+                      <button
+                        type="button"
+                        onClick={() => setTransferMethod('fresh')}
+                        className={`rounded-lg py-2 text-sm transition-all ${transferMethod === 'fresh' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                      >
+                        {isArabic ? 'جديد' : 'New'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTransferMethod('cold_call')}
+                        className={`rounded-lg py-2 text-sm transition-all ${transferMethod === 'cold_call' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                      >
+                        {isArabic ? 'كـ كولد كول' : 'As cold call'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {transferSelectedUser ? (
+                    <div>
+                      <label className={`mb-2 block text-sm font-medium ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                        {isArabic ? 'دور التعيين' : 'Assignment Role'}
+                      </label>
+                      {canAssignTransferAsManager ? (
+                        <div className={`grid grid-cols-2 rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
+                          <button
+                            type="button"
+                            onClick={() => setTransferAssignRole('sales')}
+                            className={`rounded-lg py-2 text-sm transition-all ${transferAssignRole === 'sales' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                          >
+                            {isArabic ? 'كسيلز' : 'As Sales'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTransferAssignRole('manager')}
+                            className={`rounded-lg py-2 text-sm transition-all ${transferAssignRole === 'manager' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                          >
+                            {isArabic ? 'كمدير' : 'As Manager'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={`rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
+                          <button
+                            type="button"
+                            className="w-full rounded-lg bg-white py-2 text-sm text-slate-900 shadow-sm"
+                          >
+                            {isArabic ? 'كسيلز' : 'As Sales'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : ['follow_up'].includes(actionData.nextAction) && (
                 <div className={`grid ${['call', 'email'].includes(actionData.actionType) ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'} gap-4`}>
                   <div>
                     <label className={`block text-sm font-medium mb-3 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
@@ -1468,7 +1755,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Answer Status Toggle */}
-          {actionData.type && actionData.nextAction !== 'cancel' && (
+          {!isTransferStageSelected && actionData.type && actionData.nextAction !== 'cancel' && (
             <div className={`flex items-center gap-4 ${isArabic ? 'justify-between' : 'justify-between'}`}>
               <button
                 type="button"
@@ -1526,7 +1813,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Warning Message for Missed Meetings */}
-          {lead?.missed_meetings_count >= 3 && (
+          {!isTransferStageSelected && lead?.missed_meetings_count >= 3 && (
             <div className="p-4 bg-red-100 border-l-4 border-red-500 text-red-700 text-sm animate-pulse rounded-lg">
               <p className="font-bold">{isArabic ? 'تنبيه: العميل فوت أكثر من اجتماع!' : 'Warning: High No-Show Rate!'}</p>
               <p>{isArabic ? 'هذا العميل فوت 3 اجتماعات أو أكثر. يرجى التأكد من الجدية قبل الجدولة مرة أخرى.' : 'This lead has missed 3 or more meetings. Verify commitment before scheduling again.'}</p>
@@ -1534,7 +1821,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Meeting Type and Location */}
-          {actionData.nextAction === 'meeting' && (
+          {!isTransferStageSelected && actionData.nextAction === 'meeting' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
@@ -1908,7 +2195,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Schedule Date */}
-          {!['closing_deals', 'cancel'].includes(actionData.nextAction) && (
+          {!isTransferStageSelected && !['closing_deals', 'cancel'].includes(actionData.nextAction) && (
             <div className="space-y-4">
               <h3 className={`text-lg font-medium ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {isArabic ? 'تاريخ الجدولة' : 'Schedule Date'}
@@ -1993,6 +2280,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             </div>
           )}
 
+          {!isTransferStageSelected && (
+          <>
           {/* Comment */}
           <div>
             <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
@@ -2016,6 +2305,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
               required={actionData.nextAction !== 'cancel'}
             />
           </div>
+          </>
+          )}
 
           {/* Buttons */}
           <div className="flex justify-between gap-2 pt-4">
@@ -2029,9 +2320,12 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={isSubmitting || (isTransferStageSelected && !transferSelectedUser?.id)}
+              className="btn btn-sm relative bg-blue-600 hover:bg-blue-700 !text-transparent border-none disabled:opacity-60 disabled:cursor-not-allowed"
             >
+              <span className="absolute inset-0 flex items-center justify-center text-white">
+                {submitButtonLabel}
+              </span>
               {isSubmitting ? (isArabic ? 'جاري الحفظ...' : 'Saving...') : (isArabic ? 'حفظ الأكشن' : 'Save Action')}
             </button>
           </div>

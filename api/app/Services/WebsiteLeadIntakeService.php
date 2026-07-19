@@ -17,6 +17,25 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class WebsiteLeadIntakeService
 {
+    private function applyDuplicateWorkflowScope($query, ?int $tenantId, ?string $workflowKey): void
+    {
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $normalizedWorkflow = strtolower(trim((string) ($workflowKey ?? '')));
+        if ($normalizedWorkflow === '' || !\Illuminate\Support\Facades\Schema::hasColumn('leads', 'workflow_key')) {
+            return;
+        }
+
+        $query->where('workflow_key', $normalizedWorkflow);
+
+        if ($normalizedWorkflow === TelesalesService::WORKFLOW_TELESALES
+            && \Illuminate\Support\Facades\Schema::hasColumn('leads', 'transferred_to_sales_at')) {
+            $query->whereNull('transferred_to_sales_at');
+        }
+    }
+
     public function __construct(
         private readonly WebsiteApiKeyService $apiKeyService,
         private readonly WebsiteSourceResolver $sourceResolver,
@@ -75,6 +94,7 @@ class WebsiteLeadIntakeService
     {
         $crm = CrmSetting::first();
         $enableDup = is_array($crm?->settings) ? (bool) ($crm->settings['duplicationSystem'] ?? false) : false;
+        $workflowKey = strtolower(trim((string) ($data['workflow_key'] ?? '')));
 
         $duplicateOfId = null;
         $variantsForSearch = [];
@@ -83,7 +103,8 @@ class WebsiteLeadIntakeService
             $variantsForSearch = PhoneNormalizer::variantsForSearch($rawPhone);
             $variantsForSearch = !empty($variantsForSearch) ? $variantsForSearch : [$data['phone']];
 
-            $base = Lead::query()->where('tenant_id', $tenantId);
+            $base = Lead::query();
+            $this->applyDuplicateWorkflowScope($base, $tenantId, $workflowKey);
             $isDuplicate = (clone $base)->whereIn('phone', $variantsForSearch)->exists();
 
             if ($isDuplicate) {
@@ -703,6 +724,7 @@ class WebsiteLeadIntakeService
             'campaign_id' => $this->resolveCampaignId($tenantId, $connection->default_campaign_id),
             'website_connection_id' => (int) $connection->id,
             'item_id' => $itemId,
+            'workflow_key' => TelesalesService::WORKFLOW_SALES,
             'stage' => 'New Lead',
             'status' => null,
             'created_by' => null,

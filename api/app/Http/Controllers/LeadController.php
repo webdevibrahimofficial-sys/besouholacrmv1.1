@@ -98,6 +98,25 @@ class LeadController extends Controller
         });
     }
 
+    private function applyDuplicateWorkflowScope($query, ?int $tenantId, ?string $workflowKey): void
+    {
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $normalizedWorkflow = strtolower(trim((string) ($workflowKey ?? '')));
+        if ($normalizedWorkflow === '' || !\Illuminate\Support\Facades\Schema::hasColumn('leads', 'workflow_key')) {
+            return;
+        }
+
+        $query->where('workflow_key', $normalizedWorkflow);
+
+        if ($normalizedWorkflow === TelesalesService::WORKFLOW_TELESALES
+            && \Illuminate\Support\Facades\Schema::hasColumn('leads', 'transferred_to_sales_at')) {
+            $query->whereNull('transferred_to_sales_at');
+        }
+    }
+
     private function applyProjectIdFilter($query, Request $request, $user): void
     {
         if (!$request->filled('project_id')) {
@@ -2889,14 +2908,13 @@ class LeadController extends Controller
             if ($enableDup) {
                 $isDuplicate = false;
                 $duplicateOfId = null;
+                $workflowKey = strtolower(trim((string) ($data['workflow_key'] ?? '')));
                 if (!empty($data['phone']) && $rawPhone !== '') {
                     $variants = PhoneNormalizer::variantsForSearch($rawPhone, $phoneCountryHint);
                     $variants = !empty($variants) ? $variants : [$data['phone']];
                     $variantsForSearch = $variants;
                     $base = Lead::query();
-                    if ($tenantId) {
-                        $base->where('tenant_id', $tenantId);
-                    }
+                    $this->applyDuplicateWorkflowScope($base, $tenantId, $workflowKey);
                     $isDuplicate = (clone $base)
                         ->whereIn('phone', $variants)
                         ->where(function ($q) { $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false); })
@@ -3464,6 +3482,7 @@ class LeadController extends Controller
             if ($enableDup) {
                 $isDuplicate = false;
                 $duplicateOfId = null;
+                $workflowKey = strtolower(trim((string) ($data['workflow_key'] ?? ($lead->workflow_key ?? ''))));
                 if (!empty($data['phone']) && $rawPhone !== '') {
                     $phoneSegments = $this->normalizePhoneInputSegments($rawPhone, $phoneCountryHint);
                     $primaryPhone = $phoneSegments[0] ?? $rawPhone;
@@ -3471,9 +3490,7 @@ class LeadController extends Controller
                     $variants = !empty($variants) ? $variants : [$data['phone']];
                     $tenantId = $request->user()?->tenant_id;
                     $base = Lead::query();
-                    if ($tenantId) {
-                        $base->where('tenant_id', $tenantId);
-                    }
+                    $this->applyDuplicateWorkflowScope($base, $tenantId, $workflowKey);
 
                     $isDuplicate = $isDuplicate || (clone $base)->whereIn('phone', $variants)
                         ->where('id', '!=', $lead->id)

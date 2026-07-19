@@ -8,6 +8,7 @@ use App\Models\LeadWorkflowHistory;
 use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Support\PhoneNormalizer;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +101,57 @@ class TelesalesService
         return $status === '' || $status === 'active';
     }
 
+    public function normalizedRole(?User $user): string
+    {
+        $role = strtolower(trim((string) ($user?->role ?? $user?->job_title ?? '')));
+        $role = str_replace(['_', '-'], ' ', $role);
+        return preg_replace('/\s+/', ' ', $role) ?: '';
+    }
+
+    public function isTelesalesOnlyRole(?User $user): bool
+    {
+        return in_array($this->normalizedRole($user), [
+            'telesales agent',
+            'telesales team leader',
+            'telesales manager',
+        ], true);
+    }
+
+    public function isSalesWorkflowRole(?User $user): bool
+    {
+        $role = $this->normalizedRole($user);
+        if ($role === '') {
+            return false;
+        }
+
+        if ($this->isTelesalesOnlyRole($user)) {
+            return false;
+        }
+
+        if (in_array($role, [
+            'admin',
+            'tenant admin',
+            'tenant admin',
+            'super admin',
+            'owner',
+            'director',
+            'sales director',
+            'operation manager',
+            'operations manager',
+            'sales admin',
+            'sales manager',
+            'branch manager',
+            'manager',
+            'sales person',
+            'salesperson',
+            'broker',
+        ], true)) {
+            return true;
+        }
+
+        return str_contains($role, 'sales ') && !str_contains($role, 'telesales');
+    }
+
     public function isEligibleTelesalesAssignee(?User $user, int $tenantId): bool
     {
         if (!$user || (int) ($user->tenant_id ?? 0) !== $tenantId || !$this->isActiveUser($user)) {
@@ -118,6 +170,18 @@ class TelesalesService
     {
         if (!$user || (int) ($user->tenant_id ?? 0) !== $tenantId || !$this->isActiveUser($user)) {
             return false;
+        }
+
+        if ($this->isTelesalesOnlyRole($user)) {
+            return false;
+        }
+
+        if ($this->isPrivileged($user)) {
+            return true;
+        }
+
+        if ($this->isSalesWorkflowRole($user)) {
+            return true;
         }
 
         return $this->userHasExplicitModulePermission($user, 'Leads', 'receiveLeads');
@@ -205,6 +269,100 @@ class TelesalesService
         return preg_replace('/\s+/', ' ', $value) ?: '';
     }
 
+    public function normalizeValue(?string $value): string
+    {
+        $normalized = strtolower(trim((string) $value));
+        $normalized = str_replace(['_', '-'], ' ', $normalized);
+        return preg_replace('/\s+/', ' ', $normalized) ?: '';
+    }
+
+    private function applyDuplicateWorkflowScope($query, ?int $tenantId, ?string $workflowKey): void
+    {
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $normalizedWorkflow = strtolower(trim((string) ($workflowKey ?? '')));
+        if ($normalizedWorkflow === '' || !Schema::hasColumn('leads', 'workflow_key')) {
+            return;
+        }
+
+        $query->where('workflow_key', $normalizedWorkflow);
+
+        if ($normalizedWorkflow === self::WORKFLOW_TELESALES
+            && Schema::hasColumn('leads', 'transferred_to_sales_at')) {
+            $query->whereNull('transferred_to_sales_at');
+        }
+    }
+
+    private function resolveDuplicateRootId(?Lead $lead, ?int $tenantId = null): ?int
+    {
+        if (!$lead) {
+            return null;
+        }
+
+        $seen = [];
+        $current = $lead;
+
+        for ($i = 0; $i < 10; $i++) {
+            $id = (int) ($current->id ?? 0);
+            if ($id <= 0) {
+                return null;
+            }
+
+            if (isset($seen[$id])) {
+                return $id;
+            }
+            $seen[$id] = true;
+
+            $meta = is_array($current->meta_data ?? null) ? ($current->meta_data ?? []) : [];
+            $dupOf = $meta['duplicate_of'] ?? null;
+            if (!is_numeric($dupOf) || (int) $dupOf <= 0) {
+                return $id;
+            }
+
+            $nextQuery = Lead::query()->where('id', (int) $dupOf);
+            if ($tenantId) {
+                $nextQuery->where('tenant_id', $tenantId);
+            }
+
+            $next = $nextQuery->first();
+            if (!$next) {
+                return $id;
+            }
+
+            $current = $next;
+        }
+
+        return (int) ($current->id ?? null);
+    }
+
+    private function resolveSalesDuplicateMatch(Lead $lead, int $tenantId): ?Lead
+    {
+        $rawPhone = trim((string) ($lead->phone ?? ''));
+        if ($rawPhone === '') {
+            return null;
+        }
+
+        $meta = is_array($lead->meta_data ?? null) ? ($lead->meta_data ?? []) : [];
+        $phoneCountry = trim((string) ($meta['phone_country'] ?? ''));
+        $variants = PhoneNormalizer::variantsForSearch($rawPhone, $phoneCountry !== '' ? $phoneCountry : null);
+        $variants = !empty($variants) ? $variants : [$rawPhone];
+
+        $base = Lead::query()->where('id', '!=', $lead->id);
+        $this->applyDuplicateWorkflowScope($base, $tenantId, self::WORKFLOW_SALES);
+
+        $match = (clone $base)
+            ->whereIn('phone', $variants)
+            ->where(function ($q) {
+                $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
+            })
+            ->orderBy('id', 'asc')
+            ->first();
+
+        return $match instanceof Lead ? $match : null;
+    }
+
     public function resolveInitialWorkflow(?User $actor, array $payload): string
     {
         $tenantId = (int) ($actor?->tenant_id ?? 0);
@@ -278,6 +436,39 @@ class TelesalesService
         return $stage ? (int) $stage->id : null;
     }
 
+    public function resolveSalesAssignmentStageId(?int $tenantId, string $targetStage, ?int $fallbackStageId = null): ?int
+    {
+        if ($targetStage === 'same_stage') {
+            return $fallbackStageId ? (int) $fallbackStageId : null;
+        }
+
+        $salesStages = $this->getStagesForWorkflow($tenantId, self::WORKFLOW_SALES, true);
+        if ($salesStages->isEmpty()) {
+            return $fallbackStageId ? (int) $fallbackStageId : null;
+        }
+
+        $targetTokens = $targetStage === 'cold_calls'
+            ? ['cold calls', 'cold call', 'cold_calls', 'cold_call', 'coldcalls']
+            : ['new lead', 'new', 'fresh'];
+
+        $matchedStage = $salesStages->first(function (Stage $stage) use ($targetTokens) {
+            $name = $this->normalizeValue((string) ($stage->name ?? ''));
+            $type = $this->normalizeValue((string) ($stage->type ?? ''));
+
+            return in_array($name, $targetTokens, true) || in_array($type, $targetTokens, true);
+        });
+
+        if ($matchedStage) {
+            return (int) $matchedStage->id;
+        }
+
+        if (in_array($targetStage, ['new_lead', 'cold_calls'], true)) {
+            return null;
+        }
+
+        return $fallbackStageId ? (int) $fallbackStageId : null;
+    }
+
     public function syncLeadStageFields(Lead $lead): void
     {
         $stageId = $lead->stage_id ? (int) $lead->stage_id : null;
@@ -317,8 +508,12 @@ class TelesalesService
 
         $tenantId = (int) ($actor->tenant_id ?? $lead->tenant_id ?? 0);
         $settings = $this->getCrmSettings($tenantId);
+        $targetStage = (string) ($payload['stage'] ?? '');
+        $historyOption = (string) ($payload['history_option'] ?? 'keep_history');
         $preferredStageId = (int) ($payload['sales_entry_stage_id'] ?? ($settings['salesEntryStageIdForTransferredLeads'] ?? 0));
-        $salesStageId = $this->resolveEntryStageId($tenantId, self::WORKFLOW_SALES, $preferredStageId);
+        $salesStageId = $targetStage !== ''
+            ? $this->resolveSalesAssignmentStageId($tenantId, $targetStage, $lead->stage_id ? (int) $lead->stage_id : null)
+            : $this->resolveEntryStageId($tenantId, self::WORKFLOW_SALES, $preferredStageId);
 
         if (!$salesStageId) {
             throw new \InvalidArgumentException('No sales entry stage is configured.');
@@ -327,14 +522,16 @@ class TelesalesService
         $assignmentMethod = strtolower(trim((string) ($payload['assignment_method'] ?? 'direct')));
         $directAssignee = !empty($payload['assigned_to']) ? (int) $payload['assigned_to'] : null;
 
-        return DB::transaction(function () use ($lead, $actor, $tenantId, $salesStageId, $assignmentMethod, $directAssignee) {
+        return DB::transaction(function () use ($lead, $actor, $tenantId, $salesStageId, $assignmentMethod, $directAssignee, $historyOption, $targetStage) {
             $previousWorkflow = $lead->workflow_key ?: self::WORKFLOW_SALES;
             $previousStageId = $lead->stage_id;
+            $duplicateMatch = $this->resolveSalesDuplicateMatch($lead, $tenantId);
 
             $lead->workflow_key = self::WORKFLOW_SALES;
             $lead->stage_id = $salesStageId;
             $lead->workflow_entered_at = now();
             $lead->transferred_to_sales_at = now();
+            $lead->created_by = $actor->id;
             $lead->qualified_by = $actor->id;
 
             if ($assignmentMethod === 'rotation') {
@@ -364,6 +561,34 @@ class TelesalesService
             }
 
             $this->syncLeadStageFields($lead);
+
+            $meta = is_array($lead->meta_data ?? null) ? ($lead->meta_data ?? []) : [];
+            if ($duplicateMatch) {
+                $lead->status = 'duplicate';
+                $lead->stage = 'Duplicate';
+                $meta['duplicate_of'] = $this->resolveDuplicateRootId($duplicateMatch, $tenantId) ?: (int) $duplicateMatch->id;
+                $meta['converted_duplicate_in_sales'] = true;
+                $meta['converted_duplicate_checked_at'] = now()->toDateTimeString();
+            } else {
+                if (strtolower(trim((string) ($lead->status ?? ''))) === 'duplicate') {
+                    $lead->status = 'new';
+                }
+                if (($meta['duplicate_of'] ?? null) && is_numeric($meta['duplicate_of'])) {
+                    unset($meta['duplicate_of']);
+                }
+                unset($meta['converted_duplicate_in_sales'], $meta['converted_duplicate_checked_at']);
+            }
+            $lead->meta_data = !empty($meta) ? $meta : null;
+
+            if ($historyOption === 'assign_as_new') {
+                $lastActionId = DB::table('lead_actions')->where('lead_id', $lead->id)->max('id');
+                $lead->history_hidden_before_action_id = $lastActionId ?: null;
+                $lead->sales_view_reset_at = now();
+            } else {
+                $lead->history_hidden_before_action_id = null;
+                $lead->sales_view_reset_at = null;
+            }
+
             $lead->save();
 
             $this->appendWorkflowHistory($lead, $actor, [
@@ -375,6 +600,10 @@ class TelesalesService
                 'meta_data' => [
                     'assignment_method' => $assignmentMethod,
                     'assigned_to' => $lead->assigned_to,
+                    'stage' => $targetStage !== '' ? $targetStage : null,
+                    'history_option' => $historyOption,
+                    'is_duplicate_in_sales' => (bool) $duplicateMatch,
+                    'duplicate_of' => $duplicateMatch ? ($meta['duplicate_of'] ?? null) : null,
                 ],
             ]);
 

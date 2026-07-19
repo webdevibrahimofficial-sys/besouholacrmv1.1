@@ -61,9 +61,12 @@ class LeadActionController extends Controller
     {
         $stageNames = $this->resolveActionStageNames($action);
 
+        $action->setAttribute('stage_id', $action->stage_id_at_creation);
         $action->setAttribute('stage_name', $stageNames['stage_name']);
         $action->setAttribute('stage_name_ar', $stageNames['stage_name_ar']);
         $action->setAttribute('stage_label', $stageNames['stage_name_ar'] ?: $stageNames['stage_name']);
+        $action->setAttribute('nextAction', $action->next_action_type);
+        $action->setAttribute('type', $action->action_type);
 
         return $action;
     }
@@ -808,6 +811,7 @@ class LeadActionController extends Controller
             // Fetch stage name to update 'stage' string column in leads table
             $stage = \App\Models\Stage::find($request->stage_id);
             if ($stage) {
+                $lead->stage_id = $stage->id;
                 $lead->stage = $stage->name;
                 $shouldSaveLead = true;
                 

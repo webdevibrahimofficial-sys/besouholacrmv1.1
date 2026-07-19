@@ -49,7 +49,10 @@ trait UserHierarchyTrait
         $isDirector = str_contains($roleLower, 'director') || in_array('director', $roles);
 
         // Treat only explicit manager roles as hierarchy-limited.
-        $isSalesManager = str_contains($roleLower, 'sales manager') || in_array('sales manager', $roles);
+        $isSalesManager = str_contains($roleLower, 'sales manager')
+            || in_array('sales manager', $roles)
+            || str_contains($roleLower, 'telesales manager')
+            || in_array('telesales manager', $roles);
         $isGenericManager = ($roleLower === 'manager') || in_array('manager', $roles);
         $isManager = ($isSalesManager || $isGenericManager) && !$isOperationManager && !$isDirector;
         

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { lazyRetry } from '../utils/lazyRetry'
+import { isTelesalesOnlyUser, resolveTenantHomePath } from '../utils/authRouting'
 
 const SuperAdminLayout = lazyRetry(() => import('../components/SuperAdminLayout'))
 
@@ -195,13 +196,14 @@ const VisibilityPage = lazy(() => import('../pages/settings/company-setup/visibi
 
 function ProtectedModuleRoute({ moduleKey, requiredPermission }) {
   const { canAccess, user } = useAppState()
+  const homePath = resolveTenantHomePath(user)
   if (!moduleKey) return <Outlet />
   const roleLower = String(user?.role || '').toLowerCase()
   if (moduleKey === 'contract_collections') {
     const isSalesPerson = roleLower.includes('sales person') || roleLower.includes('salesperson')
     const isTeamLeader = roleLower.includes('team leader') || roleLower.includes('teamleader')
     if (isSalesPerson || isTeamLeader) {
-      return <Navigate to="/dashboard" replace />
+      return <Navigate to={homePath} replace />
     }
   }
   if (moduleKey === 'campaigns') {
@@ -232,11 +234,11 @@ function ProtectedModuleRoute({ moduleKey, requiredPermission }) {
       isMarketingModeratorRole
 
     if (!isAllowedMarketingRole || isSalesPerson || isTeamLeader) {
-      return <Navigate to="/dashboard" replace />
+      return <Navigate to={homePath} replace />
     }
   }
   if (!canAccess(moduleKey, requiredPermission)) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to={homePath} replace />
   }
   return <Outlet />
 }
@@ -256,9 +258,17 @@ function SuperAdminRoute() {
     emailLower === 'admin@besouhoula.com'
 
   if (!isSuperAdmin) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to={resolveTenantHomePath(user)} replace />
   }
   return <Outlet />
+}
+
+function DashboardRoute() {
+  const { user } = useAppState()
+  if (isTelesalesOnlyUser(user)) {
+    return <Navigate to="/telesales" replace />
+  }
+  return <Dashboard />
 }
 function SubscriptionGuard() { 
   const { bootstrapped, user } = useAppState();
@@ -325,7 +335,7 @@ export default function AppRouter() {
 
         <Route element={<SubscriptionGuard />}>        
           <Route element={<Layout />}>        
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/dashboard" element={<DashboardRoute />} />
             <Route element={<ProtectedModuleRoute moduleKey="customers" />}>
               <Route path="/customers" element={<Customers />} />
             </Route>

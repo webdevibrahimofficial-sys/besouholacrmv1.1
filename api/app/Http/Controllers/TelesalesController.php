@@ -6,11 +6,14 @@ use App\Models\Lead;
 use App\Models\Stage;
 use App\Models\User;
 use App\Services\TelesalesService;
+use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 
 class TelesalesController extends Controller
 {
+    use UserHierarchyTrait;
+
     private const DISPLAY_STAGE_ORDER = [
         'fresh' => 1,
         'duplicate' => 2,
@@ -92,6 +95,11 @@ class TelesalesController extends Controller
         return $this->normalizedRole($user) === 'telesales agent';
     }
 
+    private function shouldForceAssignedScope(?User $user): bool
+    {
+        return $this->isTelesalesAgent($user);
+    }
+
     private function canViewDuplicateDisplayStage(?User $user): bool
     {
         $tenantId = (int) ($user?->tenant_id ?? 0);
@@ -117,8 +125,12 @@ class TelesalesController extends Controller
     {
         $stage = $this->normalizeValue((string) ($lead->stage ?? ''));
         $status = $this->normalizeValue((string) ($lead->status ?? ''));
+        $meta = is_array($lead->meta_data ?? null) ? ($lead->meta_data ?? []) : [];
+        $duplicateOf = $meta['duplicate_of'] ?? $meta['duplicateOf'] ?? null;
 
-        return $stage === 'duplicate' || $status === 'duplicate';
+        return $stage === 'duplicate'
+            || $status === 'duplicate'
+            || (is_numeric($duplicateOf) && (int) $duplicateOf > 0);
     }
 
     private function isFreshLead(Lead $lead): bool
@@ -138,6 +150,115 @@ class TelesalesController extends Controller
         return in_array($stage, ['cold calls', 'cold call'], true)
             || $type === 'cold calls'
             || $type === 'cold call';
+    }
+
+    private function decodeUserMetaData(?User $user): array
+    {
+        try {
+            if (is_array($user?->meta_data)) {
+                return $user->meta_data;
+            }
+            if (is_string($user?->meta_data)) {
+                $decoded = json_decode($user->meta_data, true);
+                return is_array($decoded) ? $decoded : [];
+            }
+        } catch (\Throwable $e) {
+        }
+
+        return [];
+    }
+
+    private function getControlModulePerms(?User $user): array
+    {
+        $meta = $this->decodeUserMetaData($user);
+        $modulePerms = is_array($meta['module_permissions'] ?? null) ? ($meta['module_permissions'] ?? []) : [];
+        $controlPerms = $modulePerms['Control'] ?? [];
+        return is_array($controlPerms) ? $controlPerms : [];
+    }
+
+    private function hasControlModulePermission(?User $user, string $permissionKey): bool
+    {
+        return in_array($permissionKey, $this->getControlModulePerms($user), true);
+    }
+
+    private function hasTenantWideActionScope(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        if (($user->is_super_admin ?? false) || $this->isHigherRole($user)) {
+            return true;
+        }
+
+        return in_array($this->normalizedRole($user), ['telesales manager'], true);
+    }
+
+    private function canActOnTeamLead(?User $user, Lead $lead): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        if ($user->is_super_admin ?? false) {
+            return true;
+        }
+
+        if (!$this->hasControlModulePermission($user, 'allowActionOnTeam')) {
+            return false;
+        }
+
+        if ($this->hasTenantWideActionScope($user)) {
+            return (int) ($lead->tenant_id ?? 0) === (int) ($user->tenant_id ?? 0);
+        }
+
+        $assignedTo = (int) ($lead->assigned_to ?? 0);
+        if ($assignedTo <= 0) {
+            return false;
+        }
+
+        $viewableUserIds = $this->getViewableUserIds($user);
+        if ($viewableUserIds === null) {
+            return false;
+        }
+
+        return in_array($assignedTo, array_map('intval', $viewableUserIds), true);
+    }
+
+    private function canAddActionToLead(?User $user, Lead $lead): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        if ((string) ($lead->assigned_to ?? '') === (string) ($user->id ?? '')) {
+            return true;
+        }
+
+        if ($user->is_super_admin ?? false) {
+            return true;
+        }
+
+        return $this->canActOnTeamLead($user, $lead);
+    }
+
+    private function decorateLeadForResponse(Lead $lead, ?User $user = null, ?string $scope = null): Lead
+    {
+        if ($user && $scope !== null) {
+            $lead->display_stage = $this->resolveDisplayStage($lead, $user, $scope);
+        }
+
+        $lead->assigned_to_name =
+            $lead->assignedAgent?->name
+            ?: (is_object($lead->assigned_to) ? ($lead->assigned_to->name ?? null) : null)
+            ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null);
+
+        $existingPermissions = is_array($lead->permissions ?? null) ? ($lead->permissions ?? []) : [];
+        $lead->permissions = array_merge($existingPermissions, [
+            'can_add_action' => $user ? $this->canAddActionToLead($user, $lead) : false,
+        ]);
+
+        return $lead;
     }
 
     private function hasNoActionSinceAssignment(Lead $lead): bool
@@ -164,15 +285,16 @@ class TelesalesController extends Controller
 
         $assignedTo = (int) ($lead->assigned_to ?? 0);
         $viewerId = (int) ($viewer?->id ?? 0);
+        $viewerIsManagerOrHigher = $this->isHigherRole($viewer) || $this->isTelesalesManager($viewer) || $this->isTelesalesTeamLeader($viewer);
         $isOwner = $assignedTo > 0 && $viewerId > 0 && $assignedTo === $viewerId;
         $isUnassigned = $assignedTo <= 0;
         $status = $this->normalizeValue((string) ($lead->status ?? ''));
 
-        if ($status === 'pending' && !$isOwner) {
+        if ($status === 'pending' && (!$isOwner || $viewerIsManagerOrHigher)) {
             return true;
         }
 
-        if ($isOwner || $isUnassigned) {
+        if (($isOwner && !$viewerIsManagerOrHigher) || $isUnassigned) {
             return false;
         }
 
@@ -230,6 +352,32 @@ class TelesalesController extends Controller
         return $baseStage !== '' ? $baseStage : '-';
     }
 
+    private function resolveDisplayStageKey(Lead $lead, ?User $viewer, string $scope = 'all'): string
+    {
+        if ($this->isDuplicateLead($lead) && $this->canViewDuplicateDisplayStage($viewer)) {
+            return 'duplicate';
+        }
+
+        if ($this->isPendingDisplayLead($lead, $viewer, $scope)) {
+            return 'pending';
+        }
+
+        if ($this->isFreshLead($lead)) {
+            return 'fresh';
+        }
+
+        if ($this->isColdCallsLead($lead)) {
+            return 'cold calls';
+        }
+
+        $baseType = $this->normalizeValue((string) ($lead->stageRelation?->type ?? ''));
+        if ($baseType !== '' && $baseType !== 'display') {
+            return $baseType === 'cold calls' || $baseType === 'cold call' ? 'cold calls' : $baseType;
+        }
+
+        return $this->normalizeValue((string) ($lead->stageRelation?->name ?? $lead->stage ?? ''));
+    }
+
     private function applyDisplayStageFilter($query, Request $request): void
     {
         if (!$request->filled('display_stage')) {
@@ -240,6 +388,7 @@ class TelesalesController extends Controller
         $viewer = $request->user();
         $scope = $this->normalizeValue((string) $request->input('scope', 'all'));
         $viewerId = (int) ($viewer?->id ?? 0);
+        $viewerIsManagerOrHigher = $this->isHigherRole($viewer) || $this->isTelesalesManager($viewer) || $this->isTelesalesTeamLeader($viewer);
         $noActionAfterAssignmentSql = "(last_action_at IS NULL OR last_action_at <= COALESCE(assigned_at, updated_at, created_at))";
 
         if ($displayStage === 'duplicate') {
@@ -250,7 +399,9 @@ class TelesalesController extends Controller
 
             $query->where(function ($q) {
                 $q->whereRaw("LOWER(COALESCE(stage, '')) = 'duplicate'")
-                    ->orWhereRaw("LOWER(COALESCE(status, '')) = 'duplicate'");
+                    ->orWhereRaw("LOWER(COALESCE(status, '')) = 'duplicate'")
+                    ->orWhereNotNull('meta_data->duplicate_of')
+                    ->orWhereNotNull('meta_data->duplicateOf');
             });
             return;
         }
@@ -261,18 +412,18 @@ class TelesalesController extends Controller
                 return;
             }
 
-            $query->where(function ($q) use ($viewerId) {
-                $q->where(function ($sub) use ($viewerId, $noActionAfterAssignmentSql) {
+            $query->where(function ($q) use ($viewerId, $viewerIsManagerOrHigher, $noActionAfterAssignmentSql) {
+                $q->where(function ($sub) use ($viewerId, $viewerIsManagerOrHigher) {
                     $sub->whereRaw("LOWER(COALESCE(status, '')) = 'pending'");
-                    if ($viewerId > 0) {
+                    if ($viewerId > 0 && !$viewerIsManagerOrHigher) {
                         $sub->where(function ($owned) use ($viewerId) {
                             $owned->whereNull('assigned_to')
                                 ->orWhere('assigned_to', '!=', $viewerId);
                         });
                     }
-                })->orWhere(function ($sub) use ($viewerId, $noActionAfterAssignmentSql) {
+                })->orWhere(function ($sub) use ($viewerId, $viewerIsManagerOrHigher, $noActionAfterAssignmentSql) {
                     $sub->whereNotNull('assigned_to');
-                    if ($viewerId > 0) {
+                    if ($viewerId > 0 && !$viewerIsManagerOrHigher) {
                         $sub->where('assigned_to', '!=', $viewerId);
                     }
                     $sub->whereRaw($noActionAfterAssignmentSql);
@@ -299,16 +450,18 @@ class TelesalesController extends Controller
 
         $query->where(function ($q) {
             $q->whereRaw("LOWER(COALESCE(stage, '')) != 'duplicate'")
-                ->whereRaw("LOWER(COALESCE(status, '')) != 'duplicate'");
+                ->whereRaw("LOWER(COALESCE(status, '')) != 'duplicate'")
+                ->whereNull('meta_data->duplicate_of')
+                ->whereNull('meta_data->duplicateOf');
         });
 
         if ($this->canViewPendingDisplayStage($viewer, $scope)) {
-            $query->where(function ($q) use ($viewerId, $noActionAfterAssignmentSql) {
+            $query->where(function ($q) use ($viewerId, $viewerIsManagerOrHigher, $noActionAfterAssignmentSql) {
                 $q->whereRaw("LOWER(COALESCE(status, '')) != 'pending'");
 
-                $q->where(function ($sub) use ($viewerId, $noActionAfterAssignmentSql) {
+                $q->where(function ($sub) use ($viewerId, $viewerIsManagerOrHigher, $noActionAfterAssignmentSql) {
                     $sub->whereNull('assigned_to');
-                    if ($viewerId > 0) {
+                    if ($viewerId > 0 && !$viewerIsManagerOrHigher) {
                         $sub->orWhere('assigned_to', $viewerId);
                     }
                     $sub->orWhere(function ($nonFresh) use ($noActionAfterAssignmentSql) {
@@ -330,38 +483,10 @@ class TelesalesController extends Controller
 
     private function excludeDisplayOnlyLeadsFromDefaultList($query, ?User $viewer, string $scope = 'all'): void
     {
-        $viewerId = (int) ($viewer?->id ?? 0);
-        $noActionAfterAssignmentSql = "(last_action_at IS NULL OR last_action_at <= COALESCE(assigned_at, updated_at, created_at))";
-
         $query->where(function ($q) {
             $q->whereRaw("LOWER(COALESCE(stage, '')) != 'duplicate'")
                 ->whereRaw("LOWER(COALESCE(status, '')) != 'duplicate'");
         });
-
-        if ($this->canViewPendingDisplayStage($viewer, $scope)) {
-            $query->where(function ($q) use ($viewerId, $noActionAfterAssignmentSql) {
-                $q->whereRaw("LOWER(COALESCE(status, '')) != 'pending'");
-
-                $q->where(function ($sub) use ($viewerId, $noActionAfterAssignmentSql) {
-                    $sub->whereNull('assigned_to');
-                    if ($viewerId > 0) {
-                        $sub->orWhere('assigned_to', $viewerId);
-                    }
-                    $sub->orWhere(function ($nonFresh) use ($noActionAfterAssignmentSql) {
-                        $nonFresh->whereRaw("NOT ({$noActionAfterAssignmentSql})")
-                            ->orWhere(function ($nonFreshStage) {
-                                $nonFreshStage->whereRaw("LOWER(COALESCE(stage, '')) != 'fresh'")
-                                    ->whereRaw("LOWER(COALESCE(stage, '')) != 'new'")
-                                    ->whereRaw("LOWER(COALESCE(stage, '')) != 'new lead'")
-                                    ->whereRaw("LOWER(COALESCE(stage, '')) != 'cold calls'")
-                                    ->whereRaw("LOWER(COALESCE(stage, '')) != 'cold call'")
-                                    ->whereRaw("LOWER(COALESCE(stage, '')) != 'cold_calls'")
-                                    ->whereRaw("LOWER(COALESCE(stage, '')) != 'cold_call'");
-                            });
-                    });
-                });
-            });
-        }
     }
 
     private function applyOperationalFilters($query, Request $request): void
@@ -524,6 +649,10 @@ class TelesalesController extends Controller
             ->where('workflow_key', TelesalesService::WORKFLOW_TELESALES)
             ->orderByDesc('updated_at');
 
+        if ($this->shouldForceAssignedScope($user)) {
+            $query->where('assigned_to', (int) ($user?->id ?? 0));
+        }
+
         if (!$this->canViewDuplicateDisplayStage($user)) {
             $query->where(function ($q) {
                 $q->whereRaw("LOWER(COALESCE(stage, '')) != 'duplicate'")
@@ -577,8 +706,7 @@ class TelesalesController extends Controller
 
         $results = $query->paginate((int) $request->input('per_page', 20));
         $results->getCollection()->transform(function (Lead $lead) use ($user, $scope) {
-            $lead->display_stage = $this->resolveDisplayStage($lead, $user, $scope);
-            return $lead;
+            return $this->decorateLeadForResponse($lead, $user, $scope);
         });
 
         return response()->json($results);
@@ -586,7 +714,8 @@ class TelesalesController extends Controller
 
     public function dashboardSummary(Request $request)
     {
-        $this->telesalesService->ensureOperationalAccess($request->user(), 'viewDashboard');
+        $viewer = $request->user();
+        $this->telesalesService->ensureOperationalAccess($viewer, 'showModule');
 
         if (!$this->hasLeadWorkflowColumns() || !Schema::hasColumn('stages', 'workflow_key')) {
             return response()->json([
@@ -598,13 +727,13 @@ class TelesalesController extends Controller
             ]);
         }
 
-        $tenantId = (int) ($request->user()?->tenant_id ?? 0);
+        $tenantId = (int) ($viewer?->tenant_id ?? 0);
         $scope = $this->normalizeValue((string) $request->input('scope', 'all'));
         $query = $this->telesalesService->getActiveTelesalesLeadsQuery($tenantId)
             ->with(['stageRelation:id,name,type,workflow_key']);
 
-        if ($scope === 'my') {
-            $query->where('assigned_to', (int) ($request->user()?->id ?? 0));
+        if ($scope === 'my' || $this->shouldForceAssignedScope($viewer)) {
+            $query->where('assigned_to', (int) ($viewer?->id ?? 0));
         }
 
         if ($request->boolean('referral_only')) {
@@ -612,6 +741,22 @@ class TelesalesController extends Controller
         }
 
         $this->applyOperationalFilters($query, $request);
+
+        $displayStages = $this->requestArray($request, 'display_stage');
+        if (!empty($displayStages)) {
+            $query->where(function ($stageGroup) use ($displayStages, $request) {
+                foreach ($displayStages as $displayStage) {
+                    $stageGroup->orWhere(function ($stageQuery) use ($displayStage, $request) {
+                        $nestedRequest = $request->duplicate();
+                        $nestedRequest->merge(['display_stage' => $displayStage]);
+                        $nestedRequest->setUserResolver(fn () => $request->user());
+                        $this->applyDisplayStageFilter($stageQuery, $nestedRequest);
+                    });
+                }
+            });
+        } else {
+            $this->excludeDisplayOnlyLeadsFromDefaultList($query, $request->user(), $scope);
+        }
 
         if ($request->filled('search')) {
             $search = trim((string) $request->input('search'));
@@ -630,13 +775,13 @@ class TelesalesController extends Controller
         foreach ($leads as $lead) {
             if ($this->isDuplicateLead($lead)) {
                 $duplicateCount++;
-                if (!$this->canViewDuplicateDisplayStage($request->user())) {
+                if (!$this->canViewDuplicateDisplayStage($viewer)) {
                     continue;
                 }
             }
 
-            $displayStage = $this->resolveDisplayStage($lead, $request->user(), $scope);
-            $displayKey = $this->normalizeValue($displayStage);
+            $displayStage = $this->resolveDisplayStage($lead, $viewer, $scope);
+            $displayKey = $this->resolveDisplayStageKey($lead, $viewer, $scope);
             if ($displayKey === '') {
                 continue;
             }
@@ -666,18 +811,12 @@ class TelesalesController extends Controller
             return strcmp((string) ($a['stage_name'] ?? ''), (string) ($b['stage_name'] ?? ''));
         });
 
-        $totalLeads = 0;
-        foreach ($byStage as $item) {
-            if (($item['stage_key'] ?? '') === 'duplicate') {
-                continue;
-            }
-            $totalLeads += (int) ($item['count'] ?? 0);
-        }
+        $totalLeads = (int) $leads->count();
 
         return response()->json([
             'total_leads' => $totalLeads,
             'assigned_to_sales' => $leads->whereNotNull('transferred_to_sales_at')->count(),
-            'duplicate' => $this->canViewDuplicateDisplayStage($request->user()) ? $duplicateCount : 0,
+            'duplicate' => $this->canViewDuplicateDisplayStage($viewer) ? $duplicateCount : 0,
             'pending' => (int) ($byStageMap['pending']['count'] ?? 0),
             'by_stage' => $byStage,
             'follow_ups_today' => 0,
@@ -741,6 +880,9 @@ class TelesalesController extends Controller
             'sales_entry_stage_id' => 'nullable|integer|exists:stages,id',
             'assignment_method' => 'required|in:direct,rotation',
             'assigned_to' => 'nullable|integer|exists:users,id',
+            'stage' => 'nullable|string|in:same_stage,new_lead,cold_calls',
+            'history_option' => 'nullable|string|in:keep_history,assign_as_new',
+            'options' => 'nullable|array',
         ]);
 
         $lead = Lead::query()->where('workflow_key', TelesalesService::WORKFLOW_TELESALES)->findOrFail($leadId);
@@ -852,6 +994,9 @@ class TelesalesController extends Controller
             'sales_entry_stage_id' => 'nullable|integer|exists:stages,id',
             'assignment_method' => 'required|in:direct,rotation',
             'assigned_to' => 'nullable|integer|exists:users,id',
+            'stage' => 'nullable|string|in:same_stage,new_lead,cold_calls',
+            'history_option' => 'nullable|string|in:keep_history,assign_as_new',
+            'options' => 'nullable|array',
         ]);
 
         $tenantId = (int) ($request->user()?->tenant_id ?? 0);
@@ -903,6 +1048,15 @@ class TelesalesController extends Controller
             });
         }
 
-        return response()->json($query->paginate((int) $request->input('per_page', 20)));
+        $results = $query->paginate((int) $request->input('per_page', 20));
+        $results->getCollection()->transform(function (Lead $lead) use ($request) {
+            return $this->decorateLeadForResponse(
+                $lead,
+                $request->user(),
+                $this->normalizeValue((string) $request->input('scope', 'all'))
+            );
+        });
+
+        return response()->json($results);
     }
 }

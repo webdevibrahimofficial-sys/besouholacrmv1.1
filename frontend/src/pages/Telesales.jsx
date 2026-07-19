@@ -18,6 +18,8 @@ import SearchableSelect from '../components/SearchableSelect'
 import AddActionModal from '../components/AddActionModal'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import TelesalesBulkAssignModal from '../components/TelesalesBulkAssignModal'
+import CompareLeadsModal from '../components/CompareLeadsModal'
+import { buildLeadTransferPayload } from '../shared/utils/leadTransfer'
 
 function hasTelesalesPermission(user, permission) {
   if (isTenantAdminUser(user) || isSuperAdminUser(user)) return true
@@ -68,71 +70,6 @@ function formatYmdLocal(date) {
   return localDate.toISOString().split('T')[0]
 }
 
-function TransferControls({
-  users,
-  salesStages,
-  assignmentMethod,
-  setAssignmentMethod,
-  assignedTo,
-  setAssignedTo,
-  stageId,
-  setStageId,
-  disabled,
-}) {
-  return (
-    <div className="grid gap-3 md:grid-cols-3">
-      <label className="space-y-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.22em] text-gray-500 dark:text-gray-300">
-          Assignment Method
-        </span>
-        <select
-          className="w-full rounded-lg border border-theme-border dark:border-gray-600 bg-transparent px-4 py-3 text-sm"
-          value={assignmentMethod}
-          onChange={(e) => setAssignmentMethod(e.target.value)}
-          disabled={disabled}
-        >
-          <option value="direct">Direct assignee</option>
-          <option value="rotation">Sales rotation</option>
-        </select>
-      </label>
-
-      <label className="space-y-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.22em] text-gray-500 dark:text-gray-300">
-          Sales Entry Stage
-        </span>
-        <select
-          className="w-full rounded-lg border border-theme-border dark:border-gray-600 bg-transparent px-4 py-3 text-sm"
-          value={stageId}
-          onChange={(e) => setStageId(e.target.value)}
-          disabled={disabled}
-        >
-          <option value="">Sales entry stage</option>
-          {salesStages.map((stage) => (
-            <option key={stage.id} value={stage.id}>{stage.name}</option>
-          ))}
-        </select>
-      </label>
-
-      <label className="space-y-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.22em] text-gray-500 dark:text-gray-300">
-          Assignee
-        </span>
-        <select
-          className="w-full rounded-lg border border-theme-border dark:border-gray-600 bg-transparent px-4 py-3 text-sm"
-          value={assignedTo}
-          onChange={(e) => setAssignedTo(e.target.value)}
-          disabled={disabled || assignmentMethod !== 'direct'}
-        >
-          <option value="">Assignee</option>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>{user.name}</option>
-          ))}
-        </select>
-      </label>
-    </div>
-  )
-}
-
 export default function Telesales() {
   const { t, i18n } = useTranslation()
   const { theme: contextTheme, resolvedTheme } = useTheme()
@@ -157,7 +94,6 @@ export default function Telesales() {
   const [users, setUsers] = useState([])
   const [telesalesAssignees, setTelesalesAssignees] = useState([])
   const [salesAssignees, setSalesAssignees] = useState([])
-  const [salesStages, setSalesStages] = useState([])
   const [summary, setSummary] = useState(null)
   const [disableCheck, setDisableCheck] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -165,9 +101,6 @@ export default function Telesales() {
   const [transferingId, setTransferingId] = useState(null)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
-  const [assignmentMethod, setAssignmentMethod] = useState('direct')
-  const [assignedTo, setAssignedTo] = useState('')
-  const [stageId, setStageId] = useState('')
   const [mode, setMode] = useState('operational')
   const [pageError, setPageError] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
@@ -212,8 +145,11 @@ export default function Telesales() {
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [showAddActionModal, setShowAddActionModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
-  const [showBulkTransferPanel, setShowBulkTransferPanel] = useState(false)
+  const [showCompareModal, setShowCompareModal] = useState(false)
+  const [compareData, setCompareData] = useState({ duplicate: null, original: null })
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
+  const [showBulkTransferModal, setShowBulkTransferModal] = useState(false)
+  const [transferLeadIds, setTransferLeadIds] = useState([])
   const [assignModalError, setAssignModalError] = useState('')
   const [assignModalSubmitting, setAssignModalSubmitting] = useState(false)
 
@@ -233,6 +169,10 @@ export default function Telesales() {
   const isDuplicateFeatureEnabled = isTruthySetting(crmSettings?.duplicationSystem)
   const canViewDuplicateDisplay = isDuplicateFeatureEnabled && hasExplicitTelesalesPermission(user, 'viewDuplicateLeads')
   const canViewPendingDisplay = !isTelesalesAgent
+  const salesConvertUsers = useMemo(
+    () => (Array.isArray(salesAssignees) ? salesAssignees : []),
+    [salesAssignees]
+  )
 
   const historicalOnly = !moduleEnabled || (!canShow && canViewHistorical)
   const isMyLeadsView = location.pathname.startsWith('/telesales/my-leads')
@@ -339,7 +279,6 @@ export default function Telesales() {
 
   useEffect(() => {
     if (selectedIds.length === 0) {
-      setShowBulkTransferPanel(false)
       setShowBulkAssignModal(false)
     }
   }, [selectedIds.length])
@@ -364,7 +303,8 @@ export default function Telesales() {
     return [value].filter(Boolean)
   }
 
-  const buildOperationalParams = (scopeOverride = null) => {
+  const buildOperationalParams = (scopeOverride = null, options = {}) => {
+    const includeStageFilter = options.includeStageFilter !== false
     const scope = scopeOverride || (isMyLeadsView ? 'my' : (isReferralView ? 'referral' : 'all'))
 
     return {
@@ -373,7 +313,7 @@ export default function Telesales() {
       per_page: perPage,
       ...(isMyLeadsView ? { assigned_to: user?.id } : {}),
       ...(isReferralView ? { referral_only: 1 } : {}),
-      ...(stageFilter.length > 0 ? { display_stage: stageFilter } : {}),
+      ...(includeStageFilter && stageFilter.length > 0 ? { display_stage: stageFilter } : {}),
       ...(sourceFilter.length > 0 ? { source: sourceFilter } : {}),
       ...(priorityFilter.length > 0 ? { priority: priorityFilter } : {}),
       ...(projectFilter.length > 0 ? { project: projectFilter } : {}),
@@ -417,14 +357,10 @@ export default function Telesales() {
   const loadOperational = async () => {
     const scope = isMyLeadsView ? 'my' : (isReferralView ? 'referral' : 'all')
     const telesalesParams = buildOperationalParams(scope)
+    const summaryParams = buildOperationalParams(scope, { includeStageFilter: false })
 
-    const shouldLoadSalesTransferStages = (canTransfer || canBulkTransfer) && selectedIds.length > 0
-
-    const [leadRes, salesStageRes, userRes, telesalesAssigneeRes, salesAssigneeRes, sourceRes, projectRes, campaignRes, countryRes] = await Promise.all([
+    const [leadRes, userRes, telesalesAssigneeRes, salesAssigneeRes, sourceRes, projectRes, campaignRes, countryRes] = await Promise.all([
       api.get('/api/telesales/leads', { params: telesalesParams }),
-      shouldLoadSalesTransferStages
-        ? api.get('/api/stages', { params: { workflow_key: 'sales', active: 1 } })
-        : Promise.resolve(null),
       api.get('/api/users'),
       api.get('/api/telesales/assignees', { params: { workflow: 'telesales' } }).catch(() => null),
       api.get('/api/telesales/assignees', { params: { workflow: 'sales' } }).catch(() => null),
@@ -438,10 +374,8 @@ export default function Telesales() {
     let disableCheckRes = null
     try {
       ;[summaryRes, disableCheckRes] = await Promise.all([
-        canViewDashboard ? api.get('/api/telesales/dashboard-summary', {
-          params: {
-            ...buildOperationalParams(scope),
-          }
+        canShow ? api.get('/api/telesales/dashboard-summary', {
+          params: summaryParams
         }) : Promise.resolve(null),
         canDisableModule ? api.get('/api/telesales/module-disable-check') : Promise.resolve(null),
       ])
@@ -451,7 +385,6 @@ export default function Telesales() {
     }
 
     applyPaginator(leadRes?.data, false)
-    setSalesStages(Array.isArray(salesStageRes?.data) ? salesStageRes.data : [])
     setUsers(normalizeUsers(userRes?.data))
     setTelesalesAssignees(normalizeUsers(telesalesAssigneeRes?.data))
     setSalesAssignees(normalizeUsers(salesAssigneeRes?.data))
@@ -509,6 +442,12 @@ export default function Telesales() {
     load()
   }, [moduleEnabled, canShow, canViewHistorical, canViewDashboard, canDisableModule, isMyLeadsView, isReferralView, isHistoricalRoute, currentPage, historicalPage, perPage, searchTerm, JSON.stringify(stageFilter), JSON.stringify(sourceFilter), JSON.stringify(priorityFilter), JSON.stringify(projectFilter), JSON.stringify(assigneeFilter), JSON.stringify(createdByFilter), JSON.stringify(managerFilter), JSON.stringify(campaignFilter), JSON.stringify(countryFilter), emailFilter, expectedRevenueFilter, JSON.stringify(actionTypeFilter), assignedDateFrom, assignedDateTo, lastActionDateFrom, lastActionDateTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo])
 
+  useEffect(() => {
+    if (isTelesalesAgent && location.pathname === '/telesales') {
+      navigate('/telesales/my-leads', { replace: true })
+    }
+  }, [isTelesalesAgent, location.pathname, navigate])
+
   const pageTitle = useMemo(() => {
     if (isHistoricalRoute || mode === 'historical') return 'History(deleted)'
     if (isReferralView) return 'Referal Telesales Leads'
@@ -516,38 +455,40 @@ export default function Telesales() {
     return 'All Telesales Leads'
   }, [isHistoricalRoute, isMyLeadsView, isReferralView, mode])
 
-  const canSubmitTransfer = useMemo(() => {
-    if (!stageId) return false
-    if (assignmentMethod === 'direct' && !assignedTo) return false
-    return true
-  }, [assignedTo, assignmentMethod, stageId])
-
   const stageCounts = useMemo(() => {
     const counts = { total: Number(summary?.total_leads || totalRows || 0) }
-    ;(summary?.by_stage || []).forEach((item) => {
-      const key = normalizeStageKey(item?.stage_key || item?.stage_name)
-      if (!key) return
-      counts[key] = Number(item.count || 0)
-    })
+
+    const summaryStages = Array.isArray(summary?.by_stage) ? summary.by_stage : []
+    if (summaryStages.length > 0) {
+      summaryStages.forEach((item) => {
+        const key = normalizeStageKey(item?.stage_key || item?.stage_name)
+        if (!key) return
+        counts[key] = Number(item.count || 0)
+      })
+    } else {
+      rows.forEach((lead) => {
+        const key = normalizeStageKey(lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage)
+        if (!key || key === '-') return
+        counts[key] = Number(counts[key] || 0) + 1
+      })
+    }
+
     if (typeof summary?.duplicate === 'number') counts.duplicate = Number(summary.duplicate || 0)
     if (typeof summary?.pending === 'number') counts.pending = Number(summary.pending || 0)
     return counts
-  }, [summary, totalRows])
+  }, [rows, summary, totalRows])
 
-  const handleTransfer = async (leadId) => {
-    if (!canSubmitTransfer) return
-    setTransferingId(leadId)
-    try {
-      await api.post(`/api/telesales/leads/${leadId}/transfer-to-sales`, {
-        assignment_method: assignmentMethod,
-        assigned_to: assignmentMethod === 'direct' ? Number(assignedTo) : null,
-        sales_entry_stage_id: Number(stageId),
-      })
-      setSelectedIds((prev) => prev.filter((id) => id !== leadId))
-      await loadOperational()
-    } finally {
-      setTransferingId(null)
-    }
+  const openTransferModal = (leadIds) => {
+    const normalizedLeadIds = Array.isArray(leadIds)
+      ? leadIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+      : []
+
+    if (normalizedLeadIds.length === 0) return
+
+    setAssignModalError('')
+    setTransferLeadIds(normalizedLeadIds)
+    setShowBulkAssignModal(false)
+    setShowBulkTransferModal(true)
   }
 
   const handleToggleSelect = (value) => {
@@ -564,23 +505,43 @@ export default function Telesales() {
     ))
   }
 
-  const handleBulkTransfer = async (allActive = false) => {
-    if (!canSubmitTransfer) return
-    if (!allActive && selectedIds.length === 0) return
+  const handleTransferToSales = async (assignData) => {
+    if (!assignData?.userId || transferLeadIds.length === 0) {
+      setAssignModalError('Please select a sales assignee.')
+      return false
+    }
 
-    setBulkBusy(true)
+    setAssignModalSubmitting(true)
+    setAssignModalError('')
+    setTransferingId(transferLeadIds.length === 1 ? transferLeadIds[0] : null)
+
     try {
+      const transferPayload = buildLeadTransferPayload(assignData)
       await api.post('/api/telesales/leads/bulk-transfer-to-sales', {
-        all_active: allActive,
-        lead_ids: allActive ? [] : selectedIds,
-        assignment_method: assignmentMethod,
-        assigned_to: assignmentMethod === 'direct' ? Number(assignedTo) : null,
-        sales_entry_stage_id: Number(stageId),
+        all_active: false,
+        lead_ids: transferLeadIds,
+        assignment_method: 'direct',
+        assigned_to: Number(assignData.userId),
+        assign_role: assignData.assignRole || 'sales',
+        stage: transferPayload.stage,
+        history_option: transferPayload.history_option,
+        options: assignData.options || {},
       })
-      setSelectedIds([])
+
+      setSelectedIds((prev) => prev.filter((id) => !transferLeadIds.includes(id)))
+      setTransferLeadIds([])
+      setShowBulkTransferModal(false)
       await loadOperational()
+      return true
+    } catch (error) {
+      const message = error?.response?.data?.message
+        || Object.values(error?.response?.data?.errors || {}).flat().filter(Boolean).join(' | ')
+        || 'Failed to convert leads to sales.'
+      setAssignModalError(message)
+      return false
     } finally {
-      setBulkBusy(false)
+      setAssignModalSubmitting(false)
+      setTransferingId(null)
     }
   }
 
@@ -639,6 +600,67 @@ export default function Telesales() {
     } finally {
       setBulkBusy(false)
     }
+  }
+
+  const handleCompareLead = async (duplicateLead) => {
+    const cleanPhone = (value) => String(value || '').replace(/[^0-9]/g, '')
+    const targetPhone = cleanPhone(duplicateLead?.phone || duplicateLead?.mobile)
+    const duplicateOfId =
+      duplicateLead?.meta_data?.duplicate_of ||
+      duplicateLead?.meta_data?.duplicateOf ||
+      duplicateLead?.metaData?.duplicate_of ||
+      duplicateLead?.metaData?.duplicateOf ||
+      null
+
+    const leadCreatedAt = (lead) => lead?.createdAt || lead?.created_at || lead?.created || null
+    let originalLead = null
+
+    if (duplicateOfId) {
+      try {
+        const { data } = await api.get(`/api/leads/${encodeURIComponent(String(duplicateOfId))}`)
+        originalLead = data?.data || data
+      } catch (error) {
+        console.error('Failed to load original telesales lead by duplicate_of', error)
+      }
+    }
+
+    if (!originalLead) {
+      const possibleOriginals = rows
+        .filter((lead) => {
+          if ((lead.id || lead._id) === (duplicateLead.id || duplicateLead._id)) return false
+          const leadPhone = cleanPhone(lead.phone || lead.mobile)
+          return targetPhone && leadPhone && targetPhone === leadPhone
+        })
+        .sort((a, b) => new Date(leadCreatedAt(a) || 0) - new Date(leadCreatedAt(b) || 0))
+
+      originalLead = possibleOriginals[0] || null
+    }
+
+    if (!originalLead && targetPhone) {
+      try {
+        const { data } = await api.get('/api/leads', { params: { search: targetPhone } })
+        const apiLeads = Array.isArray(data) ? data : (data?.data || [])
+        originalLead = apiLeads.find((lead) => String(lead?.id) !== String(duplicateLead?.id)) || null
+      } catch (error) {
+        console.error('Failed to search original telesales lead', error)
+      }
+    }
+
+    if (!originalLead) {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRtl ? 'لم يتم العثور على السجل الأصلي' : 'Original record not found',
+        },
+      }))
+      return
+    }
+
+    setCompareData({
+      duplicate: duplicateLead,
+      original: originalLead,
+    })
+    setShowCompareModal(true)
   }
 
   const resetFilters = () => {
@@ -883,13 +905,15 @@ export default function Telesales() {
 
   const stageCards = useMemo(() => telesalesStages
     .filter((stage) => {
-      const key = normalizeStageKey(stage?.name)
+      const stageTypeKey = normalizeStageKey(stage?.type)
+      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
       if (key === 'duplicate') return !isMyLeadsView && canViewDuplicateDisplay
       if (key === 'pending') return !isMyLeadsView && canViewPendingDisplay
       return true
     })
     .map((stage) => {
-      const key = normalizeStageKey(stage?.name)
+      const stageTypeKey = normalizeStageKey(stage?.type)
+      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
       return {
         id: stage.id || key,
         key,
@@ -916,7 +940,7 @@ export default function Telesales() {
     }), [canViewDuplicateDisplay, canViewPendingDisplay, isMyLeadsView, stageCounts, telesalesStages])
 
   const getLeadDisplayStage = (lead) => lead.display_stage || lead.stageRelation?.name || lead.stage || '-'
-  const getLeadAssignedName = (lead) => lead.assignedAgent?.name || lead.assigned_to?.name || lead.assignedTo?.name || lead.sales_person_name || '-'
+  const getLeadAssignedName = (lead) => lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
   const getLeadProjectName = (lead) => lead.project?.name || lead.project_name || lead.project || lead.item?.name || lead.item_name || lead.item || '-'
   const getLeadLastComment = (lead) => (
     lead?.latest_action?.description ||
@@ -927,6 +951,11 @@ export default function Telesales() {
     '-'
   )
   const isDuplicateLead = (lead) => String(getLeadDisplayStage(lead) || '').toLowerCase().includes('duplicate') || String(lead?.status || '').toLowerCase() === 'duplicate'
+  const canUseActionControls = (lead) => (
+    typeof lead?.permissions?.can_add_action === 'boolean'
+      ? lead.permissions.can_add_action
+      : false
+  )
 
   const paginatedRows = mode === 'historical' ? historicalRows : rows
   const activePage = mode === 'historical' ? historicalPage : currentPage
@@ -1437,7 +1466,7 @@ export default function Telesales() {
                         type="button"
                         onClick={() => {
                           setShowBulkAssignModal(true)
-                          setShowBulkTransferPanel(false)
+                          setShowBulkTransferModal(false)
                         }}
                         className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-medium shadow-lg shadow-blue-500/20 transition-all duration-200 active:scale-95"
                       >
@@ -1446,18 +1475,14 @@ export default function Telesales() {
                       </button>
                     )}
 
-                    {canBulkTransfer && (
+                    {canTransfer && canBulkTransfer && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setShowBulkTransferPanel((prev) => !prev)
-                          setShowBulkAssignModal(false)
-                        }}
+                        onClick={() => openTransferModal(selectedIds)}
                         className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-95"
                       >
                         <FaUserCheck className="text-xs" />
                         {t('Convert To Sales')}
-                        <FaChevronDown className={`text-xs transition-transform ${showBulkTransferPanel ? 'rotate-180' : ''}`} />
                       </button>
                     )}
 
@@ -1487,46 +1512,6 @@ export default function Telesales() {
                 <span>{activeTotal}</span>
               </div>
             </div>
-
-            {selectedIds.length > 0 && canBulkTransfer && showBulkTransferPanel && (
-              <div className="border-b border-theme-border dark:border-gray-700 p-4 space-y-4">
-                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-300">
-                  <FaExchangeAlt className="text-blue-500" />
-                  <span>{t('Bulk Transfer To Sales')}</span>
-                </div>
-
-                <TransferControls
-                  users={salesAssignees}
-                  salesStages={salesStages}
-                  assignmentMethod={assignmentMethod}
-                  setAssignmentMethod={setAssignmentMethod}
-                  assignedTo={assignedTo}
-                  setAssignedTo={setAssignedTo}
-                  stageId={stageId}
-                  setStageId={setStageId}
-                  disabled={bulkBusy}
-                />
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-lg shadow-blue-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => handleBulkTransfer(false)}
-                    disabled={bulkBusy || selectedIds.length === 0 || !canSubmitTransfer}
-                  >
-                    <FaExchangeAlt className="text-xs" />
-                    {bulkBusy ? t('Processing...') : `${t('Transfer selected')} (${selectedIds.length})`}
-                  </button>
-                  <button
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 text-sm font-medium transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => handleBulkTransfer(true)}
-                    disabled={bulkBusy || !canSubmitTransfer}
-                  >
-                    <FaExchangeAlt className="text-xs" />
-                    {bulkBusy ? t('Processing...') : t('Transfer all active leads')}
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div className="mt-4 w-full overflow-x-auto rounded-lg shadow-md backdrop-blur-lg">
               <table className={`w-max min-w-full divide-y divide-theme-border dark:divide-gray-700 ${isLight ? 'text-black' : 'text-white'}`} style={{ tableLayout: 'auto' }}>
@@ -1654,28 +1639,42 @@ export default function Telesales() {
                           >
                             <FaEye size={16} />
                           </button>
-                          <button
-                            title={t('Add Action')}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedLead(lead)
-                              setShowAddActionModal(true)
-                            }}
-                            className="inline-flex items-center justify-center text-emerald-300 hover:text-emerald-400"
-                          >
-                            <FaPlus size={16} />
-                          </button>
+                          {canUseActionControls(lead) && (
+                            <button
+                              title={t('Add Action')}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedLead(lead)
+                                setShowAddActionModal(true)
+                              }}
+                              className="inline-flex items-center justify-center text-emerald-300 hover:text-emerald-400"
+                            >
+                              <FaPlus size={16} />
+                            </button>
+                          )}
+                          {canViewDuplicateDisplay && isDuplicateLead(lead) && (
+                            <button
+                              title={t('Compare')}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleCompareLead(lead)
+                              }}
+                              className="inline-flex items-center justify-center text-red-400 hover:text-red-300"
+                            >
+                              <FaExchangeAlt size={16} />
+                            </button>
+                          )}
                           {canTransfer && (
                             <button
                               title={t('Transfer to Sales')}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                handleTransfer(lead.id)
+                                openTransferModal([lead.id])
                               }}
-                              disabled={transferingId === lead.id || !canSubmitTransfer}
+                              disabled={assignModalSubmitting || transferingId === lead.id}
                               className="inline-flex items-center justify-center text-blue-400 hover:text-blue-300 disabled:opacity-50"
                             >
-                              <FaExchangeAlt size={16} />
+                              <FaUserTie size={16} />
                             </button>
                           )}
                           <button
@@ -1820,7 +1819,7 @@ export default function Telesales() {
                       <td className="px-6 py-4 text-sm"><div className="font-semibold">{lead.name || '-'}</div><div className="text-xs text-gray-500">#{lead.id}</div></td>
                       <td className="px-6 py-4 text-sm">{lead.phone || '-'}</td>
                       <td className="px-6 py-4 text-sm">{lead.stageRelation?.name || lead.stage || '-'}</td>
-                      <td className="px-6 py-4 text-sm">{lead.assignedAgent?.name || '-'}</td>
+                      <td className="px-6 py-4 text-sm">{getLeadAssignedName(lead)}</td>
                       <td className="px-6 py-4 text-sm">{lead.transferred_to_sales_at || '-'}</td>
                     </tr>
                   ))}
@@ -1876,6 +1875,123 @@ export default function Telesales() {
         />
       )}
 
+      <CompareLeadsModal
+        isOpen={showCompareModal}
+        onClose={() => setShowCompareModal(false)}
+        duplicateLead={compareData.duplicate}
+        originalLead={compareData.original}
+        usersList={users}
+        onResolve={async (action, updatedOriginal, updatedDuplicate, extraData) => {
+          const { duplicate, original } = compareData
+          if (!duplicate || !original) {
+            setShowCompareModal(false)
+            return
+          }
+
+          const originalId = original.id || original._id
+          const duplicateId = duplicate.id || duplicate._id
+          const targetDuplicate = updatedDuplicate || duplicate
+          const targetDuplicateId = targetDuplicate.id || targetDuplicate._id || duplicateId
+
+          try {
+            switch (action) {
+              case 'keep_save':
+              case 'keep_original':
+                await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
+                  original_lead_id: originalId,
+                  action: 'keep_original',
+                  move_history: action === 'keep_save' ? false : undefined,
+                })
+                break
+
+              case 'enable_duplicate':
+                await api.post('/api/leads/duplicates/bulk-action', {
+                  action: 'enable_duplicate',
+                  lead_ids: [targetDuplicateId],
+                })
+                break
+
+              case 'save_info': {
+                const mergedData = extraData?.merged_data || {}
+                await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
+                  original_lead_id: originalId,
+                  action: 'keep_duplicate',
+                  updated_data: mergedData,
+                })
+                break
+              }
+
+              case 'warn': {
+                const warnNotes =
+                  (targetDuplicate.notes ? `${targetDuplicate.notes}\n` : '') +
+                  `[System Warning] This lead is a duplicate of ${original.name} (#${originalId}).`
+                await api.post(`/api/leads/${targetDuplicateId}/warn-duplicate`, {
+                  original_lead_id: originalId,
+                  notes: warnNotes,
+                })
+                break
+              }
+
+              case 'transfer': {
+                const { salesPersonId, historyOption, stageOption } = extraData || {}
+                if (!salesPersonId) break
+                await api.post(`/api/leads/${originalId}/transfer`, {
+                  assigned_to: salesPersonId,
+                  stage: stageOption,
+                  history_option: historyOption,
+                  assign_as_new: historyOption === 'assign_as_new',
+                  duplicate_id: targetDuplicateId,
+                })
+                break
+              }
+
+              case 'keep_duplicate': {
+                const {
+                  id: dupId,
+                  _id: dupId2,
+                  created_at,
+                  updated_at,
+                  deleted_at,
+                  permissions,
+                  activities,
+                  creator,
+                  assignedAgent,
+                  customFieldValues,
+                  ...duplicateData
+                } = targetDuplicate
+
+                await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
+                  original_lead_id: originalId,
+                  action: 'keep_duplicate',
+                  updated_data: {
+                    ...duplicateData,
+                    name: duplicateData.name || duplicateData.fullName,
+                    assigned_to: duplicateData.assigned_to || duplicateData.assignedTo,
+                    sales_person: duplicateData.sales_person || duplicateData.salesPerson,
+                  },
+                })
+                break
+              }
+
+              default:
+                break
+            }
+
+            await loadOperational()
+          } catch (error) {
+            console.error('Failed to resolve telesales duplicate action', error)
+            window.dispatchEvent(new CustomEvent('app:toast', {
+              detail: {
+                type: 'error',
+                message: isRtl ? 'فشل في تنفيذ إجراء المقارنة' : 'Failed to resolve duplicate action',
+              },
+            }))
+          }
+
+          setShowCompareModal(false)
+        }}
+      />
+
       {showBulkAssignModal && (
         <TelesalesBulkAssignModal
           isOpen={showBulkAssignModal}
@@ -1884,10 +2000,8 @@ export default function Telesales() {
             setAssignModalError('')
             setAssignModalSubmitting(false)
           }}
-          lead={null}
           onAssign={handleBulkAssign}
           isArabic={isRtl}
-          currentUser={user}
           errorMessage={assignModalError}
           submitting={assignModalSubmitting}
           onClearError={() => setAssignModalError('')}
@@ -1898,6 +2012,38 @@ export default function Telesales() {
           filterByRoleLabel={isRtl ? 'تصفية حسب دور التيليسيلز' : 'Filter By Telesales Role'}
           assignToLabel={isRtl ? 'تعيين إلى' : 'Assign To'}
           searchPlaceholder={isRtl ? 'ابحث في أعضاء فريق التيليسيلز' : 'Search telesales team members'}
+        />
+      )}
+
+      {showBulkTransferModal && (
+        <TelesalesBulkAssignModal
+          isOpen={showBulkTransferModal}
+          onClose={() => {
+            if (assignModalSubmitting) return
+            setShowBulkTransferModal(false)
+            setTransferLeadIds([])
+            setAssignModalError('')
+            setAssignModalSubmitting(false)
+          }}
+          onAssign={handleTransferToSales}
+          isArabic={isRtl}
+          errorMessage={assignModalError}
+          submitting={assignModalSubmitting}
+          onClearError={() => setAssignModalError('')}
+          usersOverride={salesConvertUsers}
+          title={isRtl ? 'تحويل إلى السيلز' : 'Convert To Sales'}
+          selectedCount={transferLeadIds.length}
+          assignButtonLabel={isRtl ? 'تحويل' : 'Convert'}
+          assigningButtonLabel={isRtl ? 'جارٍ التحويل...' : 'Converting...'}
+          filterByRoleLabel={isRtl ? 'تصفية حسب دور السيلز' : 'Filter By Sales Role'}
+          assignToLabel={isRtl ? 'تحويل إلى' : 'Assign To'}
+          searchPlaceholder={isRtl ? 'ابحث في أعضاء فريق السيلز' : 'Search sales team members'}
+          assignWithLabel={isRtl ? 'ابدأ في السيلز كـ' : 'Start In Sales As'}
+          primaryRoleLabel={isRtl ? 'كسيلز' : 'As Sales Person'}
+          secondaryRoleLabel={isRtl ? 'كمدير سيلز' : 'As Sales Manager'}
+          duplicateOptionLabel={isRtl ? 'دبليكيت كجديد' : 'Duplicate as new'}
+          sameStageOptionLabel={isRtl ? 'نفس المرحلة' : 'Same stage'}
+          clearHistoryOptionLabel={isRtl ? 'مسح السجل' : 'Clear History'}
         />
       )}
     </div>

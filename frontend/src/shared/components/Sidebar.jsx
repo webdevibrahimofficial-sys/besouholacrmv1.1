@@ -10,6 +10,7 @@ import darkLogoCollapse from '../../assets/be-souhola-logo-dark-collapse.png'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { isTenantAdminUser } from '@services/leadPermissions'
 import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
+import { isTelesalesOnlyUser, resolveTenantHomePath } from '../../utils/authRouting'
 import { useTranslation } from 'react-i18next';
 import { useStages } from '@hooks/useStages';
 import { ICON_MAP } from '../../components/settings/IconSelector';
@@ -481,9 +482,12 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const navRef = useRef(null)
   const role = user?.role || ''
   const roleLower = role.toLowerCase()
+  const isTelesalesOnly = isTelesalesOnlyUser(user)
+  const tenantHomePath = resolveTenantHomePath(user)
   const isRealEstateTenant = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
   const isSalesPerson = roleLower.includes('sales person') || roleLower.includes('salesperson')
   const isTeamLeader = roleLower.includes('team leader') || roleLower.includes('teamleader')
+  const isTelesalesAgentRole = roleLower === 'telesales agent'
   const isTenantAdmin = isTenantAdminUser(user)
   const isDirectorRole = role === 'Director' || roleLower.includes('director')
   const isOperationManagerRole = roleLower.includes('operation manager') || roleLower.includes('operations manager')
@@ -528,6 +532,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewTelesalesModule = canAccess('telesales') && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
   const canViewTelesalesHistorical = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords')
   const canViewTelesalesSection = canViewTelesalesModule || canViewTelesalesHistorical
+  const canCreateTelesalesLead = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('createLead')
   const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewAgenciesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('userManagement')
   const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')
@@ -1026,7 +1031,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
           if (isSystemArea && isSuperAdmin) {
             navigate('/system/dashboard')
           } else {
-            navigate('/dashboard')
+            navigate(tenantHomePath)
           }
         }}
         className={`logo-brand flex items-center gap-2 mb-1 mt-0 cursor-pointer`}
@@ -1287,7 +1292,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
             })()}
           </div>
         )}
-        {!isSystemArea && !isSuperAdmin && !isSectionViewOpen && !isMarketingActive && (
+        {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isSectionViewOpen && !isMarketingActive && (
           <NavLink
             to="/dashboard"
             title={uiCollapsed ? t('Dashboard') : ''}
@@ -1307,12 +1312,14 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
             {telesalesOpen && (
               <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} px-2 py-1`}>
                 <span className="text-sm font-bold link-label">{t('Telesales')}</span>
-                <button type="button" onClick={() => setTelesalesOpen(false)} className={`close-btn text-sm font-semibold ${isLight ? 'text-theme-text hover:text-gray-900' : 'text-gray-200 hover:text-white'} flex items-center gap-2`}>
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                    <path d="M15 18l-6-6 6-6" />
-                  </svg>
-                  <span>{backLabel}</span>
-                </button>
+                {!isTelesalesOnly && (
+                  <button type="button" onClick={() => setTelesalesOpen(false)} className={`close-btn text-sm font-semibold ${isLight ? 'text-theme-text hover:text-gray-900' : 'text-gray-200 hover:text-white'} flex items-center gap-2`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                      <path d="M15 18l-6-6 6-6" />
+                    </svg>
+                    <span>{backLabel}</span>
+                  </button>
+                )}
               </div>
             )}
             {!telesalesOpen && (
@@ -1339,18 +1346,20 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               className={`${isRTL ? 'mr-0 pr-0 border-r' : 'ml-0 pl-0 border-l'} border-theme-border dark:border-gray-700 space-y-0.5 transition-all`}
               style={{ maxHeight: telesalesOpen ? '800px' : '0', overflow: 'hidden', opacity: telesalesOpen ? 1 : 0 }}
             >
-              <NavLink
-                to="/telesales"
-                end
-                title={isCollapsed ? t('All Telesales Leads') : ''}
-                onClick={onClose}
-                className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
-              >
-                <span className="nova-icon-label">
-                  <span className={`${iconContainer} ${iconTone}`}>{getIcon('All Leads')}</span>
-                  <span className="text-[15px] link-label">{t('All Telesales Leads')}</span>
-                </span>
-              </NavLink>
+              {!isTelesalesAgentRole && (
+                <NavLink
+                  to="/telesales"
+                  end
+                  title={isCollapsed ? t('All Telesales Leads') : ''}
+                  onClick={onClose}
+                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+                >
+                  <span className="nova-icon-label">
+                    <span className={`${iconContainer} ${iconTone}`}>{getIcon('All Leads')}</span>
+                    <span className="text-[15px] link-label">{t('All Telesales Leads')}</span>
+                  </span>
+                </NavLink>
+              )}
               {canSeeMyLeadsLink && (
                 <NavLink
                   to="/telesales/my-leads"
@@ -1375,17 +1384,19 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                   <span className="text-[15px] link-label">{t('Referal Telesales Leads')}</span>
                 </span>
               </NavLink>
-              <NavLink
-                to="/telesales/new"
-                title={isCollapsed ? t('Add Telesales Lead') : ''}
-                onClick={onClose}
-                className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
-              >
-                <span className="nova-icon-label">
-                  <span className={`${iconContainer} ${iconTone}`}>{getIcon('Add New Lead')}</span>
-                  <span className="text-[15px] link-label">{t('Add Telesales Lead')}</span>
-                </span>
-              </NavLink>
+              {canCreateTelesalesLead && (
+                <NavLink
+                  to="/telesales/new"
+                  title={isCollapsed ? t('Add Telesales Lead') : ''}
+                  onClick={onClose}
+                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+                >
+                  <span className="nova-icon-label">
+                    <span className={`${iconContainer} ${iconTone}`}>{getIcon('Add New Lead')}</span>
+                    <span className="text-[15px] link-label">{t('Add Telesales Lead')}</span>
+                  </span>
+                </NavLink>
+              )}
               {canViewTelesalesHistorical && (
                 <NavLink
                   to="/telesales/historical"
@@ -1404,7 +1415,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Lead Management (gated by activeModules) */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || leadMgmtOpen) && canAccess('leads') && (
+        {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || leadMgmtOpen) && canAccess('leads') && (
           <div className="w-full">
             {leadMgmtOpen && (
               <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} px-2 py-1`}>
@@ -1579,7 +1590,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Inventory section with full-view submenu */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || inventoryOpen) && inventoryChildren.length > 0 && (
+        {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || inventoryOpen) && inventoryChildren.length > 0 && (
           <div className="w-full">
             {inventoryOpen ? (
               <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-gray-100' : 'bg-gray-900'} px-2 py-1`}>
@@ -1707,7 +1718,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                     setMarketingOpen(false);
                     try { if (typeof window !== 'undefined' && window.localStorage) { window.localStorage.setItem('marketingOpen', 'false') } } catch { }
                     try {
-                      navigate('/dashboard')
+                      navigate(tenantHomePath)
                     } catch { }
                   }}
                   className={`close-btn text-sm font-semibold ${isLight ? 'text-theme-text hover:text-gray-900' : 'text-gray-200 hover:text-white'} flex items-center gap-2`}
@@ -1775,7 +1786,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Customers section with full-view submenu (gated by activeModules) */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || customersOpen) && canAccess('customers') && (
+        {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || customersOpen) && canAccess('customers') && (
           <div className="w-full">
             {customersOpen ? (
               <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} px-2 py-1`}>
@@ -1861,7 +1872,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Contract & Collections section (Real Estate only) */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || ccOpen) && canSeeContractCollectionsSection && (
+        {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || ccOpen) && canSeeContractCollectionsSection && (
           <div className="w-full">
             {ccOpen && (
               <div className={`${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} sticky top-0 z-10 section-header flex items-center mb-2 px-2 py-1`}>
@@ -1895,7 +1906,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Support section (gated by activeModules) */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || supportOpen) && canAccess('support') && (
+        {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || supportOpen) && canAccess('support') && (
           <div className="w-full">
             {supportOpen && (
               <div className={`${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} sticky top-0 z-10 section-header flex items-center mb-2 px-2 py-1`}>
@@ -1938,7 +1949,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* Reports section - Single Link */}
-        {canSeeReportsLink && !isSystemArea && !isSuperAdmin && !isMarketingActive && !isSectionViewOpen && (
+        {canSeeReportsLink && !isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && !isSectionViewOpen && (
           <NavLink
             to="/reports"
             title={isCollapsed ? t('Reports') : ''}
@@ -1953,7 +1964,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
         )}
 
         {/* User Management section with full-view submenu (same style as Inventory/Marketing) */}
-        {canViewUserManagementSection && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || usersOpen) && (
+        {canViewUserManagementSection && !isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || usersOpen) && (
           <div className="w-full">
             {usersOpen ? (
               <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} px-2 py-1`}>
@@ -2046,7 +2057,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
 
 
         {/* Settings Section - Expanded View */}
-        {!isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || settingsOpen) && canAccess('settings') && (
+        {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && (!isSectionViewOpen || settingsOpen) && canAccess('settings') && (
           <div className="w-full">
             {settingsOpen && (
               <div className={`sticky top-0 z-10 section-header flex items-center mb-2 ${isLight ? 'bg-theme-sidebar' : 'bg-gray-900'} px-2 py-1`}>
@@ -2323,7 +2334,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
 
       {/* Settings moved near bottom, above Contact us */}
       {/* Settings Trigger (only visible when settings closed) */}
-      {!isSystemArea && !isSuperAdmin && !isMarketingActive && !isSectionViewOpen && !settingsOpen && canAccess('settings') && (
+      {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && !isMarketingActive && !isSectionViewOpen && !settingsOpen && canAccess('settings') && (
         <div className="pt-2 w-full">
           <div className={`border-t ${isLight ? 'border-theme-border' : 'border-gray-800'} mb-3`}></div>
           <NavLink
@@ -2365,7 +2376,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       )}
 
       {/* Bottom section */}
-      {!isSystemArea && !isSuperAdmin && (
+      {!isTelesalesOnly && !isSystemArea && !isSuperAdmin && (
         <div className={`mt-auto pt-2 w-full`}>
           <div className={`border-t ${isLight ? 'border-gray-200' : 'border-gray-800'} mb-3 ${uiCollapsed ? 'mx-2' : ''}`}></div>
           <NavLink

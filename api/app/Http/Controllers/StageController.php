@@ -54,6 +54,27 @@ class StageController extends Controller
         ],
     ];
 
+    private const SALES_FIXED_STAGES = [
+        [
+            'system_key' => 'sales_new_lead',
+            'name' => 'New Lead',
+            'name_ar' => 'عميل جديد',
+            'type' => 'new_lead',
+            'order' => -20,
+            'color' => '#3B82F6',
+            'icon' => 'Sparkles',
+        ],
+        [
+            'system_key' => 'sales_cold_calls',
+            'name' => 'Cold Calls',
+            'name_ar' => 'مكالمات باردة',
+            'type' => 'cold_calls',
+            'order' => -10,
+            'color' => '#0EA5E9',
+            'icon' => 'Phone',
+        ],
+    ];
+
     private function stageNames(Stage $stage): array
     {
         return array_values(array_unique(array_filter([
@@ -125,6 +146,60 @@ class StageController extends Controller
         }
     }
 
+    private function ensureSalesFixedStages(): void
+    {
+        $tenantId = $this->currentTenantId();
+        if (!$tenantId) {
+            return;
+        }
+
+        foreach (self::SALES_FIXED_STAGES as $stageData) {
+            $metaData = [
+                'locked' => true,
+                'hidden' => true,
+                'system_key' => $stageData['system_key'],
+            ];
+
+            $existing = Stage::query()
+                ->where('tenant_id', $tenantId)
+                ->where(function ($query) use ($stageData, $metaData) {
+                    $query->where('meta_data->system_key', $metaData['system_key'])
+                        ->orWhere(function ($q) use ($stageData) {
+                            $q->where('name', $stageData['name'])
+                                ->where(function ($q2) {
+                                    $q2->where('workflow_key', TelesalesService::WORKFLOW_SALES)
+                                        ->orWhereNull('workflow_key')
+                                        ->orWhere('workflow_key', '');
+                                });
+                        });
+                })
+                ->first();
+
+            if ($existing) {
+                $mergedMeta = array_merge(is_array($existing->meta_data ?? null) ? ($existing->meta_data ?? []) : [], $metaData);
+                $existing->forceFill([
+                    'meta_data' => $mergedMeta,
+                    'workflow_key' => TelesalesService::WORKFLOW_SALES,
+                    'is_active' => true,
+                ])->save();
+                continue;
+            }
+
+            Stage::create([
+                'tenant_id' => $tenantId,
+                'name' => $stageData['name'],
+                'name_ar' => $stageData['name_ar'],
+                'type' => $stageData['type'],
+                'workflow_key' => TelesalesService::WORKFLOW_SALES,
+                'is_active' => true,
+                'order' => $stageData['order'],
+                'color' => $stageData['color'],
+                'icon' => $stageData['icon'],
+                'meta_data' => $metaData,
+            ]);
+        }
+    }
+
     private function linkedLeadsQuery(Stage $stage)
     {
         $stageNames = $this->stageNames($stage);
@@ -147,6 +222,8 @@ class StageController extends Controller
 
         if ($workflowKey === TelesalesService::WORKFLOW_TELESALES) {
             $this->ensureTelesalesFixedStages();
+        } elseif ($workflowKey === TelesalesService::WORKFLOW_SALES) {
+            $this->ensureSalesFixedStages();
         }
 
         $query = Stage::query()->orderBy('order')->orderBy('id');
@@ -167,7 +244,11 @@ class StageController extends Controller
             });
         }
 
-        $stages = $query->get();
+        $stages = $query->get()->reject(function (Stage $stage) {
+            $meta = is_array($stage->meta_data ?? null) ? ($stage->meta_data ?? []) : [];
+            return (bool) ($meta['hidden'] ?? false);
+        })->values();
+
         return response()->json($stages);
     }
 

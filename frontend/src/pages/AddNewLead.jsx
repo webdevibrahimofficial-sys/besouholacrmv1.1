@@ -54,7 +54,12 @@ export const AddNewLead = () => {
   const isSalesPerson =
     roleLower.includes('sales person') ||
     roleLower.includes('salesperson');
-  const canAddLead = leadPermissionFlags.canAddLead;
+  const telesalesPermissions = Array.isArray(currentUser?.meta_data?.module_permissions?.Telesales)
+    ? currentUser.meta_data.module_permissions.Telesales
+    : [];
+  const canCreateTelesalesLead = currentUser?.is_super_admin
+    || telesalesPermissions.includes('createLead');
+  const canAddLead = isTelesalesMode ? canCreateTelesalesLead : leadPermissionFlags.canAddLead;
   const [usersList, setUsersList] = useState([]);
   const [itemsList, setItemsList] = useState([]);
   const [sourcesList, setSourcesList] = useState([]);

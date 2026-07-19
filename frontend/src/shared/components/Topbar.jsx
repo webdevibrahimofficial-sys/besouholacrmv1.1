@@ -10,7 +10,7 @@ import TaskDetailsModal from '../../components/TaskDetailsModal'
 import lightLogo from '@assets/be-souhola-logo-light.png'
 import darkLogo from '@assets/be-souhola-logo-dark.png'
 import AvatarImage from '@components/AvatarImage'
-import { isSystemAdminContext } from '@utils/authRouting'
+import { isSystemAdminContext, resolveTenantHomePath } from '@utils/authRouting'
 import { useImpersonation } from '@features/Impersonation/useImpersonation'
 import { clearImpersonationHints, persistAuthToken } from '@utils/authToken'
 import { applyLanguage } from '../../i18n'
@@ -79,6 +79,7 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
   const navigate = useNavigate()
   const currentLogo = theme === 'dark' ? darkLogo : lightLogo
   const { user, permissions, subscriptionPlan, panelMode, impersonation, logout, fetchCompanyInfo } = useAppState()
+  const tenantHomePath = resolveTenantHomePath(user)
   const { exit: exitSupportAccess } = useImpersonation(Boolean(impersonation?.active))
 
   const [isExtrasOpen, setIsExtrasOpen] = useState(false)
@@ -227,7 +228,7 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
 
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate(tenantHomePath)}
               aria-label={t('Dashboard')}
               className="md:hidden flex items-center gap-2 cursor-pointer"
             >

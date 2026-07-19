@@ -2,6 +2,20 @@ export function hasActiveImpersonation(impersonation) {
   return !!impersonation?.active
 }
 
+function normalizeRole(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function isTelesalesOnlyUser(subject) {
+  const user = subject?.user ?? subject
+  const role = normalizeRole(user?.role || user?.job_title)
+  return ['telesales agent', 'telesales team leader', 'telesales manager'].includes(role)
+}
+
 function resolvePanelMode(subject, options = {}) {
   return options.panelMode ?? subject?.panelMode ?? subject?.panel_mode ?? null
 }
@@ -51,9 +65,16 @@ export function shouldUseAdminPanel(subject, impersonation, options = {}) {
 
 /** Default post-login route for the authenticated user. */
 export function resolvePostLoginPath(subject, impersonation, options = {}) {
+  if (isTelesalesOnlyUser(subject)) {
+    return '/telesales'
+  }
   return shouldUseAdminPanel(subject, impersonation, options)
     ? '/system/dashboard'
     : '/dashboard'
+}
+
+export function resolveTenantHomePath(subject) {
+  return isTelesalesOnlyUser(subject) ? '/telesales' : '/dashboard'
 }
 
 /** Navigate after login; HashRouter fallback if SPA routing does not commit. */
