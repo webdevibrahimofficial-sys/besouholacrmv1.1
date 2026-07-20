@@ -10,6 +10,9 @@ const ImportLeadsModal = ({
   isOpen,
   onClose,
   companyType,
+  destinationWorkflow = 'sales',
+  onDestinationWorkflowChange,
+  showDestinationSelector = false,
   excelFile,
   setExcelFile,
   importing,
@@ -77,6 +80,10 @@ const ImportLeadsModal = ({
   const typeLower = String(companyType || '').toLowerCase()
   const isGeneral = typeLower === 'general'
   const isRealEstate = typeLower === 'realestate' || typeLower === 'real estate' || typeLower === 'real_estate'
+  const workflowOptions = [
+    { value: 'sales', label: i18n.language === 'ar' ? 'مسار المبيعات' : 'Sales Pipeline' },
+    { value: 'telesales', label: i18n.language === 'ar' ? 'موديول التيليسيلز' : 'Telesales Module' },
+  ]
 
   // دالة توليد ملف Excel التيمبليت
   const generateTemplate = () => {
@@ -309,6 +316,22 @@ const ImportLeadsModal = ({
 
           {/* Actions */}
           <div className="mt-5 flex flex-col sm:flex-row gap-3 sm:items-center">
+            {showDestinationSelector && typeof onDestinationWorkflowChange === 'function' && (
+              <div className="w-full sm:max-w-[240px]">
+                <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {i18n.language === 'ar' ? 'الوجهة' : 'Destination'}
+                </label>
+                <select
+                  value={destinationWorkflow}
+                  onChange={(e) => onDestinationWorkflowChange(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl border text-sm ${isDark ? 'bg-[#14213d] border-[#60a5fa]/40 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                >
+                  {workflowOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button
               onClick={onImport}
               disabled={!excelFile || importing}

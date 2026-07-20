@@ -367,16 +367,23 @@ class TelesalesService
     {
         $tenantId = (int) ($actor?->tenant_id ?? 0);
         $requestedWorkflow = strtolower(trim((string) ($payload['workflow_key'] ?? '')));
+        $tenant = $this->getTenantForUser($actor);
 
-        if ($requestedWorkflow === self::WORKFLOW_TELESALES) {
-            $tenant = $this->getTenantForUser($actor);
-            if ($this->isEnabledForTenant($tenant) && $this->userHasPermission($actor, 'createLead')) {
-                return self::WORKFLOW_TELESALES;
+        if (in_array($requestedWorkflow, [self::WORKFLOW_SALES, self::WORKFLOW_TELESALES], true)) {
+            if ($requestedWorkflow === self::WORKFLOW_TELESALES) {
+                if ($this->isEnabledForTenant($tenant) && $this->userHasPermission($actor, 'createLead')) {
+                    return self::WORKFLOW_TELESALES;
+                }
+
+                return self::WORKFLOW_SALES;
             }
+
+            return self::WORKFLOW_SALES;
         }
 
         $settings = $this->getCrmSettings($tenantId);
         $mappings = $settings['leadWorkflowSourceMappings'] ?? [];
+        $defaultWorkflow = strtolower(trim((string) ($settings['defaultWorkflowFallback'] ?? self::WORKFLOW_SALES)));
         $source = $this->normalizeSource($payload['source'] ?? null);
 
         if ($source !== '' && is_array($mappings)) {
@@ -385,12 +392,15 @@ class TelesalesService
                 $mappingWorkflow = strtolower(trim((string) ($mapping['workflow_key'] ?? '')));
                 if ($mappingSource !== '' && $mappingSource === $source && in_array($mappingWorkflow, [self::WORKFLOW_SALES, self::WORKFLOW_TELESALES], true)) {
                     if ($mappingWorkflow === self::WORKFLOW_TELESALES) {
-                        $tenant = $this->getTenantForUser($actor);
                         return $this->isEnabledForTenant($tenant) ? self::WORKFLOW_TELESALES : self::WORKFLOW_SALES;
                     }
                     return self::WORKFLOW_SALES;
                 }
             }
+        }
+
+        if ($defaultWorkflow === self::WORKFLOW_TELESALES && $this->isEnabledForTenant($tenant)) {
+            return self::WORKFLOW_TELESALES;
         }
 
         return self::WORKFLOW_SALES;

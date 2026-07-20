@@ -31,7 +31,7 @@ const renderStageBadge = (stage) => {
 
 import { useStages } from '@hooks/useStages';
 
-export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmployeeName, stageFilter, onCountChange }) => {
+export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmployeeName, stageFilter, onCountChange, mode = 'sales', employeeColumnLabel = null }) => {
   const { t, i18n } = useTranslation();
   const { theme, resolvedTheme } = useTheme();
   const isLight = (resolvedTheme || theme) === 'light';
@@ -60,7 +60,8 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
       defaultCountryCode: getLeadDefaultCountryCode(lead),
     })
   }
-  const { stages } = useStages(); // Fetch dynamic stages from hook
+  const workflowKey = mode === 'telesales' ? 'telesales' : 'sales'
+  const { stages } = useStages({ workflowKey, activeOnly: true }); // Fetch dynamic stages from hook
   const MEET_ICON_URL = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'><rect x='2' y='4' width='12' height='16' rx='3' fill='%23ffffff'/><rect x='2' y='4' width='12' height='4' rx='2' fill='%234285F4'/><rect x='2' y='4' width='4' height='16' rx='2' fill='%2334A853'/><rect x='10' y='4' width='4' height='16' rx='2' fill='%23FBBC05'/><rect x='2' y='16' width='12' height='4' rx='2' fill='%23EA4335'/><polygon points='14,9 22,5 22,19 14,15' fill='%2334A853'/></svg>"
   const SCROLLBAR_CSS = `
     .scrollbar-thin-blue { scrollbar-width: thin; scrollbar-color: #2563eb transparent; }
@@ -182,15 +183,22 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     try {
       const params = {};
       if (selectedEmployee) params.assigned_to = selectedEmployee;
-      
-      // Use the dedicated delayed leads endpoint
-      const response = await api.get('/api/leads/delayed', { params });
+
+      let response
+      if (mode === 'telesales') {
+        params.page = 1
+        params.per_page = 200
+        response = await api.get('/api/telesales/leads', { params })
+      } else {
+        // Use the dedicated delayed leads endpoint
+        response = await api.get('/api/leads/delayed', { params })
+      }
       const payload = response.data || {};
       const leadsArray = Array.isArray(payload.data)
         ? payload.data
         : (Array.isArray(payload) ? payload : []);
       setLeads(leadsArray);
-      setDelayedTotal(Number(payload.total || 0));
+      setDelayedTotal(mode === 'telesales' ? 0 : Number(payload.total || 0));
     } catch (error) {
       console.error('Failed to fetch leads for DelayLeads', error);
     } finally {
@@ -427,6 +435,12 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     });
   }, [allLeads]);
 
+  useEffect(() => {
+    if (mode === 'telesales') {
+      setDelayedTotal(delayLeads.length)
+    }
+  }, [delayLeads.length, mode])
+
   const formatDateSafe = (iso) => {
     try {
       const d = new Date(iso)
@@ -563,6 +577,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   // Background colors matching the sidebar
   const bgColor = isLight ? 'bg-gray-100' : 'bg-gray-900';
   const textColor = isLight ? 'text-gray-800' : 'text-gray-100';
+  const effectiveEmployeeColumnLabel = employeeColumnLabel || t('Sales Person')
 
   // Click handler to show tooltip anchored above the clicked row/card
   const handleRowClick = (lead, event) => {
@@ -783,7 +798,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 <th scope="col" className="px-6 py-3">{t('Mobile')}</th>
                 <th scope="col" className="px-6 py-3">{t('Actions')}</th>
                 <th scope="col" className="px-6 py-3">{t('Stage')}</th>
-                <th scope="col" className="px-6 py-3">{t('Sales Person')}</th>
+                <th scope="col" className="px-6 py-3">{effectiveEmployeeColumnLabel}</th>
                 <th scope="col" className="px-6 py-3">{t('Source')}</th>
                 <th scope="col" className="px-6 py-3">{t('Last Comment')}</th>
                 <th scope="col" className="px-6 py-3">{t('Next Action')}</th>

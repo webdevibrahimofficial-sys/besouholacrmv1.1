@@ -1378,37 +1378,39 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       }
 
       if (isMeetingPayload && isFinalMeetingStatus) {
-        try {
-          const existingRes = await api.get('/api/lead-actions', {
-            params: { lead_id: lead.id, type: 'meeting', limit: 500 },
-          });
-          const existing = Array.isArray(existingRes.data) ? existingRes.data : (existingRes.data?.data || []);
-          const scheduledCandidates = existing
-            .filter(a => (a?.action_type === 'meeting' || a?.next_action_type === 'meeting'))
-            .filter(a => {
-              const s = String(a?.details?.meeting_status || '').toLowerCase().trim();
-              const dm = String(a?.details?.doneMeeting || '').toLowerCase().trim();
-              const derived = s || (dm === 'true' ? 'done' : '');
-              return derived !== 'done' && derived !== 'no_show';
-            })
-            .sort((a, b) => (Number(b?.id || 0) - Number(a?.id || 0)));
+        const existingRes = await api.get('/api/lead-actions', {
+          params: { lead_id: lead.id, type: 'meeting', limit: 500 },
+        });
+        const existing = Array.isArray(existingRes.data) ? existingRes.data : (existingRes.data?.data || []);
+        const scheduledCandidates = existing
+          .filter(a => (a?.action_type === 'meeting' || a?.next_action_type === 'meeting'))
+          .filter(a => {
+            const s = String(a?.details?.meeting_status || '').toLowerCase().trim();
+            const dm = String(a?.details?.doneMeeting || '').toLowerCase().trim();
+            const derived = s || (dm === 'true' ? 'done' : '');
+            return derived !== 'done' && derived !== 'no_show';
+          })
+          .sort((a, b) => (Number(b?.id || 0) - Number(a?.id || 0)));
 
-          const exactMatch = scheduledCandidates.find(a =>
-            String(a?.details?.date || '') === String(cleanedData.date || '') &&
-            String(a?.details?.time || '') === String(cleanedData.time || '')
-          );
+        const exactMatch = scheduledCandidates.find(a =>
+          String(a?.details?.date || '') === String(cleanedData.date || '') &&
+          String(a?.details?.time || '') === String(cleanedData.time || '')
+        );
 
-          const target = exactMatch || scheduledCandidates[0];
-          if (target?.id) {
-            response = await api.put(`/api/lead-actions/${target.id}`, {
-              details: {
-                meeting_status: meetingStatus,
-                doneMeeting: meetingStatus === 'done',
-              },
-            });
-          }
-        } catch (e) {
+        const target = exactMatch || scheduledCandidates[0];
+        if (!target?.id) {
+          throw new Error(isArabic ? 'لم يتم العثور على اجتماع مفتوح لإغلاقه' : 'No open meeting found to close');
         }
+
+        response = await api.put(`/api/lead-actions/${target.id}`, {
+          details: {
+            meeting_status: meetingStatus,
+            doneMeeting: meetingStatus === 'done',
+            notes: cleanedData.notes,
+            next_action_date: cleanedData.date,
+            next_action_time: cleanedData.time,
+          },
+        });
       }
 
       if (!response) {

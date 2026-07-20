@@ -35,10 +35,15 @@ export const Leads = () => {
   const { theme: contextTheme, resolvedTheme } = useTheme()
   const theme = resolvedTheme || contextTheme
   const isLight = theme === 'light'
-  const { user, company, crmSettings, saveUiPreference } = useAppState()
+  const { user, company, crmSettings, saveUiPreference, activeModules } = useAppState()
   const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
   const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
   const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode])
+  const telesalesPermissions = Array.isArray(user?.meta_data?.module_permissions?.Telesales)
+    ? user.meta_data.module_permissions.Telesales
+    : []
+  const canCreateTelesalesLead = !!(user?.is_super_admin || telesalesPermissions.includes('createLead'))
+  const canChooseImportDestination = Array.isArray(activeModules) && activeModules.includes('telesales') && canCreateTelesalesLead
   const formatMoney = (value) => {
     const n = Number(value)
     if (!Number.isFinite(n)) return '-'
@@ -403,6 +408,7 @@ export const Leads = () => {
   const [selectedLead, setSelectedLead] = useState(null)
   const [showAddActionModal, setShowAddActionModal] = useState(false)
   const [excelFile, setExcelFile] = useState(null)
+  const [importDestinationWorkflow, setImportDestinationWorkflow] = useState('sales')
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
   const [importSummary, setImportSummary] = useState(null)
@@ -1042,7 +1048,7 @@ if (!s) {
     // even if a tenant has legacy/unmapped stage values that are not represented
     // by the visible stage cards.
     counts.total = Number(statsData.total || 0);
-    
+
     return counts;
   }, [statsData, sidebarStages, normalizedStatsByStage, stageAliasMap])
 
@@ -2118,6 +2124,9 @@ if (!s) {
         rows: newLeads,
         mapping: {},
         phone_country: phoneCountryHint || undefined,
+        options: {
+          workflow_key: importDestinationWorkflow === 'telesales' ? 'telesales' : 'sales',
+        },
       })
 
       const jobId = Number(response.data?.job_id || 0) || null
@@ -5612,8 +5621,12 @@ if (!s) {
             setShowImportModal(false)
             setImportError('')
             setImportSummary(null)
+            setImportDestinationWorkflow('sales')
           }}
           companyType={company?.company_type}
+          destinationWorkflow={importDestinationWorkflow}
+          onDestinationWorkflowChange={setImportDestinationWorkflow}
+          showDestinationSelector={canChooseImportDestination}
           excelFile={excelFile}
           setExcelFile={setExcelFile}
           onImport={handleExcelUpload}

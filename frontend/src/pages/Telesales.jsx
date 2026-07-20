@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -78,8 +78,11 @@ export default function Telesales() {
   const textColor = isLight ? 'text-black' : 'text-white'
   const tableHeaderBgClass = isLight ? 'bg-gray-100/90' : 'bg-slate-900/80'
   const pipelineTabSelectedClass = isLight
-    ? 'bg-blue-600 text-white border-none'
-    : 'bg-blue-600 text-white border-none shadow-lg shadow-blue-500/20'
+    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+    : 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/20'
+  const pipelineTabDefaultClass = isLight
+    ? 'bg-white/80 text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50/70'
+    : 'bg-slate-900/50 text-slate-200 border-white/10 hover:border-blue-500/40 hover:bg-blue-500/10'
 
   const navigate = useNavigate()
   const location = useLocation()
@@ -98,6 +101,7 @@ export default function Telesales() {
   const [disableCheck, setDisableCheck] = useState(null)
   const [loading, setLoading] = useState(true)
   const [historicalLoading, setHistoricalLoading] = useState(false)
+  const [operationalRefreshing, setOperationalRefreshing] = useState(false)
   const [transferingId, setTransferingId] = useState(null)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
@@ -152,6 +156,8 @@ export default function Telesales() {
   const [transferLeadIds, setTransferLeadIds] = useState([])
   const [assignModalError, setAssignModalError] = useState('')
   const [assignModalSubmitting, setAssignModalSubmitting] = useState(false)
+  const hasLoadedInitialRef = useRef(false)
+  const supportDataCacheKeyRef = useRef('')
 
   const moduleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
   const canShow = useMemo(() => hasTelesalesPermission(user, 'showModule'), [user])
@@ -354,13 +360,8 @@ export default function Telesales() {
     setTotalRows(Number(payload?.total || dataRows.length || 0))
   }
 
-  const loadOperational = async () => {
-    const scope = isMyLeadsView ? 'my' : (isReferralView ? 'referral' : 'all')
-    const telesalesParams = buildOperationalParams(scope)
-    const summaryParams = buildOperationalParams(scope, { includeStageFilter: false })
-
-    const [leadRes, userRes, telesalesAssigneeRes, salesAssigneeRes, sourceRes, projectRes, campaignRes, countryRes] = await Promise.all([
-      api.get('/api/telesales/leads', { params: telesalesParams }),
+  const loadOperationalSupportData = async () => {
+    const [userRes, telesalesAssigneeRes, salesAssigneeRes, sourceRes, projectRes, campaignRes, countryRes] = await Promise.all([
       api.get('/api/users'),
       api.get('/api/telesales/assignees', { params: { workflow: 'telesales' } }).catch(() => null),
       api.get('/api/telesales/assignees', { params: { workflow: 'sales' } }).catch(() => null),
@@ -370,6 +371,20 @@ export default function Telesales() {
       api.get('/api/countries?active=1').catch(() => null),
     ])
 
+    setUsers(normalizeUsers(userRes?.data))
+    setTelesalesAssignees(normalizeUsers(telesalesAssigneeRes?.data))
+    setSalesAssignees(normalizeUsers(salesAssigneeRes?.data))
+    setSourcesList(Array.isArray(sourceRes?.data?.data) ? sourceRes.data.data : (Array.isArray(sourceRes?.data) ? sourceRes.data : []))
+    setProjectsList(Array.isArray(projectRes?.data?.data) ? projectRes.data.data : (Array.isArray(projectRes?.data) ? projectRes.data : []))
+    setCampaignsList(Array.isArray(campaignRes?.data?.data) ? campaignRes.data.data : (Array.isArray(campaignRes?.data) ? campaignRes.data : []))
+    setCountriesList(Array.isArray(countryRes?.data?.data) ? countryRes.data.data : (Array.isArray(countryRes?.data) ? countryRes.data : []))
+  }
+
+  const loadOperationalMetrics = async () => {
+    const scope = isMyLeadsView ? 'my' : (isReferralView ? 'referral' : 'all')
+    const telesalesParams = buildOperationalParams(scope)
+    const summaryParams = buildOperationalParams(scope, { includeStageFilter: false })
+    const leadRes = await api.get('/api/telesales/leads', { params: telesalesParams })
     let summaryRes = null
     let disableCheckRes = null
     try {
@@ -385,15 +400,20 @@ export default function Telesales() {
     }
 
     applyPaginator(leadRes?.data, false)
-    setUsers(normalizeUsers(userRes?.data))
-    setTelesalesAssignees(normalizeUsers(telesalesAssigneeRes?.data))
-    setSalesAssignees(normalizeUsers(salesAssigneeRes?.data))
-    setSourcesList(Array.isArray(sourceRes?.data?.data) ? sourceRes.data.data : (Array.isArray(sourceRes?.data) ? sourceRes.data : []))
-    setProjectsList(Array.isArray(projectRes?.data?.data) ? projectRes.data.data : (Array.isArray(projectRes?.data) ? projectRes.data : []))
-    setCampaignsList(Array.isArray(campaignRes?.data?.data) ? campaignRes.data.data : (Array.isArray(campaignRes?.data) ? campaignRes.data : []))
-    setCountriesList(Array.isArray(countryRes?.data?.data) ? countryRes.data.data : (Array.isArray(countryRes?.data) ? countryRes.data : []))
     setSummary(summaryRes?.data || null)
     setDisableCheck(disableCheckRes?.data || null)
+  }
+
+  const loadOperational = async ({ includeSupport = false } = {}) => {
+    if (includeSupport) {
+      await Promise.all([
+        loadOperationalSupportData(),
+        loadOperationalMetrics(),
+      ])
+      return
+    }
+
+    await loadOperationalMetrics()
   }
 
   const loadHistorical = async () => {
@@ -417,12 +437,21 @@ export default function Telesales() {
   }
 
   const load = async () => {
-    setLoading(true)
+    const isInitialLoad = !hasLoadedInitialRef.current
+    const supportDataKey = `${isGeneralTenant ? 'general' : 'standard'}|${moduleEnabled ? '1' : '0'}|${canShow ? '1' : '0'}`
+    const shouldLoadSupport = supportDataCacheKeyRef.current !== supportDataKey
+
+    if (isInitialLoad) {
+      setLoading(true)
+    } else if (moduleEnabled && canShow && !isHistoricalRoute) {
+      setOperationalRefreshing(true)
+    }
     setPageError('')
 
     try {
       if (moduleEnabled && canShow) {
-        await loadOperational()
+        await loadOperational({ includeSupport: shouldLoadSupport })
+        supportDataCacheKeyRef.current = supportDataKey
       } else if (canViewHistorical) {
         await loadHistorical()
       } else {
@@ -434,6 +463,8 @@ export default function Telesales() {
         await loadHistorical()
       }
     } finally {
+      hasLoadedInitialRef.current = true
+      setOperationalRefreshing(false)
       setLoading(false)
     }
   }
@@ -443,10 +474,26 @@ export default function Telesales() {
   }, [moduleEnabled, canShow, canViewHistorical, canViewDashboard, canDisableModule, isMyLeadsView, isReferralView, isHistoricalRoute, currentPage, historicalPage, perPage, searchTerm, JSON.stringify(stageFilter), JSON.stringify(sourceFilter), JSON.stringify(priorityFilter), JSON.stringify(projectFilter), JSON.stringify(assigneeFilter), JSON.stringify(createdByFilter), JSON.stringify(managerFilter), JSON.stringify(campaignFilter), JSON.stringify(countryFilter), emailFilter, expectedRevenueFilter, JSON.stringify(actionTypeFilter), assignedDateFrom, assignedDateTo, lastActionDateFrom, lastActionDateTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo])
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    const stageParam = params.get('stage')
+    const normalizedStage = stageParam ? String(stageParam).trim() : ''
+
+    setStageFilter((prev) => {
+      if (!normalizedStage && prev.length === 0) return prev
+      if (!normalizedStage) return []
+      if (prev.length === 1 && prev[0] === normalizedStage) return prev
+      return [normalizedStage]
+    })
+  }, [location.search])
+
+  useEffect(() => {
     if (isTelesalesAgent && location.pathname === '/telesales') {
-      navigate('/telesales/my-leads', { replace: true })
+      navigate({
+        pathname: '/telesales/my-leads',
+        search: location.search,
+      }, { replace: true })
     }
-  }, [isTelesalesAgent, location.pathname, navigate])
+  }, [isTelesalesAgent, location.pathname, location.search, navigate])
 
   const pageTitle = useMemo(() => {
     if (isHistoricalRoute || mode === 'historical') return 'History(deleted)'
@@ -455,19 +502,47 @@ export default function Telesales() {
     return 'All Telesales Leads'
   }, [isHistoricalRoute, isMyLeadsView, isReferralView, mode])
 
+  const activeStageKey = useMemo(() => {
+    const stateStage = normalizeStageKey(stageFilter[0])
+    if (stateStage) return stateStage
+    const urlStage = normalizeStageKey(new URLSearchParams(location.search || '').get('stage'))
+    return urlStage
+  }, [location.search, stageFilter])
+
+  const updateStageSelection = (nextStageKey) => {
+    const normalizedNextStage = normalizeStageKey(nextStageKey)
+    const params = new URLSearchParams(location.search || '')
+
+    if (normalizedNextStage) {
+      params.set('stage', normalizedNextStage)
+      setStageFilter([normalizedNextStage])
+    } else {
+      params.delete('stage')
+      setStageFilter([])
+    }
+
+    setCurrentPage(1)
+    setHistoricalPage(1)
+
+    navigate({
+      pathname: location.pathname,
+      search: params.toString() ? `?${params.toString()}` : '',
+    }, { replace: false })
+  }
+
   const stageCounts = useMemo(() => {
     const counts = { total: Number(summary?.total_leads || totalRows || 0) }
 
     const summaryStages = Array.isArray(summary?.by_stage) ? summary.by_stage : []
     if (summaryStages.length > 0) {
       summaryStages.forEach((item) => {
-        const key = normalizeStageKey(item?.stage_key || item?.stage_name)
+        const key = normalizeStageKey(item?.stage_name || item?.stage_key)
         if (!key) return
         counts[key] = Number(item.count || 0)
       })
     } else {
       rows.forEach((lead) => {
-        const key = normalizeStageKey(lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage)
+        const key = normalizeStageKey(lead?.display_stage || lead?.stageRelation?.name || lead?.stage || lead?.stageRelation?.type)
         if (!key || key === '-') return
         counts[key] = Number(counts[key] || 0) + 1
       })
@@ -905,19 +980,18 @@ export default function Telesales() {
 
   const stageCards = useMemo(() => telesalesStages
     .filter((stage) => {
-      const stageTypeKey = normalizeStageKey(stage?.type)
-      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
+      const key = normalizeStageKey(stage?.name)
       if (key === 'duplicate') return !isMyLeadsView && canViewDuplicateDisplay
       if (key === 'pending') return !isMyLeadsView && canViewPendingDisplay
       return true
     })
     .map((stage) => {
-      const stageTypeKey = normalizeStageKey(stage?.type)
-      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
+      const key = normalizeStageKey(stage?.name)
       return {
-        id: stage.id || key,
+        id: stage.id || `${key}-${normalizeStageKey(stage?.type) || 'stage'}`,
         key,
         name: stage.name,
+        type: normalizeStageKey(stage?.type),
         icon: stage.icon || 'BarChart2',
         count: stageCounts[key] || 0,
       }
@@ -1406,15 +1480,21 @@ export default function Telesales() {
         <>
           <div className="mb-3 flex items-center justify-between">
             <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'}`}>Telesales Pipeline</h2>
+            {operationalRefreshing && (
+              <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${isLight ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-800 bg-blue-900/30 text-blue-300'}`}>
+                <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse" />
+                <span>{t('Loading...')}</span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4 items-stretch">
             <button
+              type="button"
               onClick={() => {
-                setStageFilter([])
-                setCurrentPage(1)
+                updateStageSelection('')
               }}
-              className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${stageFilter.length === 0 ? pipelineTabSelectedClass : textColor}`}
+              className={`text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full rounded-xl border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40 ${!activeStageKey ? pipelineTabSelectedClass : pipelineTabDefaultClass}`}
             >
               <span className="flex items-center gap-2 text-left"><span>Σ</span><span>{t('total leads')}</span></span>
               <span className="font-bold">{Number(stageCounts.total || 0)}</span>
@@ -1423,11 +1503,11 @@ export default function Telesales() {
             {stageCards.map((stage) => (
               <button
                 key={stage.id}
+                type="button"
                 onClick={() => {
-                  setCurrentPage(1)
-                  setStageFilter((prev) => (prev[0] === stage.key ? [] : [stage.key]))
+                  updateStageSelection(activeStageKey === stage.key ? '' : stage.key)
                 }}
-                className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${stageFilter[0] === stage.key ? pipelineTabSelectedClass : textColor}`}
+                className={`text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full rounded-xl border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40 ${activeStageKey === stage.key ? pipelineTabSelectedClass : pipelineTabDefaultClass}`}
               >
                 <span className="flex items-center gap-2 text-left">
                   <span className="inline-flex items-center justify-center">
@@ -1539,7 +1619,11 @@ export default function Telesales() {
                 </thead>
 
                 <tbody className="divide-y divide-theme-border dark:bg-transparent dark:divide-gray-700">
-                  {paginatedRows.length === 0 ? (
+                  {operationalRefreshing && paginatedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">{t('Loading...')}</td>
+                    </tr>
+                  ) : paginatedRows.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">No data</td>
                     </tr>

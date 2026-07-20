@@ -127,6 +127,52 @@ export const api = axios.create({
   },
 })
 
+const inflightGetRequests = new Map()
+
+const resolveAxiosAdapter = (adapterLike) => {
+  if (typeof adapterLike === 'function') return adapterLike
+  if (typeof axios.getAdapter === 'function') {
+    try {
+      return axios.getAdapter(adapterLike)
+    } catch {
+    }
+  }
+  return null
+}
+
+const defaultAdapter = resolveAxiosAdapter(api.defaults.adapter) || resolveAxiosAdapter(axios.defaults.adapter)
+
+if (defaultAdapter) {
+  api.defaults.adapter = async (config) => {
+    const method = String(config?.method || 'get').toLowerCase()
+    const shouldDeduplicate =
+      method === 'get' &&
+      config?.disableRequestDedup !== true &&
+      config?.responseType !== 'stream'
+
+    if (!shouldDeduplicate) {
+      return defaultAdapter(config)
+    }
+
+    const fullUrl = buildAxiosLikeUrl(config.baseURL, config.url)
+    const paramsKey = JSON.stringify(config.params || {})
+    const tenantKey = String(config.headers?.['X-Tenant-Id'] || config.headers?.['X-Tenant'] || '')
+    const authKey = String(config.headers?.Authorization || '')
+    const requestKey = `${method}:${fullUrl}:${paramsKey}:${tenantKey}:${authKey}`
+
+    if (inflightGetRequests.has(requestKey)) {
+      return inflightGetRequests.get(requestKey)
+    }
+
+    const requestPromise = Promise.resolve(defaultAdapter(config)).finally(() => {
+      inflightGetRequests.delete(requestKey)
+    })
+
+    inflightGetRequests.set(requestKey, requestPromise)
+    return requestPromise
+  }
+}
+
 api.interceptors.request.use((config) => {
   if (config.url) {
     const hasApiSuffixInBase = /\/api\/?$/.test(String(config.baseURL || ''))

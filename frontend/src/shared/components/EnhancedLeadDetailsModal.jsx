@@ -1142,10 +1142,15 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     const creator = action.creator || (typeof action.user === 'object' ? action.user : null);
     const creatorRole = creator?.role || action.role || '';
     const normalizedType = String(action.action_type || action.type || '').toLowerCase();
+    const isMeetingAction =
+      normalizedType === 'meeting' ||
+      String(action.next_action_type || details.next_action_type || '').toLowerCase() === 'meeting';
     const actionNoteText =
       normalizedType === 'note'
         ? (action.description || details.description || details.notes || action.notes || '')
-        : (details.reservationNotes || details.reservation_notes || '');
+        : isMeetingAction
+          ? (details.notes || action.notes || details.description || action.description || '')
+          : (details.reservationNotes || details.reservation_notes || details.notes || action.notes || '');
 
     return {
       ...action,
@@ -2181,10 +2186,23 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   };
 
   const getScheduledNextActionDateTime = (action) => {
-    if (isFinalAction(action)) return '';
     const details = action?.details || {};
-    const dateRaw = details?.date || action?.date || '';
-    const timeRaw = details?.time || action?.time || '';
+    const dateRaw =
+      details?.next_action_date ||
+      details?.nextActionDate ||
+      details?.date ||
+      action?.next_action_date ||
+      action?.nextActionDate ||
+      action?.date ||
+      '';
+    const timeRaw =
+      details?.next_action_time ||
+      details?.nextActionTime ||
+      details?.time ||
+      action?.next_action_time ||
+      action?.nextActionTime ||
+      action?.time ||
+      '';
     const datePart = String(dateRaw || '').includes('T')
       ? String(dateRaw).split('T')[0]
       : String(dateRaw || '').trim();
@@ -3349,7 +3367,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                                 <span className={`px-2 py-1 rounded border text-xs ${getTypeColor(resolveActionType(action))}`}>{getTypeLabel(resolveActionType(action))}</span>
                               </div>
                               {/* Meeting Status Display */}
-                              {action.type === 'meeting' && action.details?.meeting_status && (
+                              {(String(action.type || '').toLowerCase() === 'meeting' || String(action.next_action_type || '').toLowerCase() === 'meeting') && action.details?.meeting_status && (
                                 <div className="flex items-center gap-1">
                                   <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'حالة الاجتماع:' : 'Meeting Status:'}</span>
                                   <span className={`px-2 py-1 rounded border text-xs font-bold ${
@@ -3413,9 +3431,12 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                             {(() => {
                               const actionType = String(action.type || action.action_type || '').toLowerCase();
                               const isNoteAction = actionType === 'note';
+                              const isMeetingAction = actionType === 'meeting' || String(action.next_action_type || '').toLowerCase() === 'meeting';
                               const primaryText = isNoteAction
                                 ? (action.notes || action.description)
-                                : (action.description || action.notes);
+                                : isMeetingAction
+                                  ? (action.notes || action.description)
+                                  : (action.description || action.notes);
                               if (!primaryText) return null;
                               return (
                                 <>

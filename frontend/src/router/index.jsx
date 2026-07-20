@@ -53,6 +53,7 @@ const SalesInvoices = lazyRetry(() => import('../pages/SalesInvoices'))
 // --- Leads ---
 const Leads = lazyRetry(() => import('../pages/Leads'))
 const Telesales = lazyRetry(() => import('../pages/Telesales'))
+const TelesalesDashboard = lazyRetry(() => import('../pages/TelesalesDashboard'))
 const ReferralLeads = lazyRetry(() => import('../pages/ReferralLeads'))
 const AddNewLead = lazyRetry(() => import('../pages/AddNewLead'))
 const Recycle = lazyRetry(() => import('../pages/Recycle'))
@@ -358,6 +359,7 @@ export default function AppRouter() {
               <Route path="/recycle" element={<Recycle />} />
               <Route path="/stages-setup" element={<StagesSetup />} />
             </Route>
+            <Route path="/telesales/dashboard" element={<TelesalesDashboard />} />
             <Route path="/telesales" element={<Telesales />} />
             <Route path="/telesales/my-leads" element={<Telesales />} />
             <Route path="/telesales/referral" element={<Telesales />} />

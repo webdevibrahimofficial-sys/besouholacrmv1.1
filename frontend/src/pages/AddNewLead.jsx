@@ -39,7 +39,10 @@ export const AddNewLead = () => {
   const [note, setNote] = useState('');
   const [attachments, setAttachments] = useState([]);
   const isTelesalesMode = location.pathname.startsWith('/telesales');
-  const { stages, statuses } = useStages({ workflowKey: isTelesalesMode ? 'telesales' : 'sales' });
+  const workflowOptions = [
+    { value: 'sales', label: t('Sales Pipeline') },
+    { value: 'telesales', label: t('Telesales Module') },
+  ];
   const [assignedTo, setAssignedTo] = useState('');
   const [stage, setStage] = useState('');
   const [status, setStatus] = useState('');
@@ -47,7 +50,7 @@ export const AddNewLead = () => {
   const [primaryCollapsed, setPrimaryCollapsed] = useState(false);
   const [projectsList, setProjectsList] = useState([]);
   
-  const { user: currentUser, company: tenantCompany, crmSettings } = useAppState();
+  const { user: currentUser, company: tenantCompany, crmSettings, activeModules } = useAppState();
   const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings]);
   const leadPermissionFlags = getLeadPermissionFlags(currentUser);
   const roleLower = String(currentUser?.role || '').toLowerCase();
@@ -60,6 +63,12 @@ export const AddNewLead = () => {
   const canCreateTelesalesLead = currentUser?.is_super_admin
     || telesalesPermissions.includes('createLead');
   const canAddLead = isTelesalesMode ? canCreateTelesalesLead : leadPermissionFlags.canAddLead;
+  const isTelesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales');
+  const canManuallyChooseTelesalesDestination = !isTelesalesMode && isTelesalesModuleEnabled && canCreateTelesalesLead;
+  const [destinationWorkflow, setDestinationWorkflow] = useState(isTelesalesMode ? 'telesales' : 'sales');
+  const selectedWorkflow = isTelesalesMode ? 'telesales' : destinationWorkflow;
+  const isSelectedTelesalesWorkflow = selectedWorkflow === 'telesales';
+  const { stages, statuses } = useStages({ workflowKey: isSelectedTelesalesWorkflow ? 'telesales' : 'sales' });
   const [usersList, setUsersList] = useState([]);
   const [itemsList, setItemsList] = useState([]);
   const [sourcesList, setSourcesList] = useState([]);
@@ -129,7 +138,7 @@ export const AddNewLead = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = isTelesalesMode
+        const res = isSelectedTelesalesWorkflow
           ? await api.get('/api/telesales/assignees', { params: { workflow: 'telesales' } })
           : await api.get('/api/users');
         const data = Array.isArray(res.data) ? res.data : (res.data?.data || []);
@@ -139,7 +148,7 @@ export const AddNewLead = () => {
       }
     };
     fetchUsers();
-  }, [isTelesalesMode]);
+  }, [isSelectedTelesalesWorkflow]);
 
   useEffect(() => {
     if (isSalesPerson && currentUser?.id) {
@@ -236,7 +245,7 @@ export const AddNewLead = () => {
     .trim();
 
   const telesalesEntryStageOption = useMemo(() => {
-    if (!isTelesalesMode) return null;
+    if (!isSelectedTelesalesWorkflow) return null;
 
     const list = Array.isArray(stages) ? stages : [];
     const freshStage = list.find((stageItem) => normalizeStageValue(stageItem?.type) === 'fresh');
@@ -249,17 +258,17 @@ export const AddNewLead = () => {
       value: selectedStage.name,
       label: i18n.language === 'ar' ? (selectedStage.nameAr || selectedStage.name) : selectedStage.name,
     };
-  }, [i18n.language, isTelesalesMode, stages]);
+  }, [i18n.language, isSelectedTelesalesWorkflow, stages]);
 
-  const pageTitle = isTelesalesMode ? t('Add Telesales Lead') : t('Add New Lead');
-  const pageDescription = isTelesalesMode
+  const pageTitle = isSelectedTelesalesWorkflow ? t('Add Telesales Lead') : t('Add New Lead');
+  const pageDescription = isSelectedTelesalesWorkflow
     ? t('This lead will be created inside the telesales workflow and start from the configured telesales entry stage.')
     : t('Create a new lead inside the sales workflow.');
-  const primaryLeadTitle = isTelesalesMode ? t('Primary Telesales Lead') : t('Primary Lead');
-  const additionalLeadsTitle = isTelesalesMode ? t('Additional Telesales Leads') : t('Additional Leads');
-  const assignedUserLabel = isTelesalesMode ? t('Telesales Assignee') : t('Sales (Assigned To)');
-  const assignedUserPlaceholder = isTelesalesMode ? t('Select telesales user') : t('Select sales Person ');
-  const confirmButtonLabel = isTelesalesMode ? t('Confirm Add Telesales Lead') : t('Confirm Add');
+  const primaryLeadTitle = isSelectedTelesalesWorkflow ? t('Primary Telesales Lead') : t('Primary Lead');
+  const additionalLeadsTitle = isSelectedTelesalesWorkflow ? t('Additional Telesales Leads') : t('Additional Leads');
+  const assignedUserLabel = isSelectedTelesalesWorkflow ? t('Telesales Assignee') : t('Sales (Assigned To)');
+  const assignedUserPlaceholder = isSelectedTelesalesWorkflow ? t('Select telesales user') : t('Select sales Person ');
+  const confirmButtonLabel = isSelectedTelesalesWorkflow ? t('Confirm Add Telesales Lead') : t('Confirm Add');
 
   const typeOptions = useMemo(() => [
     { value: 'Company', label: t('Company') },
@@ -280,7 +289,7 @@ export const AddNewLead = () => {
 
     const baseSet = new Set(base.map(o => normalize(o.value)));
 
-    const extras = isTelesalesMode
+    const extras = isSelectedTelesalesWorkflow
       ? []
       : [
         { value: 'new lead', label: t('new lead') },
@@ -288,7 +297,7 @@ export const AddNewLead = () => {
       ].filter(o => !baseSet.has(normalize(o.value)));
 
     return [...extras, ...base];
-  }, [isTelesalesMode, stages, i18n.language, t]);
+  }, [isSelectedTelesalesWorkflow, stages, i18n.language, t]);
 
   const priorityOptions = useMemo(() => [
     { value: 'hot', label: t('Hot') },
@@ -466,15 +475,30 @@ export const AddNewLead = () => {
   const [phoneErrors, setPhoneErrors] = useState([]); // per index messages
 
   useEffect(() => {
-    if (!isTelesalesMode) return;
-    if (!telesalesEntryStageOption?.value) return;
+    if (!isSelectedTelesalesWorkflow || !telesalesEntryStageOption?.value) return;
 
     setStage((prev) => prev || telesalesEntryStageOption.value);
     setExtraLeads((prev) => prev.map((lead) => ({
       ...lead,
       stage: lead.stage || telesalesEntryStageOption.value,
     })));
-  }, [isTelesalesMode, telesalesEntryStageOption]);
+  }, [isSelectedTelesalesWorkflow, telesalesEntryStageOption]);
+
+  useEffect(() => {
+    if (isTelesalesMode) {
+      setDestinationWorkflow('telesales');
+      return;
+    }
+
+    if (!canManuallyChooseTelesalesDestination && destinationWorkflow === 'telesales') {
+      setDestinationWorkflow('sales');
+    }
+  }, [canManuallyChooseTelesalesDestination, destinationWorkflow, isTelesalesMode]);
+
+  useEffect(() => {
+    if (!isSelectedTelesalesWorkflow) return;
+    setStatus('');
+  }, [isSelectedTelesalesWorkflow]);
 
   const isPrimaryValid =
     name.trim().length > 0 &&
@@ -567,13 +591,13 @@ export const AddNewLead = () => {
       formData.append('company', company.trim() || project.trim() || '');
       if (country) formData.append('country', country);
       formData.append('type', type || ((company.trim() || project.trim()) ? 'Company' : 'Individual'));
-      formData.append('stage', isTelesalesMode ? (stage || telesalesEntryStageOption?.value || 'fresh') : (stage || 'New'));
+      formData.append('stage', isSelectedTelesalesWorkflow ? (stage || telesalesEntryStageOption?.value || 'fresh') : (stage || 'New'));
       formData.append('status', status || '');
       formData.append('priority', priority);
       formData.append('source', source);
       if (campaign) formData.append('campaign', campaign);
       if (assignedTo) formData.append('assigned_to', String(assignedTo).trim());
-      if (isTelesalesMode) formData.append('workflow_key', 'telesales');
+      formData.append('workflow_key', selectedWorkflow);
       const otherPhonesValue = buildOtherPhonesValue(mobileNumbers);
       formData.append('notes', String(note || '').trim());
       if (otherPhonesValue) {
@@ -621,12 +645,12 @@ export const AddNewLead = () => {
           extraFormData.append('company', l.company?.trim() || l.project?.trim() || '');
           if (l.country) extraFormData.append('country', l.country);
           extraFormData.append('type', l.type || ((l.company || l.project) ? 'Company' : 'Individual'));
-          extraFormData.append('stage', isTelesalesMode ? (l.stage || telesalesEntryStageOption?.value || 'fresh') : (l.stage || 'New'));
+          extraFormData.append('stage', isSelectedTelesalesWorkflow ? (l.stage || telesalesEntryStageOption?.value || 'fresh') : (l.stage || 'New'));
           extraFormData.append('status', l.status || '');
           extraFormData.append('priority', l.priority || 'medium');
           extraFormData.append('source', l.source || '');
           extraFormData.append('assigned_to', String(l.assignedTo || '').trim());
-          if (isTelesalesMode) extraFormData.append('workflow_key', 'telesales');
+          extraFormData.append('workflow_key', selectedWorkflow);
           const extraOtherPhonesValue = buildOtherPhonesValue(l.mobileNumbers || []);
           extraFormData.append('notes', String(l.note || '').trim());
           if (extraOtherPhonesValue) {
@@ -663,7 +687,7 @@ export const AddNewLead = () => {
       } else {
         alert(t('Lead saved successfully'));
       }
-      navigate(isTelesalesMode ? '/telesales' : '/leads');
+      navigate(isSelectedTelesalesWorkflow ? '/telesales' : '/leads');
       
     } catch (error) {
       console.error('Failed to save lead:', error);
@@ -687,7 +711,7 @@ export const AddNewLead = () => {
           <p className="text-sm">{t('You do not have permission to add leads')}</p>
           <button
             type="button"
-            onClick={() => navigate(isTelesalesMode ? '/telesales' : '/leads')}
+            onClick={() => navigate(isSelectedTelesalesWorkflow ? '/telesales' : '/leads')}
             className="mt-3 px-3 py-1.5 rounded-md bg-blue-600 text-white"
           >
             {t('Back')}
@@ -742,6 +766,34 @@ export const AddNewLead = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left column */}
                 <div className="space-y-4">
+                  {canManuallyChooseTelesalesDestination && (
+                    <div>
+                      <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Destination')}</label>
+                      <SearchableSelect
+                        options={workflowOptions}
+                        value={destinationWorkflow}
+                        onChange={(value) => {
+                          setDestinationWorkflow(value || 'sales')
+                          setStage('')
+                          setAssignedTo('')
+                          setExtraLeads((prev) => prev.map((lead) => ({
+                            ...lead,
+                            assignedTo: '',
+                            stage: '',
+                          })))
+                        }}
+                        placeholder={t('Select destination')}
+                        isRTL={isRTL}
+                        showAllOption={false}
+                      />
+                      <p className={`mt-1 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {destinationWorkflow === 'telesales'
+                          ? t('This lead will be routed directly to the telesales module.')
+                          : t('This lead will be routed directly to the sales pipeline.')}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Name */}
                   <div>
                     <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Name')} <span className="text-red-500">*</span></label>
@@ -865,7 +917,7 @@ export const AddNewLead = () => {
                   {/* Stage */}
                   <div>
                     <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Stage')}</label>
-                    {isTelesalesMode ? (
+                    {isSelectedTelesalesWorkflow ? (
                       <div className={`w-full rounded-md border px-3 py-2 ${inputTone}`}>
                         <div className="flex items-center justify-between gap-3">
                           <span>{telesalesEntryStageOption?.label || stage || t('Fresh')}</span>
@@ -875,7 +927,7 @@ export const AddNewLead = () => {
                         </div>
                       </div>
                     ) : (
-                      <SearchableSelect
+                        <SearchableSelect
                         options={stageOptions}
                         value={stage}
                         onChange={setStage}
@@ -1210,7 +1262,7 @@ export const AddNewLead = () => {
                         )}
                         <div>
                            <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Stage')}</label>
-                           {isTelesalesMode ? (
+                           {isSelectedTelesalesWorkflow ? (
                              <div className={`w-full rounded-md border px-3 py-2 ${inputTone}`}>
                                <div className="flex items-center justify-between gap-3">
                                  <span>{telesalesEntryStageOption?.label || l.stage || t('Fresh')}</span>

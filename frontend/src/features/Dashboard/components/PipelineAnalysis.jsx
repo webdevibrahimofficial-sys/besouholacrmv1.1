@@ -37,7 +37,16 @@ ChartJS.register(
   Legend
 );
 
-export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, dateTo, exportMode = false }) => {
+export const PipelineAnalysis = ({
+  selectedEmployee,
+  selectedManager,
+  dateFrom,
+  dateTo,
+  exportMode = false,
+  rawDataOverride = null,
+  stagesOverride = null,
+  workflowKey = 'sales',
+}) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || 'en'
   const { theme, resolvedTheme } = useTheme();
@@ -71,6 +80,11 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        if (Array.isArray(rawDataOverride)) {
+          setDbData(rawDataOverride);
+          setServerByStage([]);
+          return;
+        }
         const params = {
           created_from: dateFrom,
           created_to: dateTo,
@@ -87,7 +101,7 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
       }
     };
     fetchData();
-  }, [dateFrom, dateTo, selectedEmployee]);
+  }, [dateFrom, dateTo, rawDataOverride, selectedEmployee, selectedManager]);
 
   const sampleData = dbData;
 
@@ -97,7 +111,12 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
   useEffect(() => {
     const fetchStages = async () => {
       try {
-        const { data } = await api.get('/api/stages', { params: { workflow_key: 'sales' } });
+        if (Array.isArray(stagesOverride)) {
+          const sortedOverride = [...stagesOverride].sort((a, b) => (a.order || 0) - (b.order || 0));
+          setDbStages(sortedOverride);
+          return;
+        }
+        const { data } = await api.get('/api/stages', { params: { workflow_key: workflowKey } });
         if (data && Array.isArray(data)) {
           const sorted = data.sort((a, b) => (a.order || 0) - (b.order || 0));
           setDbStages(sorted);
@@ -107,7 +126,7 @@ export const PipelineAnalysis = ({ selectedEmployee, selectedManager, dateFrom, 
       }
     };
     fetchStages();
-  }, []);
+  }, [stagesOverride, workflowKey]);
 
   useEffect(() => {
     if (dbStages.length > 0) {

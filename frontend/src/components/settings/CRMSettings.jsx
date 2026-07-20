@@ -5,7 +5,7 @@ import { useAppState } from '@shared/context/AppStateProvider'
 import { Toggle } from '../../shared/components'
 import { COUNTRY_CODES } from '../../hooks/usePhoneValidation'
 import { PipelineStagesManager } from './ConfigurationManager'
-import { useStages } from '../../hooks/useStages'
+import SearchableSelect from '../../components/SearchableSelect'
 
 const DEFAULTS = {
   requestApprovals: false,
@@ -37,7 +37,6 @@ const DEFAULTS = {
   allowCallLog: true,
   allowChatbot: false,
   reservationHoldHours: '',
-  salesEntryStageIdForTransferredLeads: '',
   defaultWorkflowFallback: 'sales',
   leadWorkflowSourceMappings: [],
 }
@@ -58,8 +57,8 @@ export default function CRMSettings() {
   const { t, i18n } = useTranslation()
   const { setCrmSettings } = useAppState()
   const isRTL = String(i18n.language || '').startsWith('ar')
-  const { stages: salesStages } = useStages({ workflowKey: 'sales', activeOnly: true })
   const [settings, setSettings] = useState(DEFAULTS)
+  const [sourcesList, setSourcesList] = useState([])
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -70,7 +69,6 @@ export default function CRMSettings() {
           const patched = {
             ...s,
             reservationHoldHours: s.reservationHoldHours ?? '',
-            salesEntryStageIdForTransferredLeads: s.salesEntryStageIdForTransferredLeads ?? '',
             defaultWorkflowFallback: s.defaultWorkflowFallback || 'sales',
             leadWorkflowSourceMappings: Array.isArray(s.leadWorkflowSourceMappings) ? s.leadWorkflowSourceMappings : [],
           }
@@ -85,6 +83,20 @@ export default function CRMSettings() {
     fetchSettings()
   }, [])
 
+  useEffect(() => {
+    const fetchSources = async () => {
+      try {
+        const res = await api.get('/api/sources')
+        const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : [])
+        setSourcesList(list)
+      } catch {
+        setSourcesList([])
+      }
+    }
+
+    fetchSources()
+  }, [])
+
   const countries = useMemo(() => COUNTRY_CODES.map((country) => ({
     code: country.iso2,
     name: isRTL ? country.nameAr : country.nameEn,
@@ -97,16 +109,50 @@ export default function CRMSettings() {
   const dateFormats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']
   const timeFormats = ['24h', '12h']
   const numberFormats = ['1,234.56', '1.234,56']
+  const workflowOptions = useMemo(() => ([
+    { value: 'sales', label: t('Sales Pipeline') },
+    { value: 'telesales', label: t('Telesales Module') },
+  ]), [t])
+  const sourceOptions = useMemo(() => (sourcesList || [])
+    .map((source) => ({
+      value: source?.name,
+      label: source?.name,
+    }))
+    .filter((item) => item.value && item.label), [sourcesList])
 
   const setField = (key, value) => setSettings((prev) => ({ ...prev, [key]: value }))
+  const updateLeadWorkflowMapping = (index, field, value) => {
+    setSettings((prev) => ({
+      ...prev,
+      leadWorkflowSourceMappings: (prev.leadWorkflowSourceMappings || []).map((item, itemIndex) => (
+        itemIndex === index ? { ...item, [field]: value } : item
+      )),
+    }))
+  }
+  const addLeadWorkflowMapping = () => {
+    setSettings((prev) => ({
+      ...prev,
+      leadWorkflowSourceMappings: [
+        ...(prev.leadWorkflowSourceMappings || []),
+        { source: '', workflow_key: 'sales' },
+      ],
+    }))
+  }
+  const removeLeadWorkflowMapping = (index) => {
+    setSettings((prev) => ({
+      ...prev,
+      leadWorkflowSourceMappings: (prev.leadWorkflowSourceMappings || []).filter((_, itemIndex) => itemIndex !== index),
+    }))
+  }
   const save = async () => {
     try {
       const payload = {
         ...settings,
         showMobileNumber: !settings.maskMobileNumber,
         reservationHoldHours: String(settings.reservationHoldHours ?? '').trim() ? Number(settings.reservationHoldHours) : null,
-        salesEntryStageIdForTransferredLeads: settings.salesEntryStageIdForTransferredLeads ? Number(settings.salesEntryStageIdForTransferredLeads) : null,
-        defaultWorkflowFallback: 'sales',
+        defaultWorkflowFallback: ['sales', 'telesales'].includes(String(settings.defaultWorkflowFallback || '').trim())
+          ? String(settings.defaultWorkflowFallback).trim()
+          : 'sales',
         leadWorkflowSourceMappings: (settings.leadWorkflowSourceMappings || [])
           .map((item) => ({
             source: String(item?.source || '').trim(),
@@ -201,24 +247,88 @@ export default function CRMSettings() {
         </div>
       </Section>
 
-      <Section id="sales-pipeline-setup" title={t('Sales Pipeline Setup')}>
+      <Section id="lead-destination-routing" title={t('Lead Destination Routing')}>
         <div className="space-y-4">
-          <div className="p-3 rounded-xl border border-gray-200 dark:border-gray-700">
-            <label className="block text-sm font-medium text-theme-text mb-2">{t('Default entry stage for transferred leads')}</label>
-            <select
-              value={settings.salesEntryStageIdForTransferredLeads}
-              onChange={(e) => setField('salesEntryStageIdForTransferredLeads', e.target.value)}
-              className="w-full px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-theme-text"
-            >
-              <option value="">{t('Select Stage')}</option>
-              {salesStages.map((stage) => (
-                <option key={stage.id || `${stage.name}-${stage.order}`} value={stage.id || ''}>
-                  {stage.name}
-                </option>
-              ))}
-            </select>
+          <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4 items-start">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-theme-text">{t('Default Destination')}</label>
+              <select
+                value={settings.defaultWorkflowFallback || 'sales'}
+                onChange={(e) => setField('defaultWorkflowFallback', e.target.value)}
+                className="w-full px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-theme-text"
+              >
+                {workflowOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {t('Used when no routing rule matches the lead source.')}
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-theme-text">{t('Source Routing Rules')}</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {t('Map each lead source to its destination workflow automatically.')}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={addLeadWorkflowMapping}
+                    className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+                  >
+                    {t('Add Rule')}
+                  </button>
+                </div>
+              </div>
+
+              {(settings.leadWorkflowSourceMappings || []).length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
+                  {t('No destination rules added yet. Leads will use the default destination.')}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {(settings.leadWorkflowSourceMappings || []).map((item, index) => (
+                    <div key={`workflow-mapping-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_220px_auto] gap-3 items-end rounded-xl border border-gray-200 dark:border-gray-700 p-3">
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-theme-text">{t('Lead Source')}</label>
+                        <SearchableSelect
+                          options={sourceOptions}
+                          value={item?.source || ''}
+                          onChange={(value) => updateLeadWorkflowMapping(index, 'source', value || '')}
+                          placeholder={t('Select source')}
+                          isRTL={isRTL}
+                          showAllOption={false}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-theme-text">{t('Destination')}</label>
+                        <select
+                          value={item?.workflow_key || 'sales'}
+                          onChange={(e) => updateLeadWorkflowMapping(index, 'workflow_key', e.target.value)}
+                          className="w-full px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-theme-text"
+                        >
+                          {workflowOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeLeadWorkflowMapping(index)}
+                        className="px-3 py-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30 text-sm font-medium"
+                      >
+                        {t('Remove')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <PipelineStagesManager workflowKey="sales" title="Sales Pipeline Setup" />
         </div>
       </Section>
 

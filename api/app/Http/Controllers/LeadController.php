@@ -11,6 +11,7 @@ use App\Models\CancelReason;
 use App\Models\User;
 use App\Models\Activity;
 use App\Models\Project;
+use App\Models\Item;
 use App\Models\Stage;
 use App\Models\Tenant;
 use App\Traits\ResolvesNotificationRecipients;
@@ -123,19 +124,19 @@ class LeadController extends Controller
             return;
         }
 
-        $projectIds = array_values(array_filter(
+        $inventoryIds = array_values(array_filter(
             array_map(fn ($value) => is_numeric($value) ? (int) $value : null, (array) $request->project_id),
             fn ($value) => !is_null($value)
         ));
 
-        if (empty($projectIds)) {
+        if (empty($inventoryIds)) {
             $query->whereRaw('1 = 0');
             return;
         }
 
         $projects = Project::query()
             ->when(!$user->is_super_admin, fn ($projectQuery) => $projectQuery->where('tenant_id', $user->tenant_id))
-            ->whereIn('id', $projectIds)
+            ->whereIn('id', $inventoryIds)
             ->get(['id', 'name', 'name_ar']);
 
         $projectNames = $projects
@@ -150,11 +151,42 @@ class LeadController extends Controller
             ->values()
             ->all();
 
-        $query->where(function ($projectQuery) use ($projectIds, $projectNames) {
-            $projectQuery->whereIn('leads.project_id', $projectIds);
+        $itemSelectColumns = ['id'];
+        foreach (['name', 'title'] as $column) {
+            if (\Illuminate\Support\Facades\Schema::hasColumn('items', $column)) {
+                $itemSelectColumns[] = $column;
+            }
+        }
+
+        $items = Item::query()
+            ->when(!$user->is_super_admin, fn ($itemQuery) => $itemQuery->where('tenant_id', $user->tenant_id))
+            ->whereIn('id', $inventoryIds)
+            ->get($itemSelectColumns);
+
+        $itemNames = $items
+            ->flatMap(function ($item) {
+                return [
+                    trim((string) ($item->name ?? '')),
+                    trim((string) ($item->title ?? '')),
+                ];
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $hasLeadItemColumn = \Illuminate\Support\Facades\Schema::hasColumn('leads', 'item');
+
+        $query->where(function ($projectQuery) use ($inventoryIds, $projectNames, $itemNames, $hasLeadItemColumn) {
+            $projectQuery->whereIn('leads.project_id', $inventoryIds)
+                ->orWhereIn('leads.item_id', $inventoryIds);
 
             if (!empty($projectNames)) {
                 $projectQuery->orWhereIn('leads.project', $projectNames);
+            }
+
+            if ($hasLeadItemColumn && !empty($itemNames)) {
+                $projectQuery->orWhereIn('leads.item', $itemNames);
             }
         });
     }
@@ -1861,6 +1893,9 @@ class LeadController extends Controller
         if (!empty($context['hasSalesPersonFilter']) || empty($context['isManager'])) {
             return "
                 CASE
+                    WHEN ({$table}.stage IS NULL OR {$table}.stage = '')
+                         AND ({$table}.status IS NULL OR {$table}.status = '')
+                    THEN 'new lead'
                     WHEN {$table}.stage IS NULL OR {$table}.stage = '' THEN {$table}.status
                     ELSE {$table}.stage
                 END
@@ -1888,6 +1923,11 @@ class LeadController extends Controller
                      AND ({$table}.assigned_to != {$currentUserId} OR {$virtualPendingFlag} = 1)
                      AND {$noActionAfterResetSql}
                 THEN 'pending'
+                WHEN ({$table}.stage IS NULL OR {$table}.stage = '')
+                     AND ({$table}.status IS NULL OR {$table}.status = '')
+                THEN 'new lead'
+                WHEN {$table}.stage IS NULL OR {$table}.stage = ''
+                THEN {$table}.status
                 ELSE {$table}.stage
             END
         ";
@@ -2440,16 +2480,8 @@ class LeadController extends Controller
             // while Total Leads and byStage will still exclude them per business rule.
             $query = $this->buildFilteredLeadsQuery($request, $user, true);
 
-            // Keep stats near-real-time so cards stay aligned with table results.
-            $cacheKey = 'leads_stats:v10:' . md5(json_encode([
-                'user_id' => $user->id,
-                'filters' => $request->all()
-            ]));
-
-            // Short TTL avoids stale card counts after rapid lead reassignment/stage changes.
-            $data = Cache::remember($cacheKey, 30, function () use ($query, $user, $request) {
-                $stageVisibility = $this->resolveLeadStageVisibilityContext($request, $user);
-                $displayStageSql = $this->buildLeadDisplayStageSql($stageVisibility);
+            $stageVisibility = $this->resolveLeadStageVisibilityContext($request, $user);
+            $displayStageSql = $this->buildLeadDisplayStageSql($stageVisibility);
                 
                 // Business rule: Duplicate leads should not be counted in Total Leads or pipeline stages.
                 // Important: use COALESCE to avoid NULL tri-state logic (NOT(NULL) => NULL => filters out everything).
@@ -2508,18 +2540,17 @@ class LeadController extends Controller
 
                 $distinctAgencies = $this->distinctMetaDataTextValues($query, 'agency', 'agency', 'leads.meta_data');
 
-                return [
-                    'total' => $totalFromByStage,
-                    'new' => $newFromByStage,
-                    'pending' => $pendingFromByStage,
-                    'coldCall' => $coldCallsFromByStage,
-                    'duplicate' => $duplicateCount,
-                    'closedDeals' => $closedDealsCount,
-                    'hotCount' => (int) $hotCount,
-                    'byStage' => $byStage,
-                    'agencies' => $distinctAgencies,
-                ];
-            });
+            $data = [
+                'total' => $totalFromByStage,
+                'new' => $newFromByStage,
+                'pending' => $pendingFromByStage,
+                'coldCall' => $coldCallsFromByStage,
+                'duplicate' => $duplicateCount,
+                'closedDeals' => $closedDealsCount,
+                'hotCount' => (int) $hotCount,
+                'byStage' => $byStage,
+                'agencies' => $distinctAgencies,
+            ];
 
             return response()->json($data);
 

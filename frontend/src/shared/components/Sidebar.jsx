@@ -530,6 +530,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewTelesalesModule = canAccess('telesales') && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
+  const canViewTelesalesDashboard = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewDashboard'))
   const canViewTelesalesHistorical = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords')
   const canViewTelesalesSection = canViewTelesalesModule || canViewTelesalesHistorical
   const canCreateTelesalesLead = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('createLead')
@@ -645,6 +646,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     }
   }, [isTelesalesActive])
   const [stagesOpen, setStagesOpen] = useState(false)
+  const [telesalesStagesOpen, setTelesalesStagesOpen] = useState(false)
   const isMarketingActive = location.pathname.startsWith('/marketing') || location.pathname.startsWith('/reports/marketing')
   const isRecycleActive = location.pathname.startsWith('/recycle')
 
@@ -822,7 +824,9 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
 
 
   const { stages } = useStages()
+  const { stages: telesalesStages } = useStages({ workflowKey: 'telesales', activeOnly: true })
   const _safeStages = Array.isArray(stages) ? stages.map(s => typeof s === 'string' ? { name: s, nameAr: '', color: '#3B82F6', icon: '📊' } : s) : []
+  const _safeTelesalesStages = Array.isArray(telesalesStages) ? telesalesStages.map(s => typeof s === 'string' ? { name: s, nameAr: '', color: '#3B82F6', icon: '📊' } : s) : []
   const currentStageParam = (() => { try { return new URLSearchParams(location.search || '').get('stage') || null } catch { return null } })()
 
   // Leads data for counts and percentages (shared with Dashboard)
@@ -1346,6 +1350,19 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               className={`${isRTL ? 'mr-0 pr-0 border-r' : 'ml-0 pl-0 border-l'} border-theme-border dark:border-gray-700 space-y-0.5 transition-all`}
               style={{ maxHeight: telesalesOpen ? '800px' : '0', overflow: 'hidden', opacity: telesalesOpen ? 1 : 0 }}
             >
+              {canViewTelesalesDashboard && (
+                <NavLink
+                  to="/telesales/dashboard"
+                  title={isCollapsed ? t('Telesales Dashboard') : ''}
+                  onClick={onClose}
+                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+                >
+                  <span className="nova-icon-label">
+                    <span className={`${iconContainer} ${iconTone}`}>{getIcon('Dashboard')}</span>
+                    <span className="text-[15px] link-label">{t('Telesales Dashboard')}</span>
+                  </span>
+                </NavLink>
+              )}
               {!isTelesalesAgentRole && (
                 <NavLink
                   to="/telesales"
@@ -1410,6 +1427,76 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                   </span>
                 </NavLink>
               )}
+              <div className={`${isRTL ? '!pr-0' : '!pl-0'}`}>
+                <button
+                  type="button"
+                  title={isCollapsed ? t('Telesales Stages') : ''}
+                  onClick={() => setTelesalesStagesOpen(v => !v)}
+                  className={`${baseLink} w-full justify-between ${isRTL ? '!pr-0' : '!pl-0'}`}
+                >
+                  <span className="nova-icon-label">
+                    <span className={`${iconContainer} ${iconTone}`}>🗂️</span>
+                    <span className="text-[15px] link-label">{t('Telesales Stages')}</span>
+                  </span>
+                  <span className={`link-label ${isLight ? 'text-theme-text' : 'text-gray-400'} transition-transform`} style={{ transform: telesalesStagesOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </span>
+                </button>
+                <div className="space-y-0.5" style={{ maxHeight: telesalesStagesOpen ? '600px' : '0', overflow: 'hidden', opacity: telesalesStagesOpen ? 1 : 0 }}>
+                  {(() => {
+                    const fixedStages = [
+                      { key: 'fresh', icon: '🆕' },
+                      ...(!isTelesalesAgentRole ? [{ key: 'duplicate', icon: '🔁' }] : []),
+                      ...(!isTelesalesAgentRole ? [{ key: 'pending', icon: '⏳' }] : []),
+                      ...(crmSettings?.showColdCallsStage === false ? [] : [{ key: 'cold calls', icon: '📞' }]),
+                    ]
+                    const staticKeys = fixedStages.map(s => s.key.toLowerCase())
+                    const dynamicStages = _safeTelesalesStages
+                      .filter(s => {
+                        const name = String(s.name || '').toLowerCase()
+                        const nameNorm = name.replace(/\s+/g, '').replace(/-/g, '')
+                        const overlapsStatic = staticKeys.some(sk => name.includes(sk) || sk.includes(name))
+                        return nameNorm !== 'fresh' && !overlapsStatic
+                      })
+                      .map(s => ({ key: s.name, icon: s.icon || 'BarChart2', iconUrl: s.iconUrl }))
+                    const list = [...fixedStages, ...dynamicStages]
+
+                    return list.map((s, idx) => {
+                      const toUrl = `/telesales?stage=${encodeURIComponent(s.key)}`
+                      const isActiveStage = currentStageParam === s.key
+                      const highlight = isActiveStage ? `glass-neon border ${isLight ? 'border-blue-200' : 'border-blue-900'}` : ''
+
+                      let IconComponent = null
+                      if (s.icon && ICON_MAP[s.icon]) {
+                        IconComponent = ICON_MAP[s.icon]
+                      }
+
+                      return (
+                        <NavLink
+                          key={`telesales-stage-${idx}-${s.key}`}
+                          to={toUrl}
+                          title={isCollapsed ? t(s.key) : ''}
+                          onClick={onClose}
+                          className={() => `${baseLink} ${isRTL ? '!pr-10' : '!pl-10'} ${highlight}`}
+                        >
+                          <span className="nova-icon-label">
+                            <span className={`${iconContainer} ${iconTone}`}>
+                              {s.iconUrl ? (
+                                <img src={s.iconUrl} alt={s.key} className="w-5 h-5 object-contain" />
+                              ) : (
+                                IconComponent ? <IconComponent size={18} /> : s.icon
+                              )}
+                            </span>
+                            <span className="text-[15px] link-label">{t(s.key)}</span>
+                          </span>
+                        </NavLink>
+                      )
+                    })
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
         )}
