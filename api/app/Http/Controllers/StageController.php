@@ -98,6 +98,51 @@ class StageController extends Controller
         return (bool) ($meta['locked'] ?? false);
     }
 
+    private function normalizeStageToken(?string $value): string
+    {
+        $normalized = strtolower(trim((string) $value));
+        $normalized = str_replace(['_', '-'], ' ', $normalized);
+        return preg_replace('/\s+/u', ' ', $normalized) ?: '';
+    }
+
+    private function buildUiBehavior(Stage $stage): array
+    {
+        $meta = is_array($stage->meta_data ?? null) ? ($stage->meta_data ?? []) : [];
+        $type = $this->normalizeStageToken((string) ($stage->type ?? ''));
+        $name = $this->normalizeStageToken((string) ($stage->name ?? ''));
+        $stageKey = $type !== '' ? $type : $name;
+        $displayOnly = (bool) ($meta['display_only'] ?? false);
+        $isEntryStage = in_array($stageKey, ['fresh', 'cold calls', 'cold call'], true);
+        $isTransfer = in_array($stageKey, ['convert', 'transfer', 'transferred'], true);
+        $isTerminal = in_array($stageKey, ['closing deals', 'cancel', 'not interested'], true);
+        $defaultActionType = in_array($stageKey, ['proposal', 'reservation', 'closing deals', 'rent', 'meeting'], true)
+            ? str_replace(' ', '_', $stageKey)
+            : ($stageKey === 'cancel' ? 'cancel' : 'call');
+        $reasonType = match ($stageKey) {
+            'cancel' => 'cancel',
+            'not interested' => 'not_interest',
+            default => null,
+        };
+
+        return [
+            'stage_key' => str_replace(' ', '_', $stageKey),
+            'display_only' => $displayOnly,
+            'selectable_in_add_action' => !$displayOnly && !$isEntryStage,
+            'is_transfer' => $isTransfer,
+            'is_terminal' => $isTerminal,
+            'requires_schedule' => !$displayOnly && !$isTransfer && !$isTerminal,
+            'requires_answer_toggle' => !$displayOnly && !$isTransfer && !in_array($stageKey, ['cancel', 'not interested'], true),
+            'comment_required' => !in_array($stageKey, ['cancel', 'not interested'], true),
+            'reason_type' => $reasonType,
+            'default_action_type' => $defaultActionType,
+            'auto_answer_status' => match ($stageKey) {
+                'cancel' => 'cancelled',
+                'not interested' => 'answer',
+                default => null,
+            },
+        ];
+    }
+
     private function ensureTelesalesFixedStages(): void
     {
         $tenantId = $this->currentTenantId();
@@ -248,6 +293,13 @@ class StageController extends Controller
             $meta = is_array($stage->meta_data ?? null) ? ($stage->meta_data ?? []) : [];
             return (bool) ($meta['hidden'] ?? false);
         })->values();
+
+        if ($workflowKey === TelesalesService::WORKFLOW_TELESALES) {
+            $stages = $stages->map(function (Stage $stage) {
+                $stage->setAttribute('ui_behavior', $this->buildUiBehavior($stage));
+                return $stage;
+            });
+        }
 
         return response()->json($stages);
     }

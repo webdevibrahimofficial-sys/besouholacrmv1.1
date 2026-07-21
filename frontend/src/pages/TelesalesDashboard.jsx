@@ -45,6 +45,20 @@ function normalizeStageKey(value) {
     .trim()
 }
 
+function deriveStageCardKey(stage) {
+  const uiStageKey = normalizeStageKey(stage?.ui_behavior?.stage_key || stage?.stage_key)
+  if (uiStageKey) return uiStageKey
+
+  const typeKey = normalizeStageKey(stage?.type)
+  const nameKey = normalizeStageKey(stage?.name)
+
+  if (typeKey === 'convert') return 'convert'
+  if (['duplicate', 'pending', 'fresh'].includes(nameKey)) return nameKey
+  if (['cold calls', 'cold call'].includes(typeKey)) return 'cold calls'
+
+  return nameKey || typeKey
+}
+
 function formatYmdLocal(date) {
   if (!date) return ''
   const offset = date.getTimezoneOffset()
@@ -195,11 +209,14 @@ export default function TelesalesDashboard() {
   const normalizedRole = useMemo(() => normalizeRoleValue(user?.role || user?.job_title), [user?.job_title, user?.role])
   const isTelesalesAgent = normalizedRole === 'telesales agent'
   const canViewDuplicateDisplay = useMemo(() => {
+    if (typeof summary?.visibility?.can_view_duplicate === 'boolean') return summary.visibility.can_view_duplicate
     if (isTenantAdminUser(user) || isSuperAdminUser(user)) return true
     const perms = user?.meta_data?.module_permissions?.Telesales
     return Array.isArray(perms) ? perms.includes('viewDuplicateLeads') : false
-  }, [user])
-  const canViewPendingDisplay = !isTelesalesAgent
+  }, [summary?.visibility?.can_view_duplicate, user])
+  const canViewPendingDisplay = typeof summary?.visibility?.can_view_pending === 'boolean'
+    ? summary.visibility.can_view_pending
+    : !isTelesalesAgent
   const isRtl = String(i18n.language || '').startsWith('ar')
 
   const normalizeUsers = (payload) => {
@@ -249,8 +266,12 @@ export default function TelesalesDashboard() {
         setRows(leadRows)
         setUsers(normalizeUsers(userRes?.data))
         setTelesalesAssignees(normalizeUsers(telesalesAssigneeRes?.data))
-        setSummary(summaryRes?.data || null)
-        setDisableCheck(disableCheckRes?.data || null)
+        if (summaryRes?.data) {
+          setSummary(summaryRes.data)
+        }
+        if (disableCheckRes?.data) {
+          setDisableCheck(disableCheckRes.data)
+        }
       } catch (error) {
         setPageError(error?.response?.data?.message || 'Failed to load telesales dashboard.')
         setRows([])
@@ -266,8 +287,17 @@ export default function TelesalesDashboard() {
     loadDashboard()
   }, [moduleEnabled, canShow, canViewDashboard, canDisableModule, selectedEmployee, selectedManager, dateFrom, dateTo])
 
+  const getLeadDisplayStageKey = (lead) => normalizeStageKey(
+    lead?.display_stage_key || lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage || ''
+  )
+  const getLeadDisplayStage = (lead) => lead?.display_stage || lead?.stageRelation?.name || lead?.stage || '-'
+
   const stageCounts = useMemo(() => {
-    const counts = { total: Number(summary?.total_leads || rows.length || 0) }
+    const counts = {
+      total: typeof summary?.total_leads === 'number'
+        ? Number(summary.total_leads)
+        : Number(rows.length || 0)
+    }
     const summaryStages = Array.isArray(summary?.by_stage) ? summary.by_stage : []
 
     if (summaryStages.length > 0) {
@@ -278,7 +308,7 @@ export default function TelesalesDashboard() {
       })
     } else {
       rows.forEach((lead) => {
-        const key = normalizeStageKey(lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage)
+        const key = getLeadDisplayStageKey(lead)
         if (!key) return
         counts[key] = Number(counts[key] || 0) + 1
       })
@@ -304,15 +334,16 @@ export default function TelesalesDashboard() {
 
   const stageCards = useMemo(() => telesalesStages
     .filter((stage) => {
-      const stageTypeKey = normalizeStageKey(stage?.type)
-      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
+      const summaryCards = Array.isArray(summary?.stage_cards) ? summary.stage_cards : []
+      if (summaryCards.length > 0) return false
+      const key = deriveStageCardKey(stage)
       if (key === 'duplicate') return canViewDuplicateDisplay
       if (key === 'pending') return canViewPendingDisplay
       return true
     })
     .map((stage) => {
       const stageTypeKey = normalizeStageKey(stage?.type)
-      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
+      const key = deriveStageCardKey(stage)
       return {
         id: stage.id || key,
         key,
@@ -327,7 +358,25 @@ export default function TelesalesDashboard() {
     .sort((a, b) => {
       if (a.order !== b.order) return a.order - b.order
       return String(a.name || '').localeCompare(String(b.name || ''))
-    }), [canViewDuplicateDisplay, canViewPendingDisplay, isRtl, stageCounts, telesalesStages])
+    }), [canViewDuplicateDisplay, canViewPendingDisplay, isRtl, stageCounts, summary?.stage_cards, telesalesStages])
+
+  const resolvedStageCards = useMemo(() => {
+    const summaryCards = Array.isArray(summary?.stage_cards) ? summary.stage_cards : []
+    if (summaryCards.length > 0) {
+      return summaryCards.map((stage) => ({
+        id: stage.id || `${stage.stage_key}-stage`,
+        key: normalizeStageKey(stage.stage_key),
+        name: isRtl && stage?.stage_name_ar ? stage.stage_name_ar : stage.stage_name,
+        type: normalizeStageKey(stage.stage_type),
+        icon: stage.icon || 'BarChart2',
+        count: Number(stage.count || 0),
+        color: String(stage.color || '').toLowerCase(),
+        order: Number(stage.order ?? 0),
+      }))
+    }
+
+    return stageCards
+  }, [isRtl, stageCards, summary?.stage_cards])
 
   const analysisData = useMemo(() => {
     const selectedYear = Number(leadsAnalysisYear) || new Date().getFullYear()
@@ -358,10 +407,10 @@ export default function TelesalesDashboard() {
       sourceEntry.value += 1
       sourceMap.set(sourceKey, sourceEntry)
 
-      const stageKey = String(lead?.display_stage || lead?.stageRelation?.name || lead?.stage || t('Unknown')).trim() || t('Unknown')
-      const stageEntry = statusMap.get(stageKey) || { label: stageKey, value: 0 }
+      const stageLabel = String(getLeadDisplayStage(lead) || t('Unknown')).trim() || t('Unknown')
+      const stageEntry = statusMap.get(stageLabel) || { label: stageLabel, value: 0 }
       stageEntry.value += 1
-      statusMap.set(stageKey, stageEntry)
+      statusMap.set(stageLabel, stageEntry)
     })
 
     const monthly = MONTH_LABELS_EN.map((label, monthIndex) => {
@@ -459,7 +508,8 @@ export default function TelesalesDashboard() {
         const leadMeta = {
           leadId: lead.id,
           leadName: lead.name || '-',
-          stage: lead.display_stage || lead.stageRelation?.name || lead.stage || '-',
+          stageKey: getLeadDisplayStageKey(lead),
+          stage: getLeadDisplayStage(lead),
           priority: lead.priority || 'medium',
           source: lead.source || '-',
           employeeName: lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-',
@@ -546,24 +596,18 @@ export default function TelesalesDashboard() {
       .slice(0, 8)
   ), [rows])
 
-  const normalizeStageFilterValue = (value) => normalizeStageKey(value).replace(/-/g, ' ')
-
   const matchesSelectedStageFilter = (value) => {
-    const target = normalizeStageFilterValue(selectedStageFilter)
+    const target = normalizeStageKey(selectedStageFilter)
     if (!target) return true
 
-    const normalizedValue = normalizeStageFilterValue(value)
+    const normalizedValue = normalizeStageKey(value)
     if (!normalizedValue) return false
-
-    if (target === 'cold calls') {
-      return ['cold calls', 'cold call'].includes(normalizedValue)
-    }
 
     return normalizedValue === target
   }
 
   const filteredTelesalesComments = useMemo(() => (
-    telesalesComments.filter((entry) => matchesSelectedStageFilter(entry.stage))
+    telesalesComments.filter((entry) => matchesSelectedStageFilter(entry.stageKey))
   ), [selectedStageFilter, telesalesComments])
 
   const telesalesRecentCalls = useMemo(() => (
@@ -578,7 +622,8 @@ export default function TelesalesDashboard() {
           id: `${lead.id}-call`,
           employeeName: lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-',
           leadName: lead.name || '-',
-          stage: lead.display_stage || lead.stageRelation?.name || lead.stage || '-',
+          stageKey: getLeadDisplayStageKey(lead),
+          stage: getLeadDisplayStage(lead),
           phoneNumber: lead.phone || lead.mobile || '',
           callType: actionType.includes('incoming') ? 'incoming' : actionType.includes('missed') ? 'missed' : 'outgoing',
           duration: latestAction?.duration || '00:00',
@@ -596,7 +641,7 @@ export default function TelesalesDashboard() {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
     return telesalesRecentCalls.filter((call) => {
-      if (!matchesSelectedStageFilter(call.stage)) return false
+      if (!matchesSelectedStageFilter(call.stageKey)) return false
       if (recentCallsRange === 'all') return true
       const createdAt = new Date(call.createdAt || 0)
       if (Number.isNaN(createdAt.getTime())) return false
@@ -632,7 +677,7 @@ export default function TelesalesDashboard() {
 
   const telesalesPipelineRawData = useMemo(() => (
     rows.map((lead) => ({
-      stage: lead.display_stage || lead.stageRelation?.name || lead.stage || t('Unknown'),
+      stage: getLeadDisplayStage(lead) || t('Unknown'),
       leadName: lead.name || '-',
       employee: lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-',
       date: lead.created_at || lead.creation_date || lead.createdAt || lead.date || '',
@@ -729,7 +774,7 @@ export default function TelesalesDashboard() {
       color: 'blue',
     }
 
-    const stageOnlyCards = stageCards.map((stage) => {
+    const stageOnlyCards = resolvedStageCards.map((stage) => {
       const Icon = ICON_MAP[String(stage.icon || '')] || ICON_MAP.BarChart2
       return {
         key: `__stage_${stage.id}__`,
@@ -744,7 +789,7 @@ export default function TelesalesDashboard() {
     })
 
     return [totalCard, ...stageOnlyCards]
-  }, [stageCards, stageCounts.total, t])
+  }, [resolvedStageCards, stageCounts.total, t])
 
   const visibleStagePipelineCards = useMemo(() => (
     showAllStages ? stagePipelineCards : stagePipelineCards.slice(0, 5)
@@ -904,7 +949,7 @@ export default function TelesalesDashboard() {
                 return (
                   <div
                     key={`top-${card.key}`}
-                    className={`relative overflow-hidden rounded-2xl p-1 group border-2 shadow-2xl transform transition-all duration-500 cursor-pointer hover:shadow-3xl hover:scale-[1.02] hover:-translate-y-1 ${style.containerLight} ${
+                    className={`relative h-full overflow-hidden rounded-2xl p-1 group border-2 shadow-2xl transform transition-all duration-500 cursor-pointer hover:shadow-3xl hover:scale-[1.02] hover:-translate-y-1 ${style.containerLight} ${
                       selectedStageFilter === String(card.filterKey || '')
                         ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-900'
                         : ''
@@ -936,10 +981,10 @@ export default function TelesalesDashboard() {
                         style={customPattern2}
                       />
                     </div>
-                    <div className="relative z-20 min-h-[112px] px-3 py-2.5">
-                      <div className="flex items-start justify-between mb-5 gap-3">
+                    <div className="relative z-20 flex min-h-[212px] h-full flex-col px-3 py-2.5">
+                      <div className="flex min-h-[60px] items-start justify-between gap-2.5">
                         <div className="min-w-0 flex-1 pr-2">
-                          <div className="mb-2 flex flex-wrap items-start gap-2">
+                          <div className="flex min-h-[36px] flex-wrap items-start gap-1.5">
                             <span
                               className="block max-w-full whitespace-normal break-words text-[11px] font-semibold uppercase tracking-wider text-black leading-tight"
                               title={card.title}
@@ -952,23 +997,30 @@ export default function TelesalesDashboard() {
                               </span>
                             )}
                           </div>
-                          <div className="text-[2rem] leading-none font-black tracking-tight text-gray-900">{card.value}</div>
                         </div>
                         <div
-                          className={`flex items-center justify-center h-9 w-9 shrink-0 rounded-lg border-2 border-white/30 shadow-xl group-hover:scale-105 group-hover:rotate-3 transition-all duration-500 ${style.iconBgLight}`}
+                          className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-white/30 shadow-xl group-hover:scale-105 group-hover:rotate-3 transition-all duration-500 ${style.iconBgLight}`}
                           style={customIcon}
                         >
                           <span className={iconTextColor}>{card.icon}</span>
                         </div>
                       </div>
 
-                      <div
-                        className={`inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-semibold ${style.badgeLightBg} ${style.badgeLightText} ${style.badgeLightBorder}`}
-                        style={customBadge}
-                      >
-                        {card.isConvert
-                          ? t('Excluded from total leads')
-                          : `${t('Stage share of total')}: ${card.percent}%`}
+                      <div className="flex min-h-[64px] flex-1 items-center">
+                        <div className="text-[2.4rem] leading-none font-black tracking-tight text-gray-900">
+                          {card.value}
+                        </div>
+                      </div>
+
+                      <div className="mt-auto flex min-h-[46px] items-end">
+                        <div
+                          className={`inline-flex min-h-[38px] w-full items-center rounded-md border px-2.5 py-1.5 text-[10px] font-semibold leading-snug ${style.badgeLightBg} ${style.badgeLightText} ${style.badgeLightBorder}`}
+                          style={customBadge}
+                        >
+                          {card.isConvert
+                            ? t('Excluded from total leads')
+                            : `${t('Stage share of total')}: ${card.percent}%`}
+                        </div>
                       </div>
                     </div>
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -skew-x-12 transform -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out" />

@@ -50,6 +50,20 @@ function normalizeStageKey(value) {
     .trim()
 }
 
+function deriveStageCardKey(stage) {
+  const uiStageKey = normalizeStageKey(stage?.ui_behavior?.stage_key || stage?.stage_key)
+  if (uiStageKey) return uiStageKey
+
+  const typeKey = normalizeStageKey(stage?.type)
+  const nameKey = normalizeStageKey(stage?.name)
+
+  if (typeKey === 'convert') return 'convert'
+  if (['duplicate', 'pending', 'fresh'].includes(nameKey)) return nameKey
+  if (['cold calls', 'cold call'].includes(typeKey)) return 'cold calls'
+
+  return nameKey || typeKey
+}
+
 function isTruthySetting(value) {
   if (value === true || value === 1) return true
   const normalized = String(value ?? '').toLowerCase().trim()
@@ -116,6 +130,8 @@ export default function Telesales() {
   const [projectFilter, setProjectFilter] = useState([])
   const [assigneeFilter, setAssigneeFilter] = useState([])
   const [createdByFilter, setCreatedByFilter] = useState([])
+  const [convertedByFilter, setConvertedByFilter] = useState([])
+  const [convertedToFilter, setConvertedToFilter] = useState([])
   const [managerFilter, setManagerFilter] = useState([])
   const [campaignFilter, setCampaignFilter] = useState([])
   const [countryFilter, setCountryFilter] = useState([])
@@ -177,8 +193,12 @@ export default function Telesales() {
   const normalizedRole = useMemo(() => normalizeRoleValue(user?.role || user?.job_title), [user?.job_title, user?.role])
   const isTelesalesAgent = normalizedRole === 'telesales agent'
   const isDuplicateFeatureEnabled = isTruthySetting(crmSettings?.duplicationSystem)
-  const canViewDuplicateDisplay = isDuplicateFeatureEnabled && hasExplicitTelesalesPermission(user, 'viewDuplicateLeads')
-  const canViewPendingDisplay = !isTelesalesAgent
+  const canViewDuplicateDisplay = typeof summary?.visibility?.can_view_duplicate === 'boolean'
+    ? summary.visibility.can_view_duplicate
+    : (isDuplicateFeatureEnabled && hasExplicitTelesalesPermission(user, 'viewDuplicateLeads'))
+  const canViewPendingDisplay = typeof summary?.visibility?.can_view_pending === 'boolean'
+    ? summary.visibility.can_view_pending
+    : !isTelesalesAgent
   const salesConvertUsers = useMemo(
     () => (Array.isArray(salesAssignees) ? salesAssignees : []),
     [salesAssignees]
@@ -285,7 +305,7 @@ export default function Telesales() {
 
   useEffect(() => {
     setSelectedIds([])
-  }, [currentPage, stageFilter, searchTerm, sourceFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter, managerFilter, campaignFilter, countryFilter, emailFilter, expectedRevenueFilter, actionTypeFilter, assignedDateFrom, assignedDateTo, lastActionDateFrom, lastActionDateTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo, isMyLeadsView, isReferralView, isHistoricalRoute])
+  }, [currentPage, stageFilter, searchTerm, sourceFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter, convertedByFilter, convertedToFilter, managerFilter, campaignFilter, countryFilter, emailFilter, expectedRevenueFilter, actionTypeFilter, assignedDateFrom, assignedDateTo, lastActionDateFrom, lastActionDateTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo, isMyLeadsView, isReferralView, isHistoricalRoute])
 
   useEffect(() => {
     if (selectedIds.length === 0) {
@@ -329,6 +349,8 @@ export default function Telesales() {
       ...(projectFilter.length > 0 ? { project: projectFilter } : {}),
       ...(assigneeFilter.length > 0 ? { assigned_to_filter: assigneeFilter } : {}),
       ...(createdByFilter.length > 0 ? { created_by_filter: createdByFilter } : {}),
+      ...(convertedByFilter.length > 0 ? { convert_by_filter: convertedByFilter } : {}),
+      ...(convertedToFilter.length > 0 ? { convert_to_filter: convertedToFilter } : {}),
       ...(managerFilter.length > 0 ? { manager_id: managerFilter } : {}),
       ...(campaignFilter.length > 0 ? { campaign: campaignFilter } : {}),
       ...(countryFilter.length > 0 ? { country: countryFilter } : {}),
@@ -408,8 +430,12 @@ export default function Telesales() {
     if (requestId !== null && !isCurrentLoadRequest(requestId)) return
 
     applyPaginator(leadRes?.data, false)
-    setSummary(summaryRes?.data || null)
-    setDisableCheck(disableCheckRes?.data || null)
+    if (summaryRes?.data) {
+      setSummary(summaryRes.data)
+    }
+    if (disableCheckRes?.data) {
+      setDisableCheck(disableCheckRes.data)
+    }
   }
 
   const loadOperational = async ({ includeSupport = false, requestId = null } = {}) => {
@@ -488,7 +514,7 @@ export default function Telesales() {
 
   useEffect(() => {
     load()
-  }, [moduleEnabled, canShow, canViewHistorical, canViewDashboard, canDisableModule, isMyLeadsView, isReferralView, isHistoricalRoute, currentPage, historicalPage, perPage, searchTerm, JSON.stringify(stageFilter), JSON.stringify(sourceFilter), JSON.stringify(priorityFilter), JSON.stringify(projectFilter), JSON.stringify(assigneeFilter), JSON.stringify(createdByFilter), JSON.stringify(managerFilter), JSON.stringify(campaignFilter), JSON.stringify(countryFilter), emailFilter, expectedRevenueFilter, JSON.stringify(actionTypeFilter), assignedDateFrom, assignedDateTo, lastActionDateFrom, lastActionDateTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo])
+  }, [moduleEnabled, canShow, canViewHistorical, canViewDashboard, canDisableModule, isMyLeadsView, isReferralView, isHistoricalRoute, currentPage, historicalPage, perPage, searchTerm, JSON.stringify(stageFilter), JSON.stringify(sourceFilter), JSON.stringify(priorityFilter), JSON.stringify(projectFilter), JSON.stringify(assigneeFilter), JSON.stringify(createdByFilter), JSON.stringify(convertedByFilter), JSON.stringify(convertedToFilter), JSON.stringify(managerFilter), JSON.stringify(campaignFilter), JSON.stringify(countryFilter), emailFilter, expectedRevenueFilter, JSON.stringify(actionTypeFilter), assignedDateFrom, assignedDateTo, lastActionDateFrom, lastActionDateTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo])
 
   useEffect(() => {
     const nextStageFilter = getStageFilterFromSearch(location.search)
@@ -546,8 +572,17 @@ export default function Telesales() {
     }, { replace: false })
   }
 
+  const getLeadDisplayStageKey = (lead) => normalizeStageKey(
+    lead?.display_stage_key || lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage || ''
+  )
+  const getLeadDisplayStage = (lead) => lead.display_stage || lead.stageRelation?.name || lead.stage || '-'
+
   const stageCounts = useMemo(() => {
-    const counts = { total: Number(summary?.total_leads || totalRows || 0) }
+    const counts = {
+      total: typeof summary?.total_leads === 'number'
+        ? Number(summary.total_leads)
+        : Number(totalRows || 0)
+    }
 
     const summaryStages = Array.isArray(summary?.by_stage) ? summary.by_stage : []
     if (summaryStages.length > 0) {
@@ -558,7 +593,7 @@ export default function Telesales() {
       })
     } else {
       rows.forEach((lead) => {
-        const key = normalizeStageKey(lead?.display_stage || lead?.stageRelation?.name || lead?.stage || lead?.stageRelation?.type)
+        const key = getLeadDisplayStageKey(lead)
         if (!key || key === '-') return
         counts[key] = Number(counts[key] || 0) + 1
       })
@@ -567,7 +602,7 @@ export default function Telesales() {
     if (typeof summary?.duplicate === 'number') counts.duplicate = Number(summary.duplicate || 0)
     if (typeof summary?.pending === 'number') counts.pending = Number(summary.pending || 0)
     return counts
-  }, [rows, summary, totalRows])
+  }, [rows, summary, totalRows, getLeadDisplayStageKey])
 
   const openTransferModal = (leadIds) => {
     const normalizedLeadIds = Array.isArray(leadIds)
@@ -762,6 +797,8 @@ export default function Telesales() {
     setProjectFilter([])
     setAssigneeFilter([])
     setCreatedByFilter([])
+    setConvertedByFilter([])
+    setConvertedToFilter([])
     setManagerFilter([])
     setCampaignFilter([])
     setCountryFilter([])
@@ -788,6 +825,16 @@ export default function Telesales() {
   const createdByOptions = useMemo(
     () => users.map((entry) => ({ value: String(entry.id), label: entry.name })),
     [users]
+  )
+
+  const convertedByOptions = useMemo(
+    () => users.map((entry) => ({ value: String(entry.id), label: entry.name })),
+    [users]
+  )
+
+  const convertedToOptions = useMemo(
+    () => salesConvertUsers.map((entry) => ({ value: String(entry.id), label: entry.name })),
+    [salesConvertUsers]
   )
 
   const managerOptions = useMemo(() => {
@@ -996,15 +1043,19 @@ export default function Telesales() {
 
   const stageCards = useMemo(() => telesalesStages
     .filter((stage) => {
+      const summaryCards = Array.isArray(summary?.stage_cards) ? summary.stage_cards : []
+      if (summaryCards.length > 0) return false
       const stageTypeKey = normalizeStageKey(stage?.type)
-      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
+      const key = deriveStageCardKey(stage)
       if (key === 'duplicate') return !isMyLeadsView && canViewDuplicateDisplay
       if (key === 'pending') return !isMyLeadsView && canViewPendingDisplay
       return true
     })
     .map((stage) => {
+      const summaryCards = Array.isArray(summary?.stage_cards) ? summary.stage_cards : []
+      if (summaryCards.length > 0) return null
       const stageTypeKey = normalizeStageKey(stage?.type)
-      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
+      const key = deriveStageCardKey(stage)
       return {
         id: stage.id || `${key}-${normalizeStageKey(stage?.type) || 'stage'}`,
         key,
@@ -1015,14 +1066,32 @@ export default function Telesales() {
         order: Number(stage?.order ?? 0),
       }
     })
+    .filter(Boolean)
     .sort((a, b) => {
       if (a.order !== b.order) return a.order - b.order
       return String(a.name || '').localeCompare(String(b.name || ''))
-    }), [canViewDuplicateDisplay, canViewPendingDisplay, isMyLeadsView, stageCounts, telesalesStages])
+    }), [canViewDuplicateDisplay, canViewPendingDisplay, isMyLeadsView, stageCounts, summary?.stage_cards, telesalesStages])
+
+  const resolvedStageCards = useMemo(() => {
+    const summaryCards = Array.isArray(summary?.stage_cards) ? summary.stage_cards : []
+    if (summaryCards.length > 0) {
+      return summaryCards.map((stage) => ({
+        id: stage.id || `${stage.stage_key}-stage`,
+        key: normalizeStageKey(stage.stage_key),
+        name: isRtl && stage?.stage_name_ar ? stage.stage_name_ar : stage.stage_name,
+        type: normalizeStageKey(stage.stage_type),
+        icon: stage.icon || 'BarChart2',
+        count: Number(stage.count || 0),
+        order: Number(stage.order ?? 0),
+      }))
+    }
+
+    return stageCards
+  }, [isRtl, stageCards, summary?.stage_cards])
 
   const selectedStageCard = useMemo(
-    () => stageCards.find((stage) => stage.key === activeStageKey) || null,
-    [activeStageKey, stageCards]
+    () => resolvedStageCards.find((stage) => stage.key === activeStageKey) || null,
+    [activeStageKey, resolvedStageCards]
   )
   const isConvertStageView = selectedStageCard?.type === 'convert'
   const displayColumns = useMemo(() => {
@@ -1074,7 +1143,6 @@ export default function Telesales() {
     [displayColumns, visibleColumns]
   )
 
-  const getLeadDisplayStage = (lead) => lead.display_stage || lead.stageRelation?.name || lead.stage || '-'
   const getLeadAssignedName = (lead) => lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
   const getLeadConvertByName = (lead) => lead.convert_by_name || lead.latest_action?.user?.name || lead.latestAction?.user?.name || '-'
   const getLeadConvertToName = (lead) => lead.convert_to_name || lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
@@ -1087,7 +1155,7 @@ export default function Telesales() {
     lead?.notes ||
     '-'
   )
-  const isDuplicateLead = (lead) => String(getLeadDisplayStage(lead) || '').toLowerCase().includes('duplicate') || String(lead?.status || '').toLowerCase() === 'duplicate'
+  const isDuplicateLead = (lead) => getLeadDisplayStageKey(lead) === 'duplicate' || String(lead?.status || '').toLowerCase() === 'duplicate'
   const canUseActionControls = (lead) => (
     typeof lead?.permissions?.can_add_action === 'boolean'
       ? lead.permissions.can_add_action
@@ -1325,7 +1393,7 @@ export default function Telesales() {
                   setCurrentPage(1)
                   setStageFilter(normalizeArrayFilter(value))
                 }}
-                options={stageCards.map((stage) => ({
+                options={resolvedStageCards.map((stage) => ({
                   value: stage.key,
                   label: stage.name,
                 }))}
@@ -1350,6 +1418,42 @@ export default function Telesales() {
                     setManagerFilter(normalizeArrayFilter(value))
                   }}
                   options={managerOptions}
+                  placeholder={t('All')}
+                  isRTL={isRtl}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`flex items-center gap-1 text-xs font-medium ${textColor}`}>
+                  <span className="inline-flex h-3 w-3 items-center justify-center text-blue-500 dark:text-blue-400">⇄</span>
+                  {t('Converted By')}
+                </label>
+                <SearchableSelect
+                  value={convertedByFilter}
+                  multiple={true}
+                  onChange={(value) => {
+                    setCurrentPage(1)
+                    setConvertedByFilter(normalizeArrayFilter(value))
+                  }}
+                  options={convertedByOptions}
+                  placeholder={t('All')}
+                  isRTL={isRtl}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`flex items-center gap-1 text-xs font-medium ${textColor}`}>
+                  <span className="inline-flex h-3 w-3 items-center justify-center text-blue-500 dark:text-blue-400">↳</span>
+                  {t('Converted To')}
+                </label>
+                <SearchableSelect
+                  value={convertedToFilter}
+                  multiple={true}
+                  onChange={(value) => {
+                    setCurrentPage(1)
+                    setConvertedToFilter(normalizeArrayFilter(value))
+                  }}
+                  options={convertedToOptions}
                   placeholder={t('All')}
                   isRTL={isRtl}
                 />
@@ -1622,7 +1726,7 @@ export default function Telesales() {
               <span className="font-bold">{Number(stageCounts.total || 0)}</span>
             </button>
 
-            {stageCards.map((stage) => (
+            {resolvedStageCards.map((stage) => (
               <button
                 key={stage.id}
                 type="button"
@@ -2093,7 +2197,7 @@ export default function Telesales() {
                     <tr key={lead.id} className="hover:bg-white/5 transition-colors duration-150">
                       <td className="px-6 py-4 text-sm"><div className="font-semibold">{lead.name || '-'}</div><div className="text-xs text-gray-500">#{lead.id}</div></td>
                       <td className="px-6 py-4 text-sm">{lead.phone || '-'}</td>
-                      <td className="px-6 py-4 text-sm">{lead.stageRelation?.name || lead.stage || '-'}</td>
+                      <td className="px-6 py-4 text-sm">{getLeadDisplayStage(lead)}</td>
                       <td className="px-6 py-4 text-sm">{getLeadAssignedName(lead)}</td>
                       <td className="px-6 py-4 text-sm">{lead.transferred_to_sales_at || '-'}</td>
                     </tr>

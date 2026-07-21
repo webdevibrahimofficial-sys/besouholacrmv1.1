@@ -791,6 +791,34 @@ class LeadController extends Controller
         }
     }
 
+    private function appendLeadStagePresentation($leads, ?User $user = null): void
+    {
+        $collection = collect($leads instanceof \Illuminate\Support\Collection ? $leads->all() : [$leads])
+            ->filter(fn ($lead) => $lead instanceof Lead);
+
+        if ($collection->isEmpty()) {
+            return;
+        }
+
+        foreach ($collection as $lead) {
+            $stageName = trim((string) ($lead->display_stage ?? $lead->stageRelation?->name ?? $lead->stage ?? ''));
+            $stageType = trim((string) ($lead->stageRelation?->type ?? ''));
+            $stageKeySource = $stageType !== '' ? $stageType : ($stageName !== '' ? $stageName : (string) ($lead->status ?? ''));
+            $stageKey = Str::of($stageKeySource)->lower()->replace(['-', ' '], '_')->squish()->value();
+
+            $lead->setAttribute('display_stage', $stageName !== '' ? $stageName : '-');
+            $lead->setAttribute('display_stage_key', $stageKey);
+
+            if ($user) {
+                $existingPermissions = is_array($lead->permissions ?? null) ? $lead->permissions : [];
+                $lead->permissions = array_merge($existingPermissions, [
+                    'can_add_action' => $this->canAddActionToLead($user, $lead),
+                    'is_referral_supervisor' => $this->isReferralSupervisor($user, $lead),
+                ]);
+            }
+        }
+    }
+
     
     /**
      * Check if user can delete users.
@@ -3352,7 +3380,7 @@ class LeadController extends Controller
                   ->where('details->date', '!=', '');
             });
 
-            $query->with([
+            $with = [
                 'assignedAgent:id,name',
                 'actions' => function ($q) use ($eligibleStatuses) {
                     $q->whereIn('details->status', $eligibleStatuses)
@@ -3362,7 +3390,15 @@ class LeadController extends Controller
                       ->where('details->date', '!=', '')
                       ->orderByDesc('created_at');
                 }
-            ]);
+            ];
+
+            if ($workflowFilter === TelesalesService::WORKFLOW_TELESALES) {
+                $with['stageRelation'] = 'stageRelation:id,name,name_ar,type,workflow_key';
+                $with['latestAction'] = 'latestAction:id,lead_id,user_id,action_type,description,details,stage_id,created_at';
+                $with['latestAction.user'] = 'latestAction.user:id,name';
+            }
+
+            $query->with($with);
 
             $perPage = (int) $request->get('per_page', 20);
             $page = max(1, (int) $request->get('page', 1));
@@ -3423,6 +3459,10 @@ class LeadController extends Controller
             $orderedLeads = array_map(fn ($item) => $item['lead'], $filtered);
             $total = count($orderedLeads);
             $slice = array_slice($orderedLeads, ($page - 1) * $perPage, $perPage);
+            if ($workflowFilter === TelesalesService::WORKFLOW_TELESALES) {
+                $this->appendLeadDisplayLabels(collect($slice));
+                $this->appendLeadStagePresentation(collect($slice), $user);
+            }
 
             return new \Illuminate\Pagination\LengthAwarePaginator(
                 $slice,

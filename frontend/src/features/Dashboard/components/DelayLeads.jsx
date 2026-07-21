@@ -235,12 +235,10 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   const stageNames = useMemo(() => {
     const fixed = ['new', 'duplicate', 'pending', 'coldcalls', 'followup'];
     const dynamic = (stages || [])
-      .map(s => String(s.name || '').toLowerCase().trim().replace(/[\s_]+/g, '-'))
+      .map(s => String(s?.ui_behavior?.stage_key || s.name || '').toLowerCase().trim().replace(/[\s_]+/g, '-'))
       .filter(s => s && !fixed.includes(s));
     return [...fixed, ...dynamic];
   }, [stages]);
-
-  const delayThresholdMs = 60 * 1000; // دقيقة واحدة قبل اعتبار الليد متأخرًا
 
   const deriveDelayCategory = (lead) => {
     const notes = (lead?.notes || '').toLowerCase();
@@ -252,6 +250,19 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
 
   // Map real lead data to pipeline stage categories (match Dashboard logic)
   const derivePipelineStage = (l) => {
+    const backendResolvedStage = [
+      l?.display_stage_key,
+      l?.display_stage,
+      l?.stage_key,
+      l?.stageRelation?.type,
+      l?.stageRelation?.name,
+      l?.stage_name,
+      l?.stageName,
+    ].find((value) => String(value || '').trim() !== '');
+    if (backendResolvedStage) {
+      return String(backendResolvedStage).toLowerCase().trim().replace(/[\s_]+/g, '-');
+    }
+
     // Priority 1: Direct stage from backend
     if (l?.stage) return l.stage;
     
@@ -319,6 +330,10 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   };
 
   const isDelayedLead = (lead) => {
+    if (mode === 'telesales') {
+      return true;
+    }
+
     // Trust backend if actions are present (fetched from /leads/delayed)
     if (lead?.actions && lead.actions.length > 0) return true;
 
@@ -333,7 +348,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     if (isNaN(scheduled)) return false;
     const now = new Date();
     const diffMs = now - scheduled;
-    return diffMs >= delayThresholdMs;
+    return diffMs >= 60 * 1000;
   };
 
   // Project delayed leads into the UI shape used by this component

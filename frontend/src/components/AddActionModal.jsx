@@ -45,16 +45,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     return isArabic ? (ar || en || '') : (en || ar || '');
   };
   const normalizeStageToken = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const normalizeStageBehaviorToken = (value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   const companyTypeLower = String(company?.company_type || '').toLowerCase();
   const isRealEstateTenant = companyTypeLower.includes('real');
   const defaultReservationType = isRealEstateTenant ? 'project' : 'general';
   const isTelesalesWorkflowLead = String(lead?.workflow_key || '').trim().toLowerCase() === 'telesales';
-  const hiddenTelesalesStageKeys = useMemo(() => new Set([
-    'fresh',
-    'duplicate',
-    'pending',
-    'coldcalls',
-  ]), []);
   const telesalesPermissions = Array.isArray(user?.meta_data?.module_permissions?.Telesales)
     ? user.meta_data.module_permissions.Telesales
     : [];
@@ -79,6 +74,50 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const [transferSelectedUser, setTransferSelectedUser] = useState(null);
   const [transferMethod, setTransferMethod] = useState('fresh');
   const [transferAssignRole, setTransferAssignRole] = useState('sales');
+
+  const getStageUiBehavior = (stage) => {
+    if (!stage) {
+      return {
+        stage_key: '',
+        selectable_in_add_action: true,
+        is_transfer: false,
+        is_terminal: false,
+        requires_schedule: true,
+        requires_answer_toggle: true,
+        comment_required: true,
+        reason_type: null,
+        default_action_type: 'call',
+        auto_answer_status: null,
+      };
+    }
+
+    const serverBehavior = stage?.ui_behavior && typeof stage.ui_behavior === 'object' ? stage.ui_behavior : {};
+    const stageTypeToken = normalizeStageBehaviorToken(stage?.type || '');
+    const fallbackKey = serverBehavior.stage_key || stageTypeToken;
+    const reasonType = serverBehavior.reason_type
+      || (fallbackKey === 'cancel' ? 'cancel' : (fallbackKey === 'not_interested' ? 'not_interest' : null));
+    const isTransfer = typeof serverBehavior.is_transfer === 'boolean'
+      ? serverBehavior.is_transfer
+      : ['convert', 'transfer', 'transferred'].includes(fallbackKey);
+    const isTerminal = typeof serverBehavior.is_terminal === 'boolean'
+      ? serverBehavior.is_terminal
+      : ['closing_deals', 'cancel', 'not_interested'].includes(fallbackKey);
+
+    return {
+      stage_key: String(fallbackKey || ''),
+      selectable_in_add_action: typeof serverBehavior.selectable_in_add_action === 'boolean'
+        ? serverBehavior.selectable_in_add_action
+        : !Boolean(serverBehavior.display_only),
+      is_transfer: isTransfer,
+      is_terminal: isTerminal,
+      requires_schedule: typeof serverBehavior.requires_schedule === 'boolean' ? serverBehavior.requires_schedule : (!isTransfer && !isTerminal),
+      requires_answer_toggle: typeof serverBehavior.requires_answer_toggle === 'boolean' ? serverBehavior.requires_answer_toggle : (!isTransfer && !['cancel', 'not_interested'].includes(fallbackKey)),
+      comment_required: typeof serverBehavior.comment_required === 'boolean' ? serverBehavior.comment_required : !['cancel', 'not_interested'].includes(fallbackKey),
+      reason_type: reasonType,
+      default_action_type: serverBehavior.default_action_type || (fallbackKey === 'cancel' ? 'cancel' : (['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(fallbackKey) ? fallbackKey : 'call')),
+      auto_answer_status: serverBehavior.auto_answer_status || (fallbackKey === 'cancel' ? 'cancelled' : (fallbackKey === 'not_interested' ? 'answer' : null)),
+    };
+  };
 
   useEffect(() => {
     const fetchStages = async () => {
@@ -526,27 +565,23 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const applyStageSelection = (stageId) => {
     const stage = (Array.isArray(stages) ? stages : []).find(s => String(s.id) === String(stageId));
     if (!stage) return false;
-    const normalizedStageToken = normalizeStageToken(stageLabel(stage) || stage?.type);
-    if (isTelesalesWorkflowLead && hiddenTelesalesStageKeys.has(normalizedStageToken)) {
+    const uiBehavior = getStageUiBehavior(stage);
+    if (isTelesalesWorkflowLead && !uiBehavior.selectable_in_add_action) {
       return false;
     }
-    if (isTelesalesWorkflowLead && !canConvertTelesalesToSales && normalizedStageToken === 'transferred') {
+    if (isTelesalesWorkflowLead && !canConvertTelesalesToSales && uiBehavior.is_transfer) {
       return false;
     }
-
-    const stageType = stage.type;
-    const newActionType = stageType === 'cancel'
-      ? 'cancel'
-      : stageType === 'not_interested'
-        ? 'call'
-        : ((['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(stageType)) ? stageType : 'call');
 
     setActionData(prev => ({
       ...prev,
       stage_id: String(stageId),
-      nextAction: stageType,
-      actionType: newActionType,
-      type: newActionType
+      nextAction: stage.type,
+      actionType: uiBehavior.default_action_type,
+      type: uiBehavior.default_action_type,
+      status: uiBehavior.is_terminal ? 'completed' : 'pending',
+      selectedQuickOption: uiBehavior.requires_schedule ? prev.selectedQuickOption : null,
+      ...(uiBehavior.auto_answer_status ? { answerStatus: uiBehavior.auto_answer_status } : {})
     }));
 
     return true;
@@ -558,11 +593,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     if (!normalized) return null;
 
     const matched = stages.find((s) => {
-      const normalizedStageToken = normalizeStageToken(stageLabel(s) || s?.type);
-      if (isTelesalesWorkflowLead && hiddenTelesalesStageKeys.has(normalizedStageToken)) {
+      const uiBehavior = getStageUiBehavior(s);
+      if (isTelesalesWorkflowLead && !uiBehavior.selectable_in_add_action) {
         return false;
       }
-      if (isTelesalesWorkflowLead && !canConvertTelesalesToSales && normalizedStageToken === 'transferred') {
+      if (isTelesalesWorkflowLead && !canConvertTelesalesToSales && uiBehavior.is_transfer) {
         return false;
       }
       const names = [
@@ -590,23 +625,26 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     if (!isTelesalesWorkflowLead) return stages;
 
     return stages.filter((stage) => {
-      const normalizedStageToken = normalizeStageToken(stageLabel(stage) || stage?.type);
-      if (hiddenTelesalesStageKeys.has(normalizedStageToken)) return false;
-      if (!canConvertTelesalesToSales && normalizedStageToken === 'transferred') return false;
+      const uiBehavior = getStageUiBehavior(stage);
+      const normalizedStageKey = normalizeStageToken(uiBehavior.stage_key || stage?.name || stage?.type || '');
+      const isHiddenTelesalesStage = ['fresh', 'cold calls', 'cold call'].includes(normalizedStageKey);
+
+      if (isHiddenTelesalesStage && String(stage?.id) !== String(actionData.stage_id || '')) {
+        return false;
+      }
+      if (!uiBehavior.selectable_in_add_action) return false;
+      if (!canConvertTelesalesToSales && uiBehavior.is_transfer) return false;
       return true;
     });
-  }, [canConvertTelesalesToSales, hiddenTelesalesStageKeys, isTelesalesWorkflowLead, stages]);
+  }, [actionData.stage_id, canConvertTelesalesToSales, isTelesalesWorkflowLead, stages]);
 
   const selectedStage = useMemo(
     () => (Array.isArray(stages) ? stages.find((s) => String(s.id) === String(actionData.stage_id || '')) : null),
     [actionData.stage_id, stages]
   );
+  const selectedStageBehavior = useMemo(() => getStageUiBehavior(selectedStage), [selectedStage]);
 
-  const isTransferStageSelected = useMemo(() => {
-    if (!selectedStage) return false;
-    const token = normalizeStageToken(selectedStage?.type || stageLabel(selectedStage));
-    return ['transferred', 'transfer', 'convert'].includes(token);
-  }, [selectedStage]);
+  const isTransferStageSelected = Boolean(selectedStageBehavior?.is_transfer);
 
   const transferRoleOptions = useMemo(
     () => ['All', ...Array.from(new Set((Array.isArray(salesAssignees) ? salesAssignees : []).map((entry) => String(entry?.role || entry?.job_title || '').trim()).filter(Boolean)))],
@@ -1212,27 +1250,17 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     const stage = stages.find(s => s.id == stageId);
 
     if (stage) {
-      const stageType = stage.type;
-      const newActionType = stageType === 'cancel'
-        ? 'cancel'
-        : stageType === 'not_interested'
-          ? 'call'
-          : ((['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(stageType)) ? stageType : 'call');
-
-      const isTerminal = stageType === 'closing_deals' || stageType === 'cancel' || stageType === 'not_interested';
+      const uiBehavior = getStageUiBehavior(stage);
 
       setActionData(prev => ({
         ...prev,
         stage_id: stageId,
-        nextAction: stageType,
-        // If the stage implies a specific action type (like meeting, proposal), set it.
-        // Otherwise (like follow_up), default to 'call' but allow user to change it.
-        actionType: newActionType,
-        type: newActionType,
-        status: isTerminal ? 'completed' : 'pending',
-        selectedQuickOption: isTerminal ? null : prev.selectedQuickOption,
-        ...(stageType === 'cancel' ? { answerStatus: 'cancelled' } : {}),
-        ...(stageType === 'not_interested' ? { answerStatus: 'answer' } : {})
+        nextAction: stage.type,
+        actionType: uiBehavior.default_action_type,
+        type: uiBehavior.default_action_type,
+        status: uiBehavior.is_terminal ? 'completed' : 'pending',
+        selectedQuickOption: uiBehavior.requires_schedule ? prev.selectedQuickOption : null,
+        ...(uiBehavior.auto_answer_status ? { answerStatus: uiBehavior.auto_answer_status } : {})
       }));
     } else {
       setActionData(prev => ({
@@ -1695,7 +1723,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
               )}
 
               {isTelesalesWorkflowLead && isTransferStageSelected ? (
-                <div className="space-y-5 rounded-2xl border border-slate-700/70 bg-slate-900/30 p-4">
+                <div className={`space-y-5 rounded-2xl border p-4 ${isLight ? 'border-gray-200 bg-transparent' : 'border-slate-700/70 bg-slate-900/10'}`}>
                   <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
                     <div>
                       <label className={`mb-2 block text-sm font-medium ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
@@ -1880,7 +1908,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Answer Status Toggle */}
-          {!isTransferStageSelected && actionData.type && !['cancel', 'not_interested'].includes(actionData.nextAction) && (
+          {!isTransferStageSelected && actionData.type && selectedStageBehavior.requires_answer_toggle && (
             <div className={`flex items-center gap-4 ${isArabic ? 'justify-between' : 'justify-between'}`}>
               <button
                 type="button"
@@ -2348,7 +2376,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Schedule Date */}
-          {!isTransferStageSelected && !['closing_deals', 'cancel', 'not_interested'].includes(actionData.nextAction) && (
+          {!isTransferStageSelected && selectedStageBehavior.requires_schedule && (
             <div className="space-y-4">
               <h3 className={`text-lg font-medium ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {isArabic ? 'تاريخ الجدولة' : 'Schedule Date'}
@@ -2439,8 +2467,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           <div>
             <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
               {isArabic
-                ? (['cancel', 'not_interested'].includes(actionData.nextAction) ? 'تعليق' : 'تعليق *')
-                : (['cancel', 'not_interested'].includes(actionData.nextAction) ? 'Comment' : 'Comment *')}
+                ? (!selectedStageBehavior.comment_required ? 'تعليق' : 'تعليق *')
+                : (!selectedStageBehavior.comment_required ? 'Comment' : 'Comment *')}
             </label>
             <textarea
               name="notes"
@@ -2457,7 +2485,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                     : 'Write your comment here. Unlimited words are allowed...')}
               rows="4"
               className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-gray-400' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400'} resize-none`}
-              required={!['cancel', 'not_interested'].includes(actionData.nextAction)}
+              required={selectedStageBehavior.comment_required}
             />
           </div>
           </>
