@@ -142,6 +142,7 @@ const SettingsEmail = lazy(() => import('../pages/SettingsEmail'))
 const WhatsAppIntegration = lazy(() => import('../pages/settings/integrations/WhatsAppIntegration'))
 const SettingsConfiguration = lazy(() => import('../pages/SettingsConfiguration'))
 const CancelReasons = lazy(() => import('../pages/CancelReasons'))
+const NotInterestReasons = lazy(() => import('../pages/NotInterestReasons'))
 const PaymentPlans = lazy(() => import('../pages/PaymentPlans'))
 
 // --- Billing ---
@@ -467,6 +468,7 @@ export default function AppRouter() {
               <Route path="/settings/configuration" element={<SettingsConfiguration />} />
               <Route path="/settings/tenant-setup" element={<Navigate to="/system/tenants" replace />} />
               <Route path="/cancel-reasons" element={<CancelReasons />} />
+              <Route path="/not-interest-reasons" element={<NotInterestReasons />} />
               <Route path="/settings/configuration/payment-plans" element={<PaymentPlans />} />
 
               <Route path="/settings/company-setup" element={<Navigate to="/settings/company-setup/info" replace />} />

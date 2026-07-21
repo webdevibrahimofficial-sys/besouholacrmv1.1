@@ -17,6 +17,16 @@ const MODULE_DEFINITION = [
     ]
   },
   {
+    key: 'telesales',
+    labelKey: 'Telesales',
+    notifications: [
+      { key: 'notify_assigned_leads', labelKey: 'Lead Assigned' },
+      { key: 'telesales_upcoming_action', labelKey: 'Upcoming Action' },
+      { key: 'notify_delay_leads', labelKey: 'Delayed Action' },
+      { key: 'telesales_new_comment', labelKey: 'New Comment' }
+    ]
+  },
+  {
     key: 'customers',
     labelKey: 'Customers & Invoices',
     notifications: [

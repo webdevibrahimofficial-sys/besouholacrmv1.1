@@ -2,6 +2,7 @@ import { useMemo, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import DatePicker from 'react-datepicker'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import {
   FaChartLine,
   FaChevronDown,
@@ -67,7 +68,7 @@ function formatShortDateTime(value, locale = 'en') {
   }
 }
 
-const TELESALES_STAGE_DISPLAY_ORDER = ['fresh', 'duplicate', 'pending', 'cold calls']
+const MONTH_LABELS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 const isHexColor = (c) => typeof c === 'string' && /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)
 
@@ -150,6 +151,7 @@ const COLOR_STYLES = {
 
 export default function TelesalesDashboard() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const { theme: contextTheme, resolvedTheme } = useTheme()
   const theme = resolvedTheme || contextTheme
   const isLight = theme === 'light'
@@ -171,8 +173,10 @@ export default function TelesalesDashboard() {
   const [filtersOpenMobile, setFiltersOpenMobile] = useState(true)
   const [leadsChartType, setLeadsChartType] = useState('bar')
   const [showAllStages, setShowAllStages] = useState(false)
+  const [selectedStageFilter, setSelectedStageFilter] = useState('')
   const [delayLeadsOpenMobile, setDelayLeadsOpenMobile] = useState(true)
   const [delayLeadsCount, setDelayLeadsCount] = useState(0)
+  const [rankingPeriod, setRankingPeriod] = useState('today')
   const [commentsOpenMobile, setCommentsOpenMobile] = useState(true)
   const [recentCallsOpenMobile, setRecentCallsOpenMobile] = useState(true)
   const [recentCallsCount, setRecentCallsCount] = useState(0)
@@ -313,18 +317,15 @@ export default function TelesalesDashboard() {
         id: stage.id || key,
         key,
         name: isRtl && stage?.name_ar ? stage.name_ar : stage.name,
+        type: stageTypeKey,
         icon: stage.icon || 'BarChart2',
         count: stageCounts[key] || 0,
         color: String(stage.color || '').toLowerCase(),
+        order: Number(stage?.order ?? 0),
       }
     })
     .sort((a, b) => {
-      const aIndex = TELESALES_STAGE_DISPLAY_ORDER.indexOf(a.key)
-      const bIndex = TELESALES_STAGE_DISPLAY_ORDER.indexOf(b.key)
-      const aPriority = aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex
-      const bPriority = bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex
-      if (aPriority !== bPriority) return aPriority - bPriority
-      if (aPriority !== Number.MAX_SAFE_INTEGER) return 0
+      if (a.order !== b.order) return a.order - b.order
       return String(a.name || '').localeCompare(String(b.name || ''))
     }), [canViewDuplicateDisplay, canViewPendingDisplay, isRtl, stageCounts, telesalesStages])
 
@@ -363,8 +364,13 @@ export default function TelesalesDashboard() {
       statusMap.set(stageKey, stageEntry)
     })
 
+    const monthly = MONTH_LABELS_EN.map((label, monthIndex) => {
+      const monthKey = `${selectedYear}-${String(monthIndex + 1).padStart(2, '0')}`
+      return monthlyMap.get(monthKey) || { month: monthKey, label, value: 0 }
+    })
+
     return {
-      monthly: Array.from(monthlyMap.values()).sort((a, b) => String(a.month).localeCompare(String(b.month))),
+      monthly,
       bySource: Array.from(sourceMap.values()).sort((a, b) => b.value - a.value).slice(0, 6),
       byStatus: Array.from(statusMap.values()).sort((a, b) => b.value - a.value),
     }
@@ -381,8 +387,39 @@ export default function TelesalesDashboard() {
   }, [rows])
 
   const topAgents = useMemo(() => {
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    const day = now.getDay()
+    const daysSinceSaturday = (day - 6 + 7) % 7
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceSaturday)
+    const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 7)
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+
+    const rowsForRanking = rows.filter((lead) => {
+      if (rankingPeriod === 'all') return true
+      const rawDate = lead?.latest_action_at || lead?.last_action_at || lead?.updated_at || lead?.created_at
+      const activityDate = rawDate ? new Date(rawDate) : null
+      if (!activityDate || Number.isNaN(activityDate.getTime())) return false
+
+      if (rankingPeriod === 'today') {
+        return activityDate >= startOfToday && activityDate < startOfTomorrow
+      }
+
+      if (rankingPeriod === 'week') {
+        return activityDate >= startOfWeek && activityDate < endOfWeek
+      }
+
+      if (rankingPeriod === 'month') {
+        return activityDate >= startOfMonth && activityDate < endOfMonth
+      }
+
+      return true
+    })
+
     const map = new Map()
-    rows.forEach((lead) => {
+    rowsForRanking.forEach((lead) => {
       const name = lead?.assigned_to_name || lead?.assignedAgent?.name || lead?.sales_person_name || '-'
       if (!name || name === '-') return
       const entry = map.get(name) || { name, total: 0 }
@@ -407,7 +444,14 @@ export default function TelesalesDashboard() {
       if (b.total !== a.total) return b.total - a.total
       return String(a.name || '').localeCompare(String(b.name || ''))
     })
-  }, [rows, telesalesAssignees])
+  }, [rankingPeriod, rows, telesalesAssignees])
+
+  const rankingPeriods = useMemo(() => ([
+    { value: 'today', label: t('Today') },
+    { value: 'week', label: t('Week') },
+    { value: 'month', label: t('Month') },
+    { value: 'all', label: t('All') },
+  ]), [t])
 
   const telesalesComments = useMemo(() => (
     rows
@@ -423,7 +467,24 @@ export default function TelesalesDashboard() {
 
         const actions = Array.isArray(lead?.actions) ? lead.actions : []
         const actionRows = actions
-          .map((action, index) => {
+          .flatMap((action, index) => {
+            const commentsArray = Array.isArray(action?.details?.comments) ? action.details.comments : []
+            const commentEntries = commentsArray
+              .map((comment, commentIndex) => {
+                const commentText = String(comment?.text || comment?.comment || '').trim()
+                if (!commentText) return null
+                return {
+                  id: `${lead.id}-action-${action?.id || index}-comment-${comment?.id || commentIndex}`,
+                  ...leadMeta,
+                  actionBy: comment?.userName || action?.created_by_name || action?.user_name || action?.user?.name || 'admin',
+                  comment: commentText,
+                  createdAt: comment?.createdAt || action?.created_at || action?.date || lead?.updated_at || lead?.created_at,
+                }
+              })
+              .filter(Boolean)
+
+            if (commentEntries.length > 0) return commentEntries
+
             const commentText =
               action?.description ||
               action?.notes ||
@@ -431,20 +492,38 @@ export default function TelesalesDashboard() {
               action?.details?.notes ||
               action?.details?.comment ||
               ''
-            if (!String(commentText || '').trim()) return null
-            return {
+
+            if (!String(commentText || '').trim()) return []
+
+            return [{
               id: `${lead.id}-action-${action?.id || index}`,
               ...leadMeta,
               actionBy: action?.created_by_name || action?.user_name || action?.user?.name || 'admin',
               comment: commentText,
               createdAt: action?.created_at || action?.date || lead?.updated_at || lead?.created_at,
-            }
+            }]
           })
-          .filter(Boolean)
 
         if (actionRows.length > 0) return actionRows
 
         const latestAction = lead?.latest_action || lead?.latestAction || {}
+        const latestCommentsArray = Array.isArray(latestAction?.details?.comments) ? latestAction.details.comments : []
+        const latestCommentEntry = latestCommentsArray
+          .map((comment, commentIndex) => {
+            const commentText = String(comment?.text || comment?.comment || '').trim()
+            if (!commentText) return null
+            return {
+              id: `${lead.id}-latest-comment-${comment?.id || commentIndex}`,
+              ...leadMeta,
+              actionBy: comment?.userName || latestAction?.created_by_name || latestAction?.user_name || latestAction?.user?.name || 'admin',
+              comment: commentText,
+              createdAt: comment?.createdAt || latestAction?.created_at || latestAction?.date || lead?.updated_at || lead?.created_at,
+            }
+          })
+          .filter(Boolean)
+
+        if (latestCommentEntry.length > 0) return latestCommentEntry
+
         const fallbackComment =
           latestAction?.description ||
           latestAction?.notes ||
@@ -467,6 +546,26 @@ export default function TelesalesDashboard() {
       .slice(0, 8)
   ), [rows])
 
+  const normalizeStageFilterValue = (value) => normalizeStageKey(value).replace(/-/g, ' ')
+
+  const matchesSelectedStageFilter = (value) => {
+    const target = normalizeStageFilterValue(selectedStageFilter)
+    if (!target) return true
+
+    const normalizedValue = normalizeStageFilterValue(value)
+    if (!normalizedValue) return false
+
+    if (target === 'cold calls') {
+      return ['cold calls', 'cold call'].includes(normalizedValue)
+    }
+
+    return normalizedValue === target
+  }
+
+  const filteredTelesalesComments = useMemo(() => (
+    telesalesComments.filter((entry) => matchesSelectedStageFilter(entry.stage))
+  ), [selectedStageFilter, telesalesComments])
+
   const telesalesRecentCalls = useMemo(() => (
     rows
       .map((lead) => {
@@ -479,6 +578,7 @@ export default function TelesalesDashboard() {
           id: `${lead.id}-call`,
           employeeName: lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-',
           leadName: lead.name || '-',
+          stage: lead.display_stage || lead.stageRelation?.name || lead.stage || '-',
           phoneNumber: lead.phone || lead.mobile || '',
           callType: actionType.includes('incoming') ? 'incoming' : actionType.includes('missed') ? 'missed' : 'outgoing',
           duration: latestAction?.duration || '00:00',
@@ -496,6 +596,7 @@ export default function TelesalesDashboard() {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
     return telesalesRecentCalls.filter((call) => {
+      if (!matchesSelectedStageFilter(call.stage)) return false
       if (recentCallsRange === 'all') return true
       const createdAt = new Date(call.createdAt || 0)
       if (Number.isNaN(createdAt.getTime())) return false
@@ -516,7 +617,7 @@ export default function TelesalesDashboard() {
 
       return true
     })
-  }, [recentCallsRange, telesalesRecentCalls])
+  }, [recentCallsRange, selectedStageFilter, telesalesRecentCalls])
 
   useEffect(() => {
     setRecentCallsCount(filteredRecentCalls.length)
@@ -598,6 +699,21 @@ export default function TelesalesDashboard() {
     setSelectedEmployee('')
     setDateFrom('')
     setDateTo('')
+    setSelectedStageFilter('')
+  }
+
+  const navigateToTelesalesStage = (stageKey = '') => {
+    const normalizedStage = normalizeStageKey(stageKey)
+    const params = new URLSearchParams()
+
+    if (normalizedStage) {
+      params.set('stage', normalizedStage)
+    }
+
+    navigate({
+      pathname: '/telesales',
+      search: params.toString() ? `?${params.toString()}` : '',
+    })
   }
 
   const stagePipelineCards = useMemo(() => {
@@ -605,6 +721,7 @@ export default function TelesalesDashboard() {
 
     const totalCard = {
       key: '__total__',
+      filterKey: '',
       title: t('Total Pipeline'),
       value: total,
       percent: 100,
@@ -616,11 +733,13 @@ export default function TelesalesDashboard() {
       const Icon = ICON_MAP[String(stage.icon || '')] || ICON_MAP.BarChart2
       return {
         key: `__stage_${stage.id}__`,
+        filterKey: stage.key,
         title: stage.name,
         value: Number(stage.count || 0),
-        percent: total > 0 ? Math.round((Number(stage.count || 0) / total) * 100) : 0,
+        percent: stage.type === 'convert' ? null : (total > 0 ? Math.round((Number(stage.count || 0) / total) * 100) : 0),
+        isConvert: stage.type === 'convert',
         icon: <Icon className="w-4 h-4" />,
-        color: stage.color || 'blue',
+        color: stage.type === 'convert' ? 'green' : (stage.color || 'blue'),
       }
     })
 
@@ -657,7 +776,7 @@ export default function TelesalesDashboard() {
         </div>
       </div>
 
-      <div className={`px-2 max-[480px]:px-1 py-2 md:px-6 md:py-3 min-h-screen ${textColor}`} dir={isRtl ? 'rtl' : 'ltr'}>
+      <div className={`px-2 max-[480px]:px-1 py-2 md:px-6 md:py-3 min-h-screen overflow-x-hidden ${textColor}`} dir={isRtl ? 'rtl' : 'ltr'}>
         <section className="p-1.5 rounded-lg shadow-md glass-panel filter-card w-full mb-3">
           <div className="flex items-center justify-between mb-1 pb-1 border-b border-gray-200 dark:border-gray-600">
             <div className="flex items-center gap-2">
@@ -725,7 +844,7 @@ export default function TelesalesDashboard() {
 
         <section className="rounded-lg shadow-md glass-panel w-full mb-4 p-3">
           <div className="flex items-center justify-between mb-4">
-            <h2 className={`text-[20px] font-bold ${isLight ? 'text-gray-900' : 'text-primary'}`}>{t('Pipeline stages')}</h2>
+            <h2 className={`text-[20px] font-bold ${isLight ? 'text-gray-900' : 'text-primary'}`}>{t('Telesales Pipeline stages')}</h2>
             {stagePipelineCards.length > 5 ? (
               <button
                 type="button"
@@ -785,8 +904,27 @@ export default function TelesalesDashboard() {
                 return (
                   <div
                     key={`top-${card.key}`}
-                    className={`relative overflow-hidden rounded-2xl p-1 group ${style.containerLight} border-2 shadow-2xl hover:shadow-3xl transform hover:scale-[1.02] hover:-translate-y-1 transition-all duration-500`}
+                    className={`relative overflow-hidden rounded-2xl p-1 group border-2 shadow-2xl transform transition-all duration-500 cursor-pointer hover:shadow-3xl hover:scale-[1.02] hover:-translate-y-1 ${style.containerLight} ${
+                      selectedStageFilter === String(card.filterKey || '')
+                        ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-900'
+                        : ''
+                    }`}
                     style={customContainer}
+                    onClick={() => {
+                      const nextFilter = String(card.filterKey || '')
+                      setSelectedStageFilter(nextFilter)
+                      navigateToTelesalesStage(nextFilter)
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        const nextFilter = String(card.filterKey || '')
+                        setSelectedStageFilter(nextFilter)
+                        navigateToTelesalesStage(nextFilter)
+                      }
+                    }}
                   >
                     <div className="absolute inset-0 opacity-15 dark:hidden">
                       <div
@@ -801,9 +939,19 @@ export default function TelesalesDashboard() {
                     <div className="relative z-20 min-h-[112px] px-3 py-2.5">
                       <div className="flex items-start justify-between mb-5 gap-3">
                         <div className="min-w-0 flex-1 pr-2">
-                          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-black">
-                            {card.title}
-                          </span>
+                          <div className="mb-2 flex flex-wrap items-start gap-2">
+                            <span
+                              className="block max-w-full whitespace-normal break-words text-[11px] font-semibold uppercase tracking-wider text-black leading-tight"
+                              title={card.title}
+                            >
+                              {card.title}
+                            </span>
+                            {card.isConvert && (
+                              <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                                {t('Convert')}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[2rem] leading-none font-black tracking-tight text-gray-900">{card.value}</div>
                         </div>
                         <div
@@ -818,7 +966,9 @@ export default function TelesalesDashboard() {
                         className={`inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-semibold ${style.badgeLightBg} ${style.badgeLightText} ${style.badgeLightBorder}`}
                         style={customBadge}
                       >
-                        {t('Stage share of total')}: {card.percent}%
+                        {card.isConvert
+                          ? t('Excluded from total leads')
+                          : `${t('Stage share of total')}: ${card.percent}%`}
                       </div>
                     </div>
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -skew-x-12 transform -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out" />
@@ -829,12 +979,12 @@ export default function TelesalesDashboard() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-4 mb-4">
-          <div>
-            <div className="p-4 glass-panel h-full overflow-auto rounded-lg shadow-md">
+        <section className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.75fr)] gap-4 mb-4">
+          <div className="min-w-0">
+            <div className="min-w-0 p-4 glass-panel h-full overflow-auto rounded-lg shadow-md">
               <div className="section-header flex items-center w-full justify-between gap-2 mb-3">
                 <div className={`flex min-w-0 flex-1 items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-                  <h3 className={`text-xl font-semibold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Delay Leads')}</h3>
+                  <h3 className={`text-xl font-semibold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Telesales Delay Leads')}</h3>
                   <span className="inline-flex items-center justify-center min-w-9 rounded-full border border-blue-400/30 bg-blue-500/10 px-3 py-1 text-sm font-semibold text-blue-500">
                     {delayLeadsCount}
                   </span>
@@ -852,6 +1002,7 @@ export default function TelesalesDashboard() {
                   dateTo={dateTo}
                   selectedEmployee={selectedEmployee || selectedManager}
                   selectedEmployeeName={effectiveEmployeeName}
+                  stageFilter={selectedStageFilter}
                   onCountChange={setDelayLeadsCount}
                   employeeColumnLabel={t('Telesales Agent')}
                 />
@@ -875,6 +1026,23 @@ export default function TelesalesDashboard() {
                     {t('Telesales Ranking')}
                   </h3>
                 </div>
+              </div>
+
+              <div className={`flex items-center w-full p-1 rounded-lg ${isLight ? 'bg-gray-100' : 'bg-gray-800'}`}>
+                {rankingPeriods.map((period) => (
+                  <button
+                    key={period.value}
+                    type="button"
+                    onClick={() => setRankingPeriod(period.value)}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                      rankingPeriod === period.value
+                        ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-700 dark:text-blue-400'
+                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    {period.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -961,7 +1129,7 @@ export default function TelesalesDashboard() {
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <div className="p-4 glass-panel rounded-lg shadow-md lg:col-span-2">
             <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
-              <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Last Comments')}</h3>
+              <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Telesales Last Comments')}</h3>
               <button onClick={() => setCommentsOpenMobile((v) => !v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                   <path d="M6 9l6 6 6-6" />
@@ -983,11 +1151,11 @@ export default function TelesalesDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {telesalesComments.length === 0 ? (
+                  {filteredTelesalesComments.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">{t('No data available')}</td>
                     </tr>
-                  ) : telesalesComments.map((comment) => (
+                  ) : filteredTelesalesComments.map((comment) => (
                     <tr key={comment.id} className={`border-b ${isLight ? 'bg-white border-gray-200 hover:bg-gray-50' : 'bg-gray-800 border-gray-700 dark:hover:bg-blue-900/25'}`}>
                       <td className="px-6 py-4 text-blue-500">{comment.leadName}</td>
                       <td className="px-6 py-4">{comment.stage}</td>
@@ -1007,7 +1175,7 @@ export default function TelesalesDashboard() {
           <div className="p-4 glass-panel rounded-lg shadow-md lg:col-span-1">
             <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
               <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'} flex items-center gap-3`}>
-                <span>{t('Recent Phone Calls')}</span>
+                <span>{t('Telesales Recent Phone Calls')}</span>
                 <span className="inline-flex items-center justify-center min-w-8 h-7 px-2 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 text-sm font-bold">
                   {recentCallsCount}
                 </span>
@@ -1102,7 +1270,7 @@ export default function TelesalesDashboard() {
         <section className="grid grid-cols-1 gap-4 mb-4">
           <div ref={leadsAnalysisChartRef} className="rounded-lg shadow-md glass-panel p-4">
             <div className="section-header flex items-center w-full justify-between gap-2 mb-3">
-              <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Leads Analysis')}</h3>
+              <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Telesales Leads Analysis')}</h3>
               <div className="flex items-center gap-2" data-export-ignore="true">
                 <label htmlFor="telesales-leads-analysis-year" className={`text-sm font-semibold ${isLight ? 'text-gray-700' : 'text-gray-200'}`}>
                   {t('Year')}
@@ -1191,7 +1359,7 @@ export default function TelesalesDashboard() {
           <div className="lg:col-span-3">
             <div className="p-4 glass-panel h-full overflow-auto rounded-lg shadow-md">
               <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
-                <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Pipeline Analysis')}</h3>
+                <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Telesales Pipeline Analysis')}</h3>
                 <button
                   type="button"
                   onClick={handleExportPipelinePdf}

@@ -738,4 +738,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
         Route::get('cancel-reasons/{cancelReason}/usage', [\App\Http\Controllers\CancelReasonController::class, 'usage']);
         Route::post('cancel-reasons/{cancelReason}/replace-and-delete', [\App\Http\Controllers\CancelReasonController::class, 'replaceAndDelete']);
         Route::apiResource('cancel-reasons', \App\Http\Controllers\CancelReasonController::class);
+        Route::get('not-interest-reasons/{notInterestReason}/usage', [\App\Http\Controllers\NotInterestReasonController::class, 'usage']);
+        Route::post('not-interest-reasons/{notInterestReason}/replace-and-delete', [\App\Http\Controllers\NotInterestReasonController::class, 'replaceAndDelete']);
+        Route::apiResource('not-interest-reasons', \App\Http\Controllers\NotInterestReasonController::class);
     });

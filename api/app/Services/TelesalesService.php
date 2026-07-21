@@ -8,7 +8,9 @@ use App\Models\LeadWorkflowHistory;
 use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Notifications\LeadAssigned;
 use App\Support\PhoneNormalizer;
+use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +18,8 @@ use Illuminate\Support\Facades\Schema;
 
 class TelesalesService
 {
+    use ResolvesNotificationRecipients;
+
     public const MODULE_SLUG = 'telesales';
     public const WORKFLOW_SALES = 'sales';
     public const WORKFLOW_TELESALES = 'telesales';
@@ -610,6 +614,7 @@ class TelesalesService
                 'meta_data' => [
                     'assignment_method' => $assignmentMethod,
                     'assigned_to' => $lead->assigned_to,
+                    'assigned_to_name' => $lead->assignedAgent?->name ?: $lead->sales_person,
                     'stage' => $targetStage !== '' ? $targetStage : null,
                     'history_option' => $historyOption,
                     'is_duplicate_in_sales' => (bool) $duplicateMatch,
@@ -617,7 +622,33 @@ class TelesalesService
                 ],
             ]);
 
-            return $lead->fresh(['assignedAgent:id,name', 'creator:id,name']);
+            $freshLead = $lead->fresh(['assignedAgent:id,name', 'creator:id,name']);
+
+            if ($freshLead?->assigned_to && $actor) {
+                $assigneeRecipient = User::with(['manager', 'team.leader'])->find($freshLead->assigned_to);
+                if ($assigneeRecipient) {
+                    $notification = new LeadAssigned($freshLead, $actor->name);
+                    $recipients = $this->buildNotificationRecipients(
+                        $assigneeRecipient,
+                        [
+                            'owner' => $freshLead->creator,
+                            'assignee' => $assigneeRecipient,
+                            'assigner' => $actor,
+                        ],
+                        'leads',
+                        'notify_assigned_leads'
+                    );
+
+                    foreach ($recipients as $userRecipient) {
+                        try {
+                            $userRecipient->notify($notification);
+                        } catch (\Throwable $e) {
+                        }
+                    }
+                }
+            }
+
+            return $freshLead;
         });
     }
 

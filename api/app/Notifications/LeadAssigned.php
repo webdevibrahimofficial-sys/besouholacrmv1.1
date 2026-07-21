@@ -3,57 +3,66 @@
 namespace App\Notifications;
 
 use App\Models\Lead;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
-use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Notification;
+use App\Notifications\Concerns\ResolvesLeadNotificationContext;
 use App\Traits\ChecksNotificationSettings;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Notifications\Notification;
 
 class LeadAssigned extends Notification implements ShouldBroadcast
 {
-    use Queueable, ChecksNotificationSettings;
+    use Queueable, ChecksNotificationSettings, ResolvesLeadNotificationContext;
 
     public $lead;
     public $assignerName;
 
-    /**
-     * Create a new notification instance.
-     */
     public function __construct(Lead $lead, $assignerName = 'System')
     {
         $this->lead = $lead;
         $this->assignerName = $assignerName;
     }
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
     public function via(object $notifiable): array
     {
         return $this->determineChannels($notifiable, ['database', 'broadcast']);
     }
 
-    /**
-     * Get the array representation of the notification.
-     *
-     * @return array<string, mixed>
-     */
+    protected function notificationPreferenceContext(): ?array
+    {
+        $context = $this->resolveLeadNotificationContext($this->lead);
+
+        return [
+            'module_key' => $context['module_key'],
+            'notification_key' => 'notify_assigned_leads',
+        ];
+    }
+
     public function toArray(object $notifiable): array
     {
+        $context = $this->resolveLeadNotificationContext($this->lead);
+        $title = $context['is_telesales'] ? 'Telesales Lead Assigned' : 'Lead Assigned';
+        $titleAr = $context['is_telesales'] ? 'تم تعيين ليد تيليسيلز' : 'تم تعيين ليد';
+        $message = $context['is_telesales']
+            ? "Telesales lead '{$this->lead->name}' has been assigned to {$this->lead->assignedAgent?->name}."
+            : "Lead '{$this->lead->name}' has been assigned to {$this->lead->assignedAgent?->name}.";
+        $messageAr = $context['is_telesales']
+            ? "تم تعيين ليد التيليسيلز '{$this->lead->name}' إلى {$this->lead->assignedAgent?->name}."
+            : "تم تعيين الليد '{$this->lead->name}' إلى {$this->lead->assignedAgent?->name}.";
+
         return [
             'lead_id' => $this->lead->id,
             'lead_name' => $this->lead->name,
             'assigned_by' => $this->assignerName,
             'assigned_to_id' => $this->lead->assigned_to,
             'assigned_to_name' => $this->lead->assignedAgent?->name,
-            'title' => 'Lead Assigned',
-            'title_ar' => 'تم تعيين ليد',
-            'message' => "Lead '{$this->lead->name}' has been assigned to {$this->lead->assignedAgent?->name}.",
-            'message_ar' => "تم تعيين الليد '{$this->lead->name}' إلى {$this->lead->assignedAgent?->name}.",
-            'link' => "/leads?lead_id={$this->lead->id}"
+            'workflow_key' => $context['workflow_key'],
+            'module' => $context['module_key'],
+            'screen' => $context['screen'],
+            'title' => $title,
+            'title_ar' => $titleAr,
+            'message' => $message,
+            'message_ar' => $messageAr,
+            'link' => $context['link'],
         ];
     }
 }

@@ -72,6 +72,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const [isSubmitting, setIsSubmitting] = useState(false);
   const cancelAutoNotesRef = useRef('');
   const cancelNotesTouchedRef = useRef(false);
+  const notInterestAutoNotesRef = useRef('');
+  const notInterestNotesTouchedRef = useRef(false);
   const [transferFilterRole, setTransferFilterRole] = useState('All');
   const [transferSearchQuery, setTransferSearchQuery] = useState('');
   const [transferSelectedUser, setTransferSelectedUser] = useState(null);
@@ -82,7 +84,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     const fetchStages = async () => {
       try {
         const response = await api.get('/api/stages', {
-          params: { workflow_key: lead?.workflow_key || 'sales' }
+          params: { workflow_key: lead?.workflow_key || (isTelesalesWorkflowLead ? 'telesales' : 'sales') }
         });
         setStages(response.data);
       } catch (error) {
@@ -203,6 +205,9 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     cancelReason: '',
     cancelReasonId: '',
     cancelReasonTitleAr: '',
+    notInterestReason: '',
+    notInterestReasonId: '',
+    notInterestReasonTitleAr: '',
     doneMeeting: false
   });
 
@@ -530,7 +535,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     }
 
     const stageType = stage.type;
-    const newActionType = (['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(stageType)) ? stageType : 'call';
+    const newActionType = stageType === 'cancel'
+      ? 'cancel'
+      : stageType === 'not_interested'
+        ? 'call'
+        : ((['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(stageType)) ? stageType : 'call');
 
     setActionData(prev => ({
       ...prev,
@@ -716,7 +725,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     }
 
     // Also support case where lead.stage is the stage name or status (e.g., 'Pending').
-    const stageFromLeadName = lead?.stage || lead?.status || lead?.stage_name || null;
+    const stageFromLeadName = lead?.stage || lead?.display_stage || lead?.pipelineStage || lead?.stage_name || lead?.stageName || lead?.status || null;
     const mappedId = getStageIdFromStageName(stageFromLeadName);
     if (mappedId) return mappedId;
 
@@ -742,7 +751,15 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     const leadLastActionStageId = getLeadLastActionStageId();
     if (leadLastActionStageId && applyStageSelection(leadLastActionStageId)) return;
 
-    const fallbackFromLeadName = getStageIdFromStageName(lead?.stage || lead?.status || lead?.stage_name || '');
+    const fallbackFromLeadName = getStageIdFromStageName(
+      lead?.stage ||
+      lead?.display_stage ||
+      lead?.pipelineStage ||
+      lead?.stage_name ||
+      lead?.stageName ||
+      lead?.status ||
+      ''
+    );
     if (fallbackFromLeadName && applyStageSelection(fallbackFromLeadName)) return;
 
     // Final fallback: fetch full lead details to get actions/stage reliably
@@ -792,6 +809,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   }, [isOpen, user?.id, stages, actionData.stage_id, lead?.id, stagePrefillAttempted]);
 
   const [cancelReasons, setCancelReasons] = useState([]);
+  const [notInterestReasons, setNotInterestReasons] = useState([]);
 
   useEffect(() => {
     const fetchCancelReasons = async () => {
@@ -803,6 +821,18 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       }
     };
     fetchCancelReasons();
+  }, []);
+
+  useEffect(() => {
+    const fetchNotInterestReasons = async () => {
+      try {
+        const response = await api.get('/api/not-interest-reasons');
+        setNotInterestReasons(response.data);
+      } catch (error) {
+        console.error('Failed to fetch not interest reasons:', error);
+      }
+    };
+    fetchNotInterestReasons();
   }, []);
 
   // Auto-calculate Total Price for General Reservation
@@ -946,7 +976,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     { value: 'reservation', label: isArabic ? 'حجز' : 'Reservation' },
     { value: 'closing_deals', label: isArabic ? 'إغلاق الصفقات' : 'Closing Deals' },
     { value: 'rent', label: isArabic ? 'إيجار' : 'Rent' },
-    { value: 'cancel', label: isArabic ? 'إلغاء' : 'Cancel' }
+    { value: 'cancel', label: isArabic ? 'إلغاء' : 'Cancel' },
+    { value: 'not_interested', label: isArabic ? 'غير مهتم' : 'Not Interested' }
   ];
 
   const meetingTypes = [
@@ -1109,12 +1140,47 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       return;
     }
 
+    if (name === 'notInterestReason') {
+      const selectedOption = e.target.selectedOptions?.[0];
+      const selectedId = selectedOption?.dataset?.reasonId || '';
+      const selectedText = selectedOption?.dataset?.reasonLabel || value;
+      const selectedTextAr = selectedOption?.dataset?.reasonTitleAr || '';
+      setActionData(prev => {
+        const newReason = selectedText;
+        const prevNotes = String(prev.notes || '');
+        const lastAuto = String(notInterestAutoNotesRef.current || '');
+        const shouldAutoFillNotes =
+          prev.nextAction === 'not_interested' &&
+          !notInterestNotesTouchedRef.current &&
+          (prevNotes.trim() === '' || prevNotes === lastAuto);
+
+        if (shouldAutoFillNotes) {
+          notInterestAutoNotesRef.current = newReason;
+        }
+
+        return {
+          ...prev,
+          notInterestReason: newReason,
+          notInterestReasonId: selectedId,
+          notInterestReasonTitleAr: selectedTextAr,
+          notes: shouldAutoFillNotes ? newReason : prev.notes,
+        };
+      });
+      return;
+    }
+
     if (name === 'notes') {
       setActionData(prev => {
         if (prev.nextAction === 'cancel') {
           const lastAuto = String(cancelAutoNotesRef.current || '');
           if (String(value || '').trim() !== '' && String(value) !== lastAuto) {
             cancelNotesTouchedRef.current = true;
+          }
+        }
+        if (prev.nextAction === 'not_interested') {
+          const lastAuto = String(notInterestAutoNotesRef.current || '');
+          if (String(value || '').trim() !== '' && String(value) !== lastAuto) {
+            notInterestNotesTouchedRef.current = true;
           }
         }
         return {
@@ -1149,9 +1215,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       const stageType = stage.type;
       const newActionType = stageType === 'cancel'
         ? 'cancel'
-        : ((['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(stageType)) ? stageType : 'call');
+        : stageType === 'not_interested'
+          ? 'call'
+          : ((['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(stageType)) ? stageType : 'call');
 
-      const isTerminal = stageType === 'closing_deals' || stageType === 'cancel';
+      const isTerminal = stageType === 'closing_deals' || stageType === 'cancel' || stageType === 'not_interested';
 
       setActionData(prev => ({
         ...prev,
@@ -1163,7 +1231,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         type: newActionType,
         status: isTerminal ? 'completed' : 'pending',
         selectedQuickOption: isTerminal ? null : prev.selectedQuickOption,
-        ...(stageType === 'cancel' ? { answerStatus: 'cancelled' } : {})
+        ...(stageType === 'cancel' ? { answerStatus: 'cancelled' } : {}),
+        ...(stageType === 'not_interested' ? { answerStatus: 'answer' } : {})
       }));
     } else {
       setActionData(prev => ({
@@ -1266,6 +1335,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         return;
       }
 
+      if (cleanedData.nextAction === 'not_interested' && !String(cleanedData.notInterestReason || '').trim()) {
+        toast('error', isArabic ? 'من فضلك اختر سبب عدم الاهتمام' : 'Please select a not interest reason');
+        return;
+      }
+
       // For cancel actions, store the cancel reason as a comment (audit trail) instead of forcing it into notes/description.
       if (cleanedData.nextAction === 'cancel') {
         const reason = String(cleanedData.cancelReason || '').trim();
@@ -1286,6 +1360,35 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             },
           ];
         }
+      }
+
+      if (cleanedData.nextAction === 'not_interested') {
+        const reason = String(cleanedData.notInterestReason || '').trim();
+        if (reason) {
+          cleanedData.comments = [
+            {
+              text: reason,
+              reasonId: cleanedData.notInterestReasonId ? Number(cleanedData.notInterestReasonId) : undefined,
+              notInterestReasonId: cleanedData.notInterestReasonId ? Number(cleanedData.notInterestReasonId) : undefined,
+              reasonTitle: reason,
+              reasonTitleAr: cleanedData.notInterestReasonTitleAr || '',
+              userId: user?.id,
+              userName: user?.name,
+              createdAt: new Date().toISOString(),
+              kind: 'not_interest_reason',
+            },
+          ];
+        }
+      }
+
+      const isTerminalNextAction = ['closing_deals', 'cancel', 'not_interested'].includes(String(cleanedData.nextAction || '').trim());
+      if (isTerminalNextAction) {
+        cleanedData.date = '';
+        cleanedData.time = '';
+        cleanedData.next_action_date = '';
+        cleanedData.next_action_time = '';
+        cleanedData.nextActionDate = '';
+        cleanedData.nextActionTime = '';
       }
 
       // If user selected meeting as next action and didn't choose a meeting status,
@@ -1333,13 +1436,16 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       if (cleanedData.nextAction === 'cancel') {
         finalDescription = buildCancelDescription(cleanedData.cancelReason, finalDescription);
       }
+      if (cleanedData.nextAction === 'not_interested') {
+        finalDescription = buildCancelDescription(cleanedData.notInterestReason, finalDescription);
+      }
 
       const payload = {
         lead_id: lead.id,
         type: cleanedData.type || 'comment',
         status: cleanedData.status,
-        date: cleanedData.date,
-        time: cleanedData.time,
+        date: isTerminalNextAction ? null : cleanedData.date,
+        time: isTerminalNextAction ? null : cleanedData.time,
         description: finalDescription, // Use constructed description
         outcome: cleanedData.answerStatus, // Map answerStatus to outcome
         stage_id: cleanedData.stage_id,
@@ -1467,6 +1573,23 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     cancelAutoNotesRef.current = reason;
     setActionData(prev => ({ ...prev, notes: reason }));
   }, [actionData.nextAction, actionData.cancelReason]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (actionData.nextAction !== 'not_interested') {
+      notInterestNotesTouchedRef.current = false;
+      notInterestAutoNotesRef.current = '';
+      return;
+    }
+
+    const reason = String(actionData.notInterestReason || '').trim();
+    const notes = String(actionData.notes || '').trim();
+    if (!reason) return;
+    if (notInterestNotesTouchedRef.current) return;
+    if (notes !== '') return;
+
+    notInterestAutoNotesRef.current = reason;
+    setActionData(prev => ({ ...prev, notes: reason }));
+  }, [actionData.nextAction, actionData.notInterestReason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedActionType = actionTypes.find(type => type.value === actionData.type);
   const ActionIcon = selectedActionType?.icon || FaComments;
@@ -1757,7 +1880,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Answer Status Toggle */}
-          {!isTransferStageSelected && actionData.type && actionData.nextAction !== 'cancel' && (
+          {!isTransferStageSelected && actionData.type && !['cancel', 'not_interested'].includes(actionData.nextAction) && (
             <div className={`flex items-center gap-4 ${isArabic ? 'justify-between' : 'justify-between'}`}>
               <button
                 type="button"
@@ -2196,8 +2319,36 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             </div>
           )}
 
+          {actionData.nextAction === 'not_interested' && (
+            <div className="mb-4">
+              <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'سبب عدم الاهتمام' : 'Not Interest Reason'}</label>
+              <div className="relative">
+                <select
+                  name="notInterestReason"
+                  value={actionData.notInterestReasonId || ''}
+                  onChange={handleInputChange}
+                  className={`${isLight ? `w-full appearance-none px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900` : `w-full appearance-none px-3 py-2 ${isRTL ? 'pl-10' : 'pr-10'} bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white`}`}
+                >
+                  <option value="">{isArabic ? 'اختر السبب' : 'Select Reason'}</option>
+                  {notInterestReasons.map((r) => (
+                    <option
+                      key={r.id}
+                      value={r.id}
+                      data-reason-id={r.id}
+                      data-reason-label={isArabic && r.title_ar ? r.title_ar : r.title}
+                      data-reason-title-ar={r.title_ar || ''}
+                    >
+                      {isArabic && r.title_ar ? r.title_ar : r.title}
+                    </option>
+                  ))}
+                </select>
+                <FaChevronDown className={`absolute ${isRTL ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 ${isLight ? 'text-slate-500' : 'text-gray-300'} pointer-events-none`} />
+              </div>
+            </div>
+          )}
+
           {/* Schedule Date */}
-          {!isTransferStageSelected && !['closing_deals', 'cancel'].includes(actionData.nextAction) && (
+          {!isTransferStageSelected && !['closing_deals', 'cancel', 'not_interested'].includes(actionData.nextAction) && (
             <div className="space-y-4">
               <h3 className={`text-lg font-medium ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {isArabic ? 'تاريخ الجدولة' : 'Schedule Date'}
@@ -2288,8 +2439,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           <div>
             <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
               {isArabic
-                ? (actionData.nextAction === 'cancel' ? 'تعليق' : 'تعليق *')
-                : (actionData.nextAction === 'cancel' ? 'Comment' : 'Comment *')}
+                ? (['cancel', 'not_interested'].includes(actionData.nextAction) ? 'تعليق' : 'تعليق *')
+                : (['cancel', 'not_interested'].includes(actionData.nextAction) ? 'Comment' : 'Comment *')}
             </label>
             <textarea
               name="notes"
@@ -2301,10 +2452,12 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                   : 'اكتب تعليقك هنا. يُسمح بعدد غير محدود من الكلمات...')
                 : (actionData.nextAction === 'cancel'
                   ? 'Cancel reason will be filled here automatically...'
-                  : 'Write your comment here. Unlimited words are allowed...')}
+                  : actionData.nextAction === 'not_interested'
+                    ? 'Not interest reason will be filled here automatically...'
+                    : 'Write your comment here. Unlimited words are allowed...')}
               rows="4"
               className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-gray-400' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400'} resize-none`}
-              required={actionData.nextAction !== 'cancel'}
+              required={!['cancel', 'not_interested'].includes(actionData.nextAction)}
             />
           </div>
           </>

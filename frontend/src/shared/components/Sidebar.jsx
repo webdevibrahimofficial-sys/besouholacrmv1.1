@@ -528,6 +528,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     )
   const canViewPipelineStages = hasFullSettingsAccess || effectiveControlPerms.includes('addStage')
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
+  const canViewNotInterestReasons = canViewCancelReasons
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewTelesalesModule = canAccess('telesales') && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
   const canViewTelesalesDashboard = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewDashboard'))
@@ -704,9 +705,9 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   // Active flags for top-level sections
   // إبقاء قائمة Customers مفتوحة عند التنقل في مسارات العملاء والمبيعات الفرعية
   const isCustomersActive = location.pathname.startsWith('/customers') || location.pathname.startsWith('/sales')
-  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/telesales-stages-setup') || location.pathname.startsWith('/cancel-reasons')
+  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/telesales-stages-setup') || location.pathname.startsWith('/cancel-reasons') || location.pathname.startsWith('/not-interest-reasons')
   const isProfileCompanyActive = location.pathname.startsWith('/settings/profile')
-  const isSystemSettingsActive = location.pathname.startsWith('/settings/system') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/telesales-stages-setup') || location.pathname.startsWith('/cancel-reasons')
+  const isSystemSettingsActive = location.pathname.startsWith('/settings/system') || location.pathname.startsWith('/stages-setup') || location.pathname.startsWith('/telesales-stages-setup') || location.pathname.startsWith('/cancel-reasons') || location.pathname.startsWith('/not-interest-reasons')
   const isConfigurationActive = location.pathname.startsWith('/settings/configuration') || location.pathname.startsWith('/settings/integrations') || location.pathname.startsWith('/settings/operations') || location.pathname.startsWith('/settings/notifications')
   const isNotificationsActive = location.pathname.startsWith('/settings/notifications')
   const isLocationsActive = location.pathname.startsWith('/settings/system/locations')
@@ -2260,6 +2261,11 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                         {canViewCancelReasons && (
                           <NavLink to="/cancel-reasons" onClick={onClose} title={isCollapsed ? t('Cancel Reasons') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
                             <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><XCircle size={18} /></span><span className="text-[14px] link-label">{t('Cancel Reasons')}</span></span>
+                          </NavLink>
+                        )}
+                        {canViewNotInterestReasons && (
+                          <NavLink to="/not-interest-reasons" onClick={onClose} title={isCollapsed ? t('Not Interest Reasons') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
+                            <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><XCircle size={18} /></span><span className="text-[14px] link-label">{t('Not Interest Reasons')}</span></span>
                           </NavLink>
                         )}
                         {canViewCrmSettings && (

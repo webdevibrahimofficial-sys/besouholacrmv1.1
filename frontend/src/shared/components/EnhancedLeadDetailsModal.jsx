@@ -1214,6 +1214,10 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       addField('cancelReason', 'سبب الإلغاء', 'Cancel Reason');
     }
 
+    if (currentType === 'not_interested' || lowerNext === 'not_interested') {
+      addField('notInterestReason', 'سبب عدم الاهتمام', 'Not Interest Reason');
+    }
+
     if (currentType === 'meeting' || lowerNext === 'meeting' || currentType === 'google_meet') {
       addField('meetingType', 'نوع الاجتماع', 'Meeting Type');
       addField('meetingLocation', 'مكان الاجتماع', 'Meeting Location');
@@ -2187,6 +2191,24 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
   const getScheduledNextActionDateTime = (action) => {
     const details = action?.details || {};
+    const terminalValues = [
+      action?.next_action_type,
+      action?.nextAction,
+      action?.action_type,
+      action?.type,
+      details?.next_action_type,
+      details?.nextAction,
+      details?.action_type,
+      details?.actionType,
+      action?.stage,
+      details?.stage,
+    ]
+      .map((value) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_'));
+
+    if (terminalValues.some((value) => ['cancel', 'not_interested', 'closing_deals', 'closing_deal', 'won', 'lost'].includes(value))) {
+      return '';
+    }
+
     const dateRaw =
       details?.next_action_date ||
       details?.nextActionDate ||

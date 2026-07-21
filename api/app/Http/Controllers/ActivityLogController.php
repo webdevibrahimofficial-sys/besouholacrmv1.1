@@ -8,6 +8,7 @@ use App\Models\Lead;
 use App\Models\SharedUser;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\TelesalesService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -16,6 +17,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class ActivityLogController extends Controller
 {
     use \App\Traits\UserHierarchyTrait;
+
+    protected function applyGeneralDashboardLeadWorkflowScope($query, string $qualifiedColumn = 'workflow_key'): void
+    {
+        $query->where(function ($workflowQuery) use ($qualifiedColumn) {
+            $workflowQuery->where($qualifiedColumn, TelesalesService::WORKFLOW_SALES)
+                ->orWhereNull($qualifiedColumn)
+                ->orWhere($qualifiedColumn, '');
+        });
+    }
 
     protected function resolveCauserIdentity(Activity $activity): array
     {
@@ -614,6 +624,7 @@ class ActivityLogController extends Controller
                 ->where('leads.tenant_id', $tenantId)
                 ->where('users.tenant_id', $tenantId);
         }
+        $this->applyGeneralDashboardLeadWorkflowScope($query, 'leads.workflow_key');
         if ($dateFrom && $dateTo) {
             $query->whereBetween('activity_log.created_at', [$dateFrom, $dateTo]);
         }
@@ -706,7 +717,10 @@ class ActivityLogController extends Controller
         }
         
         $query = LeadAction::with(['lead.assignedAgent', 'user'])
-            ->where('tenant_id', $tenantId);
+            ->where('tenant_id', $tenantId)
+            ->whereHas('lead', function ($leadQuery) {
+                $this->applyGeneralDashboardLeadWorkflowScope($leadQuery, 'workflow_key');
+            });
 
         if ($shouldFilter) {
             $query->whereIn('user_id', $ids);
@@ -802,7 +816,10 @@ class ActivityLogController extends Controller
         
         $query = LeadAction::with(['lead', 'user'])
             ->where('tenant_id', $tenantId)
-            ->where('action_type', 'call');
+            ->where('action_type', 'call')
+            ->whereHas('lead', function ($leadQuery) {
+                $this->applyGeneralDashboardLeadWorkflowScope($leadQuery, 'workflow_key');
+            });
 
         if ($shouldFilter) {
             $query->whereIn('user_id', $ids);
@@ -1030,6 +1047,19 @@ class ActivityLogController extends Controller
             if ($rangeTo) {
                 $q->where('created_at', '<=', $rangeTo);
             }
+            $q->where(function ($activityQuery) {
+                $activityQuery->where('subject_type', '!=', Lead::class)
+                    ->orWhereExists(function ($leadSubQuery) {
+                        $leadSubQuery->select(DB::raw(1))
+                            ->from('leads')
+                            ->whereColumn('leads.id', 'activity_log.subject_id')
+                            ->where(function ($workflowQuery) {
+                                $workflowQuery->where('leads.workflow_key', TelesalesService::WORKFLOW_SALES)
+                                    ->orWhereNull('leads.workflow_key')
+                                    ->orWhere('leads.workflow_key', '');
+                            });
+                    });
+            });
         }]);
 
         $query->addSelect(['last_active_at' => \Laravel\Sanctum\PersonalAccessToken::select('last_used_at')

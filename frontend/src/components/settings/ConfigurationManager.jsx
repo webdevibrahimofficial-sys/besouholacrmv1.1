@@ -521,6 +521,7 @@ export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline
                 <option value="">{t('Select Stage')}</option>
                 {pipelineStages
                   .filter((stage) => String(stage.id) !== String(transferDialog.stageId))
+                  .filter((stage) => !stage?.isDisplayOnly && String(stage?.type || '').trim().toLowerCase() !== 'display')
                   .map((stage) => (
                     <option key={stage.id} value={stage.id}>
                       {isRtl ? (stage.nameAr || stage.name) : (stage.name || stage.nameAr)}

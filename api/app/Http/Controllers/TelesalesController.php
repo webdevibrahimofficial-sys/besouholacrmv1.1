@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Lead;
 use App\Models\Stage;
 use App\Models\User;
+use App\Notifications\LeadAssigned;
 use App\Services\TelesalesService;
+use App\Traits\ResolvesNotificationRecipients;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -13,6 +15,7 @@ use Illuminate\Support\Facades\Schema;
 class TelesalesController extends Controller
 {
     use UserHierarchyTrait;
+    use ResolvesNotificationRecipients;
 
     private const DISPLAY_STAGE_ORDER = [
         'fresh' => 1,
@@ -152,6 +155,15 @@ class TelesalesController extends Controller
             || $type === 'cold call';
     }
 
+    private function isConvertLead(Lead $lead): bool
+    {
+        if (!empty($lead->transferred_to_sales_at)) {
+            return true;
+        }
+
+        return $this->normalizeValue((string) ($lead->stageRelation?->type ?? '')) === 'convert';
+    }
+
     private function decodeUserMetaData(?User $user): array
     {
         try {
@@ -253,6 +265,17 @@ class TelesalesController extends Controller
             ?: (is_object($lead->assigned_to) ? ($lead->assigned_to->name ?? null) : null)
             ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null);
 
+        $transferHistory = $lead->latestTransferToSalesHistory;
+        $transferMeta = is_array($transferHistory?->meta_data ?? null) ? ($transferHistory->meta_data ?? []) : [];
+        $lead->convert_by_name =
+            $transferHistory?->performedByUser?->name
+            ?: $lead->latestAction?->user?->name
+            ?: null;
+        $lead->convert_to_name =
+            (!empty($transferMeta['assigned_to_name']) ? (string) $transferMeta['assigned_to_name'] : null)
+            ?: $lead->assignedAgent?->name
+            ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null);
+
         $existingPermissions = is_array($lead->permissions ?? null) ? ($lead->permissions ?? []) : [];
         $lead->permissions = array_merge($existingPermissions, [
             'can_add_action' => $user ? $this->canAddActionToLead($user, $lead) : false,
@@ -341,6 +364,10 @@ class TelesalesController extends Controller
     {
         $baseStage = trim((string) ($lead->stageRelation?->name ?? $lead->stage ?? ''));
 
+        if ($this->isConvertLead($lead)) {
+            return 'Transferred';
+        }
+
         if ($this->isDuplicateLead($lead) && $this->canViewDuplicateDisplayStage($viewer)) {
             return 'Duplicate';
         }
@@ -354,6 +381,10 @@ class TelesalesController extends Controller
 
     private function resolveDisplayStageKey(Lead $lead, ?User $viewer, string $scope = 'all'): string
     {
+        if ($this->isConvertLead($lead)) {
+            return 'convert';
+        }
+
         if ($this->isDuplicateLead($lead) && $this->canViewDuplicateDisplayStage($viewer)) {
             return 'duplicate';
         }
@@ -406,6 +437,11 @@ class TelesalesController extends Controller
             return;
         }
 
+        if ($displayStage === 'convert') {
+            $query->whereNotNull('transferred_to_sales_at');
+            return;
+        }
+
         if ($displayStage === 'pending') {
             if (!$this->canViewPendingDisplayStage($viewer, $scope)) {
                 $query->whereRaw('1 = 0');
@@ -444,7 +480,9 @@ class TelesalesController extends Controller
         $query->where(function ($q) use ($displayStage) {
             $q->whereRaw('LOWER(TRIM(COALESCE(stage, ""))) = ?', [$displayStage])
                 ->orWhereHas('stageRelation', function ($stageQuery) use ($displayStage) {
-                    $stageQuery->whereRaw('LOWER(TRIM(COALESCE(name, ""))) = ?', [$displayStage]);
+                    $stageQuery
+                        ->whereRaw('LOWER(TRIM(COALESCE(name, ""))) = ?', [$displayStage])
+                        ->orWhereRaw('LOWER(TRIM(COALESCE(type, ""))) = ?', [$displayStage]);
                 });
         });
 
@@ -486,6 +524,16 @@ class TelesalesController extends Controller
         $query->where(function ($q) {
             $q->whereRaw("LOWER(COALESCE(stage, '')) != 'duplicate'")
                 ->whereRaw("LOWER(COALESCE(status, '')) != 'duplicate'");
+        });
+
+        $query->where(function ($q) {
+            $q->whereNull('transferred_to_sales_at')
+                ->where(function ($sub) {
+                    $sub->whereNull('stage_id')
+                        ->orWhereDoesntHave('stageRelation', function ($stageQuery) {
+                            $stageQuery->whereRaw("LOWER(COALESCE(type, '')) = 'convert'");
+                        });
+                });
         });
     }
 
@@ -643,10 +691,43 @@ class TelesalesController extends Controller
             return $this->emptyPaginator($request);
         }
 
+        $displayStages = array_map(fn ($item) => $this->normalizeValue((string) $item), $this->requestArray($request, 'display_stage'));
+        $includeConvertedLeads = in_array('convert', $displayStages, true);
+
         $query = Lead::query()
-            ->with(['assignedAgent:id,name', 'creator:id,name', 'stageRelation:id,name,type,workflow_key'])
+            ->with([
+                'assignedAgent:id,name',
+                'creator:id,name',
+                'stageRelation:id,name,type,workflow_key',
+                'latestTransferToSalesHistory' => function ($query) {
+                    $query->select([
+                        'lead_workflow_history.id',
+                        'lead_workflow_history.lead_id',
+                        'lead_workflow_history.performed_by',
+                        'lead_workflow_history.meta_data',
+                    ]);
+                },
+                'latestTransferToSalesHistory.performedByUser:id,name',
+                'latestAction' => function ($query) {
+                    $query->select([
+                        'lead_actions.id',
+                        'lead_actions.lead_id',
+                        'lead_actions.user_id',
+                        'lead_actions.action_type',
+                        'lead_actions.description',
+                        'lead_actions.details',
+                        'lead_actions.created_at',
+                    ]);
+                },
+                'latestAction.user:id,name',
+            ])
             ->when($user?->tenant_id, fn ($q) => $q->where('tenant_id', (int) $user->tenant_id))
-            ->where('workflow_key', TelesalesService::WORKFLOW_TELESALES)
+            ->where(function ($workflowQuery) use ($includeConvertedLeads) {
+                $workflowQuery->where('workflow_key', TelesalesService::WORKFLOW_TELESALES);
+                if ($includeConvertedLeads) {
+                    $workflowQuery->orWhereNotNull('transferred_to_sales_at');
+                }
+            })
             ->orderByDesc('updated_at');
 
         if ($this->shouldForceAssignedScope($user)) {
@@ -676,7 +757,6 @@ class TelesalesController extends Controller
 
         $scope = $this->normalizeValue((string) $request->input('scope', 'all'));
 
-        $displayStages = $this->requestArray($request, 'display_stage');
         if (!empty($displayStages)) {
             $query->where(function ($stageGroup) use ($displayStages, $request) {
                 foreach ($displayStages as $displayStage) {
@@ -729,7 +809,13 @@ class TelesalesController extends Controller
 
         $tenantId = (int) ($viewer?->tenant_id ?? 0);
         $scope = $this->normalizeValue((string) $request->input('scope', 'all'));
-        $query = $this->telesalesService->getActiveTelesalesLeadsQuery($tenantId)
+        $query = Lead::query()
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->whereNull('deleted_at')
+            ->where(function ($workflowQuery) {
+                $workflowQuery->where('workflow_key', TelesalesService::WORKFLOW_TELESALES)
+                    ->orWhereNotNull('transferred_to_sales_at');
+            })
             ->with(['stageRelation:id,name,type,workflow_key']);
 
         if ($scope === 'my' || $this->shouldForceAssignedScope($viewer)) {
@@ -754,8 +840,6 @@ class TelesalesController extends Controller
                     });
                 }
             });
-        } else {
-            $this->excludeDisplayOnlyLeadsFromDefaultList($query, $request->user(), $scope);
         }
 
         if ($request->filled('search')) {
@@ -773,23 +857,24 @@ class TelesalesController extends Controller
         $duplicateCount = 0;
 
         foreach ($leads as $lead) {
-            if ($this->isDuplicateLead($lead)) {
-                $duplicateCount++;
-                if (!$this->canViewDuplicateDisplayStage($viewer)) {
-                    continue;
-                }
-            }
-
             $displayStage = $this->resolveDisplayStage($lead, $viewer, $scope);
             $displayKey = $this->resolveDisplayStageKey($lead, $viewer, $scope);
             if ($displayKey === '') {
                 continue;
             }
 
+            if ($displayKey === 'duplicate') {
+                $duplicateCount++;
+                if (!$this->canViewDuplicateDisplayStage($viewer)) {
+                    continue;
+                }
+            }
+
             if (!isset($byStageMap[$displayKey])) {
                 $byStageMap[$displayKey] = [
                     'stage_key' => $displayKey,
                     'stage_name' => $displayStage,
+                    'stage_type' => $this->normalizeValue((string) ($lead->stageRelation?->type ?? '')),
                     'count' => 0,
                 ];
             }
@@ -811,7 +896,7 @@ class TelesalesController extends Controller
             return strcmp((string) ($a['stage_name'] ?? ''), (string) ($b['stage_name'] ?? ''));
         });
 
-        $totalLeads = (int) $leads->count();
+        $totalLeads = (int) $leads->reject(fn (Lead $lead) => $this->isConvertLead($lead))->count();
 
         return response()->json([
             'total_leads' => $totalLeads,
@@ -969,6 +1054,32 @@ class TelesalesController extends Controller
                     'options' => $options,
                 ],
             ]);
+
+            if ($assignRole !== 'manager' && $lead->assigned_to) {
+                $assigneeRecipient = User::with(['manager', 'team.leader'])->find($lead->assigned_to);
+                $actor = $request->user();
+                if ($assigneeRecipient && $actor) {
+                    $notificationLead = $lead->fresh(['assignedAgent:id,name', 'creator:id,name']);
+                    $notification = new LeadAssigned($notificationLead, $actor->name);
+                    $recipients = $this->buildNotificationRecipients(
+                        $assigneeRecipient,
+                        [
+                            'owner' => $notificationLead->creator,
+                            'assignee' => $assigneeRecipient,
+                            'assigner' => $actor,
+                        ],
+                        TelesalesService::MODULE_SLUG,
+                        'notify_assigned_leads'
+                    );
+
+                    foreach ($recipients as $userRecipient) {
+                        try {
+                            $userRecipient->notify($notification);
+                        } catch (\Throwable $e) {
+                        }
+                    }
+                }
+            }
         }
 
         return response()->json([
@@ -1030,7 +1141,23 @@ class TelesalesController extends Controller
         }
 
         $query = Lead::query()
-            ->with(['assignedAgent:id,name', 'creator:id,name', 'stageRelation:id,name,workflow_key'])
+            ->with([
+                'assignedAgent:id,name',
+                'creator:id,name',
+                'stageRelation:id,name,workflow_key',
+                'latestAction' => function ($query) {
+                    $query->select([
+                        'lead_actions.id',
+                        'lead_actions.lead_id',
+                        'lead_actions.user_id',
+                        'lead_actions.action_type',
+                        'lead_actions.description',
+                        'lead_actions.details',
+                        'lead_actions.created_at',
+                    ]);
+                },
+                'latestAction.user:id,name',
+            ])
             ->when($request->user()?->tenant_id, fn ($q) => $q->where('tenant_id', (int) $request->user()->tenant_id))
             ->where(function ($q) {
                 $q->where('workflow_key', TelesalesService::WORKFLOW_TELESALES)

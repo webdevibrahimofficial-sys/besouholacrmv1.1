@@ -93,6 +93,14 @@ class Lead extends Model
         return $this->hasMany(LeadWorkflowHistory::class, 'lead_id');
     }
 
+    public function latestTransferToSalesHistory()
+    {
+        return $this->hasOne(LeadWorkflowHistory::class, 'lead_id')
+            ->ofMany(['id' => 'max'], function ($query) {
+                $query->where('action', 'transfer_to_sales');
+            });
+    }
+
     public function latestAction()
     {
         return $this->hasOne(LeadAction::class)->latestOfMany();

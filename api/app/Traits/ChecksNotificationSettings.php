@@ -9,6 +9,11 @@ use NotificationChannels\WebPush\WebPushMessage;
 
 trait ChecksNotificationSettings
 {
+    protected function notificationPreferenceContext(): ?array
+    {
+        return null;
+    }
+
     /**
      * Determine which channels to send to based on user settings.
      *
@@ -37,6 +42,9 @@ trait ChecksNotificationSettings
         }
 
         $selectedChannels = [];
+        $preferenceContext = method_exists($this, 'notificationPreferenceContext')
+            ? $this->notificationPreferenceContext()
+            : null;
 
         // 2. Filter available channels based on global toggles stored on User
         foreach ($availableChannels as $channel) {
@@ -72,10 +80,34 @@ trait ChecksNotificationSettings
             }
         }
 
-        // 3. Apply NotificationSetting (per-user) preferences: quiet hours and app toggle
+        // 3. Apply NotificationSetting (per-user) preferences: quiet hours, module config, and app toggle
         try {
             $ns = NotificationSetting::where('user_id', $notifiable->id)->first();
             if ($ns) {
+                if (is_array($preferenceContext) && !empty($preferenceContext['module_key']) && !empty($preferenceContext['notification_key'])) {
+                    $meta = is_array($ns->meta_data ?? null) ? ($ns->meta_data ?? []) : [];
+                    $modules = is_array($meta['modules'] ?? null) ? $meta['modules'] : [];
+                    $moduleConfig = collect($modules)->first(fn ($module) => ($module['key'] ?? null) === $preferenceContext['module_key']);
+                    $notificationConfig = collect(is_array($moduleConfig['notifications'] ?? null) ? $moduleConfig['notifications'] : [])
+                        ->first(fn ($notification) => ($notification['key'] ?? null) === $preferenceContext['notification_key']);
+
+                    if (is_array($notificationConfig)) {
+                        if (($notificationConfig['enabled'] ?? true) === false) {
+                            return [];
+                        }
+
+                        $channelPrefs = is_array($notificationConfig['channels'] ?? null) ? $notificationConfig['channels'] : [];
+                        $selectedChannels = array_values(array_filter($selectedChannels, function ($channel) use ($channelPrefs) {
+                            return match ($channel) {
+                                'mail' => ($channelPrefs['email'] ?? true) === true,
+                                'database', 'broadcast', WebPushChannel::class => ($channelPrefs['app'] ?? true) === true,
+                                'nexmo', 'twilio', 'sms' => ($channelPrefs['sms'] ?? false) === true,
+                                default => true,
+                            };
+                        }));
+                    }
+                }
+
                 // Suppress app channels if user disabled app notifications
                 if (($ns->app_notifications ?? true) === false) {
                     $selectedChannels = array_values(array_filter($selectedChannels, function ($ch) {

@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use App\Models\LeadAction;
 use App\Models\User;
 use App\Notifications\LeadDelayed;
+use App\Services\TelesalesService;
 use App\Traits\ResolvesNotificationRecipients;
 use Carbon\Carbon;
 
@@ -94,7 +95,9 @@ class CheckDelayedActions extends Command
                             'owner' => $lead->creator,
                             'assignee' => $assignee,
                        ],
-                        'leads',
+                        strtolower(trim((string) ($lead->workflow_key ?? ''))) === TelesalesService::WORKFLOW_TELESALES
+                            ? TelesalesService::MODULE_SLUG
+                            : 'leads',
                         'notify_delay_leads'
                     );
 

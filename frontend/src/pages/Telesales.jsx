@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -19,7 +19,9 @@ import AddActionModal from '../components/AddActionModal'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import TelesalesBulkAssignModal from '../components/TelesalesBulkAssignModal'
 import CompareLeadsModal from '../components/CompareLeadsModal'
+import ColumnToggle from '../components/ColumnToggle'
 import { buildLeadTransferPayload } from '../shared/utils/leadTransfer'
+import { getFavoriteColumnOrder, normalizeColumnOrder } from '../utils/columnPreferences'
 
 function hasTelesalesPermission(user, permission) {
   if (isTenantAdminUser(user) || isSuperAdminUser(user)) return true
@@ -54,13 +56,6 @@ function isTruthySetting(value) {
   return ['1', 'true', 'yes', 'on'].includes(normalized)
 }
 
-const TELESALES_STAGE_DISPLAY_ORDER = [
-  'fresh',
-  'duplicate',
-  'pending',
-  'cold calls',
-]
-
 const MEET_ICON_URL = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'><rect x='2' y='4' width='12' height='16' rx='3' fill='%23ffffff'/><rect x='2' y='4' width='12' height='4' rx='2' fill='%234285F4'/><rect x='2' y='4' width='4' height='16' rx='2' fill='%2334A853'/><rect x='10' y='4' width='4' height='16' rx='2' fill='%23FBBC05'/><rect x='2' y='16' width='12' height='4' rx='2' fill='%23EA4335'/><polygon points='14,9 22,5 22,19 14,15' fill='%2334A853'/></svg>"
 
 function formatYmdLocal(date) {
@@ -86,11 +81,17 @@ export default function Telesales() {
 
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, company, crmSettings, activeModules } = useAppState()
+  const { user, company, crmSettings, saveUiPreference, activeModules } = useAppState()
   const { stages: telesalesStages } = useStages({ workflowKey: 'telesales', activeOnly: true })
   const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
   const maskMobileNumber = useMemo(() => isMobileMaskEnabled(crmSettings), [crmSettings])
   const defaultDialCode = useMemo(() => getDefaultDialCode(crmSettings, '+20'), [crmSettings?.defaultCountryCode])
+
+  const getStageFilterFromSearch = (search) => {
+    const rawStage = new URLSearchParams(search || '').get('stage')
+    const normalizedStage = normalizeStageKey(rawStage)
+    return normalizedStage ? [normalizedStage] : []
+  }
 
   const [rows, setRows] = useState([])
   const [historicalRows, setHistoricalRows] = useState([])
@@ -109,7 +110,7 @@ export default function Telesales() {
   const [pageError, setPageError] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
-  const [stageFilter, setStageFilter] = useState([])
+  const [stageFilter, setStageFilter] = useState(() => getStageFilterFromSearch(location.search))
   const [sourceFilter, setSourceFilter] = useState([])
   const [priorityFilter, setPriorityFilter] = useState([])
   const [projectFilter, setProjectFilter] = useState([])
@@ -158,6 +159,9 @@ export default function Telesales() {
   const [assignModalSubmitting, setAssignModalSubmitting] = useState(false)
   const hasLoadedInitialRef = useRef(false)
   const supportDataCacheKeyRef = useRef('')
+  const loadRequestIdRef = useRef(0)
+
+  const isCurrentLoadRequest = (requestId) => requestId === loadRequestIdRef.current
 
   const moduleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
   const canShow = useMemo(() => hasTelesalesPermission(user, 'showModule'), [user])
@@ -360,7 +364,7 @@ export default function Telesales() {
     setTotalRows(Number(payload?.total || dataRows.length || 0))
   }
 
-  const loadOperationalSupportData = async () => {
+  const loadOperationalSupportData = async (requestId = null) => {
     const [userRes, telesalesAssigneeRes, salesAssigneeRes, sourceRes, projectRes, campaignRes, countryRes] = await Promise.all([
       api.get('/api/users'),
       api.get('/api/telesales/assignees', { params: { workflow: 'telesales' } }).catch(() => null),
@@ -371,6 +375,8 @@ export default function Telesales() {
       api.get('/api/countries?active=1').catch(() => null),
     ])
 
+    if (requestId !== null && !isCurrentLoadRequest(requestId)) return
+
     setUsers(normalizeUsers(userRes?.data))
     setTelesalesAssignees(normalizeUsers(telesalesAssigneeRes?.data))
     setSalesAssignees(normalizeUsers(salesAssigneeRes?.data))
@@ -380,7 +386,7 @@ export default function Telesales() {
     setCountriesList(Array.isArray(countryRes?.data?.data) ? countryRes.data.data : (Array.isArray(countryRes?.data) ? countryRes.data : []))
   }
 
-  const loadOperationalMetrics = async () => {
+  const loadOperationalMetrics = async (requestId = null) => {
     const scope = isMyLeadsView ? 'my' : (isReferralView ? 'referral' : 'all')
     const telesalesParams = buildOperationalParams(scope)
     const summaryParams = buildOperationalParams(scope, { includeStageFilter: false })
@@ -399,24 +405,26 @@ export default function Telesales() {
       disableCheckRes = null
     }
 
+    if (requestId !== null && !isCurrentLoadRequest(requestId)) return
+
     applyPaginator(leadRes?.data, false)
     setSummary(summaryRes?.data || null)
     setDisableCheck(disableCheckRes?.data || null)
   }
 
-  const loadOperational = async ({ includeSupport = false } = {}) => {
+  const loadOperational = async ({ includeSupport = false, requestId = null } = {}) => {
     if (includeSupport) {
       await Promise.all([
-        loadOperationalSupportData(),
-        loadOperationalMetrics(),
+        loadOperationalSupportData(requestId),
+        loadOperationalMetrics(requestId),
       ])
       return
     }
 
-    await loadOperationalMetrics()
+    await loadOperationalMetrics(requestId)
   }
 
-  const loadHistorical = async () => {
+  const loadHistorical = async (requestId = null) => {
     setHistoricalLoading(true)
     try {
       const res = await api.get('/api/telesales/historical', {
@@ -426,17 +434,21 @@ export default function Telesales() {
           ...(searchTerm ? { search: searchTerm } : {}),
         }
       })
+      if (requestId !== null && !isCurrentLoadRequest(requestId)) return
       applyPaginator(res?.data, true)
       setPageError('')
     } catch (error) {
+      if (requestId !== null && !isCurrentLoadRequest(requestId)) return
       setPageError(error?.response?.data?.message || 'Failed to load telesales records.')
       setHistoricalRows([])
     } finally {
+      if (requestId !== null && !isCurrentLoadRequest(requestId)) return
       setHistoricalLoading(false)
     }
   }
 
   const load = async () => {
+    const requestId = ++loadRequestIdRef.current
     const isInitialLoad = !hasLoadedInitialRef.current
     const supportDataKey = `${isGeneralTenant ? 'general' : 'standard'}|${moduleEnabled ? '1' : '0'}|${canShow ? '1' : '0'}`
     const shouldLoadSupport = supportDataCacheKeyRef.current !== supportDataKey
@@ -450,19 +462,24 @@ export default function Telesales() {
 
     try {
       if (moduleEnabled && canShow) {
-        await loadOperational({ includeSupport: shouldLoadSupport })
+        await loadOperational({ includeSupport: shouldLoadSupport, requestId })
+        if (requestId !== loadRequestIdRef.current) return
         supportDataCacheKeyRef.current = supportDataKey
       } else if (canViewHistorical) {
-        await loadHistorical()
+        await loadHistorical(requestId)
+        if (requestId !== loadRequestIdRef.current) return
       } else {
+        if (requestId !== loadRequestIdRef.current) return
         setPageError('You do not have access to this module.')
       }
     } catch (error) {
+      if (requestId !== loadRequestIdRef.current) return
       setPageError(error?.response?.data?.message || 'Failed to load telesales module.')
       if (canViewHistorical && !(moduleEnabled && canShow)) {
-        await loadHistorical()
+        await loadHistorical(requestId)
       }
     } finally {
+      if (requestId !== loadRequestIdRef.current) return
       hasLoadedInitialRef.current = true
       setOperationalRefreshing(false)
       setLoading(false)
@@ -474,15 +491,14 @@ export default function Telesales() {
   }, [moduleEnabled, canShow, canViewHistorical, canViewDashboard, canDisableModule, isMyLeadsView, isReferralView, isHistoricalRoute, currentPage, historicalPage, perPage, searchTerm, JSON.stringify(stageFilter), JSON.stringify(sourceFilter), JSON.stringify(priorityFilter), JSON.stringify(projectFilter), JSON.stringify(assigneeFilter), JSON.stringify(createdByFilter), JSON.stringify(managerFilter), JSON.stringify(campaignFilter), JSON.stringify(countryFilter), emailFilter, expectedRevenueFilter, JSON.stringify(actionTypeFilter), assignedDateFrom, assignedDateTo, lastActionDateFrom, lastActionDateTo, actionDateFrom, actionDateTo, creationDateFrom, creationDateTo])
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search || '')
-    const stageParam = params.get('stage')
-    const normalizedStage = stageParam ? String(stageParam).trim() : ''
+    const nextStageFilter = getStageFilterFromSearch(location.search)
 
     setStageFilter((prev) => {
-      if (!normalizedStage && prev.length === 0) return prev
-      if (!normalizedStage) return []
-      if (prev.length === 1 && prev[0] === normalizedStage) return prev
-      return [normalizedStage]
+      if (prev.length === nextStageFilter.length && prev.every((value, index) => value === nextStageFilter[index])) {
+        return prev
+      }
+
+      return nextStageFilter
     })
   }, [location.search])
 
@@ -536,7 +552,7 @@ export default function Telesales() {
     const summaryStages = Array.isArray(summary?.by_stage) ? summary.by_stage : []
     if (summaryStages.length > 0) {
       summaryStages.forEach((item) => {
-        const key = normalizeStageKey(item?.stage_name || item?.stage_key)
+        const key = normalizeStageKey(item?.stage_key || item?.stage_name)
         if (!key) return
         counts[key] = Number(item.count || 0)
       })
@@ -980,41 +996,88 @@ export default function Telesales() {
 
   const stageCards = useMemo(() => telesalesStages
     .filter((stage) => {
-      const key = normalizeStageKey(stage?.name)
+      const stageTypeKey = normalizeStageKey(stage?.type)
+      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
       if (key === 'duplicate') return !isMyLeadsView && canViewDuplicateDisplay
       if (key === 'pending') return !isMyLeadsView && canViewPendingDisplay
       return true
     })
     .map((stage) => {
-      const key = normalizeStageKey(stage?.name)
+      const stageTypeKey = normalizeStageKey(stage?.type)
+      const key = stageTypeKey && stageTypeKey !== 'display' ? stageTypeKey : normalizeStageKey(stage?.name)
       return {
         id: stage.id || `${key}-${normalizeStageKey(stage?.type) || 'stage'}`,
         key,
         name: stage.name,
-        type: normalizeStageKey(stage?.type),
+        type: stageTypeKey,
         icon: stage.icon || 'BarChart2',
         count: stageCounts[key] || 0,
+        order: Number(stage?.order ?? 0),
       }
     })
     .sort((a, b) => {
-      const aIndex = TELESALES_STAGE_DISPLAY_ORDER.indexOf(a.key)
-      const bIndex = TELESALES_STAGE_DISPLAY_ORDER.indexOf(b.key)
-      const aPriority = aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex
-      const bPriority = bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex
-
-      if (aPriority !== bPriority) {
-        return aPriority - bPriority
-      }
-
-      if (aPriority !== Number.MAX_SAFE_INTEGER) {
-        return 0
-      }
-
+      if (a.order !== b.order) return a.order - b.order
       return String(a.name || '').localeCompare(String(b.name || ''))
     }), [canViewDuplicateDisplay, canViewPendingDisplay, isMyLeadsView, stageCounts, telesalesStages])
 
+  const selectedStageCard = useMemo(
+    () => stageCards.find((stage) => stage.key === activeStageKey) || null,
+    [activeStageKey, stageCards]
+  )
+  const isConvertStageView = selectedStageCard?.type === 'convert'
+  const displayColumns = useMemo(() => {
+    const columns = {
+      lead: t('Lead'),
+      contact: t('Contact'),
+      source: t('Source'),
+      project: t('Project'),
+      telesalesAgent: t('Telesales Agent'),
+      lastComment: t('Last Comment'),
+      stage: t('Stage'),
+      expectedRevenue: t('Expected Revenue'),
+      priority: t('Priority'),
+      actions: t('Actions'),
+    }
+
+    if (isConvertStageView) {
+      return {
+        lead: columns.lead,
+        contact: columns.contact,
+        source: columns.source,
+        project: columns.project,
+        telesalesAgent: columns.telesalesAgent,
+        convertBy: t('Convert By'),
+        convertTo: t('Convert To'),
+        lastComment: columns.lastComment,
+        stage: columns.stage,
+        expectedRevenue: columns.expectedRevenue,
+        priority: columns.priority,
+        actions: columns.actions,
+      }
+    }
+
+    return columns
+  }, [isConvertStageView, t])
+  const [visibleColumns, setVisibleColumns] = useState(() => (
+    Object.keys(displayColumns).reduce((acc, key) => {
+      acc[key] = true
+      return acc
+    }, {})
+  ))
+  const [columnOrder, setColumnOrder] = useState(() => {
+    const defaultOrder = ['lead', 'contact', 'actions', 'source', 'project', 'telesalesAgent', 'convertBy', 'convertTo', 'lastComment', 'stage', 'expectedRevenue', 'priority']
+    return normalizeColumnOrder(defaultOrder, Object.keys(displayColumns), [])
+  })
+  const [favoriteColumnOrder, setFavoriteColumnOrder] = useState([])
+  const visibleColumnCount = useMemo(
+    () => Object.keys(displayColumns).filter((key) => visibleColumns[key] !== false).length,
+    [displayColumns, visibleColumns]
+  )
+
   const getLeadDisplayStage = (lead) => lead.display_stage || lead.stageRelation?.name || lead.stage || '-'
   const getLeadAssignedName = (lead) => lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
+  const getLeadConvertByName = (lead) => lead.convert_by_name || lead.latest_action?.user?.name || lead.latestAction?.user?.name || '-'
+  const getLeadConvertToName = (lead) => lead.convert_to_name || lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
   const getLeadProjectName = (lead) => lead.project?.name || lead.project_name || lead.project || lead.item?.name || lead.item_name || lead.item || '-'
   const getLeadLastComment = (lead) => (
     lead?.latest_action?.description ||
@@ -1035,6 +1098,65 @@ export default function Telesales() {
   const activePage = mode === 'historical' ? historicalPage : currentPage
   const activeLastPage = mode === 'historical' ? historicalLastPage : lastPage
   const activeTotal = mode === 'historical' ? historicalTotal : totalRows
+
+  useEffect(() => {
+    const allKeys = Object.keys(displayColumns)
+    setVisibleColumns((prev) => {
+      const next = {}
+      allKeys.forEach((key) => {
+        next[key] = prev[key] ?? true
+      })
+      return next
+    })
+
+    setColumnOrder((prev) => normalizeColumnOrder(prev, allKeys, []))
+  }, [displayColumns])
+
+  const handleColumnToggle = (key) => {
+    setVisibleColumns((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const resetVisibleColumns = () => {
+    setVisibleColumns(
+      Object.keys(displayColumns).reduce((acc, key) => {
+        acc[key] = true
+        return acc
+      }, {})
+    )
+  }
+
+  const handleColumnReorder = (newOrder) => {
+    setColumnOrder(normalizeColumnOrder(newOrder, Object.keys(displayColumns), []))
+  }
+
+  useEffect(() => {
+    const savedFavorite = getFavoriteColumnOrder(user, 'telesales_leads')
+    if (savedFavorite.length > 0) {
+      setFavoriteColumnOrder(savedFavorite)
+      setColumnOrder((prev) => normalizeColumnOrder(savedFavorite, Object.keys(displayColumns), []))
+    }
+  }, [displayColumns, user])
+
+  const saveFavoriteOrder = useCallback(async () => {
+    const next = normalizeColumnOrder(columnOrder, Object.keys(displayColumns), [])
+    setFavoriteColumnOrder(next)
+    try {
+      await saveUiPreference?.('telesales_leads', next)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'success', message: isRtl ? 'تم حفظ الترتيب المفضل' : 'Favorite order saved' }
+      }))
+    } catch (error) {
+      console.error('Failed to save telesales favorite column order', error)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'error', message: isRtl ? 'فشل حفظ الترتيب المفضل' : 'Failed to save favorite order' }
+      }))
+    }
+  }, [columnOrder, displayColumns, isRtl, saveUiPreference])
+
+  const restoreFavoriteOrder = useCallback(() => {
+    if (!favoriteColumnOrder.length) return
+    setColumnOrder(normalizeColumnOrder(favoriteColumnOrder, Object.keys(displayColumns), []))
+  }, [displayColumns, favoriteColumnOrder])
 
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">{t('Loading...')}</div>
@@ -1507,16 +1629,28 @@ export default function Telesales() {
                 onClick={() => {
                   updateStageSelection(activeStageKey === stage.key ? '' : stage.key)
                 }}
-                className={`text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full rounded-xl border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40 ${activeStageKey === stage.key ? pipelineTabSelectedClass : pipelineTabDefaultClass}`}
+                className={`text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full rounded-xl border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40 ${activeStageKey === stage.key ? pipelineTabSelectedClass : pipelineTabDefaultClass} ${stage.type === 'convert' && activeStageKey !== stage.key ? (isLight ? 'border-emerald-300 bg-emerald-50/80 text-emerald-900 hover:border-emerald-400' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100 hover:border-emerald-400') : ''}`}
               >
-                <span className="flex items-center gap-2 text-left">
+                <span className="flex items-center gap-2 text-left min-w-0">
                   <span className="inline-flex items-center justify-center">
                     {(() => {
                       const Icon = ICON_MAP[String(stage.icon || '')] || ICON_MAP.BarChart2
                       return <Icon className="w-4 h-4 shrink-0" />
                     })()}
                   </span>
-                  <span>{stage.name}</span>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className="block whitespace-normal break-words leading-tight"
+                      title={stage.name}
+                    >
+                      {stage.name}
+                    </span>
+                    {stage.type === 'convert' && (
+                      <span className={`mt-1 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${activeStageKey === stage.key ? 'border-white/30 bg-white/15 text-white' : (isLight ? 'border-emerald-300 bg-emerald-100 text-emerald-700' : 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300')}`}>
+                        {t('Convert')}
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <span className="font-bold">{stage.count}</span>
               </button>
@@ -1528,6 +1662,22 @@ export default function Telesales() {
               {pageError}
             </div>
           )}
+
+          <div className="mb-3 flex justify-end">
+            <ColumnToggle
+              columns={displayColumns}
+              visibleColumns={visibleColumns}
+              onColumnToggle={handleColumnToggle}
+              onResetColumns={resetVisibleColumns}
+              align="right"
+              compact
+              order={columnOrder}
+              onReorder={handleColumnReorder}
+              favoriteOrder={favoriteColumnOrder}
+              onSaveFavoriteOrder={saveFavoriteOrder}
+              onRestoreFavoriteOrder={restoreFavoriteOrder}
+            />
+          </div>
 
           <div className="glass-panel rounded-2xl overflow-hidden">
             <div className="relative z-[60] flex md:flex-row justify-between items-center p-4 gap-4 border-b border-theme-border dark:border-gray-700 bg-transparent backdrop-blur-md">
@@ -1605,27 +1755,30 @@ export default function Telesales() {
                         className="w-4 h-4 text-blue-600 bg-gray-100 border-theme-border rounded"
                       />
                     </th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Lead</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Contact</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Source</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Project</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Telesales Agent</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Last Comment</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Stage</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Expected Revenue</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap`}>Priority</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap sticky ${i18n.language === 'ar' ? 'right-0' : 'left-0'} z-30 ${tableHeaderBgClass}`}>{t('Actions')}</th>
+                    {columnOrder.map((key) => {
+                      if (visibleColumns[key] === false) return null
+                      if ((key === 'convertBy' || key === 'convertTo') && !isConvertStageView) return null
+                      const isActionsColumn = key === 'actions'
+                      return (
+                        <th
+                          key={key}
+                          className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textColor} whitespace-nowrap ${isActionsColumn ? `sticky ${i18n.language === 'ar' ? 'right-0' : 'left-0'} z-30 ${tableHeaderBgClass}` : ''}`}
+                        >
+                          {displayColumns[key] || key}
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-theme-border dark:bg-transparent dark:divide-gray-700">
                   {operationalRefreshing && paginatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">{t('Loading...')}</td>
+                      <td colSpan={visibleColumnCount + 1} className="px-6 py-8 text-center text-sm text-gray-500">{t('Loading...')}</td>
                     </tr>
                   ) : paginatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">No data</td>
+                      <td colSpan={visibleColumnCount + 1} className="px-6 py-8 text-center text-sm text-gray-500">No data</td>
                     </tr>
                   ) : paginatedRows.map((lead) => (
                     <tr key={lead.id} className="hover:bg-white/5 transition-colors duration-150">
@@ -1637,163 +1790,201 @@ export default function Telesales() {
                           className="w-4 h-4 text-blue-600 bg-gray-100 border-theme-border rounded"
                         />
                       </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>
-                        <div className="font-semibold text-base flex items-center gap-1">
-                          {lead.name || '-'}
-                          {canViewDuplicateDisplay && isDuplicateLead(lead) && (
-                            <span title={t('Duplicate Lead')}>
-                              <FaClone className="text-red-500 min-w-[14px]" size={14} />
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-500">{lead.company || '-'}</div>
-                      </td>
-                      <td className={`px-6 py-4 text-sm ${textColor}`}>
-                        <div className="max-w-[260px] truncate font-normal" title={lead.email || ''}>{lead.email || '-'}</div>
-                        <div className="mt-0.5 flex flex-col items-start gap-0.5">
-                          {getLeadPhoneEntries(lead).length > 0 ? getLeadPhoneEntries(lead).map((line, idx) => (
-                            <div key={idx} className="group flex max-w-[260px] items-center gap-1 font-normal">
-                              <span dir="ltr" className="min-w-0 truncate leading-5" title={line.display}>{line.display}</span>
-                              <button
-                                type="button"
-                                className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[#25D366] transition hover:opacity-80"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (line?.digits) window.open(`https://wa.me/${line.digits}`, '_blank')
-                                }}
-                                title={t('Open WhatsApp')}
-                              >
-                                <FaWhatsapp size={11} />
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-blue-600 transition hover:opacity-80 dark:text-[#60a5fa]"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (line?.digits) window.open(`tel:${line.digits}`)
-                                }}
-                                title={t('Call')}
-                              >
-                                <FaPhone size={10} />
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  copyPhoneToClipboard(line.display)
-                                }}
-                                title={t('Copy')}
-                              >
-                                <FaCopy size={10} />
-                              </button>
-                            </div>
-                          )) : <span>-</span>}
-                        </div>
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{lead.source || '-'}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{getLeadProjectName(lead)}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{getLeadAssignedName(lead)}</td>
-                      <td className={`px-6 py-4 text-sm ${textColor}`}>
-                        <div className="max-w-[240px] truncate" title={getLeadLastComment(lead)}>{getLeadLastComment(lead)}</div>
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>
-                        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">
-                          {getLeadDisplayStage(lead)}
-                        </span>
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>
-                        {lead.estimatedValue || lead.estimated_value ? formatMoney(lead.estimatedValue || lead.estimated_value) : '-'}
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>
-                        <span className={`inline-flex px-2 py-0.5 text-xs font-semibold leading-5 rounded-full ${getPriorityColor(lead.priority)}`}>
-                          {t(lead.priority || 'N/A')}
-                        </span>
-                      </td>
-                      <td className={`px-6 py-3 whitespace-nowrap text-xs font-medium sticky ${i18n.language === 'ar' ? 'right-0' : 'left-0'} z-20 ${isLight ? 'bg-white/90' : 'bg-slate-950/90'}`}>
-                        <div className="flex items-center gap-2 flex-nowrap">
-                          <button
-                            title={t('Preview')}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedLead(lead)
-                              setShowLeadModal(true)
-                            }}
-                            className="inline-flex items-center justify-center text-indigo-300 hover:text-indigo-400"
-                          >
-                            <FaEye size={16} />
-                          </button>
-                          {canUseActionControls(lead) && (
-                            <button
-                              title={t('Add Action')}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedLead(lead)
-                                setShowAddActionModal(true)
-                              }}
-                              className="inline-flex items-center justify-center text-emerald-300 hover:text-emerald-400"
-                            >
-                              <FaPlus size={16} />
-                            </button>
-                          )}
-                          {canViewDuplicateDisplay && isDuplicateLead(lead) && (
-                            <button
-                              title={t('Compare')}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleCompareLead(lead)
-                              }}
-                              className="inline-flex items-center justify-center text-red-400 hover:text-red-300"
-                            >
-                              <FaExchangeAlt size={16} />
-                            </button>
-                          )}
-                          {canTransfer && (
-                            <button
-                              title={t('Transfer to Sales')}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openTransferModal([lead.id])
-                              }}
-                              disabled={assignModalSubmitting || transferingId === lead.id}
-                              className="inline-flex items-center justify-center text-blue-400 hover:text-blue-300 disabled:opacity-50"
-                            >
-                              <FaUserTie size={16} />
-                            </button>
-                          )}
-                          <button
-                            title={t('Call')}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              const digits = getLeadPhoneEntries(lead)?.[0]?.digits || ''
-                              if (digits) window.open(`tel:${digits}`)
-                            }}
-                            className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"
-                          >
-                            <FaPhone size={16} />
-                          </button>
-                          <button
-                            title={t('Email')}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (lead.email) window.open(`mailto:${lead.email}`)
-                            }}
-                            className="inline-flex items-center justify-center text-[#FFA726] hover:opacity-80"
-                          >
-                            <FaEnvelope size={16} />
-                          </button>
-                          <button
-                            title="Google Meet"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              window.open('https://meet.google.com/', '_blank')
-                            }}
-                            className="inline-flex items-center justify-center hover:opacity-80"
-                          >
-                            <img src={MEET_ICON_URL} alt="Google Meet" className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+                      {columnOrder.map((key) => {
+                        if (visibleColumns[key] === false) return null
+                        if ((key === 'convertBy' || key === 'convertTo') && !isConvertStageView) return null
+
+                        if (key === 'lead') {
+                          return (
+                            <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>
+                              <div className="font-semibold text-base flex items-center gap-1">
+                                {lead.name || '-'}
+                                {canViewDuplicateDisplay && isDuplicateLead(lead) && (
+                                  <span title={t('Duplicate Lead')}>
+                                    <FaClone className="text-red-500 min-w-[14px]" size={14} />
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-500">{lead.company || '-'}</div>
+                            </td>
+                          )
+                        }
+
+                        if (key === 'contact') {
+                          return (
+                            <td key={key} className={`px-6 py-4 text-sm ${textColor}`}>
+                              <div className="max-w-[260px] truncate font-normal" title={lead.email || ''}>{lead.email || '-'}</div>
+                              <div className="mt-0.5 flex flex-col items-start gap-0.5">
+                                {getLeadPhoneEntries(lead).length > 0 ? getLeadPhoneEntries(lead).map((line, idx) => (
+                                  <div key={idx} className="group flex max-w-[260px] items-center gap-1 font-normal">
+                                    <span dir="ltr" className="min-w-0 truncate leading-5" title={line.display}>{line.display}</span>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[#25D366] transition hover:opacity-80"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (line?.digits) window.open(`https://wa.me/${line.digits}`, '_blank')
+                                      }}
+                                      title={t('Open WhatsApp')}
+                                    >
+                                      <FaWhatsapp size={11} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-blue-600 transition hover:opacity-80 dark:text-[#60a5fa]"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (line?.digits) window.open(`tel:${line.digits}`)
+                                      }}
+                                      title={t('Call')}
+                                    >
+                                      <FaPhone size={10} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        copyPhoneToClipboard(line.display)
+                                      }}
+                                      title={t('Copy')}
+                                    >
+                                      <FaCopy size={10} />
+                                    </button>
+                                  </div>
+                                )) : <span>-</span>}
+                              </div>
+                            </td>
+                          )
+                        }
+
+                        if (key === 'source') return <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{lead.source || '-'}</td>
+                        if (key === 'project') return <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{getLeadProjectName(lead)}</td>
+                        if (key === 'telesalesAgent') return <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{getLeadAssignedName(lead)}</td>
+                        if (key === 'convertBy') return <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{getLeadConvertByName(lead)}</td>
+                        if (key === 'convertTo') return <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{getLeadConvertToName(lead)}</td>
+
+                        if (key === 'lastComment') {
+                          return (
+                            <td key={key} className={`px-6 py-4 text-sm ${textColor}`}>
+                              <div className="max-w-[240px] truncate" title={getLeadLastComment(lead)}>{getLeadLastComment(lead)}</div>
+                            </td>
+                          )
+                        }
+
+                        if (key === 'stage') {
+                          return (
+                            <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>
+                              <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">
+                                {getLeadDisplayStage(lead)}
+                              </span>
+                            </td>
+                          )
+                        }
+
+                        if (key === 'expectedRevenue') return <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>{lead.estimatedValue || lead.estimated_value ? formatMoney(lead.estimatedValue || lead.estimated_value) : '-'}</td>
+
+                        if (key === 'priority') {
+                          return (
+                            <td key={key} className={`px-6 py-4 whitespace-nowrap text-sm ${textColor}`}>
+                              <span className={`inline-flex px-2 py-0.5 text-xs font-semibold leading-5 rounded-full ${getPriorityColor(lead.priority)}`}>
+                                {t(lead.priority || 'N/A')}
+                              </span>
+                            </td>
+                          )
+                        }
+
+                        if (key === 'actions') {
+                          return (
+                            <td key={key} className={`px-6 py-3 whitespace-nowrap text-xs font-medium sticky ${i18n.language === 'ar' ? 'right-0' : 'left-0'} z-20 ${isLight ? 'bg-white/90' : 'bg-slate-950/90'}`}>
+                              <div className="flex items-center gap-2 flex-nowrap">
+                                <button
+                                  title={t('Preview')}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedLead(lead)
+                                    setShowLeadModal(true)
+                                  }}
+                                  className="inline-flex items-center justify-center text-indigo-300 hover:text-indigo-400"
+                                >
+                                  <FaEye size={16} />
+                                </button>
+                                {!isConvertStageView && canUseActionControls(lead) && (
+                                  <button
+                                    title={t('Add Action')}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSelectedLead(lead)
+                                      setShowAddActionModal(true)
+                                    }}
+                                    className="inline-flex items-center justify-center text-emerald-300 hover:text-emerald-400"
+                                  >
+                                    <FaPlus size={16} />
+                                  </button>
+                                )}
+                                {!isConvertStageView && canViewDuplicateDisplay && isDuplicateLead(lead) && (
+                                  <button
+                                    title={t('Compare')}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleCompareLead(lead)
+                                    }}
+                                    className="inline-flex items-center justify-center text-red-400 hover:text-red-300"
+                                  >
+                                    <FaExchangeAlt size={16} />
+                                  </button>
+                                )}
+                                {!isConvertStageView && canTransfer && (
+                                  <button
+                                    title={t('Transfer to Sales')}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openTransferModal([lead.id])
+                                    }}
+                                    disabled={assignModalSubmitting || transferingId === lead.id}
+                                    className="inline-flex items-center justify-center text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                                  >
+                                    <FaUserTie size={16} />
+                                  </button>
+                                )}
+                                {!isConvertStageView && <button
+                                  title={t('Call')}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    const digits = getLeadPhoneEntries(lead)?.[0]?.digits || ''
+                                    if (digits) window.open(`tel:${digits}`)
+                                  }}
+                                  className="inline-flex items-center justify-center text-blue-600 dark:text-[#2563EB] hover:opacity-80"
+                                >
+                                  <FaPhone size={16} />
+                                </button>}
+                                {!isConvertStageView && <button
+                                  title={t('Email')}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (lead.email) window.open(`mailto:${lead.email}`)
+                                  }}
+                                  className="inline-flex items-center justify-center text-[#FFA726] hover:opacity-80"
+                                >
+                                  <FaEnvelope size={16} />
+                                </button>}
+                                {!isConvertStageView && <button
+                                  title="Google Meet"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    window.open('https://meet.google.com/', '_blank')
+                                  }}
+                                  className="inline-flex items-center justify-center hover:opacity-80"
+                                >
+                                  <img src={MEET_ICON_URL} alt="Google Meet" className="w-4 h-4" />
+                                </button>}
+                              </div>
+                            </td>
+                          )
+                        }
+
+                        return null
+                      })}
                     </tr>
                   ))}
                 </tbody>

@@ -26,4 +26,9 @@ class LeadWorkflowHistory extends Model
     protected $casts = [
         'meta_data' => 'array',
     ];
+
+    public function performedByUser()
+    {
+        return $this->belongsTo(User::class, 'performed_by');
+    }
 }

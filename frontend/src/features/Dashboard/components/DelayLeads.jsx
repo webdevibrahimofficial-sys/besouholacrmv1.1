@@ -183,12 +183,13 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     try {
       const params = {};
       if (selectedEmployee) params.assigned_to = selectedEmployee;
+      params.page = 1
+      params.per_page = 200
 
       let response
       if (mode === 'telesales') {
-        params.page = 1
-        params.per_page = 200
-        response = await api.get('/api/telesales/leads', { params })
+        params.workflow_key = 'telesales'
+        response = await api.get('/api/leads/delayed', { params })
       } else {
         // Use the dedicated delayed leads endpoint
         response = await api.get('/api/leads/delayed', { params })
@@ -198,7 +199,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
         ? payload.data
         : (Array.isArray(payload) ? payload : []);
       setLeads(leadsArray);
-      setDelayedTotal(mode === 'telesales' ? 0 : Number(payload.total || 0));
+      setDelayedTotal(Number(payload.total || leadsArray.length || 0));
     } catch (error) {
       console.error('Failed to fetch leads for DelayLeads', error);
     } finally {
@@ -400,11 +401,13 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
           phone_country: l.phone_country,
           phoneCountry: l.phoneCountry,
           company: l.company,
+          workflow_key: l.workflow_key,
           stage: l.stage,
           stage_id: l.stage_id,
           stageId: l.stageId,
           stage_name: l.stage_name,
           stageName: l.stageName,
+          display_stage: l.display_stage,
           status: l.status,
           priority: l.priority,
           source: l.source,
@@ -606,7 +609,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   }, [showTooltip]);
 
   return (
-    <div className={`p-4 ${bgColor} rounded-lg shadow-md border ${isLight ? 'border-gray-200' : 'border-gray-700'} ${textColor}`}>
+    <div className={`min-w-0 p-4 ${bgColor} rounded-lg shadow-md border ${isLight ? 'border-gray-200' : 'border-gray-700'} ${textColor}`}>
 
       <div className="hidden">
         {(() => {
@@ -697,7 +700,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
       {/* Table container with conditional max height and scrolling */}
       <style>{SCROLLBAR_CSS}</style>
       <style>{ICON_CSS}</style>
-      <div className={`overflow-x-auto scrollbar-thin-blue ${FIXED_LIST_HEIGHT_CLASS} overflow-y-auto`}>
+      <div className={`min-w-0 overflow-x-auto scrollbar-thin-blue ${FIXED_LIST_HEIGHT_CLASS} overflow-y-auto`}>
         <div className="sm:hidden">
           {/* Mobile card layout */}
           {filteredLeads.length === 0 ? (
@@ -789,7 +792,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
           ))}
         </div>
         
-        <div className="hidden sm:block">
+        <div className="hidden min-w-0 sm:block">
           {/* Desktop table layout */}
           <table dir={i18n.dir() === 'rtl' ? 'rtl' : 'ltr'} className={`delay-table w-full min-w-max text-sm ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>
             <thead className={`text-xs uppercase`}>
