@@ -526,16 +526,17 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     effectiveControlPerms.some(p =>
       ['addStage', 'addSource', 'addRegions', 'addArea', 'addInputs', 'editConfigurationSettings'].includes(p)
     )
+  const isTelesalesModuleEnabled = canAccess('telesales')
   const canViewPipelineStages = hasFullSettingsAccess || effectiveControlPerms.includes('addStage')
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
-  const canViewNotInterestReasons = canViewCancelReasons
+  const canViewNotInterestReasons = canViewCancelReasons && isTelesalesModuleEnabled
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
-  const canViewTelesalesModule = canAccess('telesales') && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
+  const canViewTelesalesModule = isTelesalesModuleEnabled && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
   const canViewTelesalesDashboard = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewDashboard'))
   const canViewTelesalesReports = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewReports'))
-  const canViewTelesalesHistorical = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords')
+  const canViewTelesalesHistorical = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords'))
   const canViewTelesalesSection = canViewTelesalesModule || canViewTelesalesHistorical
-  const canCreateTelesalesLead = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('createLead')
+  const canCreateTelesalesLead = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('createLead'))
   const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewAgenciesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('userManagement')
   const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')
@@ -2272,7 +2273,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                             <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><Kanban size={18} /></span><span className="text-[14px] link-label">{t('Pipeline Stages Setup')}</span></span>
                           </NavLink>
                         )}
-                        {canViewPipelineStages && (
+                        {canViewPipelineStages && isTelesalesModuleEnabled && (
                           <NavLink to="/telesales-stages-setup" onClick={onClose} title={isCollapsed ? t('Telesales Pipeline Setup') : ''} className={({ isActive }) => `${baseLink} ${isActive ? activeLink : ''}`}>
                             <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}><Kanban size={18} /></span><span className="text-[14px] link-label">{t('Telesales Pipeline Setup')}</span></span>
                           </NavLink>
