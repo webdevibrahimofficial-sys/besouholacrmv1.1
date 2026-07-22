@@ -538,6 +538,7 @@ export default function TelesalesDashboard() {
     lead?.display_stage_key || lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage || ''
   )
   const getLeadDisplayStage = (lead) => lead?.display_stage || lead?.stageRelation?.name || lead?.stage || '-'
+  const getLeadRealStage = (lead) => lead?.stageRelation?.name || lead?.stage || lead?.display_stage || '-'
 
   const stageCounts = useMemo(() => {
     const counts = {
@@ -932,7 +933,7 @@ export default function TelesalesDashboard() {
 
   const telesalesPipelineRawData = useMemo(() => (
     rows.map((lead) => ({
-      stage: getLeadDisplayStage(lead) || t('Unknown'),
+      stage: getLeadRealStage(lead) || t('Unknown'),
       leadName: lead.name || '-',
       employee: lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-',
       date: lead.created_at || lead.creation_date || lead.createdAt || lead.date || '',

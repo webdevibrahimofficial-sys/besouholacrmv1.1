@@ -108,17 +108,39 @@ export const PipelineAnalysis = ({
   const [dbStages, setDbStages] = useState([]);
   const [labels, setLabels] = useState([]);
 
+  const normalizeStageValue = (value) => String(value ?? '').trim().toLowerCase();
+  const shouldHideTelesalesStage = (stage) => {
+    if (workflowKey !== 'telesales') return false;
+
+    const candidates = [
+      stage?.stage_key,
+      stage?.ui_behavior?.stage_key,
+      stage?.type,
+      stage?.name,
+      stage?.name_ar,
+    ];
+
+    return candidates.some((value) => {
+      const normalized = normalizeStageValue(value);
+      return normalized === 'duplicate' || normalized === 'pending';
+    });
+  };
+
   useEffect(() => {
     const fetchStages = async () => {
       try {
         if (Array.isArray(stagesOverride)) {
-          const sortedOverride = [...stagesOverride].sort((a, b) => (a.order || 0) - (b.order || 0));
+          const sortedOverride = [...stagesOverride]
+            .filter((stage) => !shouldHideTelesalesStage(stage))
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
           setDbStages(sortedOverride);
           return;
         }
         const { data } = await api.get('/api/stages', { params: { workflow_key: workflowKey } });
         if (data && Array.isArray(data)) {
-          const sorted = data.sort((a, b) => (a.order || 0) - (b.order || 0));
+          const sorted = data
+            .filter((stage) => !shouldHideTelesalesStage(stage))
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
           setDbStages(sorted);
         }
       } catch (err) {
