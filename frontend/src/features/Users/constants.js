@@ -58,7 +58,7 @@ export const PERMISSIONS = {
     'showRequests',
   ],
   Marketing: ['showMarketingDashboard', 'showCampaign', 'addLandingPage', 'integration'],
-  Telesales: ['showModule', 'createLead', 'editLead', 'deleteLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads', 'bulkTransferToSales', 'export'],
+  Telesales: ['showModule', 'addLead', 'importLeads', 'editLead', 'deleteLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads', 'bulkTransferToSales', 'export'],
   Customers: ['showModule', 'convertFromLead', 'addCustomer', 'editInfo', 'deleteCustomer'],
   ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt', 'exportReports'],
   Control: [

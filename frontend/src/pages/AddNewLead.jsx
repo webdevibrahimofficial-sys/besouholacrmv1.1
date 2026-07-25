@@ -11,7 +11,7 @@ import SearchableSelect from '../components/SearchableSelect';
 import DynamicFieldRenderer from '../components/DynamicFieldRenderer';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import CountryCodeSelect from '../components/CountryCodeSelect';
-import { getLeadPermissionFlags } from '../services/leadPermissions';
+import { getLeadPermissionFlags, isSuperAdminUser, isTenantAdminUser } from '../services/leadPermissions';
 import { getDefaultDialCode } from '@shared/utils/crmPhone';
 
 export const AddNewLead = () => {
@@ -60,8 +60,10 @@ export const AddNewLead = () => {
   const telesalesPermissions = Array.isArray(currentUser?.meta_data?.module_permissions?.Telesales)
     ? currentUser.meta_data.module_permissions.Telesales
     : [];
-  const canCreateTelesalesLead = currentUser?.is_super_admin
-    || telesalesPermissions.includes('createLead');
+  const canUseTelesalesAddLeadPermission = telesalesPermissions.includes('addLead') || telesalesPermissions.includes('createLead');
+  const canCreateTelesalesLead = isSuperAdminUser(currentUser)
+    || isTenantAdminUser(currentUser)
+    || canUseTelesalesAddLeadPermission;
   const canAddLead = isTelesalesMode ? canCreateTelesalesLead : leadPermissionFlags.canAddLead;
   const isTelesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales');
   const canManuallyChooseTelesalesDestination = !isTelesalesMode && isTelesalesModuleEnabled && canCreateTelesalesLead;

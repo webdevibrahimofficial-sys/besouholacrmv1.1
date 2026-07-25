@@ -139,8 +139,8 @@ export default function TelesalesBulkAssignModal({
   const resolvedDuplicateOptionLabel = duplicateOptionLabel || (isArabic ? 'Ø¯Ø¨Ù„ÙŠÙƒÙŠØª ÙƒØ¬Ø¯ÙŠØ¯' : 'Duplicate as new')
   const resolvedSameStageOptionLabel = sameStageOptionLabel || (isArabic ? 'Ù†ÙØ³ Ø§Ù„Ù…Ø±Ø­Ù„Ø©' : 'Same stage')
   const resolvedClearHistoryOptionLabel = clearHistoryOptionLabel || (isArabic ? 'Ù…Ø³Ø­ Ø§Ù„Ø³Ø¬Ù„' : 'Clear History')
-  const resolvedFreshOptionLabel = freshOptionLabel || (isArabic ? 'ÙƒØ¬Ø¯ÙŠØ¯' : 'Fresh')
-  const resolvedColdCallOptionLabel = coldCallOptionLabel || (isArabic ? 'ÙƒÙ…ÙƒØ§Ù„Ù…Ø© Ø¨Ø§Ø±Ø¯Ø©' : 'As cold call')
+  const resolvedFreshOptionLabel = freshOptionLabel || (isArabic ? 'كجديد' : 'Fresh')
+  const resolvedColdCallOptionLabel = coldCallOptionLabel || (isArabic ? 'كعميل محتمل' : 'As cold call')
   const isConvertToSalesModal =
     String(title || '').toLowerCase().includes('convert to sales') ||
     String(assignButtonLabel || '').toLowerCase().includes('convert')

@@ -332,6 +332,14 @@ export default function CRMSettings() {
         </div>
       </Section>
 
+      <Section id="crm-activity-tools" title={t('Timeline & Chatbot')}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <Toggle label={t('Allow Timeline')} value={settings.allowTimeline} onChange={(v) => setField('allowTimeline', v)} />
+          <Toggle label={t('Allow Call Log')} value={settings.allowCallLog} onChange={(v) => setField('allowCallLog', v)} />
+          <Toggle label={t('Allow Chatbot')} value={settings.allowChatbot} onChange={(v) => setField('allowChatbot', v)} />
+        </div>
+      </Section>
+
       <div className="flex flex-wrap justify-between items-center gap-3">
         <button className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-black rounded-xl transition-all font-medium" onClick={reset}>
           {t('Reset to Default')}

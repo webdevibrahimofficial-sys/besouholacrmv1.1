@@ -473,7 +473,7 @@ export default function TelesalesPipelineReport({
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 min-h-screen">
       <div>
-        <BackButton to="/telesales/dashboard?view=reports" onClick={onBack} className="relative z-[20060] pointer-events-auto" />
+        <BackButton onClick={onBack} className="relative z-[20060] pointer-events-auto" />
       </div>
 
       <div className="flex flex-wrap md:flex-row justify-between items-start md:items-center gap-4">

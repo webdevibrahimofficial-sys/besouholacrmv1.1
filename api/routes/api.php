@@ -485,6 +485,7 @@ Route::get('revenues/summary', [\App\Http\Controllers\RevenueController::class, 
 Route::get('revenues', [\App\Http\Controllers\RevenueController::class, 'index']);
 Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store']);
     Route::get('leads/delayed', [LeadController::class , 'delayed']);
+    Route::get('telesales/delayed-leads', [TelesalesController::class, 'delayed']);
     Route::post('leads/bulk-assign-referral', [LeadController::class, 'bulkAssignReferral']);
     Route::post('leads/bulk-remove-referral', [LeadController::class, 'bulkRemoveReferral']);
 

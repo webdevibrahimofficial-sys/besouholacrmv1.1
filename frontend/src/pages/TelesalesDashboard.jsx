@@ -49,18 +49,68 @@ function normalizeStageKey(value) {
     .trim()
 }
 
+function resolveHashSearch(location) {
+  const directSearch = String(location?.search || '').trim()
+  if (directSearch) return directSearch.startsWith('?') ? directSearch : `?${directSearch}`
+
+  const pathWithPossibleSearch = String(location?.pathname || '')
+  if (pathWithPossibleSearch.includes('?')) {
+    return `?${pathWithPossibleSearch.split('?').slice(1).join('?')}`
+  }
+
+  if (typeof window !== 'undefined') {
+    const hash = String(window.location.hash || '')
+    if (hash.includes('?')) {
+      return `?${hash.split('?').slice(1).join('?')}`
+    }
+  }
+
+  return ''
+}
+
+function getDashboardRouteState(location) {
+  const params = new URLSearchParams(resolveHashSearch(location))
+  return {
+    view: params.get('view') === 'reports' ? 'reports' : 'dashboard',
+    report: String(params.get('report') || '').trim().toLowerCase(),
+  }
+}
+
 function deriveStageCardKey(stage) {
   const uiStageKey = normalizeStageKey(stage?.ui_behavior?.stage_key || stage?.stage_key)
   if (uiStageKey) return uiStageKey
 
   const typeKey = normalizeStageKey(stage?.type)
   const nameKey = normalizeStageKey(stage?.name)
+  const arabicNameKey = normalizeStageKey(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar)
 
   if (typeKey === 'convert') return 'convert'
   if (['duplicate', 'pending', 'fresh'].includes(nameKey)) return nameKey
-  if (['cold calls', 'cold call'].includes(typeKey)) return 'cold calls'
+  if (
+    ['cold calls', 'cold call'].includes(typeKey) ||
+    ['cold calls', 'cold call'].includes(nameKey) ||
+    ['مكالمات باردة', 'العملاء المحتملين', 'العملاء المحتملون'].includes(arabicNameKey)
+  ) return 'cold calls'
 
   return nameKey || typeKey
+}
+
+function resolveTelesalesStageLabel(stage, isRtl) {
+  const key = deriveStageCardKey(stage)
+  if (isRtl && key === 'cold calls') return 'العملاء المحتملون'
+
+  const stageName = String(stage?.name || stage?.stage_name || '').trim()
+  const stageNameAr = String(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar || '').trim()
+  return (isRtl ? (stageNameAr || stageName) : (stageName || stageNameAr)) || '-'
+}
+
+function getCanonicalTelesalesStageLabel(stage, isRtl) {
+  const key = deriveStageCardKey(stage)
+  if (isRtl && key === 'cold calls') return 'العملاء المحتملون'
+
+  const stageName = String(stage?.name || stage?.stage_name || '').trim()
+  const stageNameAr = String(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar || '').trim()
+  return (isRtl ? (stageNameAr || stageName) : (stageName || stageNameAr)) || '-'
 }
 
 function formatYmdLocal(date) {
@@ -377,9 +427,19 @@ export default function TelesalesDashboard() {
     ? summary.visibility.can_view_pending
     : !isTelesalesAgent
   const isRtl = String(i18n.language || '').startsWith('ar')
-  const dashboardSearch = useMemo(() => new URLSearchParams(location.search || ''), [location.search])
-  const activeView = dashboardSearch.get('view') === 'reports' ? 'reports' : 'dashboard'
-  const activeReport = String(dashboardSearch.get('report') || '').trim().toLowerCase()
+  const [dashboardRouteState, setDashboardRouteState] = useState(() => getDashboardRouteState(location))
+  const dashboardSearch = useMemo(() => new URLSearchParams(resolveHashSearch(location)), [location])
+  const activeView = dashboardRouteState.view
+  const activeReport = dashboardRouteState.report
+
+  useEffect(() => {
+    const nextRouteState = getDashboardRouteState(location)
+    setDashboardRouteState((prev) => (
+      prev.view === nextRouteState.view && prev.report === nextRouteState.report
+        ? prev
+        : nextRouteState
+    ))
+  }, [location])
 
   const normalizeUsers = (payload) => {
     if (Array.isArray(payload?.data)) return payload.data
@@ -537,8 +597,74 @@ export default function TelesalesDashboard() {
   const getLeadDisplayStageKey = (lead) => normalizeStageKey(
     lead?.display_stage_key || lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage || ''
   )
-  const getLeadDisplayStage = (lead) => lead?.display_stage || lead?.stageRelation?.name || lead?.stage || '-'
-  const getLeadRealStage = (lead) => lead?.stageRelation?.name || lead?.stage || lead?.display_stage || '-'
+  const telesalesStageLabelLookup = useMemo(() => {
+    const byId = new Map()
+    const byKey = new Map()
+
+    telesalesStages.forEach((stage) => {
+      const stageId = stage?.id
+      const stageName = String(stage?.name || '').trim()
+      const stageNameAr = String(stage?.name_ar || stage?.nameAr || '').trim()
+      const stageLabel = getCanonicalTelesalesStageLabel({ ...stage, name: stageName, name_ar: stageNameAr }, isRtl)
+      const candidates = [
+        deriveStageCardKey(stage),
+        normalizeStageKey(stage?.type),
+        normalizeStageKey(stageName),
+        normalizeStageKey(stageNameAr),
+      ].filter(Boolean)
+
+      if (stageId != null) byId.set(String(stageId), stageLabel)
+      candidates.forEach((candidate) => {
+        if (!byKey.has(candidate)) byKey.set(candidate, stageLabel)
+      })
+    })
+
+    return { byId, byKey }
+  }, [isRtl, telesalesStages])
+  const getLeadDisplayStage = (lead) => {
+    const stageId = lead?.stageRelation?.id
+    if (stageId != null) {
+      const labelById = telesalesStageLabelLookup.byId.get(String(stageId))
+      if (labelById) return labelById
+    }
+
+    const candidates = [
+      getLeadDisplayStageKey(lead),
+      normalizeStageKey(lead?.stageRelation?.type),
+      normalizeStageKey(lead?.stageRelation?.name),
+      normalizeStageKey(lead?.stage),
+      normalizeStageKey(lead?.display_stage),
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      const labelByKey = telesalesStageLabelLookup.byKey.get(candidate)
+      if (labelByKey) return labelByKey
+    }
+
+    return lead?.display_stage || lead?.stageRelation?.name || lead?.stage || '-'
+  }
+  const getLeadRealStage = (lead) => {
+    const stageId = lead?.stageRelation?.id
+    if (stageId != null) {
+      const labelById = telesalesStageLabelLookup.byId.get(String(stageId))
+      if (labelById) return labelById
+    }
+
+    const candidates = [
+      normalizeStageKey(lead?.stageRelation?.type),
+      normalizeStageKey(lead?.stageRelation?.name),
+      normalizeStageKey(lead?.stage),
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      const labelByKey = telesalesStageLabelLookup.byKey.get(candidate)
+      if (labelByKey) return labelByKey
+    }
+
+    return lead?.stageRelation?.name || lead?.stage || lead?.display_stage || '-'
+  }
 
   const stageCounts = useMemo(() => {
     const counts = {
@@ -595,7 +721,7 @@ export default function TelesalesDashboard() {
       return {
         id: stage.id || key,
         key,
-        name: isRtl && stage?.name_ar ? stage.name_ar : stage.name,
+        name: getCanonicalTelesalesStageLabel(stage, isRtl),
         type: stageTypeKey,
         icon: stage.icon || 'BarChart2',
         count: stageCounts[key] || 0,
@@ -614,7 +740,7 @@ export default function TelesalesDashboard() {
       return summaryCards.map((stage) => ({
         id: stage.id || `${stage.stage_key}-stage`,
         key: normalizeStageKey(stage.stage_key),
-        name: isRtl && stage?.stage_name_ar ? stage.stage_name_ar : stage.stage_name,
+        name: getCanonicalTelesalesStageLabel(stage, isRtl),
         type: normalizeStageKey(stage.stage_type),
         icon: stage.icon || 'BarChart2',
         count: Number(stage.count || 0),
@@ -1018,10 +1144,16 @@ export default function TelesalesDashboard() {
   }
 
   const updateDashboardView = (view = 'dashboard', report = '') => {
-    const params = new URLSearchParams(location.search || '')
+    const nextRouteState = {
+      view: view === 'reports' ? 'reports' : 'dashboard',
+      report: view === 'reports' ? String(report || '').trim().toLowerCase() : '',
+    }
+    setDashboardRouteState(nextRouteState)
+
+    const params = new URLSearchParams(resolveHashSearch(location))
     if (view === 'reports') {
       params.set('view', 'reports')
-      if (report) params.set('report', report)
+      if (nextRouteState.report) params.set('report', nextRouteState.report)
       else params.delete('report')
     } else {
       params.delete('view')
@@ -1433,7 +1565,7 @@ export default function TelesalesDashboard() {
               </div>
             )}
           </div>
-            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2`}>
+            <div className={`grid grid-cols-2 lg:grid-cols-5 gap-2`}>
               {visibleStagePipelineCards.map((card) => (
               (() => {
                 let style = COLOR_STYLES[card.color] || COLOR_STYLES.blue
@@ -1509,12 +1641,12 @@ export default function TelesalesDashboard() {
                         style={customPattern2}
                       />
                     </div>
-                    <div className="relative z-20 flex min-h-[188px] h-full flex-col px-3 py-2">
-                      <div className="flex min-h-[60px] items-start justify-between gap-2.5">
+                    <div className="relative z-20 flex min-h-[170px] h-full flex-col px-2.5 py-2 sm:min-h-[188px] sm:px-3">
+                      <div className="flex min-h-[56px] items-start justify-between gap-2 sm:min-h-[60px] sm:gap-2.5">
                         <div className="min-w-0 flex-1 pr-2">
                           <div className="flex min-h-[36px] flex-wrap items-start gap-1.5">
                             <span
-                              className="block max-w-full whitespace-normal break-words text-[11px] font-semibold uppercase tracking-wider text-black leading-tight"
+                              className="block max-w-full whitespace-normal break-words text-[10px] font-semibold uppercase tracking-wide text-black leading-tight sm:text-[11px] sm:tracking-wider"
                               title={card.title}
                             >
                               {card.title}
@@ -1534,11 +1666,11 @@ export default function TelesalesDashboard() {
                         </div>
                       </div>
 
-                      <div className="flex min-h-[52px] flex-1 items-center">
-                        <div className="text-[2.4rem] leading-none font-black tracking-tight text-gray-900">
-                          {card.value}
+                        <div className="flex min-h-[44px] flex-1 items-center sm:min-h-[52px]">
+                          <div className="text-[2rem] leading-none font-black tracking-tight text-gray-900 sm:text-[2.4rem]">
+                            {card.value}
+                          </div>
                         </div>
-                      </div>
 
                       <div className="mt-auto flex min-h-[40px] items-end">
                         <div

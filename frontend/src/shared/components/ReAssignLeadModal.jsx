@@ -71,8 +71,8 @@ const ReAssignLeadModal = ({
   const resolvedAssignToLabel = assignToLabel || (isArabic ? 'تعيين إلى' : 'Assign To');
   const resolvedSearchPlaceholder = searchPlaceholder || (isArabic ? 'بحث في أعضاء الفريق' : 'Search in team members');
 
-  const resolvedFreshLabel = freshLabel || (isArabic ? 'Ø¬Ø¯ÙŠØ¯' : 'Fresh');
-  const resolvedColdCallLabel = coldCallLabel || (isArabic ? 'Ù…ÙƒØ§Ù„Ù…Ø© Ø¨Ø§Ø±Ø¯Ø©' : 'As cold call');
+  const resolvedFreshLabel = freshLabel || (isArabic ? 'جديد' : 'Fresh');
+  const resolvedColdCallLabel = coldCallLabel || (isArabic ? 'عميل محتمل' : 'As cold call');
   const resolvedSalesRoleLabel = salesRoleLabel || (isArabic ? 'ÙƒØªÙŠÙ„ÙŠ Ø³ÙŠÙ„Ø²' : 'As Telesales Agent');
   const resolvedManagerRoleLabel = managerRoleLabel || (isArabic ? 'ÙƒÙ…Ø¯ÙŠØ± ØªÙŠÙ„ÙŠ Ø³ÙŠÙ„Ø²' : 'As Telesales Manager');
   const resolvedDuplicateLabel = duplicateLabel || (isArabic ? 'Ù†Ø³Ø® ÙˆØªØ¹ÙŠÙŠÙ† ÙƒØ¬Ø¯ÙŠØ¯' : 'Duplicate and assign as fresh');
@@ -396,7 +396,7 @@ const ReAssignLeadModal = ({
                     : 'text-gray-500 hover:text-gray-700'
                   }`}
               >
-                {isArabic ? 'مكالمة باردة' : 'As cold call'}
+                {isArabic ? 'عميل محتمل' : 'As cold call'}
               </button>
             </div>
           </div>

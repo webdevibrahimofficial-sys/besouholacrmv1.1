@@ -7,6 +7,7 @@ import { useAppState } from '../shared/context/AppStateProvider.jsx';
 import { api } from '../utils/api';
 import { setLastActionStageId } from '../utils/lastActionStage';
 import { buildLeadTransferPayload } from '../shared/utils/leadTransfer';
+import { isSuperAdminUser, isTenantAdminUser } from '../services/leadPermissions';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { flip, offset, shift, size } from '@floating-ui/react';
@@ -54,7 +55,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     ? user.meta_data.module_permissions.Telesales
     : [];
   const canConvertTelesalesToSales =
-    user?.is_super_admin ||
+    isSuperAdminUser(user) ||
+    isTenantAdminUser(user) ||
     telesalesPermissions.includes('transferToSales');
 
   const [stages, setStages] = useState([]);

@@ -14,7 +14,34 @@ function sortByOrder(list) {
 }
 
 const SALES_TYPE_OPTIONS = ['cold_calls', 'follow_up', 'meeting', 'proposal', 'reservation', 'rent', 'closing_deals', 'cancel']
-const TELESALES_TYPE_OPTIONS = ['fresh', 'cold_calls', 'follow_up', 'convert', 'not_interested']
+const TELESALES_TYPE_OPTIONS = ['follow_up', 'convert', 'not_interested']
+
+function normalizeTelesalesStageLabels(stage = {}) {
+  const name = String(stage?.name || '').trim()
+  const nameAr = String(stage?.name_ar || stage?.nameAr || '').trim()
+  const nameKey = name.toLowerCase()
+  const normalizedArabicName = nameAr.replace(/\s+/g, ' ').trim()
+
+  const isColdCallsStage =
+    nameKey === 'cold calls' ||
+    nameKey === 'العملاء المحتملون' ||
+    nameKey === 'العملاء المحتملين' ||
+    nameKey === 'مكالمات باردة' ||
+    normalizedArabicName === 'العملاء المحتملون' ||
+    normalizedArabicName === 'العملاء المحتملين' ||
+    normalizedArabicName === 'مكالمات باردة'
+
+  if (isColdCallsStage) {
+    return {
+      ...stage,
+      name: 'Cold Calls',
+      nameAr: 'عملاء محتملين',
+      name_ar: 'عملاء محتملين',
+    }
+  }
+
+  return stage
+}
 
 function getTypeOptions(workflowKey, currentType = '') {
   const baseOptions = workflowKey === 'telesales' ? TELESALES_TYPE_OPTIONS : SALES_TYPE_OPTIONS
@@ -26,10 +53,12 @@ function getTypeOptions(workflowKey, currentType = '') {
 
 function normalizeStages(list) {
   const arr = Array.isArray(list) ? list : []
-  return arr.map(s => ({
+  return arr.map((rawStage) => {
+    const s = normalizeTelesalesStageLabels(rawStage)
+    return {
     id: s?.id,
     name: s?.name || '',
-    nameAr: s?.name_ar || s?.nameAr || '',
+    nameAr: s?.nameAr || s?.name_ar || '',
     type: s?.type || 'follow_up',
     notifyTime: s?.notify_time || s?.notifyTime || '',
     delayTime: Number(s?.delay_time ?? s?.delayTime ?? 0),
@@ -41,13 +70,14 @@ function normalizeStages(list) {
     iconUrl: s?.iconUrl || '',
     isLocked: Boolean(s?.meta_data?.locked || s?.metaData?.locked),
     isDisplayOnly: Boolean(s?.meta_data?.display_only || s?.metaData?.display_only),
-  }))
+  }})
 }
 
-function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDelete, t, onHandleDragStart, onHandleDragEnd }) {
+function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDelete, t, isRtl, onHandleDragStart, onHandleDragEnd }) {
   const isEditing = editingIndex === idx
   const [editState, setEditState] = useState({ ...s })
   const typeOptions = getTypeOptions(s.workflowKey || 'sales', editState.type || s.type)
+  const translatedType = s.type === 'display' ? (isRtl ? 'عرض' : 'Display') : t(s.type)
 
   useEffect(() => {
     if (isEditing) {
@@ -106,7 +136,7 @@ function StageTableRow({ s, idx, editingIndex, setEditingIndex, onUpdate, onDele
             ))}
           </select>
         ) : (
-          t(s.type)
+          translatedType
         )}
       </td>
       <td className="p-2">
@@ -408,7 +438,7 @@ export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline
 
       setDeleteNotice({
         count: null,
-        message: t('Cannot delete this stage now. Please move any linked leads to another stage first.')
+        message: err?.response?.data?.message || t('Cannot delete this stage now. Please move any linked leads to another stage first.')
       })
     }
   }
@@ -743,6 +773,7 @@ export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline
                   onUpdate={handleUpdateStage}
                   onDelete={handleDeleteStage}
                   t={t}
+                  isRtl={isRtl}
                   onHandleDragStart={(e) => handleHandleDragStart(e, s.id)}
                   onHandleDragEnd={handleHandleDragEnd}
                 />
@@ -780,7 +811,7 @@ export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline
                   ) : null}
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                  {t(s.type)}
+                  {s.type === 'display' ? (isRtl ? 'عرض' : 'Display') : t(s.type)}
                 </span>
               </div>
               {s.isLocked ? (

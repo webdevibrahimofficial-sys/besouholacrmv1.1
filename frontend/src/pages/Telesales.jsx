@@ -58,12 +58,26 @@ function deriveStageCardKey(stage) {
 
   const typeKey = normalizeStageKey(stage?.type)
   const nameKey = normalizeStageKey(stage?.name)
+  const arabicNameKey = normalizeStageKey(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar)
 
   if (typeKey === 'convert') return 'convert'
   if (['duplicate', 'pending', 'fresh'].includes(nameKey)) return nameKey
-  if (['cold calls', 'cold call'].includes(typeKey)) return 'cold calls'
+  if (
+    ['cold calls', 'cold call'].includes(typeKey) ||
+    ['cold calls', 'cold call'].includes(nameKey) ||
+    ['مكالمات باردة', 'العملاء المحتملين', 'العملاء المحتملون'].includes(arabicNameKey)
+  ) return 'cold calls'
 
   return nameKey || typeKey
+}
+
+function resolveTelesalesStageLabel(stage, isRtl) {
+  const key = deriveStageCardKey(stage)
+  if (isRtl && key === 'cold calls') return 'العملاء المحتملون'
+
+  const stageName = String(stage?.name || stage?.stage_name || '').trim()
+  const stageNameAr = String(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar || '').trim()
+  return (isRtl ? (stageNameAr || stageName) : (stageName || stageNameAr)) || '-'
 }
 
 function isTruthySetting(value) {
@@ -201,8 +215,8 @@ export default function Telesales() {
   const canViewDashboard = useMemo(() => hasTelesalesPermission(user, 'viewDashboard'), [user])
   const canDisableModule = useMemo(() => hasTelesalesPermission(user, 'disableModule'), [user])
   const canViewHistorical = useMemo(() => hasTelesalesPermission(user, 'viewHistoricalRecords'), [user])
-  const canCreateLead = useMemo(() => hasTelesalesPermission(user, 'createLead'), [user])
-  const canImportLeads = canCreateLead
+  const canCreateLead = useMemo(() => hasTelesalesPermission(user, 'addLead') || hasTelesalesPermission(user, 'createLead'), [user])
+  const canImportLeads = useMemo(() => hasTelesalesPermission(user, 'importLeads') || canCreateLead, [user, canCreateLead])
   const normalizedRole = useMemo(() => normalizeRoleValue(user?.role || user?.job_title), [user?.job_title, user?.role])
   const isTelesalesAgent = normalizedRole === 'telesales agent'
   const isDuplicateFeatureEnabled = isTruthySetting(crmSettings?.duplicationSystem)
@@ -622,7 +636,53 @@ export default function Telesales() {
   const getLeadDisplayStageKey = (lead) => normalizeStageKey(
     lead?.display_stage_key || lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage || ''
   )
-  const getLeadDisplayStage = (lead) => lead.display_stage || lead.stageRelation?.name || lead.stage || '-'
+  const telesalesStageLabelLookup = useMemo(() => {
+    const byId = new Map()
+    const byKey = new Map()
+
+    telesalesStages.forEach((stage) => {
+      const stageId = stage?.id
+      const stageName = String(stage?.name || '').trim()
+      const stageNameAr = String(stage?.name_ar || stage?.nameAr || '').trim()
+      const stageLabel = (isRtl ? (stageNameAr || stageName) : (stageName || stageNameAr)) || '-'
+      const candidates = [
+        deriveStageCardKey(stage),
+        normalizeStageKey(stage?.type),
+        normalizeStageKey(stageName),
+        normalizeStageKey(stageNameAr),
+      ].filter(Boolean)
+
+      if (stageId != null) byId.set(String(stageId), stageLabel)
+      candidates.forEach((candidate) => {
+        if (!byKey.has(candidate)) byKey.set(candidate, stageLabel)
+      })
+    })
+
+    return { byId, byKey }
+  }, [isRtl, telesalesStages])
+  const getLeadDisplayStage = (lead) => {
+    const stageId = lead?.stageRelation?.id
+    if (stageId != null) {
+      const labelById = telesalesStageLabelLookup.byId.get(String(stageId))
+      if (labelById) return labelById
+    }
+
+    const candidates = [
+      getLeadDisplayStageKey(lead),
+      normalizeStageKey(lead?.stageRelation?.type),
+      normalizeStageKey(lead?.stageRelation?.name),
+      normalizeStageKey(lead?.stage),
+      normalizeStageKey(lead?.display_stage),
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      const labelByKey = telesalesStageLabelLookup.byKey.get(candidate)
+      if (labelByKey) return labelByKey
+    }
+
+    return lead.display_stage || lead.stageRelation?.name || lead.stage || '-'
+  }
 
   const stageCounts = useMemo(() => {
     const counts = {
@@ -1459,7 +1519,7 @@ export default function Telesales() {
       return {
         id: stage.id || `${key}-${normalizeStageKey(stage?.type) || 'stage'}`,
         key,
-        name: stage.name,
+        name: resolveTelesalesStageLabel(stage, isRtl),
         type: stageTypeKey,
         icon: stage.icon || 'BarChart2',
         count: stageCounts[key] || 0,
@@ -1470,7 +1530,7 @@ export default function Telesales() {
     .sort((a, b) => {
       if (a.order !== b.order) return a.order - b.order
       return String(a.name || '').localeCompare(String(b.name || ''))
-    }), [canViewDuplicateDisplay, canViewPendingDisplay, isMyLeadsView, stageCounts, summary?.stage_cards, telesalesStages])
+    }), [canViewDuplicateDisplay, canViewPendingDisplay, isMyLeadsView, isRtl, stageCounts, summary?.stage_cards, telesalesStages])
 
   const resolvedStageCards = useMemo(() => {
     const summaryCards = Array.isArray(summary?.stage_cards) ? summary.stage_cards : []
@@ -1478,7 +1538,7 @@ export default function Telesales() {
       return summaryCards.map((stage) => ({
         id: stage.id || `${stage.stage_key}-stage`,
         key: normalizeStageKey(stage.stage_key),
-        name: isRtl && stage?.stage_name_ar ? stage.stage_name_ar : stage.stage_name,
+        name: resolveTelesalesStageLabel(stage, isRtl),
         type: normalizeStageKey(stage.stage_type),
         icon: stage.icon || 'BarChart2',
         count: Number(stage.count || 0),
@@ -2141,7 +2201,7 @@ export default function Telesales() {
       {mode === 'operational' && moduleEnabled && canShow && (
         <>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'}`}>Telesales Pipeline</h2>
+            <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'}`}>{t('Telesales Pipeline')}</h2>
             {operationalRefreshing && (
               <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${isLight ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-800 bg-blue-900/30 text-blue-300'}`}>
                 <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse" />
@@ -2638,25 +2698,25 @@ export default function Telesales() {
 
           <div className="glass-panel rounded-2xl overflow-hidden">
             <div className="p-4 border-b border-theme-border dark:border-gray-700">
-              <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'}`}>Telesales History</h2>
+              <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'}`}>{t('Telesales History')}</h2>
             </div>
 
             <div className="overflow-x-auto">
               <table className={`w-full ${textColor}`}>
                 <thead className={tableHeaderBgClass}>
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Lead</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Phone</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Stage</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Assigned</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Transferred At</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">{t('Lead')}</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">{t('Phone')}</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">{t('Stage')}</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">{t('Assigned')}</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">{t('Transferred At')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-theme-border dark:divide-gray-700">
                   {historicalLoading ? (
-                    <tr><td className="px-6 py-8 text-center text-sm text-gray-500" colSpan={5}>Loading...</td></tr>
+                    <tr><td className="px-6 py-8 text-center text-sm text-gray-500" colSpan={5}>{t('Loading...')}</td></tr>
                   ) : historicalRows.length === 0 ? (
-                    <tr><td className="px-6 py-8 text-center text-sm text-gray-500" colSpan={5}>No data</td></tr>
+                    <tr><td className="px-6 py-8 text-center text-sm text-gray-500" colSpan={5}>{t('No data')}</td></tr>
                   ) : historicalRows.map((lead) => (
                     <tr key={lead.id} className="hover:bg-white/5 transition-colors duration-150">
                       <td className="px-6 py-4 text-sm"><div className="font-semibold">{lead.name || '-'}</div><div className="text-xs text-gray-500">#{lead.id}</div></td>

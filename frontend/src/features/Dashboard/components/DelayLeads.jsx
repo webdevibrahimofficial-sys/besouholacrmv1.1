@@ -188,8 +188,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
 
       let response
       if (mode === 'telesales') {
-        params.workflow_key = 'telesales'
-        response = await api.get('/api/leads/delayed', { params })
+        response = await api.get('/api/telesales/delayed-leads', { params })
       } else {
         // Use the dedicated delayed leads endpoint
         response = await api.get('/api/leads/delayed', { params })
@@ -481,7 +480,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     const label = s === 'new' ? (isAr ? 'جديد' : 'New')
       : s === 'duplicate' ? (isAr ? 'مكرر' : 'Duplicate')
       : s === 'pending' ? (isAr ? 'معلقة' : 'Pending')
-      : s === 'coldcalls' ? (isAr ? 'العملاء المحتملين' : 'Cold Calls')
+      : s === 'coldcalls' ? (isAr ? 'العملاء المحتملون' : 'Cold Calls')
       : s === 'followup' ? (isAr ? 'متابعة' : 'Follow-up')
       : (pipelineStage || '-')
 
@@ -641,7 +640,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 if (name === 'new') label = isAr ? 'جديد' : 'New';
                 else if (name === 'duplicate') label = isAr ? 'مكرر' : 'Duplicate';
                 else if (name === 'pending') label = isAr ? 'معلقة' : 'Pending';
-                else if (name === 'coldcalls') label = isAr ? 'العملاء المحتملين' : 'Cold Calls';
+                else if (name === 'coldcalls') label = isAr ? 'العملاء المحتملون' : 'Cold Calls';
                 else if (name === 'followup') label = isAr ? 'متابعة' : 'Follow-up';
             }
 
@@ -731,11 +730,6 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 <div>
                   <div className="font-medium text-sm">{lead.leadName}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400" dir="ltr">{displayMobile(lead.mobile, lead)}</div>
-                  {lead.pendingActionsCount > 0 && (
-                    <div className="text-xs text-red-600 font-bold mt-1">
-                      {t('Pending Actions')}: {lead.pendingActionsCount}
-                    </div>
-                  )}
                   {lead.nextDelayedAction && (
                     <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
                         {t('Next')}: {lead.nextDelayedAction.type} <br/>

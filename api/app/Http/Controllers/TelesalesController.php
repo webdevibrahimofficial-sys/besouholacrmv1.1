@@ -16,6 +16,7 @@ use App\Services\TelesalesService;
 use App\Traits\ResolvesNotificationRecipients;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Schema;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -908,6 +909,153 @@ class TelesalesController extends Controller
         });
 
         return TelesalesLeadResource::collection($results);
+    }
+
+    public function delayed(Request $request)
+    {
+        try {
+            $user = $request->user();
+            $tenantId = (int) ($user?->tenant_id ?? 0);
+            $eligibleStatuses = ['scheduled', 'Scheduled', 'pending', 'in_progress', 'in-progress', 'in progress'];
+
+            $query = $this->telesalesService->getActiveTelesalesLeadsQuery($tenantId)
+                ->whereDoesntHave('referralUsers')
+                ->whereHas('actions', function ($actionQuery) use ($eligibleStatuses) {
+                    $actionQuery->whereIn('details->status', $eligibleStatuses)
+                        ->whereNotIn('action_type', ['closing_deals', 'cancel'])
+                        ->whereNotIn('next_action_type', ['closing_deals', 'cancel'])
+                        ->whereNotNull('details->date')
+                        ->where('details->date', '!=', '');
+                })
+                ->with([
+                    'assignedAgent:id,name',
+                    'stageRelation:id,name,name_ar,type,workflow_key',
+                    'actions' => function ($actionQuery) use ($eligibleStatuses) {
+                        $actionQuery->select([
+                            'lead_actions.id',
+                            'lead_actions.lead_id',
+                            'lead_actions.user_id',
+                            'lead_actions.action_type',
+                            'lead_actions.next_action_type',
+                            'lead_actions.description',
+                            'lead_actions.details',
+                            'lead_actions.stage_id_at_creation',
+                            'lead_actions.created_at',
+                        ])
+                            ->whereIn('details->status', $eligibleStatuses)
+                            ->whereNotIn('action_type', ['closing_deals', 'cancel'])
+                            ->whereNotIn('next_action_type', ['closing_deals', 'cancel'])
+                            ->whereNotNull('details->date')
+                            ->where('details->date', '!=', '')
+                            ->orderByDesc('lead_actions.created_at');
+                    },
+                    'actions.user:id,name',
+                    'latestAction' => function ($actionQuery) {
+                        $actionQuery->select([
+                            'lead_actions.id',
+                            'lead_actions.lead_id',
+                            'lead_actions.user_id',
+                            'lead_actions.action_type',
+                            'lead_actions.next_action_type',
+                            'lead_actions.description',
+                            'lead_actions.details',
+                            'lead_actions.created_at',
+                        ]);
+                    },
+                    'latestAction.user:id,name',
+                ]);
+
+            $this->applyTelesalesViewerScope($query, $user);
+
+            if ($request->filled('assigned_to')) {
+                $query->where('assigned_to', (int) $request->input('assigned_to'));
+            }
+
+            $perPage = (int) $request->input('per_page', 20);
+            $page = max(1, (int) $request->input('page', 1));
+            $now = \Carbon\Carbon::now(config('app.timezone'));
+
+            $candidates = $query->limit(2000)->get();
+            $filtered = [];
+
+            foreach ($candidates as $lead) {
+                $latest = $lead->actions->first();
+                if (!$latest) {
+                    continue;
+                }
+
+                $details = is_array($latest->details ?? null) ? ($latest->details ?? []) : (json_decode($latest->details, true) ?? []);
+                $date = trim((string) ($details['date'] ?? ''));
+                $time = trim((string) ($details['time'] ?? ''));
+                if ($date === '') {
+                    continue;
+                }
+                if ($time === '') {
+                    $time = '00:00';
+                }
+
+                try {
+                    $scheduled = \Carbon\Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . substr($time, 0, 5), config('app.timezone'));
+                } catch (\Throwable $e) {
+                    try {
+                        $scheduled = \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $date . ' ' . $time, config('app.timezone'));
+                    } catch (\Throwable $inner) {
+                        continue;
+                    }
+                }
+
+                if ($now->greaterThanOrEqualTo($scheduled->copy()->addMinute())) {
+                    $filtered[] = [
+                        'lead' => $lead,
+                        'scheduled_at' => $scheduled->getTimestamp(),
+                        'created_at' => optional($lead->created_at)->getTimestamp() ?? 0,
+                        'lead_id' => (int) ($lead->id ?? 0),
+                    ];
+                }
+            }
+
+            usort($filtered, function ($a, $b) {
+                if (($b['scheduled_at'] ?? 0) !== ($a['scheduled_at'] ?? 0)) {
+                    return ($b['scheduled_at'] ?? 0) <=> ($a['scheduled_at'] ?? 0);
+                }
+
+                if (($b['created_at'] ?? 0) !== ($a['created_at'] ?? 0)) {
+                    return ($b['created_at'] ?? 0) <=> ($a['created_at'] ?? 0);
+                }
+
+                return ($b['lead_id'] ?? 0) <=> ($a['lead_id'] ?? 0);
+            });
+
+            $orderedLeads = collect(array_map(fn ($item) => $item['lead'], $filtered))
+                ->values();
+
+            $total = $orderedLeads->count();
+            $slice = $orderedLeads
+                ->slice(($page - 1) * $perPage, $perPage)
+                ->values()
+                ->map(fn (Lead $lead) => $this->leadViewService->decorateLead($lead, $user, 'all'));
+
+            $paginator = new LengthAwarePaginator(
+                $slice,
+                $total,
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()]
+            );
+
+            return TelesalesLeadResource::collection($paginator);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Telesales Delayed Leads Error: ' . $e->getMessage(), [
+                'tenant_id' => $request->user()?->tenant_id,
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to fetch telesales delayed leads',
+                'error' => $e->getMessage(),
+                'data' => [],
+            ], 500);
+        }
     }
 
     public function export(Request $request)

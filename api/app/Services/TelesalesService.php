@@ -87,6 +87,11 @@ class TelesalesService
             return true;
         }
 
+        if ($permission === 'createLead' || $permission === 'addLead') {
+            return in_array('addLead', $this->getPermissionList($user), true)
+                || in_array('createLead', $this->getPermissionList($user), true);
+        }
+
         return in_array($permission, $this->getPermissionList($user), true);
     }
 
@@ -375,7 +380,7 @@ class TelesalesService
 
         if (in_array($requestedWorkflow, [self::WORKFLOW_SALES, self::WORKFLOW_TELESALES], true)) {
             if ($requestedWorkflow === self::WORKFLOW_TELESALES) {
-                if ($this->isEnabledForTenant($tenant) && $this->userHasPermission($actor, 'createLead')) {
+                if ($this->isEnabledForTenant($tenant) && $this->userHasPermission($actor, 'addLead')) {
                     return self::WORKFLOW_TELESALES;
                 }
 

@@ -14,11 +14,20 @@ const BackButton = ({
   const isRTL = i18n.language === 'ar' || i18n.dir() === 'rtl';
 
   const handleClick = (e) => {
+    let shouldNavigate = true;
+
     if (onClick) {
-      onClick(e);
-    } else if (to) {
+      const result = onClick(e);
+      if (result === false || e?.defaultPrevented) {
+        shouldNavigate = false;
+      }
+    }
+
+    if (!shouldNavigate) return;
+
+    if (to) {
       navigate(to);
-    } else {
+    } else if (!onClick) {
       navigate(-1);
     }
   };

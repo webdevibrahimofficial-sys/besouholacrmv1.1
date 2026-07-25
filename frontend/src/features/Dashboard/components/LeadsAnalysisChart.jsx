@@ -26,6 +26,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   const containerHeightPx = exportMode ? 420 : 192
   const chartHeightClass = exportMode ? 'h-[420px]' : 'h-40 sm:h-48'
   const pieSize = exportMode ? 260 : 192
+  const mobileScrollableChartMinWidth = exportMode ? '100%' : (isMobile ? `${Math.max(chartData.length, 12) * 58}px` : '100%')
   const monthLabelsEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
   const translateMonthLabel = (label) => {
@@ -361,8 +362,10 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     }
 
     return (
-      <div className={`w-full ${chartHeightClass} px-2`}>
-        <Bar data={dataObj} options={options} />
+      <div className={`w-full ${isMobile && !exportMode ? 'overflow-x-auto pb-2' : ''}`}>
+        <div className={`${chartHeightClass} px-2`} style={{ minWidth: mobileScrollableChartMinWidth }}>
+          <Bar data={dataObj} options={options} />
+        </div>
       </div>
     )
   }
@@ -397,8 +400,10 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     }
 
     return (
-      <div className={`w-full ${chartHeightClass} px-2`}>
-        <Bar data={dataObj} options={options} />
+      <div className={`w-full ${isMobile && !exportMode ? 'overflow-x-auto pb-2' : ''}`}>
+        <div className={`${chartHeightClass} px-2`} style={{ minWidth: mobileScrollableChartMinWidth }}>
+          <Bar data={dataObj} options={options} />
+        </div>
       </div>
     )
   }
@@ -438,8 +443,10 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     }
 
     return (
-      <div className={`w-full ${chartHeightClass} px-2`}>
-        <Line data={dataObj} options={options} />
+      <div className={`w-full ${isMobile && !exportMode ? 'overflow-x-auto pb-2' : ''}`}>
+        <div className={`${chartHeightClass} px-2`} style={{ minWidth: mobileScrollableChartMinWidth }}>
+          <Line data={dataObj} options={options} />
+        </div>
       </div>
     )
   }

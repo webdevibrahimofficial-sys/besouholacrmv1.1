@@ -109,6 +109,35 @@ export const PipelineAnalysis = ({
   const [labels, setLabels] = useState([]);
 
   const normalizeStageValue = (value) => String(value ?? '').trim().toLowerCase();
+  const getStageArabicName = (stage) => String(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar || '').trim();
+  const getStageEnglishName = (stage) => String(stage?.name || stage?.stage_name || '').trim();
+  const getStageTypeName = (stage) => String(stage?.type || stage?.stage_type || '').trim();
+  const getStageLabel = (stage) => {
+    const englishName = getStageEnglishName(stage);
+    const arabicName = getStageArabicName(stage);
+    const normalizedType = normalizeStageValue(getStageTypeName(stage));
+    const normalizedEnglishName = normalizeStageValue(englishName);
+    const normalizedArabicName = normalizeStageValue(arabicName);
+
+    if (
+      lang === 'ar' &&
+      (
+        ['cold calls', 'cold call'].includes(normalizedType) ||
+        ['cold calls', 'cold call'].includes(normalizedEnglishName) ||
+        ['مكالمات باردة', 'العملاء المحتملين', 'العملاء المحتملون'].includes(normalizedArabicName)
+      )
+    ) {
+      return 'العملاء المحتملون';
+    }
+
+    if (lang === 'ar' && ['cold calls', 'cold call'].includes(normalizedType)) {
+      return 'العملاء المحتملون';
+    }
+
+    return lang === 'ar'
+      ? (arabicName || englishName)
+      : (englishName || arabicName);
+  };
   const shouldHideTelesalesStage = (stage) => {
     if (workflowKey !== 'telesales') return false;
 
@@ -152,7 +181,7 @@ export const PipelineAnalysis = ({
 
   useEffect(() => {
     if (dbStages.length > 0) {
-      setLabels(dbStages.map(s => (lang === 'ar' && s.name_ar) ? s.name_ar : s.name));
+      setLabels(dbStages.map((stage) => getStageLabel(stage)).filter(Boolean));
     } else {
       setLabels(['Follow up', 'No Answer', 'Meeting', 'Proposal', 'Reservation', 'Closing Deal', 'Cancelation']);
     }
@@ -246,9 +275,16 @@ export const PipelineAnalysis = ({
   // Helper to match stage
   const matchStage = (itemStage, label) => {
       const norm = (v) => String(v ?? '').trim().toLowerCase();
-      const stageDef = dbStages.find(s => (lang === 'ar' && s.name_ar === label) || s.name === label);
+      const stageDef = dbStages.find((stage) => getStageLabel(stage) === label);
       if (stageDef) {
-          return norm(itemStage) === norm(stageDef.name) || (stageDef.name_ar && norm(itemStage) === norm(stageDef.name_ar)) || norm(itemStage) === norm(label);
+          return [
+            getStageEnglishName(stageDef),
+            getStageArabicName(stageDef),
+            getStageTypeName(stageDef),
+            label,
+          ]
+            .filter(Boolean)
+            .some((candidate) => norm(itemStage) === norm(candidate));
       }
       return norm(itemStage) === norm(label);
   };

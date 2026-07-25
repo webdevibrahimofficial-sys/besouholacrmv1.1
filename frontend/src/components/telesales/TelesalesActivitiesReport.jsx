@@ -692,7 +692,7 @@ export default function TelesalesActivitiesReport({
     <div className="p-4 md:p-6 bg-[var(--content-bg)] text-[var(--content-text)] overflow-hidden min-w-0">
       <div className="mb-6">
         <div className="mb-4">
-          <BackButton to="/telesales/dashboard?view=reports" onClick={onBack} />
+          <BackButton onClick={onBack} />
         </div>
         <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'} mb-2`}>
           {isRtl ? 'تقرير أنشطة التيليسيلز' : 'Telesales Activities Report'}

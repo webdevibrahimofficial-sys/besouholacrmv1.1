@@ -69,6 +69,21 @@ const isAdminRole = (role) => {
 
 const getRoleFilteredPermissions = (group, perms, role) => {
   const list = Array.isArray(perms) ? perms : [];
+  const normalizedRole = normalizeRoleValue(role);
+
+  if (group === 'Telesales' && ['telesales manager', 'telesales team leader'].includes(normalizedRole)) {
+    return list.filter(perm => perm !== 'deleteLead');
+  }
+
+  if (group === 'Telesales' && normalizedRole === 'telesales agent') {
+    const hiddenAgentPerms = new Set(['viewDuplicateLeads', 'deleteLead', 'export']);
+    return list.filter(perm => !hiddenAgentPerms.has(perm));
+  }
+
+  if (group === 'Control' && normalizedRole === 'telesales manager') {
+    const allowedControlPerms = new Set(['allowActionOnTeam', 'assignLeads', 'checkInOutApprovals']);
+    return list.filter(perm => allowedControlPerms.has(perm));
+  }
 
   if (!isSalesPersonRole(role)) {
     return list;
@@ -472,7 +487,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Inventory: ['addCategory','addItems'],
         Marketing: [],
         ...(telesalesModuleEnabled ? {
-          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
+          Telesales: ['showModule', 'addLead', 'importLeads', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
         } : {}),
         Customers: ['editInfo','showModule'],
         ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
@@ -494,7 +509,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Inventory: [],
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage','integration'],
         ...(telesalesModuleEnabled ? {
-          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
+          Telesales: ['showModule', 'addLead', 'importLeads', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
         } : {}),
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
         ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt', 'exportReports'],
@@ -523,21 +538,21 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     } else if (form.role === 'Telesales Manager') {
       setCustomPerms({
         ...(telesalesModuleEnabled ? {
-          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
+          Telesales: ['showModule', 'addLead', 'importLeads', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
         } : {}),
         Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals']
       })
     } else if (form.role === 'Telesales Team Leader') {
       setCustomPerms({
         ...(telesalesModuleEnabled ? {
-          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'export'],
+          Telesales: ['showModule', 'addLead', 'importLeads', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'export'],
         } : {}),
         Control: ['allowActionOnTeam','assignLeads']
       })
     } else if (form.role === 'Telesales Agent') {
       setCustomPerms({
         ...(telesalesModuleEnabled ? {
-          Telesales: ['showModule', 'createLead', 'editLead', 'receiveLeads'],
+          Telesales: ['showModule', 'addLead', 'importLeads', 'editLead', 'receiveLeads'],
         } : {}),
         Control: []
       })

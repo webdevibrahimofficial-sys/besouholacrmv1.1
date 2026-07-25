@@ -608,7 +608,7 @@ export default function TelesalesNotInterestedReport({
   return (
     <div className="min-h-screen space-y-6 p-6">
       <div>
-        <BackButton to="/telesales/dashboard?view=reports" onClick={onBack} className="relative z-[20060] pointer-events-auto" />
+        <BackButton onClick={onBack} className="relative z-[20060] pointer-events-auto" />
       </div>
 
       <div>

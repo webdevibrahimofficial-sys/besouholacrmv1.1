@@ -39,6 +39,7 @@ class CrmSettingsController extends Controller
             'sidebarCollapsible' => true,
             'allowTimeline' => true,
             'allowCallLog' => true,
+            'allowChatbot' => false,
 
             // Reservation hold time in hours. null/empty = lifetime (no auto-expiry)
             'reservationHoldHours' => null,

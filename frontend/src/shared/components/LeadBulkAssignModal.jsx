@@ -253,7 +253,7 @@ export default function LeadBulkAssignModal({
                 onClick={() => setAssignMethod('cold_call')}
                 className={`text-sm py-1.5 rounded-lg transition-all ${assignMethod === 'cold_call' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {isArabic ? 'مكالمة باردة' : 'As cold call'}
+                {isArabic ? 'عميل محتمل' : 'As cold call'}
               </button>
             </div>
           </div>

@@ -536,7 +536,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewTelesalesReports = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewReports'))
   const canViewTelesalesHistorical = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords'))
   const canViewTelesalesSection = canViewTelesalesModule || canViewTelesalesHistorical
-  const canCreateTelesalesLead = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('createLead'))
+  const canCreateTelesalesLead = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('addLead') || telesalesModulePerms.includes('createLead'))
   const canViewContractsSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewAgenciesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('userManagement')
   const canViewSourcesSettings = hasFullSettingsAccess || effectiveControlPerms.includes('addSource')

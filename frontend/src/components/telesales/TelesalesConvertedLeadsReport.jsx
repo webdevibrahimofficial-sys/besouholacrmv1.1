@@ -208,7 +208,7 @@ function mapTransferStageLabel(value, isRtl = false, fallback = '-', defaultLabe
   if (!normalized) return resolvedDefault
   if (['same stage', 'same_stage'].includes(normalized)) return resolvedDefault
   if (['new lead', 'new_lead', 'new'].includes(normalized)) return isRtl ? 'عميل جديد' : 'New Lead'
-  if (['cold calls', 'cold call', 'cold_calls', 'coldcalls'].includes(normalized)) return isRtl ? 'مكالمات باردة' : 'Cold Calls'
+  if (['cold calls', 'cold call', 'cold_calls', 'coldcalls'].includes(normalized)) return isRtl ? 'العملاء المحتملون' : 'Cold Calls'
   if (['transferred', 'converted', 'convert'].includes(normalized)) return resolvedDefault
   return String(value || '').trim() || resolvedDefault
 }
@@ -712,7 +712,7 @@ export default function TelesalesConvertedLeadsReport({ rows, users, telesalesAs
   return (
     <div className="min-h-screen space-y-6 p-6">
       <div>
-        <BackButton to="/telesales/dashboard?view=reports" onClick={onBack} className="relative z-[20060] pointer-events-auto" />
+        <BackButton onClick={onBack} className="relative z-[20060] pointer-events-auto" />
       </div>
 
       <div>

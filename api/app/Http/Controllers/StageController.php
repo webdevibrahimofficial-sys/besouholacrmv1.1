@@ -143,6 +143,28 @@ class StageController extends Controller
         ];
     }
 
+    private function stageKey(Stage $stage): string
+    {
+        $type = $this->normalizeStageToken((string) ($stage->type ?? ''));
+        $name = $this->normalizeStageToken((string) ($stage->name ?? ''));
+
+        return $type !== '' ? $type : $name;
+    }
+
+    private function isTelesalesConvertStage(Stage $stage): bool
+    {
+        if (strtolower(trim((string) ($stage->workflow_key ?? ''))) !== TelesalesService::WORKFLOW_TELESALES) {
+            return false;
+        }
+
+        return in_array($this->stageKey($stage), ['convert', 'transfer', 'transferred'], true);
+    }
+
+    private function linkedConvertedLeadsQuery()
+    {
+        return Lead::query()->whereNotNull('transferred_to_sales_at');
+    }
+
     private function ensureTelesalesFixedStages(): void
     {
         $tenantId = $this->currentTenantId();
@@ -415,6 +437,15 @@ class StageController extends Controller
             ], 422);
         }
 
+        if ($this->isTelesalesConvertStage($stage)) {
+            $convertedLeadsCount = $this->linkedConvertedLeadsQuery()->count();
+            if ($convertedLeadsCount > 0) {
+                return response()->json([
+                    'message' => 'This telesales converted stage cannot be deleted while converted leads still exist.',
+                ], 422);
+            }
+        }
+
         $linkedLeadsCount = $this->linkedLeadsQuery($stage)->count();
 
         if ($linkedLeadsCount > 0) {
@@ -428,7 +459,11 @@ class StageController extends Controller
                 ], 409);
             }
 
-            $targetStage = Stage::query()->find($targetStageId);
+            $targetStage = Stage::query()
+                ->whereKey($targetStageId)
+                ->where('workflow_key', $stage->workflow_key)
+                ->first();
+
             if (!$targetStage || (int) $targetStage->id === (int) $stage->id) {
                 return response()->json([
                     'message' => 'Please choose a valid target stage before deleting this stage.',
@@ -438,6 +473,7 @@ class StageController extends Controller
             DB::transaction(function () use ($stage, $targetStage) {
                 $this->linkedLeadsQuery($stage)->update([
                     'stage' => trim((string) $targetStage->name),
+                    'stage_id' => (int) $targetStage->id,
                 ]);
 
                 $stage->delete();

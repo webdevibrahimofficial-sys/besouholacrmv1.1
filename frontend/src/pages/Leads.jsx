@@ -25,7 +25,7 @@ import TransferSalesModal from '../components/TransferSalesModal'
 import LeadModal from '../components/LeadModal'
 import LeadHoverTooltip from '../components/LeadHoverTooltip'
 import { useDynamicFields } from '../hooks/useDynamicFields'
-import { getLeadModulePermissions, getLeadPermissionFlags } from '../services/leadPermissions'
+import { getLeadModulePermissions, getLeadPermissionFlags, isSuperAdminUser, isTenantAdminUser } from '../services/leadPermissions'
 import { normalizeColumnOrder, getFavoriteColumnOrder } from '../utils/columnPreferences'
 import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
@@ -43,7 +43,7 @@ export const Leads = () => {
   const telesalesPermissions = Array.isArray(user?.meta_data?.module_permissions?.Telesales)
     ? user.meta_data.module_permissions.Telesales
     : []
-  const canCreateTelesalesLead = !!(user?.is_super_admin || telesalesPermissions.includes('createLead'))
+  const canCreateTelesalesLead = !!(isSuperAdminUser(user) || isTenantAdminUser(user) || telesalesPermissions.includes('addLead') || telesalesPermissions.includes('createLead'))
   const canChooseImportDestination = Array.isArray(activeModules) && activeModules.includes('telesales') && canCreateTelesalesLead
   const formatMoney = (value) => {
     const n = Number(value)
