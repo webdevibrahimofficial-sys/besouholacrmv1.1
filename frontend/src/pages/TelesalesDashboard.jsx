@@ -1172,7 +1172,7 @@ export default function TelesalesDashboard() {
     const totalCard = {
       key: '__total__',
       filterKey: '',
-      title: t('Total Pipeline'),
+      title: t('TOTAL PIPELINE'),
       value: total,
       percent: 100,
       icon: <FaChartLine className="w-4 h-4" />,
