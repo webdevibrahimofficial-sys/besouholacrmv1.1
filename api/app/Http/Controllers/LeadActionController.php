@@ -200,6 +200,51 @@ class LeadActionController extends Controller
         return $details;
     }
 
+    private function extractNextActionSchedule(array $payload): array
+    {
+        $type = trim((string) ($payload['next_action_type'] ?? ''));
+        $date = trim((string) ($payload['next_action_date'] ?? $payload['nextActionDate'] ?? ''));
+        $time = trim((string) ($payload['next_action_time'] ?? $payload['nextActionTime'] ?? ''));
+
+        return [$type, $date, $time];
+    }
+
+    private function ensureMeetingCloseHasNextAction(array $payload): array
+    {
+        [$type, $date, $time] = $this->extractNextActionSchedule($payload);
+        $errors = [];
+
+        if ($type === '') {
+            $errors['next_action_type'] = ['next_action_type is required when closing a meeting.'];
+        }
+        if ($date === '') {
+            $errors['next_action_date'] = ['next_action_date is required when closing a meeting.'];
+        }
+        if ($time === '') {
+            $errors['next_action_time'] = ['next_action_time is required when closing a meeting.'];
+        }
+
+        if (!empty($errors)) {
+            throw \Illuminate\Validation\ValidationException::withMessages($errors);
+        }
+
+        return [$type, $date, $time];
+    }
+
+    private function applyMeetingCloseNextAction(LeadAction $meetingAction, array &$details, array $payload): void
+    {
+        [$nextType, $nextDate, $nextTime] = $this->ensureMeetingCloseHasNextAction($payload);
+
+        $meetingAction->next_action_type = $nextType;
+        $details['status'] = 'pending';
+        $details['next_action_type'] = $nextType;
+        $details['next_action_date'] = $nextDate;
+        $details['next_action_time'] = $nextTime;
+        $details['nextActionType'] = $nextType;
+        $details['nextActionDate'] = $nextDate;
+        $details['nextActionTime'] = $nextTime;
+    }
+
     private function decorateActionTimingState(LeadAction $leadAction): LeadAction
     {
         $details = $leadAction->details;
@@ -1180,6 +1225,15 @@ class LeadActionController extends Controller
                     $merged = $this->applyMeetingStatus($merged, $meetingStatus);
                     $existing->details = $merged;
                     $existing->save();
+                    if ($oldStatus === 'scheduled' && in_array($meetingStatus, ['done', 'no_show'], true)) {
+                        $this->applyMeetingCloseNextAction($existing, $merged, array_merge($details, [
+                            'next_action_type' => $request->next_action_type,
+                            'next_action_date' => $request->input('next_action_date'),
+                            'next_action_time' => $request->input('next_action_time'),
+                        ]));
+                        $existing->details = $merged;
+                        $existing->save();
+                    }
                     if ($meetingStatus !== $oldStatus) {
                         $this->writeMeetingAudit($existing, $oldStatus, $meetingStatus, Auth::id());
                     }
@@ -1738,6 +1792,14 @@ class LeadActionController extends Controller
                         }
 
                         $merged = $this->applyMeetingStatus($merged, $newStatus);
+                        if ($oldStatus === 'scheduled' && in_array($newStatus, ['done', 'no_show'], true)) {
+                            $payload = array_merge($merged, $incomingDetails, [
+                                'next_action_type' => $request->input('next_action_type', $leadAction->next_action_type),
+                                'next_action_date' => $request->input('next_action_date'),
+                                'next_action_time' => $request->input('next_action_time'),
+                            ]);
+                            $this->applyMeetingCloseNextAction($leadAction, $merged, $payload);
+                        }
                         $leadAction->details = $merged;
                         $leadAction->save();
                         $this->writeMeetingAudit($leadAction, $oldStatus, $newStatus, $user->id);

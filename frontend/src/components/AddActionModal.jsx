@@ -1652,6 +1652,19 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       }
 
       if (isMeetingPayload && isFinalMeetingStatus) {
+        if (!String(cleanedData.nextAction || '').trim()) {
+          toast('error', isArabic ? 'من فضلك اختر نوع الإجراء القادم' : 'Please choose the next action type');
+          return;
+        }
+        if (!String(cleanedData.date || '').trim()) {
+          toast('error', isArabic ? 'من فضلك اختر تاريخ الإجراء القادم' : 'Please choose the next action date');
+          return;
+        }
+        if (!String(cleanedData.time || '').trim()) {
+          toast('error', isArabic ? 'من فضلك اختر وقت الإجراء القادم' : 'Please choose the next action time');
+          return;
+        }
+
         const existingRes = await api.get('/api/lead-actions', {
           params: { lead_id: lead.id, type: 'meeting', limit: 500 },
         });
@@ -1677,10 +1690,14 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         }
 
         response = await api.put(`/api/lead-actions/${target.id}`, {
+          next_action_type: cleanedData.nextAction,
+          next_action_date: cleanedData.date,
+          next_action_time: cleanedData.time,
           details: {
             meeting_status: meetingStatus,
             doneMeeting: meetingStatus === 'done',
             notes: cleanedData.notes,
+            next_action_type: cleanedData.nextAction,
             next_action_date: cleanedData.date,
             next_action_time: cleanedData.time,
           },
