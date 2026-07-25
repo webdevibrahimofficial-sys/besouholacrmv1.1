@@ -31,4 +31,14 @@ class LeadWorkflowHistory extends Model
     {
         return $this->belongsTo(User::class, 'performed_by');
     }
+
+    public function fromStage()
+    {
+        return $this->belongsTo(Stage::class, 'from_stage_id');
+    }
+
+    public function toStage()
+    {
+        return $this->belongsTo(Stage::class, 'to_stage_id');
+    }
 }

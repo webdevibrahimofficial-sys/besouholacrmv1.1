@@ -65,6 +65,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const [salesAssignees, setSalesAssignees] = useState([]);
   const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingReservationSnapshot, setIsLoadingReservationSnapshot] = useState(false);
   const cancelAutoNotesRef = useRef('');
   const cancelNotesTouchedRef = useRef(false);
   const notInterestAutoNotesRef = useRef('');
@@ -235,6 +236,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     reservationProject: '',
     reservationUnit: '',
     reservationAmount: '',
+    sourceReservationActionId: '',
+    sourceReservationLoadedAt: '',
     rentUnit: '',
     rentStart: '',
     rentEnd: '',
@@ -645,6 +648,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const selectedStageBehavior = useMemo(() => getStageUiBehavior(selectedStage), [selectedStage]);
 
   const isTransferStageSelected = Boolean(selectedStageBehavior?.is_transfer);
+  const showReservationFields = actionData.nextAction === 'reservation' || actionData.nextAction === 'closing_deals';
 
   const transferRoleOptions = useMemo(
     () => ['All', ...Array.from(new Set((Array.isArray(salesAssignees) ? salesAssignees : []).map((entry) => String(entry?.role || entry?.job_title || '').trim()).filter(Boolean)))],
@@ -875,7 +879,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   // Auto-calculate Total Price for General Reservation
   useEffect(() => {
-    if (actionData.nextAction === 'reservation' && actionData.reservationType === 'general') {
+    if (['reservation', 'closing_deals'].includes(actionData.nextAction) && actionData.reservationType === 'general') {
       const total = actionData.reservationGeneralItems.reduce((sum, item) => {
         const quantity = Number(item.quantity || 0);
         const price = Number(item.price || 0);
@@ -1117,6 +1121,140 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     }));
   };
 
+  const resetReservationFields = () => {
+    setActionData(prev => ({
+      ...prev,
+      reservationType: defaultReservationType,
+      reservationCategory: '',
+      reservationItem: '',
+      reservationGeneralItems: [{ category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }],
+      reservationNotes: '',
+      reservationProject: '',
+      reservationUnit: '',
+      reservationAmount: '',
+      sourceReservationActionId: '',
+      sourceReservationLoadedAt: '',
+    }));
+  };
+
+  const applyReservationSnapshot = (snapshot = {}) => {
+    const nextType = snapshot?.reservationType === 'general' ? 'general' : 'project';
+    const rawRows = Array.isArray(snapshot?.reservationGeneralItems) ? snapshot.reservationGeneralItems : [];
+    const normalizedRows = rawRows.length > 0
+      ? rawRows.map((row) => ({
+        category: row?.category ?? row?.category_id ?? '',
+        item: row?.item ?? row?.item_id ?? '',
+        quantity: row?.quantity ?? 1,
+        price: row?.price ?? 0,
+        discount_type: row?.discount_type || 'value',
+        discount_value: row?.discount_value ?? '',
+      }))
+      : [{ category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }];
+
+    setActionData(prev => ({
+      ...prev,
+      reservationType: nextType,
+      reservationCategory: snapshot?.reservationCategory ?? '',
+      reservationItem: snapshot?.reservationItem ?? '',
+      reservationGeneralItems: nextType === 'general' ? normalizedRows : prev.reservationGeneralItems,
+      reservationNotes: snapshot?.reservationNotes ?? '',
+      reservationProject: snapshot?.reservationProject ?? '',
+      reservationUnit: snapshot?.reservationUnit ?? '',
+      reservationAmount: snapshot?.reservationAmount ?? '',
+      closingRevenue: (prev.nextAction === 'closing_deals' && String(prev.closingRevenue || '').trim() === '')
+        ? (snapshot?.reservationAmount ?? '')
+        : prev.closingRevenue,
+      sourceReservationActionId: snapshot?.sourceReservationActionId ? String(snapshot.sourceReservationActionId) : '',
+      sourceReservationLoadedAt: new Date().toISOString(),
+    }));
+  };
+
+  const loadLatestReservationSnapshot = async () => {
+    setIsLoadingReservationSnapshot(true);
+    try {
+      const response = await api.get('/api/lead-actions', {
+        params: { lead_id: lead.id, limit: 500 }
+      });
+      const records = Array.isArray(response?.data) ? response.data : (response?.data?.data || []);
+      const latestReservation = records.find((action) => {
+        const actionType = String(action?.action_type || action?.type || '').trim().toLowerCase();
+        const nextActionType = String(action?.next_action_type || action?.nextAction || '').trim().toLowerCase();
+        const details = action?.details && typeof action.details === 'object' ? action.details : {};
+        return (actionType === 'reservation' || nextActionType === 'reservation')
+          && (
+            details.reservationType
+            || details.reservationProject
+            || details.reservationUnit
+            || (Array.isArray(details.reservationGeneralItems) && details.reservationGeneralItems.length > 0)
+          );
+      });
+
+      if (!latestReservation) {
+        window.dispatchEvent(new CustomEvent('app:toast', {
+          detail: {
+            type: 'info',
+            message: isArabic ? 'لا يوجد حجز سابق يمكن تحميله' : 'No previous reservation found to load'
+          }
+        }));
+        return;
+      }
+
+      const details = latestReservation.details && typeof latestReservation.details === 'object'
+        ? latestReservation.details
+        : {};
+
+      applyReservationSnapshot({
+        ...details,
+        sourceReservationActionId: latestReservation.id,
+      });
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isArabic ? 'تعذر تحميل بيانات آخر حجز' : 'Failed to load latest reservation'
+        }
+      }));
+    } finally {
+      setIsLoadingReservationSnapshot(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (actionData.nextAction !== 'closing_deals') return;
+    if (isLoadingReservationSnapshot) return;
+    if (actionData.sourceReservationLoadedAt || actionData.sourceReservationActionId) return;
+
+    const hasManualReservationData =
+      String(actionData.reservationProject || '').trim() !== ''
+      || String(actionData.reservationUnit || '').trim() !== ''
+      || String(actionData.reservationAmount || '').trim() !== ''
+      || String(actionData.reservationNotes || '').trim() !== ''
+      || (Array.isArray(actionData.reservationGeneralItems)
+        && actionData.reservationGeneralItems.some((row) =>
+          String(row?.category || '').trim() !== ''
+          || String(row?.item || '').trim() !== ''
+          || Number(row?.price || 0) > 0
+          || Number(row?.quantity || 0) > 1
+          || String(row?.discount_value || '').trim() !== ''
+        ));
+
+    if (hasManualReservationData) return;
+
+    loadLatestReservationSnapshot();
+  }, [
+    actionData.nextAction,
+    actionData.reservationAmount,
+    actionData.reservationGeneralItems,
+    actionData.reservationNotes,
+    actionData.reservationProject,
+    actionData.reservationUnit,
+    actionData.sourceReservationActionId,
+    actionData.sourceReservationLoadedAt,
+    isLoadingReservationSnapshot,
+    isOpen,
+  ]);
+
   const handleQuickTimeSelect = (option) => {
     const now = new Date();
     const newDate = new Date();
@@ -1294,7 +1432,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
     // Clean up data based on reservation type to avoid confusion
     const cleanedData = { ...actionData };
-    if (cleanedData.nextAction === 'reservation') {
+    if (['reservation', 'closing_deals'].includes(cleanedData.nextAction)) {
       if (cleanedData.reservationType === 'general') {
         // If General, remove Project/Unit fields
         cleanedData.reservationProject = '';
@@ -2042,7 +2180,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Reservation fields */}
-          {actionData.nextAction === 'reservation' && (
+          {showReservationFields && (
             <div className="space-y-4">
               {/* Type Selection */}
               <div>

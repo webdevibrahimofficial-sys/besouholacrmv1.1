@@ -63,6 +63,8 @@ class TelesalesLeadViewService
             $lead->assignedAgent?->name
             ?: (is_object($lead->assigned_to) ? ($lead->assigned_to->name ?? null) : null)
             ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null);
+        $currentAssignedToId = !empty($lead->assigned_to) ? (int) $lead->assigned_to : null;
+        $currentAssignedToName = $lead->assignedAgent?->name ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null);
 
         $transferHistory = $lead->latestTransferToSalesHistory;
         $transferMeta = is_array($transferHistory?->meta_data ?? null) ? ($transferHistory->meta_data ?? []) : [];
@@ -70,10 +72,42 @@ class TelesalesLeadViewService
             $transferHistory?->performedByUser?->name
             ?: $lead->latestAction?->user?->name
             ?: null;
+        $lead->transfer_from_assignee_id = !empty($transferMeta['from_assigned_to']) ? (int) $transferMeta['from_assigned_to'] : null;
+        $lead->transfer_from_assignee_name =
+            (!empty($transferMeta['from_assigned_to_name']) ? (string) $transferMeta['from_assigned_to_name'] : null)
+            ?: null;
+        $metaTransferToAssigneeId = !empty($transferMeta['assigned_to']) ? (int) $transferMeta['assigned_to'] : null;
+        $metaTransferToAssigneeName = !empty($transferMeta['assigned_to_name']) ? (string) $transferMeta['assigned_to_name'] : null;
+        $lead->transfer_to_assignee_id = $metaTransferToAssigneeId ?: null;
+        $lead->transfer_to_assignee_name = $metaTransferToAssigneeName ?: null;
+        $lead->transfer_assign_role = !empty($transferMeta['assign_role']) ? (string) $transferMeta['assign_role'] : null;
+        $lead->transfer_from_stage_name = $transferHistory?->fromStage?->name ?: null;
+        $lead->transfer_to_stage_name = $transferHistory?->toStage?->name ?: null;
+
+        if ($lead->transfer_to_assignee_id && $currentAssignedToId && $lead->transfer_to_assignee_id === $currentAssignedToId && !empty($currentAssignedToName)) {
+            $lead->transfer_to_assignee_name = $currentAssignedToName;
+        }
+
+        $isLegacyTransferredLead = !empty($lead->transferred_to_sales_at)
+            && !$lead->transfer_to_assignee_id
+            && empty($lead->transfer_to_assignee_name);
+
+        if ($isLegacyTransferredLead) {
+            $lead->transfer_to_assignee_id = $currentAssignedToId;
+            $lead->transfer_to_assignee_name = $currentAssignedToName;
+        }
+
         $lead->convert_to_name =
-            (!empty($transferMeta['assigned_to_name']) ? (string) $transferMeta['assigned_to_name'] : null)
-            ?: $lead->assignedAgent?->name
-            ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null);
+            $lead->transfer_to_assignee_name
+            ?: (
+                $lead->transfer_to_assignee_id
+                && (!$lead->transfer_from_assignee_id || $lead->transfer_to_assignee_id !== $lead->transfer_from_assignee_id)
+                    ? ($lead->assignedAgent?->name ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null))
+                    : null
+            );
+        $lead->transfer_history_id = $transferHistory?->id;
+        $lead->transfer_stage = !empty($transferMeta['stage']) ? (string) $transferMeta['stage'] : null;
+        $lead->transfer_history_option = !empty($transferMeta['history_option']) ? (string) $transferMeta['history_option'] : null;
 
         $existingPermissions = is_array($lead->permissions ?? null) ? ($lead->permissions ?? []) : [];
         $lead->permissions = array_merge($existingPermissions, [

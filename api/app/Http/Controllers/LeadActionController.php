@@ -353,6 +353,135 @@ class LeadActionController extends Controller
         return is_array($controlPerms) ? $controlPerms : [];
     }
 
+    private function findLatestReservationAction(int $leadId): ?LeadAction
+    {
+        return LeadAction::query()
+            ->where('lead_id', $leadId)
+            ->where(function ($query) {
+                $query->where('action_type', 'reservation')
+                    ->orWhere('next_action_type', 'reservation');
+            })
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    private function mergeReservationSnapshotIntoDetails(array $details, ?LeadAction $reservationAction): array
+    {
+        if (!$reservationAction) {
+            return $details;
+        }
+
+        $reservationDetails = is_array($reservationAction->details)
+            ? $reservationAction->details
+            : (json_decode($reservationAction->details, true) ?? []);
+
+        if (!is_array($reservationDetails) || $reservationDetails === []) {
+            return $details;
+        }
+
+        $reservationKeys = [
+            'reservationType',
+            'reservationCategory',
+            'reservationItem',
+            'reservationGeneralItems',
+            'reservationNotes',
+            'reservationProject',
+            'reservationUnit',
+            'reservationAmount',
+        ];
+
+        foreach ($reservationKeys as $key) {
+            $incoming = $details[$key] ?? null;
+            $shouldFill = false;
+
+            if (is_array($incoming)) {
+                $shouldFill = $incoming === [];
+            } else {
+                $shouldFill = $incoming === null || $incoming === '';
+            }
+
+            if ($shouldFill && array_key_exists($key, $reservationDetails)) {
+                $details[$key] = $reservationDetails[$key];
+            }
+        }
+
+        $details['reservation_source_action_id'] = $details['reservation_source_action_id'] ?? $reservationAction->id;
+        $details['reservation_prefilled_from_action_id'] = $details['reservation_prefilled_from_action_id'] ?? $reservationAction->id;
+
+        return $details;
+    }
+
+    private function requestMetaMatchesReservationAction($requestModel, int $reservationActionId, ?int $leadId = null, ?int $lineIndex = null): bool
+    {
+        $meta = is_array($requestModel->meta_data) ? $requestModel->meta_data : [];
+        $metaSourceActionId = isset($meta['source_action_id']) ? (int) $meta['source_action_id'] : null;
+        $metaLeadId = isset($meta['lead_id']) ? (int) $meta['lead_id'] : null;
+        $metaLineIndex = isset($meta['source_action_line']) ? (int) $meta['source_action_line'] : null;
+
+        if ($metaSourceActionId !== $reservationActionId) {
+            return false;
+        }
+
+        if ($leadId !== null && $metaLeadId !== null && $metaLeadId !== $leadId) {
+            return false;
+        }
+
+        if ($lineIndex !== null && $metaLineIndex !== $lineIndex) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function hasMatchingRealEstateRequest(Lead $lead, int $reservationActionId, string $projectName, string $unitName): bool
+    {
+        $projectName = trim($projectName);
+        $unitName = trim($unitName);
+
+        return \App\Models\RealEstateRequest::query()
+            ->where('tenant_id', $lead->tenant_id ?? Auth::user()?->tenant_id)
+            ->where('type', 'Booking')
+            ->orderByDesc('id')
+            ->get()
+            ->contains(function ($requestModel) use ($lead, $reservationActionId, $projectName, $unitName) {
+                if ($this->requestMetaMatchesReservationAction($requestModel, $reservationActionId, (int) $lead->id)) {
+                    return true;
+                }
+
+                $meta = is_array($requestModel->meta_data) ? $requestModel->meta_data : [];
+                $metaLeadId = isset($meta['lead_id']) ? (int) $meta['lead_id'] : null;
+                $sameLead = $metaLeadId === (int) $lead->id;
+                $sameProject = trim((string) ($requestModel->project ?? '')) === $projectName;
+                $sameUnit = trim((string) ($requestModel->unit ?? '')) === $unitName;
+
+                return $sameLead && $sameProject && $sameUnit;
+            });
+    }
+
+    private function hasMatchingInventoryRequest(Lead $lead, int $reservationActionId, int $lineIndex, string $productName, int $quantity): bool
+    {
+        $productName = trim($productName);
+
+        return \App\Models\InventoryRequest::query()
+            ->where('tenant_id', $lead->tenant_id ?? Auth::user()?->tenant_id)
+            ->where('type', 'Booking')
+            ->orderByDesc('id')
+            ->get()
+            ->contains(function ($requestModel) use ($lead, $reservationActionId, $lineIndex, $productName, $quantity) {
+                if ($this->requestMetaMatchesReservationAction($requestModel, $reservationActionId, (int) $lead->id, $lineIndex)) {
+                    return true;
+                }
+
+                $meta = is_array($requestModel->meta_data) ? $requestModel->meta_data : [];
+                $metaLeadId = isset($meta['lead_id']) ? (int) $meta['lead_id'] : null;
+                $sameLead = $metaLeadId === (int) $lead->id;
+                $sameProduct = trim((string) ($requestModel->product ?? '')) === $productName;
+                $sameQuantity = (int) ($requestModel->quantity ?? 0) === $quantity;
+
+                return $sameLead && $sameProduct && $sameQuantity;
+            });
+    }
+
     private function isTenantAdminLike($user): bool
     {
         if (!$user) return false;
@@ -857,6 +986,13 @@ class LeadActionController extends Controller
 
         $mainColumns = ['lead_id', 'type', 'description', 'stage_id', 'next_action_type'];
         $details = $request->except($mainColumns);
+
+        $isClosing = ($request->type === 'closing_deals' || $request->next_action_type === 'closing_deals');
+        $reservationSourceAction = null;
+        if ($isClosing) {
+            $reservationSourceAction = $this->findLatestReservationAction((int) $lead->id);
+            $details = $this->mergeReservationSnapshotIntoDetails($details, $reservationSourceAction);
+        }
         
         // Ensure action priority matches lead priority
         $details['priority'] = $lead->priority ?? ($details['priority'] ?? 'medium');
@@ -1132,8 +1268,6 @@ class LeadActionController extends Controller
 
         // Revenue Creation Logic: Attribute to Salesperson (Lead Assignee)
         $revenueAmount = $details['closingRevenue'] ?? $details['revenue'] ?? 0;
-        $isClosing = ($request->type === 'closing_deals' || $request->next_action_type === 'closing_deals');
-        
         if ($isClosing && $revenueAmount > 0) {
             \App\Models\Revenue::create([
                 'tenant_id' => $lead->tenant_id ?? Auth::user()->tenant_id,
@@ -1169,7 +1303,7 @@ class LeadActionController extends Controller
             $targetUnit = null;
             $targetProperty = null;
 
-            $reservationUnitId = $request->reservationUnit;
+            $reservationUnitId = $details['reservationUnit'] ?? $request->reservationUnit;
             if (!empty($reservationUnitId)) {
                 $targetUnit = \App\Models\Unit::find($reservationUnitId);
                 if (!$targetUnit) {
@@ -1218,26 +1352,34 @@ class LeadActionController extends Controller
             $leadAction->save();
         }
 
-        if ($request->next_action_type === 'reservation' || $request->type === 'reservation') {
+        $shouldSyncReservationRequests = ($request->next_action_type === 'reservation' || $request->type === 'reservation' || $isClosing);
+        if ($shouldSyncReservationRequests) {
             $reservationLead = $lead;
             if ($reservationLead) {
-                if ($request->reservationType === 'project') {
-                    $project = \App\Models\Project::find($request->reservationProject);
+                $reservationType = (string) ($details['reservationType'] ?? $request->reservationType ?? '');
+                $reservationActionId = (int) ($details['reservation_source_action_id'] ?? $leadAction->id);
+
+                if ($reservationType === 'project') {
+                    $reservationProjectId = $details['reservationProject'] ?? $request->reservationProject;
+                    $reservationUnitId = $details['reservationUnit'] ?? $request->reservationUnit;
+                    $reservationAmount = $details['reservationAmount'] ?? $request->reservationAmount;
+                    $reservationNotes = $details['reservationNotes'] ?? $request->reservationNotes;
+                    $project = \App\Models\Project::find($reservationProjectId);
 
                     $unitName = null;
                     $property = null;
-                    $unit = \App\Models\Unit::find($request->reservationUnit);
+                    $unit = \App\Models\Unit::find($reservationUnitId);
                     if ($unit) {
                         $unitName = $unit->name;
                     } else {
-                        $property = Property::find($request->reservationUnit);
+                        $property = Property::find($reservationUnitId);
                         if ($property) {
                             $unitName = $property->unit_number ?? $property->unit_code ?? $property->name ?? $property->title ?? (string)$property->id;
                         }
                     }
 
                     // Mark reserved (Property/Unit) for inventory
-                    if ($property) {
+                    if (($request->next_action_type === 'reservation' || $request->type === 'reservation') && $property) {
                         $curStatus = strtolower(trim((string) ($property->status ?? '')));
                         $isSoldOrRented = in_array($curStatus, ['sold', 'rented', 'rent'], true);
                         if ($isSoldOrRented) {
@@ -1254,7 +1396,7 @@ class LeadActionController extends Controller
                         $property->sold_lead_id = null;
                         $property->save();
                     }
-                    if ($unit) {
+                    if (($request->next_action_type === 'reservation' || $request->type === 'reservation') && $unit) {
                         $curStatus = strtolower(trim((string) ($unit->status ?? '')));
                         if (in_array($curStatus, ['sold', 'rented'], true)) {
                             return response()->json(['message' => 'Unit is not available for reservation'], 422);
@@ -1271,41 +1413,61 @@ class LeadActionController extends Controller
                         $unit->save();
                     }
 
-                    \App\Models\RealEstateRequest::create([
-                        'tenant_id' => $reservationLead->tenant_id ?? Auth::user()->tenant_id,
-                        'customer_name' => $reservationLead->name,
-                        'project' => $project ? $project->name : $request->reservationProject,
-                        'unit' => $unitName ?? (string)$request->reservationUnit,
-                        'amount' => floatval($request->reservationAmount ?: 0),
-                        'status' => 'Pending',
-                        'type' => 'Booking',
-                        'date' => now()->toDateString(),
-                        'notes' => $request->reservationNotes,
-                        'phone' => $reservationLead->phone,
-                        'source' => $reservationLead->source ?? '',
-                        'meta_data' => [
-                            'lead_id' => $reservationLead->id,
-                            'property_id' => $property?->id,
-                            'unit' => $unitName ?? (string) $request->reservationUnit,
-                            'created_by_name' => Auth::user()->name ?? '',
-                            'created_by_id' => Auth::id()
-                        ]
-                    ]);
+                    $projectName = $project ? $project->name : (string) $reservationProjectId;
+                    $finalUnitName = $unitName ?? (string) $reservationUnitId;
+
+                    if (!$this->hasMatchingRealEstateRequest($reservationLead, $reservationActionId, $projectName, $finalUnitName)) {
+                        \App\Models\RealEstateRequest::create([
+                            'tenant_id' => $reservationLead->tenant_id ?? Auth::user()->tenant_id,
+                            'customer_name' => $reservationLead->name,
+                            'project' => $projectName,
+                            'unit' => $finalUnitName,
+                            'amount' => floatval($reservationAmount ?: 0),
+                            'status' => 'Pending',
+                            'type' => 'Booking',
+                            'date' => now()->toDateString(),
+                            'notes' => $reservationNotes,
+                            'phone' => $reservationLead->phone,
+                            'source' => $reservationLead->source ?? '',
+                            'meta_data' => [
+                                'lead_id' => $reservationLead->id,
+                                'property_id' => $property?->id,
+                                'unit' => $finalUnitName,
+                                'source_action_id' => $reservationActionId,
+                                'source_action_type' => 'reservation',
+                                'created_by_name' => Auth::user()->name ?? '',
+                                'created_by_id' => Auth::id()
+                            ]
+                        ]);
+                    }
                 }
-                elseif ($request->reservationType === 'general') {
-                    $items = is_array($request->reservationGeneralItems) ? $request->reservationGeneralItems : [];
-                    foreach ($items as $itemData) {
+                elseif ($reservationType === 'general') {
+                    $items = is_array($details['reservationGeneralItems'] ?? null)
+                        ? ($details['reservationGeneralItems'] ?? [])
+                        : (is_array($request->reservationGeneralItems) ? $request->reservationGeneralItems : []);
+                    $reservationNotes = $details['reservationNotes'] ?? $request->reservationNotes;
+
+                    foreach ($items as $index => $itemData) {
                         $itemModel = \App\Models\Item::find($itemData['item'] ?? null);
 
                         $qty = intval($itemData['quantity'] ?? 1);
                         $price = floatval($itemData['price'] ?? 0);
+                        $productName = $itemModel ? $itemModel->name : (string) ($itemData['item'] ?? '');
+
+                        if ($productName === '') {
+                            continue;
+                        }
+
+                        if ($this->hasMatchingInventoryRequest($reservationLead, $reservationActionId, (int) $index, $productName, $qty)) {
+                            continue;
+                        }
 
                         \App\Models\InventoryRequest::create([
                             'tenant_id' => $reservationLead->tenant_id ?? Auth::user()->tenant_id,
                             'customer_name' => $reservationLead->name,
-                            'product' => $itemModel ? $itemModel->name : ($itemData['item'] ?? ''),
+                            'product' => $productName,
                             'quantity' => $qty,
-                            'description' => $request->reservationNotes,
+                            'description' => $reservationNotes,
                             'status' => 'Pending',
                             'type' => 'Booking',
                             'source' => $reservationLead->source ?? '',
@@ -1313,6 +1475,9 @@ class LeadActionController extends Controller
                                 'lead_id' => $reservationLead->id,
                                 'price' => $price,
                                 'total' => $price * $qty,
+                                'source_action_id' => $reservationActionId,
+                                'source_action_line' => (int) $index,
+                                'source_action_type' => 'reservation',
                                 'customer_phone' => $reservationLead->phone,
                                 'created_by_name' => Auth::user()->name ?? '',
                                 'created_by_id' => Auth::id()

@@ -540,6 +540,8 @@ class TelesalesService
             $previousWorkflow = $lead->workflow_key ?: self::WORKFLOW_SALES;
             $previousStageId = $lead->stage_id;
             $duplicateMatch = $this->resolveSalesDuplicateMatch($lead, $tenantId);
+            $previousAssignedToId = $lead->assigned_to ? (int) $lead->assigned_to : null;
+            $previousAssignedToName = $lead->assignedAgent?->name ?: (!empty($lead->sales_person) ? (string) $lead->sales_person : null);
 
             $lead->workflow_key = self::WORKFLOW_SALES;
             $lead->stage_id = $salesStageId;
@@ -572,9 +574,16 @@ class TelesalesService
                 $assignee = $this->validateSalesAssigneeId($tenantId, $directAssignee);
                 $lead->assigned_to = $assignee->id;
                 $lead->sales_person = $assignee->name;
+            } else {
+                // Do not keep the telesales owner as the sales assignee when
+                // conversion happens without selecting a target sales user.
+                $lead->assigned_to = null;
+                $lead->sales_person = null;
             }
 
             $this->syncLeadStageFields($lead);
+            $lead->unsetRelation('assignedAgent');
+            $lead->loadMissing('assignedAgent:id,name');
 
             $meta = is_array($lead->meta_data ?? null) ? ($lead->meta_data ?? []) : [];
             if ($duplicateMatch) {
@@ -613,6 +622,9 @@ class TelesalesService
                 'action' => 'transfer_to_sales',
                 'meta_data' => [
                     'assignment_method' => $assignmentMethod,
+                    'assign_role' => !empty($payload['assign_role']) ? (string) $payload['assign_role'] : 'sales',
+                    'from_assigned_to' => $previousAssignedToId,
+                    'from_assigned_to_name' => $previousAssignedToName,
                     'assigned_to' => $lead->assigned_to,
                     'assigned_to_name' => $lead->assignedAgent?->name ?: $lead->sales_person,
                     'stage' => $targetStage !== '' ? $targetStage : null,

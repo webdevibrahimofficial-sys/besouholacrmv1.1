@@ -4,13 +4,14 @@ import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import DatePicker from 'react-datepicker'
-import { FaChevronDown, FaClone, FaCopy, FaEnvelope, FaExchangeAlt, FaEye, FaFilter, FaHistory, FaList, FaPhone, FaPlus, FaSearch, FaTrash, FaUpload, FaUserCheck, FaUserTie, FaWhatsapp } from 'react-icons/fa'
+import { FaChevronDown, FaClone, FaCopy, FaEnvelope, FaExchangeAlt, FaEye, FaFileExport, FaFilter, FaHistory, FaList, FaPhone, FaPlus, FaSearch, FaTrash, FaUpload, FaUserCheck, FaUserTie, FaWhatsapp } from 'react-icons/fa'
 import { useTheme } from '@shared/context/ThemeProvider'
-import { api } from '../utils/api'
+import { api, logExportEvent } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { useStages } from '../hooks/useStages'
 import { isTenantAdminUser, isSuperAdminUser } from '../services/leadPermissions'
 import ImportLeadsModal from '../components/ImportLeadsModal'
+import ImportLeadHistoryModal from '../components/ImportLeadHistoryModal'
 import { ICON_MAP } from '../components/settings/IconSelector'
 import { formatPhoneForDisplay, getPhoneLines } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
@@ -22,6 +23,7 @@ import CompareLeadsModal from '../components/CompareLeadsModal'
 import ColumnToggle from '../components/ColumnToggle'
 import { buildLeadTransferPayload } from '../shared/utils/leadTransfer'
 import { getFavoriteColumnOrder, normalizeColumnOrder } from '../utils/columnPreferences'
+import { filterTelesalesRowsByScope, shouldUseLocalScopedSummary } from '../shared/utils/telesalesScope'
 
 function hasTelesalesPermission(user, permission) {
   if (isTenantAdminUser(user) || isSuperAdminUser(user)) return true
@@ -119,6 +121,7 @@ export default function Telesales() {
   const [operationalRefreshing, setOperationalRefreshing] = useState(false)
   const [transferingId, setTransferingId] = useState(null)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
   const [mode, setMode] = useState('operational')
   const [pageError, setPageError] = useState('')
@@ -159,10 +162,18 @@ export default function Telesales() {
   const [historicalLastPage, setHistoricalLastPage] = useState(1)
   const [historicalTotal, setHistoricalTotal] = useState(0)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showImportMenu, setShowImportMenu] = useState(false)
   const [excelFile, setExcelFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
   const [importSummary, setImportSummary] = useState(null)
+  const [showHistoryImportModal, setShowHistoryImportModal] = useState(false)
+  const [historyExcelFile, setHistoryExcelFile] = useState(null)
+  const [historyImporting, setHistoryImporting] = useState(false)
+  const [historyImportError, setHistoryImportError] = useState('')
+  const [historyImportSummary, setHistoryImportSummary] = useState(null)
+  const [historySelectedSheet, setHistorySelectedSheet] = useState('')
+  const [historyImportLeadContext, setHistoryImportLeadContext] = useState(null)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [showAddActionModal, setShowAddActionModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
@@ -176,6 +187,7 @@ export default function Telesales() {
   const hasLoadedInitialRef = useRef(false)
   const supportDataCacheKeyRef = useRef('')
   const loadRequestIdRef = useRef(0)
+  const importMenuRef = useRef(null)
 
   const isCurrentLoadRequest = (requestId) => requestId === loadRequestIdRef.current
 
@@ -184,6 +196,7 @@ export default function Telesales() {
   const canTransfer = useMemo(() => hasTelesalesPermission(user, 'transferToSales'), [user])
   const canBulkTransfer = useMemo(() => hasTelesalesPermission(user, 'bulkTransferToSales'), [user])
   const canAssignLead = useMemo(() => hasTelesalesPermission(user, 'assignLead'), [user])
+  const canExportTelesales = useMemo(() => hasTelesalesPermission(user, 'export'), [user])
   const canDeleteLead = useMemo(() => hasTelesalesPermission(user, 'deleteLead'), [user])
   const canViewDashboard = useMemo(() => hasTelesalesPermission(user, 'viewDashboard'), [user])
   const canDisableModule = useMemo(() => hasTelesalesPermission(user, 'disableModule'), [user])
@@ -264,6 +277,7 @@ export default function Telesales() {
         entries.push({
           display: displayKey || formatPhoneForDisplay(raw, { showFull: !maskMobileNumber, defaultCountryCode }),
           digits: digitsKey,
+          copyValue: formatPhoneForDisplay(digitsKey || raw, { showFull: true, defaultCountryCode }) || digitsKey || raw,
         })
       })
     })
@@ -321,6 +335,19 @@ export default function Telesales() {
     }
   }, [historicalOnly, isHistoricalRoute])
 
+  useEffect(() => {
+    if (!showImportMenu) return
+
+    const handleClickOutside = (event) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(event.target)) {
+        setShowImportMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showImportMenu])
+
   const normalizeUsers = (payload) => {
     if (Array.isArray(payload?.data)) return payload.data
     if (Array.isArray(payload)) return payload
@@ -332,6 +359,22 @@ export default function Telesales() {
     if (value === null || value === undefined || value === '') return []
     return [value].filter(Boolean)
   }
+
+  const applyOperationalScopeToPayload = (payload, viewerUsers = users) => {
+    if (!payload || !shouldUseLocalScopedSummary(user, viewerUsers)) return payload
+
+    const scopedRows = filterTelesalesRowsByScope(payload?.data, user, viewerUsers)
+    return {
+      ...payload,
+      data: scopedRows,
+      total: scopedRows.length,
+      from: scopedRows.length > 0 ? 1 : null,
+      to: scopedRows.length,
+      last_page: 1,
+      current_page: 1,
+    }
+  }
+
 
   const buildOperationalParams = (scopeOverride = null, options = {}) => {
     const includeStageFilter = options.includeStageFilter !== false
@@ -397,18 +440,22 @@ export default function Telesales() {
       api.get('/api/countries?active=1').catch(() => null),
     ])
 
-    if (requestId !== null && !isCurrentLoadRequest(requestId)) return
+    if (requestId !== null && !isCurrentLoadRequest(requestId)) return null
 
-    setUsers(normalizeUsers(userRes?.data))
+    const normalizedUserPool = normalizeUsers(userRes?.data)
+
+    setUsers(normalizedUserPool)
     setTelesalesAssignees(normalizeUsers(telesalesAssigneeRes?.data))
     setSalesAssignees(normalizeUsers(salesAssigneeRes?.data))
     setSourcesList(Array.isArray(sourceRes?.data?.data) ? sourceRes.data.data : (Array.isArray(sourceRes?.data) ? sourceRes.data : []))
     setProjectsList(Array.isArray(projectRes?.data?.data) ? projectRes.data.data : (Array.isArray(projectRes?.data) ? projectRes.data : []))
     setCampaignsList(Array.isArray(campaignRes?.data?.data) ? campaignRes.data.data : (Array.isArray(campaignRes?.data) ? campaignRes.data : []))
     setCountriesList(Array.isArray(countryRes?.data?.data) ? countryRes.data.data : (Array.isArray(countryRes?.data) ? countryRes.data : []))
+
+    return { users: normalizedUserPool }
   }
 
-  const loadOperationalMetrics = async (requestId = null) => {
+  const loadOperationalMetrics = async (requestId = null, viewerUsers = users) => {
     const scope = isMyLeadsView ? 'my' : (isReferralView ? 'referral' : 'all')
     const telesalesParams = buildOperationalParams(scope)
     const summaryParams = buildOperationalParams(scope, { includeStageFilter: false })
@@ -429,9 +476,11 @@ export default function Telesales() {
 
     if (requestId !== null && !isCurrentLoadRequest(requestId)) return
 
-    applyPaginator(leadRes?.data, false)
+    const scopedLeadPayload = applyOperationalScopeToPayload(leadRes?.data, viewerUsers)
+
+    applyPaginator(scopedLeadPayload, false)
     if (summaryRes?.data) {
-      setSummary(summaryRes.data)
+      setSummary(shouldUseLocalScopedSummary(user, viewerUsers) ? null : summaryRes.data)
     }
     if (disableCheckRes?.data) {
       setDisableCheck(disableCheckRes.data)
@@ -440,14 +489,12 @@ export default function Telesales() {
 
   const loadOperational = async ({ includeSupport = false, requestId = null } = {}) => {
     if (includeSupport) {
-      await Promise.all([
-        loadOperationalSupportData(requestId),
-        loadOperationalMetrics(requestId),
-      ])
+      const supportData = await loadOperationalSupportData(requestId)
+      await loadOperationalMetrics(requestId, supportData?.users || users)
       return
     }
 
-    await loadOperationalMetrics(requestId)
+    await loadOperationalMetrics(requestId, users)
   }
 
   const loadHistorical = async (requestId = null) => {
@@ -581,7 +628,7 @@ export default function Telesales() {
     const counts = {
       total: typeof summary?.total_leads === 'number'
         ? Number(summary.total_leads)
-        : Number(totalRows || 0)
+        : Number(rows.length || totalRows || 0)
     }
 
     const summaryStages = Array.isArray(summary?.by_stage) ? summary.by_stage : []
@@ -725,6 +772,66 @@ export default function Telesales() {
       window.alert(message)
     } finally {
       setBulkBusy(false)
+    }
+  }
+
+  const handleExport = async () => {
+    if (exporting || !canExportTelesales) return
+
+    setExporting(true)
+    try {
+      const params = {
+        ...buildOperationalParams(null, { includeStageFilter: true }),
+      }
+
+      delete params.page
+      delete params.per_page
+
+      if (selectedIds.length > 0) {
+        params.lead_ids = selectedIds
+      }
+
+      const response = await api.get('/api/telesales/leads/export', {
+        params,
+        responseType: 'blob',
+      })
+
+      const disposition = response.headers?.['content-disposition'] || ''
+      const matchedFileName = disposition.match(/filename="?([^"]+)"?/)
+      const fileName = matchedFileName?.[1] || `telesales_leads_export_${new Date().toISOString().slice(0, 10)}.xlsx`
+
+      const blob = new Blob([
+        response.data,
+      ], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+
+      await logExportEvent({ module: 'Telesales Leads', fileName, format: 'xlsx' })
+
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'success',
+          message: selectedIds.length > 0
+            ? (isRtl ? `تم تصدير ${selectedIds.length} ليد` : `Exported ${selectedIds.length} selected leads`)
+            : (isRtl ? 'تم تصدير ليدز التيليسيلز' : 'Exported telesales leads'),
+        },
+      }))
+    } catch (error) {
+      console.error('Failed to export telesales leads', error)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: error?.response?.data?.message || (isRtl ? 'فشل تصدير ليدز التيليسيلز' : 'Failed to export telesales leads'),
+        },
+      }))
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -879,6 +986,68 @@ export default function Telesales() {
     return Number.isNaN(asDate.getTime()) ? raw : toLocalYmd(asDate)
   }
 
+  const formatExcelDateParts = (parts) => {
+    if (!parts || !parts.y || !parts.m || !parts.d) return null
+    const pad = (value) => String(value).padStart(2, '0')
+    const hasTime = Number(parts.H || 0) > 0 || Number(parts.M || 0) > 0 || Number(parts.S || 0) > 0
+    const datePart = `${parts.y}-${pad(parts.m)}-${pad(parts.d)}`
+    if (!hasTime) return { date: datePart, time: '' }
+    return {
+      date: datePart,
+      time: `${pad(parts.H || 0)}:${pad(parts.M || 0)}`,
+    }
+  }
+
+  const normalizeExcelDateTime = (value) => {
+    if (value === null || value === undefined || value === '') return ''
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const serialDate = XLSX.SSF.parse_date_code(value)
+      const formatted = formatExcelDateParts(serialDate)
+      if (!formatted) return ''
+      return formatted.time ? `${formatted.date} ${formatted.time}:00` : formatted.date
+    }
+
+    const raw = String(value).trim()
+    if (!raw) return ''
+    const asDate = new Date(raw)
+    if (Number.isNaN(asDate.getTime())) {
+      return raw
+    }
+
+    const datePart = toLocalYmd(asDate)
+    const hours = String(asDate.getHours()).padStart(2, '0')
+    const minutes = String(asDate.getMinutes()).padStart(2, '0')
+    const seconds = String(asDate.getSeconds()).padStart(2, '0')
+    const hasTime = asDate.getHours() !== 0 || asDate.getMinutes() !== 0 || asDate.getSeconds() !== 0
+
+    return hasTime ? `${datePart} ${hours}:${minutes}:${seconds}` : datePart
+  }
+
+  const normalizeExcelTime = (value) => {
+    if (value === null || value === undefined || value === '') return ''
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const serialDate = XLSX.SSF.parse_date_code(value)
+      const formatted = formatExcelDateParts(serialDate)
+      return formatted?.time || ''
+    }
+
+    const raw = String(value).trim()
+    if (!raw) return ''
+
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(raw)) {
+      return raw.slice(0, 5)
+    }
+
+    const asDate = new Date(raw)
+    if (Number.isNaN(asDate.getTime())) {
+      return raw
+    }
+
+    return `${String(asDate.getHours()).padStart(2, '0')}:${String(asDate.getMinutes()).padStart(2, '0')}`
+  }
+
   const extractImportErrorMessage = (err) => {
     const responseData = err?.response?.data || {}
     const directMessage =
@@ -908,6 +1077,100 @@ export default function Telesales() {
     }
 
     return ''
+  }
+
+  const leadHistoryHeaderMap = {
+    name: ['client name', 'name', 'lead name', 'customer name', 'الاسم'],
+    phone: ['mobile', 'phone', 'contact', 'الموبايل', 'رقم الهاتف', 'الهاتف'],
+    phone_country: ['phone country', 'phone_country', 'country code', 'countrycode', 'رمز الدولة', 'كود الدولة'],
+    stage: ['stage', 'status', 'action type', 'المرحلة', 'الاستيدج'],
+    cancel_reason: ['cancel reason', 'cancelreason', 'cancel_reason', 'reason', 'reason text', 'reason title', 'سبب الالغاء', 'سبب الإلغاء'],
+    action_at: ['action date', 'follow date', 'date', 'history date', 'تاريخ', 'تاريخ المتابعة'],
+    follow_date: ['follow date', 'next follow date', 'تاريخ المتابعة'],
+    assigned_to: ['sales rep', 'sales person', 'assigned to', 'assignedto', 'المندوب', 'المسؤول'],
+    comment: ['comment', 'comments', 'note', 'notes', 'تعليق', 'ملاحظة'],
+  }
+
+  if (Array.isArray(leadHistoryHeaderMap.assigned_to)) {
+    leadHistoryHeaderMap.assigned_to.push('telesales agent', 'telesales agent name')
+  }
+
+  const findValue = (row, keys) => {
+    if (!Array.isArray(keys) || !keys.length) return ''
+    const rowKeys = Object.keys(row || {})
+    for (const rowKey of rowKeys) {
+      const normalizedRowKey = normalizeKey(rowKey)
+      for (const key of keys) {
+        if (normalizedRowKey === normalizeKey(key)) {
+          return row[rowKey]
+        }
+      }
+    }
+    return ''
+  }
+
+  const findHeaderMapping = (headers, aliasesMap) => {
+    const normalizedHeaders = Array.isArray(headers)
+      ? headers.map((header) => ({ header, normalized: normalizeKey(header) }))
+      : []
+
+    return Object.entries(aliasesMap || {}).reduce((acc, [field, aliases]) => {
+      const match = normalizedHeaders.find(({ normalized }) =>
+        Array.isArray(aliases) && aliases.some((alias) => normalized === normalizeKey(alias))
+      )
+
+      if (match?.header) {
+        acc[match.header] = field
+      }
+
+      return acc
+    }, {})
+  }
+
+  const loadImportJobRows = async (jobId) => {
+    if (!jobId) return []
+    const rowsRes = await api.get(`/api/import-jobs/${jobId}/rows`, { params: { per_page: 200 } })
+    return Array.isArray(rowsRes.data?.data) ? rowsRes.data.data : (Array.isArray(rowsRes.data) ? rowsRes.data : [])
+  }
+
+  const buildImportSummary = (summary, jobId, jobRows = []) => {
+    const successRows = Number(summary?.success_rows ?? 0) || 0
+    const duplicateRows = Number(summary?.duplicate_rows ?? 0) || 0
+    const skippedRows = Number(summary?.skipped_rows ?? 0) || 0
+    const failedRows = Number(summary?.failed_rows ?? 0) || 0
+    const warningRows = Number(summary?.warning_rows ?? 0) || 0
+
+    const errors = []
+    if (Array.isArray(jobRows)) {
+      jobRows.forEach((row) => {
+        const rowNo = row?.row_number ?? ''
+        const status = String(row?.status || '')
+        if (status === 'failed' || status === 'skipped') {
+          const message = row?.reason_message
+            ? String(row.reason_message)
+            : (status === 'skipped' ? 'Row skipped' : 'Row failed')
+          errors.push(`Row ${rowNo}: ${message}`)
+        }
+        if (Array.isArray(row?.warnings) && row.warnings.length) {
+          row.warnings.forEach((warning) => {
+            const message = String(warning?.message || warning?.code || 'Warning')
+            errors.push(`Row ${rowNo}: ${message}`)
+          })
+        }
+      })
+    }
+
+    return {
+      jobId,
+      jobRows,
+      added: successRows + duplicateRows,
+      duplicates: duplicateRows,
+      skipped: skippedRows,
+      failed: failedRows,
+      warnings: warningRows,
+      newCount: successRows,
+      errors,
+    }
   }
 
   const parseExcelToTelesalesLeads = async (file) => {
@@ -944,10 +1207,20 @@ export default function Telesales() {
       lastContact: ['last contact', 'اخر تواصل'],
     }
 
+    if (Array.isArray(headerMap.assignedTo)) {
+      headerMap.assignedTo.push('telesales agent', 'telesales agent name')
+    }
+
     return rows.map((row) => {
-      const creationDate = normalizeExcelDate(readRowValue(row, headerMap.creationDate))
-      const firstActionDate = normalizeExcelDate(readRowValue(row, headerMap.firstActionDate))
-      const nextActionDate = normalizeExcelDate(readRowValue(row, headerMap.nextActionDate))
+      const creationDateRaw = readRowValue(row, headerMap.creationDate)
+      const firstActionDateRaw = readRowValue(row, headerMap.firstActionDate)
+      const nextActionDateRaw = readRowValue(row, headerMap.nextActionDate)
+      const nextActionTimeRaw = readRowValue(row, headerMap.nextActionTime)
+
+      const creationDate = normalizeExcelDateTime(creationDateRaw)
+      const firstActionDate = normalizeExcelDateTime(firstActionDateRaw)
+      const nextActionDate = normalizeExcelDate(nextActionDateRaw)
+      const nextActionTime = normalizeExcelTime(nextActionTimeRaw) || normalizeExcelTime(nextActionDateRaw)
 
       return {
         id: Date.now() + Math.random(),
@@ -971,12 +1244,31 @@ export default function Telesales() {
         estimatedValue: Number(readRowValue(row, headerMap.estimatedValue)) || 0,
         probability: Number(readRowValue(row, headerMap.probability)) || 0,
         next_action_date: nextActionDate,
-        next_action_time: String(readRowValue(row, headerMap.nextActionTime) || '').trim(),
+        next_action_time: nextActionTime,
         cancel_reason: String(readRowValue(row, headerMap.cancelReason) || '').trim(),
         notes: String(readRowValue(row, headerMap.notes) || '').trim(),
         comment: String(readRowValue(row, headerMap.comment) || '').trim(),
       }
     })
+  }
+
+  const parseExcelToLeadHistory = async (file, selectedSheetName) => {
+    const data = await file.arrayBuffer()
+    const workbook = XLSX.read(data, { type: 'array' })
+    const activeSheetName = selectedSheetName && workbook.SheetNames.includes(selectedSheetName)
+      ? selectedSheetName
+      : workbook.SheetNames[0]
+    const worksheet = workbook.Sheets[activeSheetName]
+    const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
+    const headers = rows.length > 0 ? Object.keys(rows[0]) : []
+    const mapping = findHeaderMapping(headers, leadHistoryHeaderMap)
+
+    return {
+      rows,
+      headers,
+      mapping,
+      activeSheetName,
+    }
   }
 
   const handleTelesalesImport = async () => {
@@ -1040,6 +1332,114 @@ export default function Telesales() {
       setImporting(false)
     }
   }
+
+  const handleLeadHistoryUpload = async () => {
+    if (!historyExcelFile) {
+      setHistoryImportError('import.selectFileError')
+      return
+    }
+
+    setHistoryImporting(true)
+    setHistoryImportError('')
+    setHistoryImportSummary(null)
+
+    try {
+      const { rows, mapping } = await parseExcelToLeadHistory(historyExcelFile, historySelectedSheet)
+
+      if (!rows.length) {
+        setHistoryImportError(isRtl ? 'ملف الهيستوري فارغ.' : 'The history file is empty.')
+        return
+      }
+
+      const mappedFields = Object.values(mapping || {})
+      if (!mappedFields.includes('name') && !mappedFields.includes('phone')) {
+        setHistoryImportError(
+          isRtl
+            ? 'لازم يكون في الملف اسم العميل أو الموبايل علشان نربط الهيستوري بليد تليسيلز موجود.'
+            : 'The history file must include either client name or mobile to match an existing telesales lead.'
+        )
+        return
+      }
+
+      const phoneCountryHint = String(findValue(rows[0] || {}, leadHistoryHeaderMap.phone_country) || '').trim()
+      const response = await api.post('/api/import-jobs', {
+        module: 'lead_history',
+        file_name: historyExcelFile?.name || 'telesales_lead_history_import.xlsx',
+        rows,
+        mapping,
+        phone_country: phoneCountryHint || undefined,
+        options: {
+          workflow_key: 'telesales',
+        },
+      })
+
+      const jobId = Number(response.data?.job_id || 0) || null
+      const summary = response.data?.summary || {}
+
+      let jobRows = []
+      try {
+        jobRows = await loadImportJobRows(jobId)
+      } catch {
+        jobRows = []
+      }
+
+      const builtSummary = buildImportSummary(summary, jobId, jobRows)
+      setHistoryImportSummary(builtSummary)
+      setHistoryImportError('')
+
+      const hasIssues =
+        builtSummary.errors.length > 0 ||
+        builtSummary.skipped > 0 ||
+        builtSummary.failed > 0 ||
+        builtSummary.warnings > 0
+
+      const processedRows = Number(summary?.total_rows ?? rows.length) || rows.length
+
+      window.dispatchEvent(
+        new CustomEvent('app:toast', {
+          detail: {
+            type: builtSummary.added > 0 ? 'success' : (hasIssues ? 'warning' : 'error'),
+            message: isRtl
+              ? `تمت معالجة ${processedRows} صف هيستوري. الناجح: ${builtSummary.newCount}، المكرر: ${builtSummary.duplicates}، المشاكل: ${builtSummary.failed + builtSummary.skipped}.`
+              : `Processed ${processedRows} history rows. Success: ${builtSummary.newCount}, duplicates: ${builtSummary.duplicates}, issues: ${builtSummary.failed + builtSummary.skipped}.`,
+          },
+        })
+      )
+
+      if (!hasIssues) {
+        setTimeout(() => {
+          setShowHistoryImportModal(false)
+          setHistoryImportSummary(null)
+          setHistoryImportError('')
+          setHistoryExcelFile(null)
+          setHistorySelectedSheet('')
+          setHistoryImportLeadContext(null)
+        }, 2000)
+      }
+
+      await loadOperational()
+    } catch (error) {
+      console.error(error)
+      setHistoryImportError(extractImportErrorMessage(error) || (isRtl ? 'فشل استيراد الهيستوري.' : 'Failed to import history.'))
+    } finally {
+      setHistoryImporting(false)
+    }
+  }
+
+  const openLeadHistoryImportModal = useCallback((leadContext = null) => {
+    setHistoryImportLeadContext(leadContext || null)
+    setHistoryImportError('')
+    setHistoryImportSummary(null)
+    setShowHistoryImportModal(true)
+  }, [])
+
+  const closeImportModal = useCallback(() => {
+    if (importing) return
+    setShowImportModal(false)
+    setExcelFile(null)
+    setImportError('')
+    setImportSummary(null)
+  }, [importing])
 
   const stageCards = useMemo(() => telesalesStages
     .filter((stage) => {
@@ -1143,7 +1543,12 @@ export default function Telesales() {
     [displayColumns, visibleColumns]
   )
 
-  const getLeadAssignedName = (lead) => lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
+  const getLeadAssignedName = (lead) => {
+    if (lead?.transferred_to_sales_at || lead?.transfer_from_assignee_name) {
+      return lead.transfer_from_assignee_name || lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
+    }
+    return lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
+  }
   const getLeadConvertByName = (lead) => lead.convert_by_name || lead.latest_action?.user?.name || lead.latestAction?.user?.name || '-'
   const getLeadConvertToName = (lead) => lead.convert_to_name || lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-'
   const getLeadProjectName = (lead) => lead.project?.name || lead.project_name || lead.project || lead.item?.name || lead.item_name || lead.item || '-'
@@ -1253,17 +1658,48 @@ export default function Telesales() {
 
         <div className={`flex items-center gap-2 max-[480px]:gap-1 flex-nowrap ${isRtl ? 'mr-auto' : 'ml-auto'}`}>
           {moduleEnabled && canShow && canImportLeads && mode === 'operational' && (
-            <button
-              onClick={() => {
-                setImportError('')
-                setImportSummary(null)
-                setShowImportModal(true)
-              }}
-              className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none gap-2 max-[480px]:px-2 max-[480px]:py-1.5 max-[480px]:h-8 max-[480px]:gap-1 max-[480px]:text-xs whitespace-nowrap"
-            >
-              <FaUpload className="w-3 h-3 text-white" />
-              <span className="text-white">{t('Import Telesales Leads')}</span>
-            </button>
+            <div className="relative" ref={importMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowImportMenu((prev) => !prev)}
+                className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none gap-2 max-[480px]:px-2 max-[480px]:py-1.5 max-[480px]:h-8 max-[480px]:gap-1 max-[480px]:text-xs whitespace-nowrap"
+              >
+                <FaUpload className="w-3 h-3 text-white" />
+                <span className="text-white">{isRtl ? 'استيراد' : 'Import'}</span>
+                <FaChevronDown className={`w-3 h-3 text-white transition-transform ${showImportMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showImportMenu && (
+                <div className={`absolute top-full z-50 mt-2 min-w-[220px] overflow-hidden rounded-xl border shadow-xl ${isRtl ? 'left-0' : 'right-0'} ${isLight ? 'border-gray-200 bg-white' : 'border-slate-700 bg-slate-900'}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportMenu(false)
+                      setImportError('')
+                      setImportSummary(null)
+                      setShowImportModal(true)
+                    }}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-sm text-start transition-colors ${isLight ? 'text-black hover:bg-blue-50' : 'text-white hover:bg-slate-800'}`}
+                  >
+                    <FaUpload className="w-4 h-4 text-blue-500" />
+                    <span>{t('Import Telesales Leads')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportMenu(false)
+                      setHistoryImportError('')
+                      setHistoryImportSummary(null)
+                      setShowHistoryImportModal(true)
+                    }}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-sm text-start transition-colors ${isLight ? 'text-black hover:bg-indigo-50' : 'text-white hover:bg-slate-800'}`}
+                  >
+                    <FaHistory className="w-4 h-4 text-indigo-500" />
+                    <span>{isRtl ? 'استيراد الهيستوري' : 'Import History'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {moduleEnabled && canShow && canCreateLead && mode === 'operational' && (
             <button
@@ -1795,6 +2231,19 @@ export default function Telesales() {
                   <div className="h-6 w-px bg-gray-700 mx-1 hidden md:block"></div>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    {canExportTelesales && (
+                      <button
+                        type="button"
+                        onClick={handleExport}
+                        disabled={exporting}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium shadow-lg shadow-indigo-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <FaFileExport className="text-xs" />
+                        {exporting
+                          ? (isRtl ? 'جاري التصدير...' : 'Exporting...')
+                          : (isRtl ? `تصدير المحدد (${selectedIds.length})` : `Export Selected (${selectedIds.length})`)}
+                      </button>
+                    )}
                     {canAssignLead && (
                       <button
                         type="button"
@@ -1834,9 +2283,24 @@ export default function Telesales() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
-                  <FaList className="text-xs" />
-                  <span className="text-sm font-medium">{t('No leads selected for bulk actions')}</span>
+                <div className="flex items-center gap-3 flex-wrap w-full">
+                  <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                    <FaList className="text-xs" />
+                    <span className="text-sm font-medium">{t('No leads selected for bulk actions')}</span>
+                  </div>
+                  {canExportTelesales && (
+                    <button
+                      type="button"
+                      onClick={handleExport}
+                      disabled={exporting}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium shadow-lg shadow-indigo-500/20 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <FaFileExport className="text-xs" />
+                      {exporting
+                        ? (isRtl ? 'جاري التصدير...' : 'Exporting...')
+                        : (isRtl ? 'تصدير كل الليدز' : 'Export All Leads')}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1949,7 +2413,7 @@ export default function Telesales() {
                                       className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                       onClick={(e) => {
                                         e.stopPropagation()
-                                        copyPhoneToClipboard(line.display)
+                                        copyPhoneToClipboard(line.copyValue || line.digits || line.display)
                                       }}
                                       title={t('Copy')}
                                     >
@@ -2237,13 +2701,7 @@ export default function Telesales() {
       {showImportModal && (
         <ImportLeadsModal
           isOpen={showImportModal}
-          onClose={() => {
-            if (importing) return
-            setShowImportModal(false)
-            setExcelFile(null)
-            setImportError('')
-            setImportSummary(null)
-          }}
+          onClose={closeImportModal}
           companyType={company?.company_type}
           excelFile={excelFile}
           setExcelFile={setExcelFile}
@@ -2251,6 +2709,30 @@ export default function Telesales() {
           importError={importError}
           importSummary={importSummary}
           onImport={handleTelesalesImport}
+        />
+      )}
+
+      {showHistoryImportModal && (
+        <ImportLeadHistoryModal
+          isOpen={showHistoryImportModal}
+          onClose={() => {
+            if (historyImporting) return
+            setShowHistoryImportModal(false)
+            setHistoryImportError('')
+            setHistoryImportSummary(null)
+            setHistoryExcelFile(null)
+            setHistorySelectedSheet('')
+            setHistoryImportLeadContext(null)
+          }}
+          targetLead={historyImportLeadContext}
+          historyFile={historyExcelFile}
+          setHistoryFile={setHistoryExcelFile}
+          selectedSheet={historySelectedSheet}
+          setSelectedSheet={setHistorySelectedSheet}
+          importing={historyImporting}
+          importError={historyImportError}
+          importSummary={historyImportSummary}
+          onImport={handleLeadHistoryUpload}
         />
       )}
 
@@ -2428,3 +2910,4 @@ export default function Telesales() {
     </div>
   )
 }
+

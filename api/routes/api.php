@@ -499,6 +499,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::post('leads/{id}/transfer', [LeadController::class , 'transfer']);
     Route::post('leads/{id}/duplicate-as-fresh', [LeadController::class , 'duplicateAndAssignAsFresh']);
     Route::get('telesales/leads', [TelesalesController::class, 'index']);
+    Route::get('telesales/leads/export', [TelesalesController::class, 'export']);
     Route::get('telesales/historical', [TelesalesController::class, 'historical']);
     Route::get('telesales/dashboard-summary', [TelesalesController::class, 'dashboardSummary']);
     Route::get('telesales/assignees', [TelesalesController::class, 'assignees']);

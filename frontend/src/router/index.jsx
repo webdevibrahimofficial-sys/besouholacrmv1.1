@@ -361,7 +361,8 @@ export default function AppRouter() {
               <Route path="/stages-setup" element={<StagesSetup />} />
             </Route>
             <Route path="/telesales/dashboard" element={<TelesalesDashboard />} />
-            <Route path="/telesales" element={<Telesales />} />
+            <Route path="/telesales" element={<Navigate to="/telesales/dashboard" replace />} />
+            <Route path="/telesales/leads" element={<Telesales />} />
             <Route path="/telesales/my-leads" element={<Telesales />} />
             <Route path="/telesales/referral" element={<Telesales />} />
             <Route path="/telesales/historical" element={<Telesales />} />

@@ -111,6 +111,13 @@ class QuotationController extends Controller
 
         $data = $request->except('attachment');
 
+        $subtotal = isset($data['subtotal']) ? (float) $data['subtotal'] : 0.0;
+        $total = isset($data['total']) ? (float) $data['total'] : 0.0;
+        $taxMissing = !array_key_exists('tax', $data) || $data['tax'] === null || $data['tax'] === '';
+        if ($taxMissing) {
+            $data['tax'] = max(0, $total - $subtotal);
+        }
+
         // Handle File Upload
         $meta = [];
         if ($request->hasFile('attachment')) {
@@ -167,7 +174,15 @@ class QuotationController extends Controller
      */
     public function update(Request $request, Quotation $quotation)
     {
-        $quotation->update($request->all());
+        $data = $request->all();
+        $subtotal = isset($data['subtotal']) ? (float) $data['subtotal'] : (float) ($quotation->subtotal ?? 0);
+        $total = isset($data['total']) ? (float) $data['total'] : (float) ($quotation->total ?? 0);
+        $taxMissing = !array_key_exists('tax', $data) || $data['tax'] === null || $data['tax'] === '';
+        if ($taxMissing) {
+            $data['tax'] = max(0, $total - $subtotal);
+        }
+
+        $quotation->update($data);
         return response()->json($quotation);
     }
 

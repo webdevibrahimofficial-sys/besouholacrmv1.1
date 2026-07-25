@@ -22,6 +22,9 @@ function isLeadershipRole(role) {
 
 function isAgentRole(role) {
   const lower = String(role || '').toLowerCase()
+  if (lower.includes('manager') || lower.includes('leader') || lower.includes('director') || lower.includes('admin') || lower.includes('owner')) {
+    return false
+  }
   return (
     lower.includes('agent') ||
     lower.includes('telesales') ||
@@ -124,20 +127,20 @@ export default function TelesalesBulkAssignModal({
     return isLeadershipRole(role) && !isAgentRole(role)
   }, [selectedUser])
 
-  const resolvedTitle = title || (isArabic ? 'تعيين ليدز التيليسيلز' : 'Assign Telesales Leads')
-  const resolvedAssignButtonLabel = assignButtonLabel || (isArabic ? 'تعيين' : 'Assign')
-  const resolvedAssigningButtonLabel = assigningButtonLabel || (isArabic ? 'جارٍ التنفيذ...' : 'Processing...')
-  const resolvedFilterByRoleLabel = filterByRoleLabel || (isArabic ? 'تصفية حسب الدور' : 'Filter By Role')
-  const resolvedAssignToLabel = assignToLabel || (isArabic ? 'تعيين إلى' : 'Assign To')
-  const resolvedSearchPlaceholder = searchPlaceholder || (isArabic ? 'ابحث في أعضاء الفريق' : 'Search team members')
-  const resolvedAssignWithLabel = assignWithLabel || (isArabic ? 'التعيين كـ' : 'Assign With')
-  const resolvedPrimaryRoleLabel = primaryRoleLabel || (isArabic ? 'كعضو فريق' : 'As Team Member')
-  const resolvedSecondaryRoleLabel = secondaryRoleLabel || (isArabic ? 'كمدير' : 'As Manager')
-  const resolvedDuplicateOptionLabel = duplicateOptionLabel || (isArabic ? 'دبليكيت كجديد' : 'Duplicate as new')
-  const resolvedSameStageOptionLabel = sameStageOptionLabel || (isArabic ? 'نفس المرحلة' : 'Same stage')
-  const resolvedClearHistoryOptionLabel = clearHistoryOptionLabel || (isArabic ? 'مسح السجل' : 'Clear History')
-  const resolvedFreshOptionLabel = freshOptionLabel || (isArabic ? 'كجديد' : 'Fresh')
-  const resolvedColdCallOptionLabel = coldCallOptionLabel || (isArabic ? 'كمكالمة باردة' : 'As cold call')
+  const resolvedTitle = title || (isArabic ? 'ØªØ¹ÙŠÙŠÙ† Ù„ÙŠØ¯Ø² Ø§Ù„ØªÙŠÙ„ÙŠØ³ÙŠÙ„Ø²' : 'Assign Telesales Leads')
+  const resolvedAssignButtonLabel = assignButtonLabel || (isArabic ? 'ØªØ¹ÙŠÙŠÙ†' : 'Assign')
+  const resolvedAssigningButtonLabel = assigningButtonLabel || (isArabic ? 'Ø¬Ø§Ø±Ù Ø§Ù„ØªÙ†ÙÙŠØ°...' : 'Processing...')
+  const resolvedFilterByRoleLabel = filterByRoleLabel || (isArabic ? 'ØªØµÙÙŠØ© Ø­Ø³Ø¨ Ø§Ù„Ø¯ÙˆØ±' : 'Filter By Role')
+  const resolvedAssignToLabel = assignToLabel || (isArabic ? 'ØªØ¹ÙŠÙŠÙ† Ø¥Ù„Ù‰' : 'Assign To')
+  const resolvedSearchPlaceholder = searchPlaceholder || (isArabic ? 'Ø§Ø¨Ø­Ø« ÙÙŠ Ø£Ø¹Ø¶Ø§Ø¡ Ø§Ù„ÙØ±ÙŠÙ‚' : 'Search team members')
+  const resolvedAssignWithLabel = assignWithLabel || (isArabic ? 'Ø§Ù„ØªØ¹ÙŠÙŠÙ† ÙƒÙ€' : 'Assign With')
+  const resolvedPrimaryRoleLabel = primaryRoleLabel || (isArabic ? 'ÙƒØ¹Ø¶Ùˆ ÙØ±ÙŠÙ‚' : 'As Team Member')
+  const resolvedSecondaryRoleLabel = secondaryRoleLabel || (isArabic ? 'ÙƒÙ…Ø¯ÙŠØ±' : 'As Manager')
+  const resolvedDuplicateOptionLabel = duplicateOptionLabel || (isArabic ? 'Ø¯Ø¨Ù„ÙŠÙƒÙŠØª ÙƒØ¬Ø¯ÙŠØ¯' : 'Duplicate as new')
+  const resolvedSameStageOptionLabel = sameStageOptionLabel || (isArabic ? 'Ù†ÙØ³ Ø§Ù„Ù…Ø±Ø­Ù„Ø©' : 'Same stage')
+  const resolvedClearHistoryOptionLabel = clearHistoryOptionLabel || (isArabic ? 'Ù…Ø³Ø­ Ø§Ù„Ø³Ø¬Ù„' : 'Clear History')
+  const resolvedFreshOptionLabel = freshOptionLabel || (isArabic ? 'ÙƒØ¬Ø¯ÙŠØ¯' : 'Fresh')
+  const resolvedColdCallOptionLabel = coldCallOptionLabel || (isArabic ? 'ÙƒÙ…ÙƒØ§Ù„Ù…Ø© Ø¨Ø§Ø±Ø¯Ø©' : 'As cold call')
   const isConvertToSalesModal =
     String(title || '').toLowerCase().includes('convert to sales') ||
     String(assignButtonLabel || '').toLowerCase().includes('convert')
@@ -145,7 +148,7 @@ export default function TelesalesBulkAssignModal({
   const shouldShowSameStageOption = isConvertToSalesModal ? false : showSameStageOption
   const shouldShowClearHistoryOption = isConvertToSalesModal ? false : showClearHistoryOption
   const computedFreshOptionLabel = isConvertToSalesModal
-    ? (isArabic ? 'جديد' : 'New')
+    ? (isArabic ? 'Ø¬Ø¯ÙŠØ¯' : 'New')
     : resolvedFreshOptionLabel
 
   const handleAssign = async () => {
@@ -175,7 +178,7 @@ export default function TelesalesBulkAssignModal({
             <div>
               <h2 className="text-lg font-semibold">{resolvedTitle}</h2>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {selectedCount} {isArabic ? 'محدد' : 'Selected'}
+                {selectedCount} {isArabic ? 'Ù…Ø­Ø¯Ø¯' : 'Selected'}
               </p>
             </div>
           </div>
@@ -193,7 +196,7 @@ export default function TelesalesBulkAssignModal({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold">
-                    {isArabic ? 'تعذر تنفيذ العملية للمستخدم المختار' : 'Unable to complete this action for the selected user'}
+                    {isArabic ? 'ØªØ¹Ø°Ø± ØªÙ†ÙÙŠØ° Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ù…Ø®ØªØ§Ø±' : 'Unable to complete this action for the selected user'}
                   </p>
                   <p className={`mt-1 text-sm leading-6 ${isLight ? 'text-red-700' : 'text-red-100/90'}`}>{errorMessage}</p>
                 </div>
@@ -258,7 +261,7 @@ export default function TelesalesBulkAssignModal({
                 </div>
               </div>
             )) : (
-              <div className="py-4 text-center text-sm text-gray-500">{isArabic ? 'لا يوجد أعضاء' : 'No members found'}</div>
+              <div className="py-4 text-center text-sm text-gray-500">{isArabic ? 'Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø£Ø¹Ø¶Ø§Ø¡' : 'No members found'}</div>
             )}
           </div>
 
@@ -285,7 +288,7 @@ export default function TelesalesBulkAssignModal({
           {selectedUser ? (
             <div>
               <label className={`mb-2 block text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {isArabic ? 'الدور في التعيين' : 'Assignment Role'}
+                {isArabic ? 'Ø§Ù„Ø¯ÙˆØ± ÙÙŠ Ø§Ù„ØªØ¹ÙŠÙŠÙ†' : 'Assignment Role'}
               </label>
               {canAssignAsManager ? (
                 <div className={`grid grid-cols-2 rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
@@ -384,7 +387,7 @@ export default function TelesalesBulkAssignModal({
             onClick={onClose}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${isLight ? 'border border-gray-200 bg-white text-slate-600 hover:bg-gray-200' : 'border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
           >
-            {isArabic ? 'إلغاء' : 'Cancel'}
+            {isArabic ? 'Ø¥Ù„ØºØ§Ø¡' : 'Cancel'}
           </button>
           <button
             onClick={handleAssign}

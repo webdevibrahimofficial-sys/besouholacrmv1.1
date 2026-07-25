@@ -21,6 +21,17 @@ class CcLeadConversionController extends BaseCcController
     {
         $this->requireCcPermission($request, 'showModule');
 
+        $data = $request->validate([
+            'property_id' => 'nullable|integer|exists:properties,id',
+            'payment_plan' => 'nullable|array',
+            'payment_plan.reservation_amount' => 'nullable|numeric|min:0',
+            'payment_plan.down_payment' => 'nullable|numeric|min:0',
+            'payment_plan.delivery_payment' => 'nullable|numeric|min:0',
+            'payment_plan.installment_type' => 'nullable|string|in:monthly,quarterly,half-yearly,yearly,half_yearly,halfyearly,annual,annually',
+            'payment_plan.installment_count' => 'nullable|integer|min:0',
+            'payment_plan.installment_value' => 'nullable|numeric|min:0',
+        ]);
+
         $tenantId = $this->tenantId($request);
         $lead = Lead::where('tenant_id', $tenantId)->findOrFail($leadId);
 
@@ -45,8 +56,15 @@ class CcLeadConversionController extends BaseCcController
         }
 
         $propertyId = null;
+        if (!empty($data['property_id'])) {
+            $propertyId = Property::where('tenant_id', $tenantId)->where('id', (int) $data['property_id'])->value('id');
+            if (!$propertyId) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['property_id' => 'Invalid unit for tenant.']);
+            }
+        }
+
         $unitId = (int) ($lead->unit_id ?? 0);
-        if ($unitId > 0) {
+        if (!$propertyId && $unitId > 0) {
             $propertyId = Property::where('tenant_id', $tenantId)->where('id', $unitId)->value('id');
         }
         if (!$propertyId) {
@@ -67,21 +85,26 @@ class CcLeadConversionController extends BaseCcController
         $unit = null;
         $plan = null;
         if ($propertyId && Schema::hasTable('cc_customer_units')) {
-            $unit = CcCustomerUnit::firstOrCreate(
-                [
-                    'tenant_id' => $tenantId,
-                    'customer_id' => $customer->id,
-                    'property_id' => (int) $propertyId,
+            $unit = $this->service->createCustomerUnit([
+                'customer_id' => $customer->id,
+                'property_id' => (int) $propertyId,
+                'status' => 'reserved',
+                'meta_data' => [
+                    'created_from' => 'lead',
+                    'lead_id' => (int) $lead->id,
                 ],
-                [
+            ], $request->user());
+
+            if (!$unit->reserved_at) {
+                $unit->fill([
                     'status' => 'reserved',
                     'reserved_at' => now(),
                     'meta_data' => [
                         'created_from' => 'lead',
                         'lead_id' => (int) $lead->id,
                     ],
-                ]
-            );
+                ])->save();
+            }
 
             $custMeta = is_array($customer->meta_data) ? $customer->meta_data : [];
             if (!isset($custMeta['primary_customer_unit_id']) || (int) $custMeta['primary_customer_unit_id'] <= 0) {
@@ -97,6 +120,16 @@ class CcLeadConversionController extends BaseCcController
                     ->where('is_active', true)
                     ->latest('version')
                     ->first();
+
+                if (!empty($data['payment_plan'])) {
+                    $plan = $this->service->createPaymentPlanVersion($unit, [
+                        ...$data['payment_plan'],
+                        'meta_data' => [
+                            'created_from' => 'lead_conversion_form',
+                            'lead_id' => (int) $lead->id,
+                        ],
+                    ], $request->user());
+                }
 
                 if (!$plan) {
                     $property = Property::where('tenant_id', $tenantId)->find($propertyId);
@@ -190,4 +223,3 @@ class CcLeadConversionController extends BaseCcController
         ], 201);
     }
 }
-

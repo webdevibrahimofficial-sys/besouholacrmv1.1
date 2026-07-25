@@ -26,6 +26,7 @@ const ImportLeadsModal = ({
   const isDark = theme === 'dark'
   const [showJobDetails, setShowJobDetails] = useState(false)
   const [downloadingReviewed, setDownloadingReviewed] = useState(false)
+  const hasSuccessfulImport = Number(importSummary?.added || 0) > 0 && !importing && !importError
 
   const jobId = importSummary?.jobId ? Number(importSummary.jobId) : null
   const jobRows = Array.isArray(importSummary?.jobRows) ? importSummary.jobRows : []
@@ -45,6 +46,23 @@ const ImportLeadsModal = ({
   useEffect(() => {
     setShowJobDetails(false)
   }, [jobId])
+
+  useEffect(() => {
+    if (!hasSuccessfulImport || typeof onClose !== 'function') return undefined
+
+    const timer = window.setTimeout(() => {
+      onClose()
+    }, 5000)
+
+    return () => window.clearTimeout(timer)
+  }, [hasSuccessfulImport, onClose])
+
+  const handleClose = (event) => {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    if (importing) return
+    onClose?.()
+  }
 
   const downloadReviewedFile = async ({ issuesOnly }) => {
     if (!jobId) return
@@ -86,6 +104,9 @@ const ImportLeadsModal = ({
   ]
 
   // دالة توليد ملف Excel التيمبليت
+  const assigneeHeaderLabel = destinationWorkflow === 'telesales' ? 'Telesales Agent' : 'Sales Person'
+  const assigneeExampleLabel = destinationWorkflow === 'telesales' ? 'Telesales Agent Name' : 'Sales Person Name'
+
   const generateTemplate = () => {
     // الترتيب المطلوب:
     // name, mobile, other mobile, email, source, (project/item), sales person, stage, comment, priority, notes
@@ -117,7 +138,14 @@ const ImportLeadsModal = ({
       'Notes': 'ملاحظات',
     }
 
-    const templateData = [{ ...base, ...middle, ...tail }]
+    const templateRow = { ...base, ...middle, ...tail }
+    if (destinationWorkflow === 'telesales' && Object.prototype.hasOwnProperty.call(templateRow, 'Sales Person')) {
+      const salesPersonValue = templateRow['Sales Person']
+      delete templateRow['Sales Person']
+      templateRow[assigneeHeaderLabel] = salesPersonValue
+    }
+
+    const templateData = [templateRow]
 
     const worksheet = XLSX.utils.json_to_sheet(templateData)
     const workbook = XLSX.utils.book_new()
@@ -203,14 +231,14 @@ const ImportLeadsModal = ({
 
   return (
     <div className={`fixed inset-0 z-[2000] ${i18n.language === 'ar' ? 'rtl' : 'ltr'} flex items-start justify-center pt-20`}>
-      <div className={`absolute inset-0 ${isDark ? 'bg-black/75 backdrop-blur-sm' : 'bg-black/50'}`} onClick={onClose} />
+      <div className={`absolute inset-0 ${isDark ? 'bg-black/75 backdrop-blur-sm' : 'bg-black/50'}`} onClick={handleClose} />
 <div 
         className={`relative max-w-2xl w-full mx-4 rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] overflow-hidden transition-colors duration-200 ${
           isDark
             ? 'bg-[#0f172a] border-[#1d4ed8] shadow-[0_25px_80px_rgba(0,0,0,0.65)]'
             : 'bg-white border-gray-200'
         }`}
-      
+        onClick={(event) => event.stopPropagation()}
       >        {/* Header */}
         <div className={`flex-shrink-0 flex items-center justify-between px-6 py-4 border-b ${
           isDark ? 'border-[#1e3a8a] bg-[#0f172a]' : 'border-gray-200 bg-white'
@@ -222,7 +250,9 @@ const ImportLeadsModal = ({
             <h3 className={`text-lg font-bold ${isDark? 'text-white' : 'text-black'}`}>{t('import.title')}</h3>
           </div>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={handleClose}
+            aria-label={i18n.language === 'ar' ? 'إغلاق' : 'Close'}
             className={`btn btn-sm btn-circle btn-ghost ${isDark ? 'text-white hover:bg-red-900/30' : 'text-red-500 hover:bg-red-50'}`}
           >
             <FaTimes size={20} />
@@ -359,6 +389,11 @@ const ImportLeadsModal = ({
             <div className="mt-4 space-y-3">
               <div className="px-4 py-3 rounded-lg bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/50 dark:text-green-200 dark:border-green-800">
                 {t('import.summary', { count: importSummary.added })}
+                {hasSuccessfulImport ? (
+                  <div className="mt-1 text-xs font-medium">
+                    {i18n.language === 'ar' ? 'سيتم إغلاق النافذة تلقائيا خلال 5 ثوان.' : 'This window will close automatically in 5 seconds.'}
+                  </div>
+                ) : null}
               </div>
 
               {jobId && (

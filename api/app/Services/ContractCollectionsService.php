@@ -100,7 +100,7 @@ class ContractCollectionsService
         }
 
         $curStatus = strtolower(trim((string) ($property->status ?? '')));
-        if (in_array($curStatus, ['sold', 'rented'], true)) {
+        if (in_array($curStatus, ['sold', 'rented', 'reserved', 'contracted', 'booked', 'hold', 'unavailable'], true)) {
             throw ValidationException::withMessages(['property_id' => 'This unit is not available.']);
         }
 

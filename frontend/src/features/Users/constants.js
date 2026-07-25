@@ -58,7 +58,7 @@ export const PERMISSIONS = {
     'showRequests',
   ],
   Marketing: ['showMarketingDashboard', 'showCampaign', 'addLandingPage', 'integration'],
-  Telesales: ['showModule', 'createLead', 'editLead', 'deleteLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads', 'bulkTransferToSales', 'disableModule'],
+  Telesales: ['showModule', 'createLead', 'editLead', 'deleteLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads', 'bulkTransferToSales', 'export'],
   Customers: ['showModule', 'convertFromLead', 'addCustomer', 'editInfo', 'deleteCustomer'],
   ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt', 'exportReports'],
   Control: [
@@ -167,6 +167,7 @@ export const PERM_LABELS_AR = {
     actOnDuplicateLeads: 'اتخاذ إجراء على الليدز المكررة',
     addAction: 'إضافة إجراء على الليد',
     receiveLeads: 'استلام الليدز',
+    export: 'تصدير',
     addDepartment: 'إضافة قسم',
     addUsers: 'إضافة مستخدمين',
     editUsers: 'تعديل المستخدمين',

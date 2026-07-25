@@ -28,6 +28,7 @@ class LeadHistoryImportHandler implements ImportHandler
         $tenantId = $job->tenant_id;
         $uploaderId = $job->uploaded_by;
         $phoneCountryHint = isset($options['phone_country']) ? (string) $options['phone_country'] : null;
+        $workflowKey = strtolower(trim((string) ($options['workflow_key'] ?? '')));
         $isGeneral = $this->isGeneralTenant($tenantId);
 
         $totalRows = 0;
@@ -137,7 +138,7 @@ class LeadHistoryImportHandler implements ImportHandler
                 continue;
             }
 
-            $leadMatch = $this->resolveLead($tenantId, $normalizedPhone, $name, $phoneCountry);
+            $leadMatch = $this->resolveLead($tenantId, $normalizedPhone, $name, $phoneCountry, $workflowKey !== '' ? $workflowKey : null);
             if (!$leadMatch['lead']) {
                 $reasonCode = $leadMatch['reason_code'] ?? 'lead_not_found';
                 $reasonMessage = $leadMatch['reason_message'] ?? 'Matching lead not found.';
@@ -481,11 +482,14 @@ class LeadHistoryImportHandler implements ImportHandler
     /**
      * @return array{lead:?Lead,reason_code?:string,reason_message?:string,warning?:string}
      */
-    private function resolveLead(?int $tenantId, string $normalizedPhone, string $name, ?string $phoneCountry): array
+    private function resolveLead(?int $tenantId, string $normalizedPhone, string $name, ?string $phoneCountry, ?string $workflowKey = null): array
     {
         $query = Lead::query();
         if ($tenantId) {
             $query->where('tenant_id', $tenantId);
+        }
+        if ($workflowKey !== '') {
+            $query->where('workflow_key', $workflowKey);
         }
 
         if ($normalizedPhone !== '') {

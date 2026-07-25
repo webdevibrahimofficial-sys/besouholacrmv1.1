@@ -405,7 +405,7 @@ export default function RequestsPage() {
         status: 'Draft', date: new Date().toISOString().split('T')[0],
         valid_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         items: item.items || [], notes: `Converted from Request ${item.id}. ${item.notes || ''}`,
-        subtotal, total: subtotal + tax, sales_person: item.salesPerson || user?.name || '',
+        subtotal, tax, total: subtotal + tax, sales_person: item.salesPerson || user?.name || '',
         meta_data: { converted_from_request_id: item.id, customer_phone: item.customerPhone }
       })
       await api.put(`/api/inventory-requests/${item.id}`, { status: 'Converted' })

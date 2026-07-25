@@ -29,7 +29,7 @@ class PropertyController extends Controller
         return trim((string) $unitCode);
     }
 
-    private function isHistoricalUnitCodeTaken(?string $unitCode, ?int $tenantId = null): bool
+    private function isHistoricalUnitCodeTaken(?string $unitCode, ?int $tenantId = null, ?int $excludePropertyId = null): bool
     {
         $normalized = $this->normalizeUnitCode($unitCode);
         if ($normalized === '' || !Schema::hasTable('property_unit_code_histories')) {
@@ -38,8 +38,41 @@ class PropertyController extends Controller
 
         return DB::table('property_unit_code_histories')
             ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->when($excludePropertyId, fn ($q) => $q->where(function ($sub) use ($excludePropertyId) {
+                $sub->whereNull('property_id')
+                    ->orWhere('property_id', '!=', $excludePropertyId);
+            }))
             ->where('unit_code', $normalized)
             ->exists();
+    }
+
+    private function isActiveUnitCodeTaken(?string $unitCode, ?int $tenantId = null): bool
+    {
+        $normalized = $this->normalizeUnitCode($unitCode);
+        if ($normalized === '') {
+            return false;
+        }
+
+        return Property::query()
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where('unit_code', $normalized)
+            ->exists();
+    }
+
+    private function generateNextUnitCode(string $prefix, ?int $tenantId = null): string
+    {
+        $lastId = (int) (Property::query()
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->max('id') ?? 0);
+
+        for ($i = $lastId + 1; $i < $lastId + 10000; $i++) {
+            $candidate = $prefix . str_pad((string) $i, 5, '0', STR_PAD_LEFT);
+            if (!$this->isActiveUnitCodeTaken($candidate, $tenantId) && !$this->isHistoricalUnitCodeTaken($candidate, $tenantId)) {
+                return $candidate;
+            }
+        }
+
+        return $prefix . now()->format('YmdHis');
     }
 
     private function rememberRetiredUnitCode(?string $unitCode, ?int $tenantId, ?int $propertyId, string $reason = 'deleted'): void
@@ -547,14 +580,13 @@ class PropertyController extends Controller
 
             if (empty($data['unit_code']) && $autoGenerateUnitCode) {
                 $prefix = $settings['unitCodePrefix'] ?? 'U-';
-                $maxId = (Property::max('id') ?? 1);
-                $data['unit_code'] = $prefix . str_pad((string) $maxId, 5, '0', STR_PAD_LEFT);
+                $data['unit_code'] = $this->generateNextUnitCode($prefix, $data['tenant_id'] ?? null);
             }
 
             $checkDup = (bool) ($settings['duplicationSystem'] ?? false);
             $allowDup = (bool) ($settings['allowDuplicateProperties'] ?? false);
-            if ($checkDup && !$allowDup) {
-                if (!empty($data['unit_code']) && Property::where('unit_code', $data['unit_code'])->exists()) {
+            if (!empty($data['unit_code']) && (($checkDup && !$allowDup) || !$allowDup)) {
+                if ($this->isActiveUnitCodeTaken($data['unit_code'], $data['tenant_id'] ?? null)) {
                     return response()->json(['message' => 'Duplicate unit code'], 422);
                 }
             }
@@ -645,7 +677,7 @@ class PropertyController extends Controller
                 : $originalUnitCode;
 
             if ($incomingUnitCode !== '' && $incomingUnitCode !== $originalUnitCode) {
-                if ($this->isHistoricalUnitCodeTaken($incomingUnitCode, $property->tenant_id)) {
+                if ($this->isHistoricalUnitCodeTaken($incomingUnitCode, $property->tenant_id, (int) $property->id)) {
                     return response()->json(['message' => 'This unit code was used before and cannot be reused'], 422);
                 }
             }

@@ -10,6 +10,9 @@ import SearchableSelect from '../../components/SearchableSelect';
 import RealEstateRequestsImportModal from './RealEstateRequestsImportModal';
 import { useTheme } from '../../shared/context/ThemeProvider';
 
+const REQUEST_TYPE_LABEL = 'Unit';
+const displayRequestType = (type) => (type === 'Booking' || !type ? REQUEST_TYPE_LABEL : type);
+
 export default function RealEstateRequestsPage() {
     const { t, i18n } = useTranslation();
     const isRTL = i18n.language === 'ar';
@@ -67,7 +70,7 @@ export default function RealEstateRequestsPage() {
         project: '',
         unit: '',
         amount: '',
-        type: 'Booking',
+        type: REQUEST_TYPE_LABEL,
         notes: ''
     });
 
@@ -88,7 +91,7 @@ export default function RealEstateRequestsPage() {
                 `"${req.sales_name || req.sales || req.meta_data?.created_by_name || ''}"`,
                 `"${req.project || ''}"`,
                 `"${req.unit || ''}"`,
-                `"${req.type}"`,
+                `"${displayRequestType(req.type)}"`,
                 `"${req.status}"`,
                 `"${req.date}"`,
                 `"${req.notes || ''}"`
@@ -120,7 +123,7 @@ export default function RealEstateRequestsPage() {
                     req.sales_name || req.sales || req.meta_data?.created_by_name || '',
                     req.project || '',
                     req.unit || '',
-                    req.type,
+                    displayRequestType(req.type),
                     req.status,
                     req.date
                 ]
@@ -227,7 +230,7 @@ export default function RealEstateRequestsPage() {
         return requests.filter(req => {
             if (filters.search) {
                 const q = filters.search.toLowerCase();
-                const pool = [req.customer, req.unit, req.project, req.type, req.sales_name, req.sales, req.meta_data?.created_by_name]
+                const pool = [req.customer, req.unit, req.project, displayRequestType(req.type), req.sales_name, req.sales, req.meta_data?.created_by_name]
                     .map(x => (x || '').toLowerCase());
                 if (!pool.some(v => v.includes(q))) return false;
             }
@@ -284,7 +287,7 @@ export default function RealEstateRequestsPage() {
             await saveRequest(request);
         }
         setShowAddModal(false);
-        setNewRequest({ customer: '', project: '', unit: '', amount: '', type: 'Booking', notes: '' });
+        setNewRequest({ customer: '', project: '', unit: '', amount: '', type: REQUEST_TYPE_LABEL, notes: '' });
     };
 
     const handleEdit = (request) => {
@@ -294,7 +297,7 @@ export default function RealEstateRequestsPage() {
             project: request.project,
             unit: request.unit,
             amount: request.amount || '',
-            type: request.type,
+            type: displayRequestType(request.type),
             notes: request.notes || ''
         });
         setShowAddModal(true);
@@ -389,7 +392,7 @@ export default function RealEstateRequestsPage() {
                             onClick={() => {
                                 setEditingId(null);
                                 setSelectedProjectId('');
-                                setNewRequest({ customer: '', project: '', unit: '', amount: '', type: 'Booking', notes: '' });
+                                setNewRequest({ customer: '', project: '', unit: '', amount: '', type: REQUEST_TYPE_LABEL, notes: '' });
                                 setShowAddModal(true);
                             }}
                             className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-green-500 text-white border-none flex items-center justify-center gap-2"
@@ -529,7 +532,7 @@ export default function RealEstateRequestsPage() {
                                         #{request.id}
                                     </td>
                                     <td className={`px-3 py-4 whitespace-nowrap text-sm  ${isLight ? 'text-gray-500' : 'text-white'}`}>
-                                        {request.type}
+                                        {displayRequestType(request.type)}
                                     </td>
                                     <td className="px-3 py-4 whitespace-nowrap">
                                         <div className="flex items-center gap-3">
@@ -638,7 +641,7 @@ export default function RealEstateRequestsPage() {
                                 
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'النوع' : 'Type'}:</span>
-                                    <span className="text-sm">{request.type}</span>
+                                    <span className="text-sm">{displayRequestType(request.type)}</span>
                                 </div>
 
                                 <div className="flex items-center justify-between">

@@ -102,6 +102,11 @@ export default function SalesQuotations() {
         if (!q.created_by && !q.created_by_name) console.warn('Missing created_by for quotation:', q.id, q);
         if (q.tax === undefined && q.tax_amount === undefined) console.warn('Missing tax for quotation:', q.id, q);
 
+        const subtotal = Number(q.subtotal || 0)
+        const total = Number(q.total || 0)
+        const storedTax = q.tax ?? q.tax_amount
+        const fallbackTax = Math.max(0, total - subtotal)
+
         return {
         id: q.id,
         quotationCode: q.meta_data?.quotation_code || q.id, // Prefer code from meta_data
@@ -109,10 +114,10 @@ export default function SalesQuotations() {
         customerName: q.customer_name || q.customerName || '',
         status: q.status || 'Draft',
         items: Array.isArray(q.items) ? q.items : [],
-        subtotal: Number(q.subtotal || 0),
-         tax: Number(q.tax || q.tax_amount || 0),
+        subtotal,
+         tax: Number(storedTax ?? fallbackTax ?? 0),
          discount: Number(q.discount || q.discount_amount || 0),
-         total: Number(q.total || 0),
+         total,
         createdBy: q.created_by_name || usersById[q.created_by] || (q.created_by ? String(q.created_by) : '') || 'System', // Fallback to 'System' or ID if name not found
         salesPerson: q.sales_person_name || usersById[q.sales_person] || q.sales_person || q.salesPerson || '',
         createdAt: q.created_at || q.date || new Date().toISOString(),

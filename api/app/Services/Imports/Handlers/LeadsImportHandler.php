@@ -613,6 +613,7 @@ class LeadsImportHandler implements ImportHandler
                             'proposal' => 'proposal',
                             'reservation' => 'reservation',
                             'rent' => 'rent',
+                            'follow_up' => 'follow_up',
                             default => 'call',
                         };
                         $action = new LeadAction([
@@ -621,7 +622,7 @@ class LeadsImportHandler implements ImportHandler
                             'user_id' => $lead->assigned_to ?: $uploaderId,
                             'action_type' => $nextActionType,
                             'description' => $comment !== '' ? $comment : 'Imported next action',
-                            'stage_id_at_creation' => null,
+                            'stage_id_at_creation' => $lead->stage_id ?: null,
                             'next_action_type' => $nextActionType,
                             'details' => array_filter([
                                 'date' => $effectiveNextActionAt->toDateString(),
@@ -677,7 +678,7 @@ class LeadsImportHandler implements ImportHandler
                             'user_id' => $lead->assigned_to ?: $uploaderId,
                             'action_type' => 'comment',
                             'description' => $comment,
-                            'stage_id_at_creation' => null,
+                            'stage_id_at_creation' => $lead->stage_id ?: null,
                             'next_action_type' => null,
                             'details' => array_filter($details, fn ($v) => $v !== null && $v !== ''),
                         ]);
@@ -1136,7 +1137,9 @@ class LeadsImportHandler implements ImportHandler
         $resolvedActionType = match ($actionType) {
             'meeting'   => 'meeting',
             'proposal'  => 'proposal',
+            'reservation' => 'reservation',
             'rent'      => 'rent',
+            'follow_up' => 'follow_up',
             default     => 'call',
         };
 
@@ -1156,7 +1159,7 @@ class LeadsImportHandler implements ImportHandler
             'user_id' => $actorId,
             'action_type' => $resolvedActionType,
             'description' => $description,
-            'stage_id_at_creation' => null,
+            'stage_id_at_creation' => $lead->stage_id ?: null,
             'next_action_type' => $resolvedActionType,
             'details' => array_filter(array_merge([
                 'date' => $operationAt->toDateString(),
@@ -1165,6 +1168,8 @@ class LeadsImportHandler implements ImportHandler
                 'source' => 'excel_import',
                 'auto_generated' => true,
                 'created_from_stage' => $lead->stage,
+                'imported_stage' => $lead->stage,
+                'stage_at_creation_name' => $lead->stage,
                 'imported_operational_type' => $actionType,
                 'original_action_type' => $actionType,
             ], $supplementalDetails), fn ($value) => $value !== null && $value !== ''),
@@ -1228,7 +1233,7 @@ class LeadsImportHandler implements ImportHandler
             'user_id' => $actorId,
             'action_type' => 'cancel',
             'description' => $description,
-            'stage_id_at_creation' => null,
+            'stage_id_at_creation' => $lead->stage_id ?: null,
             'next_action_type' => 'cancel',
             'details' => $details,
         ]);

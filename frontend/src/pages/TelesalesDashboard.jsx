@@ -2,14 +2,14 @@ import { useMemo, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import DatePicker from 'react-datepicker'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   FaChartLine,
   FaChevronDown,
   FaFilter,
   FaPhone,
 } from 'react-icons/fa'
-import { Activity, Crown, Star, User } from 'lucide-react'
+import { Activity, ArrowRight, CheckCircle, CircleX, Crown, Star, User } from 'lucide-react'
 import { RiBarChart2Line, RiLineChartLine, RiPieChartLine } from 'react-icons/ri'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
@@ -17,6 +17,10 @@ import { api } from '../utils/api'
 import { useStages } from '../hooks/useStages'
 import { isSuperAdminUser, isTenantAdminUser } from '../services/leadPermissions'
 import SearchableSelect from '../components/SearchableSelect'
+import TelesalesPipelineReport from '../components/telesales/TelesalesPipelineReport'
+import TelesalesActivitiesReport from '../components/telesales/TelesalesActivitiesReport'
+import TelesalesNotInterestedReport from '../components/telesales/TelesalesNotInterestedReport'
+import TelesalesConvertedLeadsReport from '../components/telesales/TelesalesConvertedLeadsReport'
 import { LeadsAnalysisChart } from '../features/Dashboard/components/LeadsAnalysisChart'
 import { DelayLeads } from '../features/Dashboard/components/DelayLeads'
 import { PipelineAnalysis } from '../features/Dashboard/components/PipelineAnalysis'
@@ -80,6 +84,154 @@ function formatShortDateTime(value, locale = 'en') {
   } catch {
     return '-'
   }
+}
+
+function toTimestamp(value) {
+  if (!value) return null
+  const parsed = new Date(value)
+  const time = parsed.getTime()
+  return Number.isNaN(time) ? null : time
+}
+
+function parseActionDetails(details) {
+  if (details && typeof details === 'object') return details
+  if (typeof details !== 'string') return {}
+  try {
+    const parsed = JSON.parse(details)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function resolveActionTypeKey(action) {
+  const details = parseActionDetails(action?.details)
+  return normalizeStageKey(
+    action?.action_type ||
+    action?.type ||
+    action?.next_action_type ||
+    action?.nextAction ||
+    details?.actionType ||
+    details?.action_type ||
+    details?.next_action_type ||
+    details?.nextAction ||
+    details?.channel ||
+    details?.selectedQuickOption ||
+    ''
+  )
+}
+
+function isActivityWithinTelesalesWindow(lead, activityDate) {
+  const activityTime = toTimestamp(activityDate)
+  if (activityTime === null) return true
+
+  const workflowEnteredAt = toTimestamp(lead?.workflow_entered_at || lead?.created_at || lead?.createdAt)
+  const transferredAt = toTimestamp(lead?.transferred_to_sales_at)
+
+  if (workflowEnteredAt !== null && activityTime < workflowEnteredAt) return false
+  if (transferredAt !== null && activityTime > transferredAt) return false
+  return true
+}
+
+function buildTelesalesActivityEntries(rows = []) {
+  const items = []
+
+  ;(rows || []).forEach((lead) => {
+    const leadMeta = {
+      leadId: lead.id,
+      leadName: lead.name || '-',
+      ownerId: String(lead?.assigned_to || lead?.assignedAgent?.id || lead?.assigned_to_user?.id || ''),
+      employeeName: lead?.assigned_to_name || lead?.assignedAgent?.name || lead?.sales_person_name || '-',
+      stage: lead?.display_stage || lead?.stageRelation?.name || lead?.stage || '-',
+      source: String(lead?.source || '').trim(),
+      createdAtLead: lead?.created_at || lead?.createdAt || '',
+      assignedAt: lead?.assigned_at || lead?.assignedAt || '',
+      lastActionAt: lead?.latest_action_at || lead?.last_action_at || lead?.updated_at || '',
+    }
+
+    const actions = Array.isArray(lead?.actions) ? lead.actions : []
+
+    actions.forEach((action, actionIndex) => {
+      const actionType = resolveActionTypeKey(action)
+      const actionDate = action?.created_at || action?.date || leadMeta.lastActionAt
+      if (!isActivityWithinTelesalesWindow(lead, actionDate)) return
+      const details = parseActionDetails(action?.details)
+      const notes = String(action?.description || action?.notes || action?.comment || details?.notes || details?.comment || '').trim()
+      const commentsArray = Array.isArray(details?.comments) ? details.comments : []
+
+      commentsArray.forEach((comment, commentIndex) => {
+        const commentDate = comment?.createdAt || actionDate
+        if (!isActivityWithinTelesalesWindow(lead, commentDate)) return
+        const commentText = String(comment?.text || comment?.comment || '').trim()
+        if (!commentText) return
+        items.push({
+          id: `${lead.id}-comment-${action?.id || actionIndex}-${comment?.id || commentIndex}`,
+          kind: 'comment',
+          actionType: 'comment',
+          createdAt: commentDate,
+          actorId: String(comment?.userId || action?.user_id || action?.user?.id || ''),
+          actorName: comment?.userName || action?.created_by_name || action?.user_name || action?.user?.name || 'admin',
+          comment: commentText,
+          answered: false,
+          noAnswer: false,
+          ...leadMeta,
+        })
+      })
+
+      if (actionType.includes('call') || notes.toLowerCase().includes('call') || notes.toLowerCase().includes('phone')) {
+        const lowerNotes = notes.toLowerCase()
+        const noAnswer = lowerNotes.includes('no answer') || lowerNotes.includes('not answer') || actionType.includes('missed')
+        items.push({
+          id: `${lead.id}-call-${action?.id || actionIndex}`,
+          kind: 'call',
+          actionType: noAnswer ? 'no_answer' : 'call',
+          createdAt: actionDate,
+          actorId: String(action?.user_id || action?.user?.id || ''),
+          actorName: action?.created_by_name || action?.user_name || action?.user?.name || 'admin',
+          comment: notes,
+          answered: !noAnswer,
+          noAnswer,
+          ...leadMeta,
+        })
+      } else if (notes && commentsArray.length === 0) {
+        items.push({
+          id: `${lead.id}-action-${action?.id || actionIndex}`,
+          kind: 'action',
+          actionType: actionType || 'action',
+          createdAt: actionDate,
+          actorId: String(action?.user_id || action?.user?.id || ''),
+          actorName: action?.created_by_name || action?.user_name || action?.user?.name || 'admin',
+          comment: notes,
+          answered: false,
+          noAnswer: false,
+          ...leadMeta,
+        })
+      }
+    })
+
+    const latestAction = lead?.latest_action || lead?.latestAction || null
+    const latestDetails = parseActionDetails(latestAction?.details)
+    const latestType = resolveActionTypeKey(latestAction)
+    const latestNotes = String(latestAction?.description || latestAction?.notes || latestDetails?.notes || latestDetails?.comment || '').trim()
+    if (latestAction && actions.length === 0 && (latestType || latestNotes) && isActivityWithinTelesalesWindow(lead, latestAction?.created_at || latestAction?.date || leadMeta.lastActionAt)) {
+      const noAnswer = latestNotes.toLowerCase().includes('no answer') || latestType.includes('missed')
+      const isCall = latestType.includes('call') || latestNotes.toLowerCase().includes('call') || latestNotes.toLowerCase().includes('phone')
+      items.push({
+        id: `${lead.id}-latest-action`,
+        kind: isCall ? 'call' : 'action',
+        actionType: isCall ? (noAnswer ? 'no_answer' : 'call') : (latestType || 'action'),
+        createdAt: latestAction?.created_at || latestAction?.date || leadMeta.lastActionAt,
+        actorId: String(latestAction?.user_id || latestAction?.user?.id || ''),
+        actorName: latestAction?.created_by_name || latestAction?.user_name || latestAction?.user?.name || 'admin',
+        comment: latestNotes,
+        answered: isCall && !noAnswer,
+        noAnswer: isCall && noAnswer,
+        ...leadMeta,
+      })
+    }
+  })
+
+  return items
 }
 
 const MONTH_LABELS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -166,11 +318,12 @@ const COLOR_STYLES = {
 export default function TelesalesDashboard() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const { theme: contextTheme, resolvedTheme } = useTheme()
   const theme = resolvedTheme || contextTheme
   const isLight = theme === 'light'
   const textColor = isLight ? 'text-black' : 'text-white'
-  const { user, activeModules } = useAppState()
+  const { user, activeModules, company } = useAppState()
   const { stages: telesalesStages } = useStages({ workflowKey: 'telesales', activeOnly: true })
 
   const [rows, setRows] = useState([])
@@ -180,6 +333,10 @@ export default function TelesalesDashboard() {
   const [disableCheck, setDisableCheck] = useState(null)
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
+  const [convertedRows, setConvertedRows] = useState([])
+  const [convertedLoading, setConvertedLoading] = useState(false)
+  const [activityRows, setActivityRows] = useState([])
+  const [activityRowsLoading, setActivityRowsLoading] = useState(false)
   const [selectedManager, setSelectedManager] = useState('')
   const [selectedEmployee, setSelectedEmployee] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -205,6 +362,8 @@ export default function TelesalesDashboard() {
   const moduleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
   const canShow = useMemo(() => hasTelesalesPermission(user, 'showModule'), [user])
   const canViewDashboard = useMemo(() => hasTelesalesPermission(user, 'viewDashboard'), [user])
+  const canViewReports = useMemo(() => hasTelesalesPermission(user, 'viewReports'), [user])
+  const canExportTelesales = useMemo(() => hasTelesalesPermission(user, 'export'), [user])
   const canDisableModule = useMemo(() => hasTelesalesPermission(user, 'disableModule'), [user])
   const normalizedRole = useMemo(() => normalizeRoleValue(user?.role || user?.job_title), [user?.job_title, user?.role])
   const isTelesalesAgent = normalizedRole === 'telesales agent'
@@ -218,6 +377,9 @@ export default function TelesalesDashboard() {
     ? summary.visibility.can_view_pending
     : !isTelesalesAgent
   const isRtl = String(i18n.language || '').startsWith('ar')
+  const dashboardSearch = useMemo(() => new URLSearchParams(location.search || ''), [location.search])
+  const activeView = dashboardSearch.get('view') === 'reports' ? 'reports' : 'dashboard'
+  const activeReport = String(dashboardSearch.get('report') || '').trim().toLowerCase()
 
   const normalizeUsers = (payload) => {
     if (Array.isArray(payload?.data)) return payload.data
@@ -286,6 +448,91 @@ export default function TelesalesDashboard() {
 
     loadDashboard()
   }, [moduleEnabled, canShow, canViewDashboard, canDisableModule, selectedEmployee, selectedManager, dateFrom, dateTo])
+
+  useEffect(() => {
+    const loadConvertedRows = async () => {
+      if (activeView !== 'reports' || !canViewReports) return
+
+      setConvertedLoading(true)
+      try {
+        const res = await api.get('/api/telesales/historical', {
+          params: {
+            page: 1,
+            per_page: 100,
+            converted_only: 1,
+            ...(selectedEmployee ? { assigned_to: selectedEmployee } : {}),
+            ...(selectedManager ? { manager_id: selectedManager } : {}),
+            ...(dateFrom ? { created_from: dateFrom } : {}),
+            ...(dateTo ? { created_to: dateTo } : {}),
+          },
+        })
+        const payload = res?.data || {}
+        setConvertedRows(Array.isArray(payload?.data) ? payload.data : [])
+      } catch (error) {
+        console.error('Failed to load converted telesales leads', error)
+        setConvertedRows([])
+      } finally {
+        setConvertedLoading(false)
+      }
+    }
+
+    loadConvertedRows()
+  }, [activeView, activeReport, canViewReports, selectedEmployee, selectedManager, dateFrom, dateTo])
+
+  useEffect(() => {
+    const loadActivityRows = async () => {
+      if (!moduleEnabled || !canShow || !canViewDashboard) {
+        setActivityRows([])
+        return
+      }
+
+      setActivityRowsLoading(true)
+      try {
+        const baseParams = {
+          per_page: 250,
+          ...(selectedEmployee ? { assigned_to: selectedEmployee } : {}),
+          ...(selectedManager ? { manager_id: selectedManager } : {}),
+          ...(dateFrom ? { created_from: dateFrom } : {}),
+          ...(dateTo ? { created_to: dateTo } : {}),
+        }
+
+        let page = 1
+        let lastPage = 1
+        const allRows = []
+
+        do {
+          const res = await api.get('/api/telesales/historical', {
+            params: {
+              ...baseParams,
+              page,
+            },
+          })
+
+          const payload = res?.data || {}
+          const pageRows = Array.isArray(payload?.data) ? payload.data : []
+          allRows.push(...pageRows)
+
+          const metaLastPage =
+            Number(payload?.last_page) ||
+            Number(payload?.meta?.last_page) ||
+            Number(payload?.lastPage) ||
+            page
+
+          lastPage = Number.isFinite(metaLastPage) && metaLastPage > 0 ? metaLastPage : page
+          page += 1
+        } while (page <= lastPage)
+
+        setActivityRows(allRows)
+      } catch (error) {
+        console.error('Failed to load telesales activity history', error)
+        setActivityRows([])
+      } finally {
+        setActivityRowsLoading(false)
+      }
+    }
+
+    loadActivityRows()
+  }, [moduleEnabled, canShow, canViewDashboard, selectedEmployee, selectedManager, dateFrom, dateTo])
 
   const getLeadDisplayStageKey = (lead) => normalizeStageKey(
     lead?.display_stage_key || lead?.display_stage || lead?.stageRelation?.type || lead?.stageRelation?.name || lead?.stage || ''
@@ -446,10 +693,10 @@ export default function TelesalesDashboard() {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-    const rowsForRanking = rows.filter((lead) => {
+    const rankingSourceRows = activityRows.length > 0 ? activityRows : rows
+    const activitiesForRanking = buildTelesalesActivityEntries(rankingSourceRows).filter((entry) => {
       if (rankingPeriod === 'all') return true
-      const rawDate = lead?.latest_action_at || lead?.last_action_at || lead?.updated_at || lead?.created_at
-      const activityDate = rawDate ? new Date(rawDate) : null
+      const activityDate = entry?.createdAt ? new Date(entry.createdAt) : null
       if (!activityDate || Number.isNaN(activityDate.getTime())) return false
 
       if (rankingPeriod === 'today') {
@@ -468,12 +715,12 @@ export default function TelesalesDashboard() {
     })
 
     const map = new Map()
-    rowsForRanking.forEach((lead) => {
-      const name = lead?.assigned_to_name || lead?.assignedAgent?.name || lead?.sales_person_name || '-'
+    activitiesForRanking.forEach((entry) => {
+      const name = entry?.actorName || '-'
       if (!name || name === '-') return
-      const entry = map.get(name) || { name, total: 0 }
-      entry.total += 1
-      map.set(name, entry)
+      const current = map.get(name) || { name, total: 0 }
+      current.total += 1
+      map.set(name, current)
     })
     const baseAgents = telesalesAssignees
       .map((entry) => ({
@@ -493,7 +740,7 @@ export default function TelesalesDashboard() {
       if (b.total !== a.total) return b.total - a.total
       return String(a.name || '').localeCompare(String(b.name || ''))
     })
-  }, [rankingPeriod, rows, telesalesAssignees])
+  }, [activityRows, rankingPeriod, rows, telesalesAssignees])
 
   const rankingPeriods = useMemo(() => ([
     { value: 'today', label: t('Today') },
@@ -502,8 +749,13 @@ export default function TelesalesDashboard() {
     { value: 'all', label: t('All') },
   ]), [t])
 
+  const dashboardHistoryRows = useMemo(
+    () => (activityRows.length > 0 ? activityRows : rows),
+    [activityRows, rows]
+  )
+
   const telesalesComments = useMemo(() => (
-    rows
+    dashboardHistoryRows
       .flatMap((lead) => {
         const leadMeta = {
           leadId: lead.id,
@@ -594,7 +846,7 @@ export default function TelesalesDashboard() {
       })
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
       .slice(0, 8)
-  ), [rows])
+  ), [dashboardHistoryRows])
 
   const matchesSelectedStageFilter = (value) => {
     const target = normalizeStageKey(selectedStageFilter)
@@ -611,30 +863,23 @@ export default function TelesalesDashboard() {
   ), [selectedStageFilter, telesalesComments])
 
   const telesalesRecentCalls = useMemo(() => (
-    rows
-      .map((lead) => {
-        const latestAction = lead?.latest_action || lead?.latestAction || {}
-        const actionType = String(latestAction?.type || latestAction?.action_type || '').toLowerCase()
-        const actionText = String(latestAction?.description || latestAction?.notes || '').toLowerCase()
-        const looksLikeCall = actionType.includes('call') || actionText.includes('call') || actionText.includes('phone')
-        if (!looksLikeCall) return null
-        return {
-          id: `${lead.id}-call`,
-          employeeName: lead.assigned_to_name || lead.assignedAgent?.name || lead.sales_person_name || '-',
-          leadName: lead.name || '-',
-          stageKey: getLeadDisplayStageKey(lead),
-          stage: getLeadDisplayStage(lead),
-          phoneNumber: lead.phone || lead.mobile || '',
-          callType: actionType.includes('incoming') ? 'incoming' : actionType.includes('missed') ? 'missed' : 'outgoing',
-          duration: latestAction?.duration || '00:00',
-          notes: latestAction?.description || latestAction?.notes || '',
-          createdAt: latestAction?.created_at || latestAction?.date || lead?.updated_at || lead?.created_at,
-        }
-      })
-      .filter(Boolean)
+    buildTelesalesActivityEntries(dashboardHistoryRows)
+      .filter((entry) => entry.kind === 'call')
+      .map((entry) => ({
+        id: entry.id,
+        employeeName: entry.employeeName || '-',
+        leadName: entry.leadName || '-',
+        stageKey: normalizeStageKey(entry.stage),
+        stage: entry.stage || '-',
+        phoneNumber: '',
+        callType: entry.noAnswer ? 'missed' : 'outgoing',
+        duration: '00:00',
+        notes: entry.comment || '',
+        createdAt: entry.createdAt,
+      }))
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
       .slice(0, 8)
-  ), [rows])
+  ), [dashboardHistoryRows])
 
   const filteredRecentCalls = useMemo(() => {
     const now = new Date()
@@ -663,6 +908,16 @@ export default function TelesalesDashboard() {
       return true
     })
   }, [recentCallsRange, selectedStageFilter, telesalesRecentCalls])
+
+  const convertedCount = convertedRows.length
+  const telesalesActivitiesCount = useMemo(() => buildTelesalesActivityEntries(activityRows).length, [activityRows])
+  const notInterestedRows = useMemo(() => (
+    rows.filter((lead) => {
+      const stageKey = getLeadDisplayStageKey(lead)
+      return stageKey === 'not interested' || stageKey === 'not interest' || stageKey === 'not_interest'
+    })
+  ), [rows])
+  const notInterestedCount = notInterestedRows.length || Number(stageCounts['not interested'] || stageCounts.not_interest || 0)
 
   useEffect(() => {
     setRecentCallsCount(filteredRecentCalls.length)
@@ -693,7 +948,7 @@ export default function TelesalesDashboard() {
   }, [leadsAnalysisYear])
 
   const handleExportDashboardPdf = async () => {
-    if (!leadsAnalysisChartRef.current) return
+    if (!canExportTelesales || !leadsAnalysisChartRef.current) return
     try {
       setExportingChartKey('leads-analysis')
       await exportDashboardChartsToPdf({
@@ -717,7 +972,7 @@ export default function TelesalesDashboard() {
   }
 
   const handleExportPipelinePdf = async () => {
-    if (!pipelineAnalysisChartRef.current) return
+    if (!canExportTelesales || !pipelineAnalysisChartRef.current) return
     try {
       setExportingChartKey('pipeline-analysis')
       await exportDashboardChartsToPdf({
@@ -756,7 +1011,24 @@ export default function TelesalesDashboard() {
     }
 
     navigate({
-      pathname: '/telesales',
+      pathname: '/telesales/leads',
+      search: params.toString() ? `?${params.toString()}` : '',
+    })
+  }
+
+  const updateDashboardView = (view = 'dashboard', report = '') => {
+    const params = new URLSearchParams(location.search || '')
+    if (view === 'reports') {
+      params.set('view', 'reports')
+      if (report) params.set('report', report)
+      else params.delete('report')
+    } else {
+      params.delete('view')
+      params.delete('report')
+    }
+
+    navigate({
+      pathname: '/telesales/dashboard',
       search: params.toString() ? `?${params.toString()}` : '',
     })
   }
@@ -795,6 +1067,53 @@ export default function TelesalesDashboard() {
     showAllStages ? stagePipelineCards : stagePipelineCards.slice(0, 5)
   ), [showAllStages, stagePipelineCards])
 
+  const reportCards = useMemo(() => ([
+    {
+      key: 'pipeline',
+      title: isRtl ? 'تيليسيلز بايبلاين' : 'Telesales Pipeline',
+      label: isRtl ? 'إجمالي الليدز' : 'Total Leads',
+      value: Number(stageCounts.total || 0),
+      color: 'text-blue-600 dark:text-blue-400',
+      bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+      hoverColor: 'group-hover:bg-blue-600 dark:group-hover:bg-blue-500',
+      borderColor: 'border-blue-600 dark:border-blue-400',
+      icon: FaFilter,
+    },
+    {
+      key: 'converted',
+      title: isRtl ? 'كونفرتد ليدز' : 'Converted Leads',
+      label: isRtl ? 'تم التحويل' : 'Converted',
+      value: convertedLoading ? '...' : convertedCount,
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+      hoverColor: 'group-hover:bg-emerald-600 dark:group-hover:bg-emerald-500',
+      borderColor: 'border-emerald-600 dark:border-emerald-400',
+      icon: CheckCircle,
+    },
+    {
+      key: 'activities',
+      title: isRtl ? 'تليسيلز اكتيفيتيز' : 'Telesales Activities',
+      label: isRtl ? 'الأنشطة' : 'Activities',
+      value: telesalesActivitiesCount,
+      color: 'text-indigo-600 dark:text-indigo-400',
+      bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+      hoverColor: 'group-hover:bg-indigo-600 dark:group-hover:bg-indigo-500',
+      borderColor: 'border-indigo-600 dark:border-indigo-400',
+      icon: Activity,
+    },
+    {
+      key: 'not-interested',
+      title: isRtl ? 'نوت انتيريستد' : 'Not Interested',
+      label: isRtl ? 'غير مهتم' : 'Not Interested',
+      value: notInterestedCount,
+      color: 'text-red-600 dark:text-red-400',
+      bgColor: 'bg-red-50 dark:bg-red-900/20',
+      hoverColor: 'group-hover:bg-red-600 dark:group-hover:bg-red-500',
+      borderColor: 'border-red-600 dark:border-red-400',
+      icon: CircleX,
+    },
+  ]), [convertedCount, convertedLoading, isRtl, notInterestedCount, stageCounts.total, telesalesActivitiesCount])
+
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">{t('Loading...')}</div>
   }
@@ -803,25 +1122,233 @@ export default function TelesalesDashboard() {
     return <div className="p-6 text-sm text-red-600">{t(pageError)}</div>
   }
 
+  if (activeView === 'reports' && !canViewReports) {
+    return <div className="p-6 text-sm text-red-600">{t('You do not have access to this page.')}</div>
+  }
+
   return (
     <>
-      <div className="mt-1 mb-3 px-2 md:px-6">
-        <div className={`relative inline-flex items-center ${isRtl ? 'flex-row-reverse' : ''} gap-2`}>
-          <h1 className="page-title text-2xl font-bold text-primary">{t('Telesales Dashboard')}</h1>
-          <span
-            aria-hidden
-            className="absolute block h-[1px] rounded bg-gradient-to-r from-blue-500 via-purple-500 to-transparent"
-            style={{
-              width: 'calc(100% + 8px)',
-              left: isRtl ? 'auto' : '-4px',
-              right: isRtl ? '-4px' : 'auto',
-              bottom: '-4px',
-            }}
-          />
+      {!(activeView === 'reports' && activeReport) && (
+        <div className="mt-1 mb-3 px-2 md:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className={`relative inline-flex items-center ${isRtl ? 'flex-row-reverse' : ''} gap-2`}>
+              <h1 className="page-title text-2xl font-bold text-primary">
+                {activeView === 'reports'
+                  ? (activeReport
+                    ? (reportCards.find((card) => card.key === activeReport)?.title || t('Telesales Reports'))
+                    : t('Reports Dashboard'))
+                  : t('Telesales Dashboard')}
+              </h1>
+              <span
+                aria-hidden
+                className="absolute block h-[1px] rounded bg-gradient-to-r from-blue-500 via-purple-500 to-transparent"
+                style={{
+                  width: 'calc(100% + 8px)',
+                  left: isRtl ? 'auto' : '-4px',
+                  right: isRtl ? '-4px' : 'auto',
+                  bottom: '-4px',
+                }}
+              />
+            </div>
+            {canViewReports && (
+              <div className="flex items-center gap-2">
+                {activeView === 'reports' ? (
+                  <>
+                    {activeReport ? (
+                      <button
+                        type="button"
+                        onClick={() => updateDashboardView('reports')}
+                        className="px-4 py-2 rounded-xl border border-theme-border dark:border-gray-700 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                      >
+                        {isRtl ? 'كل التقارير' : 'All Reports'}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => updateDashboardView('dashboard')}
+                      className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+                    >
+                      {isRtl ? 'العودة للداشبورد' : 'Back to Dashboard'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => updateDashboardView('reports')}
+                    className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+                  >
+                    {isRtl ? 'تقارير التيليسيلز' : 'Telesales Reports'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className={`px-2 max-[480px]:px-1 py-2 md:px-6 md:py-3 min-h-screen overflow-x-hidden ${textColor}`} dir={isRtl ? 'rtl' : 'ltr'}>
+        {activeView === 'reports' ? (
+          <>
+            {!activeReport ? (
+              <section className="max-w-7xl mx-auto">
+                <div className="flex justify-between items-center mb-8">
+                  <div>
+                    <h2 className={`text-3xl font-bold ${isLight ? 'text-black' : 'text-white'} tracking-tight`}>
+                      {t('Reports Dashboard')}
+                    </h2>
+                    <p className={`text-base ${isLight ? 'text-black' : 'text-white'} mt-2`}>
+                      {isRtl ? 'مرحبا بك في تقارير موديول التيليسيلز' : 'Welcome to Telesales Reports Module'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-6">
+                {reportCards.map((card) => (
+                  <button
+                    key={card.key}
+                    type="button"
+                    onClick={() => updateDashboardView('reports', card.key)}
+                    className={`group relative ${isLight ? 'bg-gray-50' : 'bg-gray-800'} backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-6 transition-all duration-300 hover:-translate-y-1 overflow-hidden text-start`}
+                  >
+                    <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity transform group-hover:scale-110">
+                      <card.icon size={80} className={card.color} />
+                    </div>
+
+                    <div className="flex items-start justify-between mb-4 relative z-10">
+                      <div className={`p-3 rounded-xl ${card.bgColor} ${card.color}`}>
+                        <card.icon size={24} />
+                      </div>
+                    </div>
+
+                    <div className="relative z-10">
+                      <h3 className={`${isLight ? 'text-black' : 'text-white'} text-sm font-semibold mb-1`}>
+                        {card.title}
+                      </h3>
+                      <div className="flex items-baseline space-x-2 rtl:space-x-reverse">
+                        <span className={`text-2xl font-bold ${card.color}`}>
+                          {card.value}
+                        </span>
+                        <span className={`text-xs ${isLight ? 'text-black' : 'text-white'} font-medium`}>
+                          {card.label}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-8 relative z-10">
+                      <span className={`
+                        w-full inline-flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-bold transition-all duration-300
+                        border-2 ${card.borderColor} ${card.color}
+                        group-hover:text-white ${card.hoverColor} group-hover:shadow-lg
+                        dark:border-opacity-50
+                      `}>
+                        {t('Open')}
+                        <ArrowRight size={18} className="ml-2 rtl:mr-2 rtl:rotate-180 transition-transform group-hover:translate-x-1 rtl:group-hover:-translate-x-1" />
+                      </span>
+                    </div>
+                  </button>
+                ))}
+                </div>
+              </section>
+            ) : null}
+
+            {activeReport === 'pipeline' ? (
+              <TelesalesPipelineReport
+                rows={rows}
+                users={users}
+                telesalesAssignees={telesalesAssignees}
+                stageCards={resolvedStageCards}
+                companyType={company?.company_type || ''}
+                isLight={isLight}
+                isRtl={isRtl}
+                canExport={canExportTelesales}
+                onBack={() => updateDashboardView('reports')}
+              />
+            ) : null}
+
+            {activeReport === 'converted' ? (
+              <>
+                <TelesalesConvertedLeadsReport
+                  rows={convertedRows}
+                  users={users}
+                  telesalesAssignees={telesalesAssignees}
+                  companyType={company?.company_type || ''}
+                  isLight={isLight}
+                  isRtl={isRtl}
+                  canExport={canExportTelesales}
+                  onBack={() => updateDashboardView('reports')}
+                />
+                {false && (<section className="hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div>
+                    <h2 className={`text-xl font-bold ${isLight ? 'text-gray-900' : 'text-white'}`}>{isRtl ? 'الليدز المحولة إلى السيلز' : 'Converted Leads'}</h2>
+                    <p className={`text-sm mt-1 ${isLight ? 'text-gray-600' : 'text-gray-300'}`}>{isRtl ? 'كل الليدز التي خرجت من بايبلاين التيلي واتحولت للسيلز.' : 'Leads transferred from telesales workflow into sales.'}</p>
+                  </div>
+                  <div className={`px-4 py-2 rounded-xl ${isLight ? 'bg-emerald-50 text-emerald-700' : 'bg-emerald-500/10 text-emerald-300'} font-semibold`}>
+                    {convertedLoading ? '...' : convertedCount} {isRtl ? 'ليد' : 'Leads'}
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className={isLight ? 'bg-gray-100/80' : 'bg-slate-900/70'}>
+                      <tr>
+                        <th className="px-4 py-3 text-start">{isRtl ? 'الليد' : 'Lead'}</th>
+                        <th className="px-4 py-3 text-start">{isRtl ? 'الموبايل' : 'Phone'}</th>
+                        <th className="px-4 py-3 text-start">{isRtl ? 'مسؤول التيلي' : 'Telesales Agent'}</th>
+                        <th className="px-4 py-3 text-start">{isRtl ? 'تم التحويل إلى' : 'Converted To'}</th>
+                        <th className="px-4 py-3 text-start">{isRtl ? 'تاريخ التحويل' : 'Transferred At'}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {convertedLoading ? (
+                        <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">{t('Loading...')}</td></tr>
+                      ) : convertedRows.length === 0 ? (
+                        <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">{t('No data available')}</td></tr>
+                      ) : convertedRows.map((lead) => (
+                        <tr key={`converted-${lead.id}`} className="border-b border-theme-border dark:border-gray-700/60">
+                          <td className="px-4 py-3">{lead.name || '-'}</td>
+                          <td className="px-4 py-3" dir="ltr">{lead.phone || lead.mobile || '-'}</td>
+                          <td className="px-4 py-3">{lead.transfer_from_assignee_name || lead.assigned_to_name || lead.assignedAgent?.name || '-'}</td>
+                          <td className="px-4 py-3">{lead.transfer_to_assignee_name || lead.converted_to_name || '-'}</td>
+                          <td className="px-4 py-3">{lead.transferred_to_sales_at || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                </section>
+                )}
+              </>
+            ) : null}
+
+            {activeReport === 'activities' ? (
+              <TelesalesActivitiesReport
+                rows={activityRowsLoading ? [] : activityRows}
+                users={users}
+                telesalesAssignees={telesalesAssignees}
+                stageCards={resolvedStageCards}
+                companyType={company?.company_type || ''}
+                isLight={isLight}
+                isRtl={isRtl}
+                canExport={canExportTelesales}
+                onBack={() => updateDashboardView('reports')}
+              />
+            ) : null}
+
+            {activeReport === 'not-interested' ? (
+              <TelesalesNotInterestedReport
+                rows={rows}
+                users={users}
+                telesalesAssignees={telesalesAssignees}
+                companyType={company?.company_type || ''}
+                isLight={isLight}
+                isRtl={isRtl}
+                canExport={canExportTelesales}
+                onBack={() => updateDashboardView('reports')}
+              />
+            ) : null}
+          </>
+        ) : (
+          <>
         <section className="p-1.5 rounded-lg shadow-md glass-panel filter-card w-full mb-3">
           <div className="flex items-center justify-between mb-1 pb-1 border-b border-gray-200 dark:border-gray-600">
             <div className="flex items-center gap-2">
@@ -981,7 +1508,7 @@ export default function TelesalesDashboard() {
                         style={customPattern2}
                       />
                     </div>
-                    <div className="relative z-20 flex min-h-[212px] h-full flex-col px-3 py-2.5">
+                    <div className="relative z-20 flex min-h-[188px] h-full flex-col px-3 py-2">
                       <div className="flex min-h-[60px] items-start justify-between gap-2.5">
                         <div className="min-w-0 flex-1 pr-2">
                           <div className="flex min-h-[36px] flex-wrap items-start gap-1.5">
@@ -1006,13 +1533,13 @@ export default function TelesalesDashboard() {
                         </div>
                       </div>
 
-                      <div className="flex min-h-[64px] flex-1 items-center">
+                      <div className="flex min-h-[52px] flex-1 items-center">
                         <div className="text-[2.4rem] leading-none font-black tracking-tight text-gray-900">
                           {card.value}
                         </div>
                       </div>
 
-                      <div className="mt-auto flex min-h-[46px] items-end">
+                      <div className="mt-auto flex min-h-[40px] items-end">
                         <div
                           className={`inline-flex min-h-[38px] w-full items-center rounded-md border px-2.5 py-1.5 text-[10px] font-semibold leading-snug ${style.badgeLightBg} ${style.badgeLightText} ${style.badgeLightBorder}`}
                           style={customBadge}
@@ -1167,7 +1694,7 @@ export default function TelesalesDashboard() {
                           />
                         </div>
                         <span className="text-[10px] text-gray-500 uppercase tracking-wider">
-                          {t('Leads')}
+                          {t('Actions')}
                         </span>
                       </div>
                     </div>
@@ -1343,15 +1870,17 @@ export default function TelesalesDashboard() {
                   }`}
                 />
               </div>
-              <button
-                type="button"
-                onClick={handleExportDashboardPdf}
-                disabled={exportingChartKey === 'leads-analysis'}
-                className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
-                data-export-ignore="true"
-              >
-                {exportingChartKey === 'leads-analysis' ? t('Exporting...') : t('Export')}
-              </button>
+              {canExportTelesales && (
+                <button
+                  type="button"
+                  onClick={handleExportDashboardPdf}
+                  disabled={exportingChartKey === 'leads-analysis'}
+                  className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                  data-export-ignore="true"
+                >
+                  {exportingChartKey === 'leads-analysis' ? t('Exporting...') : t('Export')}
+                </button>
+              )}
               <button onClick={() => setLeadsAnalysisOpenMobile((v) => !v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                   <path d="M6 9l6 6 6-6" />
@@ -1412,15 +1941,17 @@ export default function TelesalesDashboard() {
             <div className="p-4 glass-panel h-full overflow-auto rounded-lg shadow-md">
               <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
                 <h3 className={`flex-1 text-2xl font-bold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Telesales Pipeline Analysis')}</h3>
-                <button
-                  type="button"
-                  onClick={handleExportPipelinePdf}
-                  disabled={exportingChartKey === 'pipeline-analysis'}
-                  className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
-                  data-export-ignore="true"
-                >
-                  {exportingChartKey === 'pipeline-analysis' ? t('Exporting...') : t('Export')}
-                </button>
+                {canExportTelesales && (
+                  <button
+                    type="button"
+                    onClick={handleExportPipelinePdf}
+                    disabled={exportingChartKey === 'pipeline-analysis'}
+                    className="inline-flex items-center gap-3 px-3 py-2 rounded-full text-sm sm:text-base font-semibold bg-[#2563EB] text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                    data-export-ignore="true"
+                  >
+                    {exportingChartKey === 'pipeline-analysis' ? t('Exporting...') : t('Export')}
+                  </button>
+                )}
                 <button onClick={() => setPipelineAnalysisOpenMobile((v) => !v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                     <path d="M6 9l6 6 6-6" />
@@ -1442,6 +1973,8 @@ export default function TelesalesDashboard() {
             </div>
           </div>
         </section>
+          </>
+        )}
       </div>
     </>
   )

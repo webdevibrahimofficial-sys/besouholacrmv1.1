@@ -14,6 +14,7 @@ import * as LucideIcons from 'lucide-react'
 import { FaPlus, FaFilter, FaChevronDown, FaSearch, FaEnvelope, FaWhatsapp, FaEye, FaPhone, FaChevronLeft, FaChevronRight, FaClone, FaExchangeAlt, FaUserTie, FaUserCheck, FaTrash, FaDownload, FaList, FaHistory, FaCopy } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
+import LeadConvertToCustomerModal from '../shared/components/LeadConvertToCustomerModal'
 import LeadBulkAssignModal from '../shared/components/LeadBulkAssignModal'
 import ImportLeadsModal from '../components/ImportLeadsModal'
 import ImportLeadHistoryModal from '../components/ImportLeadHistoryModal'
@@ -124,6 +125,7 @@ export const Leads = () => {
         entries.push({
           display: displayKey,
           digits: digitsKey,
+          copyValue: formatPhoneForDisplay(digitsKey || raw, { showFull: true, defaultCountryCode }) || digitsKey || raw,
         })
       })
     })
@@ -406,6 +408,7 @@ export const Leads = () => {
   const [exportTo, setExportTo] = useState(1)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
+  const [convertCustomerLead, setConvertCustomerLead] = useState(null)
   const [showAddActionModal, setShowAddActionModal] = useState(false)
   const [excelFile, setExcelFile] = useState(null)
   const [importDestinationWorkflow, setImportDestinationWorkflow] = useState('sales')
@@ -3007,6 +3010,14 @@ if (!s) {
     }
     const leadsToConvert = leads.filter(l => selectedLeads.includes(l.id))
     if (leadsToConvert.length === 0) return
+    if (isRealEstateTenant) {
+      if (leadsToConvert.length === 1) {
+        setConvertCustomerLead(leadsToConvert[0])
+      } else {
+        alert(isRtl ? 'اختار ليد واحد فقط لأن كل تحويل يحتاج اختيار وحدة وخطة دفع.' : 'Select one lead only because each conversion needs a unit and payment plan.')
+      }
+      return
+    }
 
     try {
       const results = await Promise.allSettled(leadsToConvert.map((lead) => convertLeadIntoCustomer(lead)))
@@ -3077,6 +3088,11 @@ if (!s) {
       return
     }
 
+    if (isRealEstateTenant) {
+      setConvertCustomerLead(lead)
+      return
+    }
+
     try {
       const { customerId } = await convertLeadIntoCustomer(lead)
 
@@ -3096,6 +3112,32 @@ if (!s) {
       alert(err?.message || t('Failed to convert to customer'))
     }
   }
+
+  const handleRealEstateCustomerConverted = async (payload, sourceLead = convertCustomerLead) => {
+    const customerId = extractCreatedCustomerId(payload)
+
+    window.dispatchEvent(new CustomEvent('app:toast', {
+      detail: {
+        type: 'success',
+        message: isRtl ? 'تم تحويل الليد إلى عميل وربطه بالوحدة' : 'Lead converted and linked to unit',
+      },
+    }))
+
+    if (sourceLead?.id) {
+      try {
+        await api.put(`/leads/${sourceLead.id}`, { status: 'converted', stage: 'converted' })
+      } catch (e) {
+        console.warn('Failed to update lead status', e)
+      }
+
+      setLeads(prev => prev.map(l => l.id === sourceLead.id ? { ...l, stage: 'converted', status: 'converted' } : l))
+    }
+
+    setConvertCustomerLead(null)
+    fetchLeads()
+    navigate(getConvertedCustomerUrl(customerId))
+  }
+
   // Pagination
   const totalPages = Math.max(1, Number(leadsQueryData?.last_page) || 1);
   const totalItems = Math.max(0, Number(leadsQueryData?.total) || 0);
@@ -4480,12 +4522,12 @@ if (!s) {
                                   <button
                                     type="button"
                                     className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      copyPhoneToClipboard(line.display)
-                                    }}
-                                    title={t('Copy')}
-                                  >
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        copyPhoneToClipboard(line.copyValue || line.digits || line.display)
+                                      }}
+                                      title={t('Copy')}
+                                    >
                                     <FaCopy size={10} />
                                   </button>
                                 </div>
@@ -5686,6 +5728,15 @@ if (!s) {
           canShowCreator={canShowCreator}
         />
       )}
+
+      <LeadConvertToCustomerModal
+        isOpen={!!convertCustomerLead}
+        lead={convertCustomerLead}
+        isArabic={isRtl}
+        theme={theme}
+        onClose={() => setConvertCustomerLead(null)}
+        onConverted={(payload) => handleRealEstateCustomerConverted(payload, convertCustomerLead)}
+      />
 
       {/* Bulk Re-Assign Modal */}
       {showBulkAssignModal && (

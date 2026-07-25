@@ -10,6 +10,7 @@ import EditLeadModal from '../../components/EditLeadModal';
 import PaymentPlanModal from '../../components/PaymentPlanModal';
 import CreateRequestModal from '../../components/CreateRequestModal';
 import ReAssignLeadModal from './ReAssignLeadModal';
+import LeadConvertToCustomerModal from './LeadConvertToCustomerModal';
 
 import { useStages } from '@hooks/useStages';
 import { saveRequest as saveRealEstateRequest } from '../../data/realEstateRequests';
@@ -22,6 +23,7 @@ import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
 import { getPhoneDigits, getPhoneLines } from '../utils/phoneDisplay'
 import { buildLeadTransferPayload } from '../utils/leadTransfer'
+import { formatCrmDateTime, isCrmHour12 } from '@shared/utils/crmDateTime'
 
 const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId, onImportHistory }) => {
   const { theme: contextTheme, resolvedTheme } = useTheme();
@@ -35,6 +37,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [error, setError] = useState(null);
   const [leadActions, setLeadActions] = useState([]);
   const [convertCustomerLoading, setConvertCustomerLoading] = useState(false);
+  const [showConvertCustomerModal, setShowConvertCustomerModal] = useState(false);
   const [uploadingLeadAttachments, setUploadingLeadAttachments] = useState(false);
   const leadAttachmentInputRef = useRef(null);
   const [countriesList, setCountriesList] = useState([]);
@@ -1068,6 +1071,12 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     if (!lead?.id) return;
     if (convertCustomerLoading) return;
 
+    if (isRealEstateTenant) {
+      setShowHeaderMenu(false);
+      setShowConvertCustomerModal(true);
+      return;
+    }
+
     const ok = window.confirm(isArabic ? 'هل تريد تحويل هذا الليد إلى عميل؟' : 'Convert this lead to a customer?');
     if (!ok) return;
 
@@ -1130,6 +1139,30 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     } finally {
       setConvertCustomerLoading(false);
     }
+  };
+
+  const handleRealEstateCustomerConverted = async (payload) => {
+    const customerId = payload?.customer?.id || payload?.data?.customer?.id || payload?.id || payload?.data?.id || null;
+
+    window.dispatchEvent(new CustomEvent('app:toast', {
+      detail: {
+        type: 'success',
+        message: isArabic ? 'تم تحويل الليد إلى عميل وربطه بالوحدة' : 'Lead converted and linked to unit',
+      },
+    }));
+
+    try {
+      await api.put(`/leads/${lead.id}`, { status: 'converted', stage: 'converted' });
+      onUpdateLead?.({ ...(effectiveLead || lead), status: 'converted', stage: 'converted' });
+    } catch (e) {
+      console.warn('Failed to update lead status', e);
+    }
+
+    setShowConvertCustomerModal(false);
+    try {
+      const url = `/contract-collections/customers${customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''}`;
+      navigate(url);
+    } catch (e) {}
   };
 
   // Helper to transform API action to UI format
@@ -2229,7 +2262,39 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       ? String(dateRaw).split('T')[0]
       : String(dateRaw || '').trim();
     const timePart = String(timeRaw || '').trim();
-    return datePart ? `${datePart}${timePart ? ` ${timePart.slice(0, 5)}` : ''}` : '';
+    if (!datePart) {
+      return '';
+    }
+
+    const locale = isArabic ? 'ar-EG' : 'en-US';
+    const normalizedTime = timePart ? timePart.slice(0, 5) : '00:00';
+    const parsed = new Date(`${datePart}T${normalizedTime}`);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return new Intl.DateTimeFormat(locale, {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: isCrmHour12(crmSettings),
+      }).format(parsed);
+    }
+
+    return `${datePart}${timePart ? ` ${normalizedTime}` : ''}`;
+  };
+
+  const formatActionDateTime = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    const formatted = formatCrmDateTime(value, {
+      crmSettings,
+      language: isArabic ? 'ar' : 'en',
+    });
+
+    return formatted || '-';
   };
 
   const getTypeColor = (type) => {
@@ -2981,12 +3046,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                       </button>
                       {canConvertToCustomer && (
                         <button
-                          onClick={() => {
-                            const ok = window.confirm(isArabic ? 'هل تريد تحويل العميل إلى عميل فعلي؟' : 'Convert this lead to a customer?');
-                            if (ok) {
-                              console.log(isArabic ? 'تم التحويل إلى عميل' : 'Converted to customer');
-                            }
-                          }}
+                          onClick={doConvertToCustomer}
+                          disabled={convertCustomerLoading}
                           className={`${isLight ? 'bg-white text-slate-700 border border-gray-300 hover:bg-slate-100' : 'bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600'} py-1.5 sm:py-2 px-3 sm:px-4 rounded-full font-medium transition-colors flex items-center justify-center gap-2 flex-grow sm:flex-grow-0`}
                         >
                           <span className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-yellow-600 flex items-center justify-center">
@@ -3433,11 +3494,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                               <div className="flex items-center gap-1 min-w-0">
                                 <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'} text-xs`}>{isArabic ? 'تاريخ الإجراء:' : 'Action Date:'}</span>
                                 <span className={`${isLight ? 'text-slate-800' : 'text-slate-300'} whitespace-nowrap`}>
-                                  {(() => {
-                                    if (!action.created_at) return '-';
-                                    const d = new Date(action.created_at);
-                                    return d.toLocaleDateString(isArabic ? 'ar-EG' : 'en-US') + ' ' + d.toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
-                                  })()}
+                                  {formatActionDateTime(action.created_at)}
                                 </span>
                               </div>
                               {getScheduledNextActionDateTime(action) ? (
@@ -4187,6 +4244,15 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
           />
         </div>
       )}
+
+      <LeadConvertToCustomerModal
+        isOpen={showConvertCustomerModal}
+        lead={effectiveLead || lead}
+        isArabic={isArabic}
+        theme={theme}
+        onClose={() => setShowConvertCustomerModal(false)}
+        onConverted={handleRealEstateCustomerConverted}
+      />
 
       {/* Re-Assign Lead Modal */}
       {!permissions?.is_referral_supervisor && (

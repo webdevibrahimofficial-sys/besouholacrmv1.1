@@ -57,6 +57,11 @@ const isTelesalesAgentRole = (role) => {
   return r === 'telesales agent';
 };
 
+const isTelesalesRole = (role) => {
+  const r = normalizeRoleValue(role);
+  return ['telesales manager', 'telesales team leader', 'telesales agent'].includes(r);
+};
+
 const isAdminRole = (role) => {
   const r = normalizeRoleValue(role);
   return r === 'admin' || r === 'tenant admin' || r === 'super admin';
@@ -123,9 +128,14 @@ const formatNumericDisplay = (value, locale = 'en-US', options = {}) => {
   }).format(parsed);
 };
 
-const buildSelectAllPermissions = (filterInventoryPermsByTenantType) => {
+const buildSelectAllPermissions = (filterInventoryPermsByTenantType, activeModules = []) => {
+  const enabledModules = Array.isArray(activeModules) ? activeModules : []
+  const telesalesEnabled = enabledModules.includes('telesales')
   const perms = {};
   Object.entries(PERMISSIONS).forEach(([group, list]) => {
+    if (group === 'Telesales' && !telesalesEnabled) {
+      return
+    }
     const filtered =
       group === 'Inventory' ? filterInventoryPermsByTenantType(list) : list;
     if (filtered.length > 0) {
@@ -141,7 +151,7 @@ const buildSelectAllPermissions = (filterInventoryPermsByTenantType) => {
 
 export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const { t, i18n } = useTranslation()
-  const { crmSettings, company } = useAppState()
+  const { crmSettings, company, activeModules } = useAppState()
   const isArabic = i18n.language === 'ar'
   const navigate = useNavigate();
   const isEdit = !!user;
@@ -159,6 +169,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const isRealEstateTenant = tenantTypeNorm === 'realestate'
   const allowAllTenantTypes = !tenantTypeNorm
   const numericLocale = isArabic ? 'ar-EG' : 'en-US'
+  const telesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
 
   const filterInventoryPermsByTenantType = useCallback((list) => {
     const perms = Array.isArray(list) ? list : []
@@ -429,7 +440,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       '';
 
     if (isAdminRole(role) && (user?.is_primary_admin || Object.keys(modulePerms).length === 0)) {
-      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType));
+      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType, activeModules));
       return;
     }
 
@@ -460,6 +471,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Leads: ['addLead','importLeads','editInfo','editPhone','addAction','receiveLeads'],
         Inventory: ['addCategory','addItems'],
         Marketing: [],
+        ...(telesalesModuleEnabled ? {
+          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
+        } : {}),
         Customers: ['editInfo','showModule'],
         ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
         Support: ['showModule','addTickets','sla','reports'],
@@ -479,6 +493,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         Leads: ['addLead','importLeads','editInfo','addAction','receiveLeads'],
         Inventory: [],
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage','integration'],
+        ...(telesalesModuleEnabled ? {
+          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
+        } : {}),
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
         ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt', 'exportReports'],
         Support: ['showModule'],
@@ -505,18 +522,24 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Telesales Manager') {
       setCustomPerms({
-        Telesales: ['showModule', 'createLead', 'editLead', 'deleteLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads', 'bulkTransferToSales', 'disableModule'],
-        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
+        ...(telesalesModuleEnabled ? {
+          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'bulkTransferToSales', 'export'],
+        } : {}),
+        Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals']
       })
     } else if (form.role === 'Telesales Team Leader') {
       setCustomPerms({
-        Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'viewHistoricalRecords', 'viewDuplicateLeads'],
-        Control: ['allowActionOnTeam','assignLeads','showReports']
+        ...(telesalesModuleEnabled ? {
+          Telesales: ['showModule', 'createLead', 'editLead', 'assignLead', 'receiveLeads', 'transferToSales', 'viewDashboard', 'viewReports', 'export'],
+        } : {}),
+        Control: ['allowActionOnTeam','assignLeads']
       })
     } else if (form.role === 'Telesales Agent') {
       setCustomPerms({
-        Telesales: ['showModule', 'createLead', 'editLead', 'receiveLeads'],
-        Control: ['showReports']
+        ...(telesalesModuleEnabled ? {
+          Telesales: ['showModule', 'createLead', 'editLead', 'receiveLeads'],
+        } : {}),
+        Control: []
       })
     } else if (form.role === 'Marketing Manager') {
       setCustomPerms({
@@ -554,11 +577,31 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     } else if (form.role === 'Custom') {
       setCustomPerms({})
     } else if (isAdminRole(form.role)) {
-      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType))
+      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType, activeModules))
     } else {
       setCustomPerms({})
     }
-  }, [form.role, filterInventoryPermsByTenantType])
+  }, [form.role, filterInventoryPermsByTenantType, activeModules, telesalesModuleEnabled])
+
+  useEffect(() => {
+    if (telesalesModuleEnabled) return
+    setCustomPerms((prev) => {
+      if (!prev?.Telesales) return prev
+      const next = { ...prev }
+      delete next.Telesales
+      return next
+    })
+  }, [telesalesModuleEnabled])
+
+  useEffect(() => {
+    if (!isTelesalesRole(form.role)) return
+    setCustomPerms((prev) => {
+      if (!prev?.Reports) return prev
+      const next = { ...prev }
+      delete next.Reports
+      return next
+    })
+  }, [form.role])
 
   const updateField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1378,6 +1421,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 <div className="flex flex-col gap-4 mt-3">
                   {Object.entries(PERMISSIONS)
                     .filter(([group]) => {
+                      if (group === 'Telesales' && !telesalesModuleEnabled) {
+                        return false;
+                      }
                       if (form.role === 'Team Leader') {
                         return !['Marketing'].includes(group);
                       }
@@ -1465,6 +1511,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                   )})}
 
                   {/* Reports Section */}
+                  {!isTelesalesRole(form.role) && (
                   <div className="glass-panel rounded-lg overflow-hidden border border-base-content/5 bg-base-200/20">
                     <div 
                         className="p-3 flex items-center justify-between cursor-pointer hover:bg-base-content/5 transition-colors select-none"
@@ -1550,6 +1597,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     </div>
                     )}
                   </div>
+                  )}
                 </div>
               </div>
             </div>

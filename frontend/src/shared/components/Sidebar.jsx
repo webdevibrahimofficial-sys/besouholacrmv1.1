@@ -532,6 +532,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewTelesalesModule = canAccess('telesales') && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
   const canViewTelesalesDashboard = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewDashboard'))
+  const canViewTelesalesReports = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewReports'))
   const canViewTelesalesHistorical = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords')
   const canViewTelesalesSection = canViewTelesalesModule || canViewTelesalesHistorical
   const canCreateTelesalesLead = isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('createLead')
@@ -1329,9 +1330,8 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
             )}
             {!telesalesOpen && (
               <NavLink
-                to="/telesales"
+                to="/telesales/dashboard"
                 title={uiCollapsed ? t('Telesales') : ''}
-                end
                 onClick={() => { setTelesalesOpen(true); onClose(); }}
                 className={() => `${baseLink} w-full justify-between`}
               >
@@ -1356,7 +1356,13 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                   to="/telesales/dashboard"
                   title={isCollapsed ? t('Telesales Dashboard') : ''}
                   onClick={onClose}
-                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+                  className={({ isActive }) => {
+                    const isReportsView =
+                      location.pathname === '/telesales/dashboard' &&
+                      new URLSearchParams(location.search || '').get('view') === 'reports'
+
+                    return `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive && !isReportsView ? activeLink : ''}`
+                  }}
                 >
                   <span className="nova-icon-label">
                     <span className={`${iconContainer} ${iconTone}`}>{getIcon('Dashboard')}</span>
@@ -1366,7 +1372,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               )}
               {!isTelesalesAgentRole && (
                 <NavLink
-                  to="/telesales"
+                  to="/telesales/leads"
                   end
                   title={isCollapsed ? t('All Telesales Leads') : ''}
                   onClick={onClose}
@@ -1412,6 +1418,19 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                   <span className="nova-icon-label">
                     <span className={`${iconContainer} ${iconTone}`}>{getIcon('Add New Lead')}</span>
                     <span className="text-[15px] link-label">{t('Add Telesales Lead')}</span>
+                  </span>
+                </NavLink>
+              )}
+              {canViewTelesalesReports && (
+                <NavLink
+                  to="/telesales/dashboard?view=reports"
+                  title={isCollapsed ? t('Telesales Reports') : ''}
+                  onClick={onClose}
+                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive && location.pathname === '/telesales/dashboard' && new URLSearchParams(location.search || '').get('view') === 'reports' ? activeLink : ''}`}
+                >
+                  <span className="nova-icon-label">
+                    <span className={`${iconContainer} ${iconTone}`}>{getIcon('Reports')}</span>
+                    <span className="text-[15px] link-label">{t('Telesales Reports')}</span>
                   </span>
                 </NavLink>
               )}
@@ -1465,7 +1484,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
                     const list = [...fixedStages, ...dynamicStages]
 
                     return list.map((s, idx) => {
-                      const toUrl = `/telesales?stage=${encodeURIComponent(s.key)}`
+                      const toUrl = `/telesales/leads?stage=${encodeURIComponent(s.key)}`
                       const isActiveStage = currentStageParam === s.key
                       const highlight = isActiveStage ? `glass-neon border ${isLight ? 'border-blue-200' : 'border-blue-900'}` : ''
 

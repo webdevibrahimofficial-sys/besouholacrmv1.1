@@ -1,5 +1,7 @@
 import { api } from '../utils/api';
 
+const normalizeRequestType = (type) => (type === 'Booking' ? 'Unit' : type);
+
 export const getRequests = async (page = 1, limit = 100, filters = {}) => {
   try {
     const params = { page, per_page: limit, ...filters };
@@ -8,9 +10,12 @@ export const getRequests = async (page = 1, limit = 100, filters = {}) => {
         return response.data.data.map(item => ({
             ...item,
             customer: item.customer_name || item.customer, // Map backend to frontend
+            type: normalizeRequestType(item.type),
         }));
     }
-    return Array.isArray(response.data) ? response.data : [];
+    return Array.isArray(response.data)
+      ? response.data.map(item => ({ ...item, type: normalizeRequestType(item.type) }))
+      : [];
   } catch (e) {
     console.error('Error fetching real estate requests', e);
     return [];
@@ -23,6 +28,7 @@ export const saveRequest = async (request) => {
     // Map frontend fields to backend
     const dataToSend = {
         ...request,
+        type: normalizeRequestType(request.type),
         customer_name: request.customer,
         customer: undefined // clean up
     };
