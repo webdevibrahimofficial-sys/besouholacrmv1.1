@@ -2314,7 +2314,7 @@ export default function Telesales() {
                         className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-medium shadow-lg shadow-blue-500/20 transition-all duration-200 active:scale-95"
                       >
                         <FaUserTie className="text-xs" />
-                        {t('Assign Leads')}
+                        {isRtl ? 'تعيين الليدز' : 'Assign Leads'}
                       </button>
                     )}
 
@@ -2325,7 +2325,7 @@ export default function Telesales() {
                         className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-95"
                       >
                         <FaUserCheck className="text-xs" />
-                        {t('Convert To Sales')}
+                        {isRtl ? 'تحويل إلى السيلز' : 'Convert To Sales'}
                       </button>
                     )}
 

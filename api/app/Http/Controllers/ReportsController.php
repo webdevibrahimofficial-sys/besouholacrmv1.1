@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Lead;
 use App\Models\LeadAction;
+use App\Models\LeadWorkflowHistory;
 use App\Models\Customer;
 use App\Models\Visit;
 use App\Models\Export;
@@ -437,6 +438,35 @@ class ReportsController extends Controller
         // 2. Sales Activities (Total Activities)
         $activitiesStats = $getStats(LeadAction::class);
 
+        // Sales to Telesales Transfers
+        $getTransferToTelesalesStats = function () use ($user, $startOfMonth, $endOfMonth, $startOfLastMonth, $endOfLastMonth) {
+            $query = LeadWorkflowHistory::query()
+                ->where('action', 'transfer_to_telesales');
+
+            if ($user->tenant_id) {
+                $query->where('tenant_id', $user->tenant_id);
+            }
+
+            $totalValue = (clone $query)->count();
+            $currentValue = (clone $query)->whereBetween('created_at', [$startOfMonth, $endOfMonth])->count();
+            $lastMonthValue = (clone $query)->whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])->count();
+
+            $trend = 0;
+            if ($lastMonthValue > 0) {
+                $trend = (($currentValue - $lastMonthValue) / $lastMonthValue) * 100;
+            } elseif ($currentValue > 0) {
+                $trend = 100;
+            }
+
+            return [
+                'value' => $totalValue,
+                'trend' => round($trend, 1),
+                'trendUp' => $trend >= 0,
+            ];
+        };
+
+        $salesToTelesalesTransfersStats = $getTransferToTelesalesStats();
+
         // 3. Meetings Report
         // Keep this aligned with LeadController::meetingsReport():
         // count meeting actions based on the lead assignee visibility, not the action creator.
@@ -584,6 +614,7 @@ class ReportsController extends Controller
         return response()->json([
             'leads_pipeline' => $leadsStats,
             'sales_activities' => $activitiesStats,
+            'sales_to_telesales_transfers' => $salesToTelesalesTransfersStats,
             'meetings_report' => $meetingsStats,
             'reservations_report' => $reservationsStats,
             'closed_deals' => $dealsStats,

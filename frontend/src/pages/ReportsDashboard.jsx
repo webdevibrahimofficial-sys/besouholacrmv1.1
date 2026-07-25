@@ -12,6 +12,7 @@ import { useAppState } from '@shared/context/AppStateProvider'
 const REPORT_PERMISSION_MODULE_BY_KEY = {
   leads_pipeline: 'Leads Pipeline',
   sales_activities: 'Sales Activities',
+  sales_to_telesales_transfers: 'Leads Pipeline',
   meetings_report: 'Meetings Report',
   reservations_report: 'Reservations Report',
   closed_deals: 'Closed Deals',
@@ -29,7 +30,7 @@ const REPORT_PERMISSION_MODULE_BY_KEY = {
 const ReportsDashboard = () => {
   const { t, i18n } = useTranslation()
   const { theme } = useTheme()
-  const { user } = useAppState()
+  const { user, activeModules } = useAppState()
   const isLight = theme === 'light'
   const isRTL = String(i18n.language || '').toLowerCase().startsWith('ar')
   const localize = (ar, en) => (isRTL ? ar : en)
@@ -79,6 +80,20 @@ const ReportsDashboard = () => {
       bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
       hoverColor: 'group-hover:bg-indigo-600 dark:group-hover:bg-indigo-500',
       borderColor: 'border-indigo-600 dark:border-indigo-400'
+    },
+    {
+      key: 'sales_to_telesales_transfers',
+      name: localize('الليدز المحولة إلى التيليسيلز', 'Leads To Telesales'),
+      route: '/reports/sales/to-telesales',
+      icon: TrendingUp,
+      value: '0',
+      label: localize('تحويلات', 'Transfers'),
+      trend: '',
+      trendUp: true,
+      color: 'text-violet-600 dark:text-violet-400',
+      bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+      hoverColor: 'group-hover:bg-violet-600 dark:group-hover:bg-violet-500',
+      borderColor: 'border-violet-600 dark:border-violet-400'
     },
     { 
       key: 'meetings_report',
@@ -239,6 +254,7 @@ const ReportsDashboard = () => {
   const controlModulePerms = Array.isArray(modulePermissions.Control) ? modulePermissions.Control : []
   const reportsModulePerms = Array.isArray(modulePermissions.Reports) ? modulePermissions.Reports : []
   const hasExplicitReportsPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Reports')
+  const isTelesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
   const roleLower = String(user?.role || '').toLowerCase()
   const isAdminRole =
     user?.is_super_admin ||
@@ -250,6 +266,7 @@ const ReportsDashboard = () => {
 
   const visibleReports = reports.filter((report) => {
     if (!hasReportsAccess) return false
+    if (report.key === 'sales_to_telesales_transfers' && !isTelesalesModuleEnabled) return false
 
     // Admin can always see all cards.
     if (isAdminRole) return true

@@ -305,7 +305,9 @@ export default function SuperAdminSidebar({ isOpen, onClose, collapsed, setColla
 
   const renderMenuBadge = (item) => {
     if (item.badgeKey === 'errors' && errorLogCount > 0) {
-      const label = errorLogCount > 99 ? '99+' : String(errorLogCount);
+      const label = new Intl.NumberFormat(
+        String(i18n.language || '').toLowerCase().startsWith('ar') ? 'ar-EG' : 'en-US'
+      ).format(errorLogCount);
       return (
         <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
           isLight ? 'bg-rose-100 text-rose-700' : 'bg-rose-900/50 text-rose-300'

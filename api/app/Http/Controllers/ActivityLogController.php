@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Activity;
 use App\Models\LeadAction;
 use App\Models\Lead;
+use App\Models\LeadWorkflowHistory;
 use App\Models\SharedUser;
 use App\Models\Tenant;
 use App\Models\User;
@@ -18,6 +19,33 @@ class ActivityLogController extends Controller
 {
     use \App\Traits\UserHierarchyTrait;
 
+    private function formatStageReportLabels($stage, ?string $fallback = null, ?string $fallbackArabic = null): array
+    {
+        $en = null;
+        $ar = null;
+
+        if ($stage) {
+            $en = $stage->name ?: $stage->type ?: null;
+            $ar = $stage->name_ar ?: null;
+        }
+
+        $en = $en ?: ($fallback ?: null);
+        $ar = $ar ?: ($fallbackArabic ?: null);
+
+        if (!$ar) {
+            $ar = $en;
+        }
+
+        if (!$en) {
+            $en = $ar;
+        }
+
+        return [
+            'en' => $en,
+            'ar' => $ar,
+        ];
+    }
+
     protected function applyGeneralDashboardLeadWorkflowScope($query, string $qualifiedColumn = 'workflow_key'): void
     {
         $query->where(function ($workflowQuery) use ($qualifiedColumn) {
@@ -25,6 +53,19 @@ class ActivityLogController extends Controller
                 ->orWhereNull($qualifiedColumn)
                 ->orWhere($qualifiedColumn, '');
         });
+    }
+
+    private function metaJsonTextExpression(string $column, string $path): string
+    {
+        $driver = DB::connection()->getDriverName();
+        $jsonPath = '$.' . ltrim($path, '$.');
+
+        return match ($driver) {
+            'pgsql' => sprintf("%s #>> '{%s}'", $column, str_replace('.', ',', ltrim($path, '$.'))),
+            'sqlite' => sprintf("json_extract(%s, '%s')", $column, $jsonPath),
+            'sqlsrv' => sprintf("JSON_VALUE(%s, '%s')", $column, $jsonPath),
+            default => sprintf("JSON_UNQUOTE(JSON_EXTRACT(%s, '%s'))", $column, $jsonPath),
+        };
     }
 
     protected function resolveCauserIdentity(Activity $activity): array
@@ -867,6 +908,154 @@ class ActivityLogController extends Controller
             ];
         });
         
+        return response()->json($data);
+    }
+
+    public function salesToTelesalesTransfers(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            abort(401, 'Unauthorized');
+        }
+
+        $tenantId = (int) $user->tenant_id;
+        $employeeIds = $request->input('employee_ids', []);
+        if (!is_array($employeeIds)) {
+            $employeeIds = [];
+        }
+
+        $managerId = $request->input('manager_id');
+        $rangeFrom = $request->input('date_from');
+        $rangeTo = $request->input('date_to');
+        $ids = [];
+        $shouldFilter = false;
+
+        if (!empty($employeeIds)) {
+            $ids = array_values(array_unique(array_map('intval', $employeeIds)));
+        } else {
+            $roles = $user->getRoleNames()->map(fn($r) => strtolower($r))->toArray();
+            $roleLower = strtolower($user->role ?? '');
+            $isSalesPerson = str_contains($roleLower, 'sales person')
+                || str_contains($roleLower, 'salesperson')
+                || in_array('sales person', $roles, true)
+                || in_array('salesperson', $roles, true);
+            $isTeamLeader = str_contains($roleLower, 'team leader') || in_array('team leader', $roles, true);
+
+            if ($isSalesPerson) {
+                $ids = [(int) $user->id];
+                $shouldFilter = true;
+            } elseif ($isTeamLeader) {
+                $ids = $this->collectSubordinatesIds($user);
+                $ids[] = (int) $user->id;
+                $shouldFilter = true;
+            } elseif (!empty($managerId)) {
+                $root = User::where('tenant_id', $tenantId)->find($managerId);
+                if ($root) {
+                    $ids = $this->collectSubordinatesIds($root);
+                    $ids[] = (int) $root->id;
+                    $shouldFilter = true;
+                }
+            }
+        }
+
+        $fromAssignedExpression = $this->metaJsonTextExpression('meta_data', 'from_assigned_to');
+
+        $query = LeadWorkflowHistory::with([
+            'lead.assignedAgent:id,name',
+            'lead.creator:id,name',
+            'lead.stageRelation:id,name,name_ar,type,workflow_key',
+            'performedByUser:id,name',
+            'fromStage:id,name,name_ar,type,workflow_key',
+            'toStage:id,name,name_ar,type,workflow_key',
+        ])
+            ->where('tenant_id', $tenantId)
+            ->where('action', 'transfer_to_telesales');
+
+        if ($shouldFilter && !empty($ids)) {
+            $query->where(function ($historyQuery) use ($ids, $fromAssignedExpression) {
+                $historyQuery->whereIn('performed_by', $ids);
+                foreach ($ids as $id) {
+                    $historyQuery->orWhereRaw("{$fromAssignedExpression} = ?", [(string) $id]);
+                }
+            });
+        }
+
+        if (!empty($ids) && !$shouldFilter) {
+            $query->where(function ($historyQuery) use ($ids, $fromAssignedExpression) {
+                $historyQuery->whereIn('performed_by', $ids);
+                foreach ($ids as $id) {
+                    $historyQuery->orWhereRaw("{$fromAssignedExpression} = ?", [(string) $id]);
+                }
+            });
+        }
+
+        if (!empty($rangeFrom)) {
+            $query->whereDate('created_at', '>=', $rangeFrom);
+        }
+        if (!empty($rangeTo)) {
+            $query->whereDate('created_at', '<=', $rangeTo);
+        }
+
+        $rows = $query->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
+
+        $data = $rows->map(function (LeadWorkflowHistory $history) {
+            $meta = is_array($history->meta_data ?? null) ? ($history->meta_data ?? []) : [];
+            $lead = $history->lead;
+            $leadMeta = is_array($lead?->meta_data ?? null) ? ($lead->meta_data ?? []) : [];
+
+            $fallbackStageKey = strtolower(trim((string) ($meta['target_stage_key'] ?? '')));
+            [$inferredFromStageLabelEn, $inferredFromStageLabelAr] = match ($fallbackStageKey) {
+                'cold_calls' => ['Cold Calls', 'مكالمات باردة'],
+                'new_lead' => ['New', 'جديد'],
+                default => [null, null],
+            };
+
+            $fromStageLabels = $this->formatStageReportLabels(
+                $history->fromStage,
+                $meta['from_stage_label_en'] ?? $meta['from_stage_label'] ?? $inferredFromStageLabelEn,
+                $meta['from_stage_label_ar'] ?? $inferredFromStageLabelAr
+            );
+            $toStageLabels = $this->formatStageReportLabels(
+                $history->toStage ?: $lead?->stageRelation,
+                $meta['to_stage_label_en'] ?? null,
+                $meta['to_stage_label_ar'] ?? null
+            );
+            $projectLabel = trim((string) (
+                $lead?->project
+                ?: ($leadMeta['lead_item_name'] ?? null)
+                ?: ($leadMeta['item_name'] ?? null)
+                ?: ($lead?->item_name ?? null)
+                ?: ''
+            ));
+
+            return [
+                'id' => (int) $history->id,
+                'leadId' => (int) $history->lead_id,
+                'leadName' => $lead?->name ?: ('Lead #' . $history->lead_id),
+                'phone' => $lead?->phone ?: ($lead?->mobile ?: null),
+                'source' => $lead?->source ?: null,
+                'project' => $projectLabel !== '' ? $projectLabel : null,
+                'transferredAt' => optional($history->created_at)->toIso8601String(),
+                'transferredBy' => $history->performedByUser?->name ?: 'System',
+                'fromSalesName' => $meta['from_assigned_to_name'] ?? null,
+                'toTelesalesName' => $meta['to_assigned_to_name']
+                    ?? $lead?->assignedAgent?->name
+                    ?? $meta['to_manager_name']
+                    ?? null,
+                'toManagerName' => $meta['to_manager_name'] ?? null,
+                'assignRole' => $meta['assign_role'] ?? 'sales',
+                'historyOption' => $meta['history_option'] ?? null,
+                'stageBefore' => $fromStageLabels['en'],
+                'stageAfter' => $toStageLabels['en'],
+                'stageBeforeEn' => $fromStageLabels['en'],
+                'stageBeforeAr' => $fromStageLabels['ar'],
+                'stageAfterEn' => $toStageLabels['en'],
+                'stageAfterAr' => $toStageLabels['ar'],
+            ];
+        })->values();
+
         return response()->json($data);
     }
 

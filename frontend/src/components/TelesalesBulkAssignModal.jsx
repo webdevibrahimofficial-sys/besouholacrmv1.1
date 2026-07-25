@@ -3,8 +3,37 @@ import { createPortal } from 'react-dom'
 import { FaSearch, FaTimes, FaUser, FaUserTie } from 'react-icons/fa'
 import { useTheme } from '@shared/context/ThemeProvider'
 
+function hasMojibake(value) {
+  return /[ÃØÙ]/.test(String(value || ''))
+}
+
+function sanitizeText(value, fallback) {
+  const text = String(value ?? '').trim()
+  if (!text || hasMojibake(text)) return fallback
+  return text
+}
+
 function getRole(user) {
   return String(user?.role || user?.job_title || '').trim()
+}
+
+function getDisplayRole(user, isArabic) {
+  const primary = String(user?.role || '').trim()
+  const secondary = String(user?.job_title || '').trim()
+  const candidates = [primary, secondary].filter(Boolean)
+  const cleanCandidate = candidates.find((candidate) => !hasMojibake(candidate))
+
+  if (cleanCandidate) return cleanCandidate
+
+  const combined = candidates.join(' ').toLowerCase()
+  if (combined.includes('telesales team leader')) return 'Telesales Team Leader'
+  if (combined.includes('telesales manager')) return 'Telesales Manager'
+  if (combined.includes('telesales agent')) return 'Telesales Agent'
+  if (combined.includes('sales manager')) return 'Sales Manager'
+  if (combined.includes('director')) return 'Director'
+  if (combined.includes('admin')) return 'Admin'
+
+  return isArabic ? 'عضو فريق' : 'Team Member'
 }
 
 function isLeadershipRole(role) {
@@ -22,9 +51,16 @@ function isLeadershipRole(role) {
 
 function isAgentRole(role) {
   const lower = String(role || '').toLowerCase()
-  if (lower.includes('manager') || lower.includes('leader') || lower.includes('director') || lower.includes('admin') || lower.includes('owner')) {
+  if (
+    lower.includes('manager') ||
+    lower.includes('leader') ||
+    lower.includes('director') ||
+    lower.includes('admin') ||
+    lower.includes('owner')
+  ) {
     return false
   }
+
   return (
     lower.includes('agent') ||
     lower.includes('telesales') ||
@@ -103,11 +139,12 @@ export default function TelesalesBulkAssignModal({
     return []
   }, [assignees, usersOverride])
 
-  const roles = useMemo(() => (
-    ['All', ...Array.from(new Set(
-      effectiveAssignees.map((user) => getRole(user)).filter(Boolean)
-    ))]
-  ), [effectiveAssignees])
+  const roles = useMemo(() => {
+    return [
+      'All',
+      ...Array.from(new Set(effectiveAssignees.map((user) => getRole(user)).filter(Boolean))),
+    ]
+  }, [effectiveAssignees])
 
   const filteredUsers = useMemo(() => {
     return effectiveAssignees.filter((user) => {
@@ -127,28 +164,30 @@ export default function TelesalesBulkAssignModal({
     return isLeadershipRole(role) && !isAgentRole(role)
   }, [selectedUser])
 
-  const resolvedTitle = title || (isArabic ? 'ØªØ¹ÙŠÙŠÙ† Ù„ÙŠØ¯Ø² Ø§Ù„ØªÙŠÙ„ÙŠØ³ÙŠÙ„Ø²' : 'Assign Telesales Leads')
-  const resolvedAssignButtonLabel = assignButtonLabel || (isArabic ? 'ØªØ¹ÙŠÙŠÙ†' : 'Assign')
-  const resolvedAssigningButtonLabel = assigningButtonLabel || (isArabic ? 'Ø¬Ø§Ø±Ù Ø§Ù„ØªÙ†ÙÙŠØ°...' : 'Processing...')
-  const resolvedFilterByRoleLabel = filterByRoleLabel || (isArabic ? 'ØªØµÙÙŠØ© Ø­Ø³Ø¨ Ø§Ù„Ø¯ÙˆØ±' : 'Filter By Role')
-  const resolvedAssignToLabel = assignToLabel || (isArabic ? 'ØªØ¹ÙŠÙŠÙ† Ø¥Ù„Ù‰' : 'Assign To')
-  const resolvedSearchPlaceholder = searchPlaceholder || (isArabic ? 'Ø§Ø¨Ø­Ø« ÙÙŠ Ø£Ø¹Ø¶Ø§Ø¡ Ø§Ù„ÙØ±ÙŠÙ‚' : 'Search team members')
-  const resolvedAssignWithLabel = assignWithLabel || (isArabic ? 'Ø§Ù„ØªØ¹ÙŠÙŠÙ† ÙƒÙ€' : 'Assign With')
-  const resolvedPrimaryRoleLabel = primaryRoleLabel || (isArabic ? 'ÙƒØ¹Ø¶Ùˆ ÙØ±ÙŠÙ‚' : 'As Team Member')
-  const resolvedSecondaryRoleLabel = secondaryRoleLabel || (isArabic ? 'ÙƒÙ…Ø¯ÙŠØ±' : 'As Manager')
-  const resolvedDuplicateOptionLabel = duplicateOptionLabel || (isArabic ? 'Ø¯Ø¨Ù„ÙŠÙƒÙŠØª ÙƒØ¬Ø¯ÙŠØ¯' : 'Duplicate as new')
-  const resolvedSameStageOptionLabel = sameStageOptionLabel || (isArabic ? 'Ù†ÙØ³ Ø§Ù„Ù…Ø±Ø­Ù„Ø©' : 'Same stage')
-  const resolvedClearHistoryOptionLabel = clearHistoryOptionLabel || (isArabic ? 'Ù…Ø³Ø­ Ø§Ù„Ø³Ø¬Ù„' : 'Clear History')
-  const resolvedFreshOptionLabel = freshOptionLabel || (isArabic ? 'كجديد' : 'Fresh')
-  const resolvedColdCallOptionLabel = coldCallOptionLabel || (isArabic ? 'كعميل محتمل' : 'As cold call')
+  const resolvedTitle = sanitizeText(title, isArabic ? 'تعيين ليدز التيليسيلز' : 'Assign Telesales Leads')
+  const resolvedAssignButtonLabel = sanitizeText(assignButtonLabel, isArabic ? 'تعيين' : 'Assign')
+  const resolvedAssigningButtonLabel = sanitizeText(assigningButtonLabel, isArabic ? 'جارٍ التنفيذ...' : 'Processing...')
+  const resolvedFilterByRoleLabel = sanitizeText(filterByRoleLabel, isArabic ? 'تصفية حسب الدور' : 'Filter By Role')
+  const resolvedAssignToLabel = sanitizeText(assignToLabel, isArabic ? 'تعيين إلى' : 'Assign To')
+  const resolvedSearchPlaceholder = sanitizeText(searchPlaceholder, isArabic ? 'ابحث في أعضاء الفريق' : 'Search team members')
+  const resolvedAssignWithLabel = sanitizeText(assignWithLabel, isArabic ? 'التعيين كـ' : 'Assign With')
+  const resolvedPrimaryRoleLabel = sanitizeText(primaryRoleLabel, isArabic ? 'كعضو فريق' : 'As Team Member')
+  const resolvedSecondaryRoleLabel = sanitizeText(secondaryRoleLabel, isArabic ? 'كمدير' : 'As Manager')
+  const resolvedDuplicateOptionLabel = sanitizeText(duplicateOptionLabel, isArabic ? 'دبليكيت كجديد' : 'Duplicate as new')
+  const resolvedSameStageOptionLabel = sanitizeText(sameStageOptionLabel, isArabic ? 'نفس المرحلة' : 'Same stage')
+  const resolvedClearHistoryOptionLabel = sanitizeText(clearHistoryOptionLabel, isArabic ? 'مسح السجل' : 'Clear History')
+  const resolvedFreshOptionLabel = sanitizeText(freshOptionLabel, isArabic ? 'كجديد' : 'Fresh')
+  const resolvedColdCallOptionLabel = sanitizeText(coldCallOptionLabel, isArabic ? 'كعميل محتمل' : 'As cold call')
+
   const isConvertToSalesModal =
     String(title || '').toLowerCase().includes('convert to sales') ||
     String(assignButtonLabel || '').toLowerCase().includes('convert')
+
   const shouldShowDuplicateOption = isConvertToSalesModal ? false : showDuplicateOption
   const shouldShowSameStageOption = isConvertToSalesModal ? false : showSameStageOption
   const shouldShowClearHistoryOption = isConvertToSalesModal ? false : showClearHistoryOption
   const computedFreshOptionLabel = isConvertToSalesModal
-    ? (isArabic ? 'Ø¬Ø¯ÙŠØ¯' : 'New')
+    ? (isArabic ? 'جديد' : 'New')
     : resolvedFreshOptionLabel
 
   const handleAssign = async () => {
@@ -178,7 +217,7 @@ export default function TelesalesBulkAssignModal({
             <div>
               <h2 className="text-lg font-semibold">{resolvedTitle}</h2>
               <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {selectedCount} {isArabic ? 'Ù…Ø­Ø¯Ø¯' : 'Selected'}
+                {selectedCount} {isArabic ? 'محدد' : 'Selected'}
               </p>
             </div>
           </div>
@@ -196,7 +235,7 @@ export default function TelesalesBulkAssignModal({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold">
-                    {isArabic ? 'ØªØ¹Ø°Ø± ØªÙ†ÙÙŠØ° Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ù…Ø®ØªØ§Ø±' : 'Unable to complete this action for the selected user'}
+                    {isArabic ? 'تعذر تنفيذ العملية للمستخدم المختار' : 'Unable to complete this action for the selected user'}
                   </p>
                   <p className={`mt-1 text-sm leading-6 ${isLight ? 'text-red-700' : 'text-red-100/90'}`}>{errorMessage}</p>
                 </div>
@@ -257,11 +296,13 @@ export default function TelesalesBulkAssignModal({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className={`truncate text-sm font-medium ${isLight ? 'text-slate-900' : 'text-white'}`}>{user.name}</p>
-                  <p className={`truncate text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{getRole(user) || 'Team Member'}</p>
+                  <p className={`truncate text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {getDisplayRole(user, isArabic)}
+                  </p>
                 </div>
               </div>
             )) : (
-              <div className="py-4 text-center text-sm text-gray-500">{isArabic ? 'Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø£Ø¹Ø¶Ø§Ø¡' : 'No members found'}</div>
+              <div className="py-4 text-center text-sm text-gray-500">{isArabic ? 'لا يوجد أعضاء' : 'No members found'}</div>
             )}
           </div>
 
@@ -288,7 +329,7 @@ export default function TelesalesBulkAssignModal({
           {selectedUser ? (
             <div>
               <label className={`mb-2 block text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {isArabic ? 'Ø§Ù„Ø¯ÙˆØ± ÙÙŠ Ø§Ù„ØªØ¹ÙŠÙŠÙ†' : 'Assignment Role'}
+                {isArabic ? 'الدور في التعيين' : 'Assignment Role'}
               </label>
               {canAssignAsManager ? (
                 <div className={`grid grid-cols-2 rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
@@ -387,7 +428,7 @@ export default function TelesalesBulkAssignModal({
             onClick={onClose}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${isLight ? 'border border-gray-200 bg-white text-slate-600 hover:bg-gray-200' : 'border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
           >
-            {isArabic ? 'Ø¥Ù„ØºØ§Ø¡' : 'Cancel'}
+            {isArabic ? 'إلغاء' : 'Cancel'}
           </button>
           <button
             onClick={handleAssign}

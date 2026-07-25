@@ -268,6 +268,7 @@ class TelesalesLeadViewService
 
             $query->where(function ($q) use ($viewerId, $viewerIsManagerOrHigher, $noActionAfterAssignmentSql) {
                 $q->where(function ($sub) use ($viewerId, $viewerIsManagerOrHigher) {
+                    $sub->whereNotNull('assigned_to');
                     $sub->whereRaw("LOWER(COALESCE(status, '')) = 'pending'");
                     if ($viewerId > 0 && !$viewerIsManagerOrHigher) {
                         $sub->where(function ($owned) use ($viewerId) {
@@ -316,7 +317,10 @@ class TelesalesLeadViewService
 
         if ($this->canViewPendingDisplayStage($viewer, $scope)) {
             $query->where(function ($q) use ($viewerId, $viewerIsManagerOrHigher, $noActionAfterAssignmentSql) {
-                $q->whereRaw("LOWER(COALESCE(status, '')) != 'pending'");
+                $q->where(function ($statusScope) {
+                    $statusScope->whereRaw("LOWER(COALESCE(status, '')) != 'pending'")
+                        ->orWhereNull('assigned_to');
+                });
 
                 $q->where(function ($sub) use ($viewerId, $viewerIsManagerOrHigher, $noActionAfterAssignmentSql) {
                     $sub->whereNull('assigned_to');
@@ -567,7 +571,7 @@ class TelesalesLeadViewService
         $isUnassigned = $assignedTo <= 0;
         $status = $this->normalizeValue((string) ($lead->status ?? ''));
 
-        if ($status === 'pending' && (!$isOwner || $viewerIsManagerOrHigher)) {
+        if ($status === 'pending' && !$isUnassigned && (!$isOwner || $viewerIsManagerOrHigher)) {
             return true;
         }
 

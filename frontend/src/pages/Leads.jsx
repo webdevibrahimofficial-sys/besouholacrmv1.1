@@ -22,6 +22,7 @@ import AddActionModal from '../components/AddActionModal'
 import ColumnToggle from '../components/ColumnToggle'
 import CompareLeadsModal from '../components/CompareLeadsModal'
 import TransferSalesModal from '../components/TransferSalesModal'
+import TransferToTelesalesModal from '../components/TransferToTelesalesModal'
 import LeadModal from '../components/LeadModal'
 import LeadHoverTooltip from '../components/LeadHoverTooltip'
 import { useDynamicFields } from '../hooks/useDynamicFields'
@@ -44,7 +45,9 @@ export const Leads = () => {
     ? user.meta_data.module_permissions.Telesales
     : []
   const canCreateTelesalesLead = !!(isSuperAdminUser(user) || isTenantAdminUser(user) || telesalesPermissions.includes('addLead') || telesalesPermissions.includes('createLead'))
-  const canChooseImportDestination = Array.isArray(activeModules) && activeModules.includes('telesales') && canCreateTelesalesLead
+  const isTelesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
+  const canChooseImportDestination = isTelesalesModuleEnabled && canCreateTelesalesLead
+  const canTransferLeadToTelesales = isTelesalesModuleEnabled && canCreateTelesalesLead
   const formatMoney = (value) => {
     const n = Number(value)
     if (!Number.isFinite(n)) return '-'
@@ -1550,6 +1553,9 @@ if (!s) {
   // Direct Transfer Modal State (for Duplicates)
   const [showDirectTransferModal, setShowDirectTransferModal] = useState(false)
   const [leadForTransfer, setLeadForTransfer] = useState(null)
+  const [showTransferToTelesalesModal, setShowTransferToTelesalesModal] = useState(false)
+  const [leadIdsForTelesalesTransfer, setLeadIdsForTelesalesTransfer] = useState([])
+  const [telesalesTransferAssignees, setTelesalesTransferAssignees] = useState([])
 
   // Filter visibility state
   const [showAllFilters, setShowAllFilters] = useState(false)
@@ -2671,6 +2677,18 @@ if (!s) {
   const [assignModalError, setAssignModalError] = useState('')
   const [assignModalSubmitting, setAssignModalSubmitting] = useState(false)
 
+  const fallbackTelesalesAssignees = useMemo(() => {
+    return (Array.isArray(usersList) ? usersList : []).filter((userItem) => {
+      const role = String(userItem?.role || userItem?.job_title || '').toLowerCase()
+      return (
+        role.includes('telesales') ||
+        role.includes('tele sales') ||
+        role === 'admin' ||
+        role.includes('tenant admin')
+      )
+    })
+  }, [usersList])
+
   const extractApiErrorMessage = (error, fallbackAr, fallbackEn) => {
     const fallback = isRtl ? fallbackAr : fallbackEn
     const message = error?.response?.data?.message
@@ -2688,6 +2706,87 @@ if (!s) {
   const uniqueAssignees = useMemo(() => {
     return Array.from(new Set(leads.map(l => l.assignedTo).filter(Boolean))).sort()
   }, [leads])
+
+  const openTransferToTelesalesModal = async (leadIds = []) => {
+    const selectedIds = Array.from(new Set((Array.isArray(leadIds) ? leadIds : [leadIds]).map((id) => Number(id)).filter(Boolean)))
+    const normalizedIds = selectedIds.filter((id) => {
+      const lead = (leads || []).find((item) => Number(item?.id) === id)
+      return String(lead?.workflow_key || '').toLowerCase() !== 'telesales'
+    })
+    if (!normalizedIds.length) {
+      const message = isRtl ? 'الليد المحدد موجود بالفعل داخل التيليسيلز' : 'The selected lead is already inside telesales'
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'info', message } }))
+      return
+    }
+
+    if (!canTransferLeadToTelesales) {
+      const message = isRtl ? 'ليست لديك صلاحية التحويل إلى التيليسيلز' : 'You do not have permission to transfer leads to telesales'
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message } }))
+      return
+    }
+
+    setAssignModalError('')
+    setLeadIdsForTelesalesTransfer(normalizedIds)
+    setShowTransferToTelesalesModal(true)
+
+    try {
+      const response = await api.get('/api/telesales/assignees', { params: { workflow: 'telesales' } })
+      setTelesalesTransferAssignees(Array.isArray(response?.data) ? response.data : [])
+    } catch (error) {
+      setTelesalesTransferAssignees(fallbackTelesalesAssignees)
+    }
+  }
+
+  const closeTransferToTelesalesModal = (force = false) => {
+    if (assignModalSubmitting && !force) return
+    setShowTransferToTelesalesModal(false)
+    setLeadIdsForTelesalesTransfer([])
+    setAssignModalError('')
+    setAssignModalSubmitting(false)
+  }
+
+  const handleTransferToTelesales = async (assignData) => {
+    if (!assignData?.userId || leadIdsForTelesalesTransfer.length === 0) {
+      setAssignModalError(isRtl ? 'اختر مسؤول تيليسيلز أولاً' : 'Please select a telesales assignee first')
+      return false
+    }
+
+    setAssignModalSubmitting(true)
+    setAssignModalError('')
+
+    try {
+      const transferPayload = buildLeadTransferPayload(assignData)
+      await Promise.all(
+        leadIdsForTelesalesTransfer.map((leadId) => api.post(`/api/leads/${leadId}/transfer-to-telesales`, {
+          assigned_to: Number(assignData.userId),
+          assign_role: assignData.assignRole || 'sales',
+          stage: transferPayload.stage,
+          history_option: transferPayload.history_option,
+          options: assignData.options || {},
+        }))
+      )
+
+      const successMessage = isRtl
+        ? `تم تحويل ${leadIdsForTelesalesTransfer.length} ليد إلى التيليسيلز`
+        : `${leadIdsForTelesalesTransfer.length} lead(s) transferred to telesales successfully`
+
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: successMessage } }))
+      setSelectedLeads((prev) => prev.filter((id) => !leadIdsForTelesalesTransfer.includes(Number(id))))
+      closeTransferToTelesalesModal(true)
+      fetchLeads()
+      return true
+    } catch (error) {
+      const message = extractApiErrorMessage(
+        error,
+        'فشل تحويل الليد إلى التيليسيلز',
+        'Failed to transfer lead to telesales'
+      )
+      setAssignModalError(message)
+      return false
+    } finally {
+      setAssignModalSubmitting(false)
+    }
+  }
 
   const handleAssignLead = async (leadId, newAssignee) => {
     const assignData = typeof newAssignee === 'object' && newAssignee !== null
@@ -4218,6 +4317,16 @@ if (!s) {
                   </button>
                 )}
 
+                {canTransferLeadToTelesales && (
+                  <button
+                    onClick={() => openTransferToTelesalesModal(selectedLeads)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-700 hover:to-sky-700 text-white text-sm font-medium shadow-lg shadow-cyan-500/20 transition-all duration-200 active:scale-95"
+                  >
+                    <FaExchangeAlt className="text-xs" />
+                    {isRtl ? 'تحويل إلى التيليسيلز' : 'Transfer To Telesales'}
+                  </button>
+                )}
+
                 {canUseBulkAssign && referralSupervisors.length > 0 && (
                   <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-700/50 p-1 rounded-2xl border border-gray-200 dark:border-slate-600">
                     <SearchableSelect
@@ -4633,6 +4742,18 @@ if (!s) {
                                     <FaUserTie size={16} />
                                   </button>
                                 </div>
+                              )}
+                              {canTransferLeadToTelesales && String(lead?.workflow_key || '').toLowerCase() !== 'telesales' && (
+                                <button
+                                  title={isRtl ? 'تحويل إلى التيليسيلز' : 'Transfer to Telesales'}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openTransferToTelesalesModal([lead.id])
+                                  }}
+                                  className={`inline-flex items-center justify-center ${theme === 'light' ? 'text-cyan-600 hover:text-cyan-700' : 'text-cyan-400 hover:text-cyan-300'}`}
+                                >
+                                  <FaExchangeAlt size={16} />
+                                </button>
                               )}
                               {canUseActionControls && (
                                 <button
@@ -5755,6 +5876,21 @@ if (!s) {
           errorMessage={assignModalError}
           submitting={assignModalSubmitting}
           onClearError={() => setAssignModalError('')}
+        />
+      )}
+
+      {showTransferToTelesalesModal && (
+        <TransferToTelesalesModal
+          isOpen={showTransferToTelesalesModal}
+          onClose={() => closeTransferToTelesalesModal()}
+          onAssign={handleTransferToTelesales}
+          isArabic={isRtl}
+          errorMessage={assignModalError}
+          submitting={assignModalSubmitting}
+          onClearError={() => setAssignModalError('')}
+          assignees={telesalesTransferAssignees}
+          usersOverride={fallbackTelesalesAssignees}
+          selectedCount={leadIdsForTelesalesTransfer.length}
         />
       )}
     </div>

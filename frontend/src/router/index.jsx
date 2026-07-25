@@ -107,6 +107,7 @@ const CheckInReport = lazyRetry(() => import('../pages/CheckInReport'))
 const CustomersReport = lazyRetry(() => import('../pages/CustomersReport'))
 const ImportsReport = lazyRetry(() => import('../pages/ImportsReport'))
 const ExportsReport = lazy(() => import('../pages/ExportsReport'))
+const SalesToTelesalesTransfersReport = lazy(() => import('../pages/SalesToTelesalesTransfersReport'))
 const MeetingsReport = lazy(() => import('../pages/MeetingsReport'))
 const ProposalsReport = lazy(() => import('../pages/ProposalsReport'))
 const RevenueReport = lazy(() => import('../pages/RevenueReport'))
@@ -305,6 +306,18 @@ function SubscriptionGuard() {
 }
 function BillingAdminRoute() { return <Outlet /> }
 
+function TelesalesModuleEnabledRoute() {
+  const { activeModules, user } = useAppState()
+  const homePath = resolveTenantHomePath(user)
+  const isTelesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
+
+  if (!isTelesalesModuleEnabled) {
+    return <Navigate to={homePath} replace />
+  }
+
+  return <Outlet />
+}
+
 export default function AppRouter() {
   const { i18n } = useTranslation()
   return (
@@ -420,6 +433,9 @@ export default function AppRouter() {
               <Route path="/reports/sales/customers" element={<CustomersReport />} />
               <Route path="/reports/sales/imports" element={<ImportsReport />} />
               <Route path="/reports/sales/exports" element={<ExportsReport />} />
+              <Route element={<TelesalesModuleEnabledRoute />}>
+                <Route path="/reports/sales/to-telesales" element={<SalesToTelesalesTransfersReport />} />
+              </Route>
               <Route path="/exports" element={<ExportsReport />} />
               <Route path="/reports/sales/meetings" element={<MeetingsReport />} />
               <Route path="/reports/sales/proposals" element={<ProposalsReport />} />

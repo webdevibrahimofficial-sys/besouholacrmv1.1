@@ -498,6 +498,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::post('leads/{id}/resolve-duplicate', [LeadController::class , 'resolveDuplicate']);
     Route::post('leads/duplicates/bulk-action', [LeadController::class , 'bulkDuplicateAction']);
     Route::post('leads/{id}/transfer', [LeadController::class , 'transfer']);
+    Route::post('leads/{id}/transfer-to-telesales', [LeadController::class , 'transferToTelesales']);
     Route::post('leads/{id}/duplicate-as-fresh', [LeadController::class , 'duplicateAndAssignAsFresh']);
     Route::get('telesales/leads', [TelesalesController::class, 'index']);
     Route::get('telesales/leads/export', [TelesalesController::class, 'export']);
@@ -703,6 +704,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
         Route::get('/dashboard-data/top-agents', [ActivityLogController::class , 'topAgents']);
         Route::get('/dashboard-data/last-comments', [ActivityLogController::class , 'lastComments']);
         Route::get('/dashboard-data/recent-phone-calls', [ActivityLogController::class , 'recentPhoneCalls']);
+        Route::get('/dashboard-data/sales-to-telesales-transfers', [ActivityLogController::class , 'salesToTelesalesTransfers']);
         Route::get('/dashboard-data/active-users', [ActivityLogController::class , 'activeUsers']);
 
         // Dynamic Fields Routes

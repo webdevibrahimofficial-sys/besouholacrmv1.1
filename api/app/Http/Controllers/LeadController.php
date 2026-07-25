@@ -25,6 +25,7 @@ use App\Support\LeadStageResolver;
 use App\Support\PhoneNormalizer;
 use App\Support\TenantSourceLookup;
 use App\Services\LeadRotationEngine;
+use App\Services\Telesales\TransferLeadToTelesalesService;
 use App\Services\TelesalesService;
 use Illuminate\Support\Str;
 
@@ -491,6 +492,56 @@ class LeadController extends Controller
         }
 
         return $fallbackStageId ? (int) $fallbackStageId : null;
+    }
+
+    private function normalizeStageLookupValue(?string $value): string
+    {
+        $normalized = strtolower(trim((string) $value));
+        $normalized = str_replace(['_', '-'], ' ', $normalized);
+
+        return preg_replace('/\s+/u', ' ', $normalized) ?: '';
+    }
+
+    private function resolveRequestedStageId(?int $tenantId, string $workflowKey, mixed $requestedStage): ?int
+    {
+        $requestedStageId = is_numeric($requestedStage) ? (int) $requestedStage : 0;
+        if ($requestedStageId > 0) {
+            $stage = Stage::query()
+                ->where('id', $requestedStageId)
+                ->where('workflow_key', $workflowKey)
+                ->when($tenantId, function ($query) use ($tenantId) {
+                    $query->where(function ($tenantQuery) use ($tenantId) {
+                        $tenantQuery->whereNull('tenant_id')->orWhere('tenant_id', $tenantId);
+                    });
+                })
+                ->first();
+
+            return $stage ? (int) $stage->id : null;
+        }
+
+        $normalizedStage = $this->normalizeStageLookupValue(is_scalar($requestedStage) ? (string) $requestedStage : '');
+        if ($normalizedStage === '') {
+            return null;
+        }
+
+        $stage = Stage::query()
+            ->where('workflow_key', $workflowKey)
+            ->when($tenantId, function ($query) use ($tenantId) {
+                $query->where(function ($tenantQuery) use ($tenantId) {
+                    $tenantQuery->whereNull('tenant_id')->orWhere('tenant_id', $tenantId);
+                });
+            })
+            ->where(function ($query) use ($normalizedStage) {
+                $query
+                    ->orWhereRaw("LOWER(TRIM(REPLACE(REPLACE(COALESCE(name, ''), '_', ' '), '-', ' '))) = ?", [$normalizedStage])
+                    ->orWhereRaw("LOWER(TRIM(REPLACE(REPLACE(COALESCE(name_ar, ''), '_', ' '), '-', ' '))) = ?", [$normalizedStage])
+                    ->orWhereRaw("LOWER(TRIM(REPLACE(REPLACE(COALESCE(type, ''), '_', ' '), '-', ' '))) = ?", [$normalizedStage]);
+            })
+            ->orderBy('order')
+            ->orderBy('id')
+            ->first();
+
+        return $stage ? (int) $stage->id : null;
     }
 
     /**
@@ -2911,7 +2962,7 @@ class LeadController extends Controller
                 }
             }
 
-            $requestedStageId = !empty($data['stage_id']) ? (int) $data['stage_id'] : null;
+            $requestedStageId = $this->resolveRequestedStageId($tenantId, $workflowKey, $data['stage_id'] ?? ($data['stage'] ?? null));
             $resolvedStageId = $telesalesService->resolveEntryStageId($tenantId, $workflowKey, $requestedStageId);
             if (!$resolvedStageId) {
                 return response()->json([
@@ -5522,6 +5573,42 @@ class LeadController extends Controller
         }
 
         return response()->json(['message' => 'Lead transferred successfully', 'lead' => $lead->fresh(['assignedAgent:id,name', 'creator:id,name'])]);
+    }
+
+    public function transferToTelesales(Request $request, int $id, TransferLeadToTelesalesService $transferLeadToTelesalesService)
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasColumn('leads', 'workflow_key')) {
+            return response()->json([
+                'message' => 'Lead workflow columns are not available yet. Please run the latest CRM migrations first.',
+            ], 409);
+        }
+
+        $request->validate([
+            'assigned_to' => 'required|integer|exists:users,id',
+            'assign_role' => 'nullable|in:sales,manager',
+            'stage' => 'nullable|string|in:new_lead,cold_calls',
+            'history_option' => 'nullable|string|in:keep_history,assign_as_new',
+            'telesales_entry_stage_id' => 'nullable|integer|exists:stages,id',
+            'options' => 'nullable|array',
+        ]);
+
+        $lead = Lead::query()
+            ->where('tenant_id', (int) ($request->user()?->tenant_id ?? 0))
+            ->findOrFail($id);
+
+        $normalizedWorkflow = strtolower(trim((string) ($lead->workflow_key ?? '')));
+        if ($normalizedWorkflow === TelesalesService::WORKFLOW_TELESALES) {
+            return response()->json([
+                'message' => 'This lead is already inside the telesales workflow.',
+            ], 422);
+        }
+
+        $lead = $transferLeadToTelesalesService->transfer($lead, $request->user(), $request->all());
+
+        return response()->json([
+            'message' => 'Lead transferred to telesales successfully.',
+            'lead' => $lead,
+        ]);
     }
 
     /**
