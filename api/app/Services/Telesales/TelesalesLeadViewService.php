@@ -571,7 +571,12 @@ class TelesalesLeadViewService
         $isUnassigned = $assignedTo <= 0;
         $status = $this->normalizeValue((string) ($lead->status ?? ''));
 
-        if ($status === 'pending' && !$isUnassigned && (!$isOwner || $viewerIsManagerOrHigher)) {
+        if (
+            $status === 'pending'
+            && !$isUnassigned
+            && (!$isOwner || $viewerIsManagerOrHigher)
+            && $this->hasNoActionSinceAssignment($lead)
+        ) {
             return true;
         }
 

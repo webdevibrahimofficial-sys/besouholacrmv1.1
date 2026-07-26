@@ -972,10 +972,13 @@ class LeadActionController extends Controller
         }
 
         // Assignment workflow rule:
-        // Once the lead owner takes the first action, it should leave "Pending" and show its real stage.
-        // This keeps managers/sales views consistent with the Lead lifecycle (Assigned -> Pending -> Action -> Real Stage).
+        // Once the first real action is taken on the lead, it should leave "Pending"
+        // and show its real stage, even if a manager/admin performed the action on behalf
+        // of the assignee. Comments/notes alone should not change this state.
         $shouldSaveLead = false;
-        if ($isOwner && strtolower((string) ($lead->status ?? '')) === 'pending') {
+        $nonWorkflowActionTypes = ['comment', 'note', 'internal_comment'];
+        $isRealWorkflowAction = !in_array(strtolower((string) $request->type), $nonWorkflowActionTypes, true);
+        if ($isRealWorkflowAction && strtolower((string) ($lead->status ?? '')) === 'pending') {
             $lead->status = 'new';
             $shouldSaveLead = true;
         }

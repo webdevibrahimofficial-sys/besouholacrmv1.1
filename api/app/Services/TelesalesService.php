@@ -528,21 +528,22 @@ class TelesalesService
         return in_array($this->normalizeValue($targetStage), ['new lead', 'cold calls'], true);
     }
 
-    public function resetLeadFollowUpOnReassignment(Lead $lead, ?User $actor, ?string $targetStage): void
+    public function resetLeadFollowUpOnReassignment(Lead $lead, ?User $actor, ?string $targetStage): int
     {
         if (!$this->shouldResetFollowUpOnStage($targetStage)) {
-            return;
+            return 0;
         }
 
         $normalizedTargetStage = $this->normalizeValue($targetStage);
         $targetStageLabel = $normalizedTargetStage === 'cold calls' ? 'Cold Calls' : 'New Lead';
         $actorName = trim((string) ($actor?->name ?? 'System'));
+        $updatedCount = 0;
 
         LeadAction::query()
             ->where('lead_id', $lead->id)
             ->whereIn('details->status', self::OPEN_FOLLOW_UP_STATUSES)
             ->get()
-            ->each(function (LeadAction $action) use ($targetStageLabel, $normalizedTargetStage, $actorName, $actor) {
+            ->each(function (LeadAction $action) use ($targetStageLabel, $normalizedTargetStage, $actorName, $actor, &$updatedCount) {
                 $details = is_array($action->details ?? null)
                     ? ($action->details ?? [])
                     : (json_decode($action->details, true) ?? []);
@@ -560,7 +561,10 @@ class TelesalesService
 
                 $action->details = $details;
                 $action->saveQuietly();
+                $updatedCount++;
             });
+
+        return $updatedCount;
     }
 
     public function transferLeadToSales(Lead $lead, User $actor, array $payload): Lead
