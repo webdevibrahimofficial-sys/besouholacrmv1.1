@@ -4498,6 +4498,9 @@ class LeadController extends Controller
                                 $lead->sales_view_reset_at = null;
                             }
 
+                            app(\App\Services\TelesalesService::class)
+                                ->resetLeadFollowUpOnReassignment($lead, $request->user(), $targetStage);
+
                             $lead->save();
 
                             if (!empty($lead->assigned_to) && (string) $lead->assigned_to !== (string) ($oldAssigneeMap[$lead->id] ?? null)) {
@@ -5550,6 +5553,9 @@ class LeadController extends Controller
                 $lead->sales_view_reset_at = null;
                 $lead->save();
             }
+
+            app(\App\Services\TelesalesService::class)
+                ->resetLeadFollowUpOnReassignment($lead, $request->user(), $targetStage);
             
             // Log the transfer
             activity()

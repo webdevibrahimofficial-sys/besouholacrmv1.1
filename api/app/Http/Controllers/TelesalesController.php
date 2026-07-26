@@ -717,6 +717,13 @@ class TelesalesController extends Controller
                 $lead->stage_id = (int) $nextStageId;
                 $this->telesalesService->syncLeadStageFields($lead);
             }
+
+            $resetStage = null;
+            if (!(bool) ($options['sameStage'] ?? false)) {
+                $resetStage = $assignMethod === 'cold_call' ? 'cold_calls' : 'new_lead';
+            }
+            $this->telesalesService->resetLeadFollowUpOnReassignment($lead, $request->user(), $resetStage);
+
             $lead->save();
 
             $this->telesalesService->appendWorkflowHistory($lead, $request->user(), [

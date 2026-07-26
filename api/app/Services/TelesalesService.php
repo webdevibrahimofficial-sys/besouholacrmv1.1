@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\CrmSetting;
 use App\Models\Lead;
+use App\Models\LeadAction;
 use App\Models\LeadWorkflowHistory;
 use App\Models\Stage;
 use App\Models\Tenant;
@@ -23,6 +24,7 @@ class TelesalesService
     public const MODULE_SLUG = 'telesales';
     public const WORKFLOW_SALES = 'sales';
     public const WORKFLOW_TELESALES = 'telesales';
+    private const OPEN_FOLLOW_UP_STATUSES = ['scheduled', 'Scheduled', 'pending', 'in_progress', 'in-progress', 'in progress'];
 
     public function getTenantForUser(?User $user): ?Tenant
     {
@@ -521,6 +523,46 @@ class TelesalesService
         ]);
     }
 
+    public function shouldResetFollowUpOnStage(?string $targetStage): bool
+    {
+        return in_array($this->normalizeValue($targetStage), ['new lead', 'cold calls'], true);
+    }
+
+    public function resetLeadFollowUpOnReassignment(Lead $lead, ?User $actor, ?string $targetStage): void
+    {
+        if (!$this->shouldResetFollowUpOnStage($targetStage)) {
+            return;
+        }
+
+        $normalizedTargetStage = $this->normalizeValue($targetStage);
+        $targetStageLabel = $normalizedTargetStage === 'cold calls' ? 'Cold Calls' : 'New Lead';
+        $actorName = trim((string) ($actor?->name ?? 'System'));
+
+        LeadAction::query()
+            ->where('lead_id', $lead->id)
+            ->whereIn('details->status', self::OPEN_FOLLOW_UP_STATUSES)
+            ->get()
+            ->each(function (LeadAction $action) use ($targetStageLabel, $normalizedTargetStage, $actorName, $actor) {
+                $details = is_array($action->details ?? null)
+                    ? ($action->details ?? [])
+                    : (json_decode($action->details, true) ?? []);
+
+                $previousStatus = trim((string) ($details['status'] ?? ''));
+                $details['status'] = 'superseded';
+                $details['action_state'] = 'superseded';
+                $details['superseded_by_reassignment'] = true;
+                $details['superseded_previous_status'] = $previousStatus !== '' ? $previousStatus : null;
+                $details['superseded_reason'] = 'Lead reassigned as ' . $targetStageLabel . ' with no next action date.';
+                $details['superseded_at'] = now()->toDateTimeString();
+                $details['superseded_by_user_id'] = $actor?->id;
+                $details['superseded_by_user_name'] = $actorName;
+                $details['reassignment_stage'] = $normalizedTargetStage === 'cold calls' ? 'cold_calls' : 'new_lead';
+
+                $action->details = $details;
+                $action->saveQuietly();
+            });
+    }
+
     public function transferLeadToSales(Lead $lead, User $actor, array $payload): Lead
     {
         $this->ensureOperationalAccess($actor, 'transferToSales');
@@ -617,6 +659,7 @@ class TelesalesService
                 $lead->sales_view_reset_at = null;
             }
 
+            $this->resetLeadFollowUpOnReassignment($lead, $actor, $targetStage);
             $lead->save();
 
             $this->appendWorkflowHistory($lead, $actor, [

@@ -1018,14 +1018,14 @@ class LeadActionController extends Controller
              }
 
              if ($stageName && (stripos($stageName, 'won') !== false || stripos($stageName, 'deal') !== false)) {
-                 $specialLog = "Stage changed to {$stageName} by {$actor->name} on behalf of {$assignee->name}";
+                 $specialLog = "Stage changed to {$stageName} by {$actor->name}";
                  if (empty($description)) {
                      $description = $specialLog;
                  } else {
                      $description .= " ({$specialLog})";
                  }
              } else {
-                 $description .= " (Performed by {$actor->name} on behalf of {$assignee->name})";
+                 $description .= " (Performed by {$actor->name})";
              }
         }
 
