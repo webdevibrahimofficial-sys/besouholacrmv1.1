@@ -4695,6 +4695,7 @@ i18n
     resources,
     lng: getStoredLanguage() || DEFAULT_LANGUAGE,
     fallbackLng: DEFAULT_LANGUAGE,
+    showSupportNotice: false,
     interpolation: { escapeValue: false }
   }, (err) => {
     // هذه الخطوة هي المفتاح: تعيين الاتجاه فور انتهاء المكتبة من التحميل

@@ -55,6 +55,26 @@ class TelesalesController extends Controller
         return [];
     }
 
+    private function resolveDelayedActionSchedule(array $details, ?string $actionType, ?string $nextActionType): array
+    {
+        $meetingStatus = strtolower(trim((string) ($details['meeting_status'] ?? '')));
+        $isMeetingAction = strtolower(trim((string) ($actionType ?? ''))) === 'meeting'
+            || strtolower(trim((string) ($nextActionType ?? ''))) === 'meeting';
+
+        if ($isMeetingAction && in_array($meetingStatus, ['done', 'no_show'], true)) {
+            $nextDate = trim((string) ($details['next_action_date'] ?? $details['nextActionDate'] ?? ''));
+            $nextTime = trim((string) ($details['next_action_time'] ?? $details['nextActionTime'] ?? ''));
+            if ($nextDate !== '') {
+                return [$nextDate, $nextTime !== '' ? $nextTime : '00:00'];
+            }
+        }
+
+        $date = trim((string) ($details['date'] ?? ''));
+        $time = trim((string) ($details['time'] ?? ''));
+
+        return [$date, $time !== '' ? $time : '00:00'];
+    }
+
     private function resolveTelesalesStageIdForAssignment(int $tenantId, string $method, ?Lead $lead = null, bool $sameStage = false): ?int
     {
         if ($sameStage && !empty($lead?->stage_id)) {
@@ -992,13 +1012,13 @@ class TelesalesController extends Controller
                 }
 
                 $details = is_array($latest->details ?? null) ? ($latest->details ?? []) : (json_decode($latest->details, true) ?? []);
-                $date = trim((string) ($details['date'] ?? ''));
-                $time = trim((string) ($details['time'] ?? ''));
+                [$date, $time] = $this->resolveDelayedActionSchedule(
+                    $details,
+                    $latest->action_type ?? null,
+                    $latest->next_action_type ?? null
+                );
                 if ($date === '') {
                     continue;
-                }
-                if ($time === '') {
-                    $time = '00:00';
                 }
 
                 try {

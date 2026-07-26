@@ -4437,7 +4437,7 @@ class LeadController extends Controller
 
                 Lead::whereIn('id', $request->ids)
                     ->orderBy('id')
-                    ->chunk(200, function ($leads) use ($currentUserId, $user, $userId, $targetStage, $clearHistory, &$notifyLeadIds, &$oldAssigneeMap) {
+                    ->chunk(200, function ($leads) use ($request, $currentUserId, $user, $userId, $targetStage, $clearHistory, &$notifyLeadIds, &$oldAssigneeMap) {
                         $resetMap = [];
                         if ($clearHistory) {
                             $ids = $leads->pluck('id')->all();
