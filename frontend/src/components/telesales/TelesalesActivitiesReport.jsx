@@ -808,7 +808,7 @@ export default function TelesalesActivitiesReport({
         {[
           { title: isRtl ? 'إجمالي المكالمات' : 'Total Calls', value: kpiData.totalCalls, icon: Phone, color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-900/20' },
           { title: isRtl ? 'إجمالي الإجراءات' : 'Total Actions', value: kpiData.totalActions, icon: Activity, color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/20' },
-          { title: isRtl ? 'إجمالي التعليقات' : 'Total Comments', value: kpiData.totalComments, icon: MessageSquare, color: 'text-cyan-600 dark:text-cyan-400', bgColor: 'bg-cyan-50 dark:bg-cyan-900/20' },
+          { title: isRtl ? 'إجمالي الردود' : 'Total Answer', value: kpiData.answered, icon: MessageSquare, color: 'text-cyan-600 dark:text-cyan-400', bgColor: 'bg-cyan-50 dark:bg-cyan-900/20' },
           { title: isRtl ? 'لم يتم الرد' : 'No Answer', value: kpiData.noAnswer, icon: Phone, color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-50 dark:bg-red-900/20' },
         ].map((card) => {
           const Icon = card.icon

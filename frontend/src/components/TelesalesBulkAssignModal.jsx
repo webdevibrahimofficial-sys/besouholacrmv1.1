@@ -164,6 +164,56 @@ export default function TelesalesBulkAssignModal({
     return isLeadershipRole(role) && !isAgentRole(role)
   }, [selectedUser])
 
+  const assignMethodButtonClass = (method) => {
+    const active = assignMethod === method
+
+    if (active) {
+      return isLight
+        ? 'bg-white text-slate-900 shadow-sm border border-blue-200'
+        : 'bg-slate-700 text-white shadow-sm border border-blue-500/60'
+    }
+
+    return isLight
+      ? 'text-gray-500 hover:text-gray-700 border border-transparent'
+      : 'text-slate-400 hover:text-slate-200 border border-transparent'
+  }
+
+  const renderAssignMethodOption = (method, label) => {
+    const active = assignMethod === method
+
+    return (
+      <button
+        onClick={() => {
+          setAssignMethod(method)
+          setOptions((prev) => ({
+            ...prev,
+            duplicate: false,
+            sameStage: false,
+          }))
+        }}
+        className={`flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm transition-all ${assignMethodButtonClass(method)}`}
+      >
+        <span>{label}</span>
+        <span
+          className={`flex h-5 w-5 items-center justify-center rounded border text-[11px] font-bold transition-all ${
+            active
+              ? 'border-blue-500 bg-blue-500 text-white'
+              : (isLight ? 'border-gray-300 bg-white text-transparent' : 'border-slate-500 bg-slate-900 text-transparent')
+          }`}
+          aria-hidden="true"
+        >
+          ✓
+        </span>
+      </button>
+    )
+  }
+
+  const restorePrimaryAssignMethodIfNeeded = (nextDuplicate, nextSameStage) => {
+    if (!nextDuplicate && !nextSameStage && !assignMethod) {
+      setAssignMethod('fresh')
+    }
+  }
+
   const resolvedTitle = sanitizeText(title, isArabic ? 'تعيين ليدز التيليسيلز' : 'Assign Telesales Leads')
   const resolvedAssignButtonLabel = sanitizeText(assignButtonLabel, isArabic ? 'تعيين' : 'Assign')
   const resolvedAssigningButtonLabel = sanitizeText(assigningButtonLabel, isArabic ? 'جارٍ التنفيذ...' : 'Processing...')
@@ -193,11 +243,13 @@ export default function TelesalesBulkAssignModal({
   const handleAssign = async () => {
     if (!selectedUser) return
 
+    const normalizedMethod = options.sameStage || options.duplicate ? 'fresh' : assignMethod
+
     const result = await onAssign?.({
       userId: selectedUser.id,
       userName: selectedUser.name,
       assignRole,
-      method: assignMethod,
+      method: normalizedMethod,
       options,
     })
 
@@ -311,18 +363,8 @@ export default function TelesalesBulkAssignModal({
               {resolvedAssignWithLabel}
             </label>
             <div className={`grid grid-cols-2 rounded-xl border p-1 ${isLight ? 'border-gray-200 bg-gray-50' : 'border-slate-700 bg-slate-800'}`}>
-              <button
-                onClick={() => setAssignMethod('fresh')}
-                className={`rounded-lg py-2 text-sm transition-all ${assignMethod === 'fresh' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {computedFreshOptionLabel}
-              </button>
-              <button
-                onClick={() => setAssignMethod('cold_call')}
-                className={`rounded-lg py-2 text-sm transition-all ${assignMethod === 'cold_call' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {resolvedColdCallOptionLabel}
-              </button>
+              {renderAssignMethodOption('fresh', computedFreshOptionLabel)}
+              {renderAssignMethodOption('cold_call', resolvedColdCallOptionLabel)}
             </div>
           </div>
 
@@ -365,11 +407,21 @@ export default function TelesalesBulkAssignModal({
                     checked={options.duplicate}
                     onChange={(e) => {
                       const checked = e.target.checked
+                      const nextOptions = {
+                        ...options,
+                        duplicate: checked,
+                        sameStage: checked ? false : options.sameStage,
+                      }
                       setOptions((prev) => ({
                         ...prev,
                         duplicate: checked,
                         sameStage: checked ? false : prev.sameStage,
                       }))
+                      if (checked) {
+                        setAssignMethod(null)
+                      } else {
+                        restorePrimaryAssignMethodIfNeeded(nextOptions.duplicate, nextOptions.sameStage)
+                      }
                     }}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
@@ -388,11 +440,21 @@ export default function TelesalesBulkAssignModal({
                         checked={options.sameStage}
                         onChange={(e) => {
                           const checked = e.target.checked
+                          const nextOptions = {
+                            ...options,
+                            sameStage: checked,
+                            duplicate: checked ? false : options.duplicate,
+                          }
                           setOptions((prev) => ({
                             ...prev,
                             sameStage: checked,
                             duplicate: checked ? false : prev.duplicate,
                           }))
+                          if (checked) {
+                            setAssignMethod(null)
+                          } else {
+                            restorePrimaryAssignMethodIfNeeded(nextOptions.duplicate, nextOptions.sameStage)
+                          }
                         }}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />

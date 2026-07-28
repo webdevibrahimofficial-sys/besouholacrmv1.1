@@ -690,6 +690,25 @@ export const validatePhoneNumber = (code, number) => {
   const rule = COUNTRY_CODES.find((c) => c.dialCode === code)
   if (!rule) return { isValid: true, message: '' }
 
+  if (code === '+20') {
+    const isLeadingZeroFormat = cleanNumber.startsWith('0')
+    const expectedLength = isLeadingZeroFormat ? 11 : 10
+
+    if (cleanNumber.length !== expectedLength) {
+      return {
+        isValid: false,
+        message: isLeadingZeroFormat
+          ? 'Egypt mobile numbers starting with 0 must be exactly 11 digits'
+          : 'Egypt mobile numbers without 0 must be exactly 10 digits',
+        messageAr: isLeadingZeroFormat
+          ? 'رقم الموبايل المصري الذي يبدأ بـ 0 يجب أن يكون 11 رقمًا بالضبط'
+          : 'رقم الموبايل المصري بدون 0 في البداية يجب أن يكون 10 أرقام بالضبط',
+      }
+    }
+
+    return { isValid: true, message: '' }
+  }
+
   if (cleanNumber.length < rule.minLen || cleanNumber.length > rule.maxLen) {
     return {
       isValid: false,

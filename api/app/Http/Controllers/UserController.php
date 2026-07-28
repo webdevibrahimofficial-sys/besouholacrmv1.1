@@ -7,6 +7,7 @@ use App\Models\Broker;
 use App\Models\Lead;
 use App\Models\User;
 use App\Models\Tenant;
+use App\Services\TelesalesService;
 use App\Support\AppliesAgencyScope;
 use App\Services\TenantStorageService;
 use Illuminate\Http\Request;
@@ -170,12 +171,36 @@ class UserController extends Controller
 
     protected function buildDeletionDependencySummary(User $user): array
     {
-        $leadQuery = Lead::query()
+        $salesLeadQuery = Lead::query()
             ->where('tenant_id', $user->tenant_id)
-            ->where('assigned_to', $user->id);
+            ->where('assigned_to', $user->id)
+            ->where(function ($query) {
+                $query->where('workflow_key', TelesalesService::WORKFLOW_SALES)
+                    ->orWhereNull('workflow_key')
+                    ->orWhere('workflow_key', '');
+            });
 
-        $leadCount = (clone $leadQuery)->count();
-        $leadPreview = (clone $leadQuery)
+        $salesLeadCount = (clone $salesLeadQuery)->count();
+        $salesLeadPreview = (clone $salesLeadQuery)
+            ->orderBy('id')
+            ->limit(5)
+            ->get(['id', 'name', 'stage', 'project'])
+            ->map(fn (Lead $lead) => [
+                'id' => $lead->id,
+                'name' => (string) ($lead->name ?? ''),
+                'stage' => (string) ($lead->stage ?? ''),
+                'project' => (string) ($lead->project ?? ''),
+            ])
+            ->values()
+            ->all();
+
+        $telesalesLeadQuery = Lead::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->where('assigned_to', $user->id)
+            ->where('workflow_key', TelesalesService::WORKFLOW_TELESALES);
+
+        $telesalesLeadCount = (clone $telesalesLeadQuery)->count();
+        $telesalesLeadPreview = (clone $telesalesLeadQuery)
             ->orderBy('id')
             ->limit(5)
             ->get(['id', 'name', 'stage', 'project'])
@@ -211,8 +236,14 @@ class UserController extends Controller
             ],
             'dependencies' => [
                 'leads' => [
-                    'count' => $leadCount,
-                    'preview' => $leadPreview,
+                    'count' => $salesLeadCount,
+                    'preview' => $salesLeadPreview,
+                    'workflow' => TelesalesService::WORKFLOW_SALES,
+                ],
+                'telesales_leads' => [
+                    'count' => $telesalesLeadCount,
+                    'preview' => $telesalesLeadPreview,
+                    'workflow' => TelesalesService::WORKFLOW_TELESALES,
                 ],
                 'brokers' => [
                     'count' => $brokerCount,
@@ -221,7 +252,7 @@ class UserController extends Controller
                     'preview' => $brokerPreview,
                 ],
             ],
-            'can_delete' => $leadCount === 0 && $brokerCount === 0,
+            'can_delete' => $salesLeadCount === 0 && $telesalesLeadCount === 0 && $brokerCount === 0,
         ];
     }
 
@@ -230,6 +261,22 @@ class UserController extends Controller
         return Lead::query()
             ->where('tenant_id', $user->tenant_id)
             ->where('assigned_to', $user->id)
+            ->where(function ($query) {
+                $query->where('workflow_key', TelesalesService::WORKFLOW_SALES)
+                    ->orWhereNull('workflow_key')
+                    ->orWhere('workflow_key', '');
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    protected function telesalesLeadIdsForDeletion(User $user): array
+    {
+        return Lead::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->where('assigned_to', $user->id)
+            ->where('workflow_key', TelesalesService::WORKFLOW_TELESALES)
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
@@ -798,10 +845,21 @@ class UserController extends Controller
         $this->ensureVisibleWithinAgencyScope($actor, $user);
 
         $summary = $this->buildDeletionDependencySummary($user);
-        $leadCount = (int) ($summary['dependencies']['leads']['count'] ?? 0);
+        $salesLeadCount = (int) ($summary['dependencies']['leads']['count'] ?? 0);
+        $telesalesLeadCount = (int) ($summary['dependencies']['telesales_leads']['count'] ?? 0);
         $soleBrokerCount = (int) ($summary['dependencies']['brokers']['sole_assigned_count'] ?? 0);
 
         $validated = $request->validate([
+            'telesales_target_user_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('users', 'id')->where(fn ($query) => $query->where('tenant_id', $user->tenant_id)),
+            ],
+            'telesales_assign_role' => 'nullable|in:sales,manager',
+            'telesales_method' => 'nullable|in:fresh,cold_call',
+            'telesales_options' => 'nullable|array',
+            'telesales_options.sameStage' => 'nullable|boolean',
+            'telesales_options.clearHistory' => 'nullable|boolean',
             'lead_target_user_id' => [
                 'nullable',
                 'integer',
@@ -817,7 +875,13 @@ class UserController extends Controller
             ],
         ]);
 
-        if ($leadCount > 0 && empty($validated['lead_target_user_id'])) {
+        if ($telesalesLeadCount > 0 && empty($validated['telesales_target_user_id'])) {
+            throw ValidationException::withMessages([
+                'telesales_target_user_id' => ['Telesales reassignment target is required before deleting this user.'],
+            ]);
+        }
+
+        if ($salesLeadCount > 0 && empty($validated['lead_target_user_id'])) {
             throw ValidationException::withMessages([
                 'lead_target_user_id' => ['Lead reassignment target is required before deleting this user.'],
             ]);
@@ -826,6 +890,12 @@ class UserController extends Controller
         if ($soleBrokerCount > 0 && empty($validated['broker_target_user_id'])) {
             throw ValidationException::withMessages([
                 'broker_target_user_id' => ['Broker reassignment target is required for brokers assigned only to this user.'],
+            ]);
+        }
+
+        if (!empty($validated['telesales_target_user_id']) && (int) $validated['telesales_target_user_id'] === (int) $user->id) {
+            throw ValidationException::withMessages([
+                'telesales_target_user_id' => ['Telesales reassignment target must be a different user.'],
             ]);
         }
 
@@ -845,8 +915,34 @@ class UserController extends Controller
             ? User::find((int) $validated['broker_target_user_id'])
             : null;
 
-        DB::transaction(function () use ($user, $actor, $validated, $brokerTargetUser, $leadCount) {
-            if ($leadCount > 0) {
+        DB::transaction(function () use ($user, $actor, $validated, $brokerTargetUser, $salesLeadCount, $telesalesLeadCount) {
+            if ($telesalesLeadCount > 0) {
+                $telesalesLeadIds = $this->telesalesLeadIdsForDeletion($user);
+                $telesalesController = app(TelesalesController::class);
+                $assignRequest = Request::create(
+                    '/api/telesales/assign-leads',
+                    'POST',
+                    [
+                        'lead_ids' => $telesalesLeadIds,
+                        'assigned_to' => (int) $validated['telesales_target_user_id'],
+                        'assign_role' => $validated['telesales_assign_role'] ?? 'sales',
+                        'method' => $validated['telesales_method'] ?? 'fresh',
+                        'options' => $validated['telesales_options'] ?? [],
+                    ]
+                );
+                $assignRequest->setUserResolver(fn () => $actor);
+
+                $response = $telesalesController->bulkAssign($assignRequest);
+                if (method_exists($response, 'getStatusCode') && $response->getStatusCode() >= 400) {
+                    $payload = json_decode((string) $response->getContent(), true);
+                    $message = $payload['message'] ?? 'Failed to reassign one or more telesales leads.';
+                    throw ValidationException::withMessages([
+                        'telesales_target_user_id' => [$message],
+                    ]);
+                }
+            }
+
+            if ($salesLeadCount > 0) {
                 $leadIds = $this->salesOwnedLeadIdsForDeletion($user);
                 $leadController = app(LeadController::class);
                 $assignRequest = Request::create(

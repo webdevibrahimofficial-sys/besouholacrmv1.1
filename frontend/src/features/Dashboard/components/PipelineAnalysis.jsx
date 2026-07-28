@@ -76,6 +76,7 @@ export const PipelineAnalysis = ({
   // Sample data
   const [dbData, setDbData] = useState([]);
   const [serverByStage, setServerByStage] = useState([]);
+  const [statsByStage, setStatsByStage] = useState([]);
   
   useEffect(() => {
     const fetchData = async () => {
@@ -83,6 +84,7 @@ export const PipelineAnalysis = ({
         if (Array.isArray(rawDataOverride)) {
           setDbData(rawDataOverride);
           setServerByStage([]);
+          setStatsByStage([]);
           return;
         }
         const params = {
@@ -90,18 +92,31 @@ export const PipelineAnalysis = ({
           created_to: dateTo,
           assigned_to: selectedEmployee,
           manager_id: selectedManager || undefined,
+          workflow_key: workflowKey,
         };
-        const { data } = await api.get('/api/leads/pipeline-analysis', { params });
-        setServerByStage(Array.isArray(data?.byStage) ? data.byStage : []);
-        setDbData(Array.isArray(data?.raw_data) ? data.raw_data : []);
+        const [pipelineResponse, statsResponse] = await Promise.all([
+          api.get('/api/leads/pipeline-analysis', { params }),
+          api.get('/api/leads/stats', { params }),
+        ]);
+        const pipelineData = pipelineResponse?.data || {};
+        const statsData = statsResponse?.data || {};
+        const normalizedStatsByStage = Object.entries(statsData?.byStage || {}).map(([stage, count]) => ({
+          stage,
+          count: Number(count) || 0,
+          value: 0,
+        }));
+        setServerByStage(Array.isArray(pipelineData?.byStage) ? pipelineData.byStage : []);
+        setStatsByStage(normalizedStatsByStage);
+        setDbData(Array.isArray(pipelineData?.raw_data) ? pipelineData.raw_data : []);
       } catch (e) {
         console.error("Failed to fetch pipeline analysis", e);
         setDbData([]);
         setServerByStage([]);
+        setStatsByStage([]);
       }
     };
     fetchData();
-  }, [dateFrom, dateTo, rawDataOverride, selectedEmployee, selectedManager]);
+  }, [dateFrom, dateTo, rawDataOverride, selectedEmployee, selectedManager, workflowKey]);
 
   const sampleData = dbData;
 
@@ -296,15 +311,20 @@ export const PipelineAnalysis = ({
       !query?.trim() &&
       Object.values(advancedFilters || {}).every(v => !String(v ?? '').trim());
 
+    const effectiveServerByStage =
+      selectedMeasure === 'count' && Array.isArray(statsByStage) && statsByStage.length > 0
+        ? statsByStage
+        : serverByStage;
+
     const canUseServerAgg =
       noClientFilters &&
-      Array.isArray(serverByStage) &&
-      serverByStage.length > 0 &&
+      Array.isArray(effectiveServerByStage) &&
+      effectiveServerByStage.length > 0 &&
       (selectedMeasure === 'count' || aggregator === 'sum' || aggregator === 'avg');
 
     labels.forEach(label => {
       if (canUseServerAgg) {
-        const matches = serverByStage.filter(item => matchStage(item.stage, label));
+        const matches = effectiveServerByStage.filter(item => matchStage(item.stage, label));
         const sumCount = matches.reduce((sum, item) => sum + (Number(item?.count) || 0), 0);
         const sumValue = matches.reduce((sum, item) => sum + (Number(item?.value) || 0), 0);
 
@@ -337,7 +357,7 @@ export const PipelineAnalysis = ({
       }
     });
     return result;
-  }, [filteredData, selectedMeasure, aggregator, labels, dbStages, lang, serverByStage, query, advancedFilters]);
+  }, [filteredData, selectedMeasure, aggregator, labels, dbStages, lang, serverByStage, statsByStage, query, advancedFilters]);
 
   // Chart data
   const barAggData = {

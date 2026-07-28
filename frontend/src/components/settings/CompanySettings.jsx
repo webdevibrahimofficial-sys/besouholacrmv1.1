@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { useAppState } from '../../shared/context/AppStateProvider'
@@ -31,6 +31,8 @@ export default function CompanySettings() {
   const isArabic = i18n.language === 'ar'
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const initializedCompanyKeyRef = useRef(null)
+  const isDirtyRef = useRef(false)
   useTheme()
   const { fetchCompanyInfo, crmSettings, company } = useAppState()
   const [activeTab, setActiveTab] = useState('general')
@@ -143,6 +145,20 @@ export default function CompanySettings() {
         const payload = await fetchCompanyInfo()
         const tenant = payload?.tenant || payload?.company || company || {}
         const profile = tenant.profile || {}
+        const companyKey = String(
+          tenant.id ??
+          tenant.slug ??
+          tenant.name ??
+          'default-company'
+        )
+
+        if (isDirtyRef.current) {
+          return
+        }
+
+        if (!loading && initializedCompanyKeyRef.current === companyKey) {
+          return
+        }
 
         const newValues = {
           name: tenant.name || '',
@@ -167,9 +183,10 @@ export default function CompanySettings() {
           addressLine2: tenant.address_line_2 || '',
           phone: profile.phone || '',
           taxId: profile.tax_id || '',
-          websiteUrl: tenant.website_url || '',
+          websiteUrl: tenant.website_url || profile.website_url || '',
         }
 
+        initializedCompanyKeyRef.current = companyKey
         setSavedValues(newValues)
 
         // Update Form State
@@ -198,7 +215,7 @@ export default function CompanySettings() {
       }
     }
     fetchCompany()
-  }, [fetchCompanyInfo, company])
+  }, [company, fetchCompanyInfo, loading])
 
   const onLogoChange = (e) => {
     const file = e.target.files?.[0]
@@ -217,6 +234,7 @@ export default function CompanySettings() {
   }
 
   const hasChanges = useMemo(() => {
+    if (name !== savedValues.name) return true
     if (description !== savedValues.description) return true
     if (logo !== savedValues.logo) return true
     if (country !== savedValues.country) return true
@@ -230,7 +248,7 @@ export default function CompanySettings() {
     return false
   }, [
     savedValues,
-    description, logo, country, city, state, addressLine1, addressLine2, phone, taxId, websiteUrl
+    name, description, logo, country, city, state, addressLine1, addressLine2, phone, taxId, websiteUrl
   ])
 
   const saveChanges = async () => {
@@ -240,6 +258,7 @@ export default function CompanySettings() {
 
     try {
       const formData = new FormData()
+      formData.append('name', name)
       formData.append('description', description)
       formData.append('country', country)
       formData.append('city', city)
@@ -263,10 +282,11 @@ export default function CompanySettings() {
 
       const currentValues = {
         ...savedValues,
+        name: tenant.name || name,
         description: profile.description || '',
         phone: profile.phone || '',
         taxId: profile.tax_id || '',
-        websiteUrl: tenant.website_url || websiteUrl,
+        websiteUrl: tenant.website_url || profile.website_url || websiteUrl,
         logo: '',
         logoPreview: profile.logo_url || logoPreview,
         country: tenant.country || '',
@@ -276,9 +296,18 @@ export default function CompanySettings() {
         addressLine2: tenant.address_line_2 || '',
       }
 
+      initializedCompanyKeyRef.current = String(
+        tenant.id ??
+        tenant.slug ??
+        tenant.name ??
+        initializedCompanyKeyRef.current ??
+        'default-company'
+      )
       setSavedValues(currentValues)
+      setName(currentValues.name)
       setLogo('') // Clear file input
       if (profile.logo_url) setLogoPreview(profile.logo_url)
+      isDirtyRef.current = false
 
       await fetchCompanyInfo()
       alert(t('Company settings updated successfully'))
@@ -291,6 +320,7 @@ export default function CompanySettings() {
   }
 
   const resetChanges = () => {
+    setName(savedValues.name)
     setDescription(savedValues.description)
     setLogo(savedValues.logo)
     setLogoPreview(savedValues.logoPreview)
@@ -302,6 +332,7 @@ export default function CompanySettings() {
     setPhone(savedValues.phone)
     setTaxId(savedValues.taxId)
     setWebsiteUrl(savedValues.websiteUrl)
+    isDirtyRef.current = false
   }
 
   const formatDate = (dateString) => {
@@ -401,12 +432,21 @@ export default function CompanySettings() {
                 
                 {/* Company Name */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider ml-1 flex items-center gap-1">
-                    {t('Company Name')} <Lock size={12} />
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">
+                    {t('Company Name')}
                   </label>
-                  <div className="flex items-center gap-3 px-4 h-12 rounded-xl border border-gray-200/60 dark:border-gray-700/60 bg-transparent">
+                  <div className="flex items-center gap-3 px-4 h-12 rounded-xl border border-gray-200/60 dark:border-gray-700/60 bg-transparent focus-within:ring-2 ring-blue-500/20 focus-within:border-blue-500/50 transition-all hover:border-blue-500/30 group">
                     <Building className="text-gray-400" size={18} />
-                    <span className="text-theme-text font-semibold text-lg truncate">{name}</span>
+                    <input
+                      className="flex-1 min-w-0 bg-transparent outline-none text-theme-text placeholder-gray-400 font-semibold text-lg"
+                      value={name}
+                      onChange={(e) => {
+                        isDirtyRef.current = true
+                        setName(e.target.value)
+                      }}
+                      placeholder={t('Company Name')}
+                      aria-label={t('Company Name')}
+                    />
                   </div>
                 </div>
 
@@ -429,10 +469,15 @@ export default function CompanySettings() {
                   <div className="flex items-center gap-3 px-4 h-12 rounded-xl border border-gray-200/60 dark:border-gray-700/60 bg-transparent focus-within:ring-2 ring-blue-500/20 focus-within:border-blue-500/50 transition-all hover:border-blue-500/30 group">
                     <Globe className="text-gray-400 group-focus-within:text-blue-500 transition-colors" size={18} />
                     <input
-                      className="flex-1 bg-transparent outline-none text-theme-text placeholder-gray-400 font-medium"
+                      className="flex-1 min-w-0 bg-transparent outline-none text-theme-text placeholder-gray-400 font-medium"
                       value={websiteUrl}
-                      onChange={e => setWebsiteUrl(e.target.value)}
+                      onChange={e => {
+                        isDirtyRef.current = true
+                        setWebsiteUrl(e.target.value)
+                      }}
                       placeholder="https://yourwebsite.com"
+                      dir="ltr"
+                      aria-label={t('Website URL')}
                     />
                   </div>
                 </div>
@@ -461,7 +506,10 @@ export default function CompanySettings() {
                 <textarea
                   className="w-full bg-transparent outline-none text-theme-text placeholder-gray-400 font-medium rounded-2xl border border-gray-200/60 dark:border-gray-700/60 p-4 focus:ring-4 ring-blue-500/10 focus:border-blue-500/50 transition-all min-h-[120px] resize-none"
                   value={description}
-                  onChange={e => setDescription(e.target.value)}
+                  onChange={e => {
+                    isDirtyRef.current = true
+                    setDescription(e.target.value)
+                  }}
                   placeholder={t('Enter company description...')}
                 />
                 <div className="absolute bottom-3 right-3 text-xs text-gray-400 pointer-events-none bg-white/50 dark:bg-black/20 px-2 py-1 rounded-md backdrop-blur-sm">
@@ -571,7 +619,10 @@ export default function CompanySettings() {
                    <input
                      className="flex-1 bg-transparent outline-none text-theme-text placeholder-gray-400 font-medium"
                      value={country}
-                     onChange={(e) => setCountry(e.target.value)}
+                     onChange={(e) => {
+                       isDirtyRef.current = true
+                       setCountry(e.target.value)
+                     }}
                      placeholder={t('Enter country')}
                      aria-label={t('Country')}
                    />
@@ -588,7 +639,10 @@ export default function CompanySettings() {
                    <input
                      className="flex-1 bg-transparent outline-none text-theme-text placeholder-gray-400 font-medium"
                      value={city}
-                     onChange={(e) => setCity(e.target.value)}
+                     onChange={(e) => {
+                       isDirtyRef.current = true
+                       setCity(e.target.value)
+                     }}
                      placeholder={t('Enter city')}
                      aria-label={t('City')}
                    />
@@ -605,7 +659,10 @@ export default function CompanySettings() {
                    <input
                      className="flex-1 bg-transparent outline-none text-theme-text placeholder-gray-400 font-medium"
                      value={addressLine1}
-                     onChange={(e) => setAddressLine1(e.target.value)}
+                     onChange={(e) => {
+                       isDirtyRef.current = true
+                       setAddressLine1(e.target.value)
+                     }}
                      placeholder={t('Enter address line 1')}
                      aria-label={t('Address Line 1')}
                    />
@@ -622,7 +679,10 @@ export default function CompanySettings() {
                    <input
                      className="flex-1 bg-transparent outline-none text-theme-text placeholder-gray-400 font-medium"
                      value={state}
-                     onChange={(e) => setState(e.target.value)}
+                     onChange={(e) => {
+                       isDirtyRef.current = true
+                       setState(e.target.value)
+                     }}
                      placeholder={t('Enter state or province')}
                      aria-label={t('State')}
                    />

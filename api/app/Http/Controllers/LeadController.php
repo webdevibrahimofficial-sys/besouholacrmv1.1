@@ -1965,20 +1965,20 @@ class LeadController extends Controller
 
     private function buildLeadDisplayStageSql(array $context, string $table = 'leads'): string
     {
+        $baseStageSql = "
+            CASE
+                WHEN ({$table}.stage IS NULL OR {$table}.stage = '')
+                THEN 'new lead'
+                ELSE {$table}.stage
+            END
+        ";
+
         // Real stage mode:
         // 1. Any explicit Sales Person filter is active
         // 2. The current scoped user is a Sales Person
         // In both cases we must not apply manager-facing virtual pending remapping.
         if (!empty($context['hasSalesPersonFilter']) || empty($context['isManager'])) {
-            return "
-                CASE
-                    WHEN ({$table}.stage IS NULL OR {$table}.stage = '')
-                         AND ({$table}.status IS NULL OR {$table}.status = '')
-                    THEN 'new lead'
-                    WHEN {$table}.stage IS NULL OR {$table}.stage = '' THEN {$table}.status
-                    ELSE {$table}.stage
-                END
-            ";
+            return $baseStageSql;
         }
 
         $currentUserId = (int) ($context['currentUserId'] ?? 0);
@@ -2002,12 +2002,7 @@ class LeadController extends Controller
                      AND ({$table}.assigned_to != {$currentUserId} OR {$virtualPendingFlag} = 1)
                      AND {$noActionAfterResetSql}
                 THEN 'pending'
-                WHEN ({$table}.stage IS NULL OR {$table}.stage = '')
-                     AND ({$table}.status IS NULL OR {$table}.status = '')
-                THEN 'new lead'
-                WHEN {$table}.stage IS NULL OR {$table}.stage = ''
-                THEN {$table}.status
-                ELSE {$table}.stage
+                ELSE ({$baseStageSql})
             END
         ";
     }
@@ -2724,6 +2719,12 @@ class LeadController extends Controller
         $user = $request->user();
         $query = Lead::query();
 
+        $workflowFilter = strtolower(trim((string) $request->input('workflow_key', '')));
+        if (!in_array($workflowFilter, [TelesalesService::WORKFLOW_SALES, TelesalesService::WORKFLOW_TELESALES], true)) {
+            $workflowFilter = TelesalesService::WORKFLOW_SALES;
+        }
+        $query->where('workflow_key', $workflowFilter);
+
         if (!$user->is_super_admin) {
             $query->where('tenant_id', $user->tenant_id);
         }
@@ -2834,21 +2835,8 @@ class LeadController extends Controller
         $trendQuery = clone $query;
         $rawQuery = clone $query;
 
-        $currentUserId = $user->id;
-        $viewType = $request->get('view_type', 'all_leads');
-        $isManager = !in_array(strtolower($user->role ?? ''), ['sales person', 'salesperson']);
-        $isAllLeadsView = $viewType === 'all_leads';
-
-        // Keep stage bucketing consistent with /api/leads/stats (virtual "pending" stage rules).
-        $noActionAfterResetSql = $this->buildLeadNoActionAfterResetSql('leads');
-        $displayStageSql = "
-            CASE 
-                WHEN " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1 AND assigned_to = $currentUserId AND (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND {$noActionAfterResetSql} THEN 'pending'
-                WHEN (lower(stage) = 'new' or lower(stage) = 'new lead' or (lower(status) = 'new' and stage is null)) AND COALESCE(assigned_to, 0) > 0 AND assigned_to != $currentUserId AND {$noActionAfterResetSql} THEN 'pending'
-                WHEN (lower(stage) in ('coldcalls','cold calls','cold-call','cold_call','cold_calls','cold call')) AND COALESCE(assigned_to, 0) > 0 AND (assigned_to != $currentUserId OR " . ($isAllLeadsView && $isManager ? "1" : "0") . " = 1) AND {$noActionAfterResetSql} THEN 'pending'
-                ELSE stage
-            END
-        ";
+        $stageVisibility = $this->resolveLeadStageVisibilityContext($request, $user);
+        $displayStageSql = $this->buildLeadDisplayStageSql($stageVisibility);
 
         // 1. Value by Stage
         $byStage = $stageQuery->select(DB::raw("$displayStageSql as stage_name"), DB::raw('sum(estimated_value) as value'), DB::raw('count(*) as count'))
@@ -3703,7 +3691,9 @@ class LeadController extends Controller
             }
 
             if ($phoneCountryHint) {
-                $meta = is_array($lead->meta_data ?? null) ? ($lead->meta_data ?? []) : [];
+                $existingMeta = is_array($lead->meta_data ?? null) ? ($lead->meta_data ?? []) : [];
+                $incomingMeta = is_array($data['meta_data'] ?? null) ? ($data['meta_data'] ?? []) : [];
+                $meta = array_merge($existingMeta, $incomingMeta);
                 $meta['phone_country'] = $phoneCountryHint;
                 $data['meta_data'] = $meta;
             }

@@ -136,6 +136,22 @@ const getInventoryModulesByCompanyType = (companyType = 'General') => {
   return ['items', 'orders'];
 };
 
+const normalizeCustomModulesForEditor = (rawModules, companyType = 'General') => {
+  const modules = (Array.isArray(rawModules) ? rawModules : [])
+    .map((module) => (typeof module === 'string' ? module : module?.slug || module?.id || ''))
+    .filter(Boolean);
+
+  const inventoryModules = getInventoryModulesByCompanyType(companyType);
+  const hasAnyInventoryModule = inventoryModules.some((module) => modules.includes(module));
+  const normalized = modules.filter((module) => !inventoryModules.includes(module));
+
+  if (hasAnyInventoryModule) {
+    normalized.push('inventory');
+  }
+
+  return [...new Set(normalized)];
+};
+
 const toDateInputValue = (value) => {
   if (!value) return '';
   const stringValue = String(value);
@@ -2420,7 +2436,7 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
   // Custom Modules State
   const [customModules, setCustomModules] = useState(
     tenant.subscription_plan === 'custom' && tenant.modules 
-      ? tenant.modules.map(m => typeof m === 'string' ? m : m.slug || m)
+      ? normalizeCustomModulesForEditor(tenant.modules, tenant.company_type || 'General')
       : []
   );
 
@@ -2486,6 +2502,11 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
 
     setValue('admin_name', tenant.admin_name || tenant.owner?.name || '', { shouldDirty: false });
     setValue('admin_email', tenant.admin_email || tenant.owner?.email || '', { shouldDirty: false });
+    setCustomModules(
+      tenant.subscription_plan === 'custom' && tenant.modules
+        ? normalizeCustomModulesForEditor(tenant.modules, tenant.company_type || 'General')
+        : []
+    );
   }, [tenant, reset, setValue]);
 
   const selectedPlan = watch('plan');

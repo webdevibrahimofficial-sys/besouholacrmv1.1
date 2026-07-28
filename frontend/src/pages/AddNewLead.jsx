@@ -972,9 +972,6 @@ export const AddNewLead = () => {
                         className={`flex-1 min-w-0 rounded-md border px-3 py-2 ${inputTone}`}
                         placeholder={t('Mobile number')}
                       />
-                      {phoneErrors[0] ? (
-                        <span className="text-xs text-red-600">{phoneErrors[0]}</span>
-                      ) : null}
                       <button
                         type="button"
                         onClick={addMobileNumber}
@@ -987,33 +984,38 @@ export const AddNewLead = () => {
                         </svg>
                       </button>
                     </div>
+                    {phoneErrors[0] ? (
+                      <p className="mt-1 text-xs text-red-600">{phoneErrors[0]}</p>
+                    ) : null}
                     {/* Extra mobile numbers */}
                     {mobileNumbers.slice(1).map((m, idx) => (
-                      <div key={idx} className="mt-2 flex items-center gap-2 sm:gap-3">
-                        <CountryCodeSelect
-                          value={m.code}
-                          onChange={(val) => updateMobileNumber(idx + 1, 'code', val)}
-                          isLight={isLight} inputTone={inputTone} isRTL={isRTL}
-                        />
-                        <input
-                          type="tel"
-                          value={m.number}
-                          onChange={(e) => updateMobileNumber(idx + 1, 'number', e.target.value)}
-                          className={`flex-1 min-w-0 rounded-md border px-3 py-2 ${inputTone}`}
-                          placeholder={t('Another mobile number')}
-                        />
+                      <div key={idx} className="mt-2">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                          <CountryCodeSelect
+                            value={m.code}
+                            onChange={(val) => updateMobileNumber(idx + 1, 'code', val)}
+                            isLight={isLight} inputTone={inputTone} isRTL={isRTL}
+                          />
+                          <input
+                            type="tel"
+                            value={m.number}
+                            onChange={(e) => updateMobileNumber(idx + 1, 'number', e.target.value)}
+                            className={`flex-1 min-w-0 rounded-md border px-3 py-2 ${inputTone}`}
+                            placeholder={t('Another mobile number')}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeMobileNumber(idx + 1)}
+                            className={`inline-flex items-center justify-center px-3 py-2 rounded-md border ${isLight ? 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100' : 'bg-gray-800 border-gray-700 text-red-300 hover:bg-gray-700'}`}
+                            aria-label={t('Remove number')}
+                            title={t('Remove number')}
+                          >
+                            <FaTimes className="w-4 h-4" />
+                          </button>
+                        </div>
                         {phoneErrors[idx + 1] ? (
-                          <span className="text-xs text-red-600">{phoneErrors[idx + 1]}</span>
+                          <p className="mt-1 text-xs text-red-600">{phoneErrors[idx + 1]}</p>
                         ) : null}
-                        <button
-                          type="button"
-                          onClick={() => removeMobileNumber(idx + 1)}
-                          className={`inline-flex items-center justify-center px-3 py-2 rounded-md border ${isLight ? 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100' : 'bg-gray-800 border-gray-700 text-red-300 hover:bg-gray-700'}`}
-                          aria-label={t('Remove number')}
-                          title={t('Remove number')}
-                        >
-                          <FaTimes className="w-4 h-4" />
-                        </button>
                       </div>
                     ))}
                   </div>

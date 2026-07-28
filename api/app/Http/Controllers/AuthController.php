@@ -9,10 +9,10 @@ use App\Models\Tenant;
 use App\Services\AdminEventNotificationService;
 use App\Services\TenantBootstrapper;
 use App\Services\UserPanelContextService;
-
 use App\Mail\TwoFactorCodeEmail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 
 class AuthController extends Controller
 {
@@ -713,6 +713,7 @@ class AuthController extends Controller
     public function updateCompany(Request $request)
     {
         $request->validate([
+            'name' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'logo' => 'nullable|image|max:2048', // 2MB Max
             'country' => 'nullable|string',
@@ -734,6 +735,10 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid tenant context'], 403);
         }
 
+        if ($request->has('name')) {
+            $tenant->name = $request->name;
+        }
+
         // Update profile JSON
         $profile = $tenant->profile ?? [];
 
@@ -745,6 +750,9 @@ class AuthController extends Controller
         }
         if ($request->has('tax_id')) {
             $profile['tax_id'] = $request->tax_id;
+        }
+        if ($request->has('website_url')) {
+            $profile['website_url'] = $request->website_url;
         }
 
         // Handle Logo Upload
@@ -767,8 +775,12 @@ class AuthController extends Controller
             $tenant->address_line_1 = $request->address_line_1;
         if ($request->has('address_line_2'))
             $tenant->address_line_2 = $request->address_line_2;
-        if ($request->has('website_url'))
+        if (
+            $request->has('website_url')
+            && Schema::connection($tenant->getConnectionName())->hasColumn($tenant->getTable(), 'website_url')
+        ) {
             $tenant->website_url = $request->website_url;
+        }
 
         $tenant->save();
 

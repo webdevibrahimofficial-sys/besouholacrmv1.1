@@ -1307,29 +1307,6 @@ export const Dashboard = () => {
             </div>
           </section>
 
-          <section className="grid grid-cols-1 gap-6 mb-12">
-            <div className="p-4 glass-panel rounded-lg shadow-md">
-              <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
-                <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'} flex items-center gap-3`}>
-                  <span>{i18n.language === 'ar' ? 'الليدز المحولة إلى التيليسيلز' : 'Leads Transferred To Telesales'}</span>
-                  <span className="inline-flex items-center justify-center min-w-8 h-7 px-2 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 text-sm font-bold">
-                    {salesToTelesalesRows.length}
-                  </span>
-                </h3>
-                <button onClick={() => setSalesToTelesalesOpenMobile(v => !v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </button>
-              </div>
-              <div className={`${salesToTelesalesOpenMobile ? 'block' : 'hidden'} md:block`}>
-                <SalesToTelesalesTransfers
-                  rows={salesToTelesalesRows}
-                  loading={salesToTelesalesLoading}
-                />
-              </div>
-            </div>
-          </section>
           {/* Leads Status (3), Active Users (4), Active Campaigns (5) in 12 cols - moved above Leads Analysis */}
           <div className={`${showSalesLimited ? 'grid grid-cols-1' : 'grid grid-cols-1 lg:grid-cols-12'} gap-4 mb-10 items-stretch`}>
             {/* Active Users (first) */}
@@ -1556,6 +1533,30 @@ export const Dashboard = () => {
                 <div className={`${pipelineAnalysisOpenMobile ? 'block' : 'hidden'} md:block`} ref={pipelineAnalysisChartRef}>
                   <PipelineAnalysis selectedEmployee={effectiveEmployeeName} selectedManager={selectedManager} dateFrom={dateFrom} dateTo={dateTo} exportMode={exportingChartKey === 'pipeline-analysis'} />
                 </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 gap-6 mb-12 mt-4">
+            <div className="p-4 glass-panel rounded-lg shadow-md">
+              <div className="section-header flex items-center w-full justify-between gap-2 mb-4">
+                <h3 className={`flex-1 text-2xl font-bold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'} flex items-center gap-3`}>
+                  <span>{i18n.language === 'ar' ? 'الليدز المحولة إلى التيليسيلز' : 'Leads Transferred To Telesales'}</span>
+                  <span className="inline-flex items-center justify-center min-w-8 h-7 px-2 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 text-sm font-bold">
+                    {salesToTelesalesRows.length}
+                  </span>
+                </h3>
+                <button onClick={() => setSalesToTelesalesOpenMobile(v => !v)} className="close-btn md:hidden flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+              </div>
+              <div className={`${salesToTelesalesOpenMobile ? 'block' : 'hidden'} md:block`}>
+                <SalesToTelesalesTransfers
+                  rows={salesToTelesalesRows}
+                  loading={salesToTelesalesLoading}
+                />
               </div>
             </div>
           </section>

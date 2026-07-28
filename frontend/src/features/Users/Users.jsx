@@ -888,6 +888,55 @@ export default function UserManagementUsers() {
       alert(bulkLabels.selectUsersFirst);
       return;
     }
+
+    if (selectedUserIds.length === 1) {
+      await deleteUser(selectedUserIds[0]);
+      return;
+    }
+
+    const selectedTargets = users.filter((u) => selectedUserIds.includes(u.id));
+    const protectedTenantAdmin = selectedTargets.find((target) => {
+      const targetRole = String(target?.role || '').toLowerCase();
+      return targetRole === 'admin' || targetRole === 'tenant admin' || targetRole === 'tenant-admin';
+    });
+
+    if (protectedTenantAdmin) {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isArabic
+            ? 'لا يمكن حذف مسؤول التينانت الأساسي من الحذف الجماعي.'
+            : 'The primary tenant admin cannot be deleted from bulk actions.',
+        },
+      }));
+      return;
+    }
+
+    try {
+      for (const target of selectedTargets) {
+        const summaryRes = await api.get(`/api/users/${target.id}/dependency-summary`);
+        const summary = summaryRes?.data || null;
+        if (summary && !summary.can_delete) {
+          setDeleteTargetUser(target);
+          setDeleteDependencySummary(summary);
+          setDeleteDependencyError('');
+          setShowDeleteReassignModal(true);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load user dependency summary for bulk delete', error);
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isArabic
+            ? 'فشل تحميل اعتماديات المستخدمين قبل الحذف الجماعي'
+            : 'Failed to load user dependencies before bulk delete',
+        },
+      }));
+      return;
+    }
+
     const confirmed = window.confirm(bulkLabels.confirmDelete);
     if (!confirmed) return;
 
