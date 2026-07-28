@@ -6,6 +6,7 @@ use App\Models\LeadAction;
 use App\Models\Lead;
 use App\Models\User;
 use App\Models\Property;
+use App\Services\MeetingActionService;
 use App\Notifications\LeadActionCreated;
 use App\Notifications\LeadActionCommentNotification;
 use Illuminate\Support\Facades\Notification;
@@ -23,6 +24,11 @@ use Illuminate\Support\Str;
 class LeadActionController extends Controller
 {
     use ResolvesNotificationRecipients, UserHierarchyTrait;
+
+    public function __construct(
+        private readonly MeetingActionService $meetingActionService
+    ) {
+    }
 
     private function tenantConnection()
     {
@@ -71,178 +77,58 @@ class LeadActionController extends Controller
         return $action;
     }
 
-    private function normalizeMeetingStatus($status, $doneMeeting = null): string
-    {
-        $s = strtolower(trim((string) ($status ?? '')));
-        if ($s === 'done') return 'done';
-        if ($s === 'no_show' || $s === 'no show' || $s === 'noshow' || $s === 'missed') return 'no_show';
-        if ($s === 'cancelled' || $s === 'canceled' || $s === 'cancel') return 'cancelled';
-        if ($s === 'scheduled' || $s === 'schedule' || $s === 'arranged') return 'scheduled';
-
-        $dm = $doneMeeting;
-        if (is_string($dm)) {
-            $dm = strtolower(trim($dm));
-        }
-        if ($dm === true || $dm === 1 || $dm === '1' || $dm === 'true') return 'done';
-
-        return 'scheduled';
-    }
-
-    private function isMeetingCorrectionRequested(Request $request, array $details): bool
-    {
-        try {
-            if ($request->boolean('correction')) return true;
-            if ($request->boolean('reopen')) return true;
-        } catch (\Throwable $e) {
-        }
-
-        $c = $details['correction'] ?? $details['reopen'] ?? null;
-        if ($c === true || $c === 1 || $c === '1') return true;
-        if (is_string($c) && strtolower(trim($c)) === 'true') return true;
-
-        return false;
-    }
-
-    private function meetingKeyFromDetails(int $leadId, array $details): string
-    {
-        $date = trim((string)($details['date'] ?? ''));
-        $time = trim((string)($details['time'] ?? ''));
-        $type = trim((string)($details['meetingType'] ?? ''));
-        $location = trim((string)($details['meetingLocation'] ?? ''));
-        return $leadId . '|' . $date . '|' . $time . '|' . $type . '|' . $location;
-    }
-
-    private function meetingIdentityFromDetails(int $leadId, array $details): string
-    {
-        $date = trim((string)($details['date'] ?? ''));
-        $time = trim((string)($details['time'] ?? ''));
-        return $leadId . '|' . $date . '|' . $time;
-    }
-
-    private function loadRecentMeetingActions(int $leadId, int $limit = 200)
-    {
-        return LeadAction::query()
-            ->where('lead_id', $leadId)
-            ->where(function ($q) {
-                $q->where('action_type', 'meeting')
-                    ->orWhere('next_action_type', 'meeting');
-            })
-            ->orderByDesc('id')
-            ->limit($limit)
-            ->get();
-    }
-
-    private function maxFinalRankForMeetingKey($meetingActions, string $meetingKey): int
-    {
-        $rank = 0;
-        foreach ($meetingActions as $a) {
-            $d = $a->details;
-            if (!is_array($d)) {
-                $d = json_decode($d, true) ?? [];
-            }
-            $key = $this->meetingKeyFromDetails((int)$a->lead_id, $d);
-            if ($key !== $meetingKey) continue;
-
-            $status = $this->extractMeetingStatus($d);
-            if ($status === 'done') $rank = max($rank, 2);
-            elseif ($status === 'no_show') $rank = max($rank, 1);
-        }
-        return $rank;
-    }
-
-    private function findLatestActionForMeetingKey($meetingActions, string $meetingKey): ?LeadAction
-    {
-        foreach ($meetingActions as $a) {
-            $d = $a->details;
-            if (!is_array($d)) {
-                $d = json_decode($d, true) ?? [];
-            }
-            $key = $this->meetingKeyFromDetails((int)$a->lead_id, $d);
-            if ($key === $meetingKey) return $a;
-        }
-        return null;
-    }
-
     private function extractMeetingStatus(array $details): string
     {
-        return $this->normalizeMeetingStatus($details['meeting_status'] ?? null, $details['doneMeeting'] ?? null);
+        return $this->meetingActionService->normalizeMeetingStatus($details['meeting_status'] ?? null, $details['doneMeeting'] ?? null);
+    }
+
+    private function normalizeMeetingStatus($status, $doneMeeting = null): string
+    {
+        return $this->meetingActionService->normalizeMeetingStatus($status, $doneMeeting);
     }
 
     private function applyMeetingStatus(array $details, string $status): array
     {
-        $nowIso = now()->toISOString();
-
-        if (empty($details['arranged_at'])) {
-            $details['arranged_at'] = $nowIso;
-        }
-
-        if ($status === 'scheduled' && empty($details['scheduled_at'])) {
-            $details['scheduled_at'] = $nowIso;
-        }
-
-        if ($status === 'done') {
-            if (empty($details['done_at'])) {
-                $details['done_at'] = $nowIso;
-            }
-            $details['doneMeeting'] = 'true';
-        }
-
-        if ($status === 'no_show') {
-            if (empty($details['missed_at'])) {
-                $details['missed_at'] = $nowIso;
-            }
-            $details['doneMeeting'] = 'false';
-        }
-
-        $details['meeting_status'] = $status;
-        $details['meeting_status_changed_at'] = $nowIso;
-
-        return $details;
+        return $this->meetingActionService->applyMeetingStatus($details, $status);
     }
 
-    private function extractNextActionSchedule(array $payload): array
+    private function loadRecentMeetingActions(int $leadId, int $limit = 200)
     {
-        $type = trim((string) ($payload['next_action_type'] ?? ''));
-        $date = trim((string) ($payload['next_action_date'] ?? $payload['nextActionDate'] ?? ''));
-        $time = trim((string) ($payload['next_action_time'] ?? $payload['nextActionTime'] ?? ''));
-
-        return [$type, $date, $time];
+        return collect();
     }
 
-    private function ensureMeetingCloseHasNextAction(array $payload): array
+    private function meetingKeyFromDetails(int $leadId, array $details): string
     {
-        [$type, $date, $time] = $this->extractNextActionSchedule($payload);
-        $errors = [];
+        return (string) $leadId;
+    }
 
-        if ($type === '') {
-            $errors['next_action_type'] = ['next_action_type is required when closing a meeting.'];
-        }
-        if ($date === '') {
-            $errors['next_action_date'] = ['next_action_date is required when closing a meeting.'];
-        }
-        if ($time === '') {
-            $errors['next_action_time'] = ['next_action_time is required when closing a meeting.'];
-        }
+    private function meetingIdentityFromDetails(int $leadId, array $details): string
+    {
+        return (string) $leadId;
+    }
 
-        if (!empty($errors)) {
-            throw \Illuminate\Validation\ValidationException::withMessages($errors);
-        }
+    private function maxFinalRankForMeetingKey($meetingActions, string $meetingKey): int
+    {
+        return 0;
+    }
 
-        return [$type, $date, $time];
+    private function findLatestActionForMeetingKey($meetingActions, string $meetingKey): ?LeadAction
+    {
+        return null;
+    }
+
+    private function isMeetingCorrectionRequested(Request $request, array $details): bool
+    {
+        return false;
     }
 
     private function applyMeetingCloseNextAction(LeadAction $meetingAction, array &$details, array $payload): void
     {
-        [$nextType, $nextDate, $nextTime] = $this->ensureMeetingCloseHasNextAction($payload);
+    }
 
-        $meetingAction->next_action_type = $nextType;
-        $details['status'] = 'pending';
-        $details['next_action_type'] = $nextType;
-        $details['next_action_date'] = $nextDate;
-        $details['next_action_time'] = $nextTime;
-        $details['nextActionType'] = $nextType;
-        $details['nextActionDate'] = $nextDate;
-        $details['nextActionTime'] = $nextTime;
+    private function writeMeetingAudit(LeadAction $leadAction, ?string $fromStatus, string $toStatus, ?int $userId): void
+    {
+        $this->meetingActionService->writeMeetingAudit($leadAction, $fromStatus, $toStatus, $userId);
     }
 
     private function decorateActionTimingState(LeadAction $leadAction): LeadAction
@@ -300,31 +186,6 @@ class LeadActionController extends Controller
 
         $leadAction->setAttribute('details', $details);
         return $leadAction;
-    }
-
-    private function writeMeetingAudit(LeadAction $leadAction, ?string $fromStatus, string $toStatus, ?int $userId): void
-    {
-        try {
-            if (!$this->tenantSchema()->hasTable('lead_action_status_audits')) {
-                return;
-            }
-            $lead = $leadAction->lead ?? Lead::find($leadAction->lead_id);
-            $this->tenantConnection()->table('lead_action_status_audits')->insert([
-                'tenant_id' => $lead?->tenant_id,
-                'lead_action_id' => $leadAction->id,
-                'lead_id' => $leadAction->lead_id,
-                'from_status' => $fromStatus,
-                'to_status' => $toStatus,
-                'changed_by' => $userId,
-                'changed_at' => now(),
-                'meta' => json_encode([
-                    'action_type' => $leadAction->action_type,
-                ]),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        } catch (\Throwable $e) {
-        }
     }
 
     private function isManagerLike($user): bool
@@ -732,6 +593,43 @@ class LeadActionController extends Controller
         return response()->json($report);
     }
 
+    public function meetingReport(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            abort(401, 'Unauthorized');
+        }
+
+        $employeeIds = $request->input('employee_ids', []);
+        if (!is_array($employeeIds)) {
+            $employeeIds = [];
+        }
+
+        $managerId = $request->filled('manager_id') ? (int) $request->input('manager_id') : null;
+        $roleLower = strtolower((string) ($user->role ?? ''));
+        $isAdminOrManager = $user->is_super_admin
+            || in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager'], true);
+
+        if (!empty($employeeIds)) {
+            $userIds = array_map('intval', $employeeIds);
+        } elseif (!$isAdminOrManager) {
+            $userIds = $this->meetingActionService->resolveViewableUserIds($user, $managerId);
+            if (empty($userIds)) {
+                $userIds = [(int) $user->id];
+            }
+        } elseif ($managerId) {
+            $userIds = $this->meetingActionService->resolveViewableUserIds($user, $managerId);
+        } else {
+            $userIds = User::query()
+                ->where('tenant_id', $user->tenant_id)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        return response()->json($this->meetingActionService->getSalespersonMeetingReport($userIds));
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -1045,27 +943,11 @@ class LeadActionController extends Controller
         // Ensure action priority matches lead priority
         $details['priority'] = $lead->priority ?? ($details['priority'] ?? 'medium');
 
-        // Meeting Logic & Scoring
-        if ($request->type === 'meeting' || $request->next_action_type === 'meeting') {
-            $mStatus = $this->normalizeMeetingStatus($request->meeting_status ?? null, $request->doneMeeting ?? null);
-            $details = $this->applyMeetingStatus($details, $mStatus);
-            
-            // Track missed meetings count for warnings
-            $missedCount = $lead->missed_meetings_count ?? 0;
-            
-            if ($mStatus === 'no_show') {
-                $missedCount++;
-            } elseif ($mStatus === 'done') {
-            }
-            
-            $lead->missed_meetings_count = $missedCount;
-            // The score is now calculated as (Done / Arrange) * 100 in reports
-            $lead->save();
-
-            // Trigger Warning if missed count >= 3
-            if ($missedCount >= 3) {
-                $details['warning'] = "This lead has missed $missedCount meetings. Exercise caution.";
-            }
+        $isMeetingStage = ($request->type === 'meeting' || $request->next_action_type === 'meeting');
+        if ($isMeetingStage) {
+            $this->meetingActionService->validateNextActionDate($request->all());
+            $meetingStatus = $this->meetingActionService->normalizeMeetingStatus($request->meeting_status ?? null, $request->doneMeeting ?? null);
+            $details = $this->meetingActionService->applyMeetingStatus($details, $meetingStatus);
         }
 
         // --- Handle Attachments (Base64) ---
@@ -1108,7 +990,7 @@ class LeadActionController extends Controller
 
         // --- Level 1 Data Integrity (Meetings) ---
         // Enforce single final state per meetingKey and prevent multiple open meetings per lead.
-        if (($request->type === 'meeting' || $request->next_action_type === 'meeting')) {
+        if (false && ($request->type === 'meeting' || $request->next_action_type === 'meeting')) {
             $recentMeetings = $this->loadRecentMeetingActions((int) $request->lead_id, 200);
             $meetingKey = $this->meetingKeyFromDetails((int) $request->lead_id, $details);
             $allowCorrection = $this->isMeetingCorrectionRequested($request, $details) && ($user->is_super_admin || $this->isManagerLike($user));
@@ -1308,19 +1190,27 @@ class LeadActionController extends Controller
             }
         }
 
-        $leadAction = LeadAction::create([
-            'lead_id' => $request->lead_id,
-            'user_id' => Auth::id(), // The Actor (who performed the action)
-            'action_type' => $request->type,
-            'description' => $description,
-            'stage_id_at_creation' => $request->stage_id,
-            'next_action_type' => $request->next_action_type,
-            'details' => $details,
-        ]);
-
-        if ($leadAction->action_type === 'meeting' || $leadAction->next_action_type === 'meeting') {
-            $status = $this->extractMeetingStatus(is_array($leadAction->details ?? []) ? ($leadAction->details ?? []) : []);
-            $this->writeMeetingAudit($leadAction, null, $status, Auth::id());
+        if ($isMeetingStage) {
+            $details['type'] = $request->type;
+            $leadAction = $this->meetingActionService->recordAction(
+                $lead,
+                $actor,
+                $details,
+                $description,
+                $request->stage_id ? (int) $request->stage_id : null,
+                $request->next_action_type
+            );
+            unset($details['type']);
+        } else {
+            $leadAction = LeadAction::create([
+                'lead_id' => $request->lead_id,
+                'user_id' => Auth::id(), // The Actor (who performed the action)
+                'action_type' => $request->type,
+                'description' => $description,
+                'stage_id_at_creation' => $request->stage_id,
+                'next_action_type' => $request->next_action_type,
+                'details' => $details,
+            ]);
         }
 
         // Revenue Creation Logic: Attribute to Salesperson (Lead Assignee)
@@ -1702,7 +1592,30 @@ class LeadActionController extends Controller
                 // Never block updates if this logic fails.
             }
 
-            if ($leadAction->action_type === 'meeting' || ($leadAction->next_action_type === 'meeting')) {
+            if ($leadAction->action_type === 'meeting' || $leadAction->next_action_type === 'meeting') {
+                $merged = array_merge($currentDetails, $incomingDetails);
+                unset($merged['arranged_at']);
+
+                if (array_key_exists('meeting_status', $incomingDetails) || array_key_exists('doneMeeting', $incomingDetails)) {
+                    $newStatus = $this->meetingActionService->normalizeMeetingStatus($incomingDetails['meeting_status'] ?? null, $incomingDetails['doneMeeting'] ?? null);
+                    $merged = $this->meetingActionService->applyMeetingStatus($merged, $newStatus);
+                    $this->writeMeetingAudit($leadAction, $this->extractMeetingStatus($currentDetails), $newStatus, $user->id);
+                }
+
+                if (array_key_exists('date', $incomingDetails) || array_key_exists('time', $incomingDetails)) {
+                    $this->meetingActionService->validateNextActionDate($merged);
+                }
+
+                $leadAction->details = $merged;
+                $leadAction->save();
+
+                return response()->json([
+                    'message' => 'Updated',
+                    'action' => $this->decorateActionTimingState($leadAction->fresh()->load('user')),
+                ]);
+            }
+
+            if (false && ($leadAction->action_type === 'meeting' || ($leadAction->next_action_type === 'meeting'))) {
                 $hasMeetingUpdate = array_key_exists('meeting_status', $incomingDetails) || array_key_exists('doneMeeting', $incomingDetails);
                 if ($hasMeetingUpdate) {
                     unset($incomingDetails['arranged_at']);
@@ -1942,19 +1855,6 @@ class LeadActionController extends Controller
             abort(403, 'Referral supervisors cannot delete actions.');
         }
         
-        // Prevent deletion of "Missed" meetings (No Show) for analysis
-        $details = $leadAction->details;
-        if (!is_array($details)) {
-            $details = json_decode($details, true) ?? [];
-        }
-        
-        $mStatus = $details['meeting_status'] ?? null;
-        if ($mStatus === 'no_show') {
-            return response()->json([
-                'message' => 'Cannot delete a missed meeting record. This is kept for behavioral analysis.'
-            ], 403);
-        }
-
         $leadAction->delete();
 
         return response()->json(['message' => 'Lead action deleted successfully']);

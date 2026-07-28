@@ -1622,91 +1622,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         ...cleanedData
       };
 
-      let response = null;
-      const isMeetingPayload = payload.type === 'meeting' || payload.next_action_type === 'meeting' || cleanedData.nextAction === 'meeting';
-      const meetingStatus = String(cleanedData.meeting_status || '').toLowerCase().trim();
-      const isFinalMeetingStatus = meetingStatus === 'done' || meetingStatus === 'no_show';
-
-      if (isMeetingPayload && meetingStatus === 'scheduled') {
-        try {
-          const existingRes = await api.get('/api/lead-actions', {
-            params: { lead_id: lead.id, type: 'meeting', limit: 500 },
-          });
-          const existing = Array.isArray(existingRes.data) ? existingRes.data : (existingRes.data?.data || []);
-          const open = existing
-            .filter(a => (a?.action_type === 'meeting' || a?.next_action_type === 'meeting'))
-            .filter(a => String(a?.details?.meeting_status || '').toLowerCase().trim() === 'scheduled')
-            .sort((a, b) => (Number(b?.id || 0) - Number(a?.id || 0)))[0];
-
-          if (open?.id) {
-            const d = String(open?.details?.date || '').trim();
-            const t = String(open?.details?.time || '').trim();
-            const when = `${d}${t ? ` ${String(t).slice(0, 5)}` : ''}`.trim();
-            toast('error', isArabic
-              ? `يوجد اجتماع مفتوح بالفعل (Scheduled). أغلقه (Done/Missed) أو عدّل موعده أولاً.${when ? ` موعده: ${when}` : ''}`
-              : `There is already an open (Scheduled) meeting. Close it (Done/Missed) or reschedule first.${when ? ` When: ${when}` : ''}`);
-            return;
-          }
-        } catch (e) {
-        }
-      }
-
-      if (isMeetingPayload && isFinalMeetingStatus) {
-        if (!String(cleanedData.nextAction || '').trim()) {
-          toast('error', isArabic ? 'من فضلك اختر نوع الإجراء القادم' : 'Please choose the next action type');
-          return;
-        }
-        if (!String(cleanedData.date || '').trim()) {
-          toast('error', isArabic ? 'من فضلك اختر تاريخ الإجراء القادم' : 'Please choose the next action date');
-          return;
-        }
-        if (!String(cleanedData.time || '').trim()) {
-          toast('error', isArabic ? 'من فضلك اختر وقت الإجراء القادم' : 'Please choose the next action time');
-          return;
-        }
-
-        const existingRes = await api.get('/api/lead-actions', {
-          params: { lead_id: lead.id, type: 'meeting', limit: 500 },
-        });
-        const existing = Array.isArray(existingRes.data) ? existingRes.data : (existingRes.data?.data || []);
-        const scheduledCandidates = existing
-          .filter(a => (a?.action_type === 'meeting' || a?.next_action_type === 'meeting'))
-          .filter(a => {
-            const s = String(a?.details?.meeting_status || '').toLowerCase().trim();
-            const dm = String(a?.details?.doneMeeting || '').toLowerCase().trim();
-            const derived = s || (dm === 'true' ? 'done' : '');
-            return derived !== 'done' && derived !== 'no_show';
-          })
-          .sort((a, b) => (Number(b?.id || 0) - Number(a?.id || 0)));
-
-        const exactMatch = scheduledCandidates.find(a =>
-          String(a?.details?.date || '') === String(cleanedData.date || '') &&
-          String(a?.details?.time || '') === String(cleanedData.time || '')
-        );
-
-        const target = exactMatch || scheduledCandidates[0];
-        if (!target?.id) {
-          throw new Error(isArabic ? 'لم يتم العثور على اجتماع مفتوح لإغلاقه' : 'No open meeting found to close');
-        }
-
-        response = await api.put(`/api/lead-actions/${target.id}`, {
-          next_action_type: cleanedData.nextAction,
-          next_action_date: cleanedData.date,
-          next_action_time: cleanedData.time,
-          details: {
-            meeting_status: meetingStatus,
-            doneMeeting: meetingStatus === 'done',
-            notes: cleanedData.notes,
-            next_action_type: cleanedData.nextAction,
-            next_action_date: cleanedData.date,
-            next_action_time: cleanedData.time,
-          },
-        });
-      }
-
-      if (!response) {
-        response = await api.post('/api/lead-actions', payload);
-      }
+      const response = await api.post('/api/lead-actions', payload);
 
       if (cleanedData.stage_id) {
         const tenantId = company?.id || company?.tenant_id || company?.tenantId;
@@ -1726,11 +1642,6 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
       // Make common meeting errors clearer to users
       const rawMsg = String(msg || '').toLowerCase();
-      if (rawMsg.includes('open') && rawMsg.includes('meeting')) {
-        msg = isArabic
-          ? 'هناك اجتماع مفتوح بالفعل (Scheduled) لهذه الليد. أغلق الاجتماع الحالي (Done/Missed) أو عدّل موعده قبل ترتيب اجتماع جديد.'
-          : 'There is already an open (Scheduled) meeting for this lead. Close it (Done/Missed) or reschedule before arranging a new one.';
-      }
       if (rawMsg.includes('only the lead owner')) {
         msg = isArabic
           ? 'مسموح فقط لصاحب الليد بتنفيذ الأكشن. لو محتاج، قم بإسناد الليد لك أولًا.'

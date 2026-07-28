@@ -732,6 +732,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
         Route::post('leads/bulk-status', [LeadController::class , 'bulkStatus']);
 
         Route::get('lead-actions/activity-report', [\App\Http\Controllers\LeadActionController::class, 'activityReport']);
+        Route::get('lead-actions/meeting-report', [\App\Http\Controllers\LeadActionController::class, 'meetingReport']);
         Route::apiResource('lead-actions', \App\Http\Controllers\LeadActionController::class);
         Route::apiResource('visits', \App\Http\Controllers\VisitController::class);
         Route::apiResource('units', \App\Http\Controllers\UnitController::class);
