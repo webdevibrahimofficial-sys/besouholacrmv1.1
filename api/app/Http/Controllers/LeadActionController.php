@@ -82,50 +82,6 @@ class LeadActionController extends Controller
         return $this->meetingActionService->normalizeMeetingStatus($details['meeting_status'] ?? null, $details['doneMeeting'] ?? null);
     }
 
-    private function normalizeMeetingStatus($status, $doneMeeting = null): string
-    {
-        return $this->meetingActionService->normalizeMeetingStatus($status, $doneMeeting);
-    }
-
-    private function applyMeetingStatus(array $details, string $status): array
-    {
-        return $this->meetingActionService->applyMeetingStatus($details, $status);
-    }
-
-    private function loadRecentMeetingActions(int $leadId, int $limit = 200)
-    {
-        return collect();
-    }
-
-    private function meetingKeyFromDetails(int $leadId, array $details): string
-    {
-        return (string) $leadId;
-    }
-
-    private function meetingIdentityFromDetails(int $leadId, array $details): string
-    {
-        return (string) $leadId;
-    }
-
-    private function maxFinalRankForMeetingKey($meetingActions, string $meetingKey): int
-    {
-        return 0;
-    }
-
-    private function findLatestActionForMeetingKey($meetingActions, string $meetingKey): ?LeadAction
-    {
-        return null;
-    }
-
-    private function isMeetingCorrectionRequested(Request $request, array $details): bool
-    {
-        return false;
-    }
-
-    private function applyMeetingCloseNextAction(LeadAction $meetingAction, array &$details, array $payload): void
-    {
-    }
-
     private function writeMeetingAudit(LeadAction $leadAction, ?string $fromStatus, string $toStatus, ?int $userId): void
     {
         $this->meetingActionService->writeMeetingAudit($leadAction, $fromStatus, $toStatus, $userId);
@@ -985,7 +941,7 @@ class LeadActionController extends Controller
         // -----------------------------------
 
         $meetingStatus = ($request->type === 'meeting' || $request->next_action_type === 'meeting')
-            ? $this->normalizeMeetingStatus($details['meeting_status'] ?? null, $details['doneMeeting'] ?? null)
+            ? $this->meetingActionService->normalizeMeetingStatus($details['meeting_status'] ?? null, $details['doneMeeting'] ?? null)
             : null;
 
         // --- Level 1 Data Integrity (Meetings) ---
@@ -1868,3 +1824,5 @@ class LeadActionController extends Controller
         return response()->json($leadAction->load(['user', 'lead']));
     }
 }
+
+

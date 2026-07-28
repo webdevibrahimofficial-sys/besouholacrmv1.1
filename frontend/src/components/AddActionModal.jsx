@@ -1057,7 +1057,6 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     setActionData(prev => ({
       ...prev,
       meeting_status: status,
-      doneMeeting: status === 'done',
       notes: selectedStatus ? selectedStatus.label : prev.notes
     }));
   };
@@ -1559,13 +1558,6 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         cleanedData.nextActionTime = '';
       }
 
-      // If user selected meeting as next action and didn't choose a meeting status,
-      // default to 'scheduled' to avoid backend validation/normalization edge cases.
-      if ((cleanedData.nextAction === 'meeting' || cleanedData.actionType === 'meeting') && !String(cleanedData.meeting_status || '').trim()) {
-        cleanedData.meeting_status = 'scheduled';
-        cleanedData.doneMeeting = false;
-      }
-
       if (isTelesalesWorkflowLead && isTransferStageSelected) {
         if (!transferSelectedUser?.id) {
           toast('error', isArabic ? 'من فضلك اختر عضو السيلز' : 'Please select a sales assignee');
@@ -1706,11 +1698,6 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       return () => { document.body.style.overflow = prev; };
     }
   }, [inline, isOpen]);
-
-  const isMeetingStage = lead?.stage && (
-    String(lead.stage).toLowerCase().includes('meeting') ||
-    String(lead.stage).includes('اجتماع')
-  );
 
   const isMeetingAction =
     actionData.nextAction === 'meeting' ||
