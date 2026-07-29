@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useQuery, keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -1897,15 +1897,15 @@ if (!s) {
   }
 
   const leadHistoryHeaderMap = {
-    name: ['client name', 'name', 'lead name', 'customer name', 'Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„', 'Ø§Ù„Ø§Ø³Ù…'],
-    phone: ['mobile', 'phone', 'contact', 'Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„', 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ', 'Ø§Ù„Ù‡Ø§ØªÙ'],
-    phone_country: ['phone country', 'phone_country', 'country code', 'countrycode', 'Ø±Ù…Ø² Ø§Ù„Ø¯ÙˆÙ„Ø©', 'ÙƒÙˆØ¯ Ø§Ù„Ø¯ÙˆÙ„Ø©'],
-    stage: ['stage', 'status', 'action type', 'Ø§Ù„Ù…Ø±Ø­Ù„Ø©', 'Ø§Ù„Ø§Ø³ØªÙŠØ¯Ø¬'],
+    name: ['client name', 'name', 'lead name', 'customer name', 'اسم العميل', 'الاسم'],
+    phone: ['mobile', 'phone', 'contact', 'الموبايل', 'رقم الهاتف', 'الهاتف'],
+    phone_country: ['phone country', 'phone_country', 'country code', 'countrycode', 'رمز الدولة', 'كود الدولة'],
+    stage: ['stage', 'status', 'action type', 'المرحلة', 'الاستيدج'],
     cancel_reason: ['cancel reason', 'cancelreason', 'cancel_reason', 'reason', 'reason text', 'reason title', 'سبب الالغاء', 'سبب الإلغاء'],
-    action_at: ['action date', 'follow date', 'date', 'history date', 'ØªØ§Ø±ÙŠØ®', 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'],
-    follow_date: ['follow date', 'next follow date', 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'],
-    assigned_to: ['sales rep', 'sales person', 'assigned to', 'assignedto', 'Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨', 'Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„'],
-    comment: ['comment', 'comments', 'note', 'notes', 'ØªØ¹Ù„ÙŠÙ‚', 'Ù…Ù„Ø§Ø­Ø¸Ø©'],
+    action_at: ['action date', 'follow date', 'date', 'history date', 'تاريخ', 'تاريخ المتابعة'],
+    follow_date: ['follow date', 'next follow date', 'تاريخ المتابعة'],
+    assigned_to: ['sales rep', 'sales person', 'assigned to', 'assignedto', 'المندوب', 'المسؤول'],
+    comment: ['comment', 'comments', 'note', 'notes', 'تعليق', 'ملاحظة'],
   }
 
   const findValue = (row, keys) => {
@@ -2267,7 +2267,7 @@ if (!s) {
       const { rows, mapping } = await parseExcelToLeadHistory(historyExcelFile, historySelectedSheet)
 
       if (!rows.length) {
-        setHistoryImportError(isRtl ? 'Ù…Ù„Ù Ø§Ù„Ù‡ÙŠØ³ØªÙˆØ±ÙŠ ÙØ§Ø±Øº.' : 'The history file is empty.')
+        setHistoryImportError(isRtl ? 'ملف السجل فارغ.' : 'The history file is empty.')
         return
       }
 
@@ -2276,7 +2276,7 @@ if (!s) {
       if (!mappedFields.includes('name') && !mappedFields.includes('phone')) {
         setHistoryImportError(
           isRtl
-            ? 'Ù„Ø§Ø²Ù… ÙŠÙƒÙˆÙ† ÙÙŠ Ø§Ù„Ù…Ù„Ù Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø£Ùˆ Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„ Ø¹Ù„Ø´Ø§Ù† Ù†Ø±Ø¨Ø· Ø§Ù„Ù‡ÙŠØ³ØªÙˆØ±ÙŠ Ø¨Ø§Ù„Ù„ÙŠØ¯ Ø§Ù„Ø­Ù‚ÙŠÙ‚ÙŠ.'
+            ? 'يجب أن يحتوي ملف السجل على اسم العميل أو رقم الموبايل لربط السجل بالعميل الفعلي.'
             : 'The history file must include either client name or mobile to match the real lead.'
         )
         return
@@ -2316,7 +2316,7 @@ if (!s) {
           detail: {
             type: builtSummary.added > 0 ? 'success' : (hasIssues ? 'warning' : 'error'),
             message: isRtl
-              ? `ØªÙ…Øª Ù…Ø¹Ø§Ù„Ø¬Ø© ${processedRows} ØµÙ Ù‡ÙŠØ³ØªÙˆØ±ÙŠ. Ø§Ù„Ù†Ø§Ø¬Ø­: ${builtSummary.newCount}ØŒ Ø§Ù„Ù…ÙƒØ±Ø±: ${builtSummary.duplicates}ØŒ Ø§Ù„Ù…Ø´Ø§ÙƒÙ„: ${builtSummary.failed + builtSummary.skipped}.`
+              ? ('تمت معالجة ' + processedRows + ' صف سجل. الناجح: ' + builtSummary.newCount + '، المكرر: ' + builtSummary.duplicates + '، المشاكل: ' + (builtSummary.failed + builtSummary.skipped) + '.')
               : `Processed ${processedRows} history rows. Success: ${builtSummary.newCount}, duplicates: ${builtSummary.duplicates}, issues: ${builtSummary.failed + builtSummary.skipped}.`,
           },
         })
@@ -3632,7 +3632,7 @@ if (!s) {
                     className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors border-t ${isLight ? 'text-black hover:bg-indigo-50 border-gray-100' : 'text-white hover:bg-slate-800 border-slate-800'}`}
                   >
                     <FaHistory className="text-violet-500" size={14} />
-                    <span>{isRtl ? 'استيراد الهيستوري' : 'Import History'}</span>
+                    <span>{isRtl ? 'استيراد السجل' : 'Import History'}</span>
                   </button>
                 </div>
               )}
@@ -3649,7 +3649,7 @@ if (!s) {
           </h2>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowAllFilters(prev => !prev)} className={`flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors`}>
-              {showAllFilters ? t('Hide ') : t('Show ')}
+              {showAllFilters ? (isRtl ? 'إخفاء' : 'Hide') : (isRtl ? 'إظهار الكل' : 'Show All')}
               <FaChevronDown size={12} className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`} />
             </button>
             <button
@@ -3723,8 +3723,12 @@ if (!s) {
                 value={sourceFilter}
                 multiple={true}
                 onChange={setSourceFilter}
-                options={sourcesList.map(s => ({ value: s.name, label: s.name }))}
-                placeholder={t('All')}
+                options={sourcesList.map(s => {
+                  const value = String(s?.name || '').trim()
+                  const label = isRtl ? (s?.name_ar || s?.name) : (s?.name || s?.name_ar)
+                  return value ? { value, label } : null
+                }).filter(Boolean)}
+                placeholder={isRtl ? 'الكل' : 'All'}
                 isRTL={isRtl}
               />
             </div>
@@ -3734,14 +3738,14 @@ if (!s) {
                 <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5V4H2v16h5m10 0v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4m10 0H7m10-10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
-                {t('Agency')}
+                {isRtl ? 'الوكالة' : 'Agency'}
               </label>
               <SearchableSelect
                 value={agencyFilter}
                 multiple={true}
                 onChange={setAgencyFilter}
                 options={(statsData?.agencies || []).map(agency => ({ value: agency, label: agency }))}
-                placeholder={t('All')}
+                placeholder={isRtl ? 'الكل' : 'All'}
                 isRTL={isRtl}
               />
             </div>
@@ -3762,9 +3766,9 @@ if (!s) {
                   { value: 'hot', label: t('Hot') },
                   { value: 'high', label: t('High') },
                   { value: 'medium', label: t('Medium') },
-                  { value: 'low', label: t('Low') }
+                  { value: 'low', label: t('Low') },
                 ]}
-                placeholder={t('All ')}
+                placeholder={isRtl ? 'الكل' : 'All'}
                 isRTL={isRtl}
               />
             </div>
@@ -3787,7 +3791,7 @@ if (!s) {
                     label: resolveInventoryOptionLabel(p),
                   }))
                   .filter(opt => opt.value && opt.label)}
-                placeholder={t('All')}
+                placeholder={isRtl ? 'الكل' : 'All'}
                 isRTL={isRtl}
               />
             </div>
@@ -3814,10 +3818,10 @@ if (!s) {
                     const fixedStages = [
                       { name: 'New', name_ar: 'جديد', icon: 'Sparkles' },
                       { name: 'Follow Up', name_ar: 'متابعة', icon: 'Clock' },
-                      { name: 'Cold Calls', name_ar: 'العملاء المحتملين', icon: 'Phone' },
+                      { name: 'Cold Calls', name_ar: 'العملاء المحتملون', icon: 'Phone' },
                       ...(!isSalesPerson ? [{ name: 'Pending', name_ar: 'معلقة', icon: 'Hourglass' }] : []),
-                      { name: 'Duplicate', name_ar: 'مكرر', icon: 'Copy' }
-                    ];
+                      { name: 'Duplicate', name_ar: 'مكرر', icon: 'Copy' },
+                    ]
                     
                     // Filter out duplicate or special stages from dynamic list if needed
                     const dynamicStages = stagesList.filter(s => {
@@ -3846,7 +3850,7 @@ if (!s) {
                       };
                     });
                   })()}
-                  placeholder={t('All ')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>
@@ -3866,7 +3870,7 @@ if (!s) {
                       value: String(reason?.id ?? ''),
                       label: isRtl ? (reason?.title_ar || reason?.title || '') : (reason?.title || reason?.title_ar || ''),
                     })).filter((option) => option.value && option.label)}
-                    placeholder={t('All')}
+                    placeholder={isRtl ? 'الكل' : 'All'}
                     isRTL={isRtl}
                   />
                 </div>
@@ -3885,7 +3889,7 @@ if (!s) {
                   value={Array.isArray(managerFilter) && managerFilter.length > 0 ? managerFilter[0] : ''}
                   onChange={(value) => setManagerFilter(value ? [value] : [])}
                   options={availableManagers.map(u => ({ value: u.id, label: u.__roleLabel ? `${u.name} - ${u.__roleLabel}` : u.name }))}
-                  placeholder={t('All ')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>
@@ -3905,7 +3909,7 @@ if (!s) {
                   multiple={true}
                   onChange={setSalesPersonFilter}
                   options={availableSalesPersons.map(u => ({ value: u.id, label: u.__roleLabel ? `${u.name} - ${u.__roleLabel}` : u.name }))}
-                  placeholder={t('All ')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>
@@ -3924,7 +3928,7 @@ if (!s) {
                   multiple={true}
                   onChange={setCreatedByFilter}
                   options={usersList.map(u => ({ value: u.id, label: u.name }))}
-                  placeholder={t('All ')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>}
@@ -3941,7 +3945,7 @@ if (!s) {
                   value={oldStageFilter}
                   onChange={setOldStageFilter}
                   options={stagesList.map(s => ({ value: s.name, label: isRtl ? (s.name_ar || s.nameAr || s.name) : s.name, icon: s.icon }))}
-                  placeholder={t('All')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>
@@ -3959,7 +3963,7 @@ if (!s) {
                   multiple={true}
                   onChange={setCampaignFilter}
                   options={campaignsList.map(c => ({ value: c.name, label: c.name }))}
-                  placeholder={t('All ')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>
@@ -3977,7 +3981,7 @@ if (!s) {
                 multiple={true}
                 onChange={setCountryFilter}
                   options={countriesList.map(c => ({ value: c.name_en, label: isRtl ? (c.name_ar || c.name_en) : c.name_en })).filter(o => o.value && o.label)}
-                  placeholder={t('All ')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>
@@ -3993,7 +3997,7 @@ if (!s) {
                 </label>
                 <input
                   type="number"
-                  placeholder={t('Enter minimum value...')}
+                  placeholder={isRtl ? 'أدخل أقل قيمة...' : 'Enter minimum value...'}
                   value={expectedRevenueFilter}
                   onChange={(e) => setExpectedRevenueFilter(e.target.value)}
                   className="w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg     text-xs font-medium  dark:placeholder-text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200"
@@ -4008,7 +4012,7 @@ if (!s) {
                 </label>
                 <input
                   type="text"
-                  placeholder={t('Search email...')}
+                  placeholder={isRtl ? 'ابحث بالبريد الإلكتروني...' : 'Search email...'}
                   value={emailFilter}
                   onChange={(e) => setEmailFilter(e.target.value)}
                   className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg  dark:bg-gray-700  ${isLight ? 'text-black' : 'text-white'} text-sm font-medium  dark:placeholder-white focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
@@ -4017,28 +4021,28 @@ if (!s) {
 
 
 
-              {/* action Type Filter */}
+              {/* Action Type Filter */}
               <div className="space-y-1">
                 <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                   </svg>
-                  {t('action Type')}
+                  {isRtl ? 'نوع الإجراء' : 'Action Type'}
                 </label>
                 <SearchableSelect
                   value={actionTypeFilter}
                   multiple={true}
                   onChange={setActionTypeFilter}
                   options={[
-                    { value: 'call', label: t('Call ') },
-                    { value: 'whatsapp', label: t('whatsapp') },
-                    { value: 'email', label: t('email') },
+                    { value: 'call', label: isRtl ? 'مكالمة' : 'Call' },
+                    { value: 'whatsapp', label: 'WhatsApp' },
+                    { value: 'email', label: isRtl ? 'بريد إلكتروني' : 'Email' },
 
-                    { value: 'google meet ', label: t('google meet') },
-                    { value: 'sms', label: t('sms ') }
+                    { value: 'google meet ', label: 'Google Meet' },
+                    { value: 'sms', label: 'SMS' }
 
                   ]}
-                  placeholder={t('Action Types')}
+                  placeholder={isRtl ? 'كل أنواع الإجراءات' : 'All Action Types'}
                   isRTL={isRtl}
                 />
               </div>
@@ -4050,17 +4054,17 @@ if (!s) {
                   <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v4a1 1 0 001 1h4a1 1 0 001-1V7m0 10v4a1 1 0 001 1h4a1 1 0 001-1v-4m-6-4H6a2 2 0 00-2 2v4a2 2 0 002 2h4m-6-4h4m-4 0v-4" />
                   </svg>
-                  {t('Duplicate Status')}
+                  {isRtl ? 'حالة التكرار' : 'Duplicate Status'}
                 </label>
                 <SearchableSelect
                   value={duplicateStatusFilter}
                   multiple={true}
                   onChange={setDuplicateStatusFilter}
                   options={[
-                    { value: 'duplicate', label: t('Duplicate') },
-                    { value: 'unique', label: t('Unique') }
+                    { value: 'duplicate', label: isRtl ? 'مكرر' : 'Duplicate' },
+                    { value: 'unique', label: isRtl ? 'غير مكرر' : 'Unique' }
                   ]}
-                  placeholder={t('All ')}
+                  placeholder={isRtl ? 'الكل' : 'All'}
                   isRTL={isRtl}
                 />
               </div>
@@ -4154,7 +4158,7 @@ if (!s) {
                       setActionDateTo(formatYmdLocal(end))
                     }}
                     isClearable={true}
-                    placeholderText={isRtl ? 'Ù…Ù† - Ø¥Ù„Ù‰' : 'From - To'}
+                    placeholderText={isRtl ? 'من - إلى' : 'From - To'}
                     className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} text-xs font-medium dark:placeholder-white focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
                     wrapperClassName="w-full"
                     dateFormat="yyyy-MM-dd"
@@ -5898,3 +5902,4 @@ if (!s) {
 }
 
 export default Leads;
+

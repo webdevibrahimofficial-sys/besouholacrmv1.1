@@ -40,7 +40,13 @@ import {
   FaFileContract,
   FaAddressCard,
   FaExternalLinkAlt,
-  FaUpload
+  FaUpload,
+  FaCopy,
+  FaWhatsapp,
+  FaTelegramPlane,
+  FaFacebookF,
+  FaEnvelope,
+  FaTwitter
 } from 'react-icons/fa'
 
 // Lucide icons
@@ -75,6 +81,8 @@ import { useAppState } from '../shared/context/AppStateProvider'
 import SearchableSelect from '../components/SearchableSelect'
 import CreateProjectModal from '../components/CreateProjectModal'
 import CreatePropertyModal from '../components/CreatePropertyModal'
+import { buildShareLandingUrl } from '../shared/utils/landingPageUrl'
+import { extractTenantCompanyProfile } from '../shared/utils/tenantCompanyProfile'
 
 // Range Slider Component
 const RangeSlider = ({ min, max, value, onChange, label, isRTL, unit = '' }) => {
@@ -187,6 +195,7 @@ export default function Projects() {
   const { isLight } = useTheme()
   const { companySetup } = useCompanySetup()
   const { user, company, refreshInventoryBadges } = useAppState()
+  const tenantCompanyProfile = useMemo(() => extractTenantCompanyProfile(company), [company])
   const getShareOrigin = () => {
     const normalizeHost = (hostLike) => {
       const host = String(hostLike || '')
@@ -273,6 +282,7 @@ export default function Projects() {
   const [deleteProjectState, setDeleteProjectState] = useState(null)
   const [deleteProjectOptions, setDeleteProjectOptions] = useState([])
   const [deleteProjectBusy, setDeleteProjectBusy] = useState(false)
+  const [shareSheet, setShareSheet] = useState(null)
 
   const [filters, setFilters] = useState({
     search: '',
@@ -592,9 +602,12 @@ export default function Projects() {
     const selectedDev = developerOptions.find(o => String(o.value) === String(form.developer))
     const developerId = form.developerId ?? (selectedDev ? Number(selectedDev.value) : null)
     const developerName = form.developerName ?? (selectedDev ? selectedDev.label : (form.developer || null))
+    const normalizedName = String(form.name || form.nameEn || '').trim()
+    const normalizedArabicName = String(form.nameAr || form.name_ar || '').trim()
+    const fallbackProjectName = normalizedName || normalizedArabicName
 
     const payload = {
-      name: form.name || form.nameEn || '',
+      name: fallbackProjectName,
       developer: developerName || null,
       city: form.city || null,
       country: form.country || null,
@@ -614,7 +627,7 @@ export default function Projects() {
       address_ar: form.addressAr || form.address_ar || null,
       description: form.description || form.description_en || null,
       description_ar: form.descriptionAr || form.description_ar || null,
-      name_ar: form.nameAr || form.name_ar || null,
+      name_ar: normalizedArabicName || null,
       delivery_date: form.deliveryDate || null,
       currency: form.currency || null,
       amenities: form.amenities || [],
@@ -824,21 +837,23 @@ export default function Projects() {
       const masterPlanImages = Array.isArray(p.masterPlanImages) ? p.masterPlanImages.filter(Boolean) : []
       const isPdfUrl = (u) => typeof u === 'string' && u.toLowerCase().includes('.pdf')
       const safeMedia = [...galleryImages, ...masterPlanImages].filter(u => !isPdfUrl(u))
+      const tenantName = tenantCompanyProfile.name || company?.name || company?.tenant_name || ''
 
       const payload = {
         theme: 'theme1',
         title: p.name || '',
+        companyName: tenantName,
         description: isRTL ? (p.descriptionAr || p.description || '') : (p.description || p.descriptionAr || ''),
-        email: companyInfo.email || '',
-        phone: companyInfo.phone || '',
-        logo: companyInfo.logoUrl || p.logo || '',
+        email: tenantCompanyProfile.email || companyInfo.email || '',
+        phone: tenantCompanyProfile.phone || companyInfo.phone || '',
+        logo: tenantCompanyProfile.logoUrl || p.logo || '',
         cover: p.image || galleryImages[0] || '',
         media: safeMedia,
         facebook: companyInfo.facebook || '',
         instagram: companyInfo.instagram || '',
         twitter: companyInfo.twitter || '',
         linkedin: companyInfo.linkedin || '',
-        url: companyInfo.websiteUrl || '',
+        url: tenantCompanyProfile.websiteUrl || companyInfo.websiteUrl || '',
         project: {
           id: p.id,
           name: p.name,
@@ -875,13 +890,6 @@ export default function Projects() {
         },
       }
 
-      const base = (import.meta.env?.BASE_URL || '/')
-      const prefix = base.endsWith('/') ? base.slice(0, -1) : base
-      const scope = prefix === '/' ? '' : prefix
-      const companyName = (companySetup && companySetup.companyInfo && companySetup.companyInfo.companyName) || ''
-      const companyParam = companyName ? `&company=${encodeURIComponent(companyName)}` : ''
-      const useServerLandingShare = String(import.meta.env?.VITE_SHARE_SERVER_LANDING || '') === 'true'
-
       const baseUrl = getShareOrigin()
       let url = ''
 
@@ -889,22 +897,24 @@ export default function Projects() {
         const res = await api.post('/share-links', { payload, expires_in_days: 14 })
         const token = res?.data?.data?.token || res?.data?.token || ''
         if (token) {
-          if (useServerLandingShare) {
-            const companyQuery = companyName ? `?company=${encodeURIComponent(companyName)}` : ''
-            url = `${baseUrl}${scope}/l/${encodeURIComponent(token)}${companyQuery}`
-          } else {
-            url = `${baseUrl}${scope}/#/landing-preview?token=${encodeURIComponent(token)}${companyParam}`
-          }
+          url = buildShareLandingUrl({
+            origin: baseUrl,
+            token,
+            title: payload.title || payload.project?.name || 'project',
+            type: 'project',
+          })
         }
       } catch {}
 
       if (!url) {
+        const companyName = tenantCompanyProfile.name || ''
+        const companyParam = companyName ? `&company=${encodeURIComponent(companyName)}` : ''
         const json = JSON.stringify(payload)
         const bytes = new TextEncoder().encode(json)
         let bin = ''
         bytes.forEach(b => { bin += String.fromCharCode(b) })
         const data = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-        url = `${baseUrl}${scope}/#/landing-preview?data=${encodeURIComponent(data)}${companyParam}`
+        url = `${baseUrl}/#/landing-preview?data=${encodeURIComponent(data)}${companyParam}`
       }
 
       try {
@@ -912,6 +922,17 @@ export default function Projects() {
         u.hostname = String(u.hostname || '').replace(/\.$/, '')
         url = u.toString()
       } catch {}
+
+      const isMobileShareCandidate = typeof navigator !== 'undefined'
+        && /android|iphone|ipad|ipod|mobile/i.test(String(navigator.userAgent || ''))
+
+      if (!isMobileShareCandidate) {
+        setShareSheet({
+          title: payload.title || p.name || 'Project',
+          url,
+        })
+        return
+      }
 
       if (navigator?.share) {
         await navigator.share({ title: payload.title || 'Project', text: isRTL ? 'عرض تفاصيل المشروع' : 'View project details', url })
@@ -1698,6 +1719,92 @@ export default function Projects() {
 
       {selectedProject && (
         <ProjectDetailsModal p={selectedProject} isRTL={isRTL} onClose={() => setSelectedProject(null)} />
+      )}
+      {shareSheet && (
+        <div className="fixed inset-0 z-[10110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShareSheet(null)} />
+          <div className={`relative w-full max-w-md rounded-3xl border p-6 shadow-2xl ${
+            isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700 text-white'
+          }`}>
+            <button
+              type="button"
+              className="absolute end-4 top-4 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              onClick={() => setShareSheet(null)}
+            >
+              <FaTimes />
+            </button>
+            <div className="mb-5">
+              <div className="text-lg font-bold">{isRTL ? 'مشاركة الرابط' : 'Share link'}</div>
+              <div className="mt-2 break-all rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                {shareSheet.url}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(shareSheet.url)
+                    addToast('success', isRTL ? 'تم نسخ رابط المشاركة' : 'Share link copied')
+                    setShareSheet(null)
+                  } catch {
+                    addToast('error', isRTL ? 'تعذر نسخ الرابط' : 'Unable to copy link')
+                  }
+                }}
+              >
+                <FaCopy /> {isRTL ? 'نسخ الرابط' : 'Copy link'}
+              </button>
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white dark:bg-slate-700"
+                href={shareSheet.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setShareSheet(null)}
+              >
+                <FaExternalLinkAlt /> {isRTL ? 'فتح الرابط' : 'Open link'}
+              </a>
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-green-600 px-4 py-3 text-sm font-semibold text-white"
+                href={`https://wa.me/?text=${encodeURIComponent(`${shareSheet.title}\n${shareSheet.url}`)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaWhatsapp /> WhatsApp
+              </a>
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white"
+                href={`https://t.me/share/url?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaTelegramPlane /> Telegram
+              </a>
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white"
+                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareSheet.url)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaFacebookF /> Facebook
+              </a>
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 px-4 py-3 text-sm font-semibold text-white"
+                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaTwitter /> X / Twitter
+              </a>
+              <a
+                className="col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white"
+                href={`mailto:?subject=${encodeURIComponent(shareSheet.title)}&body=${encodeURIComponent(shareSheet.url)}`}
+              >
+                <FaEnvelope /> {isRTL ? 'مشاركة بالبريد' : 'Share by email'}
+              </a>
+            </div>
+          </div>
+        </div>
       )}
       {/* Toasts */}
       <div className="fixed z-50 top-20 end-4 flex flex-col gap-2">
@@ -2520,6 +2627,55 @@ function ProjectCard({ p, isRTL, Label, onView, onEdit, onDelete, onAddUnit, onS
   const theme = resolvedTheme || contextTheme
   const isLight = theme === 'light'
   const img = p.image || pickImage(p.name)
+  const normalizeValue = (value) => String(value || '').trim().toLowerCase()
+  const statusDisplay = (() => {
+    const raw = String(p.status || '').trim()
+    const key = normalizeValue(raw)
+    const map = {
+      'under construction': 'تحت الإنشاء',
+      'launch soon': 'طرح قريبًا',
+      'ready to sale': 'جاهز للبيع',
+      'ready for sale': 'جاهز للبيع',
+      'sold out': 'مباع بالكامل',
+      active: 'نشط',
+      completed: 'مكتمل',
+      sales: 'متاح للبيع',
+      draft: 'مسودة',
+    }
+    return isRTL ? (map[key] || raw || '-') : (raw || '-')
+  })()
+  const categoryDisplay = (() => {
+    const raw = String(
+      p.category ||
+      (Array.isArray(p.categories) ? p.categories.join(', ') : '')
+    ).trim()
+    if (!isRTL) return raw || '-'
+    const map = {
+      residential: 'سكني',
+      commercial: 'تجاري',
+      administrative: 'إداري',
+      medical: 'طبي',
+      coastal: 'ساحلي',
+      'mixed use': 'متعدد الاستخدام',
+    }
+    return raw
+      ? raw
+          .split(',')
+          .map((item) => {
+            const trimmed = item.trim()
+            return map[normalizeValue(trimmed)] || trimmed
+          })
+          .join('، ')
+      : '-'
+  })()
+  const formatProjectCurrency = (value) => {
+    const formatted = new Intl.NumberFormat('en-EG', {
+      style: 'currency',
+      currency: p.currency || 'EGP',
+      maximumFractionDigits: 0,
+    }).format(value || 0)
+    return isRTL ? formatted.replace('EGP', 'ج.م') : formatted
+  }
   return (
     <div className="p-3 group">
       <div className="flex items-center gap-3 min-w-0 mb-2">
@@ -2563,7 +2719,7 @@ function ProjectCard({ p, isRTL, Label, onView, onEdit, onDelete, onAddUnit, onS
             p.status === 'Completed' ? 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400' :
               'border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300'
             }`}>
-            {p.status}
+            {statusDisplay}
           </span>
         )}
       </div>
@@ -2589,10 +2745,10 @@ function ProjectCard({ p, isRTL, Label, onView, onEdit, onDelete, onAddUnit, onS
           <span className="text-emerald-600 dark:text-emerald-400">{Label.units}:</span> <span className="font-bold">{p.units}</span>
         </div>
         <div className="glass-panel tinted-violet px-2 py-1.5 rounded-lg min-w-0 font-medium transition-colors hover:bg-violet-50 dark:hover:bg-violet-900/20" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-          <span className="text-violet-600 dark:text-violet-400">{isRTL ? 'التصنيف' : 'Category'}:</span> <span className="font-bold">{p.category}</span>
+          <span className="text-violet-600 dark:text-violet-400">{isRTL ? 'نوع المشروع' : 'Category'}:</span> <span className="font-bold">{categoryDisplay}</span>
         </div>
         <div className="glass-panel tinted-amber px-2 py-1.5 rounded-lg min-w-0 font-medium transition-colors hover:bg-amber-50 dark:hover:bg-amber-900/20" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-          <span className="text-amber-600 dark:text-amber-400">{isRTL ? 'الحالة' : 'Status'}:</span> <span className="font-bold">{p.status}</span>
+          <span className="text-amber-600 dark:text-amber-400">{isRTL ? 'الحالة' : 'Status'}:</span> <span className="font-bold">{statusDisplay}</span>
         </div>
         <div className="glass-panel tinted-blue px-2 py-1.5 rounded-lg min-w-0 font-medium transition-colors hover:bg-blue-50 dark:hover:bg-blue-900/20" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
           <span className="text-blue-600 dark:text-blue-400">{isRTL ? 'آخر تحديث' : 'Updated'}:</span> <span className="font-bold">{p.lastUpdated}</span>
@@ -2612,11 +2768,11 @@ function ProjectCard({ p, isRTL, Label, onView, onEdit, onDelete, onAddUnit, onS
           <div className="text-sm font-bold flex flex-col gap-0.5">
             <div className={`inline-flex items-center ${isRTL ? 'justify-end' : 'justify-start'} gap-1.5`}>
               <span className="text-slate-400 text-[10px] font-medium">{isRTL ? 'من' : 'From'}:</span>
-              <span className="text-blue-600 dark:text-blue-400">{new Intl.NumberFormat('en-EG', { style: 'currency', currency: p.currency || 'EGP', maximumFractionDigits: 0 }).format(p.minPrice || 0)}</span>
+              <span className="text-blue-600 dark:text-blue-400">{formatProjectCurrency(p.minPrice || 0)}</span>
             </div>
             <div className={`inline-flex items-center ${isRTL ? 'justify-end' : 'justify-start'} gap-1.5`}>
               <span className="text-slate-400 text-[10px] font-medium">{isRTL ? 'إلى' : 'To'}:</span>
-              <span className="text-blue-600 dark:text-blue-400">{new Intl.NumberFormat('en-EG', { style: 'currency', currency: p.currency || 'EGP', maximumFractionDigits: 0 }).format(p.maxPrice || 0)}</span>
+              <span className="text-blue-600 dark:text-blue-400">{formatProjectCurrency(p.maxPrice || 0)}</span>
             </div>
           </div>
         </div>

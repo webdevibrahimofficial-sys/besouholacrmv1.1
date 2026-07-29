@@ -60,7 +60,7 @@ const PROPERTY_TYPES = ['Apartment', 'Villa', 'Townhouse', 'Penthouse', 'Stand A
 const FINISHING_TYPES = ['Core & Shell', 'Semi Finished', 'Finished', 'Furnished']
 const VIEW_TYPES = ['Front', 'Back', 'Main Street', 'Garden', 'Pool']
 const PROJECTS = [] // Removed static list
-const PURPOSES = ['Primary', 'Resale', 'Rent']
+const PURPOSES = ['For Sale', 'Resale', 'Rent']
 const BEDROOMS = ['Studio', '1', '2', '3', '4', '5', '6', '7+']
 const BATHROOMS = ['1', '2', '3', '4', '5', '6+']
 const FLOORS = ['Ground', ...Array.from({length: 11}, (_, i) => String(i + 1))]
@@ -68,6 +68,40 @@ const AMENITIES_INDOOR = ['Built-in Wardrobes', 'Central A/C', "Maid's Room", 'K
 const AMENITIES_BUILDING = ['Shared Pool', 'Shared Gym', 'Security', 'Covered Parking', 'Concierge', 'Pets Allowed', "Children's Play Area", 'Barbecue Area']
 const PAYMENT_TERMS = ['Cash', 'Bank Finance', 'Installments', 'Cheques']
 const PROPERTY_CATEGORIES = ['Residential', 'Commercial', 'Administrative', 'Medical', 'Coastal', 'Mixed Use']
+const PROPERTY_TYPE_LABELS = {
+  Apartment: { en: 'Apartment', ar: 'شقة' },
+  Villa: { en: 'Villa', ar: 'فيلا' },
+  Townhouse: { en: 'Townhouse', ar: 'تاون هاوس' },
+  Penthouse: { en: 'Penthouse', ar: 'بنتهاوس' },
+  'Stand Alone': { en: 'Stand Alone', ar: 'ستاند ألون' },
+  Duplex: { en: 'Duplex', ar: 'دوبلكس' },
+  Store: { en: 'Store', ar: 'محل' },
+  Shop: { en: 'Shop', ar: 'متجر' },
+  Office: { en: 'Office', ar: 'مكتب' },
+  Retail: { en: 'Retail', ar: 'تجاري تجزئة' },
+  Warehouse: { en: 'Warehouse', ar: 'مخزن' },
+  Land: { en: 'Land', ar: 'أرض' },
+}
+const PURPOSE_LABELS = {
+  'For Sale': { en: 'For Sale', ar: 'للبيع' },
+  Resale: { en: 'Resale', ar: 'إعادة بيع' },
+  Rent: { en: 'Rent', ar: 'إيجار' },
+}
+const PROPERTY_STATUS_LABELS = {
+  Available: { en: 'Available', ar: 'متاحة' },
+  Reserved: { en: 'Reserved', ar: 'محجوزة' },
+  Sold: { en: 'Sold', ar: 'مباعة' },
+  Hold: { en: 'Hold', ar: 'موقوفة' },
+  Resale: { en: 'Resale', ar: 'إعادة بيع' },
+}
+const PROPERTY_CATEGORY_LABELS = {
+  Residential: { en: 'Residential', ar: 'سكني' },
+  Commercial: { en: 'Commercial', ar: 'تجاري' },
+  Administrative: { en: 'Administrative', ar: 'إداري' },
+  Medical: { en: 'Medical', ar: 'طبي' },
+  Coastal: { en: 'Coastal', ar: 'ساحلي' },
+  'Mixed Use': { en: 'Mixed Use', ar: 'متعدد الاستخدام' },
+}
 // --- Helper Components ---
 
 const Tooltip = ({ text }) => (
@@ -148,6 +182,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
   const [inputLanguage, setInputLanguage] = useState('en')
   const [showEnglish, setShowEnglish] = useState(false)
   const [priceEdited, setPriceEdited] = useState(!!isEdit)
+  const lastAreaPricingDriverRef = useRef('meterPrice')
   const [formData, setFormData] = useState({
     // Step 1
     project: '',
@@ -306,13 +341,50 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
   }, [buildings, formData.project])
 
   const categoryOptions = React.useMemo(() => {
-    return PROPERTY_CATEGORIES
-  }, [])
+    return PROPERTY_CATEGORIES.map((category) => ({
+      value: category,
+      label: inputLanguage === 'ar'
+        ? (PROPERTY_CATEGORY_LABELS[category]?.ar || category)
+        : (PROPERTY_CATEGORY_LABELS[category]?.en || category),
+    }))
+  }, [inputLanguage])
+
+  const propertyTypeOptions = React.useMemo(() => {
+    return PROPERTY_TYPES.map((type) => ({
+      value: type,
+      label: inputLanguage === 'ar'
+        ? (PROPERTY_TYPE_LABELS[type]?.ar || type)
+        : (PROPERTY_TYPE_LABELS[type]?.en || type),
+    }))
+  }, [inputLanguage])
+
+  const purposeOptions = React.useMemo(() => {
+    return PURPOSES.map((purpose) => ({
+      value: purpose,
+      label: inputLanguage === 'ar'
+        ? (PURPOSE_LABELS[purpose]?.ar || purpose)
+        : (PURPOSE_LABELS[purpose]?.en || purpose),
+    }))
+  }, [inputLanguage])
+
+  const statusOptions = React.useMemo(() => {
+    return ['Available', 'Reserved', 'Sold', 'Hold', 'Resale'].map((status) => ({
+      value: status,
+      label: inputLanguage === 'ar'
+        ? (PROPERTY_STATUS_LABELS[status]?.ar || status)
+        : (PROPERTY_STATUS_LABELS[status]?.en || status),
+    }))
+  }, [inputLanguage])
 
   const ownerOptions = React.useMemo(() => owners.map(o => o.name), [owners])
 
   // Dynamic fields state
   const [dynamicValues, setDynamicValues] = useState({})
+
+  const parseNumeric = (value) => {
+    const normalized = parseFloat(value)
+    return Number.isFinite(normalized) ? normalized : 0
+  }
 
   useEffect(() => {
     document.body.classList.add('app-modal-open')
@@ -344,35 +416,81 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
     setDynamicValues(prev => ({ ...prev, [key]: value }))
   }
 
-  // Auto-calculate Total Price and Total Area
+  // Keep area pricing bidirectional: meter price -> total price, and total price -> meter price.
   useEffect(() => {
+    const driver = lastAreaPricingDriverRef.current
+
     if (formData.hasExternalArea) {
-      const internal = parseFloat(formData.internalArea) || 0
-      const external = parseFloat(formData.externalArea) || 0
-      const internalPrice = parseFloat(formData.internalMeterPrice) || 0
-      const externalPrice = parseFloat(formData.externalMeterPrice) || 0
-
-      const total = (internal * internalPrice) + (external * externalPrice)
+      const internal = parseNumeric(formData.internalArea)
+      const external = parseNumeric(formData.externalArea)
       const totalAreaCalc = internal + external
+      const totalPriceValue = parseNumeric(formData.totalPrice)
+      const internalPrice = parseNumeric(formData.internalMeterPrice)
+      const externalPrice = parseNumeric(formData.externalMeterPrice)
+
+      let nextInternalPrice = formData.internalMeterPrice
+      let nextExternalPrice = formData.externalMeterPrice
+      let nextTotalPrice = formData.totalPrice
+
+      if (driver === 'totalPrice') {
+        if (totalAreaCalc > 0 && totalPriceValue > 0) {
+          if (internal > 0 && external > 0) {
+            if (internalPrice > 0 && externalPrice <= 0) {
+              const derivedExternal = (totalPriceValue - (internal * internalPrice)) / external
+              nextExternalPrice = derivedExternal > 0 ? derivedExternal.toString() : ''
+            } else if (externalPrice > 0 && internalPrice <= 0) {
+              const derivedInternal = (totalPriceValue - (external * externalPrice)) / internal
+              nextInternalPrice = derivedInternal > 0 ? derivedInternal.toString() : ''
+            } else {
+              const blended = totalPriceValue / totalAreaCalc
+              nextInternalPrice = blended > 0 ? blended.toString() : ''
+              nextExternalPrice = blended > 0 ? blended.toString() : ''
+            }
+          } else {
+            const blended = totalPriceValue / totalAreaCalc
+            nextInternalPrice = blended > 0 ? blended.toString() : ''
+            nextExternalPrice = blended > 0 ? blended.toString() : ''
+          }
+        } else if (totalPriceValue <= 0) {
+          nextInternalPrice = ''
+          nextExternalPrice = ''
+        }
+      } else {
+        const total = (internal * internalPrice) + (external * externalPrice)
+        nextTotalPrice = total > 0 ? total.toString() : ''
+      }
 
       setFormData(prev => ({
         ...prev,
-        totalPrice: total > 0 ? total.toString() : '',
-        totalArea: totalAreaCalc > 0 ? totalAreaCalc.toString() : ''
+        totalArea: totalAreaCalc > 0 ? totalAreaCalc.toString() : '',
+        totalPrice: nextTotalPrice,
+        internalMeterPrice: nextInternalPrice,
+        externalMeterPrice: nextExternalPrice,
       }))
-    } else {
-      const area = parseFloat(formData.bua) || 0
-      const price = parseFloat(formData.meterPrice) || 0
-
-      const total = area * price
-      const totalAreaCalc = area
-
-      setFormData(prev => ({
-        ...prev,
-        totalPrice: total > 0 ? total.toString() : '',
-        totalArea: totalAreaCalc > 0 ? totalAreaCalc.toString() : ''
-      }))
+      return
     }
+
+    const area = parseNumeric(formData.bua)
+    const meterPriceValue = parseNumeric(formData.meterPrice)
+    const totalPriceValue = parseNumeric(formData.totalPrice)
+
+    let nextMeterPrice = formData.meterPrice
+    let nextTotalPrice = formData.totalPrice
+
+    if (driver === 'totalPrice') {
+      const derivedMeterPrice = area > 0 ? totalPriceValue / area : 0
+      nextMeterPrice = derivedMeterPrice > 0 ? derivedMeterPrice.toString() : ''
+    } else {
+      const total = area * meterPriceValue
+      nextTotalPrice = total > 0 ? total.toString() : ''
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      totalArea: area > 0 ? area.toString() : '',
+      totalPrice: nextTotalPrice,
+      meterPrice: nextMeterPrice,
+    }))
   }, [
     formData.hasExternalArea,
     formData.internalArea,
@@ -380,7 +498,8 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
     formData.internalMeterPrice,
     formData.externalMeterPrice,
     formData.bua,
-    formData.meterPrice
+    formData.meterPrice,
+    formData.totalPrice
   ])
 
   // Sync Price with Total Price from Step 1
@@ -789,7 +908,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
             value={formData.category}
             onChange={v => setFormData({ ...formData, category: v })}
             isRTL={inputLanguage === 'ar'}
-            placeholder={inputLanguage === 'ar' ? 'اختر الفئة' : 'Select Category'}
+            placeholder={inputLanguage === 'ar' ? 'اختر فئة الوحدة' : 'Select Category'}
             disabled={!formData.project}
           />
           {errors.category && <p className="text-red-500 text-xs">{errors.category}</p>}
@@ -803,10 +922,11 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
           <span className="text-red-500">*</span>
         </label>
         <SearchableSelect
-          options={PROPERTY_TYPES}
+          options={propertyTypeOptions}
           value={formData.propertyType}
           onChange={v => setFormData({ ...formData, propertyType: v })}
           isRTL={inputLanguage === 'ar'}
+          placeholder={inputLanguage === 'ar' ? 'اختر نوع العقار' : 'Select Property Type'}
         />
         {errors.propertyType && <p className="text-red-500 text-xs">{errors.propertyType}</p>}
       </div>
@@ -877,7 +997,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
               type="number"
               className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
               value={formData.bua}
-              onChange={e => setFormData({ ...formData, bua: e.target.value })}
+              onChange={e => {
+                lastAreaPricingDriverRef.current = formData.totalPrice ? 'totalPrice' : 'meterPrice'
+                setFormData({ ...formData, bua: e.target.value })
+              }}
             />
             <span className="self-center  dark:bg-gray-700 px-3 py-2 rounded">m²</span>
           </div>
@@ -892,7 +1015,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
                   type="number"
                   className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
                   value={formData.internalArea}
-                  onChange={e => setFormData({ ...formData, internalArea: e.target.value })}
+                  onChange={e => {
+                    lastAreaPricingDriverRef.current = formData.totalPrice ? 'totalPrice' : 'meterPrice'
+                    setFormData({ ...formData, internalArea: e.target.value })
+                  }}
                 />
                 <span className="self-center  dark:bg-gray-700 px-3 py-2 rounded">m²</span>
               </div>
@@ -904,7 +1030,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
                   type="number"
                   className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
                   value={formData.externalArea}
-                  onChange={e => setFormData({ ...formData, externalArea: e.target.value })}
+                  onChange={e => {
+                    lastAreaPricingDriverRef.current = formData.totalPrice ? 'totalPrice' : 'meterPrice'
+                    setFormData({ ...formData, externalArea: e.target.value })
+                  }}
                 />
                 <span className="self-center  dark:bg-gray-700 px-3 py-2 rounded">m²</span>
               </div>
@@ -943,7 +1072,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
                 type="number"
                 className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
                 value={formData.internalMeterPrice}
-                onChange={e => setFormData({ ...formData, internalMeterPrice: e.target.value })}
+                onChange={e => {
+                  lastAreaPricingDriverRef.current = 'meterPrice'
+                  setFormData({ ...formData, internalMeterPrice: e.target.value })
+                }}
               />
             </div>
             <div className="space-y-2">
@@ -952,7 +1084,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
                 type="number"
                 className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
                 value={formData.externalMeterPrice}
-                onChange={e => setFormData({ ...formData, externalMeterPrice: e.target.value })}
+                onChange={e => {
+                  lastAreaPricingDriverRef.current = 'meterPrice'
+                  setFormData({ ...formData, externalMeterPrice: e.target.value })
+                }}
               />
             </div>
           </div>
@@ -963,7 +1098,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
               type="number"
               className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
               value={formData.meterPrice}
-              onChange={e => setFormData({ ...formData, meterPrice: e.target.value })}
+              onChange={e => {
+                lastAreaPricingDriverRef.current = 'meterPrice'
+                setFormData({ ...formData, meterPrice: e.target.value })
+              }}
             />
           </div>
         )}
@@ -974,10 +1112,13 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
             <span className="text-red-500">*</span>
           </label>
           <input
-            type="text"
-            readOnly
-            className="input bg-gray-100 dark:bg-gray-700 w-full border border-black dark:border-gray-600 font-bold"
+            type="number"
+            className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700 font-bold"
             value={formData.totalPrice}
+            onChange={e => {
+              lastAreaPricingDriverRef.current = 'totalPrice'
+              setFormData({ ...formData, totalPrice: e.target.value })
+            }}
           />
           {errors.totalPrice && <p className="text-red-500 text-xs">{errors.totalPrice}</p>}
           <p className="text-xs text-gray-500">{inputLanguage === 'ar' ? 'يتم حسابه تلقائياً' : 'Calculated automatically'}</p>
@@ -1048,19 +1189,21 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
         <div className="space-y-2">
           <label className="label">{inputLanguage === 'ar' ? 'الغرض' : 'Purpose'}</label>
           <SearchableSelect
-            options={PURPOSES}
+            options={purposeOptions}
             value={formData.purpose}
             onChange={v => setFormData({ ...formData, purpose: v })}
             isRTL={inputLanguage === 'ar'}
+            placeholder={inputLanguage === 'ar' ? 'اختر الغرض' : 'Select Purpose'}
           />
         </div>
         <div className="space-y-2">
           <label className="label">{inputLanguage === 'ar' ? 'الحالة' : 'Status'}</label>
           <SearchableSelect
-            options={['Available', 'Reserved', 'Sold', 'Hold', 'Resale']}
+            options={statusOptions}
             value={formData.status}
             onChange={v => setFormData({ ...formData, status: v })}
             isRTL={inputLanguage === 'ar'}
+            placeholder={inputLanguage === 'ar' ? 'اختر الحالة' : 'Select Status'}
           />
         </div>
       </div>

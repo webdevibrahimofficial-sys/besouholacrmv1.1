@@ -192,6 +192,7 @@ const resources = {
       'Profile & Company': 'Profile & Company',
       'Profile Settings': 'Profile Settings',
       'Company Settings': 'Company Settings',
+      'Company Details': 'Company Details',
       'Contact Info Settings': 'Contact Info Settings',
       'System Settings': 'System Settings',
       'Form Inputs': 'Form Inputs',
@@ -1790,6 +1791,7 @@ const resources = {
       'Profile & Company': 'الملف الشخصي والشركة',
       'Profile Settings': 'إعدادات الملف الشخصي',
       'Company Settings': 'إعدادات الشركة',
+      'Company Details': 'بيانات الشركة',
       'Contact Info Settings': 'إعدادات معلومات الاتصال',
       'System Settings': 'إعدادات النظام',
       'Form Inputs': 'مدخلات النماذج',
@@ -2932,6 +2934,7 @@ const resources = {
       'Profile & Company': 'الملف الشخصي والشركة',
       'Profile Settings': 'إعدادات الملف الشخصي',
       'Company Settings': 'إعدادات الشركة',
+      'Company Details': 'بيانات الشركة',
       'Contact Info Settings': 'إعدادات معلومات الاتصال',
       'System Settings': 'إعدادات النظام',
       'Form Inputs': 'مدخلات النماذج',
@@ -4684,6 +4687,13 @@ const resources = {
     }
   }
 };
+
+Object.assign(resources.ar.translation, {
+  'Sales Pipeline': 'بايبلاين المبيعات',
+  'Telesales Module': 'موديول التيليسيلز',
+  'Destination': 'الوجهة',
+  'Create a new lead inside the sales workflow.': 'أنشئ ليد جديد داخل مسار المبيعات.'
+});
 
 // Removed duplicate use(initReactI18next)
 

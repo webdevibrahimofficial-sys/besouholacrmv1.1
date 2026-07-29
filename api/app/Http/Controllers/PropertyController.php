@@ -304,6 +304,21 @@ class PropertyController extends Controller
     {
         try {
             $query = Property::query()->orderByDesc('created_at');
+            $user = $request->user();
+
+            $roleName = (string) ($user->job_title ?? $user->role ?? '');
+            $roleNorm = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $roleName))));
+            $isSalesPerson = in_array($roleNorm, ['sales person', 'salesperson'], true);
+            $isTenantAdmin = in_array($roleNorm, ['admin', 'tenant admin', 'tenant-admin'], true);
+            $isDirector = str_contains($roleNorm, 'director');
+            $meta = is_array($user?->meta_data) ? $user->meta_data : [];
+            $modulePerms = is_array($meta['module_permissions'] ?? null) ? $meta['module_permissions'] : [];
+            $inventoryPerms = is_array($modulePerms['Inventory'] ?? null) ? $modulePerms['Inventory'] : [];
+            $canViewAllProperties = $user?->is_super_admin || $isTenantAdmin || $isDirector || in_array('viewAllProperties', $inventoryPerms, true);
+
+            if ($isSalesPerson && !$canViewAllProperties && Schema::hasColumn((new Property)->getTable(), 'created_by_id')) {
+                $query->where('created_by_id', $user->id);
+            }
 
             // Optional: return only properties that are selectable for reservation/rent dropdowns.
             // Business rule:

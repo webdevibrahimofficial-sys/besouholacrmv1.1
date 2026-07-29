@@ -85,6 +85,54 @@ export default function PropertyCard({ p, isRTL, onView, onEdit, onShare, onDele
   const unitCode = String(p.unitCode || p.unit_code || p.code || '').trim()
   const unitNumber = String(p.unitNumber || p.unit_number || '').trim()
   const propertyTitle = p.adTitle || p.title || p.name || (isRTL ? 'عقار' : 'Property')
+  const normalizeValue = (value) => String(value || '').trim().toLowerCase()
+  const statusDisplay = (() => {
+    const raw = String(p.status || '').trim()
+    const map = {
+      available: 'متاحة',
+      reserved: 'محجوزة',
+      sold: 'مباعة',
+      hold: 'موقوفة',
+      resale: 'إعادة بيع',
+    }
+    return isRTL ? (map[normalizeValue(raw)] || raw || '-') : (raw || '-')
+  })()
+  const propertyTypeDisplay = (() => {
+    const raw = String(p.propertyType || p.type || '').trim()
+    const map = {
+      apartment: 'شقة',
+      villa: 'فيلا',
+      townhouse: 'تاون هاوس',
+      penthouse: 'بنتهاوس',
+      'stand alone': 'ستاند ألون',
+      duplex: 'دوبلكس',
+      store: 'محل',
+      shop: 'متجر',
+      office: 'مكتب',
+      retail: 'تجاري تجزئة',
+      warehouse: 'مخزن',
+      land: 'أرض',
+    }
+    return isRTL ? (map[normalizeValue(raw)] || raw || '-') : (raw || '-')
+  })()
+  const purposeDisplay = (() => {
+    const raw = String(p.purpose || '').trim()
+    const map = {
+      'for sale': 'للبيع',
+      primary: 'أول بيع',
+      resale: 'إعادة بيع',
+      rent: 'إيجار',
+    }
+    return isRTL ? (map[normalizeValue(raw)] || raw || '-') : (raw || '-')
+  })()
+  const formatPropertyCurrency = (value) => {
+    const formatted = new Intl.NumberFormat('en-EG', {
+      style: 'currency',
+      currency: p.currency || 'EGP',
+      maximumFractionDigits: 0,
+    }).format(value || 0)
+    return isRTL ? formatted.replace('EGP', 'ج.م') : formatted
+  }
 
   const downloadPaymentPlanPdf = () => {
     const plans = Array.isArray(p.installmentPlans) ? p.installmentPlans : []
@@ -170,18 +218,18 @@ export default function PropertyCard({ p, isRTL, onView, onEdit, onShare, onDele
                   p.status === 'Sold' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
                     'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
               }`}>
-              {p.status}
+              {statusDisplay}
             </span>
           )}
           {p.status === 'Sold' && onRevertSoldToAvailable && (
             <button
               type="button"
               className="text-[10px] px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
-              title={isRTL ? 'إرجاع إلى Available' : 'Revert to Available'}
+              title={isRTL ? 'إرجاع إلى متاحة' : 'Revert to Available'}
               onClick={() => onRevertSoldToAvailable(p)}
             >
               <FaUndoAlt className={isRTL ? 'scale-x-[-1]' : ''} />
-              {isRTL ? 'إرجاع إلى Available' : 'Back to Available'}
+              {isRTL ? 'إرجاع إلى متاحة' : 'Back to Available'}
             </button>
           )}
           {p.project && (
@@ -231,7 +279,7 @@ export default function PropertyCard({ p, isRTL, onView, onEdit, onShare, onDele
           </div>
           <div className={`glass-panel tinted-indigo px-1.5 py-1 rounded-md flex items-center gap-1.5 min-w-0`} style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
             <FaHome className="opacity-70 w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-            <span className="min-w-0" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{p.propertyType || p.type || '-'}</span>
+            <span className="min-w-0" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{propertyTypeDisplay}</span>
           </div>
           {p.building && <div className="glass-panel tinted-cyan px-1.5 py-1 rounded-md min-w-0" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{isRTL ? 'المبنى' : 'Building'}: <span className="font-semibold">{p.building}</span></div>}
           {p.owner && <div className="glass-panel tinted-purple px-1.5 py-1 rounded-md min-w-0" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{isRTL ? 'المالك' : 'Owner'}: <span className="font-semibold">{p.owner}</span></div>}
@@ -260,13 +308,13 @@ export default function PropertyCard({ p, isRTL, onView, onEdit, onShare, onDele
           <div className={`${isRTL ? 'text-end' : 'text-start'}`}>
             <div className="text-[10px] sm:text-xs text-[var(--muted-text)] mb-1">{isRTL ? 'الغرض' : 'Purpose'}</div>
             <div className="text-xs sm:text-sm font-semibold">
-              {p.purpose || '-'}
+              {purposeDisplay}
             </div>
           </div>
           <div className={`${isRTL ? 'text-end' : 'text-start'}`}>
             <div className="text-[10px] sm:text-xs text-[var(--muted-text)] mb-1">{isRTL ? 'السعر' : 'Price'}</div>
             <div className="text-xs sm:text-sm font-semibold">
-              {new Intl.NumberFormat('en-EG', { style: 'currency', currency: p.currency || 'EGP', maximumFractionDigits: 0 }).format(p.price || 0)}
+              {formatPropertyCurrency(p.price || 0)}
             </div>
           </div>
         </div>

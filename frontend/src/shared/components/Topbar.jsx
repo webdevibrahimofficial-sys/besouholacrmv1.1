@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { useTranslation } from 'react-i18next'
@@ -238,7 +238,7 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
             <div className="hidden md:flex flex-col">
               <WelcomeSection
                 isLight={isLight}
-                text={isRTL ? `Welcome, ${String(user?.name || '').trim() || 'User'}!` : `Welcome, ${String(user?.name || '').trim() || 'User'}!`}
+                text={isRTL ? ('مرحبًا، ' + (String(user?.name || '').trim() || 'المستخدم') + '!') : ('Welcome, ' + (String(user?.name || '').trim() || 'User') + '!')}
               />
               {isSupportAccessActive && (
                 <span className={`mt-1 inline-flex w-fit items-center rounded-full px-3 py-1 text-[11px] font-semibold ${isLight ? 'bg-sky-100 text-sky-800' : 'bg-sky-900/50 text-sky-100'}`}>
@@ -566,3 +566,4 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
     </>
   )
 }
+

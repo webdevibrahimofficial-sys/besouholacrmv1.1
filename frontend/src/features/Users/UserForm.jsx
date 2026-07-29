@@ -5,6 +5,7 @@ import { api } from '@utils/api';
 import { useTranslation } from 'react-i18next'
 import { User, Info, Lock, Bell, Check, X, Settings, Target, AlertCircle, Eye, EyeOff, Upload, ChevronDown, Clock, Calendar, TrendingUp, Percent, ChevronUp, Loader2 } from 'lucide-react';
 import SearchableSelect from '@components/SearchableSelect';
+import { mapSourceToOption } from '@shared/utils/sourceDisplay';
 import { 
   ROLES, 
   STATUSES, 
@@ -392,12 +393,13 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const sourceOptions = useMemo(() => {
     const seen = new Set();
     return (sources || []).map(source => {
-      const value = String(source?.name || source?.title || source?.value || '').trim();
+      const option = mapSourceToOption(source, isArabic);
+      const value = String(option?.value || '').trim();
       if (!value || seen.has(value)) return null;
       seen.add(value);
-      return { value, label: value };
+      return option;
     }).filter(Boolean);
-  }, [sources]);
+  }, [sources, isArabic]);
   const projectOptions = useMemo(() => {
     const seen = new Set();
     return (projects || []).map(project => {
@@ -1518,6 +1520,13 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                           {isSalesPersonRole(form.role) && group === 'Leads' && (
                             <div className="mt-3 text-xs text-base-content/60">
                               {isArabic ? 'صلاحية إضافة إجراء يتم تفعيلها تلقائياً لمندوب المبيعات.' : 'Add Action is enabled automatically for Sales Person.'}
+                            </div>
+                          )}
+                          {isSalesPersonRole(form.role) && group === 'Inventory' && (
+                            <div className="mt-3 text-xs text-base-content/60">
+                              {isArabic
+                                ? 'في حالة عدم تفعيل "عرض كل الوحدات"، سيظهر لمندوب المبيعات وحداته فقط على صفحة العقارات.'
+                                : 'If "View All Properties" is not enabled, the sales person will only see their own units on the Properties page.'}
                             </div>
                           )}
                         </div>

@@ -96,6 +96,20 @@ const CITIES = ['New Cairo', 'Sheikh Zayed', 'New Capital', 'North Coast', 'Ain 
 const COUNTRIES = ['Egypt', 'Saudi Arabia', 'United Arab Emirates', 'Qatar', 'Kuwait', 'Bahrain', 'Jordan', 'Morocco', 'Tunisia']
 const PROJECT_STATUS = ['Under construction', 'Launch soon', 'Ready to sale', 'Sold out']
 const AMENITIES = ['Club House', 'Gym', 'Spa', 'Kids Area', 'Commercial Area', 'Mosque', 'Swimming Pools', 'Security', 'Parking', 'Medical Center', 'School', 'University']
+const PROJECT_CATEGORY_LABELS = {
+  Residential: { en: 'Residential', ar: 'سكني' },
+  Commercial: { en: 'Commercial', ar: 'تجاري' },
+  Administrative: { en: 'Administrative', ar: 'إداري' },
+  Medical: { en: 'Medical', ar: 'طبي' },
+  Coastal: { en: 'Coastal', ar: 'ساحلي' },
+  'Mixed Use': { en: 'Mixed Use', ar: 'متعدد الاستخدام' },
+}
+const PROJECT_STATUS_LABELS = {
+  'Under construction': { en: 'Under Construction', ar: 'تحت الإنشاء' },
+  'Launch soon': { en: 'Launching Soon', ar: 'طرح قريبًا' },
+  'Ready to sale': { en: 'Ready for Sale', ar: 'جاهز للبيع' },
+  'Sold out': { en: 'Sold Out', ar: 'مباع بالكامل' },
+}
 const AMENITY_LABELS = {
   'Club House': { en: 'Club House', ar: 'النادي' },
   'Gym': { en: 'Gym', ar: 'صالة رياضية' },
@@ -254,6 +268,14 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
     if (developerOptions && developerOptions.length > 0) return developerOptions
     return DEVELOPERS.map(name => ({ value: name, label: name }))
   }, [developerOptions])
+  const categorySelectOptions = useMemo(() => (
+    PROJECT_CATEGORIES.map((category) => ({
+      value: category,
+      label: inputLanguage === 'ar'
+        ? (PROJECT_CATEGORY_LABELS[category]?.ar || category)
+        : (PROJECT_CATEGORY_LABELS[category]?.en || category),
+    }))
+  ), [inputLanguage])
 
   // Geocoding logic
   useGeocoding(
@@ -328,17 +350,31 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
 
   useEffect(() => {
     if (initialValues) {
+      const asText = (value, fallback = '') => {
+        if (value == null) return fallback
+        return String(value)
+      }
+
       setFormData(prev => ({
         ...prev,
         ...initialValues,
         // Map Arabic fields if they exist in initialValues
-        nameAr: initialValues.nameAr || '',
-        descriptionAr: initialValues.descriptionAr || '',
-        addressAr: initialValues.addressAr || '',
-        cilToAr: initialValues.cil?.toAr || '',
-        cilSubjectAr: initialValues.cil?.subjectAr || '',
-        cilContentAr: initialValues.cil?.contentAr || '',
-        cilSignatureAr: initialValues.cil?.signatureAr || '',
+        name: asText(initialValues.name),
+        nameAr: asText(initialValues.nameAr),
+        description: asText(initialValues.description),
+        descriptionAr: asText(initialValues.descriptionAr),
+        address: asText(initialValues.address),
+        addressAr: asText(initialValues.addressAr),
+        city: asText(initialValues.city),
+        country: asText(initialValues.country),
+        status: asText(initialValues.status, 'Under construction'),
+        deliveryDate: asText(initialValues.deliveryDate || initialValues.delivery_date),
+        videoUrl: asText(initialValues.videoUrls),
+        locationUrl: asText(initialValues.locationUrl),
+        cilToAr: asText(initialValues.cil?.toAr),
+        cilSubjectAr: asText(initialValues.cil?.subjectAr),
+        cilContentAr: asText(initialValues.cil?.contentAr),
+        cilSignatureAr: asText(initialValues.cil?.signatureAr),
 
         // Ensure arrays are arrays
         amenities: initialValues.amenities || [],
@@ -351,31 +387,29 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
         gallery: initialValues.galleryImages || [],
         masterPlan: initialValues.masterPlanImages || [],
         // Map other fields
-        minPrice: initialValues.minPrice || '',
-        maxPrice: initialValues.maxPrice || '',
-        minSpace: initialValues.minSpace || '',
-        maxSpace: initialValues.maxSpace || '',
+        minPrice: initialValues.minPrice ?? '',
+        maxPrice: initialValues.maxPrice ?? '',
+        minSpace: initialValues.minSpace ?? '',
+        maxSpace: initialValues.maxSpace ?? '',
         units: initialValues.units || 0,
         phases: initialValues.phases || 0,
         docs: initialValues.docs || 0,
-        videoUrl: initialValues.videoUrls || '',
         // Map CIL if exists
-        cilTo: initialValues.cil?.to || '',
-        cilSubject: initialValues.cil?.subject || '',
-        cilContent: initialValues.cil?.content || '',
-        cilSignature: initialValues.cil?.signature || '',
+        cilTo: asText(initialValues.cil?.to),
+        cilSubject: asText(initialValues.cil?.subject),
+        cilContent: asText(initialValues.cil?.content),
+        cilSignature: asText(initialValues.cil?.signature),
         cilAttachments: initialValues.cil?.attachments || [],
 
         // Map Publish fields
-        contactName: initialValues.contactName || initialValues.publish?.contactName || 'Current User',
-        contactEmail: initialValues.contactEmail || initialValues.publish?.contactEmail || 'user@example.com',
-        contactPhone: initialValues.contactPhone || initialValues.publish?.contactPhone || '+20 123 456 7890',
-        marketingPackage: initialValues.marketingPackage || initialValues.publish?.marketingPackage || 'standard',
-        deliveryDate: initialValues.deliveryDate || initialValues.delivery_date || '',
-        publishStatus: initialValues.publishStatus || initialValues.publish?.publishStatus || 'Draft',
+        contactName: asText(initialValues.contactName || initialValues.publish?.contactName, 'Current User'),
+        contactEmail: asText(initialValues.contactEmail || initialValues.publish?.contactEmail, 'user@example.com'),
+        contactPhone: asText(initialValues.contactPhone || initialValues.publish?.contactPhone, '+20 123 456 7890'),
+        marketingPackage: asText(initialValues.marketingPackage || initialValues.publish?.marketingPackage, 'standard'),
+        publishStatus: asText(initialValues.publishStatus || initialValues.publish?.publishStatus, 'Draft'),
         developer: initialValues.developerId ? String(initialValues.developerId) : (initialValues.developer || ''),
         developerId: initialValues.developerId ?? null,
-        developerName: initialValues.developer || '',
+        developerName: asText(initialValues.developer),
       }))
 
       // Load channels if they exist
@@ -525,7 +559,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
                   className={`input dark:bg-gray-800 w-full border border-black dark:border-gray-700 ${errors.name ? 'border-red-500' : ''}`}
                   value={formData.name}
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  placeholder={'e.g., Palm Hills New Cairo'}
+                    placeholder={'e.g., Mountain View New Cairo'}
                   dir={'ltr'}
                 />
               </div>
@@ -536,7 +570,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
                 className={`input dark:bg-gray-800 w-full border border-black dark:border-gray-700 ${errors.name ? 'border-red-500' : ''}`}
                 value={formData.nameAr}
                 onChange={e => setFormData({ ...formData, nameAr: e.target.value })}
-                placeholder={'مثال: بالم هيلز القاهرة الجديدة'}
+                placeholder={'مثال: ماونتن فيو القاهرة الجديدة'}
                 dir={'rtl'}
               />
             </div>
@@ -616,21 +650,21 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
               }))
             }}
             isRTL={inputLanguage === 'ar'}
-            placeholder={inputLanguage === 'ar' ? 'اختر المطور' : 'Select Developer'}
+            placeholder={inputLanguage === 'ar' ? 'اختر اسم المطور' : 'Select Developer'}
           />
           {errors.developer && <p className="text-red-500 text-xs">{errors.developer}</p>}
         </div>
 
         {/* Category */}
         <div className="space-y-2">
-          <label className="label">{inputLanguage === 'ar' ? 'التصنيفات' : 'Categories'}</label>
+          <label className="label">{inputLanguage === 'ar' ? 'نوع المشروع' : 'Project Category'}</label>
           <SearchableSelect
-            options={PROJECT_CATEGORIES}
+            options={categorySelectOptions}
             value={formData.categories}
             onChange={(arr) => setFormData({ ...formData, categories: arr })}
             isRTL={inputLanguage === 'ar'}
             multiple={true}
-            placeholder={inputLanguage === 'ar' ? 'اختر التصنيفات' : 'Select Categories'}
+            placeholder={inputLanguage === 'ar' ? 'اختر نوع المشروع' : 'Select Project Category'}
           />
         </div>
       </div>
@@ -638,13 +672,17 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Status */}
         <div className="space-y-2">
-          <label className="label">{inputLanguage === 'ar' ? 'الحالة' : 'Status'}</label>
+          <label className="label">{inputLanguage === 'ar' ? 'حالة المشروع' : 'Project Status'}</label>
           <select
             className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
             value={formData.status}
             onChange={e => setFormData({ ...formData, status: e.target.value })}
           >
-            {PROJECT_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+            {PROJECT_STATUS.map(s => (
+              <option key={s} value={s}>
+                {inputLanguage === 'ar' ? (PROJECT_STATUS_LABELS[s]?.ar || s) : (PROJECT_STATUS_LABELS[s]?.en || s)}
+              </option>
+            ))}
           </select>
         </div>
         {/* Completion (%) */}
@@ -665,13 +703,13 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
         </div>
         {/* Delivery Date */}
         <div className="space-y-2">
-          <label className="label">{inputLanguage === 'ar' ? 'تاريخ التسليم' : 'Delivery Date'}</label>
+          <label className="label">{inputLanguage === 'ar' ? 'ميعاد التسليم' : 'Delivery Date'}</label>
           <input
             type="text"
             className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
             value={formData.deliveryDate}
             onChange={e => setFormData({ ...formData, deliveryDate: e.target.value })}
-            placeholder={inputLanguage === 'ar' ? 'مثل: 2026 أو يونيو 2026' : 'e.g. 2026 or June 2026'}
+            placeholder={inputLanguage === 'ar' ? 'مثال: استلام 2028 أو ديسمبر 2027' : 'e.g. 2028 or December 2027'}
           />
         </div>
       </div>
@@ -693,7 +731,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
                   className="input dark:bg-gray-800 w-full min-h-[150px] font-sans border border-black dark:border-gray-700"
                   value={formData.description}
                   onChange={e => setFormData({ ...formData, description: e.target.value })}
-                  placeholder={'Write a comprehensive description...'}
+                    placeholder={'Write a broker-friendly project summary...'}
                   dir={'ltr'}
                 />
               </div>
@@ -704,7 +742,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
                 className="input dark:bg-gray-800 w-full min-h-[150px] font-sans border border-black dark:border-gray-700"
                 value={formData.descriptionAr}
                 onChange={e => setFormData({ ...formData, descriptionAr: e.target.value })}
-                placeholder={'اكتب وصفاً شاملاً للمشروع...'}
+                placeholder={'اكتب نبذة تسويقية واضحة عن المشروع والموقع والمزايا وأنظمة السداد...'}
                 dir={'rtl'}
               />
             </div>

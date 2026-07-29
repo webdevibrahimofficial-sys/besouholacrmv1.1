@@ -9,7 +9,7 @@ import autoTable from 'jspdf-autotable'
 import { api } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { useTheme } from '../shared/context/ThemeProvider'
-import { FaFileImport, FaPlus, FaFileExport, FaChevronDown, FaChevronLeft, FaChevronRight, FaTimes, FaFilter, FaSearch, FaBuilding, FaUser, FaMapMarkerAlt, FaImage, FaCloudDownloadAlt, FaPaperclip, FaVideo } from 'react-icons/fa'
+import { FaFileImport, FaPlus, FaFileExport, FaChevronDown, FaChevronLeft, FaChevronRight, FaTimes, FaFilter, FaSearch, FaBuilding, FaUser, FaMapMarkerAlt, FaImage, FaCloudDownloadAlt, FaPaperclip, FaVideo, FaCopy, FaWhatsapp, FaTelegramPlane, FaFacebookF, FaEnvelope, FaTwitter } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import PropertiesSummaryPanel from '../components/PropertiesSummaryPanel'
@@ -17,6 +17,8 @@ import PropertyCard from '../components/PropertyCard'
 import CreatePropertyModal from '../components/CreatePropertyModal'
 import ImportPropertiesModal from '../components/ImportPropertiesModal'
 import toast from 'react-hot-toast'
+import { buildShareLandingUrl, toPublicSlugSegment } from '../shared/utils/landingPageUrl'
+import { extractTenantCompanyProfile } from '../shared/utils/tenantCompanyProfile'
 
 const getApiOrigin = () => {
   const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://api.besouholacrm.net/api'
@@ -254,6 +256,8 @@ export default function Properties() {
   const { isLight } = useTheme()
   const { fields: dynamicFields } = useDynamicFields('properties')
   const { companySetup } = useCompanySetup()
+  const { user, company, refreshInventoryBadges } = useAppState()
+  const tenantCompanyProfile = useMemo(() => extractTenantCompanyProfile(company), [company])
   const getShareOrigin = () => {
     const normalizeHost = (hostLike) => {
       const host = String(hostLike || '')
@@ -283,6 +287,7 @@ export default function Properties() {
   }
   const [planPreview, setPlanPreview] = useState(null)
   const [isPlanPreviewOpen, setIsPlanPreviewOpen] = useState(false)
+  const [shareSheet, setShareSheet] = useState(null)
   const openPlanPreview = (plan) => { setPlanPreview(plan); setIsPlanPreviewOpen(true) }
   const closePlanPreview = () => { setIsPlanPreviewOpen(false); setPlanPreview(null) }
   const printPlan = (plan) => {
@@ -533,6 +538,7 @@ export default function Properties() {
           lastUpdatedIso: item.updated_at ? String(item.updated_at).split('T')[0] : '',
           createdDate: item.created_at ? new Date(item.created_at).toLocaleDateString(isRTL ? 'ar-EG' : 'en-US') : '-',
           lastUpdated: item.updated_at ? new Date(item.updated_at).toLocaleDateString(isRTL ? 'ar-EG' : 'en-US') : '-',
+          createdById: item.created_by_id || item.creator?.id || null,
           createdBy: item.creator?.name || '-',
           // Visibility triggers for frontend
           hasExternalArea: !!item.external_area,
@@ -575,8 +581,6 @@ export default function Properties() {
     fetchData()
   }, [])
 
-  const { user, company, refreshInventoryBadges } = useAppState()
-
   useEffect(() => {
     const markSeen = async () => {
       try {
@@ -596,6 +600,10 @@ export default function Properties() {
     return []
   })()
   const roleLower = String(user?.role || '').toLowerCase()
+  const isSalesPerson =
+    roleLower.includes('sales person') ||
+    roleLower.includes('salesperson') ||
+    roleLower.includes('sales_person')
   const tenantTypeNorm = String(company?.company_type || company?.type || '')
     .toLowerCase()
     .replace(/[\s_]+/g, '')
@@ -633,6 +641,13 @@ export default function Properties() {
       isTenantAdmin ||
       effectiveInventoryPerms.includes('revertSoldProperty')
     )
+
+  const canViewAllProperties =
+    !isSalesPerson ||
+    user?.is_super_admin ||
+    isTenantAdmin ||
+    roleLower.includes('director') ||
+    effectiveInventoryPerms.includes('viewAllProperties')
 
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [filters, setFilters] = useState({
@@ -782,6 +797,12 @@ export default function Properties() {
 
   const filtered = useMemo(() => {
     return properties.filter(p => {
+      if (!canViewAllProperties) {
+        const creatorId = Number(p?.createdById || p?.created_by_id || p?.creator?.id || 0)
+        const currentUserId = Number(user?.id || 0)
+        if (!creatorId || !currentUserId || creatorId !== currentUserId) return false
+      }
+
       // 0. Search
       if (filters.search) {
         const q = String(filters.search || '').toLowerCase().trim()
@@ -844,7 +865,7 @@ export default function Properties() {
 
       return true
     })
-  }, [properties, filters])
+  }, [properties, filters, canViewAllProperties, user?.id])
 
   const stats = useMemo(() => {
     return {
@@ -1431,20 +1452,22 @@ export default function Properties() {
                       .filter(Boolean)
                   : []
                 const safeMedia = [...galleryImages, ...floorPlans].filter(u => !isPdfUrl(u))
+                const tenantName = tenantCompanyProfile.name || company?.name || company?.tenant_name || ''
                 const payload = {
                   theme: 'theme1',
                   title: p.adTitle || p.name,
+                  companyName: tenantName,
                   description: p.description,
-                  email: companyInfo.email || '',
-                  phone: companyInfo.phone || p.ownerMobile || '',
-                  logo: companyInfo.logoUrl || p.logo || '',
+                  email: tenantCompanyProfile.email || companyInfo.email || '',
+                  phone: tenantCompanyProfile.phone || companyInfo.phone || p.ownerMobile || '',
+                  logo: tenantCompanyProfile.logoUrl || p.logo || '',
                   cover: (typeof p.mainImage === 'string' ? getFileUrl(p.mainImage) : p.mainImage) || galleryImages[0] || '',
                   media: safeMedia,
                   facebook: companyInfo.facebook || '',
                   instagram: companyInfo.instagram || '',
                   twitter: companyInfo.twitter || '',
                   linkedin: companyInfo.linkedin || '',
-                  url: companyInfo.websiteUrl || '',
+                  url: tenantCompanyProfile.websiteUrl || companyInfo.websiteUrl || '',
                   property: {
                     id: p.id,
                     name: p.adTitle || p.name,
@@ -1474,12 +1497,6 @@ export default function Properties() {
                     installmentPlans: Array.isArray(p.installmentPlans) ? p.installmentPlans : [],
                   },
                 }
-                const base = (import.meta.env?.BASE_URL || '/')
-                const prefix = base.endsWith('/') ? base.slice(0, -1) : base
-                const scope = prefix === '/' ? '' : prefix
-                const companyName = (companySetup && companySetup.companyInfo && companySetup.companyInfo.companyName) || ''
-                const companyParam = companyName ? `&company=${encodeURIComponent(companyName)}` : ''
-                const useServerLandingShare = String(import.meta.env?.VITE_SHARE_SERVER_LANDING || '') === 'true'
                 const baseUrl = getShareOrigin()
 
                 let url = ''
@@ -1487,22 +1504,25 @@ export default function Properties() {
                   const res = await api.post('/share-links', { payload, expires_in_days: 14 })
                   const token = res?.data?.data?.token || res?.data?.token || ''
                   if (token) {
-                    if (useServerLandingShare) {
-                      const companyQuery = companyName ? `?company=${encodeURIComponent(companyName)}` : ''
-                      url = `${baseUrl}${scope}/l/${encodeURIComponent(token)}${companyQuery}`
-                    } else {
-                      url = `${baseUrl}${scope}/#/landing-preview?token=${encodeURIComponent(token)}${companyParam}`
-                    }
+                    url = buildShareLandingUrl({
+                      origin: baseUrl,
+                      token,
+                      title: payload.title || payload.property?.name || 'item',
+                      type: 'item',
+                    })
                   }
                 } catch {}
 
                 if (!url) {
+                  const companyName = tenantCompanyProfile.name || ''
+                  const companyParam = companyName ? `&company=${encodeURIComponent(companyName)}` : ''
                   const json = JSON.stringify(payload)
                   const bytes = new TextEncoder().encode(json)
                   let bin = ''
                   bytes.forEach(b => { bin += String.fromCharCode(b) })
                   const data = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-                  url = `${baseUrl}${scope}/#/landing-preview?data=${encodeURIComponent(data)}${companyParam}`
+                  const slug = toPublicSlugSegment(payload.title || payload.property?.name || 'item', 'item')
+                  url = `${baseUrl}/#/landing-preview/${encodeURIComponent(slug)}?data=${encodeURIComponent(data)}${companyParam}`
                 }
 
                 try {
@@ -1511,6 +1531,17 @@ export default function Properties() {
                   url = u.toString()
                 } catch {}
 
+                const isMobileShareCandidate = typeof navigator !== 'undefined'
+                  && /android|iphone|ipad|ipod|mobile/i.test(String(navigator.userAgent || ''))
+
+                if (!isMobileShareCandidate) {
+                  setShareSheet({
+                    title: payload.title || payload.property?.name || p.name || 'Property',
+                    url,
+                  })
+                  return
+                }
+
                 if (navigator?.share) {
                   navigator.share({ title: payload.title || 'Property', text: (isRTL ? 'عرض تفاصيل الوحدة' : 'View property details'), url })
                 } else {
@@ -1518,7 +1549,11 @@ export default function Properties() {
                   const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: (isRTL ? 'تم نسخ رابط المشاركة' : 'Share link copied') } })
                   window.dispatchEvent(evt)
                 }
-              } catch { }
+              } catch (error) {
+                console.error('Share property error:', error)
+                const evt = new CustomEvent('app:toast', { detail: { type: 'error', message: (isRTL ? 'فشل إنشاء رابط المشاركة' : 'Failed to generate share link') } })
+                window.dispatchEvent(evt)
+              }
             }}
               onDelete={canDeleteInventory ? () => handleDeleteProperty(p.id) : null}
           />
@@ -1527,6 +1562,101 @@ export default function Properties() {
 
       {/* صف فاضي تحت الكروت */}
       <div className="h-4" />
+
+      {shareSheet && (
+        <div className="fixed inset-0 z-[12000] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShareSheet(null)} />
+          <div className="relative z-[12010] w-full max-w-xl rounded-3xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{isRTL ? 'مشاركة الرابط' : 'Share link'}</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{shareSheet.title}</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
+                onClick={() => setShareSheet(null)}
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-sm break-all text-gray-700 dark:border-gray-700 dark:bg-gray-800/70 dark:text-gray-200">
+              {shareSheet.url}
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-blue-700"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(shareSheet.url)
+                    const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: (isRTL ? 'تم نسخ رابط المشاركة' : 'Share link copied') } })
+                    window.dispatchEvent(evt)
+                    setShareSheet(null)
+                  } catch {}
+                }}
+              >
+                <FaCopy /> {isRTL ? 'نسخ الرابط' : 'Copy link'}
+              </button>
+
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
+                href={shareSheet.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setShareSheet(null)}
+              >
+                <FaSearch /> {isRTL ? 'فتح الرابط' : 'Open link'}
+              </a>
+
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
+                href={`https://wa.me/?text=${encodeURIComponent(`${shareSheet.title}\n${shareSheet.url}`)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaWhatsapp /> WhatsApp
+              </a>
+
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
+                href={`https://t.me/share/url?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaTelegramPlane /> Telegram
+              </a>
+
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
+                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareSheet.url)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaFacebookF /> Facebook
+              </a>
+
+              <a
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
+                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FaTwitter /> X / Twitter
+              </a>
+
+              <a
+                className="sm:col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
+                href={`mailto:?subject=${encodeURIComponent(shareSheet.title)}&body=${encodeURIComponent(shareSheet.url)}`}
+              >
+                <FaEnvelope /> {isRTL ? 'مشاركة بالبريد' : 'Share by email'}
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pagination Footer */}
       <div className="mt-2 flex items-center justify-between rounded-xl p-2 glass-panel">
