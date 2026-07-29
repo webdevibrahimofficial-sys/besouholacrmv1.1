@@ -1,0 +1,15 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="256" height="256" rx="52" fill="#080A12"/>
+  <rect x="24" y="24" width="208" height="208" rx="42" stroke="url(#frame)" stroke-width="16"/>
+  <path d="M96 68V188H145.5C176.152 188 198 170.912 198 145.5C198 125.47 185.389 112.703 166.375 108.625C180.521 103.913 190 92.3235 190 75.5C190 51.5809 170.551 36 141.5 36H96V68ZM128 68H139.5C153.031 68 161 74.3081 161 85.5C161 97.3632 151.532 104 137.5 104H128V68ZM128 132H142.5C158.554 132 167 139.048 167 151C167 162.952 158.554 170 142.5 170H128V132Z" fill="url(#glyph)"/>
+  <defs>
+    <linearGradient id="frame" x1="32" y1="18" x2="225" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8F8FF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="glyph" x1="106" y1="52" x2="188" y2="194" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8F8FF"/>
+      <stop offset="1" stop-color="#9F67FF"/>
+    </linearGradient>
+  </defs>
+</svg>

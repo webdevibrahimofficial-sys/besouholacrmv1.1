@@ -1,0 +1,661 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useTheme } from '../shared/context/ThemeProvider.jsx';
+import { api } from '../utils/api';
+import { useAppState } from '../shared/context/AppStateProvider.jsx';
+import { FaTimes, FaPaperclip } from 'react-icons/fa';
+import SearchableSelect from './SearchableSelect';
+import DynamicFieldRenderer from './DynamicFieldRenderer';
+import { useStages } from '../hooks/useStages';
+import { useQueryClient } from '@tanstack/react-query';
+import { usePhoneValidation } from '../hooks/usePhoneValidation';
+import CountryCodeSelect from './CountryCodeSelect';
+import { parsePhoneEntriesForEdit } from '../shared/utils/phoneDisplay';
+import { mapSourceToOption } from '../shared/utils/sourceDisplay';
+
+const OTHER_PHONES_PATTERN = /(?:^|\n)\s*Other phones?\s*:\s*([^\n]+)/i;
+
+const getLeadOtherPhonesValue = (lead) => (
+  lead?.other_mobile ||
+  lead?.otherMobile ||
+  lead?.meta_data?.other_mobile ||
+  lead?.metaData?.other_mobile ||
+  lead?.meta_data?.otherMobile ||
+  lead?.metaData?.otherMobile ||
+  lead?.custom_fields?.other_mobile ||
+  lead?.custom_fields?.otherMobile ||
+  String(lead?.notes || lead?.note || '').match(OTHER_PHONES_PATTERN)?.[1] ||
+  ''
+);
+
+const stripLegacyOtherPhonesFromNotes = (value) => String(value || '')
+  .replace(OTHER_PHONES_PATTERN, '')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
+const EditLeadModal = ({ isOpen, onClose, onSave, lead, canEditInfo, canEditPhone }) => {
+  const { t, i18n } = useTranslation();
+  const { resolvedTheme } = useTheme();
+  const { crmSettings, company: tenantCompany } = useAppState();
+  const queryClient = useQueryClient();
+  const isLight = resolvedTheme === 'light';
+  const isRTL = i18n.language === 'ar';
+  const isArabic = isRTL;
+
+  const { validatePhone, COUNTRY_CODES } = usePhoneValidation();
+  const [phoneErrors, setPhoneErrors] = useState([]);
+
+  // Form States
+  const [name, setName] = useState('');
+  const [source, setSource] = useState('');
+  const [campaign, setCampaign] = useState('');
+  const [project, setProject] = useState('');
+  const [item, setItem] = useState('');
+  const [company, setCompany] = useState('');
+  const [country, setCountry] = useState('');
+  const [type, setType] = useState('');
+  const [tags, setTags] = useState('');
+  const [expectedRevenue, setExpectedRevenue] = useState('');
+  const [mobileNumbers, setMobileNumbers] = useState([{ code: '+20', number: '' }]);
+  const [email, setEmail] = useState('');
+  const [note, setNote] = useState('');
+  const [attachments, setAttachments] = useState([]);
+  const [assignedTo, setAssignedTo] = useState('');
+  const [stage, setStage] = useState('');
+  const [status, setStatus] = useState('');
+  const [priority, setPriority] = useState('medium');
+  const [dynamicValues, setDynamicValues] = useState({});
+  // Lists
+  const { stages } = useStages();
+  const [usersList, setUsersList] = useState([]);
+  const [itemsList, setItemsList] = useState([]);
+  const [sourcesList, setSourcesList] = useState([]);
+  const [campaignsList, setCampaignsList] = useState([]);
+  const [projectsList, setProjectsList] = useState([]);
+  const [countriesList, setCountriesList] = useState([]);
+
+  // Initialization
+  useEffect(() => {
+    if (lead) {
+      setName(lead.fullName || lead.name || '');
+      setSource(lead.source || '');
+      setCampaign(lead.campaign || '');
+      setProject(lead.project || '');
+      setItem(lead.item_id || lead.item || '');
+      setCompany(lead.company || '');
+      setCountry(lead.country || lead.country_name || lead.countryName || lead?.meta_data?.country || lead?.metaData?.country || '');
+      setType(lead.type || '');
+      setTags(lead.tags || '');
+      setExpectedRevenue(lead.estimatedValue || lead.estimated_value || '');
+      setEmail(lead.email || '');
+      setNote(stripLegacyOtherPhonesFromNotes(lead.notes || ''));
+      setAssignedTo(lead.assignedTo || lead.assigned_to || '');
+      setStage(lead.stage || 'New');
+      setStatus(lead.status || '');
+      setPriority(lead.priority || 'medium');
+      setDynamicValues(lead.custom_fields || {});
+
+      // Parse mobile numbers
+      const phoneValues = [
+        lead.mobile || lead.phone || '',
+        getLeadOtherPhonesValue(lead),
+      ].filter(Boolean).join(' / ');
+      const defaultCode =
+        lead.phone_country ||
+        lead.phoneCountry ||
+        lead?.meta_data?.phone_country ||
+        lead?.metaData?.phone_country ||
+        lead?.meta_data?.phoneCountry ||
+        lead?.metaData?.phoneCountry ||
+        crmSettings?.defaultCountryCode ||
+        '+20';
+      const parsed = parsePhoneEntriesForEdit(phoneValues, { defaultCountryCode: defaultCode });
+      setMobileNumbers(parsed.length > 0 ? parsed : [{ code: defaultCode, number: '' }]);
+    }
+  }, [lead, crmSettings?.defaultCountryCode, COUNTRY_CODES]);
+
+  // Fetch Data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [sourcesRes, campaignsRes, usersRes] = await Promise.all([
+          api.get('/api/sources?active=1').catch(() => api.get('/api/sources')),
+          api.get('/api/campaigns'),
+          api.get('/api/users')
+        ]);
+        
+        setSourcesList(Array.isArray(sourcesRes.data) ? sourcesRes.data : (sourcesRes.data?.data || []));
+        setCampaignsList(Array.isArray(campaignsRes.data) ? campaignsRes.data : (campaignsRes.data?.data || []));
+        setUsersList(Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || []));
+      } catch (e) {
+        console.error('Failed to fetch data', e);
+      }
+    };
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await api.get('/api/countries?active=1');
+        setCountriesList(Array.isArray(res.data) ? res.data : (res.data?.data || []));
+      } catch {
+        setCountriesList([]);
+      }
+    };
+    fetchCountries();
+  }, []);
+
+  useEffect(() => {
+    if (!lead || countriesList.length === 0) return;
+    const current = String(country || '').trim();
+    if (!current) return;
+    const match = countriesList.find(c => c?.name_en === current || c?.name_ar === current);
+    if (match?.name_en && match.name_en !== current) {
+      setCountry(match.name_en);
+    }
+  }, [lead, countriesList, country]);
+
+  // Fetch items/projects
+  useEffect(() => {
+    const compType = String(tenantCompany?.company_type || '').toLowerCase();
+    
+    if (compType === 'general') {
+      const fetchItems = async () => {
+        try {
+          const res = await api.get('/api/items?all=1');
+          setItemsList(res.data?.data || res.data || []);
+        } catch (e) { console.error(e); }
+      };
+      fetchItems();
+    } else {
+      const fetchProjects = async () => {
+        try {
+          const res = await api.get('/api/projects?all=1');
+          setProjectsList(Array.isArray(res.data) ? res.data : (res.data?.data || []));
+        } catch (e) { console.error(e); }
+      };
+      fetchProjects();
+    }
+  }, [tenantCompany?.company_type]);
+
+  // Options
+  const sourceOptions = useMemo(() => sourcesList.map(s => mapSourceToOption(s, isRTL)).filter(Boolean), [sourcesList, isRTL]);
+  const campaignOptions = useMemo(() => campaignsList.map(c => ({ value: c.name, label: c.name })), [campaignsList]);
+  const projectOptions = useMemo(() => projectsList.map(p => ({ value: p.name || p.companyName || p, label: p.name || p.companyName || p })), [projectsList]);
+  const itemOptions = useMemo(() => itemsList.map(i => ({ value: i.id, label: i.name })), [itemsList]);
+  const userOptions = useMemo(() => usersList.map(u => ({ value: u.id, label: u.name })), [usersList]);
+  const stageOptions = useMemo(() => stages.map(s => ({ value: s.name, label: isRTL ? (s.nameAr || s.name) : s.name })), [stages, isRTL]);
+  const countryOptions = useMemo(() => countriesList.map(c => ({ value: c.name_en, label: isRTL ? (c.name_ar || c.name_en) : c.name_en })).filter(o => o.value && o.label), [countriesList, isRTL]);
+  
+  const typeOptions = useMemo(() => [
+    { value: 'Company', label: t('Company') },
+    { value: 'Individual', label: t('Individual') }
+  ], [t]);
+  
+  const priorityOptions = useMemo(() => [
+    { value: 'hot', label: t('Hot') },
+    { value: 'low', label: t('Low') },
+    { value: 'medium', label: t('Medium') },
+    { value: 'high', label: t('High') }
+  ], [t]);
+
+  // Handlers
+  const addMobileNumber = () => setMobileNumbers(prev => [...prev, { code: prev[0]?.code || '+20', number: '' }]);
+  const removeMobileNumber = (idx) => {
+    setMobileNumbers(prev => prev.filter((_, i) => i !== idx));
+    setPhoneErrors(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateMobileNumber = (idx, field, value) => {
+    setMobileNumbers(prev => {
+        const next = prev.map((n, i) => (i === idx ? { ...n, [field]: value } : n));
+        const current = next[idx] || { code: '+20', number: '' };
+        const check = validatePhone(current.code, current.number);
+        setPhoneErrors(prevErrs => {
+             const arr = [...prevErrs];
+             arr[idx] = check.isValid ? '' : (isRTL ? check.messageAr : check.message);
+             return arr;
+        });
+        return next;
+    });
+  };
+  
+  const handleDynamicChange = (key, value) => setDynamicValues(prev => ({ ...prev, [key]: value }));
+
+  const handleSave = async () => {
+    const canEditAnything = Boolean(canEditInfo || canEditPhone);
+    if (!canEditAnything) {
+        alert(isRTL ? 'ليست لديك صلاحية تعديل هذا الليد' : "You don't have permission to edit this lead");
+        return;
+    }
+    const nameTrimmed = name.trim();
+    if (canEditInfo && (!nameTrimmed || !source.trim())) {
+        alert(t('Please fill required fields'));
+        return;
+    }
+
+    if (canEditPhone) {
+    // Check phone errors
+    const hasPhoneError = mobileNumbers.some((m) => {
+        if (!m.number.trim()) return false; // allow empty if not required? But usually phone is required.
+        const check = validatePhone(m.code, m.number);
+        return !check.isValid;
+    });
+
+    if (hasPhoneError) {
+        alert(isRTL ? 'يرجى تصحيح أخطاء رقم الهاتف' : 'Please fix phone number errors');
+        return;
+    }
+
+        const phoneValue = mobileNumbers
+            .filter((m) => m.number.trim())
+            .map((m) => `${m.code} ${m.number}`)
+            .join(' / ');
+
+        if (!phoneValue) {
+            alert('Phone number is required');
+            return;
+        }
+    }
+
+    const payload = {};
+
+    const existingMeta = (lead && typeof lead.meta_data === 'object' && lead.meta_data !== null)
+      ? lead.meta_data
+      : ((lead && typeof lead.metaData === 'object' && lead.metaData !== null) ? lead.metaData : {});
+    const formattedNumbers = mobileNumbers
+        .filter((m) => m.number.trim())
+        .map((m) => `${m.code} ${m.number}`);
+    const otherMobile = formattedNumbers.slice(1).join(' / ').trim();
+    const nextMeta = { ...existingMeta };
+    if (otherMobile) {
+        nextMeta.other_mobile = otherMobile;
+    } else {
+        delete nextMeta.other_mobile;
+        delete nextMeta.otherMobile;
+    }
+
+    if (canEditInfo) {
+        payload.name = nameTrimmed;
+        payload.email = email.trim();
+        payload.company = company.trim() || project.trim() || '';
+        payload.country = country || '';
+        payload.type = type || ((company.trim() || project.trim()) ? 'Company' : 'Individual');
+        payload.stage = stage;
+        payload.status = status;
+        payload.priority = priority;
+        payload.source = source;
+        payload.campaign = campaign;
+        payload.notes = (note || '').trim();
+        payload.estimated_value = expectedRevenue;
+        payload.project = project.trim();
+        payload.item_id = item;
+        payload.tags = tags;
+        payload.custom_fields = dynamicValues;
+        payload.meta_data = nextMeta;
+
+        if (assignedTo !== null && assignedTo !== undefined && String(assignedTo).trim() !== '') {
+            payload.assigned_to_id = String(assignedTo).trim();
+        }
+    }
+
+    if (canEditPhone) {
+        const firstPhone = mobileNumbers.find((m) => m.number.trim());
+        payload.phone = firstPhone ? `${firstPhone.code} ${firstPhone.number}` : '';
+        payload.phone_country = mobileNumbers[0]?.code || '+20';
+        payload.meta_data = nextMeta;
+    }
+
+    if (Object.keys(payload).length === 0) {
+        return;
+    }
+
+    try {
+        const res = await api.put(`/api/leads/${lead.id}`, payload);
+        onSave(res?.data || payload);
+        queryClient.invalidateQueries({ queryKey: ['leads'] });
+        queryClient.invalidateQueries({ queryKey: ['lead', lead.id] });
+        onClose();
+    } catch (e) {
+        console.error('Error updating lead', e);
+        alert('Failed to update lead');
+    }
+  };
+
+  if (!isOpen || !lead) return null;
+
+  const formTone = isLight ? 'bg-white' : 'bg-slate-800 text-white';
+  const labelTone = isLight ? 'text-gray-700' : 'text-gray-300';
+  const inputTone = isLight
+    ? 'bg-white border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-gray-900'
+    : 'bg-gray-700 border-gray-600 text-white focus:ring-blue-400 focus:border-blue-400';
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className={`${formTone} w-full max-w-4xl rounded-lg shadow-xl relative flex flex-col max-h-[90vh]`}>
+        {/* Header */}
+        <div className={`flex items-center justify-between p-4 border-b ${isLight ? 'border-gray-200' : 'border-gray-700'}`}>
+            <h2 className="text-xl font-bold">{isArabic ? 'تعديل بيانات العميل' : 'Edit Lead'}</h2>
+            <button onClick={onClose} className="text-red-500 hover:text-red-700 p-2">
+                <FaTimes size={20} />
+            </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 overflow-y-auto flex-1">
+             <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold">{t('Primary Lead')}</h3>
+             </div>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Column */}
+                <div className="space-y-4">
+                     {/* Name */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Name')} <span className="text-red-500">*</span></label>
+                        <input
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
+                            disabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Source */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Source')} <span className="text-red-500">*</span></label>
+                        <SearchableSelect
+                            options={sourceOptions}
+                            value={source}
+                            onChange={setSource}
+                            placeholder={t('Select')}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                            isDisabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Campaign */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Campaign')}</label>
+                        <SearchableSelect
+                            options={campaignOptions}
+                            value={campaign}
+                            onChange={setCampaign}
+                            placeholder={t('Select')}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                            isDisabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Project / Item */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>
+                            {String(tenantCompany?.company_type || '').toLowerCase() === 'general' ? t('Item') : t('Project')}
+                        </label>
+                        {String(tenantCompany?.company_type || '').toLowerCase() === 'general' ? (
+                            <SearchableSelect
+                                options={itemOptions}
+                                value={item}
+                                onChange={setItem}
+                                placeholder={t('Select item')}
+                                isRTL={isRTL}
+                                showAllOption={false}
+                                isDisabled={!canEditInfo}
+                            />
+                        ) : (
+                            <SearchableSelect
+                                options={projectOptions}
+                                value={project}
+                                onChange={setProject}
+                                placeholder={t('Select')}
+                                isRTL={isRTL}
+                                showAllOption={false}
+                                isDisabled={!canEditInfo}
+                            />
+                        )}
+                     </div>
+
+                     {/* Type */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Type')}</label>
+                        <SearchableSelect
+                            options={typeOptions}
+                            value={type}
+                            onChange={setType}
+                            placeholder={t('Select')}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                            isDisabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Company */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Company')}</label>
+                        <input
+                            type="text"
+                            value={company}
+                            onChange={(e) => setCompany(e.target.value)}
+                            className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
+                            disabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Country */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Country')}</label>
+                        <SearchableSelect
+                            options={countryOptions}
+                            value={country}
+                            onChange={setCountry}
+                            placeholder={t('Select')}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                            isDisabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Expected Revenue */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Expected Revenue')}</label>
+                         <input
+                             type="number"
+                             value={expectedRevenue}
+                             onChange={(e) => setExpectedRevenue(e.target.value)}
+                             className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
+                             disabled={!canEditInfo}
+                         />
+                     </div>
+
+                     {/* Stage */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Stage')}</label>
+                         <SearchableSelect
+                             options={stageOptions}
+                             value={stage}
+                             onChange={setStage}
+                             placeholder={t('Select')}
+                             isRTL={isRTL}
+                             showAllOption={false}
+                             isDisabled={!canEditInfo}
+                         />
+                     </div>
+
+                     {/* Priority */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Priority')}</label>
+                         <SearchableSelect
+                             options={priorityOptions}
+                             value={priority}
+                             onChange={setPriority}
+                             placeholder={t('Select')}
+                             isRTL={isRTL}
+                             showAllOption={false}
+                             isDisabled={!canEditInfo}
+                         />
+                     </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                     {/* Mobile */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Mobile')} <span className="text-red-500">*</span></label>
+                        {mobileNumbers.map((m, idx) => (
+                            <div key={idx} className="mb-2">
+                                <div className="flex items-center gap-2">
+                                     <CountryCodeSelect
+                                         value={m.code}
+                                         onChange={(val) => updateMobileNumber(idx, 'code', val)}
+                                         disabled={!canEditPhone}
+                                         isLight={isLight} inputTone={inputTone} isRTL={isRTL}
+                                     />
+                                    <input
+                                        type="tel"
+                                        value={m.number}
+                                        onChange={(e) => updateMobileNumber(idx, 'number', e.target.value)}
+                                        className={`flex-1 min-w-0 rounded-md border px-3 py-2 ${inputTone}`}
+                                        placeholder={t('Mobile number')}
+                                        disabled={!canEditPhone}
+                                    />
+                                    {idx === 0 ? (
+                                        <button
+                                            type="button"
+                                            onClick={addMobileNumber}
+                                            disabled={!canEditPhone}
+                                            className={`p-2 rounded-md border ${isLight ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-gray-700 border-gray-600 text-blue-400'}`}
+                                            title={t('Add another number')}
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                            </svg>
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeMobileNumber(idx)}
+                                            disabled={!canEditPhone}
+                                            className={`p-2 rounded-md border ${isLight ? 'bg-red-50 border-red-200 text-red-600' : 'bg-gray-700 border-gray-600 text-red-400'}`}
+                                            title={t('Remove number')}
+                                        >
+                                            <FaTimes className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+                                {phoneErrors[idx] && <p className="text-xs text-red-500 mt-1 mx-1">{phoneErrors[idx]}</p>}
+                            </div>
+                        ))}
+                     </div>
+
+                     {/* Email */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Email')}</label>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
+                            disabled={!canEditInfo}
+                        />
+                     </div>
+
+                     {/* Tags */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Tags')}</label>
+                         <input
+                             type="text"
+                             value={tags}
+                             onChange={(e) => setTags(e.target.value)}
+                             className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
+                             disabled={!canEditInfo}
+                         />
+                     </div>
+
+                     {/* Sales (Assigned To) */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Sales (Assigned To)')}</label>
+                         <SearchableSelect
+                             options={userOptions}
+                             value={assignedTo}
+                             onChange={setAssignedTo}
+                             placeholder={t('Select sales Person ')}
+                             isRTL={isRTL}
+                             showAllOption={false}
+                             isDisabled={!canEditInfo}
+                         />
+                     </div>
+
+                     {/* Attachments (Display only or add new - simplified) */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Attachments')}</label>
+                         <div className={`relative w-full rounded-md border px-3 py-2 ${inputTone} flex items-center`}>
+                            <input
+                                type="file"
+                                multiple
+                                disabled={!canEditInfo}
+                                onChange={(e) => setAttachments(prev => [...prev, ...Array.from(e.target.files)])}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                            <div className="flex items-center gap-2">
+                                <FaPaperclip className="text-gray-400" />
+                                <span className="text-sm truncate">
+                                    {attachments.length > 0 
+                                        ? `${attachments.length} ${t('files selected')}`
+                                        : t('Choose files...')}
+                                </span>
+                            </div>
+                        </div>
+                     </div>
+
+                     {/* Note */}
+                     <div>
+                        <label className={`block text-sm font-medium mb-1 ${labelTone}`}>{t('Note')}</label>
+                        <textarea
+                            rows={4}
+                            value={note}
+                            onChange={(e) => setNote(e.target.value)}
+                            className={`w-full rounded-md border px-3 py-2 ${inputTone}`}
+                            disabled={!canEditInfo}
+                        />
+                     </div>
+                </div>
+             </div>
+
+             {/* Dynamic Fields */}
+             <div className="mt-4 border-t pt-4 border-gray-100 dark:border-gray-700">
+                   <DynamicFieldRenderer 
+                     entityKey="leads"
+                     values={dynamicValues}
+                     onChange={handleDynamicChange}
+                     isRTL={isRTL}
+                     isDisabled={!canEditInfo}
+                   />
+             </div>
+        </div>
+
+        {/* Footer */}
+        <div className={`p-4 border-t ${isLight ? 'border-gray-200' : 'border-gray-700'} flex justify-end gap-3`}>
+            <button
+                onClick={onClose}
+                className="px-4 py-2 rounded-md bg-gray-500 text-white hover:bg-gray-600"
+            >
+                {t('Cancel')}
+            </button>
+            <button
+                onClick={handleSave}
+                disabled={!canEditInfo && !canEditPhone}
+                className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                {isArabic ? 'حفظ التعديلات' : 'Save Changes'}
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default EditLeadModal;

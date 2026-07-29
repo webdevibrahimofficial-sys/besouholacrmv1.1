@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 260 100% 4%;
+    --foreground: 210 40% 98%;
+
+    --card: 260 100% 4%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 260 100% 4%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-padding-top: 5.5rem;
+  }
+  body, html {
+    @apply bg-background text-foreground;
+  }
+}
+
+@media (pointer: fine) {
+  html,
+  body,
+  a,
+  button,
+  [role='button'] {
+    cursor: none;
+  }
+
+  input,
+  textarea,
+  select,
+  option,
+  [contenteditable='true'] {
+    cursor: text;
+  }
+}
+
+/* For Webkit-based browsers (Chrome, Safari) */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* For IE, Edge and Firefox */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.text-gradient {
+  background: linear-gradient(90deg, #D4B4FF, #9372FF); /* Updated gradient end color */
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero-form-shell {
+  position: relative;
+}
+
+.hero-form-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 2rem;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.18), rgba(147,114,255,0.28), rgba(255,255,255,0.06));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.hero-form-shell::after {
+  content: '';
+  position: absolute;
+  inset: 18% 12% auto;
+  height: 160px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255,255,255,0.12), transparent 70%);
+  filter: blur(22px);
+  pointer-events: none;
+}
+
+@media (max-width: 1279px) {
+  .hero-form-shell::after {
+    inset: 16% 10% auto;
+    height: 132px;
+  }
+}

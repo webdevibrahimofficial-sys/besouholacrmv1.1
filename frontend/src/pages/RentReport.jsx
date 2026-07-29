@@ -1,0 +1,1089 @@
+import { useMemo, useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import * as XLSX from 'xlsx'
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
+import { Bar } from 'react-chartjs-2'
+import { useTheme } from '@shared/context/ThemeProvider'
+import { useAppState } from '@shared/context/AppStateProvider'
+import { canExportReport } from '../shared/utils/reportPermissions'
+import { api, logExportEvent } from '../utils/api'
+import BackButton from '../components/BackButton'
+import { PieChart } from '../shared/components/PieChart'
+import SearchableSelect from '../components/SearchableSelect'
+import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
+import DateRangePicker from '../shared/components/DateRangePicker'
+import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
+import { Eye, Filter, Trash2, User, Users, Tag, Layers, Calendar, Home, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
+
+export default function RentReport() {
+  const { t, i18n } = useTranslation()
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
+  const { user } = useAppState()
+  const canExport = canExportReport(user, 'Rent Report')
+  const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
+
+  const isSuperManagerRole = (role) => {
+    const r = String(role || '').toLowerCase()
+    return (
+      r === 'admin' ||
+      r === 'tenant admin' ||
+      r === 'tenant-admin' ||
+      r === 'operation manager' ||
+      r === 'sales admin' ||
+      r === 'director' ||
+      r === 'branch manager'
+    )
+  }
+
+  const normalizeDate = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    return raw.slice(0, 10)
+  }
+
+  const normalizeText = (value) => String(value || '').trim().toLowerCase()
+
+  const firstFilled = (...values) => {
+    for (const value of values) {
+      if (value === null || value === undefined) continue
+      if (typeof value === 'string' && value.trim() === '') continue
+      return value
+    }
+    return ''
+  }
+
+  const toLabel = (value) => {
+    if (value === null || value === undefined) return ''
+    if (typeof value === 'string' || typeof value === 'number') return String(value).trim()
+    if (typeof value === 'object') {
+      return String(
+        value.name ||
+        value.label ||
+        value.title ||
+        value.unit_name ||
+        value.name_en ||
+        value.value ||
+        ''
+      ).trim()
+    }
+    return ''
+  }
+
+  const isTruthyFlag = (value) => {
+    if (value === true || value === 1) return true
+    const normalized = normalizeText(value)
+    return ['true', '1', 'yes', 'renewed', 'done'].includes(normalized)
+  }
+
+  const buildLookupMaps = (sourcesList = [], propertiesList = []) => {
+    const sourceById = new Map()
+    const sourceByName = new Map()
+
+    sourcesList.forEach((source) => {
+      const id = String(source?.id ?? '').trim()
+      const name = toLabel(source?.name || source?.title || source?.value)
+      if (id && name) sourceById.set(id, name)
+      if (name) sourceByName.set(normalizeText(name), name)
+    })
+
+    const propertyById = new Map()
+    const propertyByName = new Map()
+
+    propertiesList.forEach((property) => {
+      const id = String(property?.id ?? '').trim()
+      const propertyName = toLabel(
+        firstFilled(property?.name, property?.title, property?.unit_code, property?.project)
+      )
+      const propertyType = toLabel(
+        firstFilled(
+          property?.property_type,
+          property?.propertyType,
+          property?.type,
+          property?.unit_type,
+          property?.unitType
+        )
+      )
+
+      const normalizedNames = [
+        property?.name,
+        property?.title,
+        property?.unit_code,
+      ]
+        .map((value) => normalizeText(value))
+        .filter(Boolean)
+
+      const entry = { ...property, resolvedName: propertyName, resolvedType: propertyType }
+
+      if (id) propertyById.set(id, entry)
+      normalizedNames.forEach((nameKey) => propertyByName.set(nameKey, entry))
+    })
+
+    return { sourceById, sourceByName, propertyById, propertyByName }
+  }
+
+  const [rentUnits, setRentUnits] = useState([])
+  const [usersList, setUsersList] = useState([])
+  const [sourcesList, setSourcesList] = useState([])
+  const [showLeadModal, setShowLeadModal] = useState(false)
+  const [selectedLead, setSelectedLead] = useState(null)
+
+  const sourceLabelMap = useMemo(() => {
+    const map = new Map()
+    ;(sourcesList || []).forEach((source) => {
+      const key = getSourceCanonicalName(source)
+      const label = getSourceDisplayName(source, isRTL)
+      if (key && label) map.set(key, label)
+    })
+    return map
+  }, [isRTL, sourcesList])
+
+  const localizeSourceLabel = (value) => {
+    const key = String(value || '').trim()
+    if (!key) return key
+    return sourceLabelMap.get(key) || key
+  }
+
+  const getDescendants = (rootId, allUsers) => {
+    let descendants = []
+    const direct = allUsers.filter(u => String(u.manager_id) === String(rootId))
+    direct.forEach(u => {
+      descendants.push(u)
+      descendants = descendants.concat(getDescendants(u.id, allUsers))
+    })
+    return descendants
+  }
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadUsers = async () => {
+      try {
+        const res = await api.get('/api/users')
+        const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+        if (!isMounted) return
+        setUsersList(data)
+      } catch (e) {
+        if (!isMounted) return
+        setUsersList([])
+      }
+    }
+
+    const loadRents = async () => {
+      try {
+        const [byNext, byType, sourcesRes, propertiesRes] = await Promise.all([
+          api.get('/api/lead-actions', { params: { next_action_type: 'rent' } }),
+          api.get('/api/lead-actions', { params: { type: 'rent' } }),
+          api.get('/api/sources'),
+          api.get('/api/properties', { params: { all: 1 } }),
+        ])
+
+        const extract = res =>
+          Array.isArray(res.data) ? res.data : (res.data?.data || [])
+
+        const sourcesList = extract(sourcesRes)
+        const propertiesList = extract(propertiesRes)
+        const { sourceById, sourceByName, propertyById, propertyByName } = buildLookupMaps(sourcesList, propertiesList)
+
+        if (isMounted) {
+          setSourcesList(sourcesList)
+        }
+
+        const combined = [...extract(byNext), ...extract(byType)]
+        const uniqueMap = new Map()
+        combined.forEach(action => {
+          if (action && !uniqueMap.has(action.id)) {
+            uniqueMap.set(action.id, action)
+          }
+        })
+        const unique = Array.from(uniqueMap.values())
+
+        const today = new Date().toISOString().slice(0, 10)
+
+        const mapped = unique.map(action => {
+          const details = action.details || {}
+          const lead = action.lead || {}
+
+          const rawAmount =
+            details.rentAmount ??
+            details.rent_amount ??
+            details.amount ??
+            0
+
+          const rentAmount =
+            typeof rawAmount === 'number'
+              ? rawAmount
+              : parseFloat(rawAmount || '0') || 0
+
+          const startRaw =
+            details.rentStart ||
+            details.rent_start ||
+            details.date ||
+            action.date ||
+            action.created_at
+          const endRaw =
+            details.rentEnd ||
+            details.rent_end ||
+            details.rent_end_date ||
+            details.endDate
+
+          const startDate = normalizeDate(startRaw)
+          const endDate = normalizeDate(endRaw)
+
+          let status = 'active'
+          if (endDate && endDate < today) {
+            status = 'expired'
+          }
+
+          const renewed = isTruthyFlag(
+            firstFilled(
+              details.renewed,
+              details.isRenewed,
+              details.is_renewed,
+              details.renewal,
+              details.renewal_status
+            )
+          )
+
+          if (renewed) {
+            status = 'renewed'
+          }
+
+          const salesPerson =
+            (lead.assigned_agent && lead.assigned_agent.name) ||
+            (lead.assignedAgent && lead.assignedAgent.name) ||
+            lead.sales_person ||
+            lead.salesperson ||
+            (action.user && action.user.name) ||
+            ''
+
+          const salesPersonId =
+            lead.assigned_to ??
+            lead.assignedTo ??
+            (lead.assigned_agent && lead.assigned_agent.id) ??
+            (lead.assignedAgent && lead.assignedAgent.id) ??
+            action.user_id ??
+            (action.user && action.user.id) ??
+            null
+
+          const rawSource = firstFilled(
+            lead.source,
+            lead.source_id,
+            lead.channel,
+            details.source,
+            details.channel,
+            action.source
+          )
+
+          const rawSourceKey = String(rawSource ?? '').trim()
+          const source =
+            sourceById.get(rawSourceKey) ||
+            sourceByName.get(normalizeText(rawSourceKey)) ||
+            toLabel(rawSource)
+
+          const clientName =
+            toLabel(firstFilled(lead.name, lead.fullName, lead.company))
+          const contact =
+            toLabel(firstFilled(lead.phone, lead.mobile, lead.whatsapp))
+
+          const rawUnitId = firstFilled(
+            details.rentUnit,
+            details.rent_unit,
+            details.unit_id,
+            details.unitId,
+            details.property_id,
+            details.propertyId
+          )
+
+          const propertyFromId = rawUnitId ? propertyById.get(String(rawUnitId).trim()) : null
+
+          const propertyName =
+            toLabel(
+              firstFilled(
+                propertyFromId?.resolvedName,
+                details.unitName,
+                details.unit_name,
+                details.property,
+                details.propertyName,
+                details.unit,
+                details.rentUnitName,
+                propertyByName.get(normalizeText(details.unitName))?.resolvedName,
+                propertyByName.get(normalizeText(details.unit_name))?.resolvedName,
+                propertyByName.get(normalizeText(details.property))?.resolvedName,
+                propertyByName.get(normalizeText(details.propertyName))?.resolvedName,
+                propertyByName.get(normalizeText(details.unit))?.resolvedName,
+                propertyByName.get(normalizeText(details.rentUnitName))?.resolvedName,
+                lead.project,
+                lead.item,
+                lead.product
+              )
+            )
+
+          const propertyByResolvedName = propertyByName.get(normalizeText(propertyName))
+
+          const unitType = toLabel(
+            firstFilled(
+              propertyFromId?.resolvedType,
+              propertyByResolvedName?.resolvedType,
+              details.unitType,
+              details.unit_type,
+              details.propertyType,
+              details.property_type,
+              lead.type
+            )
+          )
+
+          return {
+            id: action.id,
+            leadId: lead.id,
+            property: propertyName,
+            clientName,
+            contact,
+            startDate,
+            endDate,
+            rentAmount,
+            salesPerson,
+            salesPersonId: salesPersonId !== null && salesPersonId !== undefined && salesPersonId !== ''
+              ? String(salesPersonId)
+              : '',
+            manager: '',
+            source,
+            status,
+            unitType,
+            renewed
+          }
+        })
+
+        if (!isMounted) return
+        setRentUnits(mapped)
+      } catch (e) {
+        if (!isMounted) return
+        console.error('Failed to load rent actions', e)
+        setSourcesList([])
+        setRentUnits([])
+      }
+    }
+
+    loadUsers()
+    loadRents()
+
+    const handleUpdate = () => {
+      loadRents()
+    }
+
+    window.addEventListener('leadsDataUpdated', handleUpdate)
+
+    return () => {
+      isMounted = false
+      window.removeEventListener('leadsDataUpdated', handleUpdate)
+    }
+  }, [])
+
+  // Filter States
+  const [salesPersonFilter, setSalesPersonFilter] = useState('all')
+  const [managerFilter, setManagerFilter] = useState('all')
+  const [sourceFilter, setSourceFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [dateFromFilter, setDateFromFilter] = useState('')
+  const [dateToFilter, setDateToFilter] = useState('')
+  const [unitTypeFilter, setUnitTypeFilter] = useState('all')
+  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
+
+  const salesPersonOptions = useMemo(() => {
+    if (!usersList || usersList.length === 0) {
+      const unique = Array.from(
+        new Map(
+          rentUnits
+            .filter(p => p.salesPersonId && p.salesPerson)
+            .map(p => [String(p.salesPersonId), { value: String(p.salesPersonId), label: p.salesPerson }])
+        ).values()
+      )
+      return [{ value: 'all', label: t('All') }, ...unique]
+    }
+
+    if (!managerFilter || managerFilter === 'all') {
+      const rentUserOptions = rentUnits
+        .filter(p => p.salesPersonId && p.salesPerson)
+        .map(p => [String(p.salesPersonId), { id: String(p.salesPersonId), name: p.salesPerson }])
+
+      return [
+        { value: 'all', label: t('All') },
+        ...Array.from(new Map([
+          ...usersList.map(u => [String(u.id), u]),
+          ...rentUserOptions
+        ]).values())
+          .filter(u => String(u?.name || '').trim() !== '')
+          .map(u => ({ value: String(u.id), label: u.name }))
+      ]
+    }
+
+    const selectedManagers = usersList.filter(u => String(u.id) === String(managerFilter))
+    const hasSuperManager = selectedManagers.some(u => isSuperManagerRole(u.role))
+
+    let candidates
+    if (hasSuperManager) {
+      candidates = usersList
+    } else {
+      const all = []
+      selectedManagers.forEach(m => {
+        all.push(m)
+        getDescendants(m.id, usersList).forEach(s => all.push(s))
+      })
+      candidates = Array.from(new Map(all.map(u => [String(u.id), u])).values())
+    }
+
+    return [
+      { value: 'all', label: t('All') },
+      ...candidates
+        .filter(u => String(u?.name || '').trim() !== '')
+        .map(u => ({ value: String(u.id), label: u.name }))
+    ]
+  }, [usersList, rentUnits, managerFilter, t])
+
+  const managerOptions = useMemo(() => {
+    if (!usersList || usersList.length === 0) {
+      return [{ value: 'all', label: t('All') }]
+    }
+
+    const directManagerIds = new Set(usersList.map(u => Number(u.manager_id)).filter(Number.isFinite))
+    const managers = usersList.filter(u => {
+      const role = String(u.role || '').toLowerCase()
+      const isSalesPerson = role.includes('sales person') || role.includes('salesperson')
+      return !isSalesPerson && (directManagerIds.has(Number(u.id)) || isSuperManagerRole(role))
+    })
+
+    return [
+      { value: 'all', label: t('All') },
+      ...Array.from(new Map(managers.map(m => [String(m.id), m])).values()).map(m => ({
+        value: String(m.id),
+        label: m.role ? `${m.name || `#${m.id}`} (${m.role})` : (m.name || `#${m.id}`)
+      }))
+    ]
+  }, [usersList, t])
+
+  const sourceOptions = useMemo(() => {
+    const dbOptions = Array.from(
+      new Map(
+        (sourcesList || [])
+          .map((source) => {
+            const value = getSourceCanonicalName(source)
+            const label = getSourceDisplayName(source, isRTL)
+            return value && label ? [normalizeText(value), { value, label }] : null
+          })
+          .filter(Boolean)
+      ).values()
+    )
+
+    if (dbOptions.length > 0) {
+      return [{ value: 'all', label: t('All') }, ...dbOptions]
+    }
+
+    return [
+      { value: 'all', label: t('All') },
+      ...Array.from(
+        new Map(
+          rentUnits
+            .map((p) => p.source)
+            .filter(Boolean)
+            .map((s) => [normalizeText(s), { value: String(s).trim(), label: localizeSourceLabel(s) }])
+        ).values()
+      ),
+    ]
+  }, [isRTL, rentUnits, sourcesList, t, sourceLabelMap])
+
+  const statusOptions = useMemo(() => (
+    [
+      { value: 'all', label: t('All') },
+      { value: 'active', label: t('Active') },
+      { value: 'expired', label: t('Expired') },
+      { value: 'renewed', label: t('Renewed') }
+    ]
+  ), [t])
+
+  const unitTypeOptions = useMemo(() => (
+    [{ value: 'all', label: t('All') }, ...Array.from(new Set(rentUnits.map(p => p.unitType).filter(Boolean))).map(u => ({ value: u, label: u }))]
+  ), [rentUnits, t])
+
+  const filtered = useMemo(() => {
+    return rentUnits.filter(p => {
+      const bySales =
+        salesPersonFilter === 'all' || String(p.salesPersonId || '') === String(salesPersonFilter)
+
+      const byManager = (() => {
+        if (!usersList.length || managerFilter === 'all') return true
+        if (!p.salesPersonId) return false
+        const mgr = usersList.find(
+          u => String(u.id) === String(managerFilter)
+        )
+        if (!mgr) return true
+        if (isSuperManagerRole(mgr.role)) return true
+        const all = [mgr, ...getDescendants(mgr.id, usersList)]
+        const salesIds = new Set(
+          all.map(u => String(u.id)).filter(Boolean)
+        )
+        return !p.salesPersonId || salesIds.has(String(p.salesPersonId))
+      })()
+
+      const bySource = sourceFilter === 'all' || normalizeText(p.source) === normalizeText(sourceFilter)
+      const byStatus = statusFilter === 'all' || p.status === statusFilter
+      const byUnitType =
+        unitTypeFilter === 'all' || normalizeText(p.unitType) === normalizeText(unitTypeFilter)
+
+      const fromDate = dateFromFilter ? new Date(dateFromFilter) : null
+      const toDate = dateToFilter ? new Date(dateToFilter) : null
+      const startDate = p.startDate ? new Date(p.startDate) : null
+
+      const byDateFrom = !fromDate || (startDate && startDate >= fromDate)
+      const byDateTo = !toDate || (startDate && startDate <= toDate)
+
+      return (
+        bySales &&
+        byManager &&
+        bySource &&
+        byStatus &&
+        byUnitType &&
+        byDateFrom &&
+        byDateTo
+      )
+    })
+  }, [
+    rentUnits,
+    salesPersonFilter,
+    managerFilter,
+    sourceFilter,
+    statusFilter,
+    unitTypeFilter,
+    dateFromFilter,
+    dateToFilter,
+    usersList
+  ])
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const [entriesPerPage, setEntriesPerPage] = useState(10)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [rentUnits, salesPersonFilter, managerFilter, sourceFilter, statusFilter, unitTypeFilter, dateFromFilter, dateToFilter])
+
+  useEffect(() => {
+    if (salesPersonFilter === 'all') return
+    const stillExists = salesPersonOptions.some(option => option.value === salesPersonFilter)
+    if (!stillExists) {
+      setSalesPersonFilter('all')
+    }
+  }, [salesPersonFilter, salesPersonOptions])
+
+  // KPI Calculations
+  const totalRentUnits = filtered.length
+  const pageCount = Math.ceil(totalRentUnits / entriesPerPage)
+  const paginatedData = filtered.slice(
+    (currentPage - 1) * entriesPerPage,
+    currentPage * entriesPerPage
+  )
+
+  const activeContractsCount = filtered.filter(p => p.status === 'active' || p.status === 'renewed').length
+  const expiredContractsCount = filtered.filter(p => p.status === 'expired').length
+  const renewalUnitsCount = filtered.filter(p => p.renewed).length
+  const totalRentAmount = filtered.reduce((sum, p) => sum + (p.rentAmount || 0), 0)
+
+  // Chart Data
+  // 1. Rent Units by Status (Pie)
+  const unitsByStatusData = useMemo(() => {
+    const counts = { active: 0, expired: 0, renewed: 0 }
+    filtered.forEach(p => {
+      if (p.status === 'renewed') counts.renewed++
+      else if (p.status === 'expired') counts.expired++
+      else counts.active++
+    })
+    return [
+      { label: t('Active'), value: counts.active, color: '#10b981' },
+      { label: t('Expired'), value: counts.expired, color: '#ef4444' },
+      { label: t('Renewed'), value: counts.renewed, color: '#3b82f6' }
+    ]
+  }, [filtered, t])
+
+  // 2. Rent Amount Overtime (Bar)
+  const rentOverTimeData = useMemo(() => {
+    const map = new Map()
+    filtered.forEach(p => {
+      const month = p.startDate.substring(0, 7) // YYYY-MM
+      map.set(month, (map.get(month) || 0) + p.rentAmount)
+    })
+    const sortedKeys = Array.from(map.keys()).sort()
+    return {
+      labels: sortedKeys,
+      datasets: [
+        {
+          label: t('Rent Amount'),
+          data: sortedKeys.map(k => map.get(k)),
+          backgroundColor: 'rgba(59, 130, 246, 0.7)'
+        }
+      ]
+    }
+  }, [filtered, t])
+
+  // 3. Expired & Renewed Contracts (Pie)
+  const expiredRenewedData = useMemo(() => {
+    const counts = { expired: 0, renewed: 0 }
+    filtered.forEach(p => {
+      if (p.status === 'expired') counts.expired++
+      if (p.renewed) counts.renewed++
+    })
+    return [
+      { label: t('Expired'), value: counts.expired, color: '#ef4444' },
+      { label: t('Renewed'), value: counts.renewed, color: '#3b82f6' }
+    ]
+  }, [filtered, t])
+
+  const barOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { beginAtZero: true }
+    }
+  }
+
+  const handleExportExcel = () => {
+    const rows = filtered.map(p => ({
+      [t('Property Info')]: p.property,
+      [t('Client Name')]: p.clientName,
+      [t('Contact Number')]: p.contact,
+      [t('Start Date')]: p.startDate,
+      [t('End Date')]: p.endDate,
+      [t('Rent Amount')]: p.rentAmount,
+      [t('Sales Person')]: p.salesPerson
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'RentReport')
+    const fileName = 'Rent_Report.xlsx'
+    XLSX.writeFile(wb, fileName)
+    logExportEvent({
+      module: 'Rent Report',
+      fileName,
+      format: 'xlsx',
+    })
+    setShowExportMenu(false)
+  }
+
+  const handleExportPdf = () => {
+    window.print()
+    setShowExportMenu(false)
+  }
+
+  const handleDelete = (id) => {
+    setRentUnits(prev => prev.filter(p => p.id !== id))
+  }
+
+  const handlePreview = (unit) => {
+    setSelectedLead({
+      id: unit.leadId,
+      name: unit.clientName,
+      phone: unit.contact,
+      source: unit.source,
+      status: unit.status,
+      assignedTo: unit.salesPerson,
+      project: unit.property // Mapping property to project for modal context
+    })
+    setShowLeadModal(true)
+  }
+
+  const clearFilters = () => {
+    setSalesPersonFilter('all')
+    setManagerFilter('all')
+    setSourceFilter('all')
+    setStatusFilter('all')
+    setUnitTypeFilter('all')
+    setDateFromFilter('')
+    setDateToFilter('')
+  }
+
+  const renderPieCard = (title, data) => {
+    const total = data.reduce((sum, item) => sum + (item.value || 0), 0)
+    return (
+      <div className="group relative backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+        <div className={`text-sm font-semibold mb-2 ${isLight ? 'text-black' : 'text-white'} text-center md:text-left`}>{title}</div>
+        <div className="h-48 flex items-center justify-center">
+          <PieChart
+            segments={data}
+            size={170}
+            centerValue={total}
+            centerLabel={t('Total')}
+          />
+        </div>
+        <div className="mt-4 flex flex-wrap justify-center gap-3">
+          {data.map(segment => (
+            <div key={segment.label} className="flex items-center gap-1.5 text-xs">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: segment.color }}></div>
+              <span className={`${isLight ? 'text-black' : 'text-white'}`}>
+                {segment.label}: {segment.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-4 md:p-6 bg-[var(--content-bg)] text-[var(--content-text)] overflow-hidden min-w-0 max-w-[1600px] mx-auto space-y-6">
+      <div>
+        <BackButton to="/reports" />
+        <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'} mb-2`}>
+          {t('Rent Report')}
+        </h1>
+      </div>
+
+      <div className="backdrop-blur-md rounded-2xl shadow-sm border border-theme-border dark:border-gray-700/50 p-6 mb-4">
+        <div className="flex justify-between items-center mb-3">
+          <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} font-semibold`}>
+            <Filter size={20} className="text-blue-500 dark:text-blue-400" />
+            <h3>{t('Filter')}</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAllFilters(prev => !prev)}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+            >
+              {showAllFilters ? t('Hide') : t('Show All')}
+              <FaChevronDown
+                size={12}
+                className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`}
+              />
+            </button>
+            <button
+              onClick={clearFilters}
+              className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
+            >
+              {t('Reset')}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <User size={12} className="text-blue-500 dark:text-blue-400" />
+                {t('Sales Person')}
+              </label>
+              <SearchableSelect options={salesPersonOptions} value={salesPersonFilter} onChange={v => setSalesPersonFilter(v)} placeholder={t('Sales Person')} isRTL={isRTL} />
+            </div>
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Users size={12} className="text-blue-500 dark:text-blue-400" />
+                {t('Manager')}
+              </label>
+              <SearchableSelect options={managerOptions} value={managerFilter} onChange={v => setManagerFilter(v)} placeholder={t('Manager')} isRTL={isRTL} />
+            </div>
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Tag size={12} className="text-blue-500 dark:text-blue-400" />
+                {t('Source')}
+              </label>
+              <SearchableSelect options={sourceOptions} value={sourceFilter} onChange={v => setSourceFilter(v)} placeholder={t('Source')} isRTL={isRTL} />
+            </div>
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Layers size={12} className="text-blue-500 dark:text-blue-400" />
+                {t('Rent Status')}
+              </label>
+              <SearchableSelect options={statusOptions} value={statusFilter} onChange={v => setStatusFilter(v)} placeholder={t('Rent Status')} isRTL={isRTL} />
+            </div>
+          </div>
+
+          <div
+            className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 transition-all duration-500 ease-in-out overflow-hidden ${
+              showAllFilters ? 'max-h-[1000px] opacity-100 pt-2' : 'max-h-0 opacity-0'
+            }`}
+          >
+            <div className="space-y-1 md:col-span-2 lg:col-span-2">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+                {t('Date Range')}
+              </label>
+              <DateRangePicker
+                from={dateFromFilter}
+                to={dateToFilter}
+                onChange={({ from, to }) => {
+                  setDateFromFilter(from)
+                  setDateToFilter(to)
+                }}
+                isRTL={isRTL}
+                className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm ${isLight ? 'text-black' : 'text-white'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Home size={12} className="text-blue-500 dark:text-blue-400" />
+                {t('Unit Type')}
+              </label>
+              <SearchableSelect options={unitTypeOptions} value={unitTypeFilter} onChange={v => setUnitTypeFilter(v)} placeholder={t('Unit Type')} isRTL={isRTL} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {[
+          { label: t('Total Rent Units'), value: totalRentUnits, accent: 'bg-blue-500' },
+          { label: t('Active Contracts'), value: activeContractsCount, accent: 'bg-emerald-500' },
+          { label: t('Expired Contracts'), value: expiredContractsCount, accent: 'bg-red-500' },
+          { label: t('Renewal Units'), value: renewalUnitsCount, accent: 'bg-indigo-500' },
+          { label: t('Total Rent Amount'), value: `${totalRentAmount.toLocaleString()} EGP`, accent: 'bg-yellow-500' }
+        ].map(card => (
+          <div
+            key={card.label}
+            className="group relative backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden flex items-center justify-between"
+          >
+            <div>
+              <div className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{card.label}</div>
+              <div className="text-lg font-semibold">{card.value}</div>
+            </div>
+            <div className={`w-8 h-8 rounded-lg ${card.accent}`}></div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {renderPieCard(t('Rent Units by status'), unitsByStatusData)}
+        
+        <div className="group relative backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+          <div className={`text-sm font-semibold mb-4 ${isLight ? 'text-black' : 'text-white'}`}>{t('Rent Amount overtime')}</div>
+          <div className="h-64">
+            <Bar data={rentOverTimeData} options={barOptions} />
+          </div>
+        </div>
+
+        {renderPieCard(t('Expired & Renewed contracts'), expiredRenewedData)}
+      </div>
+
+      <div className="backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden">
+        <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
+          <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{t('Rent Overview')}</h2>
+          {canExport && (
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu(prev => !prev)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
+              >
+                <FaFileExport />
+                {t('Export')}
+                <FaChevronDown
+                  className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`}
+                  size={12}
+                />
+              </button>
+              {showExportMenu && (
+                <div className={`absolute top-full ${isRTL ? 'left-0' : 'right-0'} mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 z-50 w-48`}>
+                  <button
+                    onClick={handleExportExcel}
+                    className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
+                  >
+                    <FaFileExcel className="text-green-600" /> {t('Export to Excel')}
+                  </button>
+                  <button
+                    onClick={handleExportPdf}
+                    className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
+                  >
+                    <FaFilePdf className="text-red-600" /> {t('Export to PDF')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* Mobile View - Cards */}
+        <div className="md:hidden space-y-4 p-4">
+          {paginatedData.map(unit => (
+            <div key={unit.id} className=" rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className={`font-semibold ${isLight ? 'text-black' : 'text-white'} text-lg`}>{unit.property}</h3>
+                  <p className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{unit.clientName}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-blue-600 dark:text-blue-400">{unit.rentAmount.toLocaleString()} EGP</p>
+                  <span className={`inline-block px-2 py-1 text-xs rounded-full mt-1 ${
+                    unit.status === 'active' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                    unit.status === 'expired' ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
+                    'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                  }`}>
+                    {t(unit.status.charAt(0).toUpperCase() + unit.status.slice(1))}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="space-y-1">
+                  <p className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{t('Contact')}</p>
+                  <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{unit.contact}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{t('Sales Person')}</p>
+                  <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{unit.salesPerson}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{t('Start Date')}</p>
+                  <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{unit.startDate}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className={`text-sm ${isLight ? 'text-black' : 'text-white'}`}>{t('End Date')}</p>
+                  <p className="font-medium dark:text-gray-200">{unit.endDate}</p>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+                <button
+                  onClick={() => handlePreview(unit)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                >
+                  <Eye size={14} />
+                  {t('Preview')}
+                </button>
+                <button
+                  onClick={() => handleDelete(unit.id)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                >
+                  <Trash2 size={14} />
+                  {t('Delete')}
+                </button>
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className={`text-center py-8 ${isLight ? 'text-black' : 'text-white'}`}>
+              {isRTL ? 'لم يتم العثور على وحدات إيجار' : t('No rent units found')}
+            </div>
+          )}
+        </div>
+
+        {/* Desktop View - Table */}
+        <div className="hidden md:block overflow-x-auto">
+          <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
+            <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
+              <tr>
+                <th className="px-4 py-3">{isRTL ? 'معلومات العقار' : t('Property Info')}</th>
+                <th className="px-4 py-3">{isRTL ? 'اسم العميل' : t('Client Name')}</th>
+                <th className="px-4 py-3">{isRTL ? 'رقم التواصل' : t('Contact Number')}</th>
+                <th className="px-4 py-3">{isRTL ? 'تاريخ البداية' : t('Start Date')}</th>
+                <th className="px-4 py-3">{isRTL ? 'تاريخ الانتهاء' : t('End Date')}</th>
+                <th className="px-4 py-3">{isRTL ? 'قيمة الإيجار' : t('Rent Amount')}</th>
+                <th className="px-4 py-3">{isRTL ? 'مندوب المبيعات' : t('Sales Person')}</th>
+                <th className="px-4 py-3 text-center">{isRTL ? 'الإجراءات' : t('Actions')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
+              {paginatedData.map(unit => (
+                <tr key={unit.id} className="hover:bg-white/5 dark:hover:bg-white/5 transition-colors">
+                  <td className={`px-4 py-3 font-medium ${isLight ? 'text-black' : 'text-white'}`}>{unit.property}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{unit.clientName}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{unit.contact}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{unit.startDate}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{unit.endDate}</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{unit.rentAmount.toLocaleString()} EGP</td>
+                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{unit.salesPerson}</td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        onClick={() => handlePreview(unit)}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                        title={t('Preview')}
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(unit.id)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                        title={t('Delete')}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={8} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                    {isRTL ? 'لم يتم العثور على وحدات إيجار' : t('No rent units found')}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
+          <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
+            {isRTL
+              ? `عرض ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} من أصل ${totalRentUnits}`
+              : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRentUnits)}-${Math.min(currentPage * entriesPerPage, totalRentUnits)} of ${totalRentUnits}`}
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                disabled={currentPage === 1}
+                title={t('Prev')}
+              >
+                {isRTL ? (
+                  <ChevronRight className="w-4 h-4" />
+                ) : (
+                  <ChevronLeft className="w-4 h-4" />
+                )}
+              </button>
+              <span className="text-sm whitespace-nowrap">
+                {isRTL ? `الصفحة ${currentPage} من ${pageCount}` : `Page ${currentPage} of ${pageCount}`}
+              </span>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
+                disabled={currentPage === pageCount}
+                title={t('Next')}
+              >
+                {isRTL ? (
+                  <ChevronLeft className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
+                {isRTL ? 'لكل صفحة:' : t('Per page:')}
+              </span>
+              <select
+                className="input w-24 text-sm py-0 px-2 h-8"
+                value={entriesPerPage}
+                onChange={(e) => {
+                  setEntriesPerPage(Number(e.target.value))
+                  setCurrentPage(1)
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <EnhancedLeadDetailsModal
+        lead={selectedLead}
+        isOpen={showLeadModal}
+        onClose={() => setShowLeadModal(false)}
+        theme={theme}
+      />
+    </div>
+  )
+}

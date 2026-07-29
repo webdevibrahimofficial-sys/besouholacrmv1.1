@@ -1,0 +1,981 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Property;
+use App\Models\Project;
+use App\Models\Entity;
+use App\Models\FieldValue;
+use App\Models\CrmSetting;
+use App\Models\LeadAction;
+use App\Models\RealEstateRequest;
+use App\Traits\InventoryDeleteAuthorization;
+use Exception;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
+
+class PropertyController extends Controller
+{
+    use InventoryDeleteAuthorization;
+
+    private function normalizeUnitCode(?string $unitCode): string
+    {
+        return trim((string) $unitCode);
+    }
+
+    private function isHistoricalUnitCodeTaken(?string $unitCode, ?int $tenantId = null, ?int $excludePropertyId = null): bool
+    {
+        $normalized = $this->normalizeUnitCode($unitCode);
+        if ($normalized === '' || !Schema::hasTable('property_unit_code_histories')) {
+            return false;
+        }
+
+        return DB::table('property_unit_code_histories')
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->when($excludePropertyId, fn ($q) => $q->where(function ($sub) use ($excludePropertyId) {
+                $sub->whereNull('property_id')
+                    ->orWhere('property_id', '!=', $excludePropertyId);
+            }))
+            ->where('unit_code', $normalized)
+            ->exists();
+    }
+
+    private function isActiveUnitCodeTaken(?string $unitCode, ?int $tenantId = null): bool
+    {
+        $normalized = $this->normalizeUnitCode($unitCode);
+        if ($normalized === '') {
+            return false;
+        }
+
+        return Property::query()
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where('unit_code', $normalized)
+            ->exists();
+    }
+
+    private function generateNextUnitCode(string $prefix, ?int $tenantId = null): string
+    {
+        $lastId = (int) (Property::query()
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->max('id') ?? 0);
+
+        for ($i = $lastId + 1; $i < $lastId + 10000; $i++) {
+            $candidate = $prefix . str_pad((string) $i, 5, '0', STR_PAD_LEFT);
+            if (!$this->isActiveUnitCodeTaken($candidate, $tenantId) && !$this->isHistoricalUnitCodeTaken($candidate, $tenantId)) {
+                return $candidate;
+            }
+        }
+
+        return $prefix . now()->format('YmdHis');
+    }
+
+    private function rememberRetiredUnitCode(?string $unitCode, ?int $tenantId, ?int $propertyId, string $reason = 'deleted'): void
+    {
+        $normalized = $this->normalizeUnitCode($unitCode);
+        if ($normalized === '' || !Schema::hasTable('property_unit_code_histories')) {
+            return;
+        }
+
+        $exists = DB::table('property_unit_code_histories')
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where('unit_code', $normalized)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        DB::table('property_unit_code_histories')->insert([
+            'tenant_id' => $tenantId,
+            'property_id' => $propertyId,
+            'unit_code' => $normalized,
+            'reason' => $reason,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function normalizeInventoryStatus(?string $status): string
+    {
+        return strtolower(trim((string) $status));
+    }
+
+    private function propertyReferenceValues(Property $property): array
+    {
+        return array_values(array_unique(array_filter([
+            trim((string) ($property->unit_code ?? '')),
+            trim((string) ($property->unit_number ?? '')),
+            trim((string) ($property->name ?? '')),
+            trim((string) ($property->title ?? '')),
+        ])));
+    }
+
+    private function resetPropertyStatusBeforeDelete(Property $property): void
+    {
+        $updates = ['status' => 'Available'];
+        $table = $property->getTable();
+
+        if (Schema::hasColumn($table, 'reserved_at')) $updates['reserved_at'] = null;
+        if (Schema::hasColumn($table, 'reserved_expires_at')) $updates['reserved_expires_at'] = null;
+        if (Schema::hasColumn($table, 'reserved_lead_id')) $updates['reserved_lead_id'] = null;
+        if (Schema::hasColumn($table, 'sold_at')) $updates['sold_at'] = null;
+        if (Schema::hasColumn($table, 'sold_lead_id')) $updates['sold_lead_id'] = null;
+
+        $property->fill($updates);
+        $property->save();
+    }
+
+    private function cancelReservationHistoryForDeletedProperty(Property $property): void
+    {
+        $hasMetaColumn = Schema::hasColumn('real_estate_requests', 'meta_data');
+        $referenceValues = $this->propertyReferenceValues($property);
+        $leadIds = array_values(array_unique(array_filter([
+            (int) ($property->reserved_lead_id ?? 0),
+            (int) ($property->sold_lead_id ?? 0),
+        ])));
+
+        $query = RealEstateRequest::query()
+            ->where('tenant_id', $property->tenant_id)
+            ->where(function ($q) use ($property, $referenceValues, $leadIds, $hasMetaColumn) {
+                $q->where('id', -1);
+
+                if ($hasMetaColumn) {
+                    $q->orWhere('meta_data->property_id', (int) $property->id);
+                }
+
+                foreach ($referenceValues as $value) {
+                    $q->orWhere('unit', $value);
+                }
+
+                foreach ($leadIds as $leadId) {
+                    if ($leadId <= 0) {
+                        continue;
+                    }
+
+                    if (Schema::hasColumn('real_estate_requests', 'lead_id')) {
+                        $q->orWhere('lead_id', $leadId);
+                    }
+
+                    if ($hasMetaColumn) {
+                        $q->orWhere('meta_data->lead_id', $leadId);
+                    }
+                }
+            });
+
+        $requests = $query->get();
+        foreach ($requests as $request) {
+            $request->status = 'Cancelled';
+
+            if ($hasMetaColumn) {
+                $meta = is_array($request->meta_data)
+                    ? $request->meta_data
+                    : (json_decode((string) $request->meta_data, true) ?: []);
+                $meta['report_status'] = 'cancelled';
+                $meta['property_deleted'] = true;
+                $meta['property_deleted_at'] = now()->toIso8601String();
+                $meta['property_deleted_id'] = (int) $property->id;
+                $request->meta_data = $meta;
+            }
+
+            $request->save();
+        }
+    }
+
+    private function cancelClosedDealHistoryForDeletedProperty(Property $property): void
+    {
+        $referenceValues = $this->propertyReferenceValues($property);
+        $soldLeadId = (int) ($property->sold_lead_id ?? 0);
+
+        $query = LeadAction::query()
+            ->where('tenant_id', $property->tenant_id)
+            ->where(function ($q) {
+                $q->where('action_type', 'closing_deals')
+                    ->orWhere('next_action_type', 'closing_deals');
+            });
+
+        if ($soldLeadId > 0) {
+            $query->where('lead_id', $soldLeadId);
+        } else {
+            $query->where(function ($q) use ($property, $referenceValues) {
+                $q->where('details->property_id', (int) $property->id);
+                foreach ($referenceValues as $value) {
+                    $q->orWhere('details->unit', $value)
+                        ->orWhere('details->unit_code', $value)
+                        ->orWhere('details->property_unit', $value);
+                }
+            });
+        }
+
+        $actions = $query->orderByDesc('created_at')->get();
+        foreach ($actions as $action) {
+            $details = is_array($action->details) ? $action->details : [];
+            $details['report_status'] = 'cancelled';
+            $details['property_deleted'] = true;
+            $details['property_deleted_at'] = now()->toIso8601String();
+            $details['property_deleted_id'] = (int) $property->id;
+            $action->details = $details;
+            $action->save();
+        }
+    }
+
+    private function normalizeJsonPayload(array $data): array
+    {
+        $jsonFields = [
+            'meta_data',
+            'amenities',
+            'images',
+            'floor_plans',
+            'documents',
+            'nearby',
+            'installment_plans',
+            'cil_attachments',
+        ];
+
+        $propertyModel = new Property();
+        $casts = method_exists($propertyModel, 'getCasts') ? $propertyModel->getCasts() : [];
+        $stringArrayFields = ['images', 'floor_plans', 'documents', 'cil_attachments'];
+
+        $extractStrings = function ($value) use (&$extractStrings) {
+            $out = [];
+            if (is_string($value)) {
+                $v = trim($value);
+                return $v === '' ? [] : [$v];
+            }
+            if (!is_array($value)) {
+                return [];
+            }
+            foreach ($value as $item) {
+                if (is_string($item)) {
+                    $v = trim($item);
+                    if ($v !== '') $out[] = $v;
+                } elseif (is_array($item)) {
+                    $out = array_merge($out, $extractStrings($item));
+                }
+            }
+            return $out;
+        };
+
+        foreach ($jsonFields as $field) {
+            if (!array_key_exists($field, $data) || $data[$field] === null) {
+                continue;
+            }
+
+            $val = $data[$field];
+
+            if (is_string($val)) {
+                $trimmed = trim($val);
+                if ($trimmed !== '' && (str_starts_with($trimmed, '[') || str_starts_with($trimmed, '{'))) {
+                    $decoded = json_decode($trimmed, true);
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        $val = $decoded;
+                    }
+                }
+            }
+
+            if (in_array($field, $stringArrayFields, true) && is_array($val)) {
+                $val = $extractStrings($val);
+            }
+
+            $hasCast = array_key_exists($field, $casts);
+
+            if ($hasCast) {
+                if (is_array($val)) {
+                    $data[$field] = $val;
+                } elseif (is_object($val)) {
+                    $data[$field] = json_decode(json_encode($val), true);
+                }
+            } else {
+                if (is_array($val) || is_object($val)) {
+                    $data[$field] = json_encode($val, JSON_UNESCAPED_UNICODE);
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    public function index(Request $request)
+    {
+        try {
+            $query = Property::query()->orderByDesc('created_at');
+            $user = $request->user();
+
+            $roleName = (string) ($user->job_title ?? $user->role ?? '');
+            $roleNorm = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $roleName))));
+            $isSalesPerson = in_array($roleNorm, ['sales person', 'salesperson'], true);
+            $isTenantAdmin = in_array($roleNorm, ['admin', 'tenant admin', 'tenant-admin'], true);
+            $isDirector = str_contains($roleNorm, 'director');
+            $meta = is_array($user?->meta_data) ? $user->meta_data : [];
+            $modulePerms = is_array($meta['module_permissions'] ?? null) ? $meta['module_permissions'] : [];
+            $inventoryPerms = is_array($modulePerms['Inventory'] ?? null) ? $modulePerms['Inventory'] : [];
+            $canViewAllProperties = $user?->is_super_admin || $isTenantAdmin || $isDirector || in_array('viewAllProperties', $inventoryPerms, true);
+
+            if ($isSalesPerson && !$canViewAllProperties && Schema::hasColumn((new Property)->getTable(), 'created_by_id')) {
+                $query->where('created_by_id', $user->id);
+            }
+
+            // Optional: return only properties that are selectable for reservation/rent dropdowns.
+            // Business rule:
+            // - show Available
+            // - show Reserved only if reservation expired (reserved_expires_at <= now)
+            // - hide Sold / active Reserved
+            if ($request->boolean('selectable')) {
+                $now = Carbon::now();
+                $query->where(function ($q) use ($now) {
+                    $q->whereRaw('LOWER(status) = ?', ['available'])
+                        ->orWhere(function ($q2) use ($now) {
+                            $q2->whereRaw('LOWER(status) = ?', ['reserved'])
+                                ->whereNotNull('reserved_expires_at')
+                                ->where('reserved_expires_at', '<=', $now);
+                        });
+                });
+            }
+
+            // Optional: limit payload for dropdown use-cases (AddActionModal)
+            $fieldsMode = strtolower(trim((string) $request->query('fields', '')));
+            if ($fieldsMode === 'dropdown') {
+                $cols = ['id'];
+                foreach (['unit_code', 'name', 'title', 'project', 'project_id', 'rent_cost', 'total_price', 'price', 'status', 'reserved_expires_at'] as $c) {
+                    if (Schema::hasColumn((new Property)->getTable(), $c)) $cols[] = $c;
+                }
+                $query->select(array_values(array_unique($cols)));
+            } else {
+                $with = ['customFieldValues.field'];
+                $withParam = trim((string) $request->query('with', ''));
+                if ($withParam !== '') {
+                    $requested = array_values(array_filter(array_map('trim', explode(',', $withParam))));
+                    if (in_array('creator', $requested, true) && Schema::hasColumn((new Property)->getTable(), 'created_by_id')) {
+                        $with[] = 'creator';
+                    }
+                } else {
+                    if (Schema::hasColumn((new Property)->getTable(), 'created_by_id')) {
+                        $with[] = 'creator';
+                    }
+                }
+                $query->with($with);
+            }
+
+            // Support returning full list without pagination (used by selects).
+            if ($request->has('all')) {
+                return response()->json($query->get());
+            }
+
+            $perPage = (int) $request->query('per_page', 10);
+            $perPage = $perPage > 0 ? $perPage : 10;
+            return response()->json($query->paginate($perPage));
+        } catch (\Throwable $e) {
+            Log::error('PropertyController::index ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            $payload = [
+                'message' => 'Error loading properties',
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ];
+            return response()->json($payload, 500);
+        }
+    }
+
+    public function store(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'title' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $entity = Entity::where('key', 'properties')->first();
+
+        try {
+            DB::beginTransaction();
+
+            $data = $request->all();
+
+            foreach ($data as $k => $v) {
+                if ($v === '') {
+                    $data[$k] = null;
+                }
+                if (is_string($v) && in_array(trim($v), ['?', '؟'])) {
+                    $data[$k] = null;
+                }
+            }
+
+            if (array_key_exists('installment_plans', $data) && is_string($data['installment_plans'])) {
+                $decodedPlans = json_decode($data['installment_plans'], true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decodedPlans)) {
+                    $data['installment_plans'] = $decodedPlans;
+                }
+            }
+
+            if (array_key_exists('installment_plans', $data) && is_string($data['installment_plans'])) {
+                $decodedPlans = json_decode($data['installment_plans'], true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decodedPlans)) {
+                    $data['installment_plans'] = $decodedPlans;
+                }
+            }
+
+            if ($request->has('title')) $data['name'] = $request->input('title');
+            if ($request->has('adTitle')) $data['ad_title'] = $request->input('adTitle');
+            if ($request->has('adTitleAr')) $data['ad_title_ar'] = $request->input('adTitleAr');
+            if ($request->has('propertyType')) $data['property_type'] = $request->input('propertyType');
+            if ($request->has('unitNumber')) $data['unit_number'] = $request->input('unitNumber');
+            if ($request->has('bua')) $data['bua'] = $request->input('bua');
+            if ($request->has('unitCode')) $data['unit_code'] = $request->input('unitCode');
+            if ($request->has('view')) $data['view'] = $request->input('view');
+            if ($request->has('internalArea')) $data['internal_area'] = $request->input('internalArea');
+            if ($request->has('externalArea')) $data['external_area'] = $request->input('externalArea');
+            if ($request->has('totalArea')) $data['total_area'] = $request->input('totalArea');
+            if ($request->has('ownerName')) $data['owner_name'] = $request->input('ownerName');
+            if ($request->has('ownerMobile')) $data['owner_mobile'] = $request->input('ownerMobile');
+            if ($request->has('rentCost')) $data['rent_cost'] = $request->input('rentCost');
+            if ($request->has('internalMeterPrice')) $data['internal_meter_price'] = $request->input('internalMeterPrice');
+            if ($request->has('externalMeterPrice')) $data['external_meter_price'] = $request->input('externalMeterPrice');
+            if ($request->has('meterPrice')) $data['meter_price'] = $request->input('meterPrice');
+            if ($request->has('descriptionAr')) $data['description_ar'] = $request->input('descriptionAr');
+
+            if ($request->has('totalPrice')) {
+                $data['price'] = str_replace(',', '', (string) $request->input('totalPrice'));
+            }
+
+            $data['created_by_id'] = Auth::id();
+            $tenantId = Auth::user()->tenant_id ?? ($property->tenant_id ?? null);
+            $dir = $tenantId ? ('properties/'.$tenantId) : 'properties';
+            $mainExisting = $request->input('main_image_existing');
+            if ($request->hasFile('main_image')) {
+                $p = $request->file('main_image')->store($dir.'/main', 'public');
+                $data['main_image'] = $p;
+            } elseif ($mainExisting) {
+                $data['main_image'] = $mainExisting;
+            }
+            $imgs = [];
+            $imgsExisting = $request->input('images_existing', []);
+            if (!is_array($imgsExisting)) $imgsExisting = $imgsExisting ? [$imgsExisting] : [];
+            $imagesFiles = $request->file('images') ?? $request->file('images[]');
+            if ($imagesFiles) {
+                $imagesFiles = is_array($imagesFiles) ? $imagesFiles : [$imagesFiles];
+                foreach ($imagesFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/images', 'public');
+                    $imgs[] = $p;
+                }
+            }
+            if (!empty($imgsExisting) || !empty($imgs)) {
+                $data['images'] = array_values(array_filter(array_merge($imgsExisting, $imgs)));
+            }
+            $flps = [];
+            $flpsExisting = $request->input('floor_plans_existing', []);
+            if (!is_array($flpsExisting)) $flpsExisting = $flpsExisting ? [$flpsExisting] : [];
+            $floorPlanFiles = $request->file('floor_plans') ?? $request->file('floor_plans[]');
+            if ($floorPlanFiles) {
+                $floorPlanFiles = is_array($floorPlanFiles) ? $floorPlanFiles : [$floorPlanFiles];
+                foreach ($floorPlanFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/floor-plans', 'public');
+                    $flps[] = $p;
+                }
+            }
+            if (!empty($flpsExisting) || !empty($flps)) {
+                $data['floor_plans'] = array_values(array_filter(array_merge($flpsExisting, $flps)));
+            }
+            $docs = [];
+            $docsExisting = $request->input('documents_existing', []);
+            if (!is_array($docsExisting)) $docsExisting = $docsExisting ? [$docsExisting] : [];
+            $documentFiles = $request->file('documents') ?? $request->file('documents[]');
+            if ($documentFiles) {
+                $documentFiles = is_array($documentFiles) ? $documentFiles : [$documentFiles];
+                foreach ($documentFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/documents', 'public');
+                    $docs[] = $p;
+                }
+            }
+            if (!empty($docsExisting) || !empty($docs)) {
+                $data['documents'] = array_values(array_filter(array_merge($docsExisting, $docs)));
+            }
+            $cil = [];
+            $cilExisting = $request->input('cil_attachments_existing', []);
+            if (!is_array($cilExisting)) $cilExisting = $cilExisting ? [$cilExisting] : [];
+            $cilFiles = $request->file('cil_attachments') ?? $request->file('cil_attachments[]');
+            if ($cilFiles) {
+                $cilFiles = is_array($cilFiles) ? $cilFiles : [$cilFiles];
+                foreach ($cilFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/cil', 'public');
+                    $cil[] = $p;
+                }
+            }
+            if (!empty($cilExisting) || !empty($cil)) {
+                $data['cil_attachments'] = array_values(array_filter(array_merge($cilExisting, $cil)));
+            }
+
+            $decimalKeys = [
+                'bua','internal_area','external_area','total_area','rent_cost',
+                'internal_meter_price','external_meter_price','meter_price',
+                'discount','reservation_amount','garage_amount','maintenance_amount',
+                'net_amount','total_after_discount','meter_price'
+            ];
+            foreach ($decimalKeys as $k) {
+                if (array_key_exists($k, $data) && $data[$k] !== null) {
+                    $val = is_string($data[$k]) ? preg_replace('/[^\d\.\-]/', '', $data[$k]) : $data[$k];
+                    $data[$k] = ($val === '' ? null : (float) $val);
+                }
+            }
+            $integerKeys = ['bedrooms','bathrooms','rooms','floor'];
+            foreach ($integerKeys as $k) {
+                if (array_key_exists($k, $data) && $data[$k] !== null) {
+                    $val = is_string($data[$k]) ? preg_replace('/\D/', '', $data[$k]) : $data[$k];
+                    $data[$k] = ($val === '' ? null : (int) $val);
+                }
+            }
+
+            if (array_key_exists('elevator', $data) && $data['elevator'] !== null) {
+                $v = $data['elevator'];
+                if (is_string($v)) {
+                    $vl = strtolower($v);
+                    if (in_array($vl, ['1', 'true', 'yes', 'on'], true)) {
+                        $data['elevator'] = 1;
+                    } elseif (in_array($vl, ['0', 'false', 'no', 'off'], true)) {
+                        $data['elevator'] = 0;
+                    } else {
+                        $data['elevator'] = (int) preg_replace('/\D/', '', $v);
+                    }
+                } else {
+                    $data['elevator'] = $v ? 1 : 0;
+                }
+            }
+
+            $columns = Schema::getColumnListing((new Property)->getTable());
+            $data = array_intersect_key($data, array_flip($columns));
+
+            $data = $this->normalizeJsonPayload($data);
+
+            if (empty($data['tenant_id']) && Auth::check() && Auth::user()->tenant_id) {
+                $data['tenant_id'] = Auth::user()->tenant_id;
+            }
+
+            // Keep legacy "project" (name) field, but also set project_id when the column exists.
+            if (Schema::hasColumn((new Property)->getTable(), 'project_id')) {
+                $reqProjectId = $request->input('project_id', $request->input('projectId'));
+                if (!empty($reqProjectId)) {
+                    $data['project_id'] = (int) $reqProjectId;
+                }
+
+                if (empty($data['project_id']) && !empty($data['project']) && !empty($data['tenant_id'])) {
+                    $projectName = preg_replace('/\s+/u', ' ', trim((string) $data['project']));
+                    $pid = Project::where('tenant_id', $data['tenant_id'])
+                        ->whereRaw('LOWER(name) = ?', [strtolower($projectName)])
+                        ->value('id');
+                    if (!empty($pid)) {
+                        $data['project_id'] = (int) $pid;
+                    }
+                }
+
+                if (!empty($data['project_id']) && empty($data['project']) && !empty($data['tenant_id'])) {
+                    $pname = Project::where('tenant_id', $data['tenant_id'])
+                        ->where('id', $data['project_id'])
+                        ->value('name');
+                    if (!empty($pname)) {
+                        $data['project'] = $pname;
+                    }
+                }
+            }
+
+            $crmSetting = CrmSetting::first();
+            $settings = ($crmSetting && is_array($crmSetting->settings ?? null)) ? $crmSetting->settings : [];
+            $autoGenerateUnitCode = array_key_exists('unitCodeGeneration', $settings)
+                ? (bool) $settings['unitCodeGeneration']
+                : true;
+
+            if (empty($data['unit_code']) && $autoGenerateUnitCode) {
+                $prefix = $settings['unitCodePrefix'] ?? 'U-';
+                $data['unit_code'] = $this->generateNextUnitCode($prefix, $data['tenant_id'] ?? null);
+            }
+
+            $checkDup = (bool) ($settings['duplicationSystem'] ?? false);
+            $allowDup = (bool) ($settings['allowDuplicateProperties'] ?? false);
+            if (!empty($data['unit_code']) && (($checkDup && !$allowDup) || !$allowDup)) {
+                if ($this->isActiveUnitCodeTaken($data['unit_code'], $data['tenant_id'] ?? null)) {
+                    return response()->json(['message' => 'Duplicate unit code'], 422);
+                }
+            }
+
+            if (!empty($data['unit_code']) && $this->isHistoricalUnitCodeTaken($data['unit_code'], $data['tenant_id'] ?? null)) {
+                return response()->json(['message' => 'This unit code was used before and cannot be reused'], 422);
+            }
+
+            $property = Property::create($data);
+
+            if ($request->has('custom_fields') && $entity) {
+                $fieldIds = $entity->fields->pluck('id', 'key');
+                foreach ($request->input('custom_fields') as $key => $value) {
+                    if (isset($fieldIds[$key])) {
+                        FieldValue::create([
+                            'field_id' => $fieldIds[$key],
+                            'record_id' => $property->id,
+                            'value' => $value,
+                        ]);
+                    }
+                }
+            }
+
+            DB::commit();
+            $with = ['customFieldValues.field'];
+            if (Schema::hasColumn((new Property)->getTable(), 'created_by_id')) {
+                $with[] = 'creator';
+            }
+            return response()->json($property->load($with), 201);
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('PropertyController::store', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
+        }
+    }
+
+    public function show($id)
+    {
+        $with = ['customFieldValues.field'];
+        if (Schema::hasColumn((new Property)->getTable(), 'created_by_id')) {
+            $with[] = 'creator';
+        }
+        return Property::with($with)->findOrFail($id);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $property = Property::findOrFail($id);
+
+        try {
+            $data = $request->all();
+            $originalUnitCode = $this->normalizeUnitCode($property->unit_code);
+
+            foreach ($data as $k => $v) {
+                if ($v === '') {
+                    $data[$k] = null;
+                }
+                if (is_string($v) && in_array(trim($v), ['?', '؟'])) {
+                    $data[$k] = null;
+                }
+            }
+
+            if ($request->has('title')) $data['name'] = $request->input('title');
+            if ($request->has('adTitle')) $data['ad_title'] = $request->input('adTitle');
+            if ($request->has('adTitleAr')) $data['ad_title_ar'] = $request->input('adTitleAr');
+            if ($request->has('propertyType')) $data['property_type'] = $request->input('propertyType');
+            if ($request->has('unitNumber')) $data['unit_number'] = $request->input('unitNumber');
+            if ($request->has('bua')) $data['bua'] = $request->input('bua');
+            if ($request->has('unitCode')) $data['unit_code'] = $request->input('unitCode');
+            if ($request->has('view')) $data['view'] = $request->input('view');
+            if ($request->has('internalArea')) $data['internal_area'] = $request->input('internalArea');
+            if ($request->has('externalArea')) $data['external_area'] = $request->input('externalArea');
+            if ($request->has('totalArea')) $data['total_area'] = $request->input('totalArea');
+            if ($request->has('ownerName')) $data['owner_name'] = $request->input('ownerName');
+            if ($request->has('ownerMobile')) $data['owner_mobile'] = $request->input('ownerMobile');
+            if ($request->has('rentCost')) $data['rent_cost'] = $request->input('rentCost');
+            if ($request->has('internalMeterPrice')) $data['internal_meter_price'] = $request->input('internalMeterPrice');
+            if ($request->has('externalMeterPrice')) $data['external_meter_price'] = $request->input('externalMeterPrice');
+            if ($request->has('meterPrice')) $data['meter_price'] = $request->input('meterPrice');
+            if ($request->has('descriptionAr')) $data['description_ar'] = $request->input('descriptionAr');
+
+            $incomingUnitCode = array_key_exists('unit_code', $data)
+                ? $this->normalizeUnitCode($data['unit_code'])
+                : $originalUnitCode;
+
+            if ($incomingUnitCode !== '' && $incomingUnitCode !== $originalUnitCode) {
+                if ($this->isHistoricalUnitCodeTaken($incomingUnitCode, $property->tenant_id, (int) $property->id)) {
+                    return response()->json(['message' => 'This unit code was used before and cannot be reused'], 422);
+                }
+            }
+
+            if ($request->has('totalPrice')) {
+                $data['price'] = str_replace(',', '', (string) $request->input('totalPrice'));
+            }
+
+            $decimalKeys = [
+                'bua','internal_area','external_area','total_area','rent_cost',
+                'internal_meter_price','external_meter_price','meter_price',
+                'discount','reservation_amount','garage_amount','maintenance_amount',
+                'net_amount','total_after_discount','meter_price'
+            ];
+            foreach ($decimalKeys as $k) {
+                if (array_key_exists($k, $data) && $data[$k] !== null) {
+                    $val = is_string($data[$k]) ? preg_replace('/[^\d\.\-]/', '', $data[$k]) : $data[$k];
+                    $data[$k] = ($val === '' ? null : (float) $val);
+                }
+            }
+            $integerKeys = ['bedrooms','bathrooms','rooms','floor'];
+            foreach ($integerKeys as $k) {
+                if (array_key_exists($k, $data) && $data[$k] !== null) {
+                    $val = is_string($data[$k]) ? preg_replace('/\D/', '', $data[$k]) : $data[$k];
+                    $data[$k] = ($val === '' ? null : (int) $val);
+                }
+            }
+
+            if (array_key_exists('elevator', $data) && $data['elevator'] !== null) {
+                $v = $data['elevator'];
+                if (is_string($v)) {
+                    $vl = strtolower($v);
+                    if (in_array($vl, ['1', 'true', 'yes', 'on'], true)) {
+                        $data['elevator'] = 1;
+                    } elseif (in_array($vl, ['0', 'false', 'no', 'off'], true)) {
+                        $data['elevator'] = 0;
+                    } else {
+                        $data['elevator'] = (int) preg_replace('/\D/', '', $v);
+                    }
+                } else {
+                    $data['elevator'] = $v ? 1 : 0;
+                }
+            }
+
+            $tenantId = Auth::user()->tenant_id ?? null;
+            $dir = $tenantId ? ('properties/'.$tenantId) : 'properties';
+            $mainExisting = $request->input('main_image_existing');
+            if ($request->hasFile('main_image')) {
+                $p = $request->file('main_image')->store($dir.'/main', 'public');
+                $data['main_image'] = $p;
+            } elseif ($mainExisting) {
+                $data['main_image'] = $mainExisting;
+            }
+            $imgs = [];
+            $imgsExisting = $request->input('images_existing', []);
+            if (!is_array($imgsExisting)) $imgsExisting = $imgsExisting ? [$imgsExisting] : [];
+            $imagesFiles = $request->file('images') ?? $request->file('images[]');
+            if ($imagesFiles) {
+                $imagesFiles = is_array($imagesFiles) ? $imagesFiles : [$imagesFiles];
+                foreach ($imagesFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/images', 'public');
+                    $imgs[] = $p;
+                }
+            }
+            if (isset($data['images']) && is_array($data['images'])) $imgsExisting = array_merge($imgsExisting, $data['images']);
+            if (!empty($imgsExisting) || !empty($imgs)) {
+                $data['images'] = array_values(array_filter(array_merge($imgsExisting, $imgs)));
+            }
+            $flps = [];
+            $flpsExisting = $request->input('floor_plans_existing', []);
+            if (!is_array($flpsExisting)) $flpsExisting = $flpsExisting ? [$flpsExisting] : [];
+            $floorPlanFiles = $request->file('floor_plans') ?? $request->file('floor_plans[]');
+            if ($floorPlanFiles) {
+                $floorPlanFiles = is_array($floorPlanFiles) ? $floorPlanFiles : [$floorPlanFiles];
+                foreach ($floorPlanFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/floor-plans', 'public');
+                    $flps[] = $p;
+                }
+            }
+            if (isset($data['floor_plans']) && is_array($data['floor_plans'])) $flpsExisting = array_merge($flpsExisting, $data['floor_plans']);
+            if (!empty($flpsExisting) || !empty($flps)) {
+                $data['floor_plans'] = array_values(array_filter(array_merge($flpsExisting, $flps)));
+            }
+            $docs = [];
+            $docsExisting = $request->input('documents_existing', []);
+            if (!is_array($docsExisting)) $docsExisting = $docsExisting ? [$docsExisting] : [];
+            $documentFiles = $request->file('documents') ?? $request->file('documents[]');
+            if ($documentFiles) {
+                $documentFiles = is_array($documentFiles) ? $documentFiles : [$documentFiles];
+                foreach ($documentFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/documents', 'public');
+                    $docs[] = $p;
+                }
+            }
+            if (isset($data['documents']) && is_array($data['documents'])) $docsExisting = array_merge($docsExisting, $data['documents']);
+            if (!empty($docsExisting) || !empty($docs)) {
+                $data['documents'] = array_values(array_filter(array_merge($docsExisting, $docs)));
+            }
+            $cil = [];
+            $cilExisting = $request->input('cil_attachments_existing', []);
+            if (!is_array($cilExisting)) $cilExisting = $cilExisting ? [$cilExisting] : [];
+            $cilFiles = $request->file('cil_attachments') ?? $request->file('cil_attachments[]');
+            if ($cilFiles) {
+                $cilFiles = is_array($cilFiles) ? $cilFiles : [$cilFiles];
+                foreach ($cilFiles as $f) {
+                    if (!$f) continue;
+                    $p = $f->store($dir.'/cil', 'public');
+                    $cil[] = $p;
+                }
+            }
+            if (isset($data['cil_attachments']) && is_array($data['cil_attachments'])) $cilExisting = array_merge($cilExisting, $data['cil_attachments']);
+            if (!empty($cilExisting) || !empty($cil)) {
+                $data['cil_attachments'] = array_values(array_filter(array_merge($cilExisting, $cil)));
+            }
+
+            // Keep legacy "project" (name) field, but also set project_id when the column exists.
+            if (Schema::hasColumn((new Property)->getTable(), 'project_id')) {
+                $effectiveTenantId = $tenantId ?: ($property->tenant_id ?? null);
+
+                $reqProjectId = $request->input('project_id', $request->input('projectId'));
+                if (!empty($reqProjectId)) {
+                    $data['project_id'] = (int) $reqProjectId;
+                }
+
+                if (empty($data['project_id']) && !empty($data['project']) && !empty($effectiveTenantId)) {
+                    $projectName = preg_replace('/\s+/u', ' ', trim((string) $data['project']));
+                    $pid = Project::where('tenant_id', $effectiveTenantId)
+                        ->whereRaw('LOWER(name) = ?', [strtolower($projectName)])
+                        ->value('id');
+                    if (!empty($pid)) {
+                        $data['project_id'] = (int) $pid;
+                    }
+                }
+
+                if (!empty($data['project_id']) && empty($data['project']) && !empty($effectiveTenantId)) {
+                    $pname = Project::where('tenant_id', $effectiveTenantId)
+                        ->where('id', $data['project_id'])
+                        ->value('name');
+                    if (!empty($pname)) {
+                        $data['project'] = $pname;
+                    }
+                }
+            }
+
+            // Inventory status side-effects
+            if (array_key_exists('status', $data) && $data['status'] !== null) {
+                $nextStatus = strtolower(trim((string) $data['status']));
+                $curStatus = strtolower(trim((string) ($property->status ?? '')));
+
+                // Sensitive action: reverting a Sold unit back to Available.
+                if ($curStatus === 'sold' && $nextStatus === 'available') {
+                    $actor = Auth::user();
+                    $roleRaw = (string) ($actor->role ?? $actor->job_title ?? '');
+                    $roleLower = strtolower(trim($roleRaw));
+                    $isAdmin = ($actor && ($actor->is_super_admin ?? false)) || in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin'], true);
+
+                    $meta = [];
+                    try {
+                        if (is_array($actor?->meta_data)) {
+                            $meta = $actor->meta_data;
+                        } elseif (is_string($actor?->meta_data)) {
+                            $decoded = json_decode($actor->meta_data, true);
+                            $meta = is_array($decoded) ? $decoded : [];
+                        }
+                    } catch (\Throwable $e) {
+                    }
+
+                    $modulePerms = is_array($meta['module_permissions'] ?? null) ? ($meta['module_permissions'] ?? []) : [];
+                    $inventoryPerms = $modulePerms['Inventory'] ?? [];
+                    $inventoryPerms = is_array($inventoryPerms) ? $inventoryPerms : [];
+                    $canRevert = $isAdmin || in_array('revertSoldProperty', $inventoryPerms, true);
+
+                    if (!$canRevert) {
+                        return response()->json(['message' => 'You do not have permission to revert sold units'], 403);
+                    }
+
+                    $reason = trim((string) $request->input('revert_reason', ''));
+                    try {
+                        activity('inventory')
+                            ->performedOn($property)
+                            ->causedBy($actor)
+                            ->withProperties([
+                                'from' => $property->status,
+                                'to' => $data['status'],
+                                'reason' => $reason,
+                                'property_id' => $property->id,
+                            ])
+                            ->log('revert_sold_to_available');
+                    } catch (\Throwable $e) {
+                    }
+                }
+
+                $hasReservedAt = Schema::hasColumn((new Property)->getTable(), 'reserved_at');
+                $hasReservedExpiresAt = Schema::hasColumn((new Property)->getTable(), 'reserved_expires_at');
+                $hasReservedLeadId = Schema::hasColumn((new Property)->getTable(), 'reserved_lead_id');
+                $hasSoldAt = Schema::hasColumn((new Property)->getTable(), 'sold_at');
+                $hasSoldLeadId = Schema::hasColumn((new Property)->getTable(), 'sold_lead_id');
+
+                if ($nextStatus === 'available') {
+                    if ($hasReservedAt) $data['reserved_at'] = null;
+                    if ($hasReservedExpiresAt) $data['reserved_expires_at'] = null;
+                    if ($hasReservedLeadId) $data['reserved_lead_id'] = null;
+                    if ($hasSoldAt) $data['sold_at'] = null;
+                    if ($hasSoldLeadId) $data['sold_lead_id'] = null;
+                } elseif ($nextStatus === 'sold') {
+                    if ($hasSoldAt && empty($property->sold_at)) $data['sold_at'] = now();
+                    if ($hasReservedAt) $data['reserved_at'] = null;
+                    if ($hasReservedExpiresAt) $data['reserved_expires_at'] = null;
+                    if ($hasReservedLeadId) $data['reserved_lead_id'] = null;
+                } elseif ($nextStatus === 'reserved') {
+                    if ($hasReservedAt && empty($property->reserved_at)) $data['reserved_at'] = now();
+                    if ($hasSoldAt) $data['sold_at'] = null;
+                    if ($hasSoldLeadId) $data['sold_lead_id'] = null;
+                }
+            }
+
+            $columns = Schema::getColumnListing((new Property)->getTable());
+            $data = array_intersect_key($data, array_flip($columns));
+
+            $data = $this->normalizeJsonPayload($data);
+
+            if ($incomingUnitCode !== '' && $incomingUnitCode !== $originalUnitCode) {
+                $this->rememberRetiredUnitCode($originalUnitCode, $property->tenant_id, $property->id, 'updated');
+            }
+
+            $property->update($data);
+
+            $entity = Entity::where('key', 'properties')->first();
+            if ($request->has('custom_fields') && $entity) {
+                $fieldIds = $entity->fields->pluck('id', 'key');
+                foreach ($request->input('custom_fields') as $key => $value) {
+                    if (isset($fieldIds[$key])) {
+                        FieldValue::updateOrCreate(
+                            ['field_id' => $fieldIds[$key], 'record_id' => $property->id],
+                            ['value' => $value]
+                        );
+                    }
+                }
+            }
+
+            $with = ['customFieldValues.field'];
+            if (Schema::hasColumn((new Property)->getTable(), 'created_by_id')) {
+                $with[] = 'creator';
+            }
+            return response()->json($property->load($with));
+        } catch (Exception $e) {
+            Log::error('PropertyController::update', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        if ($resp = $this->authorizeInventoryDelete($request, 'realestate')) {
+            return $resp;
+        }
+
+        $property = Property::findOrFail($id);
+
+        DB::transaction(function () use ($property) {
+            $status = $this->normalizeInventoryStatus($property->status);
+
+            if ($status === 'reserved') {
+                $this->cancelReservationHistoryForDeletedProperty($property);
+            }
+
+            if ($status === 'sold') {
+                $this->cancelReservationHistoryForDeletedProperty($property);
+                $this->cancelClosedDealHistoryForDeletedProperty($property);
+            }
+
+            $this->rememberRetiredUnitCode($property->unit_code, $property->tenant_id, $property->id, 'deleted');
+            $this->resetPropertyStatusBeforeDelete($property);
+            $property->delete();
+        });
+
+        return response()->json(['message' => 'Property deleted']);
+    }
+}

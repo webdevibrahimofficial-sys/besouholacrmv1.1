@@ -1,0 +1,285 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Project;
+use App\Models\Lead;
+use App\Models\Property;
+use App\Traits\InventoryDeleteAuthorization;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use App\Jobs\SyncProjectToWebsiteJob;
+
+class ProjectController extends Controller
+{
+    use InventoryDeleteAuthorization;
+
+    public function index(Request $request)
+    {
+        $query = Project::query()->withCount(['properties', 'leads']);
+
+        if ($request->has('tenant_id')) {
+            $query->where('tenant_id', $request->tenant_id);
+        }
+
+        if ($request->has('all')) {
+            return response()->json($query->orderBy('created_at', 'desc')->get());
+        }
+
+        return response()->json($query->orderBy('created_at', 'desc')->paginate(50));
+    }
+
+    public function stats()
+    {
+        $activeProjects = Project::where('status', 'Active')->count();
+        $totalUnits = Property::whereNotNull('project_id')->count();
+
+        return response()->json([
+            'total_units' => $totalUnits,
+            'active_projects' => $activeProjects,
+            'total_projects' => Project::count()
+        ]);
+    }
+
+    public function show(Project $project)
+    {
+        return response()->json(['data' => $project]);
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->all();
+        $data['name'] = trim((string) ($data['name'] ?? ''));
+        $data['name_ar'] = trim((string) ($data['name_ar'] ?? ''));
+
+        if ($data['name'] === '' && $data['name_ar'] !== '') {
+            $data['name'] = $data['name_ar'];
+        }
+
+        try {
+            validator($data, [
+                'name' => 'required|string|max:255',
+                'status' => 'nullable|string',
+            ])->validate();
+        } catch (ValidationException $e) {
+            Log::warning('Project create validation failed', [
+                'errors' => $e->errors(),
+                'name' => $data['name'] ?? null,
+                'name_ar' => $data['name_ar'] ?? null,
+                'tenant_id' => optional($request->user())->tenant_id,
+                'user_id' => optional($request->user())->id,
+            ]);
+
+            throw $e;
+        }
+
+        // 1. Decode JSON fields first
+        $jsonFields = ['publish_data', 'payment_plan', 'cil', 'amenities', 'gallery_images', 'master_plan_images'];
+        foreach ($jsonFields as $field) {
+            if (isset($data[$field]) && is_string($data[$field])) {
+                $decoded = json_decode($data[$field], true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $data[$field] = $decoded;
+                }
+            }
+        }
+
+        // 2. Handle file uploads and merge with existing data
+        if ($request->hasFile('image')) {
+            $path = $request->file('image')->store('projects', 'public');
+            $data['image'] = $path;
+        }
+
+        if ($request->hasFile('logo')) {
+            $path = $request->file('logo')->store('projects/logos', 'public');
+            $data['logo'] = $path;
+        }
+        
+        // Handle gallery
+        if ($request->hasFile('gallery_files')) {
+            $galleryPaths = $data['gallery_images'] ?? [];
+            if (!is_array($galleryPaths)) $galleryPaths = [];
+            
+            foreach ($request->file('gallery_files') as $file) {
+                $galleryPaths[] = $file->store('projects/gallery', 'public');
+            }
+            $data['gallery_images'] = $galleryPaths;
+        }
+
+        // Handle master plan files
+        if ($request->hasFile('master_plan_files')) {
+            $masterPlanPaths = $data['master_plan_images'] ?? [];
+            if (!is_array($masterPlanPaths)) $masterPlanPaths = [];
+
+            foreach ($request->file('master_plan_files') as $file) {
+                $masterPlanPaths[] = $file->store('projects/master_plans', 'public');
+            }
+            $data['master_plan_images'] = $masterPlanPaths;
+        }
+
+        // Handle CIL attachments
+        if ($request->hasFile('cil_attachments_files')) {
+            $cilPaths = [];
+            foreach ($request->file('cil_attachments_files') as $file) {
+                $cilPaths[] = $file->store('projects/cil_attachments', 'public');
+            }
+            $cilData = $data['cil'] ?? [];
+            if (!is_array($cilData)) $cilData = [];
+            $cilData['attachments'] = array_merge($cilData['attachments'] ?? [], $cilPaths);
+            $data['cil'] = $cilData;
+        }
+        
+        // Remove file inputs from data
+        unset($data['gallery_files']);
+        unset($data['master_plan_files']);
+        unset($data['cil_attachments_files']);
+
+        $project = Project::create($data);
+
+        return response()->json(['data' => $project], 201);
+    }
+
+    public function update(Request $request, Project $project)
+    {
+        $data = $request->all();
+        $data['name'] = trim((string) ($data['name'] ?? ''));
+        $data['name_ar'] = trim((string) ($data['name_ar'] ?? ''));
+
+        if ($data['name'] === '' && $data['name_ar'] !== '') {
+            $data['name'] = $data['name_ar'];
+        }
+
+        try {
+            validator($data, [
+                'name' => 'required|string|max:255',
+                'status' => 'nullable|string',
+            ])->validate();
+        } catch (ValidationException $e) {
+            Log::warning('Project update validation failed', [
+                'project_id' => $project->id,
+                'errors' => $e->errors(),
+                'name' => $data['name'] ?? null,
+                'name_ar' => $data['name_ar'] ?? null,
+                'tenant_id' => optional($request->user())->tenant_id,
+                'user_id' => optional($request->user())->id,
+            ]);
+
+            throw $e;
+        }
+
+        // 1. Decode JSON fields first
+        $jsonFields = ['publish_data', 'payment_plan', 'cil', 'amenities', 'gallery_images', 'master_plan_images'];
+        foreach ($jsonFields as $field) {
+            if (isset($data[$field]) && is_string($data[$field])) {
+                $decoded = json_decode($data[$field], true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $data[$field] = $decoded;
+                }
+            }
+        }
+
+        // 2. Handle file uploads and merge
+        if ($request->hasFile('image')) {
+            $path = $request->file('image')->store('projects', 'public');
+            $data['image'] = $path;
+        }
+
+        if ($request->hasFile('logo')) {
+            $path = $request->file('logo')->store('projects/logos', 'public');
+            $data['logo'] = $path;
+        }
+
+        // Handle gallery
+        if ($request->hasFile('gallery_files')) {
+            $galleryPaths = $data['gallery_images'] ?? [];
+            if (!is_array($galleryPaths)) $galleryPaths = [];
+
+            foreach ($request->file('gallery_files') as $file) {
+                $galleryPaths[] = $file->store('projects/gallery', 'public');
+            }
+            $data['gallery_images'] = $galleryPaths;
+        }
+
+        // Handle master plan files
+        if ($request->hasFile('master_plan_files')) {
+            $masterPlanPaths = $data['master_plan_images'] ?? [];
+            if (!is_array($masterPlanPaths)) $masterPlanPaths = [];
+
+            foreach ($request->file('master_plan_files') as $file) {
+                $masterPlanPaths[] = $file->store('projects/master_plans', 'public');
+            }
+            $data['master_plan_images'] = $masterPlanPaths;
+        }
+
+        // Handle CIL attachments
+        if ($request->hasFile('cil_attachments_files')) {
+            $cilPaths = [];
+            foreach ($request->file('cil_attachments_files') as $file) {
+                $cilPaths[] = $file->store('projects/cil_attachments', 'public');
+            }
+             $cilData = $data['cil'] ?? [];
+             if (!is_array($cilData)) $cilData = [];
+             $cilData['attachments'] = array_merge($cilData['attachments'] ?? [], $cilPaths);
+             $data['cil'] = $cilData;
+        }
+
+        // Remove file inputs from data
+        unset($data['gallery_files']);
+        unset($data['master_plan_files']);
+        unset($data['cil_attachments_files']);
+
+        $project->update($data);
+
+        return response()->json(['data' => $project]);
+    }
+
+    public function destroy(Request $request, Project $project)
+    {
+        if ($resp = $this->authorizeInventoryDelete($request, 'realestate')) {
+            return $resp;
+        }
+
+        $project->loadCount('leads');
+        $leadCount = (int) ($project->leads_count ?? 0);
+        $reassignTo = $request->input('reassign_leads_to');
+
+        if ($leadCount > 0 && !$reassignTo) {
+            return response()->json([
+                'message' => 'This project has related leads and must be reassigned before deletion.',
+                'lead_count' => $leadCount,
+                'requires_reassignment' => true,
+            ], 409);
+        }
+
+        $targetProject = null;
+        if ($leadCount > 0) {
+            $targetProject = Project::query()->whereKey($reassignTo)->first();
+            if (!$targetProject) {
+                return response()->json([
+                    'message' => 'The selected replacement project was not found.',
+                ], 422);
+            }
+
+            if ((int) $targetProject->id === (int) $project->id) {
+                return response()->json([
+                    'message' => 'You cannot move leads to the same project being deleted.',
+                ], 422);
+            }
+        }
+
+        DB::transaction(function () use ($project, $leadCount, $targetProject) {
+            if ($leadCount > 0 && $targetProject) {
+                Lead::where('project_id', $project->id)->update([
+                    'project_id' => $targetProject->id,
+                    'project' => $targetProject->name,
+                ]);
+            }
+
+            $project->delete();
+        });
+
+        return response()->json(null, 204);
+    }
+}

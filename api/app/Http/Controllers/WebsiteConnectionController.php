@@ -1,0 +1,357 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\StoreWebsiteConnectionRequest;
+use App\Http\Requests\UpdateWebsiteConnectionRequest;
+use App\Models\Lead;
+use App\Models\WebsiteConnection;
+use App\Models\WebsiteIntakeLog;
+use App\Services\WebsiteApiKeyService;
+use App\Services\WebsiteSourceResolver;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+
+class WebsiteConnectionController extends Controller
+{
+    public function __construct(
+        private readonly WebsiteApiKeyService $apiKeyService,
+        private readonly WebsiteSourceResolver $sourceResolver,
+    ) {}
+
+    public function index(Request $request): JsonResponse
+    {
+        $tenantId = (int) $request->user()->tenant_id;
+
+        $connections = WebsiteConnection::query()
+            ->where('tenant_id', $tenantId)
+            ->with(['campaign:id,name', 'source:id,name'])
+            ->withCount('leads')
+            ->latest()
+            ->get();
+
+        return response()->json($connections);
+    }
+
+    public function store(StoreWebsiteConnectionRequest $request): JsonResponse
+    {
+        $tenantId = (int) $request->user()->tenant_id;
+        $keyData = $this->apiKeyService->generate();
+        $validated = $request->validated();
+
+        if (empty($validated['default_source_id'])) {
+            $validated['default_source_id'] = $this->sourceResolver
+                ->getOrCreateWebsiteSourceForTenant($tenantId)
+                ->id;
+        }
+
+        $connection = WebsiteConnection::create([
+            ...$validated,
+            'tenant_id' => $tenantId,
+            'key_prefix' => $keyData['key_prefix'],
+            'api_key_hash' => $keyData['api_key_hash'],
+        ]);
+
+        $connection->load(['campaign:id,name', 'source:id,name']);
+        $connection->loadCount('leads');
+
+        return response()->json([
+            'connection' => $connection,
+            'api_key' => $keyData['full_key'],
+        ], 201);
+    }
+
+    public function update(UpdateWebsiteConnectionRequest $request, int $websiteConnection): JsonResponse
+    {
+        $connection = $this->resolveTenantConnection($request, $websiteConnection);
+
+        $connection->update($request->validated());
+        $connection->load(['campaign:id,name', 'source:id,name']);
+        $connection->loadCount('leads');
+
+        return response()->json($connection);
+    }
+
+    public function destroy(Request $request, int $websiteConnection): JsonResponse
+    {
+        $connection = $this->resolveTenantConnection($request, $websiteConnection);
+        $connection->delete();
+
+        return response()->noContent();
+    }
+
+    public function regenerateKey(Request $request, int $websiteConnection): JsonResponse
+    {
+        $connection = $this->resolveTenantConnection($request, $websiteConnection);
+        $keyData = $this->apiKeyService->generate();
+
+        $connection->update([
+            'key_prefix' => $keyData['key_prefix'],
+            'api_key_hash' => $keyData['api_key_hash'],
+        ]);
+
+        return response()->json([
+            'id' => $connection->id,
+            'key_prefix' => $connection->fresh()->key_prefix,
+            'masked_key' => $connection->fresh()->masked_key,
+            'api_key' => $keyData['full_key'],
+        ]);
+    }
+
+    public function stats(Request $request, int $websiteConnection): JsonResponse
+    {
+        $tenantId = (int) $request->user()->tenant_id;
+        $connection = $this->resolveTenantConnection($request, $websiteConnection);
+        $recentWindowStart = now()->subDays(29)->startOfDay();
+        $topAnalyticsWindowStart = now()->subDays(30)->startOfDay();
+
+        $baseQuery = Lead::query()
+            ->where('tenant_id', $tenantId)
+            ->where('website_connection_id', $connection->id);
+
+        $acceptedStatuses = ['success', 'duplicate'];
+        $total = (clone $baseQuery)->count();
+        $thisMonth = (clone $baseQuery)
+            ->whereMonth('created_at', now()->month)
+            ->whereYear('created_at', now()->year)
+            ->count();
+        $today = (clone $baseQuery)->whereDate('created_at', today())->count();
+        $lastLead = (clone $baseQuery)->latest('created_at')->value('created_at');
+
+        $logsBaseQuery = WebsiteIntakeLog::query()
+            ->where('tenant_id', $tenantId)
+            ->where('website_connection_id', $connection->id);
+
+        $statusCounts = (clone $logsBaseQuery)
+            ->selectRaw('status, COUNT(*) as aggregate_count')
+            ->groupBy('status')
+            ->pluck('aggregate_count', 'status');
+
+        $totalRequests = (int) $statusCounts->sum();
+        $acceptedRequests = (int) collect($acceptedStatuses)
+            ->sum(fn (string $status) => (int) ($statusCounts[$status] ?? 0));
+        $rejectedRequests = max(0, $totalRequests - $acceptedRequests);
+        $duplicateCount = (int) ($statusCounts['duplicate'] ?? 0);
+        $blockedOriginsCount = (int) ($statusCounts['blocked_origin'] ?? 0);
+
+        $lastSuccessfulAttempt = (clone $logsBaseQuery)
+            ->whereIn('status', $acceptedStatuses)
+            ->with('lead:id,name,phone,email')
+            ->latest('created_at')
+            ->first();
+
+        $lastFailedAttempt = (clone $logsBaseQuery)
+            ->whereNotIn('status', $acceptedStatuses)
+            ->latest('created_at')
+            ->first();
+
+        $analyticsLogs = (clone $logsBaseQuery)
+            ->whereIn('status', $acceptedStatuses)
+            ->where('created_at', '>=', $topAnalyticsWindowStart)
+            ->latest('created_at')
+            ->limit(5000)
+            ->get(['status', 'origin', 'payload', 'created_at']);
+
+        $dailyLeads = (clone $baseQuery)
+            ->where('created_at', '>=', $topAnalyticsWindowStart)
+            ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get();
+
+        $bySource = (clone $baseQuery)
+            ->selectRaw('source, COUNT(*) as count')
+            ->groupBy('source')
+            ->orderByDesc('count')
+            ->get();
+
+        $topPages = $this->summarizeTopValues(
+            $analyticsLogs,
+            fn (WebsiteIntakeLog $log) => $this->extractPageUrl($log)
+        );
+
+        $topForms = $this->summarizeTopValues(
+            $analyticsLogs,
+            fn (WebsiteIntakeLog $log) => $this->extractFormName($log)
+        );
+
+        $topOrigins = (clone $logsBaseQuery)
+            ->whereIn('status', $acceptedStatuses)
+            ->where('created_at', '>=', $topAnalyticsWindowStart)
+            ->whereNotNull('origin')
+            ->where('origin', '!=', '')
+            ->selectRaw('origin as label, COUNT(*) as count')
+            ->groupBy('origin')
+            ->orderByDesc('count')
+            ->limit(5)
+            ->get()
+            ->map(fn ($row) => [
+                'label' => (string) $row->label,
+                'count' => (int) $row->count,
+            ])
+            ->values()
+            ->all();
+
+        $leadsOverTimeRows = (clone $logsBaseQuery)
+            ->where('created_at', '>=', $recentWindowStart)
+            ->selectRaw(
+                "DATE(created_at) as date,
+                SUM(CASE WHEN status IN ('success', 'duplicate') THEN 1 ELSE 0 END) as accepted,
+                SUM(CASE WHEN status = 'duplicate' THEN 1 ELSE 0 END) as duplicates,
+                SUM(CASE WHEN status NOT IN ('success', 'duplicate') THEN 1 ELSE 0 END) as rejected,
+                COUNT(*) as total"
+            )
+            ->groupBy(DB::raw('DATE(created_at)'))
+            ->orderBy(DB::raw('DATE(created_at)'))
+            ->get()
+            ->keyBy('date');
+
+        $leadsOverTime = collect(range(0, 29))
+            ->map(function (int $offset) use ($leadsOverTimeRows, $recentWindowStart): array {
+                $date = $recentWindowStart->copy()->addDays($offset)->toDateString();
+                $row = $leadsOverTimeRows->get($date);
+
+                return [
+                    'date' => $date,
+                    'accepted' => (int) ($row->accepted ?? 0),
+                    'duplicates' => (int) ($row->duplicates ?? 0),
+                    'rejected' => (int) ($row->rejected ?? 0),
+                    'total' => (int) ($row->total ?? 0),
+                ];
+            })
+            ->values();
+
+        $duplicateRate = $totalRequests > 0
+            ? round(($duplicateCount / $totalRequests) * 100, 2)
+            : 0.0;
+
+        $rejectionRate = $totalRequests > 0
+            ? round(($rejectedRequests / $totalRequests) * 100, 2)
+            : 0.0;
+
+        return response()->json([
+            'total' => $total,
+            'this_month' => $thisMonth,
+            'today' => $today,
+            'last_lead' => $lastLead ? \Illuminate\Support\Carbon::parse($lastLead)->diffForHumans() : null,
+            'total_requests' => $totalRequests,
+            'accepted_requests' => $acceptedRequests,
+            'rejected_requests' => $rejectedRequests,
+            'duplicate_count' => $duplicateCount,
+            'blocked_origins_count' => $blockedOriginsCount,
+            'duplicate_rate' => $duplicateRate,
+            'rejection_rate' => $rejectionRate,
+            'last_successful_lead' => $lastSuccessfulAttempt ? [
+                'created_at' => optional($lastSuccessfulAttempt->created_at)?->toIso8601String(),
+                'status' => $lastSuccessfulAttempt->status,
+                'page_url' => $lastSuccessfulAttempt->page_url,
+                'origin' => $lastSuccessfulAttempt->origin,
+                'lead' => $lastSuccessfulAttempt->lead ? [
+                    'id' => $lastSuccessfulAttempt->lead->id,
+                    'name' => $lastSuccessfulAttempt->lead->name,
+                    'phone' => $lastSuccessfulAttempt->lead->phone,
+                    'email' => $lastSuccessfulAttempt->lead->email,
+                ] : null,
+            ] : null,
+            'last_failed_attempt' => $lastFailedAttempt ? [
+                'created_at' => optional($lastFailedAttempt->created_at)?->toIso8601String(),
+                'status' => $lastFailedAttempt->status,
+                'error_message' => $lastFailedAttempt->error_message,
+                'origin' => $lastFailedAttempt->origin,
+                'page_url' => $lastFailedAttempt->page_url,
+            ] : null,
+            'daily_leads' => $dailyLeads,
+            'by_source' => $bySource,
+            'top_pages' => $topPages,
+            'top_forms' => $topForms,
+            'top_origins' => $topOrigins,
+            'leads_over_time' => $leadsOverTime,
+        ]);
+    }
+
+    private function summarizeTopValues(Collection $logs, callable $resolver, int $limit = 5): array
+    {
+        return $logs
+            ->map(function (WebsiteIntakeLog $log) use ($resolver) {
+                return $this->normalizeAnalyticsValue($resolver($log));
+            })
+            ->filter()
+            ->countBy()
+            ->sortDesc()
+            ->take($limit)
+            ->map(fn (int $count, string $label) => [
+                'label' => $label,
+                'count' => $count,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function extractPageUrl(WebsiteIntakeLog $log): ?string
+    {
+        $payload = is_array($log->payload) ? $log->payload : [];
+
+        return $payload['meta']['page_url']
+            ?? $payload['page_url']
+            ?? null;
+    }
+
+    private function extractFormName(WebsiteIntakeLog $log): ?string
+    {
+        $payload = is_array($log->payload) ? $log->payload : [];
+
+        return $payload['meta']['form_name']
+            ?? $payload['form_name']
+            ?? null;
+    }
+
+    private function normalizeAnalyticsValue(mixed $value): ?string
+    {
+        $normalized = trim((string) $value);
+
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    public function test(Request $request, int $websiteConnection): JsonResponse
+    {
+        $connection = $this->resolveTenantConnection($request, $websiteConnection);
+
+        try {
+            $intakeService = app(\App\Services\WebsiteLeadIntakeService::class);
+            $result = $intakeService->handleTest($connection, $request);
+
+            if (!$result['success']) {
+                return response()->json($result, 422);
+            }
+
+            return response()->json($result, 201);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'status' => match ($e->getStatusCode()) {
+                    422 => 'inactive_connection',
+                    default => 'exception',
+                },
+            ], $e->getStatusCode());
+        }
+    }
+
+    private function resolveTenantConnection(Request $request, int $websiteConnection): WebsiteConnection
+    {
+        $connection = WebsiteConnection::withoutGlobalScopes()->find($websiteConnection);
+
+        if (!$connection) {
+            abort(404);
+        }
+
+        if ((int) $connection->tenant_id !== (int) $request->user()->tenant_id) {
+            throw new HttpException(403, 'You are not authorized to access this website connection.');
+        }
+
+        return $connection;
+    }
+}

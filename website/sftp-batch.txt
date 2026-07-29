@@ -1,0 +1,14 @@
+lcd D:/fullstack/besouholacrm v1/besouholacrm v1/website/apps/web/deploy-dist
+cd /home/u689983086/public_html
+!echo "Uploading assets directory..."
+put -r assets
+!echo "Uploading index.html..."
+put index.html
+!echo "Uploading .htaccess..."
+put .htaccess
+!echo "Uploading robots.txt..."
+put robots.txt
+!echo "Uploading sitemap.xml..."
+put sitemap.xml
+!echo "Done!"
+bye

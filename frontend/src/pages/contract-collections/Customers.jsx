@@ -1,0 +1,2731 @@
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Eye, Pencil, Trash2, Search, X, MessageSquareText, Paperclip, Filter, ChevronDown, ChevronUp, Printer, FileDown, FileText } from 'lucide-react'
+import { FaChevronLeft, FaChevronRight, FaFileImport, FaPlus } from 'react-icons/fa'
+import { api } from '@utils/api'
+import { useAppState } from '@shared/context/AppStateProvider'
+import { useTheme } from '@shared/context/ThemeProvider'
+import { formatUiDateTime } from '@shared/utils/crmDateTime'
+import SearchableSelect from '@components/SearchableSelect'
+import CcCustomersImportModal from '@components/CcCustomersImportModal'
+
+const safeStr = (v) => (v === null || v === undefined ? '' : String(v))
+
+const formatCustomerId = (id) => {
+  const n = Number(id)
+  if (!Number.isFinite(n)) return safeStr(id)
+  return `C-${String(n).padStart(4, '0')}`
+}
+
+const formatMoney = (v) => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '0'
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
+
+const titleFromProperty = (prop) => safeStr(prop?.unit_code || prop?.name || prop?.title || (prop?.id ? `#${prop.id}` : ''))
+
+const normalizeInstallmentType = (raw) => {
+  const v = String(raw ?? '').trim().toLowerCase()
+  if (!v) return ''
+  if (v === 'half_yearly' || v === 'halfyearly') return 'half-yearly'
+  if (v === 'annual' || v === 'annually') return 'yearly'
+  return v
+}
+
+const stripNullKeyPrefix = (key) => {
+  const k = safeStr(key)
+  if (!k) return k
+  // Keys like "\u0000*\u0000items" (Laravel Collection internals) should become "items"
+  const nullChar = '\u0000'
+  if (!k.includes(nullChar)) return k
+  const parts = k.split(nullChar).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : k.replaceAll(nullChar, '')
+}
+
+const cleanAuditValue = (value) => {
+  if (value === null || value === undefined) return value
+  if (Array.isArray(value)) return value.map(cleanAuditValue)
+  if (typeof value === 'object') {
+    const out = {}
+    for (const [rawKey, rawVal] of Object.entries(value)) {
+      out[stripNullKeyPrefix(rawKey)] = cleanAuditValue(rawVal)
+    }
+    return out
+  }
+  if (typeof value === 'string') {
+    // Remove embedded null chars if any made it through JSON decoding
+    return value.replaceAll('\u0000', '')
+  }
+  return value
+}
+
+const tryParseJson = (value) => {
+  if (value === null || value === undefined) return value
+  if (typeof value !== 'string') return value
+  const s = value.trim()
+  if (!s) return value
+  if (!(s.startsWith('{') || s.startsWith('['))) return value
+  try {
+    return JSON.parse(s)
+  } catch {
+    return value
+  }
+}
+
+const humanizeToken = (token) => {
+  const raw = safeStr(token)
+  if (!raw) return ''
+  return raw
+    .replaceAll('_', ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+const auditTypeFromAction = ({ actionKey, logName }) => {
+  const a = safeStr(actionKey).toLowerCase()
+  const l = safeStr(logName).toLowerCase()
+  if (a.includes('payment_plan') || l.includes('payment_plan')) return 'Payment'
+  if (a.includes('contract') || l.includes('contract')) return 'Contract'
+  if (a.includes('property') || l.includes('property')) return 'Inventory'
+  if (a.includes('installment') || l.includes('installment')) return 'Installment'
+  return 'Other'
+}
+
+const auditSeverityFromAction = ({ actionKey, logName }) => {
+  const a = safeStr(actionKey).toLowerCase()
+  const l = safeStr(logName).toLowerCase()
+  if (a.includes('deleted') || a.includes('rejected') || a.includes('void')) return 'danger'
+  if (a.includes('sold')) return 'danger'
+  if (a.includes('reserved')) return 'warning'
+  if (a.includes('created') || l.includes('created')) return 'success'
+  return 'info'
+}
+
+const auditActionLabel = ({ actionKey, logName, isArabic }) => {
+  const a = safeStr(actionKey)
+  const l = safeStr(logName)
+  const key = a || l
+  const map = {
+    payment_plan_version_created: isArabic ? 'تم تحديث خطة الدفع' : 'Payment Plan Updated',
+    contract_created: isArabic ? 'تم إنشاء العقد' : 'Contract Created',
+    property_reserved: isArabic ? 'تم حجز الوحدة' : 'Unit Reserved',
+    property_sold: isArabic ? 'تم بيع الوحدة' : 'Unit Sold',
+  }
+  if (map[key]) return map[key]
+  if (map[a]) return map[a]
+  if (map[l]) return map[l]
+  return humanizeToken(key)
+}
+
+const formatAuditLines = ({ props, actionKey, logName, isArabic }) => {
+  const action = safeStr(actionKey)
+  const payloadRaw = props?.payload ?? props?.new_values ?? props?.old_values ?? props
+  const payload = cleanAuditValue(tryParseJson(payloadRaw))
+  const auditFieldLabel = (key) => {
+    const k = String(key || '').toLowerCase().trim()
+    if (k === 'items') return isArabic ? 'الوحدات' : 'Units'
+    if (k === 'properties' || k === 'property') return isArabic ? 'الوحدات/العقارات' : 'Properties'
+    return humanizeToken(key)
+  }
+  const auditValueText = (value, key) => {
+    if (value === null || value === undefined) return ''
+    if (typeof value === 'number') return formatMoney(value)
+    if (typeof value === 'boolean') return value ? 'true' : 'false'
+    if (typeof value === 'string') return safeStr(value)
+
+    const keyNorm = String(key || '').toLowerCase().trim()
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) return isArabic ? 'لا يوجد' : 'None'
+      // Show concise, human-friendly identifiers for unit/property arrays.
+      if (keyNorm === 'items' || keyNorm === 'properties' || keyNorm === 'property') {
+        const mapped = value.map((item) => {
+          if (!item || typeof item !== 'object') return safeStr(item)
+          const unitCode = safeStr(item.unit_code || item.unitCode || item.code || item.name)
+          const propId = safeStr(item.property_id || item.propertyId || item.id)
+          const projectName = safeStr(item.project_name || item.projectName)
+          const lead = unitCode || (propId ? `#${propId}` : '')
+          const suffix = projectName ? ` (${projectName})` : ''
+          return `${lead}${suffix}`.trim()
+        }).filter(Boolean)
+        return mapped.join(' | ')
+      }
+      return value.map((v) => auditValueText(v, key)).filter(Boolean).join(', ')
+    }
+
+    if (typeof value === 'object') {
+      if (keyNorm === 'items' || keyNorm === 'properties' || keyNorm === 'property') {
+        // If backend sends object map of items, show the map keys as units/properties.
+        const entries = Object.entries(value)
+        if (!entries.length) return isArabic ? 'لا يوجد' : 'None'
+        return entries
+          .map(([k, v]) => {
+            const label = safeStr(k)
+            if (v && typeof v === 'object') {
+              const unitCode = safeStr(v.unit_code || v.unitCode || v.code || v.name)
+              const projectName = safeStr(v.project_name || v.projectName)
+              const id = safeStr(v.property_id || v.propertyId || v.id)
+              const best = unitCode || (id ? `#${id}` : label)
+              return projectName ? `${best} (${projectName})` : best
+            }
+            return label
+          })
+          .join(' | ')
+      }
+      // Fallback to readable JSON instead of "[object Object]".
+      try {
+        return JSON.stringify(value)
+      } catch {
+        return safeStr(value)
+      }
+    }
+
+    return safeStr(value)
+  }
+
+  // Prefer showing "before → after" if present
+  const before = props?.old_values ?? props?.before ?? null
+  const after = props?.new_values ?? props?.after ?? null
+  const beforeObj = before && typeof before === 'object' ? cleanAuditValue(before) : null
+  const afterObj = after && typeof after === 'object' ? cleanAuditValue(after) : null
+
+  if (beforeObj && afterObj) {
+    const keys = Array.from(new Set([...Object.keys(beforeObj), ...Object.keys(afterObj)]))
+    const lines = []
+    for (const k of keys) {
+      const b = beforeObj[k]
+      const n = afterObj[k]
+      if (JSON.stringify(b) === JSON.stringify(n)) continue
+      lines.push(`${humanizeToken(k)}: ${safeStr(b)} → ${safeStr(n)}`)
+    }
+    return lines.length ? lines : [isArabic ? 'تم تحديث البيانات' : 'Updated']
+  }
+
+  if (action === 'payment_plan_version_created') {
+    const r = Number(payload?.reservation_amount ?? 0) || 0
+    const dp = Number(payload?.down_payment ?? 0) || 0
+    const del = Number(payload?.delivery_payment ?? 0) || 0
+    const count = Number(payload?.installment_count ?? 0) || 0
+    const val = Number(payload?.installment_value ?? 0) || 0
+    const type = normalizeInstallmentType(payload?.installment_type ?? '') || ''
+
+    const lines = []
+    lines.push(`${isArabic ? 'مقدم الحجز' : 'Reservation'}: ${formatMoney(r)}`)
+    lines.push(`${isArabic ? 'الدفعة المقدمة' : 'Down Payment'}: ${formatMoney(dp)}`)
+    lines.push(`${isArabic ? 'دفعة الاستلام' : 'Delivery'}: ${formatMoney(del)}`)
+    if (count || val || type) {
+      lines.push(`${isArabic ? 'الأقساط' : 'Installments'}: ${count} × ${formatMoney(val)}${type ? ` (${humanizeToken(type)})` : ''}`)
+    }
+    if (props?.version) {
+      lines.unshift(`${isArabic ? 'الإصدار' : 'Version'}: ${safeStr(props.version)}`)
+    }
+    return lines
+  }
+
+  if (action === 'contract_created') {
+    const lines = []
+    if (props?.contract_id) lines.push(`${isArabic ? 'رقم العقد' : 'Contract ID'}: ${safeStr(props.contract_id)}`)
+    if (props?.property_id) lines.push(`${isArabic ? 'رقم الوحدة' : 'Property ID'}: ${safeStr(props.property_id)}`)
+    return lines.length ? lines : [isArabic ? 'تم إنشاء العقد' : 'Contract created']
+  }
+
+  if (action === 'property_reserved' || action === 'property_sold') {
+    const lines = []
+    if (props?.property_id) lines.push(`${isArabic ? 'رقم الوحدة' : 'Property ID'}: ${safeStr(props.property_id)}`)
+    return lines.length ? lines : [auditActionLabel({ actionKey, logName, isArabic })]
+  }
+
+  if (payload && typeof payload === 'object') {
+    const entries = Object.entries(payload).slice(0, 6)
+    const lines = entries.map(([k, v]) => `${auditFieldLabel(k)}: ${auditValueText(v, k)}`)
+    return lines.length ? lines : [auditActionLabel({ actionKey, logName, isArabic })]
+  }
+
+  return [safeStr(payload)]
+}
+
+const deriveCcPlanFromProperty = (property) => {
+  const prop = property || {}
+  const plans = Array.isArray(prop.installment_plans)
+    ? prop.installment_plans
+    : (Array.isArray(prop.installmentPlans) ? prop.installmentPlans : [])
+
+  if (plans.length === 0) return null
+
+  const firstPlan = plans[0] || {}
+  const basePrice = Number(prop.total_after_discount ?? prop.net_amount ?? prop.total_price ?? prop.price ?? 0) || 0
+
+  const dpType = String(firstPlan.downPaymentType ?? firstPlan.down_payment_type ?? '').toLowerCase()
+  const dpRaw = Number(firstPlan.downPayment ?? firstPlan.down_payment ?? 0) || 0
+  const downPayment = dpType === 'percentage' || dpType === 'percent' ? basePrice * (dpRaw / 100) : dpRaw
+
+  const years = Number(firstPlan.years ?? 0) || 0
+  const installmentCount = years > 0
+    ? years * 12
+    : (Number(firstPlan.installmentCount ?? firstPlan.installment_count ?? 0) || 0)
+
+  const reservationAmount = Number(firstPlan.reservationAmount ?? firstPlan.reservation_amount ?? prop.reservation_amount ?? 0) || 0
+  const deliveryPayment = Number(firstPlan.receiptAmount ?? firstPlan.receipt_amount ?? firstPlan.delivery_payment ?? 0) || 0
+  const installmentValue = Number(firstPlan.installmentAmount ?? firstPlan.installment_amount ?? firstPlan.installment_value ?? 0) || 0
+
+  return {
+    reservation_amount: reservationAmount,
+    down_payment: downPayment,
+    delivery_payment: deliveryPayment,
+    installment_type: normalizeInstallmentType(firstPlan.installmentType ?? firstPlan.installment_type ?? 'monthly') || 'monthly',
+    installment_count: installmentCount > 0 ? installmentCount : 0,
+    installment_value: installmentValue,
+    meta_data: {
+      created_from: 'property_installment_plans',
+      property_installment_plan: firstPlan,
+      base_price: basePrice,
+      years: years > 0 ? years : null,
+      additional_payments: firstPlan.extraPayment ?? firstPlan.extra_payment ?? null,
+      delivery_date: firstPlan.deliveryDate ?? firstPlan.delivery_date ?? null,
+    },
+  }
+}
+
+function openPrintWindow({ title, blocks, dir = 'ltr' }) {
+  const win = window.open('', '_blank', 'noopener')
+  if (!win) {
+    try {
+      const isAr = document?.documentElement?.dir === 'rtl' || document?.documentElement?.lang === 'ar'
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isAr ? 'تم حظر النافذة المنبثقة. اسمح بالنوافذ المنبثقة ثم جرّب الطباعة مرة أخرى.' : 'Popup blocked. Please allow popups then try Print again.',
+        },
+      }))
+    } catch {}
+    return
+  }
+  const htmlBlocks = (Array.isArray(blocks) ? blocks : [])
+    .map(
+      (b) => `
+        <section class="block">
+          <h2>${b?.title || ''}</h2>
+          <table>
+            <tbody>
+              ${(Array.isArray(b?.rows) ? b.rows : [])
+                .map((r) => `<tr><td class="k">${r?.label || ''}</td><td class="v">${r?.value ?? ''}</td></tr>`)
+                .join('')}
+            </tbody>
+          </table>
+        </section>
+      `
+    )
+    .join('')
+
+  win.document.open()
+  win.document.write(`<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${title || 'Print'}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; margin: 24px; color: #111; direction: ${dir}; }
+          h1 { font-size: 18px; margin: 0 0 16px; }
+          .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+          .block { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; }
+          .block h2 { font-size: 13px; margin: 0 0 8px; color: #111827; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          td { padding: 6px 0; vertical-align: top; border-bottom: 1px solid #f3f4f6; }
+          td.k { width: 40%; color: #6b7280; }
+          td.v { color: #111827; }
+          @media print { body { margin: 0; } .block { break-inside: avoid; } }
+        </style>
+      </head>
+      <body>
+        <h1>${title || ''}</h1>
+        <div class="grid">${htmlBlocks}</div>
+      </body>
+    </html>`)
+  win.document.close()
+
+  // Some browsers block auto-print from injected scripts; triggering from the opener is more reliable.
+  try {
+    win.focus()
+  } catch {}
+  setTimeout(() => {
+    try {
+      win.focus()
+      win.print()
+    } catch {}
+  }, 350)
+}
+
+function ModalShell({ open, title, onClose, children, widthClass = 'max-w-4xl', textColorClass = '' }) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-[20000]">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="absolute inset-0 flex items-center justify-center p-4">
+        <div className={`card w-full ${widthClass} bg-[var(--content-bg)] rounded-2xl shadow-2xl border border-[var(--panel-border)] overflow-hidden`}>
+          <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--panel-border)]">
+            <div className="min-w-0">
+              <div className={`text-base font-semibold truncate ${textColorClass}`}>{title}</div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+              aria-label="Close"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-4 max-h-[80vh] overflow-auto">{children}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-2 text-sm rounded-lg border transition ${
+        active
+          ? 'bg-blue-600 text-white border-blue-600'
+          : 'bg-transparent border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+export default function ContractCollectionsCustomers() {
+  const { i18n } = useTranslation()
+  const { company, user, crmSettings } = useAppState()
+  const { isLight } = useTheme()
+
+  const isArabic = i18n.language === 'ar'
+  const isRTL = i18n.dir(i18n.language || 'en') === 'rtl'
+  const companyTypeLower = String(company?.company_type || '').toLowerCase()
+  const isRealEstate = companyTypeLower.includes('real')
+
+  const title = useMemo(() => (isArabic ? 'إدارة العملاء' : 'Customers Management'), [isArabic])
+  const textColorClass = isLight ? 'text-black' : 'text-white'
+  const mutedTextClass = textColorClass
+  const formatDateTime = useCallback((value) => formatUiDateTime(value, { crmSettings, language: i18n.language }), [crmSettings, i18n.language])
+
+  const [q, setQ] = useState('')
+  const [projectId, setProjectId] = useState('')
+  const [salesOwnerId, setSalesOwnerId] = useState('')
+  const [propertyId, setPropertyId] = useState('')
+  const [source, setSource] = useState('')
+  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [projects, setProjects] = useState([])
+  const [units, setUnits] = useState([])
+  const [salesOwners, setSalesOwners] = useState([])
+  const [sources, setSources] = useState([])
+
+  const [loading, setLoading] = useState(false)
+  const [items, setItems] = useState([])
+  const [pageMeta, setPageMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
+  const [perPage, setPerPage] = useState(25)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [activeCustomer, setActiveCustomer] = useState(null)
+  const [activeTotals, setActiveTotals] = useState(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState('details') // details | comments | attachments | audit
+  const [selectedUnitId, setSelectedUnitId] = useState(null)
+  const [selectedContractId, setSelectedContractId] = useState(null)
+  const [contractAttachments, setContractAttachments] = useState([])
+  const [attachmentPreviewOpen, setAttachmentPreviewOpen] = useState(false)
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState('')
+  const [attachmentPreviewName, setAttachmentPreviewName] = useState('')
+  const [attachmentPreviewMime, setAttachmentPreviewMime] = useState('')
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+
+  // Comments
+  const [comments, setComments] = useState([])
+  const [commentText, setCommentText] = useState('')
+  const [commentsLoading, setCommentsLoading] = useState(false)
+  const commentsAbortRef = useRef(null)
+  const attachmentsAbortRef = useRef(null)
+
+  // Audit
+  const [auditQ, setAuditQ] = useState('')
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditItems, setAuditItems] = useState([])
+  const [auditType, setAuditType] = useState('all')
+  const [auditUser, setAuditUser] = useState('all')
+  const [auditFrom, setAuditFrom] = useState('')
+  const [auditTo, setAuditTo] = useState('')
+  const [auditExpandedId, setAuditExpandedId] = useState(null)
+  const auditAbortRef = useRef(null)
+
+  // Convert to Contract
+  const [convertOpen, setConvertOpen] = useState(false)
+  const [convertLoading, setConvertLoading] = useState(false)
+  const [convertForm, setConvertForm] = useState({
+    contract_date: '',
+    first_due_date: '',
+    total_price: '',
+    reservation_amount: '',
+    down_payment: '',
+    delivery_payment: '',
+    installment_type: 'monthly',
+    installment_count: '',
+    installment_value: '',
+  })
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [editId, setEditId] = useState(null)
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    source: '',
+    project_id: '',
+    property_id: '',
+    sales_owner_id: '',
+    last_comments: '',
+  })
+
+  const [importOpen, setImportOpen] = useState(false)
+
+  const canEdit = true
+  const canDelete = (String(user?.role || '').toLowerCase().includes('admin') || !!user?.is_super_admin)
+
+  const load = useCallback(async (page = 1, perPageOverride) => {
+    setLoading(true)
+    try {
+      const pageSize = Number(perPageOverride || perPage || 25) || 25
+      const params = new URLSearchParams()
+      params.set('page', String(page))
+      params.set('per_page', String(pageSize))
+      if (q.trim()) params.set('q', q.trim())
+      if (projectId) params.set('project_id', String(projectId))
+      if (salesOwnerId) params.set('sales_owner_id', String(salesOwnerId))
+      if (propertyId) params.set('property_id', String(propertyId))
+      if (source) params.set('source', String(source))
+
+      const res = await api.get(`/api/cc/customers?${params.toString()}`)
+      const data = res?.data || {}
+      const serverPerPage = Number(data?.per_page || pageSize) || pageSize
+      if (serverPerPage !== pageSize) setPerPage(serverPerPage)
+      setItems(Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [])
+      setPageMeta({
+        current_page: data?.current_page || page,
+        last_page: data?.last_page || 1,
+        total: data?.total || (Array.isArray(data?.data) ? data.data.length : 0),
+      })
+    } catch {
+      setItems([])
+      setPageMeta({ current_page: 1, last_page: 1, total: 0 })
+    } finally {
+      setLoading(false)
+    }
+  }, [q, projectId, salesOwnerId, propertyId, source, perPage])
+
+  const loadDetails = useCallback(async (customerId) => {
+    try {
+      const res = await api.get(`/api/cc/customers/${encodeURIComponent(customerId)}`)
+      const payload = res?.data || {}
+      setActiveCustomer(payload?.customer || null)
+      setActiveTotals(payload?.totals || null)
+    } catch {
+      setActiveCustomer(null)
+      setActiveTotals(null)
+    }
+  }, [])
+
+  const loadFilterData = useCallback(async () => {
+    try {
+      const projectsReq = api.get('/api/projects?all=1').catch(() => api.get('/api/projects'))
+      const usersReq = api.get('/api/users?all=1').catch(() => api.get('/api/users'))
+      const propsReq = api.get('/api/properties?all=1').catch(() => api.get('/api/properties'))
+      const sourcesReq = api.get('/api/sources?all=1').catch(() => api.get('/api/sources'))
+      const [projRes, usersRes, propsRes, sourcesRes] = await Promise.all([projectsReq, usersReq, propsReq, sourcesReq])
+      const projData = Array.isArray(projRes?.data) ? projRes.data : projRes?.data?.data || []
+      const userData = Array.isArray(usersRes?.data) ? usersRes.data : usersRes?.data?.data || []
+      const propsData = Array.isArray(propsRes?.data) ? propsRes.data : propsRes?.data?.data || []
+      const sourcesData = Array.isArray(sourcesRes?.data) ? sourcesRes.data : sourcesRes?.data?.data || []
+
+      const projOptions = (Array.isArray(projData) ? projData : [])
+        .map((p) => ({ value: String(p.id), label: String(p.name || p.title || `#${p.id}`) }))
+        .filter((x) => x.value && x.label)
+      setProjects(projOptions)
+
+      const userOptions = (Array.isArray(userData) ? userData : [])
+        .map((u) => ({ value: String(u.id), label: String(u.name || u.email || `#${u.id}`) }))
+        .filter((x) => x.value && x.label)
+      setSalesOwners(userOptions)
+
+      const unitOptions = (Array.isArray(propsData) ? propsData : [])
+        .map((p) => ({
+          value: String(p.id),
+          label: String(p.unit_code || p.name || p.title || `#${p.id}`),
+          project_id: p.project_id != null ? String(p.project_id) : '',
+          status: String(p.status || p.property_status || p.state || '').trim(),
+        }))
+        .filter((x) => x.value && x.label)
+      setUnits(unitOptions)
+
+      const sourceOptions = (Array.isArray(sourcesData) ? sourcesData : [])
+        .map((s) => ({
+          value: String(s?.name || '').trim(),
+          label: String((isArabic ? (s?.name_ar || s?.name) : (s?.name || s?.name_ar)) || '').trim(),
+        }))
+        .filter((x) => x.value && x.label)
+      setSources(sourceOptions)
+    } catch {
+      setProjects([])
+      setSalesOwners([])
+      setUnits([])
+      setSources([])
+    }
+  }, [])
+
+  const loadComments = useCallback(async (customerId) => {
+    if (!customerId) return
+    try {
+      setCommentsLoading(true)
+      if (commentsAbortRef.current) {
+        try {
+          commentsAbortRef.current.abort()
+        } catch {}
+      }
+      const controller = new AbortController()
+      commentsAbortRef.current = controller
+      const res = await api.get(`/api/cc/customers/${encodeURIComponent(customerId)}/comments`, { signal: controller.signal })
+      const data = res?.data?.data || []
+      setComments(Array.isArray(data) ? data : [])
+    } catch {
+      setComments([])
+    } finally {
+      setCommentsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isRealEstate) return
+    loadFilterData()
+    load(1)
+  }, [isRealEstate, load, loadFilterData])
+
+  useEffect(() => {
+    const t = setTimeout(() => load(1), 350)
+    return () => clearTimeout(t)
+  }, [q, projectId, salesOwnerId, propertyId, source, load])
+
+  useEffect(() => {
+    if (!previewOpen || !activeCustomer?.id) return
+    if (activeTab === 'comments') loadComments(activeCustomer.id)
+  }, [previewOpen, activeCustomer?.id, activeTab, loadComments])
+
+  const loadContractAttachments = useCallback(async (contractId) => {
+    if (!contractId) return
+    try {
+      setAttachmentsLoading(true)
+      if (attachmentsAbortRef.current) {
+        try {
+          attachmentsAbortRef.current.abort()
+        } catch {}
+      }
+      const controller = new AbortController()
+      attachmentsAbortRef.current = controller
+      const res = await api.get(`/api/cc/contracts/${encodeURIComponent(contractId)}/attachments`, { signal: controller.signal })
+      setContractAttachments(Array.isArray(res?.data?.data) ? res.data.data : [])
+    } catch {
+      setContractAttachments([])
+    } finally {
+      setAttachmentsLoading(false)
+    }
+  }, [])
+
+  const getStorageUrl = (filePath) => {
+    if (!filePath) return ''
+    const rawBase = String(api?.defaults?.baseURL || '').replace(/\/+$/, '')
+    const base = rawBase.replace(/\/api\/?$/, '')
+    return `${base}/storage/${String(filePath).replace(/^\/+/, '')}`
+  }
+
+  const openAttachmentPreview = (att) => {
+    const url = getStorageUrl(att?.file_path || att?.filePath)
+    if (!url) return
+    const name = safeStr(att?.meta_data?.original_name || '') || (att?.file_path ? String(att.file_path).split('/').pop() : `#${att?.id}`)
+    const mime = safeStr(att?.meta_data?.mime || att?.mime || att?.file_type || att?.fileType || '')
+    setAttachmentPreviewUrl(url)
+    setAttachmentPreviewName(name)
+    setAttachmentPreviewMime(mime)
+    setAttachmentPreviewOpen(true)
+  }
+
+  useEffect(() => {
+    if (!previewOpen || !activeCustomer?.id) return
+    if (activeTab !== 'attachments') return
+    if (!selectedContractId) return
+    loadContractAttachments(selectedContractId)
+  }, [previewOpen, activeCustomer?.id, activeTab, selectedContractId, loadContractAttachments])
+
+  const allChecked = items.length > 0 && selectedIds.length === items.length
+  const toggleAll = () => {
+    if (allChecked) setSelectedIds([])
+    else setSelectedIds(items.map((x) => x.id))
+  }
+
+  const toggleOne = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const onPreview = async (row) => {
+    setActiveTab('details')
+    setActiveCustomer(null)
+    setActiveTotals(null)
+    setPreviewOpen(true)
+    setSelectedUnitId(null)
+    setSelectedContractId(null)
+    setContractAttachments([])
+    await loadDetails(row.id)
+  }
+
+  const resetFilters = () => {
+    setQ('')
+    setProjectId('')
+    setSalesOwnerId('')
+    setPropertyId('')
+    setSource('')
+    setShowAllFilters(false)
+  }
+
+  const filteredFilterUnits = useMemo(() => {
+    if (!projectId) return units
+    return (Array.isArray(units) ? units : []).filter((u) => String(u?.project_id || '') === String(projectId))
+  }, [units, projectId])
+
+  useEffect(() => {
+    if (!propertyId) return
+    const exists = (Array.isArray(filteredFilterUnits) ? filteredFilterUnits : []).some((u) => String(u?.value) === String(propertyId))
+    if (!exists) setPropertyId('')
+  }, [filteredFilterUnits, propertyId])
+
+  const filteredUnitOptions = useMemo(() => {
+    const pid = String(createForm.project_id || '').trim()
+    if (!pid) return []
+    return (Array.isArray(units) ? units : []).filter((u) => {
+      if (String(u?.project_id || '') !== pid) return false
+      const st = String(u?.status || '').trim().toLowerCase()
+      return st === 'available'
+    })
+  }, [units, createForm.project_id])
+
+  const getUnitLabelForRow = (row) => {
+    const meta = row?.meta_data || {}
+    const primaryUnitId = meta?.primary_customer_unit_id
+    const list = Array.isArray(row?.units) ? row.units : []
+    const unitRow = (primaryUnitId ? list.find((u) => Number(u?.id) === Number(primaryUnitId)) : null) || list[0]
+    const prop = unitRow?.property
+    return safeStr(prop?.unit_code || prop?.name || prop?.title || '')
+  }
+
+  const resolveOptionValue = (options, input) => {
+    const raw = String(input ?? '').trim()
+    if (!raw) return ''
+    const rawLower = raw.toLowerCase()
+    const list = Array.isArray(options) ? options : []
+
+    const byValue = list.find((o) => String(o?.value ?? '').trim() === raw)
+    if (byValue?.value) return String(byValue.value)
+
+    const byLabel = list.find((o) => String(o?.label ?? '').trim().toLowerCase() === rawLower)
+    if (byLabel?.value) return String(byLabel.value)
+
+    return ''
+  }
+
+  const normalizeUnitKey = (v) => String(v ?? '').trim().toLowerCase().replace(/[\s\-_]+/g, '')
+
+  const resolveUnitPropertyId = (unitInput, projectIdValue) => {
+    const raw = String(unitInput ?? '').trim()
+    if (!raw) return { propertyId: null, error: '' }
+
+    const list = Array.isArray(units) ? units : []
+    const pid = String(projectIdValue ?? '').trim()
+    const unitKey = normalizeUnitKey(raw)
+
+    const pool = pid ? list.filter((u) => String(u?.project_id || '') === pid) : list
+
+    const matchIn = (arr) => {
+      const byId = arr.find((u) => String(u?.value ?? '').trim() === raw)
+      if (byId?.value) return [byId]
+      return arr.filter((u) => normalizeUnitKey(u?.label) === unitKey)
+    }
+
+    const matches = matchIn(pool)
+    if (matches.length === 1) return { propertyId: Number(matches[0].value), error: '' }
+    if (matches.length > 1) {
+      return {
+        propertyId: null,
+        error: isArabic
+          ? `اليونيت "${raw}" موجودة أكتر من مرة. برجاء تحديد المشروع/تأكيد رقم اليونيت.`
+          : `Unit "${raw}" matches multiple units. Please specify Project / confirm the unit.`,
+      }
+    }
+
+    if (pid) {
+      return {
+        propertyId: null,
+        error: isArabic ? `لم يتم العثور على اليونيت "${raw}" داخل المشروع المحدد.` : `Unit "${raw}" was not found in the selected project.`,
+      }
+    }
+
+    const globalMatches = matchIn(list)
+    if (globalMatches.length === 1) return { propertyId: Number(globalMatches[0].value), error: '' }
+    if (globalMatches.length > 1) {
+      return {
+        propertyId: null,
+        error: isArabic ? `اليونيت "${raw}" موجودة في أكتر من مشروع. برجاء إدخال اسم المشروع.` : `Unit "${raw}" exists in multiple projects. Please provide Project.`,
+      }
+    }
+
+    return { propertyId: null, error: isArabic ? `لم يتم العثور على اليونيت "${raw}".` : `Unit "${raw}" was not found.` }
+  }
+
+  const extractApiErrorMessage = (e) => {
+    const data = e?.response?.data
+    const msg = typeof data?.message === 'string' ? data.message : ''
+    const errorsObj = data?.errors && typeof data.errors === 'object' ? data.errors : null
+
+    if (errorsObj) {
+      const firstKey = Object.keys(errorsObj)[0]
+      const firstVal = firstKey ? errorsObj[firstKey] : null
+      if (Array.isArray(firstVal) && firstVal[0]) return String(firstVal[0])
+      if (typeof firstVal === 'string' && firstVal.trim()) return firstVal.trim()
+    }
+
+    if (msg && msg !== 'The given data was invalid.') return msg
+    if (typeof e?.message === 'string' && e.message.trim()) return e.message.trim()
+    return isArabic ? 'فشل الاستيراد' : 'Import failed'
+  }
+
+  const handleImport = async (rows) => {
+    const list = Array.isArray(rows) ? rows : []
+    let added = 0
+    let failed = 0
+    const errors = []
+
+    for (const row of list) {
+      const rowNo = row?.__rowNumber ?? ''
+      const name = String(row?.name ?? '').trim()
+      const phone = String(row?.phone ?? '').trim()
+      if (!name || !phone) {
+        failed += 1
+        errors.push(isArabic ? `صف ${rowNo}: الاسم والهاتف مطلوبين` : `Row ${rowNo}: name and phone are required`)
+        continue
+      }
+
+      const project_id = resolveOptionValue(projects, row?.project)
+      const sales_owner_id = resolveOptionValue(salesOwners, row?.sales_person)
+      const unitInput = String(row?.unit ?? '').trim()
+
+      let property_id = null
+      if (unitInput) {
+        const resolved = resolveUnitPropertyId(unitInput, project_id)
+        if (resolved?.error) {
+          failed += 1
+          errors.push(isArabic ? `صف ${rowNo}: ${resolved.error}` : `Row ${rowNo}: ${resolved.error}`)
+          continue
+        }
+        property_id = resolved?.propertyId ?? null
+      }
+
+      const payload = {
+        name,
+        phone,
+        email: String(row?.email ?? '').trim(),
+        source: String(row?.source ?? '').trim(),
+        project_id: project_id ? Number(project_id) : null,
+        property_id: property_id != null ? Number(property_id) : null,
+        sales_owner_id: sales_owner_id ? Number(sales_owner_id) : null,
+        last_comments: String(row?.last_comments ?? '').trim(),
+      }
+
+      try {
+        await api.post('/api/cc/customers', payload)
+        added += 1
+      } catch (e) {
+        failed += 1
+        const msg = extractApiErrorMessage(e)
+        errors.push(isArabic ? `صف ${rowNo}: ${msg}` : `Row ${rowNo}: ${msg}`)
+      }
+    }
+
+    await load(1)
+    return { added, failed, errors }
+  }
+
+  const openCreate = () => {
+    setEditId(null)
+    setCreateForm({
+      name: '',
+      phone: '',
+      email: '',
+      source: '',
+      project_id: projectId || '',
+      property_id: '',
+      sales_owner_id: salesOwnerId || '',
+      last_comments: '',
+    })
+    setCreateOpen(true)
+  }
+
+  const openEdit = (row) => {
+    if (!row?.id) return
+    const meta = row?.meta_data || {}
+    const primaryUnitId = meta?.primary_customer_unit_id
+    const unitRow =
+      (primaryUnitId && Array.isArray(row?.units) ? row.units.find((u) => Number(u?.id) === Number(primaryUnitId)) : null) ||
+      (Array.isArray(row?.units) ? row.units[0] : null)
+
+    setEditId(row.id)
+    setCreateForm({
+      name: safeStr(row?.name),
+      phone: safeStr(row?.phone),
+      email: safeStr(row?.email),
+      source: safeStr(row?.source),
+      project_id: safeStr(row?.project_id),
+      property_id: safeStr(unitRow?.property_id || unitRow?.property?.id),
+      sales_owner_id: safeStr(row?.sales_owner_id),
+      last_comments: safeStr(row?.last_comments),
+    })
+    setCreateOpen(true)
+  }
+
+  const setCreateField = (key, value) => {
+    setCreateForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const submitCreate = async () => {
+    const payload = {
+      ...createForm,
+      project_id: createForm.project_id ? Number(createForm.project_id) : null,
+      property_id: createForm.property_id ? Number(createForm.property_id) : null,
+      sales_owner_id: createForm.sales_owner_id ? Number(createForm.sales_owner_id) : null,
+    }
+    if (!String(payload.name || '').trim()) return
+    setCreateLoading(true)
+    try {
+      if (editId) {
+        await api.put(`/api/cc/customers/${encodeURIComponent(editId)}`, payload)
+      } else {
+        await api.post('/api/cc/customers', payload)
+      }
+      setCreateOpen(false)
+      await load(1)
+    } catch {
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
+  const onDelete = async (row) => {
+    if (!canDelete) return
+    const ok = window.confirm(isArabic ? 'تأكيد حذف العميل؟' : 'Delete this customer?')
+    if (!ok) return
+    try {
+      await api.delete(`/api/cc/customers/${encodeURIComponent(row.id)}`)
+      if (activeCustomer?.id === row.id) setActiveCustomer(null)
+      await load(pageMeta.current_page || 1)
+    } catch {}
+  }
+
+  const submitComment = async () => {
+    const customerId = activeCustomer?.id
+    const text = commentText.trim()
+    if (!customerId || !text) return
+    try {
+      await api.post(`/api/cc/customers/${encodeURIComponent(customerId)}/comments`, { comment: text })
+      setCommentText('')
+      await loadComments(customerId)
+    } catch {}
+  }
+
+  const downloadJson = (fileName, data) => {
+    try {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {}
+  }
+
+  const buildWindowSnapshot = () => {
+    const prop = selectedUnitProp
+    const plan = selectedPlan
+    const planMeta = plan?.meta_data || {}
+    const activeTabLabelMap = {
+      details: isArabic ? 'تفاصيل' : 'Details',
+      comments: isArabic ? 'تعليقات' : 'Comments',
+      attachments: isArabic ? 'مرفقات' : 'Attachments',
+      audit: isArabic ? 'سجل التعديلات' : 'Audit Log',
+    }
+
+    const unitsList = Array.isArray(activeCustomer?.units) ? activeCustomer.units : []
+    const contractedUnits = unitsList.filter((u) => {
+      const st = String(u?.status || '').trim().toLowerCase()
+      return st === 'contracted' || st === 'sold'
+    })
+
+    const snapshotCustomer =
+      activeTab === 'details'
+        ? { ...(activeCustomer || {}), units: contractedUnits }
+        : (activeCustomer || {})
+
+    const base = {
+      customer_id: activeCustomer?.id ?? null,
+      customer_name: safeStr(activeCustomer?.name),
+      customer_phone: safeStr(activeCustomer?.phone),
+      project: safeStr(activeCustomer?.project?.name || activeCustomer?.project_id),
+      customer: snapshotCustomer,
+      selected_unit_id: selectedUnitId || null,
+      selected_unit_code: titleFromProperty(prop),
+      selected_unit_price: safeStr(prop?.price),
+      selected_plan: plan
+        ? {
+            id: plan.id ?? null,
+            reservation_amount: plan.reservation_amount ?? null,
+            down_payment: plan.down_payment ?? null,
+            delivery_payment: plan.delivery_payment ?? null,
+            installment_type: normalizeInstallmentType(plan.installment_type),
+            installment_count: plan.installment_count ?? null,
+            installment_value: plan.installment_value ?? null,
+            years: planMeta?.years ?? null,
+          }
+        : null,
+      totals: activeTotals,
+      active_tab: activeTab,
+      active_tab_label: activeTabLabelMap[activeTab] || activeTab,
+      exported_at: new Date().toISOString(),
+    }
+
+    if (activeTab === 'comments') {
+      return { ...base, comments }
+    }
+    if (activeTab === 'attachments') {
+      return { ...base, attachments: contractAttachments }
+    }
+    if (activeTab === 'audit') {
+      return {
+        ...base,
+        audit_filters: { query: auditQ, type: auditType, user: auditUser, from: auditFrom, to: auditTo },
+        audit_items: auditRows,
+      }
+    }
+    return { ...base }
+  }
+
+  const exportCustomerSnapshot = () => {
+    // Export as PDF (Customer + selected unit + payment plan)
+    if (!activeCustomer?.id) return
+
+    const prop = selectedUnitProp
+    const plan = selectedPlan
+    const planMeta = plan?.meta_data || {}
+
+    if (!prop || !plan) {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'رجاءً اختر وحدة وخطة دفع أولاً' : 'Please select a unit and payment plan first' } }))
+      return
+    }
+
+    ;(async () => {
+      try {
+        const jsPDF = (await import('jspdf')).default
+        const autoTable = await import('jspdf-autotable')
+
+        const doc = new jsPDF('p', 'pt', 'a4')
+
+        const unitTitle = titleFromProperty(prop) || safeStr(prop?.unit_code || prop?.name || prop?.title)
+        const fileSafeUnit = String(unitTitle || 'unit').replace(/[^\w\-]+/g, '_')
+        const fileName = `customer_${activeCustomer.id}_${fileSafeUnit}.pdf`
+
+        // Title (keep English due to Arabic font support limitations in default jsPDF)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(14)
+        doc.text('Customer Summary', 40, 40)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(10)
+        doc.text(`${safeStr(activeCustomer?.name)}`, 40, 60)
+
+        const detailsRows = [
+          ['Customer ID', safeStr(activeCustomer?.code || activeCustomer?.customer_code || activeCustomer?.id)],
+          ['Phone', safeStr(activeCustomer?.phone)],
+          ['Email', safeStr(activeCustomer?.email)],
+          ['Project', safeStr(activeCustomer?.project?.name || activeCustomer?.project_id)],
+          ['Unit', safeStr(unitTitle)],
+          ['Unit Price', formatMoney(prop?.price ?? prop?.total_price ?? prop?.totalPrice)],
+        ].filter((r) => String(r[1] ?? '').trim() !== '')
+
+        autoTable.default(doc, {
+          startY: 80,
+          head: [['Customer Info', '']],
+          body: detailsRows,
+          styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+          columnStyles: { 0: { cellWidth: 140 }, 1: { cellWidth: 360 } },
+          theme: 'grid',
+        })
+
+        const planRows = [
+          ['Reservation Amount', formatMoney(plan?.reservation_amount)],
+          ['Down Payment', formatMoney(plan?.down_payment)],
+          ['Delivery Payment', formatMoney(plan?.delivery_payment)],
+          ['Installment Type', safeStr(normalizeInstallmentType(plan?.installment_type))],
+          ['Installment Count', safeStr(plan?.installment_count)],
+          ['Installment Value', formatMoney(plan?.installment_value)],
+          ['Years', safeStr(planMeta?.years ?? '')],
+          ['Maintenance', planMeta?.maintenance != null ? formatMoney(planMeta.maintenance) : safeStr(planMeta?.maintenance ?? '')],
+          ['Additional Payments', planMeta?.additional_payments != null ? formatMoney(planMeta.additional_payments) : safeStr(planMeta?.additional_payments ?? '')],
+        ].filter((r) => String(r[1] ?? '').trim() !== '')
+
+        autoTable.default(doc, {
+          startY: (doc.lastAutoTable?.finalY || 80) + 16,
+          head: [['Payment Plan', '']],
+          body: planRows,
+          styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 },
+          headStyles: { fillColor: [39, 174, 96], textColor: 255 },
+          columnStyles: { 0: { cellWidth: 140 }, 1: { cellWidth: 360 } },
+          theme: 'grid',
+        })
+
+        doc.save(fileName)
+      } catch (e) {
+        console.error('Export customer PDF failed:', e)
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'تعذر تصدير ملف PDF' : 'Failed to export PDF' } }))
+      }
+    })()
+  }
+
+  const printCustomerSummary = () => {
+    if (!activeCustomer?.id) return
+    const prop = selectedUnitProp
+    const plan = selectedPlan
+    const planMeta = plan?.meta_data || {}
+
+    if (!prop || !plan) {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'رجاءً اختر وحدة وخطة دفع أولاً' : 'Please select a unit and payment plan first' } }))
+      return
+    }
+
+    const blocks = [
+      {
+        title: isArabic ? 'التفاصيل' : 'Details',
+        rows: [
+          { label: isArabic ? 'اسم العميل' : 'Client Name', value: safeStr(activeCustomer.name) },
+          { label: isArabic ? 'الموبايل' : 'Phone', value: safeStr(activeCustomer.phone) },
+          { label: isArabic ? 'المشروع' : 'Project', value: safeStr(activeCustomer.project?.name || activeCustomer.project_id) },
+          { label: isArabic ? 'الوحدة' : 'Unit', value: titleFromProperty(prop) },
+          { label: isArabic ? 'تاريخ الصفقة' : 'Deal Date', value: formatDateTime(activeCustomer.contracts?.[0]?.contract_date) },
+        ],
+      },
+      {
+        title: isArabic ? 'خطة الدفع' : 'Payment Plan',
+        rows: [
+          { label: isArabic ? 'الحجز' : 'Reservation Amount', value: formatMoney(plan?.reservation_amount) },
+          { label: isArabic ? 'المقدم' : 'Down Payment', value: formatMoney(plan?.down_payment) },
+          { label: isArabic ? 'التسليم' : 'Delivery Payment', value: formatMoney(plan?.delivery_payment) },
+          { label: isArabic ? 'نوع القسط' : 'Installment Type', value: safeStr(normalizeInstallmentType(plan?.installment_type)) },
+          { label: isArabic ? 'عدد الأقساط' : 'Installment Count', value: safeStr(plan?.installment_count) },
+          { label: isArabic ? 'قيمة القسط' : 'Installment Value', value: formatMoney(plan?.installment_value) },
+          { label: isArabic ? 'سنوات' : 'Years', value: safeStr(planMeta?.years ?? '') },
+          { label: isArabic ? 'مصاريف صيانة' : 'Maintenance', value: planMeta?.maintenance != null ? formatMoney(planMeta.maintenance) : safeStr(planMeta?.maintenance ?? '') },
+          { label: isArabic ? 'مدفوعات إضافية' : 'Additional Payments', value: planMeta?.additional_payments != null ? formatMoney(planMeta.additional_payments) : safeStr(planMeta?.additional_payments ?? '') },
+        ].filter((r) => String(r.value ?? '').trim() !== ''),
+      },
+    ]
+
+    openPrintWindow({
+      title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+      blocks,
+      dir: isRTL ? 'rtl' : 'ltr',
+    })
+  }
+
+  const printCustomerView = () => {
+    if (!activeCustomer?.id) return
+
+    // Always print customer summary using the currently selected unit + its payment plan.
+    const prop = selectedUnitProp
+    const plan = selectedPlan
+    const planMeta = plan?.meta_data || {}
+
+    if (!prop || !plan) {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: isArabic ? 'رجاءً اختر وحدة وخطة دفع أولاً' : 'Please select a unit and payment plan first' } }))
+      return
+    }
+
+    const blocks = [
+      {
+        title: isArabic ? 'تفاصيل' : 'Details',
+        rows: [
+          { label: isArabic ? 'اسم العميل' : 'Client Name', value: safeStr(activeCustomer.name) },
+          { label: isArabic ? 'الموبايل' : 'Phone', value: safeStr(activeCustomer.phone) },
+          { label: isArabic ? 'المشروع' : 'Project', value: safeStr(activeCustomer.project?.name || activeCustomer.project_id) },
+          { label: isArabic ? 'الوحدة' : 'Unit', value: titleFromProperty(prop) },
+          { label: isArabic ? 'تاريخ الصفقة' : 'Deal Date', value: formatDateTime(activeCustomer.contracts?.[0]?.contract_date) },
+        ],
+      },
+      {
+        title: isArabic ? 'خطة الدفع' : 'Payment Plan',
+        rows: [
+          { label: isArabic ? 'الحجز' : 'Reservation Amount', value: formatMoney(plan?.reservation_amount) },
+          { label: isArabic ? 'المقدم' : 'Down Payment', value: formatMoney(plan?.down_payment) },
+          { label: isArabic ? 'التسليم' : 'Delivery Payment', value: formatMoney(plan?.delivery_payment) },
+          { label: isArabic ? 'نوع القسط' : 'Installment Type', value: safeStr(normalizeInstallmentType(plan?.installment_type)) },
+          { label: isArabic ? 'عدد الأقساط' : 'Installment Count', value: safeStr(plan?.installment_count) },
+          { label: isArabic ? 'قيمة القسط' : 'Installment Value', value: formatMoney(plan?.installment_value) },
+          { label: isArabic ? 'سنوات' : 'Years', value: safeStr(planMeta?.years ?? '') },
+          { label: isArabic ? 'مصروفات صيانة' : 'Maintenance', value: planMeta?.maintenance != null ? formatMoney(planMeta.maintenance) : safeStr(planMeta?.maintenance ?? '') },
+          { label: isArabic ? 'مدفوعات إضافية' : 'Additional Payments', value: planMeta?.additional_payments != null ? formatMoney(planMeta.additional_payments) : safeStr(planMeta?.additional_payments ?? '') },
+        ].filter((r) => String(r.value ?? '').trim() !== ''),
+      },
+    ]
+
+    if (activeTab === 'comments') {
+      const commentRows = (comments || []).map((c, idx) => ({
+        label: `#${idx + 1}`,
+        value: `${safeStr(c?.comment || c?.text || c?.body)}${c?.created_at || c?.createdAt ? ` — ${formatDateTime(c?.created_at || c?.createdAt)}` : ''}`,
+      }))
+      openPrintWindow({
+        title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+        blocks: [
+          { title: isArabic ? 'تعليقات' : 'Comments', rows: commentRows.length ? commentRows : [{ label: '-', value: isArabic ? 'لا توجد تعليقات' : 'No comments' }] },
+        ],
+        dir: isRTL ? 'rtl' : 'ltr',
+      })
+      return
+    }
+
+    if (activeTab === 'attachments') {
+      const attachmentRows = (contractAttachments || []).map((att, idx) => ({
+        label: `#${idx + 1}`,
+        value: `${safeStr(att?.original_name || att?.name || att?.file_name || att?.file)}${att?.created_at ? ` — ${formatDateTime(att.created_at)}` : ''}`,
+      }))
+      openPrintWindow({
+        title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+        blocks: [
+          { title: isArabic ? 'المرفقات' : 'Attachments', rows: attachmentRows.length ? attachmentRows : [{ label: '-', value: isArabic ? 'لا توجد مرفقات' : 'No attachments' }] },
+        ],
+        dir: isRTL ? 'rtl' : 'ltr',
+      })
+      return
+    }
+
+    if (activeTab === 'audit') {
+      const auditPrintRows = (auditRows || []).map((row, idx) => ({
+        label: `#${idx + 1}`,
+        value: `${safeStr(row?.label)}${row?.at ? ` — ${formatDateTime(row.at)}` : ''}${row?.userName ? ` — ${safeStr(row.userName)}` : ''}`,
+      }))
+      openPrintWindow({
+        title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+        blocks: [
+          { title: isArabic ? 'سجل التعديلات' : 'Audit Log', rows: auditPrintRows.length ? auditPrintRows : [{ label: '-', value: isArabic ? 'لا توجد سجلات' : 'No audit entries' }] },
+        ],
+        dir: isRTL ? 'rtl' : 'ltr',
+      })
+      return
+    }
+
+    openPrintWindow({
+      title: `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}`,
+      blocks,
+      dir: isRTL ? 'rtl' : 'ltr',
+    })
+  }
+
+  const openConvert = () => {
+    if (!activeCustomer?.id) return
+    if (!selectedUnit?.id || !selectedPropertyId) return
+    if (!selectedPlan) {
+      alert(isArabic ? 'لا يمكن التحويل بدون خطة دفع نشطة' : 'Cannot convert without an active payment plan')
+      return
+    }
+    const today = new Date().toISOString().slice(0, 10)
+    setConvertForm({
+      contract_date: today,
+      first_due_date: today,
+      total_price: '',
+      reservation_amount: selectedPlan?.reservation_amount ?? '',
+      down_payment: selectedPlan?.down_payment ?? '',
+      delivery_payment: selectedPlan?.delivery_payment ?? '',
+      installment_type: selectedPlan?.installment_type ?? 'monthly',
+      installment_count: selectedPlan?.installment_count ?? '',
+      installment_value: selectedPlan?.installment_value ?? '',
+    })
+    setConvertOpen(true)
+  }
+
+  const submitConvert = async () => {
+    if (!activeCustomer?.id) return
+    if (!selectedPropertyId) return
+    if (!selectedPlan) return
+    if (!selectedUnitId) return
+
+    const raw = String(convertForm.total_price || '').replace(/,/g, '').trim()
+    const total_price = raw ? Number(raw) : undefined
+
+    const planPayload = {
+      reservation_amount: Number(convertForm.reservation_amount !== '' ? convertForm.reservation_amount : (selectedPlan?.reservation_amount ?? 0)) || 0,
+      down_payment: Number(convertForm.down_payment !== '' ? convertForm.down_payment : (selectedPlan?.down_payment ?? 0)) || 0,
+      delivery_payment: Number(convertForm.delivery_payment !== '' ? convertForm.delivery_payment : (selectedPlan?.delivery_payment ?? 0)) || 0,
+      installment_type: String(convertForm.installment_type || selectedPlan?.installment_type || 'monthly'),
+      installment_count: Number(convertForm.installment_count !== '' ? convertForm.installment_count : (selectedPlan?.installment_count ?? 0)) || 0,
+      installment_value: Number(convertForm.installment_value !== '' ? convertForm.installment_value : (selectedPlan?.installment_value ?? 0)) || 0,
+    }
+
+    const payload = {
+      customer_id: Number(activeCustomer.id),
+      property_id: Number(selectedPropertyId),
+      contract_date: String(convertForm.contract_date || '').trim() || undefined,
+      first_due_date: String(convertForm.first_due_date || '').trim() || undefined,
+      total_price: Number.isFinite(total_price) ? total_price : undefined,
+    }
+
+    setConvertLoading(true)
+    try {
+      await api.post(`/api/cc/customer-units/${encodeURIComponent(selectedUnitId)}/payment-plan`, planPayload)
+      await api.post('/api/cc/contracts', payload)
+      setConvertOpen(false)
+      await loadDetails(activeCustomer.id)
+      setActiveTab('details')
+    } catch (e) {
+      const msg = e?.response?.data?.message || (isArabic ? 'فشل التحويل' : 'Convert failed')
+      alert(msg)
+    } finally {
+      setConvertLoading(false)
+    }
+  }
+
+  const activeUnits = useMemo(() => {
+    const list = activeCustomer?.units
+    return Array.isArray(list) ? list : []
+  }, [activeCustomer])
+
+  const primaryUnitId = useMemo(() => {
+    const meta = activeCustomer?.meta_data
+    const id = meta?.primary_customer_unit_id
+    const n = Number(id)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }, [activeCustomer?.meta_data])
+
+  useEffect(() => {
+    if (!previewOpen) return
+    if (!activeCustomer?.id) return
+    const list = Array.isArray(activeCustomer?.units) ? activeCustomer.units : []
+    const fallbackId = list[0]?.id ? Number(list[0].id) : null
+    const nextUnitId = Number(selectedUnitId) > 0 ? Number(selectedUnitId) : (primaryUnitId || fallbackId || null)
+    if (nextUnitId && nextUnitId !== selectedUnitId) setSelectedUnitId(nextUnitId)
+
+    const contracts = Array.isArray(activeCustomer?.contracts) ? activeCustomer.contracts : []
+    const nextContractId = contracts[0]?.id ? Number(contracts[0].id) : null
+    if (!selectedContractId && nextContractId) setSelectedContractId(nextContractId)
+  }, [previewOpen, activeCustomer?.id, activeCustomer?.units, activeCustomer?.contracts, primaryUnitId, selectedUnitId, selectedContractId])
+
+  const selectedUnit = useMemo(() => {
+    const id = Number(selectedUnitId)
+    if (!Number.isFinite(id) || id <= 0) return null
+    return activeUnits.find((u) => Number(u?.id) === id) || null
+  }, [activeUnits, selectedUnitId])
+
+  const selectedUnitProp = selectedUnit?.property || null
+  const selectedPropertyId = useMemo(() => {
+    const raw = selectedUnitProp?.id ?? selectedUnit?.property_id ?? selectedUnit?.propertyId ?? selectedUnit?.property?.id ?? null
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }, [selectedUnitProp?.id, selectedUnit?.property_id, selectedUnit?.propertyId, selectedUnit?.property])
+  const selectedPlan = useMemo(() => {
+    if (!selectedUnit) return null
+    const ccPlan = selectedUnit?.active_payment_plan || selectedUnit?.activePaymentPlan || null
+    if (ccPlan) return ccPlan
+    return deriveCcPlanFromProperty(selectedUnit?.property || null)
+  }, [selectedUnit])
+
+  const loadAudit = useCallback(async (unitId) => {
+    if (!unitId) {
+      setAuditItems([])
+      return
+    }
+    setAuditLoading(true)
+    try {
+      if (auditAbortRef.current) {
+        try { auditAbortRef.current.abort() } catch {}
+      }
+      const controller = new AbortController()
+      auditAbortRef.current = controller
+
+      const params = new URLSearchParams()
+      params.set('per_page', '100')
+
+      const res = await api.get(`/api/cc/audit/customer-units/${encodeURIComponent(unitId)}?${params.toString()}`, { signal: controller.signal })
+      setAuditItems(Array.isArray(res?.data?.data) ? res.data.data : [])
+    } catch {
+      setAuditItems([])
+    } finally {
+      setAuditLoading(false)
+    }
+  }, [])
+
+  const auditUsers = useMemo(() => {
+    const set = new Map()
+    for (const a of auditItems) {
+      const id = a?.causer?.id ?? 'system'
+      const name = safeStr(a?.causer?.name || 'System')
+      if (!set.has(String(id))) set.set(String(id), name)
+    }
+    return Array.from(set.entries()).map(([id, name]) => ({ id, name }))
+  }, [auditItems])
+
+  const auditRows = useMemo(() => {
+    const fromDate = auditFrom ? new Date(`${auditFrom}T00:00:00`) : null
+    const toDate = auditTo ? new Date(`${auditTo}T23:59:59`) : null
+
+    const q = safeStr(auditQ).trim().toLowerCase()
+
+    return auditItems
+      .map((a) => {
+        const rawProps = a?.properties || {}
+        const props = cleanAuditValue(rawProps)
+        const actionKey = safeStr(props?.action || a?.description || a?.log_name || '')
+        const logName = safeStr(a?.log_name || '')
+        const type = auditTypeFromAction({ actionKey, logName })
+        const severity = auditSeverityFromAction({ actionKey, logName })
+        const label = auditActionLabel({ actionKey, logName, isArabic })
+        const lines = formatAuditLines({ props, actionKey, logName, isArabic })
+        const createdAt = safeStr(a?.created_at)
+        const createdDate = createdAt ? new Date(createdAt.replace(' ', 'T')) : null
+
+        return {
+          id: a?.id,
+          created_at: createdAt,
+          createdDate,
+          causerName: safeStr(a?.causer?.name || 'System'),
+          causerId: a?.causer?.id ?? 'system',
+          logName,
+          actionKey,
+          type,
+          severity,
+          label,
+          lines,
+          rawProps: props,
+        }
+      })
+      .filter((row) => {
+        if (auditType !== 'all' && row.type !== auditType) return false
+        if (auditUser !== 'all' && String(row.causerId) !== String(auditUser)) return false
+        if (fromDate && row.createdDate && row.createdDate < fromDate) return false
+        if (toDate && row.createdDate && row.createdDate > toDate) return false
+
+        if (q) {
+          const hay = [
+            row.created_at,
+            row.causerName,
+            row.label,
+            row.actionKey,
+            row.logName,
+            row.lines.join(' '),
+          ].join(' ').toLowerCase()
+          if (!hay.includes(q)) return false
+        }
+
+        return true
+      })
+  }, [auditItems, auditFrom, auditTo, auditQ, auditType, auditUser, isArabic])
+
+  useEffect(() => {
+    if (!previewOpen) return
+    if (activeTab !== 'audit') return
+    if (!selectedUnitId) return
+    const t = setTimeout(() => loadAudit(selectedUnitId), 250)
+    return () => clearTimeout(t)
+  }, [previewOpen, activeTab, selectedUnitId, loadAudit])
+
+  useEffect(() => {
+    setAuditExpandedId(null)
+  }, [activeTab, selectedUnitId])
+
+  if (!isRealEstate) {
+    return (
+      <div className="p-6">
+        <div className="glass-panel rounded-2xl p-6">
+          <h2 className={`text-lg font-semibold ${textColorClass}`}>{isArabic ? 'غير متاح' : 'Not available'}</h2>
+          <p className={`text-sm mt-2 ${mutedTextClass}`}>
+            {isArabic ? 'هذا الموديول متاح فقط لشركات Real Estate.' : 'This module is available only for Real Estate tenants.'}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`p-4 md:p-6 space-y-6 ${textColorClass}`} dir={isRTL ? 'rtl' : 'ltr'}>
+      {/* Header (System UX) */}
+      <div className="rounded-xl p-4 md:p-6 relative">
+        <div className="flex flex-wrap lg:flex-row lg:items-center justify-between gap-4">
+          <div className="w-full lg:w-auto flex items-center justify-between lg:justify-start gap-3">
+            <div className="relative flex flex-col items-start gap-1">
+              <h1 className={`text-xl md:text-2xl font-bold text-start ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2`}>
+                {title}
+                <span className={`text-sm font-normal ${isLight ? 'text-black' : 'text-white'} bg-[var(--muted-bg)] px-2 py-1 rounded-full flex items-center justify-center`}>
+                  {loading ? (isArabic ? '...' : '...') : pageMeta.total || 0}
+                </span>
+              </h1>
+              <span aria-hidden="true" className="inline-block h-[2px] w-full rounded bg-gradient-to-r from-blue-500 to-purple-600" />
+            </div>
+          </div>
+
+          <div className="w-full lg:w-auto flex flex-wrap lg:flex-row items-stretch lg:items-center gap-2 lg:gap-3">
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 !text-white border-none flex items-center justify-center gap-2"
+            >
+              <FaFileImport />
+              {isArabic ? 'استيراد' : 'Import'}
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreate}
+              className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-green-700 !text-white border-none flex items-center justify-center gap-2"
+            >
+              <FaPlus />
+              {isArabic ? 'إضافة عميل' : 'Add Customer'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter (System UX) */}
+      <div className="glass-panel p-4 rounded-xl">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className={`text-sm font-semibold flex items-center gap-2 ${textColorClass}`}>
+            <Filter className="text-blue-500" size={16} /> {isArabic ? 'تصفية' : 'Filter'}
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAllFilters(!showAllFilters)}
+              className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-100 bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <span>{isArabic ? 'عرض الكل' : 'Show All'}</span>
+              {showAllFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className={`px-3 py-1.5 text-sm ${textColorClass} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
+            >
+              {isArabic ? 'إعادة تعيين' : 'Reset'}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass} flex items-center gap-1`}>
+              <Search className="text-blue-500" size={12} /> {isArabic ? 'بحث' : 'Search'}
+            </label>
+            <div className="relative">
+              <Search className={`w-4 h-4 absolute top-1/2 -translate-y-1/2 ${isRTL ? 'right-3' : 'left-3'} text-gray-400`} />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={isArabic ? 'بحث بالاسم / الموبايل / الإيميل' : 'Search by name / phone / email'}
+                className={`input w-full bg-[var(--content-bg)] ${isRTL ? 'pr-10' : 'pl-10'}`}
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => setQ('')}
+                  className={`absolute top-1/2 -translate-y-1/2 ${isRTL ? 'left-2' : 'right-2'} p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5`}
+                  title={isArabic ? 'مسح' : 'Clear'}
+                >
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المشروع' : 'Project'}</label>
+            <SearchableSelect
+              options={projects}
+              value={projectId}
+              onChange={(v) => setProjectId(v)}
+              placeholder={isArabic ? 'اختر المشروع' : 'Select Project'}
+              className="w-full"
+              isRTL={isArabic}
+              multiple={false}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</label>
+            <SearchableSelect
+              options={salesOwners}
+              value={salesOwnerId}
+              onChange={(v) => setSalesOwnerId(v)}
+              placeholder={isArabic ? 'اختر الموظف' : 'Select User'}
+              className="w-full"
+              isRTL={isArabic}
+              multiple={false}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الوحدة' : 'Unit'}</label>
+            <SearchableSelect
+              options={filteredFilterUnits}
+              value={propertyId}
+              onChange={(v) => setPropertyId(String(v || ''))}
+              placeholder={isArabic ? 'اختر الوحدة' : 'Select Unit'}
+              className="w-full"
+              isRTL={isArabic}
+              multiple={false}
+              showAllOption={true}
+            />
+          </div>
+        </div>
+
+        {showAllFilters && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المصدر' : 'Source'}</label>
+              <SearchableSelect
+                options={sources}
+                value={source}
+                onChange={(v) => setSource(String(v || ''))}
+                placeholder={isArabic ? 'اختر المصدر' : 'Select Source'}
+                className="w-full"
+                isRTL={isArabic}
+                multiple={false}
+                showAllOption={true}
+              />
+            </div>
+
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'لكل صفحة' : 'Per page'}</label>
+              <select
+                className="input w-full bg-[var(--content-bg)]"
+                value={perPage}
+                onChange={(e) => {
+                  const next = Number(e.target.value)
+                  setPerPage(next)
+                  load(1, next)
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        {/* List */}
+        <div className="glass-panel rounded-2xl overflow-hidden">
+          {/* Mobile cards */}
+          <div className="sm:hidden p-4 space-y-3">
+            {items.length === 0 && !loading ? (
+              <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا يوجد بيانات' : 'No data'}</div>
+            ) : (
+              items.map((row) => {
+                const selected = selectedIds.includes(row.id)
+                const projectName = row?.project?.name || row?.project_name || safeStr(row.project_id || '')
+                const salesOwnerName = row?.sales_owner?.name || row?.salesOwner?.name || row?.sales_owner_name || safeStr(row.sales_owner_id || '')
+                return (
+                  <div key={row.id} className="rounded-2xl border border-gray-200 dark:border-gray-800 p-4 bg-[var(--content-bg)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className={`text-xs ${mutedTextClass}`}>{formatCustomerId(row.id)}</div>
+                        <div className="text-base font-semibold truncate">{safeStr(row.name)}</div>
+                        <div className={`text-sm ${mutedTextClass}`} dir="ltr">{safeStr(row.phone)}</div>
+                      </div>
+                      <input type="checkbox" checked={selected} onChange={() => toggleOne(row.id)} />
+                    </div>
+
+                    <div className={`mt-3 grid grid-cols-2 gap-2 text-xs ${mutedTextClass}`}>
+                      <div className="truncate">{isArabic ? 'المصدر' : 'Source'}: {safeStr(row.source)}</div>
+                      <div className="truncate">{isArabic ? 'المشروع' : 'Project'}: {safeStr(projectName)}</div>
+                      <div className="truncate">{isArabic ? 'رقم الوحدة' : 'Unit'}: {getUnitLabelForRow(row) || '-'}</div>
+                      <div className="truncate">{isArabic ? 'المبيعات' : 'Sales'}: {safeStr(salesOwnerName)}</div>
+                      <div className="truncate">{isArabic ? 'آخر تعليق' : 'Last'}: {safeStr(row.last_comments)}</div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <button type="button" onClick={() => onPreview(row)} className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5" title={isArabic ? 'عرض' : 'Preview'}>
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button type="button" disabled={!canEdit} className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50" title={isArabic ? 'تعديل' : 'Edit'}>
+                        <Pencil className="w-4 h-4" onClick={() => openEdit(row)} />
+                      </button>
+                      <button type="button" onClick={() => onDelete(row)} disabled={!canDelete} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 disabled:opacity-50" title={isArabic ? 'حذف' : 'Delete'}>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-auto">
+            <table className="min-w-[980px] w-full text-sm">
+              <thead className="sticky top-0 bg-[var(--content-bg)] border-b border-gray-200 dark:border-gray-800">
+                <tr className={`text-xs uppercase tracking-wide ${mutedTextClass}`}>
+                  <th className="p-3 text-left w-10">
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+                  </th>
+                  <th className="p-3 text-left">{isArabic ? 'كود العميل' : 'Customer ID'}</th>
+                  <th className="p-3 text-left">{isArabic ? 'اسم العميل' : 'Customer Name'}</th>
+                  <th className="p-3 text-left">{isArabic ? 'الموبايل' : 'Phone'}</th>
+                  <th className="p-3 text-left">{isArabic ? 'المصدر' : 'Source'}</th>
+                  <th className="p-3 text-left">{isArabic ? 'المشروع' : 'Project'}</th>
+                  <th className="p-3 text-left">{isArabic ? 'رقم الوحدة' : 'Unit'}</th>
+                  <th className="p-3 text-left">{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</th>
+                  <th className="p-3 text-left">{isArabic ? 'آخر تعليق' : 'Last Comment'}</th>
+                  <th className="p-3 text-right w-32">{isArabic ? 'إجراءات' : 'Actions'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {items.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={10} className={`p-6 text-center ${mutedTextClass}`}>
+                      {isArabic ? 'لا يوجد بيانات' : 'No data'}
+                    </td>
+                  </tr>
+                )}
+                {items.map((row) => {
+                  const selected = selectedIds.includes(row.id)
+                  const projectName = row?.project?.name || row?.project_name || safeStr(row.project_id || '')
+                  const salesOwnerName = row?.sales_owner?.name || row?.salesOwner?.name || row?.sales_owner_name || safeStr(row.sales_owner_id || '')
+                  return (
+                    <tr
+                      key={row.id}
+                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      onClick={() => onPreview(row)}
+                    >
+                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected} onChange={() => toggleOne(row.id)} />
+                      </td>
+                      <td className="p-3 font-medium">{formatCustomerId(row.id)}</td>
+                      <td className="p-3">{safeStr(row.name)}</td>
+                      <td className="p-3" dir="ltr">{safeStr(row.phone)}</td>
+                      <td className="p-3">{safeStr(row.source)}</td>
+                      <td className="p-3">{safeStr(projectName)}</td>
+                      <td className="p-3">{getUnitLabelForRow(row) || '-'}</td>
+                      <td className="p-3">{safeStr(salesOwnerName)}</td>
+                      <td className="p-3 max-w-[220px] truncate">{safeStr(row.last_comments)}</td>
+                      <td className="p-3">
+                        <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => onPreview(row)}
+                            className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+                            title={isArabic ? 'عرض' : 'Preview'}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
+                            title={isArabic ? 'تعديل' : 'Edit'}
+                          >
+                            <Pencil className="w-4 h-4" onClick={() => openEdit(row)} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDelete(row)}
+                            disabled={!canDelete}
+                            className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 disabled:opacity-50"
+                            title={isArabic ? 'حذف' : 'Delete'}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination (legacy) */}
+          <div className="hidden">
+            <div className={`text-xs ${mutedTextClass}`}>
+              {isArabic ? 'الصفحة' : 'Page'} {pageMeta.current_page} / {pageMeta.last_page}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => load(Math.max(1, (pageMeta.current_page || 1) - 1))}
+                disabled={(pageMeta.current_page || 1) <= 1 || loading}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-800 disabled:opacity-50"
+              >
+                {isArabic ? 'السابق' : 'Prev'}
+              </button>
+              <button
+                type="button"
+                onClick={() => load(Math.min(pageMeta.last_page || 1, (pageMeta.current_page || 1) + 1))}
+                disabled={(pageMeta.current_page || 1) >= (pageMeta.last_page || 1) || loading}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-800 disabled:opacity-50"
+              >
+                {isArabic ? 'التالي' : 'Next'}
+              </button>
+            </div>
+          </div>
+
+          {/* Pagination Footer */}
+          {pageMeta.total > 0 && (
+            <div className="p-2 border-t border-gray-200 dark:border-gray-800">
+              <div className="flex flex-wrap items-center justify-between rounded-xl p-2 glass-panel gap-4">
+                <div className="text-xs text-[var(--muted-text)]">
+                  {(() => {
+                    const cur = Number(pageMeta.current_page || 1)
+                    const total = Number(pageMeta.total || 0)
+                    const from = total ? (cur - 1) * perPage + 1 : 0
+                    const to = total ? Math.min(cur * perPage, total) : 0
+                    return isArabic ? `عرض ${from}-${to} من ${total}` : `Showing ${from}-${to} of ${total}`
+                  })()}
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => load(Math.max(1, Number(pageMeta.current_page || 1) - 1))}
+                      disabled={loading || Number(pageMeta.current_page || 1) <= 1}
+                      title={isArabic ? 'السابق' : 'Prev'}
+                    >
+                      <FaChevronLeft className={isRTL ? 'scale-x-[-1]' : ''} />
+                    </button>
+                    <span className="text-sm whitespace-nowrap">
+                      {isArabic
+                        ? `الصفحة ${pageMeta.current_page} من ${pageMeta.last_page}`
+                        : `Page ${pageMeta.current_page} of ${pageMeta.last_page}`}
+                    </span>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => load(Math.min(Number(pageMeta.last_page || 1), Number(pageMeta.current_page || 1) + 1))}
+                      disabled={loading || Number(pageMeta.current_page || 1) >= Number(pageMeta.last_page || 1)}
+                      title={isArabic ? 'التالي' : 'Next'}
+                    >
+                      <FaChevronRight className={isRTL ? 'scale-x-[-1]' : ''} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-[var(--muted-text)] whitespace-nowrap">{isArabic ? 'لكل صفحة:' : 'Per page:'}</span>
+                    <select
+                      className="input w-16 text-sm py-0 px-2 h-8"
+                      value={perPage}
+                      onChange={(e) => {
+                        const next = Number(e.target.value)
+                        setPerPage(next)
+                        load(1, next)
+                      }}
+                    >
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Preview modal */}
+        <ModalShell
+          open={previewOpen}
+          textColorClass={textColorClass}
+          title={activeCustomer ? `${formatCustomerId(activeCustomer.id)} • ${safeStr(activeCustomer.name)}` : isArabic ? 'عرض العميل' : 'Customer Preview'}
+          onClose={() => {
+            setPreviewOpen(false)
+            setActiveCustomer(null)
+            setActiveTotals(null)
+            setActiveTab('details')
+            setComments([])
+            setCommentText('')
+            setSelectedUnitId(null)
+            setSelectedContractId(null)
+            setContractAttachments([])
+            setConvertOpen(false)
+          }}
+          widthClass="max-w-6xl"
+        >
+          {!activeCustomer ? (
+            <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-4">
+              <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={`text-xs ${mutedTextClass}`}>{formatCustomerId(activeCustomer.id)}</div>
+                  <div className="text-lg font-semibold truncate">{safeStr(activeCustomer.name)}</div>
+                  <div className={`text-sm ${mutedTextClass}`} dir="ltr">{safeStr(activeCustomer.phone)}</div>
+                </div>
+                <div className={`text-right text-xs ${mutedTextClass}`}>
+                  {safeStr(activeCustomer.source)}
+                </div>
+              </div>
+
+              <div className="hidden">
+                <TabButton active={activeTab === 'details'} onClick={() => setActiveTab('details')}>
+                  {isArabic ? 'تفاصيل' : 'Details'}
+                </TabButton>
+                <TabButton active={activeTab === 'comments'} onClick={() => setActiveTab('comments')}>
+                  <span className="inline-flex items-center gap-2">
+                    <MessageSquareText className="w-4 h-4" />
+                    {isArabic ? 'تعليقات' : 'Comments'}
+                  </span>
+                </TabButton>
+                <TabButton active={activeTab === 'attachments'} onClick={() => setActiveTab('attachments')}>
+                  <span className="inline-flex items-center gap-2">
+                    <Paperclip className="w-4 h-4" />
+                    {isArabic ? 'مرفقات' : 'Attachments'}
+                  </span>
+                </TabButton>
+              </div>
+
+              {activeTab === 'details' && (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                    <div className="text-xs font-semibold mb-2">{isArabic ? 'Customer Info' : 'Customer Info'}</div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className={mutedTextClass}>{isArabic ? 'البريد' : 'Email'}</div>
+                      <div className="truncate">{safeStr(activeCustomer.email)}</div>
+                      <div className={mutedTextClass}>{isArabic ? 'المشروع' : 'Project'}</div>
+                      <div className="truncate">{safeStr(activeCustomer.project?.name || activeCustomer.project_id)}</div>
+                      <div className={mutedTextClass}>{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</div>
+                      <div className="truncate">{safeStr(activeCustomer.sales_owner?.name || activeCustomer.salesOwner?.name || activeCustomer.sales_owner_id)}</div>
+                      <div className={mutedTextClass}>{isArabic ? 'تاريخ الصفقة' : 'Deal Date'}</div>
+                      <div className="truncate" dir="ltr">{formatDateTime(activeCustomer.contracts?.[0]?.contract_date)}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                    <div className="text-xs font-semibold mb-2">{isArabic ? 'Units' : 'Units'}</div>
+                    {activeUnits.length === 0 ? (
+                      <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد وحدات مرتبطة' : 'No linked units'}</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {activeUnits.map((u) => {
+                          const prop = u.property || {}
+                          const plan = u.active_payment_plan || u.activePaymentPlan || deriveCcPlanFromProperty(prop) || null
+                          const planMeta = plan?.meta_data || {}
+                          const propertyPlan = planMeta?.property_installment_plan || {}
+                          const unitTitle = prop.unit_code || prop.name || prop.title || `#${prop.id}`
+
+                          const years = planMeta?.years ?? propertyPlan?.years ?? null
+                          const additionalPayment = planMeta?.additional_payments ?? propertyPlan?.extraPayment ?? propertyPlan?.extra_payment ?? null
+                          const deliveryDate = propertyPlan?.deliveryDate ?? propertyPlan?.delivery_date ?? null
+                          const garageAmount = prop?.garage_amount ?? prop?.garageAmount ?? null
+                          const maintenanceAmount = prop?.maintenance_amount ?? prop?.maintenanceAmount ?? null
+                          const totalAmount = prop?.total_after_discount ?? prop?.net_amount ?? prop?.total_price ?? prop?.price ?? null
+                          return (
+                            <div
+                              key={u.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setSelectedUnitId(Number(u.id))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  setSelectedUnitId(Number(u.id))
+                                }
+                              }}
+                              className={`rounded-xl p-3 border transition ${
+                                Number(u?.id) === Number(selectedUnitId)
+                                  ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-900/20'
+                                  : 'border-transparent bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm font-medium truncate">{safeStr(unitTitle)}</div>
+                                <span className="text-xs px-2 py-1 rounded-full bg-gray-200/60 dark:bg-gray-800">
+                                  {safeStr(u.status)}
+                                </span>
+                              </div>
+                              <div className={`mt-2 grid grid-cols-2 gap-2 text-xs ${mutedTextClass}`}>
+                                <div>{isArabic ? 'المشروع' : 'Project'}: {safeStr(activeCustomer.project?.name || prop.project_id || activeCustomer.project_id || '')}</div>
+                                <div>{isArabic ? 'السعر' : 'Price'}: {formatMoney(prop.price)}</div>
+                              </div>
+                              <div className="mt-2 text-xs">
+                                <div className="font-semibold mb-1">{isArabic ? 'Payment Plan' : 'Payment Plan'}</div>
+                                {plan ? (
+                                  <div className={`grid grid-cols-2 gap-2 ${mutedTextClass}`}>
+                                    <div>{isArabic ? 'الحجز' : 'Reservation'}: {formatMoney(plan.reservation_amount)}</div>
+                                    <div>{isArabic ? 'المقدم' : 'Down Payment'}: {formatMoney(plan.down_payment)}</div>
+                                    <div>{isArabic ? 'التسليم' : 'Delivery'}: {formatMoney(plan.delivery_payment)}</div>
+                                    <div>
+                                      {isArabic ? 'الأقساط' : 'Installments'}: {safeStr(plan.installment_type)} × {safeStr(plan.installment_count)}
+                                    </div>
+                                    {years ? <div>{isArabic ? 'سنوات' : 'Years'}: {safeStr(years)}</div> : null}
+                                    {additionalPayment != null && String(additionalPayment).trim() !== '' ? (
+                                      <div>{isArabic ? 'مدفوعات إضافية' : 'Additional Payment'}: {formatMoney(additionalPayment)}</div>
+                                    ) : null}
+                                    {deliveryDate ? <div>{isArabic ? 'تاريخ التسليم' : 'Delivery Date'}: {safeStr(deliveryDate)}</div> : null}
+                                    {garageAmount != null && String(garageAmount).trim() !== '' ? (
+                                      <div>{isArabic ? 'قيمة الجراج' : 'Garage'}: {formatMoney(garageAmount)}</div>
+                                    ) : null}
+                                    {maintenanceAmount != null && String(maintenanceAmount).trim() !== '' ? (
+                                      <div>{isArabic ? 'قيمة الصيانة' : 'Maintenance'}: {formatMoney(maintenanceAmount)}</div>
+                                    ) : null}
+                                    {totalAmount != null && String(totalAmount).trim() !== '' ? (
+                                      <div>{isArabic ? 'إجمالي السعر' : 'Total Amount'}: {formatMoney(totalAmount)}</div>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className={mutedTextClass}>{isArabic ? 'لا يوجد خطة دفع نشطة' : 'No active payment plan'}</div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'comments' && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                    <div className="text-xs font-semibold mb-2">{isArabic ? 'Add Comment' : 'Add Comment'}</div>
+                    <textarea
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-[var(--content-bg)] p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder={isArabic ? 'ملاحظة داخلية...' : 'Internal note...'}
+                    />
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={submitComment}
+                        disabled={!commentText.trim()}
+                        className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm disabled:opacity-50"
+                      >
+                        {isArabic ? 'إضافة' : 'Add'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                    <div className="text-xs font-semibold mb-2">{isArabic ? 'Comments' : 'Comments'}</div>
+                    {commentsLoading ? (
+                      <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
+                    ) : comments.length === 0 ? (
+                      <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد تعليقات' : 'No comments'}</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {comments.map((c) => (
+                          <div key={c.id} className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
+                            <div className={`text-xs ${mutedTextClass} flex items-center justify-between gap-2`}>
+                              <span className="truncate">{safeStr(c.creator?.name || '')}</span>
+                              <span dir="ltr">{formatDateTime(c.created_at)}</span>
+                            </div>
+                            <div className="text-sm mt-1 whitespace-pre-wrap">{safeStr(c.comment)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'audit' && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-semibold">{isArabic ? 'سجل التعديلات المالية' : 'Audit Log'}</div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={auditQ}
+                          onChange={(e) => setAuditQ(e.target.value)}
+                          className="input h-9 text-sm"
+                          placeholder={isArabic ? 'بحث...' : 'Search...'}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => loadAudit(selectedUnitId)}
+                          disabled={auditLoading || !selectedUnitId}
+                          title={isArabic ? 'تحديث' : 'Refresh'}
+                        >
+                          ↻
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
+                      <select className="input h-9 text-sm" value={auditType} onChange={(e) => setAuditType(e.target.value)}>
+                        <option value="all">{isArabic ? 'كل الأنواع' : 'All Types'}</option>
+                        <option value="Payment">{isArabic ? 'خطة الدفع' : 'Payment Plan'}</option>
+                        <option value="Contract">{isArabic ? 'عقد' : 'Contract'}</option>
+                        <option value="Inventory">{isArabic ? 'مخزون' : 'Inventory'}</option>
+                        <option value="Installment">{isArabic ? 'قسط' : 'Installment'}</option>
+                        <option value="Other">{isArabic ? 'أخرى' : 'Other'}</option>
+                      </select>
+
+                      <select className="input h-9 text-sm" value={auditUser} onChange={(e) => setAuditUser(e.target.value)}>
+                        <option value="all">{isArabic ? 'كل المستخدمين' : 'All Users'}</option>
+                        {auditUsers.map((u) => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="date"
+                        className="input h-9 text-sm"
+                        value={auditFrom}
+                        onChange={(e) => setAuditFrom(e.target.value)}
+                        placeholder={isArabic ? 'من' : 'From'}
+                      />
+
+                      <input
+                        type="date"
+                        className="input h-9 text-sm"
+                        value={auditTo}
+                        onChange={(e) => setAuditTo(e.target.value)}
+                        placeholder={isArabic ? 'إلى' : 'To'}
+                      />
+                    </div>
+
+                    {!selectedUnitId ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'اختر وحدة لعرض السجل' : 'Select a unit to view audit log'}</div>
+                    ) : auditLoading ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</div>
+                    ) : auditItems.length === 0 ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'لا يوجد سجلات' : 'No audit entries'}</div>
+                    ) : auditRows.length === 0 ? (
+                      <div className={`text-sm ${mutedTextClass} mt-2`}>{isArabic ? 'لا يوجد نتائج' : 'No matching entries'}</div>
+                    ) : (
+                      <div className="overflow-auto rounded-xl border border-[var(--panel-border)] mt-3">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-black/5 dark:bg-white/5">
+                            <tr>
+                              <th className="text-left px-3 py-2">{isArabic ? 'الوقت' : 'Time'}</th>
+                              <th className="text-left px-3 py-2">{isArabic ? 'المستخدم' : 'User'}</th>
+                              <th className="text-left px-3 py-2">{isArabic ? 'الإجراء' : 'Action'}</th>
+                              <th className="text-left px-3 py-2">{isArabic ? 'التفاصيل' : 'Details'}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {auditRows.map((row) => {
+                              const isExpanded = String(auditExpandedId) === String(row.id)
+                              const badge = row.severity === 'danger'
+                                ? 'bg-red-600/15 text-red-300 border-red-500/30'
+                                : row.severity === 'warning'
+                                  ? 'bg-amber-600/15 text-amber-300 border-amber-500/30'
+                                  : row.severity === 'success'
+                                    ? 'bg-emerald-600/15 text-emerald-300 border-emerald-500/30'
+                                    : 'bg-blue-600/15 text-blue-300 border-blue-500/30'
+
+                              return (
+                                <Fragment key={row.id}>
+                                  <tr key={row.id} className="border-t border-[var(--panel-border)] align-top">
+                                    <td className="px-3 py-2 whitespace-nowrap" dir="ltr">{formatDateTime(row.created_at)}</td>
+                                    <td className="px-3 py-2">{safeStr(row.causerName)}</td>
+                                    <td className="px-3 py-2">
+                                      <div className="flex flex-col gap-1">
+                                        <span className={`inline-flex w-fit px-2 py-0.5 rounded-full border text-xs ${badge}`}>{row.type}</span>
+                                        <div className="font-medium">{safeStr(row.label)}</div>
+                                        <div className={`text-xs ${mutedTextClass} opacity-80`}>{safeStr(row.actionKey || row.logName)}</div>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <div className="max-w-[560px]">
+                                        <div className="space-y-0.5">
+                                          {row.lines.slice(0, 3).map((ln, idx) => (
+                                            <div key={idx} className="text-xs">{safeStr(ln)}</div>
+                                          ))}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                          onClick={() => setAuditExpandedId(isExpanded ? null : row.id)}
+                                        >
+                                          {isExpanded ? (isArabic ? 'إخفاء التفاصيل' : 'Hide details') : (isArabic ? 'عرض التفاصيل' : 'View details')}
+                                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr className="border-t border-[var(--panel-border)]">
+                                      <td className="px-3 py-3" colSpan={4}>
+                                        <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3 space-y-2">
+                                          <div className="text-xs font-semibold">{isArabic ? 'تفاصيل' : 'Details'}</div>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                                            {row.lines.map((ln, idx) => (
+                                              <div key={idx} className="rounded-lg bg-white/60 dark:bg-black/20 border border-[var(--panel-border)] px-2 py-1">
+                                                {safeStr(ln)}
+                                              </div>
+                                            ))}
+                                          </div>
+                                          <details className="text-xs">
+                                            <summary className="cursor-pointer opacity-80">{isArabic ? 'عرض البيانات الخام' : 'View raw data'}</summary>
+                                            <pre className="mt-2 p-3 rounded-xl bg-black/10 dark:bg-white/10 overflow-auto max-h-[260px]">
+{(() => {
+  try { return JSON.stringify(row.rawProps, null, 2) } catch { return safeStr(row.rawProps) }
+})()}
+                                            </pre>
+                                          </details>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'attachments' && (
+                <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold">{isArabic ? 'المرفقات (العقود)' : 'Attachments (Contracts)'}</div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="input h-9 text-sm"
+                        value={selectedContractId || ''}
+                        onChange={(e) => setSelectedContractId(Number(e.target.value) || null)}
+                      >
+                        <option value="">{isArabic ? 'اختر عقد' : 'Select contract'}</option>
+                        {(Array.isArray(activeCustomer.contracts) ? activeCustomer.contracts : []).map((c) => {
+                          const label = c.contract_number ? `${c.contract_number}` : `#${c.id}`
+                          const date = safeStr(c.contract_date || '')
+                          return (
+                            <option key={c.id} value={c.id}>
+                              {label}{date ? ` • ${date}` : ''}
+                            </option>
+                          )
+                        })}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => selectedContractId && loadContractAttachments(selectedContractId)}
+                        disabled={!selectedContractId || attachmentsLoading}
+                        title={isArabic ? 'تحديث' : 'Refresh'}
+                      >
+                        {attachmentsLoading ? '...' : '↻'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {!selectedContractId ? (
+                    <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا يوجد عقد محدد' : 'No contract selected'}</div>
+                  ) : attachmentsLoading ? (
+                    <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'جاري التحميل...' : 'Loading...'}</div>
+                  ) : contractAttachments.length === 0 ? (
+                    <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا توجد مرفقات' : 'No attachments'}</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {contractAttachments.map((att) => {
+                        const originalName = safeStr(att?.meta_data?.original_name || '')
+                        const name = originalName || (att?.file_path ? String(att.file_path).split('/').pop() : `#${att.id}`)
+                        const href = getStorageUrl(att?.file_path || att?.filePath)
+                        return (
+                          <button
+                            key={att.id}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 p-3 hover:bg-black/5 dark:hover:bg-white/5"
+                            type="button"
+                            onClick={() => openAttachmentPreview(att)}
+                            title={name}
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <FileText className="w-4 h-4 shrink-0" />
+                              <span className="truncate text-sm">{name}</span>
+                            </span>
+                            <span className={`text-xs ${mutedTextClass}`} dir="ltr">{formatDateTime(att?.created_at)}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-3 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('details')}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border flex items-center justify-between gap-2 ${
+                    activeTab === 'details'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Eye className="w-4 h-4" />
+                    {isArabic ? 'تفاصيل' : 'Details'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('comments')}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border flex items-center justify-between gap-2 ${
+                    activeTab === 'comments'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <MessageSquareText className="w-4 h-4" />
+                    {isArabic ? 'تعليقات' : 'Comments'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('attachments')}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border flex items-center justify-between gap-2 ${
+                    activeTab === 'attachments'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Paperclip className="w-4 h-4" />
+                    {isArabic ? 'مرفقات' : 'Attachments'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('audit')}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border flex items-center justify-between gap-2 ${
+                    activeTab === 'audit'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    {isArabic ? 'سجل التعديلات' : 'Audit Log'}
+                  </span>
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-3 space-y-2">
+                <button
+                  type="button"
+                  onClick={openConvert}
+                  disabled={
+                    !activeCustomer?.id ||
+                    !selectedPropertyId ||
+                    !selectedPlan ||
+                    String(selectedUnit?.status || '').toLowerCase() === 'contracted'
+                  }
+                  className="w-full px-3 py-2 rounded-xl text-sm bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:hover:bg-green-600 flex items-center justify-between gap-2"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    {isArabic ? 'تحويل لعقد' : 'Convert to Contract'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={exportCustomerSnapshot}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-between gap-2"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <FileDown className="w-4 h-4" />
+                    {isArabic ? 'تصدير' : 'Export'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={printCustomerSummary}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-gray-200 dark:border-gray-800 hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-between gap-2"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Printer className="w-4 h-4" />
+                    {isArabic ? 'طباعة' : 'Print'}
+                  </span>
+                </button>
+              </div>
+
+              {!selectedPlan ? (
+                <div className={`text-xs ${mutedTextClass}`}>
+                  {isArabic ? 'ملاحظة: التحويل لعقد يتطلب خطة دفع نشطة' : 'Note: conversion requires an active payment plan'}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          )}
+        </ModalShell>
+
+        <ModalShell
+          open={attachmentPreviewOpen}
+          textColorClass={textColorClass}
+          title={attachmentPreviewName || (isArabic ? 'معاينة مرفق' : 'Attachment Preview')}
+          onClose={() => setAttachmentPreviewOpen(false)}
+          widthClass="max-w-5xl"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center justify-end gap-2">
+              <a
+                href={attachmentPreviewUrl || '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-xl border border-[var(--panel-border)] text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                {isArabic ? 'فتح في تبويب جديد' : 'Open in new tab'}
+              </a>
+            </div>
+
+            {attachmentPreviewUrl ? (
+              (() => {
+                const mime = String(attachmentPreviewMime || '').toLowerCase()
+                if (mime.startsWith('image/')) {
+                  return (
+                    <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-3">
+                      <img src={attachmentPreviewUrl} alt={attachmentPreviewName} className="max-h-[70vh] w-full object-contain" />
+                    </div>
+                  )
+                }
+
+                // Default to iframe (PDF / other previewable types)
+                return (
+                  <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] overflow-hidden">
+                    <iframe
+                      title={attachmentPreviewName || 'Attachment'}
+                      src={attachmentPreviewUrl}
+                      className="w-full h-[70vh]"
+                    />
+                  </div>
+                )
+              })()
+            ) : (
+              <div className={`text-sm ${mutedTextClass}`}>{isArabic ? 'لا يوجد مرفق' : 'No attachment selected'}</div>
+            )}
+          </div>
+        </ModalShell>
+
+        {/* Convert to Contract */}
+        <ModalShell
+          open={convertOpen}
+          textColorClass={textColorClass}
+          title={isArabic ? 'تحويل إلى عقد' : 'Convert to Contract'}
+          onClose={() => {
+            if (convertLoading) return
+            setConvertOpen(false)
+          }}
+          widthClass="max-w-2xl"
+        >
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--content-bg)] p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'إجمالي السعر' : 'Total Price'}</label>
+                  <input
+                    className="input w-full bg-[var(--content-bg)]"
+                    value={convertForm.total_price}
+                    onChange={(e) => setConvertForm((p) => ({ ...p, total_price: e.target.value }))}
+                    placeholder={isArabic ? 'اختياري' : 'Optional'}
+                    dir="ltr"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'تاريخ العقد' : 'Contract Date'}</label>
+                  <input
+                    type="date"
+                    className="input w-full bg-[var(--content-bg)]"
+                    value={convertForm.contract_date}
+                    onChange={(e) => setConvertForm((p) => ({ ...p, contract_date: e.target.value }))}
+                    dir="ltr"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'أول ميعاد قسط' : 'First Due Date'}</label>
+                  <input
+                    type="date"
+                    className="input w-full bg-[var(--content-bg)]"
+                    value={convertForm.first_due_date}
+                    onChange={(e) => setConvertForm((p) => ({ ...p, first_due_date: e.target.value }))}
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-[var(--panel-border)]">
+                <div className={`text-xs font-semibold mb-2 ${mutedTextClass}`}>{isArabic ? 'خطة الدفع' : 'Payment Plan'}</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الحجز' : 'Reservation Amount'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.reservation_amount}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, reservation_amount: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المقدم' : 'Down Payment'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.down_payment}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, down_payment: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'التسليم' : 'Delivery Payment'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.delivery_payment}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, delivery_payment: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'نوع التقسيط' : 'Installment Type'}</label>
+                    <select
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.installment_type}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, installment_type: e.target.value }))}
+                    >
+                      <option value="monthly">{isArabic ? 'شهري' : 'Monthly'}</option>
+                      <option value="quarterly">{isArabic ? 'ربع سنوي' : 'Quarterly'}</option>
+                      <option value="half-yearly">{isArabic ? 'نصف سنوي' : 'Half-yearly'}</option>
+                      <option value="yearly">{isArabic ? 'سنوي' : 'Yearly'}</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'عدد الأقساط' : 'Installment Count'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.installment_count}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, installment_count: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'قيمة القسط' : 'Installment Value'}</label>
+                    <input
+                      className="input w-full bg-[var(--content-bg)]"
+                      value={convertForm.installment_value}
+                      onChange={(e) => setConvertForm((p) => ({ ...p, installment_value: e.target.value }))}
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className={`text-xs mt-3 ${mutedTextClass}`}>
+                {isArabic ? 'سيتم إنشاء عقد للوحدة المحددة (ويتطلب وجود خطة دفع نشطة).' : 'This will create a contract for the selected unit (requires an active payment plan).'}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setConvertOpen(false)}
+                disabled={convertLoading}
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                className="btn bg-green-600 hover:bg-green-700 !text-white border-none"
+                onClick={submitConvert}
+                disabled={convertLoading}
+              >
+                {convertLoading ? (isArabic ? '...' : '...') : (isArabic ? 'تحويل' : 'Convert')}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+
+        {/* Create */}
+        <ModalShell
+          open={createOpen}
+          textColorClass={textColorClass}
+          title={isArabic ? 'إضافة عميل' : 'Add Customer'}
+          onClose={() => {
+            if (createLoading) return
+            setCreateOpen(false)
+          }}
+          widthClass="max-w-3xl"
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'اسم العميل' : 'Customer Name'}</label>
+                <input
+                  value={createForm.name}
+                  onChange={(e) => setCreateField('name', e.target.value)}
+                  className="input w-full bg-[var(--content-bg)]"
+                  placeholder={isArabic ? 'اكتب اسم العميل' : 'Enter customer name'}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'الموبايل' : 'Phone'}</label>
+                <input
+                  value={createForm.phone}
+                  onChange={(e) => setCreateField('phone', e.target.value)}
+                  className="input w-full bg-[var(--content-bg)]"
+                  placeholder={isArabic ? 'رقم الموبايل' : 'Phone number'}
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'البريد' : 'Email'}</label>
+                <input
+                  value={createForm.email}
+                  onChange={(e) => setCreateField('email', e.target.value)}
+                  className="input w-full bg-[var(--content-bg)]"
+                  placeholder={isArabic ? 'البريد الإلكتروني' : 'Email'}
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المصدر' : 'Source'}</label>
+                <SearchableSelect
+                  options={sources}
+                  value={createForm.source}
+                  onChange={(v) => setCreateField('source', v)}
+                  placeholder={isArabic ? 'اختر المصدر' : 'Select Source'}
+                  className="w-full"
+                  isRTL={isArabic}
+                  multiple={false}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'المشروع' : 'Project'}</label>
+                <SearchableSelect
+                  options={projects}
+                  value={createForm.project_id}
+                  onChange={(v) => setCreateForm((prev) => ({ ...prev, project_id: v, property_id: '' }))}
+                  placeholder={isArabic ? 'اختر المشروع' : 'Select Project'}
+                  className="w-full"
+                  isRTL={isArabic}
+                  multiple={false}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'رقم الوحدة' : 'Unit Number'}</label>
+                <SearchableSelect
+                  options={filteredUnitOptions}
+                  value={createForm.property_id}
+                  onChange={(v) => setCreateField('property_id', v)}
+                  placeholder={
+                    createForm.project_id
+                      ? (isArabic ? 'اختر الوحدة' : 'Select Unit')
+                      : (isArabic ? 'اختر المشروع أولاً' : 'Select project first')
+                  }
+                  className="w-full"
+                  isRTL={isArabic}
+                  multiple={false}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'مندوب المبيعات' : 'Sales Person'}</label>
+                <SearchableSelect
+                  options={salesOwners}
+                  value={createForm.sales_owner_id}
+                  onChange={(v) => setCreateField('sales_owner_id', v)}
+                  placeholder={isArabic ? 'اختر الموظف' : 'Select User'}
+                  className="w-full"
+                  isRTL={isArabic}
+                  multiple={false}
+                />
+              </div>
+
+              <div className="space-y-1 md:col-span-2">
+                <label className={`text-xs font-medium ${mutedTextClass}`}>{isArabic ? 'آخر تعليق' : 'Last Comment'}</label>
+                <textarea
+                  value={createForm.last_comments}
+                  onChange={(e) => setCreateField('last_comments', e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-[var(--content-bg)] p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={isArabic ? 'اكتب تعليق/ملاحظة' : 'Write a comment / note'}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                disabled={createLoading}
+                className={`btn btn-sm bg-[var(--muted-bg)] hover:bg-black/5 dark:hover:bg-white/5 border border-[var(--panel-border)] ${textColorClass}`}
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={submitCreate}
+                disabled={createLoading || !String(createForm.name || '').trim()}
+                className="btn btn-sm bg-green-600 hover:bg-green-700 !text-white border-none disabled:opacity-50"
+              >
+                {createLoading ? (isArabic ? 'جارٍ الحفظ...' : 'Saving...') : isArabic ? 'حفظ' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+
+        {importOpen && (
+          <CcCustomersImportModal
+            onClose={() => setImportOpen(false)}
+            onImport={handleImport}
+            isRTL={isRTL}
+          />
+        )}
+      </div>
+    </div>
+  )
+}

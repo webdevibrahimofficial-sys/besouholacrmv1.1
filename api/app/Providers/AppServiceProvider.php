@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Providers;
+
+use App\Services\AdminEventNotificationService;
+use App\Contracts\MetaApiClientInterface;
+use App\Services\Meta\RealMetaApiClient;
+use App\Services\Meta\MockMetaApiClient;
+use App\Contracts\GoogleAdsApiClientInterface;
+use App\Services\Google\RealGoogleAdsApiClient;
+use App\Services\Google\MockGoogleAdsApiClient;
+use App\Contracts\GoogleAdsServiceInterface;
+use App\Services\Google\RealGoogleAdsService;
+use App\Services\Google\MockGoogleAdsService;
+use App\Listeners\SendFcmNotificationForDatabaseChannel;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\Sanctum;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        $this->app->bind(\App\Contracts\TenantResolverInterface::class, \App\Services\TenantResolverService::class);
+        $this->app->bind(\App\Contracts\AuthenticatorInterface::class, \App\Services\PasswordAuthenticator::class);
+        $this->app->bind(\App\Contracts\TokenIssuerInterface::class, \App\Services\SanctumTokenIssuer::class);
+        $this->app->bind(\App\Contracts\TwoFactorInterface::class, \App\Services\TwoFactorService::class);
+        $this->app->bind(MetaApiClientInterface::class, function ($app) {
+            $mockMode = config('services.meta.mock_mode', false);
+            
+            // Auto-enable mock mode if local and configured to do so
+            if ($app->environment('local') && config('services.meta.mock_on_local', false)) {
+                $mockMode = true;
+            }
+
+            if ($mockMode) {
+                return new MockMetaApiClient();
+            }
+
+            return new RealMetaApiClient();
+        });
+
+        $this->app->bind(GoogleAdsApiClientInterface::class, function ($app) {
+            $mockMode = config('services.google.ads.mock_mode', false);
+            
+            // Auto-enable mock mode if local and configured to do so
+            if ($app->environment('local') && config('services.google.ads.mock_on_local', false)) {
+                $mockMode = true;
+            }
+
+            if ($mockMode) {
+                return $app->make(MockGoogleAdsApiClient::class);
+            }
+
+            return $app->make(RealGoogleAdsApiClient::class);
+        });
+
+        $this->app->bind(GoogleAdsServiceInterface::class, function ($app) {
+            $mockMode = config('services.google.ads.mock_mode', false);
+            if ($app->environment('local') && config('services.google.ads.mock_on_local', false)) {
+                $mockMode = true;
+            }
+
+            if ($mockMode) {
+                return $app->make(MockGoogleAdsService::class);
+            }
+
+            return $app->make(RealGoogleAdsService::class);
+        });
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        if (app()->environment('production')) {
+            \Illuminate\Support\Facades\URL::forceScheme('https');
+            $this->app['request']->server->set('HTTPS', 'on');
+        }
+
+        Sanctum::usePersonalAccessTokenModel(\App\Models\PersonalAccessToken::class);
+
+        // Register Observers
+        \App\Models\Lead::observe(\App\Observers\LeadObserver::class);
+        \App\Models\LeadAction::observe(\App\Observers\LeadActionObserver::class);
+        \App\Models\Revenue::observe(\App\Observers\RevenueObserver::class);
+
+        Event::listen(NotificationSent::class, SendFcmNotificationForDatabaseChannel::class);
+        Queue::failing(function (JobFailed $event) {
+            app(AdminEventNotificationService::class)->safe(function () use ($event) {
+                app(AdminEventNotificationService::class)->notifyQueueFailure(
+                    $event->job->resolveName(),
+                    (string) $event->connectionName,
+                    (string) $event->job->getQueue(),
+                    $event->exception->getMessage()
+                );
+            });
+        });
+
+        RateLimiter::for('api', function (Request $request) {
+            $userId = $request->user()?->id;
+
+            // Increase limit significantly to handle polling/pusher auth
+            $maxAttempts = 1000; 
+
+            return Limit::perMinute($maxAttempts)->by($userId ?: $request->ip());
+        });
+    }
+}

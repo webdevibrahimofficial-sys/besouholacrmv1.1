@@ -1,0 +1,878 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import * as XLSX from 'xlsx'
+import { api, logImportEvent } from '../../../utils/api'
+
+const normalizeHeaderKey = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/&/g, 'and')
+  .replace(/[()]/g, '')
+  .replace(/[^a-z0-9\u0600-\u06FF]+/g, '')
+
+const fieldAliases = {
+  leads: {
+    name: ['name', 'clientname', 'customername', 'fullname', 'full name'],
+    phone: ['phone', 'mobile', 'phone number', 'mobile number', 'telephone'],
+    source: ['source', 'channel'],
+    status: ['status', 'stage'],
+    priority: ['priority'],
+    creation_date: ['creation date', 'created at', 'created date'],
+  },
+  lead_history: {
+    name: ['name', 'client name', 'clientname', 'customer name', 'customername', 'full name', 'fullname'],
+    phone: ['phone', 'mobile', 'mobile number', 'phone number', 'telephone'],
+    phone_country: ['country code', 'countrycode', 'phone country', 'phonecountry', 'dial code', 'dialcode'],
+    stage: ['stage', 'last action', 'last action no action', 'lastactionnoaction', 'action stage', 'status'],
+    action_type: ['action type', 'actiontype', 'type'],
+    cancel_reason: ['cancel reason', 'cancelreason', 'cancel_reason', 'reason', 'reason text', 'reason title'],
+    action_at: ['follow date', 'followdate', 'action date', 'actiondate', 'last action date', 'lastactiondate', 'date'],
+    assigned_to: ['sales rep', 'salesrep', 'sales person', 'salesperson', 'assigned to', 'assignedto'],
+    comment: ['comment', 'comments', 'last comment', 'lastcomment', 'notes', 'note'],
+  },
+}
+
+const inferTargetField = (target, columnName) => {
+  const aliases = fieldAliases[String(target || '').toLowerCase()] || {}
+  const normalizedColumn = normalizeHeaderKey(columnName)
+  if (!normalizedColumn) return ''
+
+  for (const [field, names] of Object.entries(aliases)) {
+    if (names.some((name) => normalizeHeaderKey(name) === normalizedColumn)) {
+      return field
+    }
+  }
+
+  return ''
+}
+
+const buildInitialMapping = (target, cols, fields, hasHeader) => {
+  const used = new Set()
+  const initMap = {}
+
+  cols.forEach((c, i) => {
+    const inferred = hasHeader ? inferTargetField(target, c) : ''
+    if (inferred && !used.has(inferred)) {
+      initMap[c] = inferred
+      used.add(inferred)
+      return
+    }
+
+    initMap[c] = hasHeader ? '' : (fields[i] || '')
+  })
+
+  return initMap
+}
+
+const getWorksheetPreview = (wb, wsName) => {
+  const ws = wb.Sheets[wsName]
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false })
+  const cols = (data[0] || []).map((c) => String(c || '').trim()).filter(Boolean)
+  return { cols, rowCount: Math.max(0, data.length - 1) }
+}
+
+const scoreSheetForTarget = (target, cols, rowCount) => {
+  const fields = new Set(cols.map((c) => inferTargetField(target, c)).filter(Boolean))
+  let score = fields.size * 100 + Math.min(rowCount, 10000) / 100
+
+  if (String(target || '').toLowerCase() === 'lead_history') {
+    const keys = new Set(cols.map(normalizeHeaderKey))
+    if (keys.has('followdate')) score += 180
+    if (keys.has('clientname')) score += 120
+    if (keys.has('comment')) score += 80
+  }
+
+  return score
+}
+
+const getPreferredSheetName = (wb, names, target) => {
+  if (!Array.isArray(names) || names.length === 0) return ''
+  if (names.length === 1) return names[0]
+
+  let bestName = names[0]
+  let bestScore = -1
+  names.forEach((name) => {
+    const { cols, rowCount } = getWorksheetPreview(wb, name)
+    const score = scoreSheetForTarget(target, cols, rowCount)
+    if (score > bestScore) {
+      bestScore = score
+      bestName = name
+    }
+  })
+
+  return bestName
+}
+
+export default function Import() {
+  const { t, i18n } = useTranslation()
+  const [file, setFile] = useState(null)
+  const [target, setTarget] = useState('leads')
+  const [hasHeader, setHasHeader] = useState(true)
+  const [updateExisting, setUpdateExisting] = useState(false)
+  const [status, setStatus] = useState('idle')
+  const [step, setStep] = useState(1) // 1 Upload, 2 Preview, 3 Mapping, 4 Summary
+  const [columns, setColumns] = useState([])
+  const [rows, setRows] = useState([])
+  const [mapping, setMapping] = useState({})
+  const [summary, setSummary] = useState(null)
+  const [jobId, setJobId] = useState(null)
+  const [jobDetails, setJobDetails] = useState(null)
+  const [processingStartedAt, setProcessingStartedAt] = useState(null)
+  const [processingElapsedSeconds, setProcessingElapsedSeconds] = useState(0)
+
+  const [showDetails, setShowDetails] = useState(false)
+  const [jobRows, setJobRows] = useState([])
+  const [jobRowsMeta, setJobRowsMeta] = useState(null)
+  const [jobRowsLoading, setJobRowsLoading] = useState(false)
+  const [jobRowsStatus, setJobRowsStatus] = useState('all')
+  const [jobRowsSearch, setJobRowsSearch] = useState('')
+  const [jobRowsPerPage, setJobRowsPerPage] = useState(25)
+  const [jobRowsPage, setJobRowsPage] = useState(1)
+  const [sheetNames, setSheetNames] = useState([])
+  const [selectedSheet, setSelectedSheet] = useState('')
+  const inputRef = useRef(null)
+
+  const allowedTypes = useMemo(() => ['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], [])
+
+  const targetFields = useMemo(() => ({
+    customers: ['id','name','phone','email','status'],
+    leads: ['id','name','phone','source','status','priority','creation_date'],
+    lead_history: ['name', 'phone', 'phone_country', 'stage', 'action_type', 'cancel_reason', 'action_at', 'assigned_to', 'comment'],
+    products: ['id','name','sku','price','stock'],
+    users: ['id','name','email','role'],
+    projects: ['id','name','city','status'],
+    properties: ['id','type','area','price']
+  }), [])
+
+  const importJobsSupportedTargets = useMemo(() => new Set(['leads', 'lead_history']), [])
+  const isTargetSupported = importJobsSupportedTargets.has(String(target || '').toLowerCase())
+  const isLeadHistoryTarget = String(target || '').toLowerCase() === 'lead_history'
+  const isProcessing = status === 'processing'
+
+  useEffect(() => {
+    if (!isProcessing || !processingStartedAt) {
+      setProcessingElapsedSeconds(0)
+      return undefined
+    }
+
+    const tick = () => {
+      const seconds = Math.max(0, Math.floor((Date.now() - processingStartedAt) / 1000))
+      setProcessingElapsedSeconds(seconds)
+    }
+
+    tick()
+    const interval = window.setInterval(tick, 1000)
+    return () => window.clearInterval(interval)
+  }, [isProcessing, processingStartedAt])
+
+  const parseWorkbookSheet = useCallback((wb, wsName) => {
+    const ws = wb.Sheets[wsName]
+    const data = XLSX.utils.sheet_to_json(ws, { header: hasHeader ? 1 : 0, defval: '' })
+    let cols = []
+    let parsedRows = []
+    if (hasHeader) {
+      cols = (data[0] || []).map((c) => String(c || '').trim())
+      parsedRows = (data.slice(1) || []).map((r) => {
+        const obj = {}
+        cols.forEach((c, i) => { obj[c] = r[i] })
+        return obj
+      })
+    } else {
+      // auto-generate column names C1..Cn
+      const maxLen = Math.max(...data.map((r) => r.length))
+      cols = Array.from({ length: maxLen }, (_, i) => `C${i+1}`)
+      parsedRows = data.map((r) => {
+        const obj = {}
+        cols.forEach((c, i) => { obj[c] = r[i] })
+        return obj
+      })
+    }
+    setColumns(cols)
+    setRows(parsedRows)
+    setMapping(buildInitialMapping(target, cols, targetFields[target] || [], hasHeader))
+    setStep(2)
+  }, [hasHeader, target, targetFields])
+
+  useEffect(() => {
+    if (!file) return
+
+    let cancelled = false
+    const loadWorkbook = async () => {
+      try {
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        const names = Array.isArray(wb.SheetNames) ? wb.SheetNames : []
+
+        if (cancelled) return
+
+        setSheetNames(names)
+
+        const activeSheet = selectedSheet && names.includes(selectedSheet)
+          ? selectedSheet
+          : getPreferredSheetName(wb, names, target)
+
+        if (!activeSheet) {
+          throw new Error('No worksheet found')
+        }
+
+        if (activeSheet !== selectedSheet) {
+          setSelectedSheet(activeSheet)
+        }
+
+        parseWorkbookSheet(wb, activeSheet)
+      } catch (e) {
+        if (cancelled) return
+        setStatus('error')
+        setStep(1)
+        setColumns([])
+        setRows([])
+        setMapping({})
+        setSummary({
+          error: 'invalid_file',
+          message: e?.message || 'Invalid or corrupted file',
+        })
+      }
+    }
+
+    loadWorkbook()
+    return () => {
+      cancelled = true
+    }
+  }, [file, selectedSheet, hasHeader, target, parseWorkbookSheet])
+
+  const getFormatFromFile = useCallback((f) => {
+    const name = String(f?.name || '').toLowerCase()
+    if (name.endsWith('.xlsx')) return 'xlsx'
+    if (name.endsWith('.csv')) return 'csv'
+    return (String(f?.type || '') || 'unknown')
+  }, [])
+
+  const onFile = useCallback(async (f) => {
+    if (!f) return
+    if (!(allowedTypes.includes(f.type) || f.name.endsWith('.csv') || f.name.endsWith('.xlsx'))) {
+      setStatus('error')
+      logImportEvent({
+        module: target,
+        fileName: f.name,
+        format: getFormatFromFile(f),
+        status: 'failed',
+        errorMessage: 'Unsupported file type',
+        metaData: { reason_code: 'unsupported_type' },
+      })
+      return
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      setStatus('error')
+      logImportEvent({
+        module: target,
+        fileName: f.name,
+        format: getFormatFromFile(f),
+        status: 'failed',
+        errorMessage: 'File too large',
+        metaData: { reason_code: 'file_too_large', size: f.size },
+      })
+      return
+    }
+    setFile(f)
+    setSheetNames([])
+    setSelectedSheet('')
+    setStatus('idle')
+  }, [allowedTypes, getFormatFromFile, target])
+
+  const onDrop = (e) => {
+    e.preventDefault()
+    const f = e.dataTransfer?.files?.[0]
+    onFile(f)
+  }
+
+  const onImportConfirm = async () => {
+    try {
+      setStatus('processing')
+      setProcessingStartedAt(Date.now())
+      setStep(4)
+      setSummary(null)
+      setJobId(null)
+      setJobDetails(null)
+
+      if (!isTargetSupported) {
+        setStatus('error')
+        setProcessingStartedAt(null)
+        setSummary({ error: 'unsupported_module', message: 'This module is not supported yet by the new import-jobs flow.' })
+        logImportEvent({
+          module: target,
+          fileName: file?.name || 'import',
+          format: file ? getFormatFromFile(file) : 'unknown',
+          status: 'failed',
+          errorMessage: 'Unsupported module for Phase A',
+          metaData: { reason_code: 'unsupported_module' },
+        })
+        return
+      }
+
+      const fileName = file?.name || `import_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`
+      const resp = await api.post('/api/import-jobs', {
+        module: target,
+        file_name: fileName,
+        rows,
+        mapping,
+        updateExisting: target === 'leads' ? updateExisting : false,
+      })
+
+      setSummary(resp.data)
+      setJobId(resp.data?.job_id ?? null)
+      setStatus('success')
+      setStep(4)
+      setProcessingStartedAt(null)
+    } catch (e) {
+      setStatus('error')
+      setProcessingStartedAt(null)
+      const code = e?.response?.status
+      const apiMessage = e?.response?.data?.message || e?.response?.data?.error || e?.message
+      setSummary({
+        error: 'import_failed',
+        status: code,
+        message: apiMessage || 'Import failed',
+        hint: code === 404 ? 'Enable IMPORT_JOBS_ENABLED=true on the backend.' : undefined,
+      })
+      logImportEvent({
+        module: target,
+        fileName: file?.name || 'import',
+        format: file ? getFormatFromFile(file) : 'unknown',
+        status: 'failed',
+        errorMessage: apiMessage || 'Import failed',
+        metaData: { reason_code: 'import_request_failed', http_status: code || null },
+      })
+    }
+  }
+
+  const clearFile = () => {
+    setFile(null)
+    setColumns([])
+    setRows([])
+    setMapping({})
+    setSummary(null)
+    setJobId(null)
+    setJobDetails(null)
+    setShowDetails(false)
+    setJobRows([])
+    setJobRowsMeta(null)
+    setJobRowsStatus('all')
+    setJobRowsSearch('')
+    setJobRowsPerPage(25)
+    setJobRowsPage(1)
+    setSheetNames([])
+    setSelectedSheet('')
+    setProcessingStartedAt(null)
+    setProcessingElapsedSeconds(0)
+    setStatus('idle')
+    setStep(1)
+  }
+
+  const summaryCounters = useMemo(() => {
+    const s = summary || {}
+    const counters = s?.summary || s
+    return {
+      total_rows: Number(counters?.total_rows ?? counters?.total ?? 0) || 0,
+      success_rows: Number(counters?.success_rows ?? counters?.success ?? 0) || 0,
+      failed_rows: Number(counters?.failed_rows ?? counters?.failed ?? 0) || 0,
+      duplicate_rows: Number(counters?.duplicate_rows ?? counters?.duplicate_count ?? 0) || 0,
+      skipped_rows: Number(counters?.skipped_rows ?? 0) || 0,
+      warning_rows: Number(counters?.warning_rows ?? 0) || 0,
+    }
+  }, [summary])
+
+  const processingLabel = useMemo(() => {
+    if (i18n.language === 'ar') {
+      return isLeadHistoryTarget ? 'جاري استيراد سجل الليدز...' : 'جاري استيراد الليدز...'
+    }
+
+    return isLeadHistoryTarget ? 'Importing lead history...' : 'Importing leads...'
+  }, [i18n.language, isLeadHistoryTarget])
+
+  const processingHint = useMemo(() => {
+    if (i18n.language === 'ar') {
+      return 'الملفات الكبيرة قد تستغرق بعض الوقت. برجاء عدم غلق الصفحة أو تحديثها حتى يكتمل الاستيراد.'
+    }
+
+    return 'Large files can take a while. Please keep this page open until the import finishes.'
+  }, [i18n.language])
+
+  useEffect(() => {
+    if (!jobId) return
+    const load = async () => {
+      try {
+        const res = await api.get(`/api/import-jobs/${jobId}`)
+        setJobDetails(res.data)
+      } catch {
+        setJobDetails(null)
+      }
+    }
+    load()
+  }, [jobId])
+
+  useEffect(() => {
+    if (!showDetails || !jobId) return
+    const loadRows = async () => {
+      try {
+        setJobRowsLoading(true)
+        const params = {
+          per_page: jobRowsPerPage,
+          page: jobRowsPage,
+        }
+        if (jobRowsStatus !== 'all') params.status = jobRowsStatus
+        if (jobRowsSearch.trim()) params.search = jobRowsSearch.trim()
+        const res = await api.get(`/api/import-jobs/${jobId}/rows`, { params })
+        const data = res.data
+        setJobRows(Array.isArray(data?.data) ? data.data : [])
+        setJobRowsMeta({
+          current_page: data?.current_page,
+          last_page: data?.last_page,
+          total: data?.total,
+          from: data?.from,
+          to: data?.to,
+        })
+      } catch {
+        setJobRows([])
+        setJobRowsMeta(null)
+      } finally {
+        setJobRowsLoading(false)
+      }
+    }
+    loadRows()
+  }, [showDetails, jobId, jobRowsPerPage, jobRowsPage, jobRowsStatus, jobRowsSearch])
+
+  return (
+    <>
+      <div className="container mx-auto px-4 py-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">{t('Import Data')}</h1>
+            <p className="text-sm text-[var(--muted-text)]">{t('import.uploadDescription')}</p>
+          </div>
+        </div>
+
+        {/* Wizard Steps */}
+        <div className="flex gap-2 text-xs">
+          {[1,2,3,4].map((s) => (
+            <div key={s} className={`px-2 py-1 rounded ${step===s ? 'bg-blue-600 text-white':'bg-gray-700 text-gray-200'}`}>{s===1?t('Upload'):s===2?t('Preview'):s===3?t('Mapping'):t('Summary')}</div>
+          ))}
+        </div>
+
+        {step === 1 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="glass-panel rounded-2xl p-5">
+              <h3 className="text-base font-semibold mb-3">{t('import.uploadFile')}</h3>
+              <div
+                onDragOver={(e)=>e.preventDefault()}
+                onDrop={onDrop}
+                className="border-2 border-dashed border-gray-500/40 rounded-xl p-6 text-center hover:border-blue-500/60 transition"
+              >
+                {!file ? (
+                  <>
+                    <p className="text-sm mb-2">{t('import.dropHint')}</p>
+                    <button
+                      className="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                      onClick={() => inputRef.current?.click()}
+                    >
+                      {t('import.chooseFile')}
+                    </button>
+                    <input ref={inputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={(e)=>onFile(e.target.files?.[0])} />
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="text-sm">{file.name} · {(file.size/1024).toFixed(1)} KB</div>
+                    <div className="flex items-center justify-center gap-3">
+                      <button className="px-3 py-2 rounded-lg bg-gray-700 text-white" onClick={clearFile}>{t('Remove')}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 text-xs text-[var(--muted-text)]">{t('import.supportedFormats')}</div>
+            </div>
+
+            <div className="glass-panel rounded-2xl p-5 space-y-3">
+              <h3 className="text-base font-semibold">{t('Settings')}</h3>
+              <label className="block text-sm">{t('import.target')}</label>
+              <select value={target} onChange={e=>setTarget(e.target.value)} className="input-soft w-full">
+                <option value="customers">{t('Customers')}</option>
+                <option value="leads">{t('Leads')}</option>
+                <option value="lead_history">{i18n.language === 'ar' ? 'سجل الليدز' : 'Lead History'}</option>
+                <option value="products">{t('Products')}</option>
+                <option value="users">{t('Users')}</option>
+                <option value="projects">{t('Projects')}</option>
+                <option value="properties">{t('Properties')}</option>
+              </select>
+              {sheetNames.length > 1 && (
+                <div>
+                  <label className="block text-sm mt-2">{i18n.language === 'ar' ? 'ورقة العمل' : 'Worksheet'}</label>
+                  <select value={selectedSheet} onChange={e => setSelectedSheet(e.target.value)} className="input-soft w-full">
+                    {sheetNames.map((sheet) => (
+                      <option key={sheet} value={sheet}>{sheet}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-xs text-[var(--muted-text)]">
+                    {i18n.language === 'ar'
+                      ? 'اختر ورقة العمل الصحيحة إذا كان الملف يحتوي على أكثر من worksheet.'
+                      : 'Choose the correct worksheet when the file contains more than one sheet.'}
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-2 mt-2">
+                <input id="hasHeader" type="checkbox" checked={hasHeader} onChange={e=>setHasHeader(e.target.checked)} />
+                <label htmlFor="hasHeader" className="text-sm">{t('import.hasHeader')}</label>
+              </div>
+              {target === 'leads' && (
+                <div className="flex items-center gap-2">
+                  <input id="updateExisting" type="checkbox" checked={updateExisting} onChange={e=>setUpdateExisting(e.target.checked)} />
+                  <label htmlFor="updateExisting" className="text-sm">{t('import.updateExisting')}</label>
+                </div>
+              )}
+              {isLeadHistoryTarget && (
+                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-xs text-blue-100">
+                  {i18n.language === 'ar'
+                    ? 'استيراد سجل الليدز يضيف Actions تاريخية فقط، ولا يغيّر الـ stage الحالية الموجودة على الليد.'
+                    : 'Lead History import adds historical actions only and does not change the lead current stage.'}
+                </div>
+              )}
+              <div className="pt-2 flex items-center gap-3">
+                <button disabled={!file} onClick={() => setStep(2)} className={`px-3 py-2 rounded-lg ${!file? 'bg-gray-600 cursor-not-allowed':'bg-green-600 hover:bg-green-700'} text-white`}>{t('Next')}</button>
+                {status === 'error' && <span className="text-sm text-red-400">{t('import.unsupportedType')}</span>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="glass-panel rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold">{t('Preview')}</h3>
+              <div className="flex gap-2">
+                <button className="px-3 py-2 rounded bg-gray-700 text-white" onClick={() => setStep(1)}>{t('Back')}</button>
+                <button className="px-3 py-2 rounded bg-blue-600 text-white" onClick={() => setStep(3)}>{t('Next')}</button>
+              </div>
+            </div>
+            {selectedSheet && (
+              <div className="mb-3 text-xs text-[var(--muted-text)]">
+                {i18n.language === 'ar' ? `ورقة العمل الحالية: ${selectedSheet}` : `Current worksheet: ${selectedSheet}`}
+              </div>
+            )}
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr>{columns.map((c) => (<th key={c} className="px-3 py-2 text-left">{c}</th>))}</tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 20).map((r, idx) => (
+                    <tr key={idx} className="border-t border-gray-700/40">
+                      {columns.map((c) => (<td key={c} className="px-3 py-2">{String(r[c] ?? '')}</td>))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="glass-panel rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold">{t('Mapping')}</h3>
+              <div className="flex gap-2">
+                <button className="px-3 py-2 rounded bg-gray-700 text-white" onClick={() => setStep(2)}>{t('Back')}</button>
+                <button
+                  className={`px-3 py-2 rounded text-white ${isTargetSupported ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 cursor-not-allowed'}`}
+                  disabled={!isTargetSupported || status === 'processing'}
+                  onClick={onImportConfirm}
+                  title={!isTargetSupported ? 'Phase A supports Leads only.' : undefined}
+                >
+                  {t('Confirm Import')}
+                </button>
+              </div>
+            </div>
+            {!isTargetSupported && (
+              <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+                {i18n.language === 'ar'
+                  ? 'الإصدار الحالي يدعم استيراد الليدز وسجل الليدز فقط في هذا المسار.'
+                  : 'This flow currently supports Leads and Lead History only.'}
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {columns.map((c) => (
+                <div key={c} className="flex items-center gap-3">
+                  <div className="w-1/2">
+                    <div className="text-xs text-[var(--muted-text)]">{t('Column')}</div>
+                    <div className="text-sm">{c}</div>
+                  </div>
+                  <div className="w-1/2">
+                    <div className="text-xs text-[var(--muted-text)]">{t('Map to field')}</div>
+                    <select value={mapping[c] || ''} onChange={(e)=>setMapping((m)=>({ ...m, [c]: e.target.value }))} className="input-soft w-full">
+                      <option value="">—</option>
+                      {(targetFields[target] || []).map((f) => (
+                        <option key={f} value={f}>{f}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="glass-panel rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold">{t('Summary')}</h3>
+              <div className="flex gap-2">
+                <button
+                  className={`px-3 py-2 rounded text-white ${isProcessing ? 'bg-gray-600 cursor-not-allowed opacity-70' : 'bg-gray-700'}`}
+                  onClick={clearFile}
+                  disabled={isProcessing}
+                >
+                  {t('Start New')}
+                </button>
+              </div>
+            </div>
+            {status === 'processing' && (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-start gap-4">
+                      <div className="mt-0.5 h-11 w-11 shrink-0 rounded-full border-4 border-blue-200/30 border-t-blue-400 animate-spin" />
+                      <div className="space-y-2">
+                        <div className="text-lg font-semibold text-blue-100">{processingLabel}</div>
+                        <div className="text-sm text-blue-100/80">{processingHint}</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0">
+                      <div className="rounded-xl bg-white/5 px-4 py-3">
+                        <div className="text-xs text-blue-100/70">{i18n.language === 'ar' ? 'الملف' : 'File'}</div>
+                        <div className="text-sm font-medium text-white break-all">{file?.name || '-'}</div>
+                      </div>
+                      <div className="rounded-xl bg-white/5 px-4 py-3">
+                        <div className="text-xs text-blue-100/70">{i18n.language === 'ar' ? 'الصفوف' : 'Rows'}</div>
+                        <div className="text-sm font-medium text-white">{rows.length}</div>
+                      </div>
+                      <div className="rounded-xl bg-white/5 px-4 py-3">
+                        <div className="text-xs text-blue-100/70">{i18n.language === 'ar' ? 'الوقت المنقضي' : 'Elapsed'}</div>
+                        <div className="text-sm font-medium text-white">
+                          {processingElapsedSeconds < 60
+                            ? `${processingElapsedSeconds}s`
+                            : `${Math.floor(processingElapsedSeconds / 60)}m ${processingElapsedSeconds % 60}s`}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {[1, 2, 3].map((item) => (
+                    <div key={item} className="rounded-xl border border-white/10 bg-white/5 p-4 animate-pulse">
+                      <div className="h-3 w-20 rounded bg-white/10 mb-3" />
+                      <div className="h-8 w-24 rounded bg-white/10 mb-2" />
+                      <div className="h-3 w-28 rounded bg-white/10" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {status === 'error' && <span className="text-sm text-red-400">{t('Error')}</span>}
+            {summary && (
+              <div className="space-y-4">
+                {summary?.message && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                    <div className="font-semibold">{summary.message}</div>
+                    {summary.hint && <div className="opacity-80 mt-1">{summary.hint}</div>}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="glass-panel rounded-xl p-4">
+                    <div className="text-xs text-[var(--muted-text)]">Total Rows</div>
+                    <div className="text-2xl font-semibold">{summaryCounters.total_rows}</div>
+                  </div>
+                  <div className="glass-panel rounded-xl p-4">
+                    <div className="text-xs text-[var(--muted-text)]">Success Rows</div>
+                    <div className="text-2xl font-semibold">{summaryCounters.success_rows}</div>
+                  </div>
+                  <div className="glass-panel rounded-xl p-4">
+                    <div className="text-xs text-[var(--muted-text)]">Failed Rows</div>
+                    <div className="text-2xl font-semibold">{summaryCounters.failed_rows}</div>
+                  </div>
+                  <div className="glass-panel rounded-xl p-4">
+                    <div className="text-xs text-[var(--muted-text)]">Duplicate Rows</div>
+                    <div className="text-2xl font-semibold">{summaryCounters.duplicate_rows}</div>
+                  </div>
+                  <div className="glass-panel rounded-xl p-4">
+                    <div className="text-xs text-[var(--muted-text)]">Skipped Rows</div>
+                    <div className="text-2xl font-semibold">{summaryCounters.skipped_rows}</div>
+                  </div>
+                  <div className="glass-panel rounded-xl p-4">
+                    <div className="text-xs text-[var(--muted-text)]">Warnings</div>
+                    <div className="text-2xl font-semibold">{summaryCounters.warning_rows}</div>
+                  </div>
+                </div>
+
+                {jobId && (
+                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-3">
+                    <div className="text-sm">
+                      <div className="text-xs text-[var(--muted-text)]">Import Job</div>
+                      <div className="font-semibold">#{jobId}</div>
+                      {jobDetails?.status && <div className="text-xs opacity-80 mt-1">Status: {jobDetails.status}</div>}
+                    </div>
+                    <button
+                      className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                      onClick={() => {
+                        setShowDetails(v => !v)
+                        setJobRowsPage(1)
+                      }}
+                    >
+                      {showDetails ? 'Hide Details' : 'View Details'}
+                    </button>
+                  </div>
+                )}
+
+                {showDetails && jobId && (
+                  <div className="glass-panel rounded-xl p-4 space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-end gap-3 justify-between">
+                      <div className="flex gap-3 items-end">
+                        <div>
+                          <div className="text-xs text-[var(--muted-text)]">Status</div>
+                          <select
+                            value={jobRowsStatus}
+                            onChange={(e) => { setJobRowsStatus(e.target.value); setJobRowsPage(1) }}
+                            className="input-soft"
+                          >
+                            <option value="all">All</option>
+                            <option value="success">Success</option>
+                            <option value="duplicate">Duplicate</option>
+                            <option value="failed">Failed</option>
+                            <option value="skipped">Skipped</option>
+                            <option value="warning">Warning</option>
+                          </select>
+                        </div>
+                        <div>
+                          <div className="text-xs text-[var(--muted-text)]">Per Page</div>
+                          <select
+                            value={jobRowsPerPage}
+                            onChange={(e) => { setJobRowsPerPage(Number(e.target.value)); setJobRowsPage(1) }}
+                            className="input-soft"
+                          >
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="w-full md:w-80">
+                        <div className="text-xs text-[var(--muted-text)]">Search</div>
+                        <input
+                          value={jobRowsSearch}
+                          onChange={(e) => { setJobRowsSearch(e.target.value); setJobRowsPage(1) }}
+                          className="input-soft w-full"
+                          placeholder="reason / code..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="overflow-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="text-left border-b border-gray-700/40">
+                            <th className="px-3 py-2">Row</th>
+                            <th className="px-3 py-2">Status</th>
+                            <th className="px-3 py-2">Name</th>
+                            <th className="px-3 py-2">Phone</th>
+                            <th className="px-3 py-2">Warnings</th>
+                            <th className="px-3 py-2">Reason</th>
+                            <th className="px-3 py-2">Created ID</th>
+                            <th className="px-3 py-2">Duplicate Of</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {jobRowsLoading && (
+                            <tr><td className="px-3 py-3 opacity-70" colSpan={5}>Loading...</td></tr>
+                          )}
+                          {!jobRowsLoading && jobRows.length === 0 && (
+                            <tr><td className="px-3 py-3 opacity-70" colSpan={5}>No rows</td></tr>
+                          )}
+                          {!jobRowsLoading && jobRows.map((r) => {
+                            const norm = r.normalized_data || {}
+                            const raw = r.raw_data || {}
+                            const name = norm.name ?? raw.name ?? raw.Name ?? ''
+                            const phone = norm.phone ?? raw.phone ?? raw.Phone ?? ''
+                            const warningsCount = Array.isArray(r.warnings) ? r.warnings.length : 0
+                            return (
+                            <tr key={r.id} className="border-t border-gray-700/30">
+                              <td className="px-3 py-2">{r.row_number}</td>
+                              <td className="px-3 py-2">{r.status}</td>
+                              <td className="px-3 py-2">{String(name || '-')}</td>
+                              <td className="px-3 py-2" dir="ltr">{String(phone || '-')}</td>
+                              <td className="px-3 py-2">{warningsCount || '-'}</td>
+                              <td className="px-3 py-2">
+                                <div className="text-xs opacity-80">{r.reason_code || ''}</div>
+                                <div className="text-sm">{r.reason_message || ''}</div>
+                                {warningsCount > 0 && (
+                                  <details className="mt-2">
+                                    <summary className="cursor-pointer text-xs text-amber-300">Warnings</summary>
+                                    <ul className="mt-1 text-xs opacity-90 list-disc pl-5">
+                                      {r.warnings.map((w, idx) => (
+                                        <li key={idx}>{String(w?.code || '')} {String(w?.message || '')}</li>
+                                      ))}
+                                    </ul>
+                                  </details>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">{r.created_record_id ?? '-'}</td>
+                              <td className="px-3 py-2">{r.duplicate_of_id ?? '-'}</td>
+                            </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {jobRowsMeta?.last_page > 1 && (
+                      <div className="flex items-center justify-between pt-2">
+                        <div className="text-xs opacity-80">
+                          {jobRowsMeta.from || 0}-{jobRowsMeta.to || 0} of {jobRowsMeta.total || 0}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            className="px-3 py-1.5 rounded bg-gray-700 text-white disabled:opacity-50"
+                            disabled={jobRowsPage <= 1}
+                            onClick={() => setJobRowsPage(p => Math.max(1, p - 1))}
+                          >
+                            Prev
+                          </button>
+                          <div className="px-3 py-1.5 rounded bg-gray-800 text-white text-xs">
+                            Page {jobRowsMeta.current_page || jobRowsPage} / {jobRowsMeta.last_page}
+                          </div>
+                          <button
+                            className="px-3 py-1.5 rounded bg-gray-700 text-white disabled:opacity-50"
+                            disabled={jobRowsPage >= jobRowsMeta.last_page}
+                            onClick={() => setJobRowsPage(p => p + 1)}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="glass-panel rounded-2xl p-5">
+          <h3 className="text-base font-semibold mb-2">{t('import.formatGuidelines')}</h3>
+          <ul className="text-sm list-disc pl-5 space-y-1 text-[var(--muted-text)]">
+            <li>{t('import.guidelineUtf8')}</li>
+            <li>{t('import.guidelineColumns')}</li>
+            <li>{t('import.guidelineHeaders')}</li>
+          </ul>
+        </div>
+      </div>
+    </>
+  )
+}

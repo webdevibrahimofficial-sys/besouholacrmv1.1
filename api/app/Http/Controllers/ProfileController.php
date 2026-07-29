@@ -1,0 +1,189 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Services\TenantStorageService;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+
+class ProfileController extends Controller
+{
+    protected $storage;
+
+    public function __construct(TenantStorageService $storage)
+    {
+        $this->storage = $storage;
+    }
+
+    public function show(Request $request)
+    {
+        return response()->json($request->user()->load(['roles', 'team', 'department', 'managedDepartment']));
+    }
+
+    public function update(Request $request)
+    {
+        $user = $request->user();
+
+        $emailUnique = Rule::unique('users', 'email')->ignore($user->id);
+        if ($user->tenant_id === null) {
+            $emailUnique = $emailUnique->whereNull('tenant_id');
+        } else {
+            $emailUnique = $emailUnique->where('tenant_id', $user->tenant_id);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', $emailUnique],
+            'phone' => ['nullable', 'string', 'max:20'],
+            'avatar' => ['nullable', 'image', 'max:5120'], // Max 5MB
+            'locale' => ['nullable', 'string', 'in:en,ar'],
+            'timezone' => ['nullable', 'string', 'max:100'],
+            'theme_mode' => ['nullable', 'string', 'in:light,dark,auto,Light,Dark,Auto'],
+            'password' => ['nullable', 'confirmed', 'min:8'],
+            'notification_settings' => ['nullable', 'json'],
+            'security_settings' => ['nullable', 'json'],
+        ]);
+
+        if ($request->hasFile('avatar')) {
+            // Delete old avatar if exists
+            if ($user->avatar) {
+                $this->storage->delete($user->avatar);
+            }
+
+            // Upload new avatar using TenantStorageService
+            // This ensures it goes to tenants/{id}/avatars with isolation
+            $result = $this->storage->upload($request->file('avatar'), 'avatars');
+            $user->avatar = $result['path'];
+        }
+
+        $user->name = $validated['name'];
+        $user->email = $validated['email'];
+        $user->phone = $validated['phone'] ?? $user->phone;
+        if (isset($validated['locale'])) $user->locale = $validated['locale'];
+        if (isset($validated['timezone'])) $user->timezone = $validated['timezone'];
+        if (isset($validated['theme_mode'])) $user->theme_mode = strtolower($validated['theme_mode']); // Normalize to lowercase
+        if (isset($validated['password'])) $user->password = Hash::make($validated['password']);
+        if (isset($validated['notification_settings'])) $user->notification_settings = json_decode($validated['notification_settings'], true);
+        if (isset($validated['security_settings'])) $user->security_settings = json_decode($validated['security_settings'], true);
+
+        $user->save();
+
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user' => $user->load(['roles', 'team', 'department', 'managedDepartment'])
+        ]);
+    }
+
+    /**
+     * Lightweight theme-only update so the frontend theme toggle can persist
+     * immediately without sending the full profile payload (name/email/etc).
+     */
+    public function updateTheme(Request $request)
+    {
+        $user = $request->user();
+        $context = [
+            'user_id' => $user?->id,
+            'tenant_id' => $user?->tenant_id,
+            'requested_theme_mode' => $request->input('theme_mode'),
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ];
+
+        try {
+            $validated = $request->validate([
+                'theme_mode' => ['required', 'string', 'in:light,dark,auto,Light,Dark,Auto'],
+            ]);
+        } catch (ValidationException $exception) {
+            Log::warning('Profile theme update validation failed', array_merge($context, [
+                'errors' => $exception->errors(),
+            ]));
+
+            throw $exception;
+        }
+
+        try {
+            $user->theme_mode = strtolower($validated['theme_mode']);
+            $user->save();
+
+            return response()->json([
+                'message' => 'Theme updated successfully',
+                'theme_mode' => $user->theme_mode,
+            ]);
+        } catch (\Throwable $exception) {
+            Log::error('Profile theme update failed', array_merge($context, [
+                'error' => $exception->getMessage(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+            ]));
+
+            throw $exception;
+        }
+    }
+
+    public function preferences(Request $request)
+    {
+        $validated = $request->validate([
+            'page' => ['required', 'string', 'max:100'],
+            'favorite_order' => ['required', 'array'],
+            'favorite_order.*' => ['string', 'max:100'],
+        ]);
+
+        $user = $request->user();
+        $meta = is_array($user->meta_data) ? $user->meta_data : [];
+        $uiPreferences = is_array($meta['ui_preferences'] ?? null) ? $meta['ui_preferences'] : [];
+
+        $uiPreferences[$validated['page']] = [
+            'favorite_order' => array_values(array_filter($validated['favorite_order'])),
+            'updated_at' => now()->toISOString(),
+        ];
+
+        $meta['ui_preferences'] = $uiPreferences;
+        $user->meta_data = $meta;
+        $user->save();
+
+        return response()->json([
+            'message' => 'Preferences saved successfully',
+            'user' => $user->load(['roles', 'team', 'department', 'managedDepartment']),
+        ]);
+    }
+
+    /**
+     * Get active sessions (devices).
+     */
+    public function sessions(Request $request)
+    {
+        $tokens = $request->user()->tokens()
+            ->select('id', 'name', 'ip_address', 'location', 'user_agent', 'last_used_at', 'created_at')
+            ->orderBy('last_used_at', 'desc')
+            ->get();
+
+        $currentPayload = $request->user()->currentAccessToken();
+        $currentId = $currentPayload ? $currentPayload->id : null;
+
+        $data = $tokens->map(function ($token) use ($currentId) {
+            return [
+                'id' => $token->id,
+                'ip_address' => $token->ip_address,
+                'location' => $token->location,
+                'user_agent' => $token->user_agent,
+                'last_used_at' => $token->last_used_at,
+                'created_at' => $token->created_at,
+                'is_current' => $token->id === $currentId,
+            ];
+        });
+
+        return response()->json($data);
+    }
+
+    /**
+     * Revoke a specific session (device).
+     */
+    public function revokeSession(Request $request, $id)
+    {
+        $request->user()->tokens()->where('id', $id)->delete();
+        return response()->json(['message' => 'Session revoked successfully']);
+    }
+}

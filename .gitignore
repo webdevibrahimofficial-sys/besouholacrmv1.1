@@ -1,0 +1,50 @@
+# Root ignores (monorepo)
+
+# Temp working files
+.tmp/
+.codex/
+*.tgz
+*.tar.gz
+frontend-dist-*.zip
+*github-known-hosts
+docs/import-tests/~$*.xlsx
+*.err.log
+*.out.log
+
+# Frontend build output (Vite)
+frontend/dist/
+frontend/.vite/
+
+# Extracted artifacts from uploaded dist.zip (do not commit)
+monorepo/New directory/
+monorepo/dist.zip
+dist_compare_modules_report.txt
+dist_vs_src_modules_sources_report.txt
+
+# Backend runtime artifacts (Laravel)
+api/storage/framework/cache/
+api/storage/framework/sessions/
+api/storage/framework/testing/
+api/storage/framework/views/
+api/storage/logs/
+
+# Dependencies
+**/node_modules/
+
+# Environment files
+**/.env
+**/.env.local
+**/.env.development
+**/.env.development.local
+**/.env.production
+**/.env.production.local
+
+# Public website workspace
+website/dist/
+website/apps/web/vite-dev.log
+website/apps/web/vite-dev.err.log
+website/apps/web/deploy-dist/
+website/*.log
+
+api/storage/app/tenants/
+api/storage/app/public/

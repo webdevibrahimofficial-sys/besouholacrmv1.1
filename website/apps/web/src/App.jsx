@@ -1,0 +1,34 @@
+import React from 'react';
+import { Routes, Route, useLocation } from 'react-router-dom';
+import Layout from '@/components/Layout';
+import Home from '@/pages/Home';
+import Contact from '@/pages/Contact';
+import Career from '@/pages/Career';
+import CareerRole from '@/pages/CareerRole';
+import Project from '@/pages/Project';
+import Privacy from '@/pages/Privacy';
+import Terms from '@/pages/Terms';
+import DataProcessingSecurity from '@/pages/DataProcessingSecurity';
+import { AnimatePresence } from 'framer-motion';
+
+function App() {
+  const location = useLocation();
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Home />} />
+          <Route path="career" element={<Career />} />
+          <Route path="career/:jobSlug" element={<CareerRole />} />
+          <Route path="contact" element={<Contact />} />
+          <Route path="privacy" element={<Privacy />} />
+          <Route path="terms" element={<Terms />} />
+          <Route path="data-processing-security" element={<DataProcessingSecurity />} />
+          <Route path="project/:projectId" element={<Project />} />
+        </Route>
+      </Routes>
+    </AnimatePresence>
+  );
+}
+
+export default App;
