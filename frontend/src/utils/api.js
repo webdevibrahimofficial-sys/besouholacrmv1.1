@@ -1,6 +1,17 @@
 import axios from 'axios'
 
-const apiDebugEnabled = String(import.meta.env.VITE_API_DEBUG || 'false').toLowerCase() === 'true'
+const envApiDebugEnabled = String(import.meta.env.VITE_API_DEBUG || 'false').toLowerCase() === 'true'
+
+const isApiDebugEnabled = () => {
+  if (envApiDebugEnabled) return true
+
+  try {
+    if (typeof window === 'undefined') return false
+    return String(window.localStorage.getItem('debug:api') || 'false').toLowerCase() === 'true'
+  } catch {
+    return false
+  }
+}
 
 const resolveTenantSlugFromHost = () => {
   if (typeof window === 'undefined') return null
@@ -241,7 +252,7 @@ api.interceptors.request.use((config) => {
     }
   }
 
-  if (apiDebugEnabled) {
+  if (isApiDebugEnabled()) {
     const fullUrl = buildAxiosLikeUrl(config.baseURL, config.url)
     console.info('API REQUEST', {
       url: fullUrl,
@@ -306,7 +317,7 @@ api.interceptors.response.use(
       }
     }
 
-    if (apiDebugEnabled && !shouldSuppressDebugError) {
+    if (isApiDebugEnabled() && !shouldSuppressDebugError) {
       console.warn('API ERROR', {
         url: err?.config?.url,
         method: err?.config?.method,

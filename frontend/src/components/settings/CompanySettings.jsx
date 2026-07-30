@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { useAppState } from '../../shared/context/AppStateProvider'
 import { api } from '@utils/api'
+import { normalizeTenantAssetUrl } from '@shared/utils/tenantCompanyProfile'
 import { Calendar, TrendingUp, Info, MapPin, Target, Upload, Building, Activity, Globe, FileText, CreditCard, Clock, Lock, Phone, Hash } from 'lucide-react'
 
 const normalizeCompanyType = (...values) => {
@@ -182,7 +183,7 @@ export default function CompanySettings() {
           endDate: tenant.end_date || '',
           status: tenant.status || '',
           logo: '',
-          logoPreview: profile.logo_url || '',
+          logoPreview: normalizeTenantAssetUrl(profile.logo_url || tenant.logo_url),
           country: tenant.country || '',
           city: tenant.city || '',
           state: tenant.state || '',
@@ -298,7 +299,7 @@ export default function CompanySettings() {
         taxId: profile.tax_id || '',
         websiteUrl: tenant.website_url || profile.website_url || normalizedWebsiteUrl,
         logo: '',
-        logoPreview: profile.logo_url || logoPreview,
+        logoPreview: normalizeTenantAssetUrl(profile.logo_url || tenant.logo_url) || logoPreview,
         country: tenant.country || '',
         city: tenant.city || '',
         state: tenant.state || '',
@@ -316,7 +317,9 @@ export default function CompanySettings() {
       setSavedValues(currentValues)
       setName(currentValues.name)
       setLogo('') // Clear file input
-      if (profile.logo_url) setLogoPreview(profile.logo_url)
+      if (profile.logo_url || tenant.logo_url) {
+        setLogoPreview(normalizeTenantAssetUrl(profile.logo_url || tenant.logo_url))
+      }
       isDirtyRef.current = false
 
       await fetchCompanyInfo()

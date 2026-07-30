@@ -101,7 +101,15 @@ try {
 const queryClient = new QueryClient()
 const APP_BUILD_ID = '2026-06-16-fix-login-bundle'
 
-console.log('CRM App Initialized - Version: ' + new Date().toISOString(), APP_BUILD_ID)
+try {
+  const appDebugEnabled =
+    String(import.meta.env.VITE_APP_DEBUG || 'false').toLowerCase() === 'true' ||
+    String(window?.localStorage?.getItem('debug:app') || 'false').toLowerCase() === 'true'
+
+  if (appDebugEnabled) {
+    console.info('CRM App Initialized - Version: ' + new Date().toISOString(), APP_BUILD_ID)
+  }
+} catch {}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

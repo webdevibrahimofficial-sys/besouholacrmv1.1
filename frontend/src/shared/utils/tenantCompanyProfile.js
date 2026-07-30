@@ -1,3 +1,33 @@
+export const normalizeTenantAssetUrl = (rawValue) => {
+  const value = String(rawValue || '').trim()
+  if (!value) return ''
+
+  if (typeof window === 'undefined') return value
+
+  const origin = String(window.location.origin || '').replace(/\/+$/, '')
+
+  if (value.startsWith('/storage/')) {
+    return `${origin}${value}`
+  }
+
+  if (value.startsWith('storage/')) {
+    return `${origin}/${value.replace(/^\/+/, '')}`
+  }
+
+  try {
+    const parsed = new URL(value, origin)
+    const host = String(parsed.hostname || '').toLowerCase()
+
+    if ((host === 'web' || host === 'api' || host.endsWith('.internal')) && parsed.pathname.startsWith('/storage/')) {
+      return `${origin}${parsed.pathname}`
+    }
+
+    return parsed.toString()
+  } catch {
+    return value
+  }
+}
+
 export function extractTenantCompanyProfile(rawTenant) {
   const tenant = rawTenant || {}
   const profile = tenant.profile || {}
@@ -12,7 +42,7 @@ export function extractTenantCompanyProfile(rawTenant) {
   return {
     name: String(tenant.name || tenant.company_name || '').trim(),
     description: String(profile.description || '').trim(),
-    logoUrl: String(profile.logo_url || tenant.logo_url || '').trim(),
+    logoUrl: normalizeTenantAssetUrl(profile.logo_url || tenant.logo_url),
     phone: String(profile.phone || tenant.phone || '').trim(),
     email: String(profile.email || metaData.email || tenant.email || '').trim(),
     taxId: String(profile.tax_id || tenant.tax_id || '').trim(),

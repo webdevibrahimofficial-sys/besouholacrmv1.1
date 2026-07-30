@@ -25,6 +25,11 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, '/api'),
       },
+      '/storage': {
+        target: proxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
     },
     // hmr: {
     //     host: 'crm.test'
