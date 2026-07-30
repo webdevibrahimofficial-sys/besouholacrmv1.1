@@ -107,22 +107,30 @@ class TenantService
     {
         $companyType = $tenant->company_type ?? 'General';
         $modules = $this->getModulesForPlan($plan, $companyType);
-        
-        if ($plan === 'custom' && !empty($customModules)) {
-             // Merge common modules with custom selected modules
-             $common = ['reports', 'settings'];
-             
-             // Expand 'inventory' in custom modules if present
-             $expandedCustom = [];
-             foreach ($customModules as $m) {
-                 if ($m === 'inventory') {
-                     $expandedCustom = array_merge($expandedCustom, $this->getInventoryModules($tenant->company_type));
-                 } else {
-                     $expandedCustom[] = $m;
-                 }
-             }
-             
-             $modules = array_unique(array_merge($common, $expandedCustom));
+
+        if ($plan === 'custom') {
+            if (empty($customModules)) {
+                $meta = is_array($tenant->meta_data) ? $tenant->meta_data : [];
+                $storedCustomModules = $meta['subscription']['custom_modules'] ?? [];
+                $customModules = is_array($storedCustomModules) ? $storedCustomModules : [];
+            }
+
+            if (!empty($customModules)) {
+                // Merge common modules with custom selected modules
+                $common = ['reports', 'settings'];
+
+                // Expand 'inventory' in custom modules if present
+                $expandedCustom = [];
+                foreach ($customModules as $m) {
+                    if ($m === 'inventory') {
+                        $expandedCustom = array_merge($expandedCustom, $this->getInventoryModules($tenant->company_type));
+                    } else {
+                        $expandedCustom[] = $m;
+                    }
+                }
+
+                $modules = array_unique(array_merge($common, $expandedCustom));
+            }
         }
 
         if (empty($modules)) {

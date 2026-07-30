@@ -551,9 +551,13 @@ class SuperAdminController extends Controller
         }
 
         $plan = $request->input('subscription_plan', $tenant->subscription_plan);
-        if ($plan) {
+        $shouldSyncModules = $request->has('modules')
+            || $request->filled('subscription_plan')
+            || $request->filled('company_type');
+
+        if ($plan && $shouldSyncModules) {
             $modules = $request->input('modules', []);
-            $this->tenantService->syncTenantModules($tenant, $plan, $modules);
+            $this->tenantService->syncTenantModules($tenant, $plan, is_array($modules) ? $modules : []);
         }
 
         if ($owner) {
