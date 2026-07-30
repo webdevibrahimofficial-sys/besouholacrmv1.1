@@ -144,6 +144,53 @@ class LeadActionController extends Controller
         return $leadAction;
     }
 
+    private function normalizeOpenActionStatus($status): string
+    {
+        $normalized = strtolower(trim((string) $status));
+
+        return match ($normalized) {
+            'in-progress', 'in progress' => 'in_progress',
+            default => $normalized,
+        };
+    }
+
+    private function supersedeOpenLeadActions(int $leadId, int $currentActionId): void
+    {
+        $openStatuses = ['pending', 'in_progress', 'in-progress', 'in progress'];
+
+        $openActions = LeadAction::query()
+            ->where('lead_id', $leadId)
+            ->where('id', '!=', $currentActionId)
+            ->whereIn('details->status', $openStatuses)
+            ->get();
+
+        foreach ($openActions as $openAction) {
+            $details = is_array($openAction->details)
+                ? $openAction->details
+                : (json_decode($openAction->details, true) ?? []);
+
+            if ($details === []) {
+                $details = [];
+            }
+
+            $previousStatus = $this->normalizeOpenActionStatus($details['status'] ?? '');
+            if (!in_array($previousStatus, ['pending', 'in_progress'], true)) {
+                continue;
+            }
+
+            $details['status'] = 'superseded';
+            $details['action_state'] = 'superseded';
+            $details['completion_note'] = 'Superseded by new action #' . $currentActionId;
+            $details['superseded_at'] = now()->toDateTimeString();
+            $details['superseded_by_action_id'] = $currentActionId;
+            $details['superseded_previous_status'] = $previousStatus;
+            unset($details['delayed_notified']);
+
+            $openAction->details = $details;
+            $openAction->saveQuietly();
+        }
+    }
+
     private function isManagerLike($user): bool
     {
         if (!$user) return false;
@@ -1391,42 +1438,8 @@ class LeadActionController extends Controller
             }
         }
 
-        // --- Auto-resolve delayed actions ---
-        // When a new action is added, any *past* pending actions for this lead are considered handled/superseded.
-        // This removes the lead from the "Delayed Leads" list.
-        $now = now();
-        $pastPendingActions = LeadAction::where('lead_id', $request->lead_id)
-            ->where('id', '!=', $leadAction->id) // Exclude the new one
-            ->whereIn('details->status', ['pending', 'in_progress', 'in-progress', 'in progress'])
-            ->get();
-
-        foreach ($pastPendingActions as $ppa) {
-            $details = $ppa->details;
-            // Ensure details is array (due to casting)
-            if (!is_array($details)) {
-                // Fallback if casting fails or data is weird
-                $details = json_decode($details, true) ?? [];
-            }
-            
-            $date = $details['date'] ?? null;
-            $time = $details['time'] ?? '00:00';
-            
-            if ($date) {
-                try {
-                    // Combine date and time
-                    $scheduled = \Carbon\Carbon::parse("$date $time");
-                    if ($scheduled->lt($now)) {
-                        $details['status'] = 'superseded';
-                        $details['completion_note'] = 'Superseded by new action #' . $leadAction->id;
-                        $ppa->details = $details;
-                        $ppa->saveQuietly();
-                    }
-                } catch (\Exception $e) {
-                    // Ignore parsing errors
-                }
-            }
-        }
-        // ------------------------------------
+        // Any newly recorded action closes previously open follow-ups for the same lead.
+        $this->supersedeOpenLeadActions((int) $request->lead_id, (int) $leadAction->id);
 
         $lead = Lead::with(['creator'])->find($request->lead_id);
         if ($lead && $lead->assigned_to) {

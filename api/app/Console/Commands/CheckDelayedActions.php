@@ -17,6 +17,48 @@ class CheckDelayedActions extends Command
 
     use ResolvesNotificationRecipients;
 
+    private function normalizeOpenStatus($status): string
+    {
+        $normalized = strtolower(trim((string) $status));
+
+        return match ($normalized) {
+            'in-progress', 'in progress' => 'in_progress',
+            default => $normalized,
+        };
+    }
+
+    private function shouldSkipBecauseLeadMovedOn(LeadAction $action): bool
+    {
+        $latestAction = LeadAction::query()
+            ->withoutGlobalScope('tenant')
+            ->where('lead_id', $action->lead_id)
+            ->orderByDesc('id')
+            ->first(['id', 'action_type', 'next_action_type', 'details']);
+
+        if (!$latestAction) {
+            return false;
+        }
+
+        if ((int) $latestAction->id !== (int) $action->id) {
+            return true;
+        }
+
+        $latestDetails = is_array($latestAction->details)
+            ? $latestAction->details
+            : (json_decode($latestAction->details, true) ?? []);
+
+        $latestStatus = $this->normalizeOpenStatus($latestDetails['status'] ?? '');
+        if (!in_array($latestStatus, ['pending', 'in_progress'], true)) {
+            return true;
+        }
+
+        $latestActionType = strtolower(trim((string) ($latestAction->action_type ?? '')));
+        $latestNextActionType = strtolower(trim((string) ($latestAction->next_action_type ?? '')));
+
+        return in_array($latestActionType, ['cancel', 'closing_deals'], true)
+            || in_array($latestNextActionType, ['cancel', 'closing_deals'], true);
+    }
+
     public function handle()
     {
         $now = Carbon::now(config('app.timezone'));
@@ -40,6 +82,10 @@ class CheckDelayedActions extends Command
             $details = $action->details;
             if (isset($details['delayed_notified']) && $details['delayed_notified']) {
                 // $this->info("Action {$action->id} already notified.");
+                continue;
+            }
+
+            if ($this->shouldSkipBecauseLeadMovedOn($action)) {
                 continue;
             }
 
