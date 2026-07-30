@@ -5,328 +5,490 @@ import { FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { extractTenantCompanyProfile } from '@shared/utils/tenantCompanyProfile'
 
-const SalesInvoicePreviewModal = ({ isOpen, onClose, invoice }) => {
-  const { t, i18n } = useTranslation()
+const statusToneMap = {
+  Draft: 'bg-sky-100 text-sky-800 border-sky-200',
+  Posted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  Cancelled: 'bg-rose-100 text-rose-800 border-rose-200',
+}
+
+const paymentToneMap = {
+  Unpaid: 'bg-slate-100 text-slate-700 border-slate-200',
+  Partial: 'bg-sky-100 text-sky-800 border-sky-200',
+  Paid: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+}
+
+function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
+  const { i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
-  const { company } = useAppState()
+  const { company, crmSettings } = useAppState()
   const printRef = useRef()
+  const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
 
   const companyInfo = useMemo(() => extractTenantCompanyProfile(company), [company])
 
+  const normalizedInvoice = useMemo(() => {
+    if (!invoice) return null
+
+    const items = Array.isArray(invoice.items) ? invoice.items : []
+    const total = Number(invoice.total || 0)
+    const subtotal = Number(invoice.subtotal ?? total)
+    const discount = Number(invoice.discountAmount ?? invoice.discount ?? 0)
+    const tax = Number(invoice.tax ?? 0)
+    const paidAmount = Number(invoice.paidAmount ?? invoice.paid_amount ?? 0)
+    const advanceAppliedAmount = Number(invoice.advanceAppliedAmount ?? invoice.advance_applied_amount ?? 0)
+    const balanceDue = Number(
+      invoice.balanceDue ?? invoice.balance_due ?? Math.max(0, total - paidAmount - advanceAppliedAmount)
+    )
+
+    return {
+      ...invoice,
+      items,
+      total,
+      subtotal,
+      discount,
+      tax,
+      paidAmount,
+      advanceAppliedAmount,
+      balanceDue: Math.max(0, balanceDue),
+      invoiceNumber: invoice.invoiceNumber || invoice.invoice_number || `INV-${invoice.id ?? 'NEW'}`,
+      issueDate: invoice.issueDate || invoice.issue_date || invoice.date || null,
+      dueDate: invoice.dueDate || invoice.due_date || null,
+      customerName: invoice.customerName || invoice.customer_name || (isRTL ? 'عميل غير محدد' : 'Unnamed customer'),
+      customerCode: invoice.customerCode || invoice.customer_code || '',
+      salesPerson: invoice.salesPerson || invoice.sales_person || '',
+      status: invoice.status || 'Draft',
+      paymentStatus: invoice.paymentStatus || invoice.payment_status || 'Unpaid',
+      invoiceType: invoice.invoiceType || invoice.invoice_type || 'Full',
+      paymentMethod: invoice.paymentMethod || invoice.payment_method || '',
+      paymentTerms: invoice.paymentTerms || invoice.payment_terms || '',
+      currency: currencyCode,
+      notes: invoice.notes || '',
+      orderReference: invoice.orderUuid || invoice.order?.uuid || invoice.orderId || invoice.order_id || '',
+    }
+  }, [currencyCode, invoice, isRTL])
+
   const handlePrint = useReactToPrint({
     contentRef: printRef,
-    documentTitle: `Invoice-${invoice?.id || 'New'}`,
-    onAfterPrint: () => console.log('Printed successfully'),
-    onPrintError: (error) => console.error('Print failed:', error),
+    documentTitle: `Invoice-${normalizedInvoice?.invoiceNumber || normalizedInvoice?.id || 'New'}`,
   })
 
-  if (!isOpen || !invoice) return null
-
   const formatDate = (dateString) => {
-    if (!dateString) return ''
-    return new Date(dateString).toLocaleDateString(isRTL ? 'ar-EG' : 'en-US', {
+    if (!dateString) return isRTL ? 'غير محدد' : 'Not set'
+    const date = new Date(dateString)
+    if (Number.isNaN(date.getTime())) return dateString
+    return date.toLocaleDateString(isRTL ? 'ar-EG' : 'en-US', {
       year: 'numeric',
-      month: 'long',
-      day: 'numeric'
+      month: 'short',
+      day: 'numeric',
     })
   }
 
-  // Helper to handle quantity field inconsistency (qty vs quantity)
-  const getItemQuantity = (item) => item.quantity || item.qty || 0
+  const formatMoney = (value, currency = normalizedInvoice?.currency || currencyCode) => {
+    const amount = Number(value || 0)
+    const locale = isRTL ? 'ar-EG' : 'en-US'
+    try {
+      return new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount)
+    } catch {
+      return `${amount.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
+    }
+  }
 
-  const totalAmount = Number(invoice?.total || 0)
-  const paidAmount = Number(invoice?.paidAmount ?? invoice?.paid_amount ?? 0) || 0
-  const advanceAppliedAmount = Number(invoice?.advanceAppliedAmount ?? invoice?.advance_applied_amount ?? 0) || 0
-  const balanceDueAmount = Number(
-    invoice?.balanceDue ?? invoice?.balance_due ?? (totalAmount - paidAmount - advanceAppliedAmount)
-  )
+  const getItemQuantity = (item) => Number(item.quantity || item.qty || 0)
+
+  const getItemDescription = (item) => {
+    const parts = [
+      String(item.name || item.title || item.description || '').trim(),
+      String(item.type || '').trim(),
+      String(item.category || '').trim(),
+    ].filter(Boolean)
+
+    if (!parts.length) return isRTL ? 'بند بدون وصف' : 'Unlabeled item'
+    return parts[0]
+  }
+
+  const getItemMeta = (item) => {
+    return [String(item.type || '').trim(), String(item.category || '').trim()].filter(Boolean).join(' • ')
+  }
+
+  const formatItemMeta = (item) => {
+    const meta = [String(item.type || '').trim(), String(item.category || '').trim()].filter(Boolean)
+    return meta.length ? `(${meta.join(', ')})` : ''
+  }
+
+  if (!isOpen || !normalizedInvoice) return null
+
+  const statusTone = statusToneMap[normalizedInvoice.status] || 'bg-slate-100 text-slate-700 border-slate-200'
+  const paymentTone = paymentToneMap[normalizedInvoice.paymentStatus] || 'bg-slate-100 text-slate-700 border-slate-200'
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-      {/* Print-specific styles */}
       <style>{`
         @media print {
           @page { size: A4; margin: 0; }
           body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .no-print { display: none !important; }
-          .print-page { 
-            width: 210mm; 
-            min-height: 297mm; 
-            padding: 15mm; 
-            margin: 0 auto; 
-            background: white !important; 
-            color: black !important;
+          .invoice-print-shell {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            padding: 0;
             box-shadow: none !important;
-            border: none !important;
+            background: white !important;
           }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #000; padding: 6px 8px; font-size: 12px; }
-          thead th { background-color: #f2f2f2 !important; color: black !important; font-weight: bold; }
-          .page-break { page-break-before: always; }
-          tr { page-break-inside: avoid; }
-          
-          /* Reset modal positioning for print */
-          .fixed { position: static !important; inset: auto !important; height: auto !important; width: auto !important; background: none !important; }
-          .overflow-auto { overflow: visible !important; }
-          
-          /* Force text color */
-          * { color: black !important; text-shadow: none !important; }
-          
-          /* Hide standard modal chrome */
+          .invoice-print-page {
+            min-height: 297mm;
+            padding: 14mm 14mm 28mm;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+          .print-footer {
+            position: fixed;
+            left: 14mm;
+            right: 14mm;
+            bottom: 10mm;
+            background: white !important;
+          }
+          .fixed { position: static !important; inset: auto !important; background: transparent !important; }
           .modal-chrome { display: none !important; }
+          .print-scroll-reset { overflow: visible !important; padding: 0 !important; background: white !important; }
+          .invoice-print-page .overflow-x-auto {
+            overflow: visible !important;
+          }
+          .invoice-print-page table {
+            min-width: 0 !important;
+            width: 100% !important;
+            table-layout: fixed;
+          }
+          .invoice-print-page th,
+          .invoice-print-page td {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+          }
+          .avoid-page-break {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
         }
       `}</style>
 
-      {/* Backdrop - Hidden on print */}
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity no-print" 
-        onClick={onClose} 
-      />
+      <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm no-print" onClick={onClose} />
 
-      {/* Modal Content */}
-      <div className="relative z-[110] bg-white dark:bg-gray-900 rounded-xl w-full max-w-4xl h-[90vh] flex flex-col shadow-2xl overflow-hidden print:shadow-none print:h-auto print:w-auto print:bg-white print:max-w-none print:rounded-none print:overflow-visible">
-        
-        {/* Header Actions - Hidden on print */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 no-print modal-chrome">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-            {isRTL ? 'معاينة الفاتورة' : 'Invoice Preview'}
-          </h2>
+      <div className="relative z-[110] flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl print:h-auto print:max-w-none print:rounded-none print:border-0 print:shadow-none">
+        <div className="modal-chrome no-print flex items-center justify-between border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">{isRTL ? 'معاينة الفاتورة' : 'Invoice Preview'}</h2>
+            <p className="text-sm text-slate-500">
+              {normalizedInvoice.invoiceNumber} • {normalizedInvoice.customerName}
+            </p>
+          </div>
+
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium"
+              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
             >
               <FaPrint />
-              <span>{isRTL ? 'طباعة' : 'Print'}</span>
+              <span>{isRTL ? 'طباعة / PDF' : 'Print / PDF'}</span>
             </button>
-            <button 
+            <button
               onClick={onClose}
-              className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
             >
-              <FaTimes size={20} />
+              <FaTimes />
             </button>
           </div>
         </div>
-       
-        {/* Scrollable Preview Area */}
-        <div className="flex-1 overflow-auto bg-gray-100 dark:bg-gray-950 p-3 sm:p-6 print:p-0 print:bg-white print:overflow-visible">
-          
-          {/* Print Content Container (A4 Visual) */}
-          <div ref={printRef} className="print-page bg-white text-black mx-auto shadow-lg max-w-[210mm] min-h-[297mm] p-4 sm:p-8 md:p-12 print:shadow-none print:mx-0 print:w-full print:max-w-none relative flex flex-col">
-            
-            {/* 1. Header Section */}
-            <div className="flex flex-wrap sm:flex-row sm:justify-between gap-6 border-b-2 border-black pb-6 mb-8">
-              <div className="flex-1">
-                 <div className="flex items-center gap-4 mb-4">
-                    <div className="w-16 h-16 bg-gray-200 border border-black flex items-center justify-center text-xs font-bold text-black overflow-hidden">
-                      {companyInfo.logoUrl ? (
-                        <img src={companyInfo.logoUrl} alt={companyInfo.name || 'Logo'} className="w-full h-full object-contain" />
-                      ) : (
-                        'LOGO'
-                      )}
+
+        <div className="print-scroll-reset flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#fff7ed,_#f8fafc_38%,_#e2e8f0_100%)] p-4 sm:p-6">
+          <div ref={printRef} className="invoice-print-shell mx-auto max-w-[210mm]">
+            <div className="invoice-print-page relative overflow-hidden rounded-[32px] bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)]">
+              <div className="relative overflow-hidden border border-slate-200/70 bg-[linear-gradient(90deg,#dbeafe_0%,#3b82f6_42%,#0f172a_100%)] px-8 pb-0 pt-4 text-white avoid-page-break">
+                <div className={`absolute top-6 h-24 w-24 rounded-full bg-white/10 blur-2xl ${isRTL ? 'left-8' : 'right-8'}`} />
+                <div className={`absolute bottom-4 h-20 w-20 rounded-full bg-sky-300/20 blur-2xl ${isRTL ? 'right-12' : 'left-12'}`} />
+
+                <div className="relative">
+                  <div className="flex items-start justify-between gap-6">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 min-w-[84px] items-center justify-center overflow-hidden">
+                        {companyInfo.logoUrl ? (
+                          <img src={companyInfo.logoUrl} alt={companyInfo.name || 'Logo'} className="max-h-10 w-auto max-w-full object-contain" />
+                        ) : (
+                          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                            {companyInfo.name?.slice(0, 3) || 'CRM'}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 [text-shadow:0_1px_0_rgba(255,255,255,0.22)]">
+                          {companyInfo.name || (isRTL ? 'اسم الشركة' : 'Company Name')}
+                        </h1>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs font-semibold">
+                          <div>
+                            <span className="hidden uppercase tracking-[0.24em] text-slate-700/70">
+                              {isRTL ? 'ÙØ§ØªÙˆØ±Ø©' : 'Invoice'}
+                            </span>
+                            <span className="text-slate-950">{normalizedInvoice.invoiceNumber}</span>
+                          </div>
+                          <div>
+                            <span className="hidden uppercase tracking-[0.24em] text-slate-700/70">
+                              {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥ØµØ¯Ø§Ø±' : 'Issue Date'}
+                            </span>
+                            <span className="text-slate-800/90">{formatDate(normalizedInvoice.issueDate)}</span>
+                          </div>
+                          <div className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${paymentTone}`}>
+                            {normalizedInvoice.paymentStatus}
+                          </div>
+                        </div>
+                        {companyInfo.description ? (
+                          <p className="mt-0.5 max-w-xl text-xs text-slate-700/90">{companyInfo.description}</p>
+                        ) : null}
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-2xl font-bold uppercase tracking-wide text-black">{companyInfo.name || (isRTL ? 'الشركة' : 'Company')}</h2>
-                      {companyInfo.description ? (
-                        <p className="text-sm text-gray-800">{companyInfo.description}</p>
+
+                    <div className="min-w-[260px] space-y-1 text-right text-sm text-white">
+                      {companyInfo.addressLine1 ? <div className="hidden font-medium text-white/95">{companyInfo.addressLine1}</div> : null}
+                      {(companyInfo.country || companyInfo.city) ? (
+                        <div className="hidden text-[12px] font-medium text-white/85">
+                          {[companyInfo.country, companyInfo.city].filter(Boolean).join(', ')}
+                        </div>
+                      ) : null}
+                      {companyInfo.phone ? <div className="text-[13px] font-semibold text-white">{isRTL ? `${companyInfo.phone} :الهاتف` : `Phone: ${companyInfo.phone}`}</div> : null}
+                      {companyInfo.taxId ? <div className="text-[13px] font-semibold text-white">{isRTL ? `${companyInfo.taxId} :الرقم الضريبي` : `Tax ID: ${companyInfo.taxId}`}</div> : null}
+                      {(companyInfo.addressLine1 || companyInfo.country || companyInfo.city) ? (
+                        <div className="text-[12px] font-medium text-white/85">
+                          {[companyInfo.addressLine1, companyInfo.country, companyInfo.city].filter(Boolean).join(', ')}
+                        </div>
                       ) : null}
                     </div>
-                 </div>
-                 <div className="text-sm space-y-1 text-gray-800">
-                   {companyInfo.addrLines.map((line, idx) => (
-                     <p key={idx}>{line}</p>
-                   ))}
-                   {companyInfo.cityLine ? <p>{companyInfo.cityLine}</p> : null}
-                   {companyInfo.phone ? <p>{isRTL ? 'هاتف:' : 'Phone:'} {companyInfo.phone}</p> : null}
-                   {companyInfo.email ? <p>{isRTL ? 'البريد:' : 'Email:'} {companyInfo.email}</p> : null}
-                   {companyInfo.taxId ? <p>{isRTL ? 'الرقم الضريبي:' : 'Tax ID:'} {companyInfo.taxId}</p> : null}
-                 </div>
+                  </div>
+
+                  <div className="hidden mt-2 rounded-[20px] border border-white/55 bg-white/92 px-4 py-3 text-slate-950 shadow-[0_10px_25px_rgba(15,23,42,0.12)] backdrop-blur-sm">
+                    <div className="grid grid-cols-[minmax(110px,1.1fr)_minmax(95px,1fr)_minmax(95px,1fr)_minmax(80px,0.8fr)_minmax(85px,0.85fr)_auto] items-end gap-x-4 text-sm">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">
+                          {isRTL ? 'فاتورة' : 'Invoice'}
+                        </div>
+                        <div className="mt-0.5 text-base font-semibold leading-none text-slate-950">{normalizedInvoice.invoiceNumber}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] uppercase tracking-[0.14em] text-slate-600">{isRTL ? 'تاريخ الإصدار' : 'Issue Date'}</div>
+                        <div className="mt-0.5 font-semibold text-slate-950">{formatDate(normalizedInvoice.issueDate)}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] uppercase tracking-[0.14em] text-slate-600">{isRTL ? 'تاريخ الاستحقاق' : 'Due Date'}</div>
+                        <div className="mt-0.5 font-semibold text-slate-950">{formatDate(normalizedInvoice.dueDate)}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] uppercase tracking-[0.14em] text-slate-600">{isRTL ? 'نوع الفاتورة' : 'Invoice Type'}</div>
+                        <div className="mt-0.5 font-semibold text-slate-950">{normalizedInvoice.invoiceType}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] uppercase tracking-[0.14em] text-slate-600">{isRTL ? 'طريقة الدفع' : 'Payment Method'}</div>
+                        <div className="mt-0.5 font-semibold text-slate-950">{normalizedInvoice.paymentMethod || '-'}</div>
+                      </div>
+                      <div className="flex min-w-fit items-center justify-end self-center ps-2">
+                        <div className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${paymentTone}`}>
+                          {normalizedInvoice.paymentStatus}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-5 border-t border-white/25" />
+                </div>
               </div>
 
-              <div className="w-full sm:w-64 sm:shrink-0">
-                <div className="border border-black p-4 bg-gray-50 print:bg-transparent">
-                  <h3 className="text-lg font-bold border-b border-black mb-2 pb-1 text-center bg-gray-200 print:bg-transparent text-black">
-                    {isRTL ? 'فاتورة ضريبية' : 'TAX INVOICE'}
-                  </h3>
-                  <div className="space-y-2 text-sm text-black">
-                    <div className="flex justify-between">
-                      <span className="font-bold">{isRTL ? 'رقم الفاتورة:' : 'Invoice #:'}</span>
-                      <span>{invoice.invoiceNumber || invoice.invoice_number || invoice.invoiceNumber === 0 ? invoice.invoiceNumber : (invoice.invoice_number || `INV-${invoice.id}`)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-bold">{isRTL ? 'التاريخ:' : 'Date:'}</span>
-                      <span>{formatDate(invoice.issueDate || invoice.issue_date || invoice.date)}</span>
-                    </div>
-                    {invoice.dueDate && (
-                      <div className="flex justify-between">
-                        <span className="font-bold">{isRTL ? 'الاستحقاق:' : 'Due Date:'}</span>
-                        <span>{formatDate(invoice.dueDate)}</span>
+              <div className="hidden border-b border-slate-200/80 px-8 py-3 avoid-page-break">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-slate-200 bg-white px-5 py-3">
+                  <div className="flex items-center gap-8 text-sm">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        {isRTL ? 'ÙØ§ØªÙˆØ±Ø©' : 'Invoice'}
                       </div>
-                    )}
-                    <div className="flex justify-between">
-                       <span className="font-bold">{isRTL ? 'الحالة:' : 'Status:'}</span>
-                       <span className="uppercase">{invoice.status}</span>
+                      <div className="mt-0.5 text-base font-semibold leading-none text-slate-950">{normalizedInvoice.invoiceNumber}</div>
                     </div>
-                    <div className="flex justify-between">
-                       <span className="font-bold">{isRTL ? 'نوع الفاتورة:' : 'Invoice Type:'}</span>
-                       <span>{invoice.invoiceType || 'Full'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                       <span className="font-bold">{isRTL ? 'طريقة الدفع:' : 'Payment Method:'}</span>
-                       <span>{invoice.paymentMethod || invoice.paymentType || '-'}</span>
-                    </div>
-                    {invoice.paymentTerms && (
-                      <div className="flex justify-between">
-                         <span className="font-bold">{isRTL ? 'شروط الدفع:' : 'Payment Terms:'}</span>
-                         <span>{invoice.paymentTerms}</span>
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥ØµØ¯Ø§Ø±' : 'Issue Date'}
                       </div>
-                    )}
+                      <div className="mt-0.5 font-semibold text-slate-950">{formatDate(normalizedInvoice.issueDate)}</div>
+                    </div>
+                  </div>
+                  <div className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${paymentTone}`}>
+                    {normalizedInvoice.paymentStatus}
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* 2. Bill To / Ship To Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 mb-8">
-              <div className="border border-black p-4">
-                 <h3 className="font-bold border-b border-black mb-3 pb-1 bg-gray-100 print:bg-transparent px-2 text-black">
-                   {isRTL ? 'بيانات العميل' : 'Bill To'}
-                 </h3>
-                 <div className="text-sm px-2 space-y-1 text-black">
-                   <p className="font-bold text-lg">{invoice.customerName}</p>
-                   <p>Code: {invoice.customerCode}</p>
-                   <p>Address Line 1</p>
-                   <p>City, State, Zip</p>
-                   <p>Phone: +1 234 567 890</p>
-                 </div>
-              </div>
-              <div className="border border-black p-4">
-                 <h3 className="font-bold border-b border-black mb-3 pb-1 bg-gray-100 print:bg-transparent px-2 text-black">
-                   {isRTL ? 'عنوان الشحن' : 'Ship To'}
-                 </h3>
-                 <div className="text-sm px-2 space-y-1 text-black">
-                   <p className="font-bold text-lg">{invoice.customerName}</p>
-                   <p>Shipping Address Line 1</p>
-                   <p>City, State, Zip</p>
-                   <p>Contact Person</p>
-                 </div>
-              </div>
-            </div>
-
-            {/* 3. Items Table */}
-            <div className="mb-8 overflow-x-auto print:overflow-visible">
-              <table className="w-full min-w-[720px] print:min-w-0 text-xs sm:text-sm border-collapse border border-black">
-                <thead>
-                  <tr className="bg-gray-100 print:bg-gray-100">
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-12 whitespace-nowrap text-black">#</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-left rtl:text-right min-w-[220px] text-black">{isRTL ? 'الوصف' : 'Description'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-20 whitespace-nowrap text-black">{isRTL ? 'الكمية' : 'Qty'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-32 whitespace-nowrap text-black">{isRTL ? 'سعر الوحدة' : 'Unit Price'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-32 whitespace-nowrap text-black">{isRTL ? 'الإجمالي' : 'Total'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoice.items && invoice.items.length > 0 ? (
-                    invoice.items.map((item, index) => {
-                      const qty = getItemQuantity(item)
-                      const price = Number(item.price || 0)
-                      // Handle both item-level discount and proportional global discount if needed
-                      // For now, we display the row total as (qty * price) - item.discount
-                      const itemDiscount = Number(item.discount || 0)
-                      const total = (qty * price) - itemDiscount
-                      
-                      return (
-                        <tr key={index} className="print:bg-transparent">
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{index + 1}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-black">
-                            <div className="font-bold">{item.name}</div>
-                            <div className="text-xs text-gray-600 print:text-black">{item.type} - {item.category}</div>
-                          </td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{qty}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap text-black">{price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap font-bold text-black">{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                        </tr>
-                      )
-                    })
-                  ) : (
-                     <tr><td colSpan="5" className="border border-black p-4 text-center italic text-black">No Items</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* 4. Totals & Notes Section */}
-            <div className="flex flex-col md:flex-row gap-8 mb-12 ">
-               {/* Left: Notes */}
-               <div className="flex-1">
-                  {invoice.notes && (
-                    <div className="border border-black p-3 mb-4 h-full">
-                      <h4 className="font-bold text-sm mb-2 underline text-black">{isRTL ? 'ملاحظات' : 'Notes / Terms'}:</h4>
-                      <p className="text-sm whitespace-pre-line text-black">{invoice.notes}</p>
+              <div className="px-8 pb-4 pt-5 avoid-page-break">
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50/70 px-5 py-3">
+                  <div className="flex flex-wrap items-start gap-x-8 gap-y-3 text-sm">
+                    <div className="min-w-[220px] flex-1">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                        {isRTL ? 'بيانات العميل' : 'Bill To'}
+                      </div>
+                      <div className="mt-1 text-xl font-semibold text-slate-900">{normalizedInvoice.customerName}</div>
                     </div>
-                  )}
-               </div>
+                    <div className="min-w-[120px]">
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'كود العميل' : 'Customer Code'}</div>
+                      <div className="mt-1 font-medium text-slate-800">{normalizedInvoice.customerCode || '-'}</div>
+                    </div>
+                    <div className="min-w-[150px]">
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'شروط السداد' : 'Payment Terms'}</div>
+                      <div className="mt-1 font-medium text-slate-800">{normalizedInvoice.paymentTerms || (isRTL ? 'غير محددة' : 'Not specified')}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-               {/* Right: Totals Box */}
-               <div className="w-full md:w-80">
-                  <div className="border border-black">
-                     <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                        <span className="font-medium">{isRTL ? 'المجموع الفرعي' : 'Subtotal'}</span>
-                        <span>{Number(invoice.subtotal || invoice.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
-                     <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                        <span className="font-medium">{isRTL ? 'قيمة الخصم' : 'Discount Value'}</span>
-                        <span>{Number(invoice.discountAmount || invoice.discount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
-                     <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                        <span className="font-medium">{isRTL ? 'الضريبة' : 'Tax'}</span>
-                        <span>{Number(invoice.tax || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
-                     <div className="flex justify-between px-4 py-2 bg-gray-200 print:bg-gray-200 text-base font-bold text-black border-b border-black">
-                        <span>{isRTL ? 'الإجمالي' : 'Total'}</span>
-                        <span>{Number(invoice.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
-                      <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                        <span className="font-medium">{isRTL ? 'المبلغ المدفوع' : 'Paid Amount'}</span>
-                        <span>{paidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <div className="px-8 pb-7 avoid-page-break">
+                <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50/55">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[700px] border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-white text-slate-700">
+                          <th className="px-4 py-4 text-start text-xs font-semibold uppercase tracking-[0.24em]">#</th>
+                          <th className="px-4 py-4 text-start text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الوصف' : 'Description'}
+                          </th>
+                          <th className="px-4 py-4 text-center text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الكمية' : 'Qty'}
+                          </th>
+                          <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'سعر الوحدة' : 'Unit Price'}
+                          </th>
+                          <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الخصم' : 'Discount'}
+                          </th>
+                          <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الإجمالي' : 'Line Total'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {normalizedInvoice.items.length ? (
+                          normalizedInvoice.items.map((item, index) => {
+                            const quantity = getItemQuantity(item)
+                            const unitPrice = Number(item.price || item.unit_price || item.unitPrice || 0)
+                            const discount = Number(item.discount || 0)
+                            const lineTotal = (quantity * unitPrice) - discount
+
+                            return (
+                              <tr key={`${item.id || item.name || 'item'}-${index}`} className="border-t border-slate-200 align-top">
+                                <td className="px-4 py-4 text-sm font-medium text-slate-500">{String(index + 1).padStart(2, '0')}</td>
+                                <td className="px-4 py-4">
+                                  <div className="text-sm font-semibold text-slate-900">{getItemDescription(item)}</div>
+                                  {formatItemMeta(item) ? <div className="mt-1 text-xs font-medium text-slate-500">{formatItemMeta(item)}</div> : null}
+                                </td>
+                                <td className="px-4 py-4 text-center text-sm font-medium text-slate-700">{quantity}</td>
+                                <td className="px-4 py-4 text-end text-sm font-medium text-slate-700">{formatMoney(unitPrice)}</td>
+                                <td className="px-4 py-4 text-end text-sm font-medium text-slate-700">{formatMoney(discount)}</td>
+                                <td className="px-4 py-4 text-end text-sm font-semibold text-slate-950">{formatMoney(lineTotal)}</td>
+                              </tr>
+                            )
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan="6" className="px-4 py-10 text-center text-sm text-slate-500">
+                              {isRTL ? 'لا توجد بنود في هذه الفاتورة' : 'No invoice items found'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 px-8 pb-8">
+                <div className="hidden avoid-page-break">
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+                      {isRTL ? 'ملاحظات' : 'Notes'}
+                    </div>
+                    <div className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">
+                      {normalizedInvoice.notes || (isRTL ? 'لا توجد ملاحظات مضافة على هذه الفاتورة.' : 'No notes were added to this invoice.')}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="avoid-page-break rounded-[22px] border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-[0_16px_30px_rgba(15,23,42,0.18)]">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-[180px] flex-1">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                        {isRTL ? 'الملخص المالي' : 'Financial Summary'}
                       </div>
-                      {advanceAppliedAmount > 0 && (
-                        <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                          <span className="font-medium">{isRTL ? 'المقدم المطبق' : 'Advance Applied'}</span>
-                          <span>{advanceAppliedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80">
+                      {normalizedInvoice.currency}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
+                        <span className="text-white/60">{isRTL ? 'المجموع' : 'Subtotal'}</span>
+                        <span className="ms-2 font-semibold">{formatMoney(normalizedInvoice.subtotal)}</span>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
+                        <span className="text-white/60">{isRTL ? 'الخصم' : 'Discount'}</span>
+                        <span className="ms-2 font-semibold">{formatMoney(normalizedInvoice.discount)}</span>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
+                        <span className="text-white/60">{isRTL ? 'الضريبة' : 'Tax'}</span>
+                        <span className="ms-2 font-semibold">{formatMoney(normalizedInvoice.tax)}</span>
+                      </div>
+                      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5">
+                        <span className="text-emerald-200/80">{isRTL ? 'المدفوع' : 'Paid'}</span>
+                        <span className="ms-2 font-semibold text-emerald-300">{formatMoney(normalizedInvoice.paidAmount)}</span>
+                      </div>
+                      {normalizedInvoice.advanceAppliedAmount > 0 ? (
+                        <div className="rounded-2xl border border-sky-400/20 bg-sky-400/10 px-3 py-1.5">
+                          <span className="text-sky-200/80">{isRTL ? 'مقدم' : 'Advance'}</span>
+                          <span className="ms-2 font-semibold text-sky-200">{formatMoney(normalizedInvoice.advanceAppliedAmount)}</span>
                         </div>
-                      )}
-                      <div className="flex justify-between px-4 py-2 text-sm text-black font-bold text-red-600">
-                        <span className="font-medium text-black">{isRTL ? 'المستحق' : 'Balance Due'}</span>
-                        <span>{Math.max(0, balanceDueAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 rounded-[16px] bg-white px-4 py-2 text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      {isRTL ? 'المستحق الآن' : 'Balance Due'}
+                    </div>
+                    <div className="mt-0.5 flex items-baseline justify-between gap-3">
+                      <div className="text-lg font-semibold tracking-tight">{formatMoney(normalizedInvoice.balanceDue)}</div>
+                      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-300">
+                        {normalizedInvoice.currency}
                       </div>
+                    </div>
                   </div>
-               </div>
-            </div>
+                </div>
+              </div>
 
-            {/* 5. Footer (Signatures) */}
-            <div className="mt-auto pt-8">
-               <div className="grid grid-cols-3 gap-8 text-center text-sm text-black">
-                  <div>
-                     <div className="h-16 border-b border-black mb-2"></div>
-                     <p className="font-bold">{isRTL ? 'إعداد' : 'Prepared By'}</p>
+              <div className="px-8 pb-8">
+                <div className="avoid-page-break">
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+                      {isRTL ? 'Ù…Ù„Ø§Ø­Ø¸Ø§Øª' : 'Notes'}
+                    </div>
+                    <div className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">
+                      {normalizedInvoice.notes || (isRTL ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ù…Ø¶Ø§ÙØ© Ø¹Ù„Ù‰ Ù‡Ø°Ù‡ Ø§Ù„ÙØ§ØªÙˆØ±Ø©.' : 'No notes were added to this invoice.')}
+                    </div>
                   </div>
-                  <div>
-                     <div className="h-16 border-b border-black mb-2"></div>
-                     <p className="font-bold">{isRTL ? 'اعتماد' : 'Approved By'}</p>
-                  </div>
-                  <div>
-                     <div className="h-16 border-b border-black mb-2"></div>
-                     <p className="font-bold">{isRTL ? 'التاريخ' : 'Date'}</p>
-                  </div>
-               </div>
-               
-               <div className="text-center mt-12 text-xs text-gray-500 print:text-black">
-                  <p>Thank you for your business!</p>
-                  <p>Page 1 of 1</p>
-               </div>
-            </div>
+                </div>
+              </div>
 
+              <div className="print-footer border-t border-slate-200 px-8 py-4">
+                <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto whitespace-nowrap text-[10px] text-slate-400">
+                  <span className="font-semibold text-slate-800">{companyInfo.name || 'CRM'}</span>
+                  <span>{new Date().getFullYear()} {isRTL ? 'جميع الحقوق محفوظة' : 'All rights reserved'}</span>
+                  <span className="font-semibold text-slate-700">
+                    {companyInfo.websiteUrl || (typeof window !== 'undefined' ? window.location.host : 'crm.local')}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

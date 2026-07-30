@@ -1,479 +1,524 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReactToPrint } from 'react-to-print'
-import { FaDownload, FaTimes, FaFileExcel, FaUser, FaPaperclip, FaFileInvoiceDollar, FaChevronDown, FaPrint, FaFilePdf, FaFileImage } from 'react-icons/fa'
+import { FaChevronDown, FaDownload, FaFileExcel, FaFileImage, FaFileInvoiceDollar, FaPaperclip, FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '@shared/context/AppStateProvider'
+import { extractTenantCompanyProfile } from '@shared/utils/tenantCompanyProfile'
 import { api } from '../utils/api'
 
-const SalesOrderPreviewModal = ({ isOpen, onClose, order, onCreateInvoice }) => {
-  const { t, i18n } = useTranslation()
+const statusToneMap = {
+  Draft: 'bg-sky-100 text-sky-800 border-sky-200',
+  Confirmed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  'In Progress': 'bg-amber-100 text-amber-800 border-amber-200',
+  Completed: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  Cancelled: 'bg-rose-100 text-rose-800 border-rose-200',
+  'Partially Invoiced': 'bg-cyan-100 text-cyan-800 border-cyan-200',
+}
+
+function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
+  const { i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
-  const { company } = useAppState()
+  const { company, crmSettings } = useAppState()
   const printRef = useRef()
   const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false)
   const [showAttachments, setShowAttachments] = useState(false)
   const [attachments, setAttachments] = useState([])
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   const [attachmentsError, setAttachmentsError] = useState('')
+  const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
+
+  const companyInfo = useMemo(() => extractTenantCompanyProfile(company), [company])
+
+  const normalizedOrder = useMemo(() => {
+    if (!order) return null
+
+    const items = Array.isArray(order.items) ? order.items : []
+    const subtotal = Number(order.subtotal || order.total || 0)
+    const discount = Number(order.discount || 0)
+    const tax = Number(order.tax || 0)
+    const total = Number(order.total || subtotal || 0)
+
+    return {
+      ...order,
+      items,
+      subtotal,
+      discount,
+      tax,
+      total,
+      orderNumber: order.orderNumber || order.order_number || order.id || 'SO-NEW',
+      issueDate: order.createdAt || order.created_at || order.date || null,
+      deliveryDate: order.deliveryDate || order.delivery_date || null,
+      customerName: order.customerName || order.customer_name || (isRTL ? 'عميل غير محدد' : 'Unnamed customer'),
+      customerCode: order.customerCode || order.customer_code || '',
+      status: order.status || 'Draft',
+      quotationId: order.quotationId || order.quotation_id || '',
+      paymentTerms: order.paymentTerms || order.payment_terms || '',
+      currency: currencyCode,
+      notes: order.notes || '',
+    }
+  }, [currencyCode, isRTL, order])
 
   const formatBytes = (bytes) => {
     const n = Number(bytes || 0)
     if (!n) return ''
     const units = ['B', 'KB', 'MB', 'GB']
-    let v = n
-    let i = 0
-    while (v >= 1024 && i < units.length - 1) {
-      v /= 1024
-      i++
+    let value = n
+    let index = 0
+    while (value >= 1024 && index < units.length - 1) {
+      value /= 1024
+      index += 1
     }
-    return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+    return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
   }
 
   const iconForAttachment = (name = '', mime = '') => {
-    const n = String(name).toLowerCase()
-    const m = String(mime).toLowerCase()
-    if (n.endsWith('.pdf') || m.includes('pdf')) return { Icon: FaFilePdf, bg: 'bg-red-100', fg: 'text-red-500' }
-    if (m.startsWith('image/') || n.match(/\.(png|jpg|jpeg|gif|webp)$/)) return { Icon: FaFileImage, bg: 'bg-blue-100', fg: 'text-blue-500' }
-    if (n.match(/\.(xls|xlsx|csv)$/)) return { Icon: FaFileExcel, bg: 'bg-green-100', fg: 'text-green-600' }
-    return { Icon: FaFileInvoiceDollar, bg: 'bg-gray-100', fg: 'text-gray-600' }
-  }
-
-  const loadAttachments = async () => {
-    if (!order?.id) return
-    setAttachmentsLoading(true)
-    setAttachmentsError('')
-    try {
-      const res = await api.get(`/api/sales-orders/${order.id}/attachments`)
-      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : [])
-      setAttachments(list)
-    } catch (e) {
-      setAttachments([])
-      setAttachmentsError(isRTL ? 'فشل تحميل المرفقات' : 'Failed to load attachments')
-    } finally {
-      setAttachmentsLoading(false)
-    }
+    const lowerName = String(name).toLowerCase()
+    const lowerMime = String(mime).toLowerCase()
+    if (lowerName.endsWith('.pdf') || lowerMime.includes('pdf')) return { Icon: FaFileInvoiceDollar, tone: 'bg-red-100 text-red-600' }
+    if (lowerMime.startsWith('image/') || lowerName.match(/\.(png|jpg|jpeg|gif|webp)$/)) return { Icon: FaFileImage, tone: 'bg-blue-100 text-blue-600' }
+    if (lowerName.match(/\.(xls|xlsx|csv)$/)) return { Icon: FaFileExcel, tone: 'bg-emerald-100 text-emerald-600' }
+    return { Icon: FaPaperclip, tone: 'bg-slate-100 text-slate-600' }
   }
 
   useEffect(() => {
-    if (!showAttachments) return
+    if (!showAttachments || !order?.id) return
+
+    const loadAttachments = async () => {
+      setAttachmentsLoading(true)
+      setAttachmentsError('')
+      try {
+        const res = await api.get(`/api/sales-orders/${order.id}/attachments`)
+        const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : [])
+        setAttachments(list)
+      } catch {
+        setAttachments([])
+        setAttachmentsError(isRTL ? 'فشل تحميل المرفقات' : 'Failed to load attachments')
+      } finally {
+        setAttachmentsLoading(false)
+      }
+    }
+
     loadAttachments()
-  }, [showAttachments, order?.id])
-
-  const companyInfo = useMemo(() => {
-    const tenant = company || {}
-    const profile = tenant.profile || {}
-    const name = String(tenant.name || tenant.company_name || '').trim()
-    const description = String(profile.description || '').trim()
-    const logoUrl = String(profile.logo_url || tenant.logo_url || '').trim()
-    const phone = String(profile.phone || tenant.phone || '').trim()
-    const email = String(tenant?.meta_data?.email || tenant.email || '').trim()
-    const taxId = String(profile.tax_id || tenant.tax_id || '').trim()
-
-    const address1 = String(tenant.address_line_1 || '').trim()
-    const address2 = String(tenant.address_line_2 || '').trim()
-    const city = String(tenant.city || '').trim()
-    const state = String(tenant.state || '').trim()
-    const country = String(tenant.country || '').trim()
-
-    const addrLines = [address1, address2].filter(Boolean)
-    const cityLine = [city, state, country].filter(Boolean).join(', ')
-
-    return { name, description, logoUrl, phone, email, taxId, addrLines, cityLine }
-  }, [company])
+  }, [isRTL, order?.id, showAttachments])
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
-    documentTitle: `SalesOrder-${order?.id || 'New'}`,
-    onAfterPrint: () => console.log('Printed successfully'),
-    onPrintError: (error) => console.error('Print failed:', error),
+    documentTitle: `SalesOrder-${normalizedOrder?.orderNumber || 'New'}`,
   })
 
-  if (!isOpen || !order) return null
-
   const formatDate = (dateString) => {
-    if (!dateString) return ''
-    return new Date(dateString).toLocaleDateString(isRTL ? 'ar-EG' : 'en-US', {
+    if (!dateString) return isRTL ? 'غير محدد' : 'Not set'
+    const date = new Date(dateString)
+    if (Number.isNaN(date.getTime())) return dateString
+    return date.toLocaleDateString(isRTL ? 'ar-EG' : 'en-US', {
       year: 'numeric',
-      month: 'long',
-      day: 'numeric'
+      month: 'short',
+      day: 'numeric',
     })
   }
 
-  // Helper to handle quantity field inconsistency (qty vs quantity)
-  const getItemQuantity = (item) => item.quantity || item.qty || 0
+  const formatMoney = (value, currency = normalizedOrder?.currency || currencyCode) => {
+    const amount = Number(value || 0)
+    const locale = isRTL ? 'ar-EG' : 'en-US'
+    try {
+      return new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount)
+    } catch {
+      return `${currency} ${amount.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+  }
+
+  const getItemQuantity = (item) => Number(item.quantity || item.qty || 0)
+
+  const getItemDescription = (item) => {
+    const parts = [
+      String(item.name || item.title || item.description || '').trim(),
+      String(item.type || '').trim(),
+      String(item.category || '').trim(),
+    ].filter(Boolean)
+
+    if (!parts.length) return isRTL ? 'بند بدون وصف' : 'Unlabeled item'
+    return parts[0]
+  }
+
+  const formatItemMeta = (item) => {
+    const meta = [String(item.type || '').trim(), String(item.category || '').trim()].filter(Boolean)
+    return meta.length ? `(${meta.join(', ')})` : ''
+  }
+
+  if (!isOpen || !normalizedOrder) return null
+
+  const statusTone = statusToneMap[normalizedOrder.status] || 'bg-slate-100 text-slate-700 border-slate-200'
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-      {/* Print-specific styles */}
       <style>{`
         @media print {
           @page { size: A4; margin: 0; }
           body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .no-print { display: none !important; }
-          .print-page { 
-            width: 210mm; 
-            min-height: 297mm; 
-            padding: 15mm; 
-            margin: 0 auto; 
-            background: white !important; 
-            color: black !important;
+          .preview-print-shell {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            padding: 0;
             box-shadow: none !important;
-            border: none !important;
+            background: white !important;
           }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #000; padding: 6px 8px; font-size: 12px; }
-          thead th { background-color: #f2f2f2 !important; color: black !important; font-weight: bold; }
-          .page-break { page-break-before: always; }
-          tr { page-break-inside: avoid; }
-          
-          /* Reset modal positioning for print */
-          .fixed { position: static !important; inset: auto !important; height: auto !important; width: auto !important; background: none !important; }
-          .overflow-auto { overflow: visible !important; }
-          
-          /* Force text color */
-          * { color: black !important; text-shadow: none !important; }
-          
-          /* Hide standard modal chrome */
+          .preview-print-page {
+            min-height: 297mm;
+            padding: 14mm 14mm 28mm;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+          .print-footer {
+            position: fixed;
+            left: 14mm;
+            right: 14mm;
+            bottom: 10mm;
+            background: white !important;
+          }
+          .fixed { position: static !important; inset: auto !important; background: transparent !important; }
           .modal-chrome { display: none !important; }
+          .print-scroll-reset { overflow: visible !important; padding: 0 !important; background: white !important; }
+          .preview-print-page .overflow-x-auto { overflow: visible !important; }
+          .preview-print-page table {
+            min-width: 0 !important;
+            width: 100% !important;
+            table-layout: fixed;
+          }
+          .preview-print-page th,
+          .preview-print-page td {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+          }
+          .avoid-page-break {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
         }
       `}</style>
 
-      {/* Backdrop - Hidden on print */}
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity no-print" 
-        onClick={onClose} 
-      />
+      <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm no-print" onClick={onClose} />
 
-      {/* Modal Content */}
-      <div className="relative z-[110] bg-white dark:bg-gray-900 rounded-xl w-full max-w-4xl h-[90vh] flex flex-col shadow-2xl overflow-hidden print:shadow-none print:h-auto print:w-auto print:bg-white print:max-w-none print:rounded-none print:overflow-visible">
-        
-        {/* Header Actions - Hidden on print */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 no-print modal-chrome">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-            {isRTL ? 'معاينة طلب البيع' : 'Sales Order Preview'}
-          </h2>
+      {showAttachments ? (
+        <div className="absolute inset-0 z-[2100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm no-print">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <FaPaperclip className="text-sky-600" />
+                <span>{isRTL ? 'المرفقات' : 'Attachments'}</span>
+              </div>
+              <button onClick={() => setShowAttachments(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+                <FaTimes />
+              </button>
+            </div>
+            <div className="p-5">
+              {attachmentsLoading ? (
+                <div className="py-8 text-center text-sm text-slate-500">{isRTL ? 'جاري تحميل المرفقات...' : 'Loading attachments...'}</div>
+              ) : attachmentsError ? (
+                <div className="py-8 text-center text-sm text-rose-600">{attachmentsError}</div>
+              ) : attachments.length ? (
+                <div className="space-y-3">
+                  {attachments.map((attachment) => {
+                    const name = attachment?.name || attachment?.file_name || attachment?.filename || (isRTL ? 'ملف' : 'File')
+                    const url = attachment?.url || attachment?.download_url || attachment?.path
+                    const meta = [formatBytes(attachment?.size), attachment?.created_at ? new Date(attachment.created_at).toLocaleDateString() : ''].filter(Boolean).join(' • ')
+                    const { Icon, tone } = iconForAttachment(name, attachment?.mime)
+
+                    return (
+                      <button
+                        key={attachment?.id || name}
+                        type="button"
+                        onClick={() => url && window.open(url, '_blank')}
+                        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>
+                            <Icon />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">{name}</div>
+                            {meta ? <div className="text-xs text-slate-500">{meta}</div> : null}
+                          </div>
+                        </div>
+                        <FaDownload className="text-slate-400" />
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-sm text-slate-500">{isRTL ? 'لا توجد مرفقات' : 'No attachments'}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="relative z-[110] flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl print:h-auto print:max-w-none print:rounded-none print:border-0 print:shadow-none">
+        <div className="modal-chrome no-print flex items-center justify-between border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">{isRTL ? 'معاينة طلب البيع' : 'Sales Order Preview'}</h2>
+            <p className="text-sm text-slate-500">
+              {normalizedOrder.orderNumber} • {normalizedOrder.customerName}
+            </p>
+          </div>
+
           <div className="flex items-center gap-3">
-            {/* Create Invoice Dropdown */}
-            {onCreateInvoice && (['Confirmed', 'In Progress', 'Completed', 'Partially Invoiced'].includes(order.status)) && (
+            {onCreateInvoice && ['Confirmed', 'In Progress', 'Completed', 'Partially Invoiced'].includes(normalizedOrder.status) ? (
               <div className="relative">
-                <button 
-                  onClick={() => setShowInvoiceDropdown(!showInvoiceDropdown)}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm font-medium"
+                <button
+                  onClick={() => setShowInvoiceDropdown((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
                 >
                   <FaFileInvoiceDollar />
                   <span>{isRTL ? 'إنشاء فاتورة' : 'Create Invoice'}</span>
-                  <FaChevronDown size={12} />
+                  <FaChevronDown className="text-[10px]" />
                 </button>
-                
-                {showInvoiceDropdown && (
-                  <div className={`absolute top-full mt-1 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden ${isRTL ? 'left-0' : 'right-0'}`}>
-                     <button onClick={() => { onCreateInvoice('Full'); setShowInvoiceDropdown(false) }} className="w-full text-start px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 flex flex-col gap-1">
-                        <span className="font-bold text-gray-900 dark:text-white">{isRTL ? 'فاتورة كاملة' : 'Full Invoice'}</span>
-                        <span className="text-xs text-gray-500">{isRTL ? 'إصدار فاتورة لكامل الكمية' : 'Invoice remaining quantity'}</span>
-                     </button>
-                     <button onClick={() => { onCreateInvoice('Partial'); setShowInvoiceDropdown(false) }} className="w-full text-start px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 flex flex-col gap-1">
-                        <span className="font-bold text-gray-900 dark:text-white">{isRTL ? 'فاتورة جزئية' : 'Partial Invoice'}</span>
-                        <span className="text-xs text-gray-500">{isRTL ? 'تحديد كميات محددة' : 'Select specific items/quantities'}</span>
-                     </button>
-                     <button onClick={() => { onCreateInvoice('Advance'); setShowInvoiceDropdown(false) }} className="w-full text-start px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex flex-col gap-1">
-                        <span className="font-bold text-gray-900 dark:text-white">{isRTL ? 'فاتورة دفعة مقدمة' : 'Advance Invoice'}</span>
-                        <span className="text-xs text-gray-500">{isRTL ? 'نسبة أو مبلغ ثابت' : 'Fixed amount or percentage'}</span>
-                     </button>
+                {showInvoiceDropdown ? (
+                  <div className={`absolute top-full z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl ${isRTL ? 'left-0' : 'right-0'}`}>
+                    {[
+                      { key: 'Full', label: isRTL ? 'فاتورة كاملة' : 'Full Invoice' },
+                      { key: 'Partial', label: isRTL ? 'فاتورة جزئية' : 'Partial Invoice' },
+                      { key: 'Advance', label: isRTL ? 'فاتورة دفعة مقدمة' : 'Advance Invoice' },
+                    ].map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => {
+                          onCreateInvoice(option.key)
+                          setShowInvoiceDropdown(false)
+                        }}
+                        className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm font-medium text-slate-700 transition last:border-b-0 hover:bg-slate-50"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
                   </div>
-                )}
+                ) : null}
               </div>
-            )}
-            <button 
+            ) : null}
+
+            <button
               onClick={() => setShowAttachments(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors shadow-sm font-medium"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
               <FaPaperclip />
               <span>{isRTL ? 'المرفقات' : 'Attachments'}</span>
             </button>
-            <button 
+            <button
               onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium"
+              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
             >
               <FaPrint />
-              <span>{isRTL ? 'طباعة' : 'Print'}</span>
+              <span>{isRTL ? 'طباعة / PDF' : 'Print / PDF'}</span>
             </button>
-            <button 
+            <button
               onClick={onClose}
-              className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
             >
-              x
+              <FaTimes />
             </button>
           </div>
         </div>
-       
-        {/* Scrollable Preview Area */}
-        <div className="flex-1 overflow-auto bg-gray-100 dark:bg-gray-950 p-3 sm:p-6 print:p-0 print:bg-white print:overflow-visible relative">
-          
-          {/* Attachments Overlay */}
-          {showAttachments && (
-            <div className="absolute inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                  <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-700">
-                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                      <FaPaperclip className="text-blue-500" />
-                      {isRTL ? 'المرفقات' : 'Attachments'}
-                    </h3>
-                    <button onClick={() => setShowAttachments(false)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                      <FaTimes />
-                    </button>
-                  </div>
-                  <div className="p-4 space-y-3">
-                    {attachmentsLoading ? (
-                      <div className="py-6 text-center text-sm text-gray-500 dark:text-gray-300">{isRTL ? 'جاري تحميل المرفقات...' : 'Loading attachments...'}</div>
-                    ) : attachmentsError ? (
-                      <div className="py-6 text-center text-sm text-red-600 dark:text-red-400">{attachmentsError}</div>
-                    ) : attachments.length === 0 ? (
-                      <div className="py-6 text-center text-sm text-gray-500 dark:text-gray-300">{isRTL ? 'لا توجد مرفقات' : 'No attachments'}</div>
-                    ) : (
-                      attachments.map(att => {
-                        const name = att?.name || att?.file_name || att?.filename || ''
-                        const url = att?.url || att?.download_url || att?.path
-                        const { Icon, bg, fg } = iconForAttachment(name, att?.mime)
-                        const size = formatBytes(att?.size)
-                        const date = att?.created_at ? new Date(att.created_at).toLocaleDateString() : ''
-                        const subtitle = [size, date].filter(Boolean).join(' • ')
 
-                        return (
-                          <div
-                            key={att?.id || name}
-                            className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors cursor-pointer group"
-                            onClick={() => {
-                              if (url) window.open(url, '_blank')
-                            }}
-                            role="button"
-                            tabIndex={0}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={`w-10 h-10 ${bg} ${fg} rounded-lg flex items-center justify-center`}>
-                                <Icon size={20} />
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{name || (isRTL ? 'ملف' : 'File')}</p>
-                                {subtitle ? <p className="text-xs text-gray-500">{subtitle}</p> : null}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (url) window.open(url, '_blank')
-                              }}
-                              className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title={isRTL ? 'تحميل' : 'Download'}
-                            >
-                              <FaDownload />
-                            </button>
+        <div className="print-scroll-reset flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#fff7ed,_#f8fafc_38%,_#e2e8f0_100%)] p-4 sm:p-6">
+          <div ref={printRef} className="preview-print-shell mx-auto max-w-[210mm]">
+            <div className="preview-print-page relative overflow-hidden rounded-[32px] bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)]">
+              <div className="relative overflow-hidden border border-slate-200/70 bg-[linear-gradient(90deg,#dbeafe_0%,#3b82f6_42%,#0f172a_100%)] px-8 pb-0 pt-4 text-white avoid-page-break">
+                <div className={`absolute top-6 h-24 w-24 rounded-full bg-white/10 blur-2xl ${isRTL ? 'left-8' : 'right-8'}`} />
+                <div className={`absolute bottom-4 h-20 w-20 rounded-full bg-sky-300/20 blur-2xl ${isRTL ? 'right-12' : 'left-12'}`} />
+
+                <div className="relative">
+                  <div className="flex items-start justify-between gap-6">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 min-w-[84px] items-center justify-center overflow-hidden">
+                        {companyInfo.logoUrl ? (
+                          <img src={companyInfo.logoUrl} alt={companyInfo.name || 'Logo'} className="max-h-10 w-auto max-w-full object-contain" />
+                        ) : (
+                          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                            {companyInfo.name?.slice(0, 3) || 'CRM'}
                           </div>
-                        )
-                      })
-                    )}
-                  </div>
-                  <div className="p-4 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-200 dark:border-gray-700 text-center">
-                    <button 
-                      onClick={() => setShowAttachments(false)}
-                      className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
-                    >
-                      {isRTL ? 'إغلاق' : 'Close'}
-                    </button>
-                  </div>
-               </div>
-            </div>
-          )}
-
-          {/* Print Content Container (A4 Visual) */}
-          <div ref={printRef} className="print-page bg-white text-black mx-auto shadow-lg max-w-[210mm] min-h-[297mm] p-4 sm:p-8 md:p-12 print:shadow-none print:mx-0 print:w-full print:max-w-none relative flex flex-col">
-            
-            {/* 1. Header Section */}
-            <div className="flex flex-wrap sm:flex-row sm:justify-between gap-6 border-b-2 border-black pb-6 mb-8">
-              <div className="flex-1">
-                 <div className="flex items-center gap-4 mb-4">
-                    <div className="w-16 h-16 bg-gray-200 border border-black flex items-center justify-center text-xs font-bold text-black overflow-hidden">
-                      {companyInfo.logoUrl ? (
-                        <img src={companyInfo.logoUrl} alt={companyInfo.name || 'Logo'} className="w-full h-full object-contain" />
-                      ) : (
-                        'LOGO'
-                      )}
+                        )}
+                      </div>
+                      <div>
+                        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 [text-shadow:0_1px_0_rgba(255,255,255,0.22)]">
+                          {companyInfo.name || (isRTL ? 'اسم الشركة' : 'Company Name')}
+                        </h1>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs font-semibold">
+                          <div className="text-slate-950">{normalizedOrder.orderNumber}</div>
+                          <div className="text-slate-800/90">{formatDate(normalizedOrder.issueDate)}</div>
+                          <div className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusTone}`}>
+                            {normalizedOrder.status}
+                          </div>
+                        </div>
+                        {companyInfo.description ? (
+                          <p className="mt-0.5 max-w-xl text-xs text-slate-700/90">{companyInfo.description}</p>
+                        ) : null}
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-2xl font-bold uppercase tracking-wide text-black">{companyInfo.name || (isRTL ? 'الشركة' : 'Company')}</h2>
-                      {companyInfo.description ? (
-                        <p className="text-sm text-gray-800">{companyInfo.description}</p>
+
+                    <div className="min-w-[260px] space-y-1 text-right text-sm text-white">
+                      {companyInfo.phone ? <div className="text-[13px] font-semibold text-white">{isRTL ? `${companyInfo.phone} :الهاتف` : `Phone: ${companyInfo.phone}`}</div> : null}
+                      {companyInfo.taxId ? <div className="text-[13px] font-semibold text-white">{isRTL ? `${companyInfo.taxId} :الرقم الضريبي` : `Tax ID: ${companyInfo.taxId}`}</div> : null}
+                      {(companyInfo.addressLine1 || companyInfo.country || companyInfo.city) ? (
+                        <div className="text-[12px] font-medium text-white/85">
+                          {[companyInfo.addressLine1, companyInfo.country, companyInfo.city].filter(Boolean).join(', ')}
+                        </div>
                       ) : null}
                     </div>
-                 </div>
-                 <div className="text-sm space-y-1 text-gray-800">
-                   {companyInfo.addrLines.map((line, idx) => (
-                     <p key={idx}>{line}</p>
-                   ))}
-                   {companyInfo.cityLine ? <p>{companyInfo.cityLine}</p> : null}
-                   {companyInfo.phone ? <p>{isRTL ? 'هاتف:' : 'Phone:'} {companyInfo.phone}</p> : null}
-                   {companyInfo.email ? <p>{isRTL ? 'البريد:' : 'Email:'} {companyInfo.email}</p> : null}
-                   {companyInfo.taxId ? <p>{isRTL ? 'الرقم الضريبي:' : 'Tax ID:'} {companyInfo.taxId}</p> : null}
-                 </div>
+                  </div>
+
+                  <div className="mt-5 border-t border-white/25" />
+                </div>
               </div>
 
-              <div className="w-full sm:w-64 sm:shrink-0">
-                <div className="border border-black p-4 bg-gray-50 print:bg-transparent">
-                  <h3 className="text-lg font-bold border-b border-black mb-2 pb-1 text-center bg-gray-200 print:bg-transparent text-black">
-                    {isRTL ? 'طلب بيع' : 'SALES ORDER'}
-                  </h3>
-                  <div className="space-y-2 text-sm text-black">
-                    <div className="flex justify-between">
-                      <span className="font-bold">{isRTL ? 'رقم الطلب:' : 'Order #:'}</span>
-                      <span>{order.id}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-bold">{isRTL ? 'التاريخ:' : 'Date:'}</span>
-                      <span>{formatDate(order.createdAt)}</span>
-                    </div>
-                    {order.deliveryDate && (
-                      <div className="flex justify-between">
-                        <span className="font-bold">{isRTL ? 'التسليم:' : 'Due Date:'}</span>
-                        <span>{formatDate(order.deliveryDate)}</span>
+              <div className="px-8 pb-4 pt-5 avoid-page-break">
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50/70 px-5 py-3">
+                  <div className="flex flex-wrap items-start gap-x-8 gap-y-3 text-sm">
+                    <div className="min-w-[220px] flex-1">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                        {isRTL ? 'بيانات العميل' : 'Bill To'}
                       </div>
-                    )}
-                    <div className="flex justify-between">
-                       <span className="font-bold">{isRTL ? 'الحالة:' : 'Status:'}</span>
-                       <span className="uppercase">{order.status}</span>
+                      <div className="mt-1 text-xl font-semibold text-slate-900">{normalizedOrder.customerName}</div>
+                    </div>
+                    <div className="min-w-[120px]">
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'كود العميل' : 'Customer Code'}</div>
+                      <div className="mt-1 font-medium text-slate-800">{normalizedOrder.customerCode || '-'}</div>
+                    </div>
+                    <div className="min-w-[150px]">
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'تاريخ التسليم' : 'Delivery Date'}</div>
+                      <div className="mt-1 font-medium text-slate-800">{formatDate(normalizedOrder.deliveryDate)}</div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* 2. Bill To / Ship To Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 mb-8">
-              <div className="border border-black p-4">
-                 <h3 className="font-bold border-b border-black mb-3 pb-1 bg-gray-100 print:bg-transparent px-2 text-black">
-                   {isRTL ? 'بيانات العميل' : 'Bill To'}
-                 </h3>
-                 <div className="text-sm px-2 space-y-1 text-black">
-                   <p className="font-bold text-lg">{order.customerName}</p>
-                   <p>Code: {order.customerCode}</p>
-                   <p>Address Line 1</p>
-                   <p>City, State, Zip</p>
-                   <p>Phone: +1 234 567 890</p>
-                 </div>
-              </div>
-              <div className="border border-black p-4">
-                 <h3 className="font-bold border-b border-black mb-3 pb-1 bg-gray-100 print:bg-transparent px-2 text-black">
-                   {isRTL ? 'عنوان الشحن' : 'Ship To'}
-                 </h3>
-                 <div className="text-sm px-2 space-y-1 text-black">
-                   <p className="font-bold text-lg">{order.customerName}</p>
-                   <p>Shipping Address Line 1</p>
-                   <p>City, State, Zip</p>
-                   <p>Contact Person</p>
-                 </div>
-              </div>
-            </div>
-
-            {/* 3. Items Table */}
-            <div className="mb-8 overflow-x-auto print:overflow-visible">
-              <table className="w-full min-w-[720px] print:min-w-0 text-xs sm:text-sm border-collapse border border-black">
-                <thead>
-                  <tr className="bg-gray-100 print:bg-gray-100">
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-12 whitespace-nowrap text-black">#</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-left rtl:text-right min-w-[180px] whitespace-nowrap text-black">{isRTL ? 'اسم العنصر' : 'Item Name'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-24 whitespace-nowrap text-black">{isRTL ? 'النوع' : 'Type'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-24 whitespace-nowrap text-black">{isRTL ? 'الفئة' : 'Category'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center w-16 whitespace-nowrap text-black">{isRTL ? 'الكمية' : 'Qty'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-28 whitespace-nowrap text-black">{isRTL ? 'السعر' : 'Price'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-24 whitespace-nowrap text-black">{isRTL ? 'الخصم' : 'Discount'}</th>
-                    <th className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right w-28 whitespace-nowrap text-black">{isRTL ? 'الإجمالي' : 'Total'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.items && order.items.length > 0 ? (
-                    order.items.map((item, index) => {
-                      const qty = getItemQuantity(item)
-                      const price = Number(item.price || 0)
-                      const discount = Number(item.discount || 0)
-                      const total = (qty * price) - discount
-                      
-                      return (
-                        <tr key={index} className="print:bg-transparent">
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{index + 1}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-black font-bold">{item.name}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{item.type || '-'}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{item.category || '-'}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-center whitespace-nowrap text-black">{qty}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap text-black">{price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap text-black">{discount > 0 ? discount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
-                          <td className="border border-black px-2 py-1.5 sm:px-3 sm:py-2 text-right whitespace-nowrap font-bold text-black">{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+              <div className="px-8 pb-7 avoid-page-break">
+                <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50/55">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[700px] border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-white text-slate-700">
+                          <th className="px-4 py-4 text-start text-xs font-semibold uppercase tracking-[0.24em]">#</th>
+                          <th className="px-4 py-4 text-start text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الوصف' : 'Description'}
+                          </th>
+                          <th className="px-4 py-4 text-center text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الكمية' : 'Qty'}
+                          </th>
+                          <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'سعر الوحدة' : 'Unit Price'}
+                          </th>
+                          <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الخصم' : 'Discount'}
+                          </th>
+                          <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
+                            {isRTL ? 'الإجمالي' : 'Line Total'}
+                          </th>
                         </tr>
-                      )
-                    })
-                  ) : (
-                     <tr><td colSpan="8" className="border border-black p-4 text-center italic text-black">No Items</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                      </thead>
+                      <tbody>
+                        {normalizedOrder.items.length ? (
+                          normalizedOrder.items.map((item, index) => {
+                            const quantity = getItemQuantity(item)
+                            const unitPrice = Number(item.price || item.unit_price || item.unitPrice || 0)
+                            const discount = Number(item.discount || 0)
+                            const lineTotal = (quantity * unitPrice) - discount
 
-            {/* 4. Totals & Notes Section */}
-            <div className="flex flex-col md:flex-row gap-8 mb-12">
-               {/* Left: Notes */}
-               <div className="flex-1 flex flex-col gap-4">
-                  {order.notes && (
-                    <div className="border border-black p-3">
-                      <h4 className="font-bold text-sm mb-2 underline text-black">{isRTL ? 'ملاحظات' : 'Notes'}:</h4>
-                      <p className="text-sm whitespace-pre-line text-black">{order.notes}</p>
+                            return (
+                              <tr key={`${item.id || item.name || 'item'}-${index}`} className="border-t border-slate-200 align-top">
+                                <td className="px-4 py-4 text-sm font-medium text-slate-500">{String(index + 1).padStart(2, '0')}</td>
+                                <td className="px-4 py-4">
+                                  <div className="text-sm font-semibold text-slate-900">{getItemDescription(item)}</div>
+                                  {formatItemMeta(item) ? <div className="mt-1 text-xs font-medium text-slate-500">{formatItemMeta(item)}</div> : null}
+                                </td>
+                                <td className="px-4 py-4 text-center text-sm font-medium text-slate-700">{quantity}</td>
+                                <td className="px-4 py-4 text-end text-sm font-medium text-slate-700">{formatMoney(unitPrice)}</td>
+                                <td className="px-4 py-4 text-end text-sm font-medium text-slate-700">{formatMoney(discount)}</td>
+                                <td className="px-4 py-4 text-end text-sm font-semibold text-slate-950">{formatMoney(lineTotal)}</td>
+                              </tr>
+                            )
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan="6" className="px-4 py-10 text-center text-sm text-slate-500">
+                              {isRTL ? 'لا توجد بنود في طلب البيع' : 'No sales order items found'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 px-8 pb-8">
+                <div className="avoid-page-break rounded-[22px] border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-[0_16px_30px_rgba(15,23,42,0.18)]">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-[180px] flex-1">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                        {isRTL ? 'الملخص المالي' : 'Financial Summary'}
+                      </div>
                     </div>
-                  )}
-               </div>
-
-               {/* Right: Totals Box */}
-               <div className="w-full md:w-80">
-                  <div className="border border-black">
-                     <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                        <span className="font-medium">{isRTL ? 'المجموع الفرعي' : 'Subtotal'}</span>
-                        <span>{Number(order.subtotal || order.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
-                     <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                        <span className="font-medium">{isRTL ? 'قيمة الخصم' : 'Discount Value'}</span>
-                        <span>{Number(order.discount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
-                     <div className="flex justify-between px-4 py-2 border-b border-black text-sm text-black">
-                        <span className="font-medium">{isRTL ? 'الضريبة' : 'Tax'}</span>
-                        <span>{Number(order.tax || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
-                     <div className="flex justify-between px-4 py-2 bg-gray-200 print:bg-gray-200 text-base font-bold text-black">
-                        <span>{isRTL ? 'إجمالي قيمة الطلب' : 'Total Order Value'}</span>
-                        <span>{Number(order.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                     </div>
+                    <div className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80">
+                      {normalizedOrder.currency}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
+                        <span className="text-white/60">{isRTL ? 'المجموع' : 'Subtotal'}</span>
+                        <span className="ms-2 font-semibold">{formatMoney(normalizedOrder.subtotal)}</span>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
+                        <span className="text-white/60">{isRTL ? 'الخصم' : 'Discount'}</span>
+                        <span className="ms-2 font-semibold">{formatMoney(normalizedOrder.discount)}</span>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
+                        <span className="text-white/60">{isRTL ? 'الضريبة' : 'Tax'}</span>
+                        <span className="ms-2 font-semibold">{formatMoney(normalizedOrder.tax)}</span>
+                      </div>
+                    </div>
                   </div>
-               </div>
+
+                  <div className="mt-2.5 rounded-[16px] bg-white px-4 py-2 text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      {isRTL ? 'الإجمالي' : 'Grand Total'}
+                    </div>
+                    <div className="mt-0.5 flex items-baseline justify-between gap-3">
+                      <div className="text-lg font-semibold tracking-tight">{formatMoney(normalizedOrder.total)}</div>
+                      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-300">
+                        {normalizedOrder.currency}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="avoid-page-break">
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+                      {isRTL ? 'ملاحظات' : 'Notes'}
+                    </div>
+                    <div className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">
+                      {normalizedOrder.notes || (isRTL ? 'لا توجد ملاحظات مضافة على طلب البيع.' : 'No notes were added to this sales order.')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="print-footer border-t border-slate-200 px-8 py-4">
+                <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto whitespace-nowrap text-[10px] text-slate-400">
+                  <span className="font-semibold text-slate-800">{companyInfo.name || 'CRM'}</span>
+                  <span>{new Date().getFullYear()} {isRTL ? 'جميع الحقوق محفوظة' : 'All rights reserved'}</span>
+                  <span className="font-semibold text-slate-700">
+                    {companyInfo.websiteUrl || (typeof window !== 'undefined' ? window.location.host : 'crm.local')}
+                  </span>
+                </div>
+              </div>
             </div>
-
-            {/* 5. Footer (Signatures) */}
-            <div className="mt-auto pt-8">
-               <div className="grid grid-cols-3 gap-8 text-center text-sm text-black">
-                  <div>
-                     <div className="h-16 border-b border-black mb-2"></div>
-                     <p className="font-bold">{isRTL ? 'إعداد' : 'Prepared By'}</p>
-                  </div>
-                  <div>
-                     <div className="h-16 border-b border-black mb-2"></div>
-                     <p className="font-bold">{isRTL ? 'اعتماد' : 'Approved By'}</p>
-                  </div>
-                  <div>
-                     <div className="h-16 border-b border-black mb-2"></div>
-                     <p className="font-bold">{isRTL ? 'التاريخ' : 'Date'}</p>
-                  </div>
-               </div>
-               
-               <div className="text-center mt-12 text-xs text-gray-500 print:text-black">
-                  <p>Thank you for your business!</p>
-                  <p>Page 1 of 1</p>
-               </div>
-            </div>
-
           </div>
         </div>
       </div>
