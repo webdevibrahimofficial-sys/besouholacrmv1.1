@@ -12,15 +12,9 @@ import {
   PERMISSIONS, 
   REPORT_MODULES, 
   PERM_LABELS_AR, 
-  ROLE_HIERARCHY 
+  ROLE_HIERARCHY,
+  getPermissionDisplayLabel,
 } from '@features/Users/constants.js';
-
-const formatPermissionLabel = (label) => {
-  if (!label) return '';
-  if (label === 'checkInOutApprovals') return 'Check In & Out Approvals';
-  const withSpaces = label.replace(/([A-Z])/g, ' $1').trim();
-  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
-};
 
 const normalizeRoleValue = (value) => {
   if (!value) return '';
@@ -68,9 +62,11 @@ const isAdminRole = (role) => {
   return r === 'admin' || r === 'tenant admin' || r === 'super admin';
 };
 
-const getRoleFilteredPermissions = (group, perms, role) => {
+const getRoleFilteredPermissions = (group, perms, role, options = {}) => {
   const list = Array.isArray(perms) ? perms : [];
   const normalizedRole = normalizeRoleValue(role);
+  const canSeeDeleteInventory = ['admin', 'tenant admin', 'super admin', 'director', 'operation manager', 'operations manager'].includes(normalizedRole);
+  const isGeneralTenant = options.isGeneralTenant === true;
 
   if (group === 'Telesales' && ['telesales manager', 'telesales team leader'].includes(normalizedRole)) {
     return list.filter(perm => perm !== 'deleteLead');
@@ -86,12 +82,73 @@ const getRoleFilteredPermissions = (group, perms, role) => {
     return list.filter(perm => allowedControlPerms.has(perm));
   }
 
+  if (group === 'Control' && normalizedRole === 'team leader') {
+    const hiddenControlPerms = new Set([
+      'userManagement',
+      'addUsers',
+      'editUsers',
+      'toggleUsers',
+      'changeUserPassword',
+      'deleteUsers',
+      'editConfigurationSettings',
+      'addInputs',
+      'addDepartment',
+    ]);
+
+    return list.filter(perm => !hiddenControlPerms.has(perm));
+  }
+
+  if (group === 'Control' && ['marketing manager', 'marketing moderator'].includes(normalizedRole)) {
+    const allowedControlPerms = new Set([
+      'addRegions',
+      'addArea',
+      'addSource',
+      'allowActionOnTeam',
+      'salesComment',
+      'assignLeads',
+      'addInputs',
+      'multiAction',
+      'showReports',
+    ]);
+
+    return list.filter(perm => allowedControlPerms.has(perm));
+  }
+
+  if (group === 'Inventory' && normalizedRole === 'marketing moderator') {
+    const allowedInventoryPerms = new Set(
+      isGeneralTenant
+        ? ['addCategory', 'addItems']
+        : ['addProject', 'addProperties', 'viewAllProperties']
+    );
+
+    return list.filter(perm => allowedInventoryPerms.has(perm));
+  }
+
+  if (group === 'Inventory' && normalizedRole === 'accountant') {
+    const allowedInventoryPerms = new Set(
+      isGeneralTenant
+        ? ['addCategory', 'addItems', 'showRequests']
+        : ['viewAllProperties', 'addProperties', 'revertSoldProperty', 'showRequests']
+    );
+
+    return list.filter(perm => allowedInventoryPerms.has(perm));
+  }
+
+  if (group === 'Inventory' && !canSeeDeleteInventory) {
+    return list.filter(perm => perm !== 'deleteInventory');
+  }
+
+  if (group === 'Leads' && normalizedRole === 'marketing moderator') {
+    const hiddenLeadPerms = new Set(['exportLeads', 'receiveLeads', 'addAction']);
+    return list.filter(perm => !hiddenLeadPerms.has(perm));
+  }
+
   if (!isSalesPersonRole(role)) {
     return list;
   }
 
   if (group === 'Leads') {
-    const hiddenLeadPerms = new Set(['viewDuplicateLeads', 'actOnDuplicateLeads']);
+    const hiddenLeadPerms = new Set(['exportLeads', 'viewDuplicateLeads', 'actOnDuplicateLeads']);
     return list.filter(perm => !hiddenLeadPerms.has(perm));
   }
 
@@ -191,7 +248,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     const perms = Array.isArray(list) ? list : []
     if (allowAllTenantTypes) return perms
     const generalOnly = new Set(['addCategory', 'addItems', 'exportCategory', 'exportItem'])
-    const realEstateOnly = new Set(['addProject', 'addProperties', 'addBroker', 'addDeveloper', 'revertSoldProperty', 'exportProject', 'exportProperties'])
+    const realEstateOnly = new Set(['addProject', 'addProperties', 'viewAllProperties', 'addBroker', 'addDeveloper', 'revertSoldProperty', 'exportProject', 'exportProperties'])
     if (isGeneralTenant) return perms.filter(p => !realEstateOnly.has(p))
     if (isRealEstateTenant) return perms.filter(p => !generalOnly.has(p))
     return perms
@@ -443,8 +500,15 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   }, [form, initialForm, customPerms]);
 
   const reportPerms = customPerms['Reports'] || [];
-  const allReportsShowSelected = REPORT_MODULES.every(module => reportPerms.includes(`${module}_show`));
-  const allReportsExportSelected = REPORT_MODULES.every(module => reportPerms.includes(`${module}_export`));
+  const visibleReportModules = useMemo(() => {
+    if (normalizeRoleValue(form.role) === 'accountant') {
+      return ['Reservations Report', 'Closed Deals', 'Targets & Revenue'];
+    }
+    if (!isSalesPersonRole(form.role)) return REPORT_MODULES;
+    return REPORT_MODULES.filter((module) => !['Customers Report', 'Exports Report'].includes(module));
+  }, [form.role]);
+  const allReportsShowSelected = visibleReportModules.every(module => reportPerms.includes(`${module}_show`));
+  const allReportsExportSelected = visibleReportModules.every(module => reportPerms.includes(`${module}_export`));
 
   useEffect(() => {
     if (!isEdit || !user) return;
@@ -475,7 +539,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
     if (form.role === 'Sales Admin') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','addAction','receiveLeads'],
+        Leads: ['addLead','importLeads','addAction'],
         Inventory: [],
         Marketing: ['showMarketingDashboard','showCampaign','addLandingPage'],
         Customers: ['convertFromLead', 'addCustomer', 'showModule'],
@@ -520,20 +584,20 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Sales Manager') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','editInfo','addAction','receiveLeads'],
+        Leads: ['addLead','importLeads','editInfo','addAction'],
         Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
         ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'printReceipt'],
         Control: ['assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Team Leader') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','addAction','receiveLeads'],
+        Leads: ['addLead','importLeads','addAction'],
         Customers: ['editInfo','showModule'],
         Control: ['allowActionOnTeam','assignLeads','checkInOutApprovals','showReports']
       })
     } else if (form.role === 'Sales Person') {
       setCustomPerms({
-        Leads: ['addLead','importLeads','addAction','receiveLeads'],
+        Leads: ['addLead','importLeads','addAction'],
         Customers: ['showModule'],
         Control: ['showReports']
       })
@@ -560,11 +624,15 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Marketing Manager') {
       setCustomPerms({
-        Marketing: ['showMarketingDashboard','showCampaign','addLandingPage','integration']
+        Marketing: ['showMarketingDashboard','showCampaign','addLandingPage','integration'],
+        Control: ['addRegions', 'addArea', 'addSource', 'allowActionOnTeam', 'salesComment', 'assignLeads', 'addInputs', 'multiAction', 'showReports'],
       })
     } else if (form.role === 'Marketing Moderator') {
       setCustomPerms({
-        Marketing: ['showMarketingDashboard','showCampaign']
+        Leads: ['addLead', 'showCreator', 'editInfo', 'editPhone', 'importLeads', 'viewDuplicateLeads', 'actOnDuplicateLeads'],
+        Inventory: [],
+        Marketing: ['showMarketingDashboard','showCampaign'],
+        Control: ['addRegions', 'addArea', 'addSource', 'allowActionOnTeam', 'salesComment', 'assignLeads', 'addInputs', 'multiAction', 'showReports'],
       })
     } else if (form.role === 'Customer Manager') {
       setCustomPerms({
@@ -590,6 +658,13 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     } else if (form.role === 'Support Agent') {
       setCustomPerms({
         Support: ['showModule','addTickets']
+      })
+    } else if (form.role === 'Accountant') {
+      setCustomPerms({
+        Inventory: isGeneralTenant ? ['addCategory', 'addItems', 'showRequests'] : ['viewAllProperties', 'addProperties', 'revertSoldProperty', 'showRequests'],
+        ContractCollections: ['showModule', 'viewContracts', 'viewInstallments', 'payInstallment', 'printReceipt'],
+        Control: ['showReports', 'salesComment'],
+        Reports: ['Reservations Report_show', 'Closed Deals_show', 'Targets & Revenue_show'],
       })
     } else if (form.role === 'Custom') {
       setCustomPerms({})
@@ -725,13 +800,13 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const handleToggleAllReportsShow = () => {
     setCustomPerms(prev => {
       const current = prev.Reports || [];
-      const showKeys = REPORT_MODULES.map(module => `${module}_show`);
-      const exportKeys = REPORT_MODULES.map(module => `${module}_export`);
+      const showKeys = visibleReportModules.map(module => `${module}_show`);
+      const exportKeys = visibleReportModules.map(module => `${module}_export`);
       const allSelected = showKeys.every(key => current.includes(key));
       const next = new Set(current);
 
       if (allSelected) {
-        REPORT_MODULES.forEach(module => {
+        visibleReportModules.forEach(module => {
           const showKey = `${module}_show`;
           const exportKey = `${module}_export`;
           if (!next.has(exportKey)) {
@@ -749,8 +824,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const handleToggleAllReportsExport = () => {
     setCustomPerms(prev => {
       const current = prev.Reports || [];
-      const showKeys = REPORT_MODULES.map(module => `${module}_show`);
-      const exportKeys = REPORT_MODULES.map(module => `${module}_export`);
+      const showKeys = visibleReportModules.map(module => `${module}_show`);
+      const exportKeys = visibleReportModules.map(module => `${module}_export`);
       const allSelected = exportKeys.every(key => current.includes(key));
       const next = new Set(current);
       if (allSelected) {
@@ -866,7 +941,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
       Object.entries(customPerms || {}).forEach(([group, perms]) => {
         const baseAllowed = group === 'Reports' ? null : (PERMISSIONS[group] || []);
-        const roleFilteredAllowed = baseAllowed ? getRoleFilteredPermissions(group, baseAllowed, form.role) : baseAllowed;
+        const roleFilteredAllowed = baseAllowed ? getRoleFilteredPermissions(group, baseAllowed, form.role, { isGeneralTenant }) : baseAllowed;
         const allowed = (group === 'Inventory' && roleFilteredAllowed)
           ? filterInventoryPermsByTenantType(roleFilteredAllowed)
           : roleFilteredAllowed;
@@ -1441,8 +1516,17 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                       if (group === 'Telesales' && !telesalesModuleEnabled) {
                         return false;
                       }
+                      if (group === 'Customers' && !isGeneralTenant) {
+                        return false;
+                      }
+                      if (group === 'ContractCollections' && !isRealEstateTenant) {
+                        return false;
+                      }
+                      if (form.role === 'Accountant') {
+                        return !['Leads', 'Marketing', 'Customers', 'Control', 'Telesales'].includes(group);
+                      }
                       if (form.role === 'Team Leader') {
-                        return !['Marketing'].includes(group);
+                        return !['Marketing', 'ContractCollections'].includes(group);
                       }
                       if (form.role === 'Telesales Manager') {
                         return ['Telesales', 'Control'].includes(group);
@@ -1451,7 +1535,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         return ['Telesales'].includes(group);
                       }
                       if (['Marketing Manager', 'Marketing Moderator'].includes(form.role)) {
-                        return !['Customers', 'Support'].includes(group);
+                        return !['Customers', 'Support', 'ContractCollections'].includes(group);
                       }
                       if (['Customer Manager', 'Customer Team Leader', 'Customer Agent'].includes(form.role)) {
                         return ['Customers', 'Inventory'].includes(group);
@@ -1470,7 +1554,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     const baseUiPerms = (isSalesPersonRole(form.role) && group === 'Leads')
                       ? perms.filter(p => p !== 'addAction')
                       : perms;
-                    const uiPerms = getRoleFilteredPermissions(group, baseUiPerms, form.role);
+                    const uiPerms = getRoleFilteredPermissions(group, baseUiPerms, form.role, { isGeneralTenant });
                     const tenantUiPerms = group === 'Inventory' ? filterInventoryPermsByTenantType(uiPerms) : uiPerms;
                     const visibleGroupPerms = group === 'Reports' ? groupPerms : groupPerms.filter(p => tenantUiPerms.includes(p));
                     const allSelected = tenantUiPerms.length > 0 && tenantUiPerms.every(p => visibleGroupPerms.includes(p));
@@ -1512,7 +1596,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                               return (
                                 <label key={p} className="cursor-pointer flex items-center gap-2 sm:gap-3 select-none hover:bg-base-content/5 px-3 py-2 rounded-lg transition-colors border border-transparent hover:border-base-content/5 bg-base-100/50">
                                   <input type="checkbox" className="checkbox checkbox-xs sm:checkbox-sm checkbox-primary" checked={checked} onChange={() => togglePerm(group, p)} />
-                                  <span className="text-xs sm:text-sm">{isArabic ? (PERM_LABELS_AR.actions[p] || p) : formatPermissionLabel(p)}</span>
+                                  <span className="text-xs sm:text-sm">{getPermissionDisplayLabel(group, p, isArabic)}</span>
                                 </label>
                               );
                             })}
@@ -1583,7 +1667,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                             </tr>
                           </thead>
                           <tbody>
-                            {REPORT_MODULES.map((module, idx) => (
+                            {visibleReportModules.map((module, idx) => (
                               <tr key={module} className={`border-b border-base-content/5 transition-colors ${idx % 2 === 0 ? 'bg-base-200/30' : 'bg-transparent'} hover:bg-base-content/5`}>
                                 <td className="font-medium py-3 px-4">{isArabic ? (PERM_LABELS_AR.report_modules[module] || module) : module}</td>
                                 <td className="text-center">
@@ -1621,6 +1705,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     </div>
                     )}
                   </div>
+                  )}
+
+                  {normalizeRoleValue(form.role) === 'accountant' && (
+                    <div className="text-xs text-base-content/60 px-1">
+                      {isArabic
+                        ? 'صلاحيتا عرض التقارير وتعليقات المبيعات مفعّلتان تلقائيًا للمحاسب ولا تظهران ضمن صلاحيات التحكم.'
+                        : 'Show Reports and Sales Comments are enabled automatically for Accountant and hidden from Control permissions.'}
+                    </div>
                   )}
                 </div>
               </div>

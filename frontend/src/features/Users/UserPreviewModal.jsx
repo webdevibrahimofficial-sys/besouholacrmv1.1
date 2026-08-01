@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
-import { PERM_LABELS_AR } from './constants'
+import { PERM_LABELS_AR, getPermissionDisplayLabel } from './constants'
 import { FaTimes, FaIdCard, FaUser, FaTag, FaPhone, FaEnvelope, FaBuilding, FaLayerGroup, FaMapMarkerAlt, FaChartLine, FaBell, FaShieldAlt } from 'react-icons/fa';
 
 const UserPreviewModal = ({ isOpen, onClose, user }) => {
@@ -51,16 +51,9 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
     return group
   }
 
-  const formatPermissionLabel = (key) => {
+  const formatPermissionLabel = (group, key) => {
     if (!key) return ''
-    if (isRTL && PERM_LABELS_AR.actions && PERM_LABELS_AR.actions[key]) {
-      return PERM_LABELS_AR.actions[key]
-    }
-    const withSpaces = String(key)
-      .replace(/([A-Z])/g, ' $1')
-      .replace(/_/g, ' ')
-      .trim()
-    return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1)
+    return getPermissionDisplayLabel(group, key, isRTL)
   }
 
   const getInitials = () => {
@@ -360,7 +353,7 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
                                 : 'bg-blue-50 border-blue-100 text-blue-700'
                               }`}
                           >
-                            {formatPermissionLabel(perm)}
+                            {formatPermissionLabel(group, perm)}
                           </span>
                         ))}
                       </div>

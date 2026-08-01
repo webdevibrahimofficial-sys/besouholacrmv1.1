@@ -6,6 +6,7 @@ use App\Models\Visit;
 use App\Models\Lead;
 use App\Models\Broker;
 use App\Models\User;
+use App\Traits\UserHierarchyTrait;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\Validator;
 
 class VisitController extends Controller
 {
+    use UserHierarchyTrait;
+
     private function normalizeToUtcDbString($value): ?string
     {
         if (!$value) {
@@ -97,6 +100,17 @@ class VisitController extends Controller
         }
 
         $query = Visit::query();
+        $viewableUserIds = $this->getViewableUserIds($user, $request->input('manager_id'));
+
+        if (is_array($viewableUserIds) && !empty($viewableUserIds)) {
+            $query->where(function ($scoped) use ($viewableUserIds) {
+                $scoped->whereIn('sales_person_id', $viewableUserIds)
+                    ->orWhere(function ($fallback) use ($viewableUserIds) {
+                        $fallback->whereNull('sales_person_id')
+                            ->whereIn('created_by', $viewableUserIds);
+                    });
+            });
+        }
 
         if ($request->has('lead_id')) {
             $query->where('lead_id', $request->lead_id);

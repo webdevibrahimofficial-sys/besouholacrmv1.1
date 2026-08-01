@@ -177,7 +177,7 @@ class TelesalesService
             && $this->userHasExplicitModulePermission($user, 'Telesales', 'receiveLeads');
     }
 
-    public function isEligibleSalesAssignee(?User $user, int $tenantId): bool
+    public function isEligibleConvertedTelesalesSalesAssignee(?User $user, int $tenantId): bool
     {
         if (!$user || (int) ($user->tenant_id ?? 0) !== $tenantId || !$this->isActiveUser($user)) {
             return false;
@@ -188,10 +188,6 @@ class TelesalesService
         }
 
         if ($this->isPrivileged($user)) {
-            return true;
-        }
-
-        if ($this->isSalesWorkflowRole($user)) {
             return true;
         }
 
@@ -207,12 +203,12 @@ class TelesalesService
             ->values();
     }
 
-    public function getEligibleSalesAssignees(int $tenantId): Collection
+    public function getEligibleConvertedTelesalesSalesAssignees(int $tenantId): Collection
     {
         return User::query()
             ->where('tenant_id', $tenantId)
             ->get()
-            ->filter(fn (User $user) => $this->isEligibleSalesAssignee($user, $tenantId))
+            ->filter(fn (User $user) => $this->isEligibleConvertedTelesalesSalesAssignee($user, $tenantId))
             ->values();
     }
 
@@ -237,8 +233,8 @@ class TelesalesService
         }
 
         $user = User::query()->where('tenant_id', $tenantId)->find($assigneeId);
-        if (!$this->isEligibleSalesAssignee($user, $tenantId)) {
-            throw new \InvalidArgumentException('Selected sales assignee is not eligible to receive sales leads.');
+        if (!$this->isEligibleConvertedTelesalesSalesAssignee($user, $tenantId)) {
+            throw new \InvalidArgumentException('Selected sales assignee is not eligible to receive converted telesales leads.');
         }
 
         return $user;
@@ -605,7 +601,7 @@ class TelesalesService
                 $engine = app(LeadRotationEngine::class);
                 $filters = $engine->resolveLeadFilters($lead, $tenantId);
                 $queueKey = $engine->buildQueueKey($lead, $filters);
-                $salesEligibleIds = $this->getEligibleSalesAssignees($tenantId)
+                $salesEligibleIds = $this->getEligibleConvertedTelesalesSalesAssignees($tenantId)
                     ->pluck('id')
                     ->map(fn ($id) => (int) $id)
                     ->values()

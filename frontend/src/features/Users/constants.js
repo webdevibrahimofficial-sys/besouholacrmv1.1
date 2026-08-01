@@ -198,3 +198,24 @@ export const PERM_LABELS_AR = {
     integration: 'التكامل',
   },
 };
+
+export const getPermissionDisplayLabel = (group, permissionKey, isArabic = false) => {
+  if (group === 'Leads' && permissionKey === 'receiveLeads') {
+    return isArabic ? 'استلام الليدز المحولة من التليسيلز' : 'Receive Converted Telesales Leads';
+  }
+
+  if (group === 'Inventory' && permissionKey === 'deleteInventory') {
+    return isArabic ? 'حذف سجلات المخزون' : 'Delete Inventory Records';
+  }
+
+  if (isArabic && PERM_LABELS_AR.actions && PERM_LABELS_AR.actions[permissionKey]) {
+    return PERM_LABELS_AR.actions[permissionKey];
+  }
+
+  const withSpaces = String(permissionKey || '')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .trim();
+
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+};

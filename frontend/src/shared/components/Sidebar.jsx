@@ -527,11 +527,12 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
       ['addStage', 'addSource', 'addRegions', 'addArea', 'addInputs', 'editConfigurationSettings'].includes(p)
     )
   const isTelesalesModuleEnabled = canAccess('telesales')
+  const isAccountantRole = roleLower === 'accountant'
   const canViewPipelineStages = hasFullSettingsAccess || effectiveControlPerms.includes('addStage')
   const canViewCancelReasons = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
   const canViewNotInterestReasons = canViewCancelReasons && isTelesalesModuleEnabled
   const canViewCrmSettings = hasFullSettingsAccess || effectiveControlPerms.includes('editConfigurationSettings')
-  const canViewTelesalesModule = isTelesalesModuleEnabled && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
+  const canViewTelesalesModule = !isAccountantRole && isTelesalesModuleEnabled && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('showModule'))
   const canViewTelesalesDashboard = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewDashboard'))
   const canViewTelesalesReports = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewReports'))
   const canViewTelesalesHistorical = canViewTelesalesModule && (isTenantAdmin || isSuperAdmin || telesalesModulePerms.includes('viewHistoricalRecords'))

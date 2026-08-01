@@ -628,7 +628,7 @@ class TelesalesController extends Controller
         $workflow = strtolower(trim((string) $request->input('workflow', TelesalesService::WORKFLOW_TELESALES)));
 
         $collection = $workflow === TelesalesService::WORKFLOW_SALES
-            ? $this->telesalesService->getEligibleSalesAssignees($tenantId)
+            ? $this->telesalesService->getEligibleConvertedTelesalesSalesAssignees($tenantId)
             : $this->telesalesService->getEligibleTelesalesAssignees($tenantId);
 
         $collection = $this->filterAssigneesForViewer($collection, $request->user());

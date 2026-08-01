@@ -31,6 +31,37 @@ import UserDeleteReassignModal from '@features/Users/UserDeleteReassignModal.jsx
 // User Management Component
 const statuses = ['Active', 'Inactive', 'Suspended'];
 
+const ROLE_LABELS_AR = {
+  Admin: 'أدمن',
+  Director: 'دايركتور',
+  'Operation Manager': 'أوبريشن مانجر',
+  'Operations Manager': 'أوبريشن مانجر',
+  'Sales Admin': 'سيلز أدمن',
+  'Branch Manager': 'برانش مانجر',
+  'Sales Manager': 'سيلز مانجر',
+  'Team Leader': 'تيم ليدر',
+  'Sales Person': 'سيلز بيرسون',
+  'Telesales Manager': 'تيليسيلز مانجر',
+  'Telesales Team Leader': 'تيم ليدر تيليسيلز',
+  'Telesales Agent': 'تيليسيلز أجنت',
+  'Customer Manager': 'كاستمر مانجر',
+  'Customer Team Leader': 'تيم ليدر كاستمر',
+  'Customer Agent': 'كاستمر أجنت',
+  'Marketing Manager': 'ماركتنج مانجر',
+  'Marketing Moderator': 'ماركتنج مودريتور',
+  Accountant: 'أكونتانت',
+  'Support Manager': 'سابورت مانجر',
+  'Support Team Leader': 'تيم ليدر سابورت',
+  'Support Agent': 'سابورت أجنت',
+  Custom: 'مخصص',
+}
+
+const STATUS_LABELS_AR = {
+  Active: 'نشط',
+  Inactive: 'غير نشط',
+  Suspended: 'موقوف',
+}
+
 const { canAssignNow } = (() => {
   try {
     const mod = require('../../utils/rotation');
@@ -59,8 +90,12 @@ const UserActions = ({
   onUnassignRotation,
   onRemoveDelayRotation,
 }) => {
+  const { i18n } = useTranslation();
+  const isArabic = i18n.language === 'ar';
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
+  const menuButtonRef = useRef(null);
+  const [dropdownStyle, setDropdownStyle] = useState(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -72,6 +107,39 @@ const UserActions = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!showDropdown || !menuButtonRef.current) return;
+
+    const updatePosition = () => {
+      if (!menuButtonRef.current) return;
+      const rect = menuButtonRef.current.getBoundingClientRect();
+      const menuWidth = 192;
+      const margin = 8;
+      const top = Math.max(margin, rect.top - 6);
+      const left = isArabic
+        ? Math.max(margin, rect.left)
+        : Math.min(window.innerWidth - menuWidth - margin, Math.max(margin, rect.right - menuWidth));
+
+      setDropdownStyle({
+        position: 'fixed',
+        top: `${top}px`,
+        left: `${left}px`,
+        width: `${menuWidth}px`,
+        zIndex: 250,
+        transform: 'translateY(-100%)',
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [showDropdown, isArabic]);
+
   return (
     <div
       className={`flex items-center justify-end gap-1 sm:gap-2 relative ${showDropdown ? 'z-50' : ''}`}
@@ -79,7 +147,7 @@ const UserActions = ({
     >
       <button 
         onClick={onPreview} 
-        title="Preview" 
+        title={isArabic ? 'معاينة' : 'Preview'} 
         className="p-1 sm:p-1.5 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
       >
         <Eye className="w-4 h-4 sm:w-5 sm:h-5 block shrink-0 text-purple-600" />
@@ -88,7 +156,7 @@ const UserActions = ({
       {canEdit && (
         <button 
           onClick={onEdit} 
-          title="Edit" 
+          title={isArabic ? 'تعديل' : 'Edit'} 
           className="p-1 sm:p-1.5 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
         >
           <Pencil className="w-4 h-4 sm:w-5 sm:h-5 block shrink-0 text-blue-600" />
@@ -98,7 +166,7 @@ const UserActions = ({
       {canChangePassword && (
         <button 
           onClick={onChangePassword} 
-          title="Change Password" 
+          title={isArabic ? 'تغيير كلمة المرور' : 'Change Password'} 
           className="p-1 sm:p-1.5 rounded-md hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
         >
           <Key className="w-4 h-4 sm:w-5 sm:h-5 block shrink-0 text-amber-600" />
@@ -108,7 +176,7 @@ const UserActions = ({
       {canToggleStatus && (
         <button 
           onClick={onToggleActive} 
-          title={user.status === 'Active' ? 'Deactivate' : 'Activate'} 
+          title={user.status === 'Active' ? (isArabic ? 'إيقاف' : 'Deactivate') : (isArabic ? 'تفعيل' : 'Activate')} 
           className={`p-1 sm:p-1.5 rounded-md transition-colors ${
             user.status === 'Active' 
             ? 'hover:bg-green-100 dark:hover:bg-green-900/30' 
@@ -126,42 +194,44 @@ const UserActions = ({
       {(canManageRotation || canDelete) && (
         <div className="relative">
           <button 
+            ref={menuButtonRef}
             onClick={() => setShowDropdown(!showDropdown)} 
             className="p-1 sm:p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5 block shrink-0 text-gray-600 dark:text-gray-400" />
           </button>
-          {showDropdown && (
-            <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 z-50 py-1 animate-in fade-in zoom-in-95 duration-100">
-               {canManageRotation && (
-                 <button onClick={() => { onAssignRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                    <UserCog className="w-4 h-4 block shrink-0 text-purple-500"/> Assign Rotation
+          {showDropdown && dropdownStyle && createPortal(
+            <div style={dropdownStyle} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 animate-in fade-in zoom-in-95 duration-100">
+                {canManageRotation && (
+                  <button onClick={() => { onAssignRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                     <UserCog className="w-4 h-4 block shrink-0 text-purple-500"/> {isArabic ? 'تعيين في الروتيشن' : 'Assign Rotation'}
                     {isRotationAssigned ? <Check className="w-4 h-4 ms-auto text-green-500" /> : null}
                  </button>
-               )}
-               {canManageRotation && isRotationAssigned && (
-                 <button onClick={() => { onUnassignRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                    <X className="w-4 h-4 block shrink-0 text-red-500"/> Unassign Rotation
+                )}
+                {canManageRotation && isRotationAssigned && (
+                  <button onClick={() => { onUnassignRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                    <X className="w-4 h-4 block shrink-0 text-red-500"/> {isArabic ? 'إلغاء التعيين من الروتيشن' : 'Unassign Rotation'}
                  </button>
-               )}
-               {canManageRotation && (
-                 <button onClick={() => { onDelayRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                    <Clock className="w-4 h-4 block shrink-0 text-orange-500"/> Delay Rotation
+                )}
+                {canManageRotation && (
+                  <button onClick={() => { onDelayRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                    <Clock className="w-4 h-4 block shrink-0 text-orange-500"/> {isArabic ? 'تأخير الروتيشن' : 'Delay Rotation'}
                     {isDelayRotation ? <Check className="w-4 h-4 ms-auto text-green-500" /> : null}
                  </button>
-               )}
-               {canManageRotation && isDelayRotation && (
-                 <button onClick={() => { onRemoveDelayRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-red-600 dark:text-red-400">
-                    <X className="w-4 h-4 block shrink-0 text-red-500"/> Remove Delay Rotation
+                )}
+                {canManageRotation && isDelayRotation && (
+                  <button onClick={() => { onRemoveDelayRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-red-600 dark:text-red-400">
+                    <X className="w-4 h-4 block shrink-0 text-red-500"/> {isArabic ? 'إلغاء تأخير الروتيشن' : 'Remove Delay Rotation'}
                  </button>
-               )}
+                )}
                {canManageRotation && canDelete && <div className="h-px bg-gray-100 dark:bg-gray-700 my-1"></div>}
-               {canDelete && (
-                 <button onClick={() => { onDelete(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2">
-                    <Trash2 className="w-4 h-4 block shrink-0 text-red-600"/> Delete
-                 </button>
-               )}
-            </div>
+                {canDelete && (
+                  <button onClick={() => { onDelete(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2">
+                     <Trash2 className="w-4 h-4 block shrink-0 text-red-600"/> {isArabic ? 'حذف' : 'Delete'}
+                  </button>
+                )}
+            </div>,
+            document.body
           )}
         </div>
       )}
@@ -175,6 +245,17 @@ export default function UserManagementUsers() {
   const { user } = useAppState();
   const { theme, resolvedTheme } = useTheme();
   const isLight = (resolvedTheme || theme) === 'light';
+  const isArabic = i18n.language === 'ar';
+  const translateRoleLabel = useCallback((role) => {
+    const value = String(role || '').trim();
+    if (!isArabic) return value;
+    return ROLE_LABELS_AR[value] || value;
+  }, [isArabic]);
+  const translateStatusLabel = useCallback((status) => {
+    const value = String(status || '').trim();
+    if (!isArabic) return value;
+    return STATUS_LABELS_AR[value] || value;
+  }, [isArabic]);
 
   const modulePermissions = (user?.meta_data && user.meta_data.module_permissions) || {};
   const controlModulePerms = Array.isArray(modulePermissions.Control) ? modulePermissions.Control : [];
@@ -266,7 +347,6 @@ export default function UserManagementUsers() {
       </div>
     );
   }
-  const isArabic = i18n.language === 'ar';
   const [q, setQ] = useState('');
   
   const canUseBulkAssign = canRunMultiAction;
@@ -346,8 +426,18 @@ export default function UserManagementUsers() {
           '';
 
         const createdAtIso = typeof u.created_at === 'string' ? u.created_at : '';
-        const createdDate = createdAtIso ? createdAtIso.split('T')[0] : '';
         const createdAtTs = createdAtIso ? (Date.parse(createdAtIso) || 0) : 0;
+        const createdDateOnly = createdAtIso ? createdAtIso.split('T')[0] : '';
+        const createdAtDisplay = createdAtTs
+          ? new Date(createdAtTs).toLocaleString('sv-SE', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            })
+          : '';
 
         let userRole = u.job_title || u.role || '';
         if (userRole.toLowerCase() === 'tenant admin' || userRole.toLowerCase() === 'tenant-admin') {
@@ -360,7 +450,8 @@ export default function UserManagementUsers() {
           department: departmentName,
           departmentId,
           role: userRole,
-          createdAt: createdDate,
+          createdAt: createdAtDisplay,
+          createdDateOnly,
           createdAtIso,
           createdAtTs,
         };
@@ -431,18 +522,18 @@ export default function UserManagementUsers() {
       const value = String(role || '').trim();
       if (!value || seen.has(value)) return;
       seen.add(value);
-      options.push({ value, label: value });
+      options.push({ value, label: translateRoleLabel(value) });
     });
 
     users.forEach((user) => {
       const value = String(user?.role || user?.job_title || '').trim();
       if (!value || seen.has(value)) return;
       seen.add(value);
-      options.push({ value, label: value });
+      options.push({ value, label: translateRoleLabel(value) });
     });
 
     return options;
-  }, [users]);
+  }, [users, translateRoleLabel]);
 
   const filtered = useMemo(() => {
     return users.filter((u) => {
@@ -470,10 +561,10 @@ export default function UserManagementUsers() {
 
       // Date Filters
       if (filters.dateFrom) {
-         if ((u.createdAt || '') < filters.dateFrom) return false;
+         if ((u.createdDateOnly || '') < filters.dateFrom) return false;
       }
       if (filters.dateTo) {
-         if ((u.createdAt || '') > filters.dateTo) return false;
+         if ((u.createdDateOnly || '') > filters.dateTo) return false;
       }
 
       return true;
@@ -496,14 +587,6 @@ export default function UserManagementUsers() {
     // Sort
     if (sortBy) {
       result.sort((a, b) => {
-        const roleA = String(a?.role || a?.job_title || '').toLowerCase().trim();
-        const roleB = String(b?.role || b?.job_title || '').toLowerCase().trim();
-        const isAdminA = !!a?.is_super_admin || roleA === 'admin' || roleA === 'tenant admin' || roleA === 'tenant-admin';
-        const isAdminB = !!b?.is_super_admin || roleB === 'admin' || roleB === 'tenant admin' || roleB === 'tenant-admin';
-
-        // Always keep admins pinned to the top.
-        if (isAdminA !== isAdminB) return isAdminA ? -1 : 1;
-
         // Special case: created_at sorting must include time, not date only.
         if (sortBy === 'createdAtTs') {
           const tsA = Number(a?.createdAtTs || 0);
@@ -1188,7 +1271,7 @@ export default function UserManagementUsers() {
               {isArabic ? 'الحالة' : 'Status'}
             </label>
             <SearchableSelect
-              options={statuses.map(o => ({ value: o, label: o }))}
+              options={statuses.map(o => ({ value: o, label: translateStatusLabel(o) }))}
               value={filters.status}
               onChange={(v) => setFilters(prev => ({ ...prev, status: v }))}
               placeholder={isArabic ? 'اختر الحالة' : 'Select Status'}
@@ -1321,7 +1404,7 @@ export default function UserManagementUsers() {
           </div>
         )}
 
-        <div className="glass-panel rounded-xl overflow-hidden w-full">
+        <div className="glass-panel rounded-xl overflow-visible w-full">
           <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
             <h3 className="font-semibold text-lg">{isArabic ? 'قائمة المستخدمين' : 'Users List'}</h3>
             <button
@@ -1371,6 +1454,12 @@ export default function UserManagementUsers() {
                     <ArrowUpDown size={12} className={sortBy === 'department' ? 'text-blue-500' : 'opacity-30'} />
                    </div>
                 </th>
+                <th className="p-3 cursor-pointer hover:text-blue-500 transition-colors" onClick={() => handleSort('createdAtTs')}>
+                   <div className="flex items-center gap-1">
+                    {isArabic ? 'تاريخ الإنشاء' : 'Creation Date'}
+                    <ArrowUpDown size={12} className={sortBy === 'createdAtTs' ? 'text-blue-500' : 'opacity-30'} />
+                   </div>
+                </th>
                 <th className="p-3 rounded-r-lg">{isArabic ? 'الإجراءات' : 'Actions'}</th>
               </tr>
             </thead>
@@ -1392,6 +1481,7 @@ export default function UserManagementUsers() {
                     <td className="p-3"><Skeleton className="h-4 w-20" /></td>
                     <td className="p-3"><Skeleton className="h-6 w-16 rounded-full" /></td>
                     <td className="p-3"><Skeleton className="h-4 w-16" /></td>
+                    <td className="p-3"><Skeleton className="h-4 w-28" /></td>
                     <td className="p-3"><div className="flex gap-1"><Skeleton className="h-6 w-6 rounded" /><Skeleton className="h-6 w-6 rounded" /></div></td>
                   </tr>
                 ))
@@ -1435,6 +1525,9 @@ export default function UserManagementUsers() {
                       <td className="p-3 text-sm text-[var(--muted-text)]">
                         {u.department || (isArabic ? 'بدون قسم' : 'No department')}
                       </td>
+                      <td className="p-3 text-sm text-[var(--muted-text)]">
+                        {u.createdAt || '-'}
+                      </td>
                       <td className="p-3">
                         <UserActions
                           user={u}
@@ -1462,7 +1555,7 @@ export default function UserManagementUsers() {
                   ))}
                   {sortedAndPaginated.length === 0 && (
                     <tr>
-                      <td colSpan="7" className="text-center py-8 text-[var(--muted-text)]">
+                      <td colSpan="8" className="text-center py-8 text-[var(--muted-text)]">
                         {isArabic ? 'لا توجد بيانات' : 'No data found'}
                       </td>
                     </tr>
