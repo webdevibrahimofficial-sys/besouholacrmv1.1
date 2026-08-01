@@ -97,10 +97,16 @@ export default function CustomersReport() {
           invoicePaidTotal: Number(c.invoicePaidTotal ?? 0),
           invoicePartialTotal: Number(c.invoicePartialTotal ?? 0),
           invoiceUnpaidTotal: Number(c.invoiceUnpaidTotal ?? 0),
+          invoicePaidCount: Number(c.invoicePaidCount ?? 0),
+          invoicePartialCount: Number(c.invoicePartialCount ?? 0),
+          invoiceUnpaidCount: Number(c.invoiceUnpaidCount ?? 0),
+          invoicesCount: Number(c.invoicesCount ?? 0),
+          opportunitiesCount: Number(c.opportunitiesCount ?? 0),
           quotationTotal: Number(c.quotationTotal ?? 0),
           quotationConverted: Number(c.quotationConverted ?? 0),
           quotationPending: Number(c.quotationPending ?? 0),
           quotationLost: Number(c.quotationLost ?? 0),
+          revenueBreakdown: c.revenueBreakdown && typeof c.revenueBreakdown === 'object' ? c.revenueBreakdown : {},
         }))
 
         if (!cancelled) {
@@ -172,9 +178,9 @@ export default function CustomersReport() {
   const activeCount = filtered.reduce((s, c) => s + (isActive(c) ? 1 : 0), 0)
   const inactiveCount = Math.max(0, totalCustomers - activeCount)
   const totalSalesOrders = filtered.reduce((s, c) => s + (c.orders || 0), 0)
-  const totalInvoices = totalSalesOrders
-  const totalOpportunities = totalCustomers * 2
-  const totalQuotations = totalCustomers
+  const totalQuotations = filtered.reduce((s, c) => s + (c.quotationTotal || 0), 0)
+  const totalInvoices = filtered.reduce((s, c) => s + (c.invoicesCount || 0), 0)
+  const totalOpportunities = filtered.reduce((s, c) => s + (c.opportunitiesCount || 0), 0)
   const top5 = [...filtered].sort((a, b) => (b.totalRevenue || 0) - (a.totalRevenue || 0)).slice(0, 5)
 
   const quotationsSegments = useMemo(() => {
@@ -199,9 +205,9 @@ export default function CustomersReport() {
   }, [filtered, isRTL])
 
   const invoicesSegments = useMemo(() => {
-    const paid = filtered.reduce((s, c) => s + (c.invoicePaidTotal || 0), 0)
-    const partial = filtered.reduce((s, c) => s + (c.invoicePartialTotal || 0), 0)
-    const unpaid = filtered.reduce((s, c) => s + (c.invoiceUnpaidTotal || 0), 0)
+    const paid = filtered.reduce((s, c) => s + (c.invoicePaidCount || 0), 0)
+    const partial = filtered.reduce((s, c) => s + (c.invoicePartialCount || 0), 0)
+    const unpaid = filtered.reduce((s, c) => s + (c.invoiceUnpaidCount || 0), 0)
     const total = paid + partial + unpaid
 
     if (!total) {
@@ -221,22 +227,40 @@ export default function CustomersReport() {
 
   const revenueSegments = useMemo(() => {
     const total = totalRevenue || 0
-    if (!total) {
+    const palette = ['#22c55e', '#3b82f6', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6']
+    const aggregated = {}
+
+    filtered.forEach((customer) => {
+      const breakdown = customer.revenueBreakdown || {}
+      Object.entries(breakdown).forEach(([label, value]) => {
+        const amount = Number(value || 0)
+        if (!label || amount <= 0) return
+        aggregated[label] = (aggregated[label] || 0) + amount
+      })
+    })
+
+    const entries = Object.entries(aggregated)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+
+    if (entries.length === 0) {
       return [
-        { label: isRTL ? 'المنتج أ' : 'Product A', value: 0, color: '#22c55e', pct: 0 },
-        { label: isRTL ? 'المنتج ب' : 'Product B', value: 0, color: '#3b82f6', pct: 0 },
-        { label: isRTL ? 'أخرى' : 'Other', value: 0, color: '#a855f7', pct: 0 },
+        {
+          label: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue',
+          value: total,
+          color: '#22c55e',
+          pct: total > 0 ? 100 : 0,
+        },
       ]
     }
 
-    const productA = total * 0.4
-    const productB = total * 0.35
-    const other = Math.max(0, total - productA - productB)
-
     return [
-      { label: isRTL ? 'المنتج أ' : 'Product A', value: productA, color: '#22c55e', pct: Math.round((productA / total) * 100) },
-      { label: isRTL ? 'المنتج ب' : 'Product B', value: productB, color: '#3b82f6', pct: Math.round((productB / total) * 100) },
-      { label: isRTL ? 'أخرى' : 'Other', value: other, color: '#a855f7', pct: Math.round((other / total) * 100) },
+      ...entries.map(([label, value], index) => ({
+        label,
+        value,
+        color: palette[index % palette.length],
+        pct: total > 0 ? Math.round((value / total) * 100) : 0,
+      })),
     ]
   }, [totalRevenue, isRTL])
 

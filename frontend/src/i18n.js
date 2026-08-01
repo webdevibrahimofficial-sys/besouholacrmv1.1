@@ -377,6 +377,7 @@ const resources = {
       'Language': 'Language',
       'Search': 'Search',
       'Notifications': 'Notifications',
+      'My Team': 'My Team',
       'Profile': 'Profile',
       // Integrations Page
       'Meta (Facebook & Instagram)': 'Meta (Facebook & Instagram)',
@@ -3352,6 +3353,7 @@ const resources = {
       'Language': 'اللغة',
       'Search': 'البحث',
       'Notifications': 'الإشعارات',
+      'My Team': 'فريقي',
       'Profile': 'الملف الشخصي',
       'Dark Mode': 'الوضع الداكن',
       'Light Mode': 'الوضع الفاتح',

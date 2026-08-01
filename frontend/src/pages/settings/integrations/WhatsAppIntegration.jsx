@@ -11,7 +11,7 @@ const WhatsAppIntegration = () => {
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('connection'); // connection | templates | mirror
+  const [activeTab, setActiveTab] = useState('connection'); // connection | templates | unassigned
   const [pendingContactsCount, setPendingContactsCount] = useState(0);
 
   useEffect(() => {
@@ -72,9 +72,9 @@ const WhatsAppIntegration = () => {
           {t('Templates')}
         </button>
         <button
-          onClick={() => setActiveTab('mirror')}
+          onClick={() => setActiveTab('unassigned')}
           className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all relative ${
-            activeTab === 'mirror'
+            activeTab === 'unassigned'
               ? 'bg-white dark:bg-gray-700 text-green-600 dark:text-green-400 shadow-sm'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
@@ -90,9 +90,13 @@ const WhatsAppIntegration = () => {
 
       {/* Content Area */}
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        {activeTab === 'connection' && <WhatsAppConnection />}
+        {activeTab === 'connection' && (
+          <WhatsAppConnection
+            extraConnectionSection={<WhatsAppMirrorConnection mode="connection" embedded />}
+          />
+        )}
         {activeTab === 'templates' && <WhatsAppTemplates />}
-        {activeTab === 'mirror' && <WhatsAppMirrorConnection />}
+        {activeTab === 'unassigned' && <WhatsAppMirrorConnection mode="directory" />}
       </div>
     </div>
   );

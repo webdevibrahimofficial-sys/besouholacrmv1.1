@@ -11,6 +11,7 @@ use App\Jobs\ProcessIncomingMirrorMessage;
 use App\Jobs\ProcessHistorySyncBatch;
 use App\Services\Whatsapp\WhatsappChannelService;
 use App\Services\Whatsapp\WhatsappContactStoreService;
+use Illuminate\Support\Facades\Schema;
 
 class WhatsappMirrorWebhookController extends Controller
 {
@@ -29,29 +30,44 @@ class WhatsappMirrorWebhookController extends Controller
 
         if (($payload['event'] ?? null) === 'status_change') {
             $existingSession = WhatsappMirrorSession::where('tenant_id', $tenantId)->first();
+            $manualDisconnected = ($existingSession?->reconnect_reason ?? null) === 'manual_disconnect';
+            $incomingStatus = (string) ($payload['status'] ?? 'disconnected');
+
+            if ($manualDisconnected && $incomingStatus !== 'connected') {
+                return response()->json(['success' => true, 'ignored' => 'manual_disconnect_lock']);
+            }
 
             WhatsappMirrorSession::updateOrCreate(
                 ['tenant_id' => $tenantId],
                 [
-                    'status' => $payload['status'],
+                    'status' => $incomingStatus,
+                    ...(
+                        Schema::hasColumn('whatsapp_mirror_sessions', 'should_restore')
+                            ? [
+                                'should_restore' => in_array($incomingStatus, ['connected', 'pending_qr', 'reconnecting', 'reconnect_failed'], true)
+                                    ? true
+                                    : ($existingSession?->should_restore ?? false),
+                            ]
+                            : []
+                    ),
                     'connected_phone_number' => $payload['connected_phone_number']
                         ?? $existingSession?->connected_phone_number,
-                    'last_connected_at' => $payload['status'] === 'connected'
+                    'last_connected_at' => $incomingStatus === 'connected'
                         ? now()
                         : $existingSession?->last_connected_at,
-                    'last_disconnected_at' => in_array($payload['status'], ['disconnected', 'reconnect_failed'], true)
+                    'last_disconnected_at' => in_array($incomingStatus, ['disconnected', 'reconnect_failed'], true)
                         ? now()
                         : $existingSession?->last_disconnected_at,
-                    'reconnect_reason' => in_array($payload['status'], ['connected', 'pending_qr'], true)
+                    'reconnect_reason' => in_array($incomingStatus, ['connected', 'pending_qr'], true)
                         ? null
                         : ($payload['reconnect_reason'] ?? $existingSession?->reconnect_reason),
-                    'reconnect_detail' => in_array($payload['status'], ['connected', 'pending_qr'], true)
+                    'reconnect_detail' => in_array($incomingStatus, ['connected', 'pending_qr'], true)
                         ? null
                         : ($payload['reconnect_detail'] ?? $existingSession?->reconnect_detail),
                 ]
             );
 
-            if ($payload['status'] === 'connected') {
+            if ($incomingStatus === 'connected') {
                 WhatsappSetting::updateOrCreate(
                     ['tenant_id' => $tenantId],
                     ['provider' => 'mirror']

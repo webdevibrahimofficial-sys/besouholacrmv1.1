@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import QRCode from 'qrcode';
-import { getSession, hasPersistedSession, initSession } from '../sessions/manager.js';
+import { getSession, hasManualDisconnectFlag, hasPersistedSession, initSession } from '../sessions/manager.js';
 
 const router = Router();
 
 router.get('/sessions/:tenantId/status', async (req, res) => {
   const tenantId = req.params.tenantId;
   let sock = getSession(tenantId);
+
+  if (!sock && hasManualDisconnectFlag(tenantId)) {
+    return res.json({ status: 'disconnected', qr: null });
+  }
 
   if (!sock && hasPersistedSession(tenantId)) {
     try {

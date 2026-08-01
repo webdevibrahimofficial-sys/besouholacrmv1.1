@@ -190,6 +190,29 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
     }
   }
 
+  const navigateFromProfileMenu = (path) => {
+    setProfilePreviewOpen(false)
+    setIsProfileMobileOpen(false)
+    setIsExtrasOpen(false)
+    setIsLanguageOpen(false)
+    setIsMobileLanguageOpen(false)
+    setIsNotificationsOpen(false)
+    setIsSearchDropdownOpen(false)
+
+    try {
+      navigate(path)
+    } catch {}
+
+    // HashRouter fallback for cases where menu state or event timing swallows SPA navigation.
+    try {
+      const normalizedPath = String(path || '').startsWith('/') ? path : `/${String(path || '')}`
+      const targetHash = `#${normalizedPath}`
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash
+      }
+    } catch {}
+  }
+
   const supportActionButtons = (
     <>
       <button
@@ -391,7 +414,7 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
                       <div className="text-xs text-[var(--muted-text)] truncate">
                         {isSupportAccessActive ? t('Support Access - {{name}}', { name: supportAccessLabel }) : (user?.email || 'admin@example.com')}
                       </div>
-                      <button className="mt-1 text-xs font-semibold text-blue-600 hover:text-blue-700" onClick={() => { navigate('/settings/profile') }}>
+                      <button type="button" className="mt-1 text-xs font-semibold text-blue-600 hover:text-blue-700" onClick={() => navigateFromProfileMenu('/settings/profile')}>
                         {t('My Profile')} ▸
                       </button>
                     </div>
@@ -400,18 +423,18 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
 
                   <div className="h-px bg-[var(--divider)]"></div>
 
-                  <button onClick={() => { navigate('/settings/profile#security') }} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--content-text)] hover:bg-[var(--table-row-hover)] transition-colors" role="menuitem">
+                  <button type="button" onClick={() => navigateFromProfileMenu('/settings/profile#security')} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--content-text)] hover:bg-[var(--table-row-hover)] transition-colors" role="menuitem">
                     <span className="w-5 h-5 inline-flex items-center justify-center">🔐</span>
                     <span>{t('Security Settings')}</span>
                   </button>
 
-                  <button onClick={() => { navigate('/settings/profile#security-devices') }} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--content-text)] hover:bg-[var(--table-row-hover)] transition-colors" role="menuitem">
+                  <button type="button" onClick={() => navigateFromProfileMenu('/settings/profile#security-devices')} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--content-text)] hover:bg-[var(--table-row-hover)] transition-colors" role="menuitem">
                     <span className="w-5 h-5 inline-flex items-center justify-center">📱</span>
                     <span>{t('Linked Devices')}</span>
                   </button>
 
                   {canViewCompanyProfile && (
-                    <button onClick={() => { navigate('/settings/profile/company') }} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--content-text)] hover:bg-[var(--table-row-hover)] transition-colors" role="menuitem">
+                    <button type="button" onClick={() => navigateFromProfileMenu('/settings/profile/company')} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--content-text)] hover:bg-[var(--table-row-hover)] transition-colors" role="menuitem">
                       <span className="w-5 h-5 inline-flex items-center justify-center">🏢</span>
                       <span>{t('Company Profile')}</span>
                     </button>
@@ -528,17 +551,17 @@ export default function Topbar({ onMobileToggle, mobileSidebarOpen, notification
                 <div className="text-[11px] text-[var(--muted-text)] truncate">
                   {isSupportAccessActive ? t('Support Access - {{name}}', { name: supportAccessLabel }) : (user?.email || 'admin@example.com')}
                 </div>
-                <button className="mt-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700" onClick={() => { navigate('/settings/profile') }}>{t('My Profile')} ▸</button>
+                <button type="button" className="mt-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700" onClick={() => navigateFromProfileMenu('/settings/profile')}>{t('My Profile')} ▸</button>
               </div>
               <span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-green-500" aria-hidden></span>
             </div>
 
             <div className="h-px bg-[var(--divider)]"></div>
 
-            <button onClick={() => { navigate('/settings/profile#security') }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--content-text)] hover:bg-[var(--table-row-hover)]" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">🔐</span><span>{t('Security Settings')}</span></button>
-            <button onClick={() => { navigate('/settings/profile#security-devices') }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--content-text)] hover:bg-[var(--table-row-hover)]" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">📱</span><span>{t('Linked Devices')}</span></button>
+            <button type="button" onClick={() => navigateFromProfileMenu('/settings/profile#security')} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--content-text)] hover:bg-[var(--table-row-hover)]" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">🔐</span><span>{t('Security Settings')}</span></button>
+            <button type="button" onClick={() => navigateFromProfileMenu('/settings/profile#security-devices')} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--content-text)] hover:bg-[var(--table-row-hover)]" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">📱</span><span>{t('Linked Devices')}</span></button>
             {canViewCompanyProfile && (
-              <button onClick={() => { navigate('/settings/profile/company') }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--content-text)] hover:bg-[var(--table-row-hover)]" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">🏢</span><span>{t('Company Profile')}</span></button>
+              <button type="button" onClick={() => navigateFromProfileMenu('/settings/profile/company')} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--content-text)] hover:bg-[var(--table-row-hover)]" role="menuitem"><span className="w-5 h-5 inline-flex items-center justify-center">🏢</span><span>{t('Company Profile')}</span></button>
             )}
 
             {isSupportAccessActive && (

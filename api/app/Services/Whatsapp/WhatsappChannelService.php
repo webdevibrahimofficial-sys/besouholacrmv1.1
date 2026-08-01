@@ -30,11 +30,19 @@ class WhatsappChannelService
 
     public function listForTenant(int $tenantId): \Illuminate\Database\Eloquent\Collection
     {
-        return WhatsappChannel::query()
+        $channels = WhatsappChannel::query()
             ->where('tenant_id', $tenantId)
             ->orderByDesc('is_primary')
             ->orderBy('display_name')
             ->get();
+
+        return $channels->map(function (WhatsappChannel $channel) use ($tenantId) {
+            if ($channel->provider !== WhatsappChannel::PROVIDER_MIRROR) {
+                return $channel;
+            }
+
+            return $this->syncMirrorChannel($tenantId, $channel);
+        });
     }
 
     public function findByPhoneNumberId(string $phoneNumberId): ?WhatsappChannel
@@ -244,22 +252,66 @@ class WhatsappChannelService
                 );
             }
 
-            $status = match ($session?->status) {
-                'connected' => WhatsappChannel::STATUS_CONNECTED,
-                'pending_qr', 'reconnecting' => WhatsappChannel::STATUS_CONNECTING,
-                default => WhatsappChannel::STATUS_DISCONNECTED,
-            };
+            if (($session?->reconnect_reason ?? null) === 'manual_disconnect') {
+                $channel->fill([
+                    'mirror_session_id' => $session?->id,
+                    'phone_number' => null,
+                    'normalized_phone' => null,
+                    'status' => WhatsappChannel::STATUS_DISCONNECTED,
+                    'is_primary' => false,
+                    'supports_inbound' => false,
+                    'supports_outbound' => false,
+                    'last_disconnected_at' => now(),
+                    'last_error' => null,
+                ]);
+                $channel->save();
+
+                return $channel->fresh();
+            }
+
+            $shouldRestore = Schema::hasColumn('whatsapp_mirror_sessions', 'should_restore')
+                ? (bool) ($session?->should_restore ?? false)
+                : in_array($session?->status, ['connected', 'pending_qr', 'reconnecting', 'reconnect_failed'], true);
+
+            $status = !$shouldRestore
+                ? WhatsappChannel::STATUS_DISCONNECTED
+                : match ($session?->status) {
+                    'connected' => WhatsappChannel::STATUS_CONNECTED,
+                    'pending_qr' => WhatsappChannel::STATUS_PENDING,
+                    'reconnecting', 'reconnect_failed' => WhatsappChannel::STATUS_CONNECTING,
+                    default => WhatsappChannel::STATUS_DISCONNECTED,
+                };
 
             $channel->fill([
                 'mirror_session_id' => $session?->id,
                 'phone_number' => $phone,
                 'normalized_phone' => $normalizedPhone,
                 'status' => $status,
+                'is_primary' => $status === WhatsappChannel::STATUS_DISCONNECTED ? false : $channel->is_primary,
+                'supports_inbound' => $status !== WhatsappChannel::STATUS_DISCONNECTED,
+                'supports_outbound' => $status === WhatsappChannel::STATUS_CONNECTED,
                 'last_connected_at' => $status === WhatsappChannel::STATUS_CONNECTED ? now() : $channel->last_connected_at,
+                'last_disconnected_at' => $status === WhatsappChannel::STATUS_DISCONNECTED ? now() : $channel->last_disconnected_at,
             ]);
             $channel->save();
 
             return $channel->fresh();
+        });
+    }
+
+    public function markMirrorDisconnected(int $tenantId): void
+    {
+        DB::transaction(function () use ($tenantId) {
+            WhatsappChannel::query()
+                ->where('tenant_id', $tenantId)
+                ->where('provider', WhatsappChannel::PROVIDER_MIRROR)
+                ->update([
+                    'status' => WhatsappChannel::STATUS_DISCONNECTED,
+                    'last_disconnected_at' => now(),
+                    'last_error' => null,
+                    'supports_inbound' => false,
+                    'supports_outbound' => false,
+                ]);
         });
     }
 

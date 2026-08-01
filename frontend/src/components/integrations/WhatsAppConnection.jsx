@@ -5,6 +5,7 @@ import {
   updateWhatsappSettings,
   sendWhatsappTest,
   getWhatsappChannels,
+  getWhatsappMirrorStatus,
   setWhatsappChannelPrimary,
   startWhatsappChannelMigration,
   completeWhatsappChannelMigration,
@@ -14,7 +15,7 @@ import {
   completeWhatsappEmbeddedSignup,
 } from '../../services/whatsappService'
 import { toast } from 'react-hot-toast'
-import { Plug, Save, CheckCircle, AlertCircle, Star, Info, Send, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plug, Save, CheckCircle, AlertCircle, Star, Info, Send, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
 
 const statusBadgeClass = (status) => {
   switch (status) {
@@ -29,6 +30,21 @@ const statusBadgeClass = (status) => {
       return 'bg-gray-500/15 text-gray-600 dark:text-gray-400'
     default:
       return 'bg-slate-500/15 text-slate-600 dark:text-slate-300'
+  }
+}
+
+const mapMirrorStatusToChannelStatus = (status) => {
+  switch (status) {
+    case 'connected':
+      return 'connected'
+    case 'pending_qr':
+      return 'pending'
+    case 'reconnecting':
+    case 'reconnect_failed':
+      return 'connecting'
+    case 'disconnected':
+    default:
+      return 'disconnected'
   }
 }
 
@@ -64,7 +80,7 @@ function loadFacebookSdk(appId) {
   })
 }
 
-export default function WhatsAppConnection() {
+export default function WhatsAppConnection({ extraConnectionSection = null }) {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -80,6 +96,8 @@ export default function WhatsAppConnection() {
   const [verifyPhone, setVerifyPhone] = useState('')
   const [sendingVerify, setSendingVerify] = useState(false)
   const [waitingForInbound, setWaitingForInbound] = useState(false)
+  const [connectionMethodTab, setConnectionMethodTab] = useState('meta')
+  const [connectionMethodTabInitialized, setConnectionMethodTabInitialized] = useState(false)
 
   const [formData, setFormData] = useState({
     provider: 'meta',
@@ -99,7 +117,7 @@ export default function WhatsAppConnection() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [settings, channelList, authStatus] = await Promise.all([
+      const [settings, channelList, authStatus, mirrorStatus] = await Promise.all([
         getWhatsappSettings(),
         getWhatsappChannels(),
         getWhatsappOAuthStatus().catch(() => ({
@@ -107,6 +125,7 @@ export default function WhatsAppConnection() {
           manual_token_default: true,
           connect_mode: 'manual',
         })),
+        getWhatsappMirrorStatus().catch(() => null),
       ])
 
       if (settings) {
@@ -125,7 +144,17 @@ export default function WhatsAppConnection() {
         })
       }
 
-      setChannels(Array.isArray(channelList) ? channelList : [])
+      const nextChannels = Array.isArray(channelList) ? channelList.map((channel) => ({ ...channel })) : []
+      const mirrorChannel = nextChannels.find((channel) => channel.provider === 'mirror')
+      if (mirrorChannel && mirrorStatus) {
+        mirrorChannel.status = mapMirrorStatusToChannelStatus(mirrorStatus.status)
+        mirrorChannel.phone_number = mirrorStatus.connected_phone_number || mirrorChannel.phone_number
+        if (mirrorChannel.status === 'disconnected') {
+          mirrorChannel.is_primary = false
+        }
+      }
+
+      setChannels(nextChannels)
       setOauthStatus(authStatus || {})
       setShowManualForm(!authStatus?.whatsapp_oauth_enabled)
     } catch (error) {
@@ -139,6 +168,38 @@ export default function WhatsAppConnection() {
   useEffect(() => {
     fetchAll()
   }, [fetchAll])
+
+  useEffect(() => {
+    const handleMirrorStateChange = () => {
+      fetchAll()
+    }
+
+    window.addEventListener('whatsapp-mirror-state-changed', handleMirrorStateChange)
+
+    return () => {
+      window.removeEventListener('whatsapp-mirror-state-changed', handleMirrorStateChange)
+    }
+  }, [fetchAll])
+
+  useEffect(() => {
+    if (connectionMethodTabInitialized) {
+      return
+    }
+
+    const preferredChannel =
+      channels.find((channel) => channel?.is_primary)
+      || channels.find((channel) => channel?.status === 'connected')
+      || channels.find((channel) => channel?.status === 'connecting' || channel?.status === 'migrating')
+
+    if (!preferredChannel) {
+      setConnectionMethodTab('meta')
+      setConnectionMethodTabInitialized(true)
+      return
+    }
+
+    setConnectionMethodTab(preferredChannel.provider === 'mirror' ? 'mirror' : 'meta')
+    setConnectionMethodTabInitialized(true)
+  }, [channels, connectionMethodTabInitialized])
 
   useEffect(() => {
     const hash = window.location.hash || ''
@@ -561,6 +622,37 @@ export default function WhatsAppConnection() {
           </div>
         </div>
 
+        {extraConnectionSection ? (
+          <div className="mb-4 flex gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
+            <button
+              type="button"
+              onClick={() => setConnectionMethodTab('meta')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${
+                connectionMethodTab === 'meta'
+                  ? 'bg-white dark:bg-gray-700 text-green-600 dark:text-green-400 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <Plug className="w-4 h-4" />
+              {t('Meta Cloud')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConnectionMethodTab('mirror')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${
+                connectionMethodTab === 'mirror'
+                  ? 'bg-white dark:bg-gray-700 text-green-600 dark:text-green-400 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4" />
+              {t('WhatsApp Mirror')}
+            </button>
+          </div>
+        ) : null}
+
+        {connectionMethodTab === 'meta' && (
+        <>
         {oauthStatus.whatsapp_oauth_enabled ? (
           <div className="mb-6 space-y-3">
             <button
@@ -749,6 +841,14 @@ export default function WhatsAppConnection() {
           </div>
         </form>
         )}
+        </>
+        )}
+
+        {extraConnectionSection && connectionMethodTab === 'mirror' ? (
+          <div className="mt-3 pt-1">
+            {extraConnectionSection}
+          </div>
+        ) : null}
       </div>
     </div>
   )

@@ -4,18 +4,23 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\WhatsappMirrorSession;
+use App\Services\Whatsapp\WhatsappChannelService;
 use App\Services\Whatsapp\WhatsappMirrorClient;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class WhatsappMirrorController extends Controller
 {
     protected const RECONNECT_GRACE_SECONDS = 20;
 
     protected WhatsappMirrorClient $client;
+    protected WhatsappChannelService $channelService;
+    protected ?bool $hasShouldRestoreColumn = null;
 
-    public function __construct(WhatsappMirrorClient $client)
+    public function __construct(WhatsappMirrorClient $client, WhatsappChannelService $channelService)
     {
         $this->client = $client;
+        $this->channelService = $channelService;
     }
 
     public function pair(Request $request)
@@ -23,6 +28,13 @@ class WhatsappMirrorController extends Controller
         $tenantId = auth()->user()->tenant_id;
         $forcePair = $request->boolean('force');
         $statusResponse = $this->client->status($tenantId);
+
+        if ($this->supportsShouldRestore()) {
+            WhatsappMirrorSession::updateOrCreate(
+                ['tenant_id' => $tenantId],
+                ['should_restore' => true]
+            );
+        }
 
         if (!$forcePair && $statusResponse->successful()) {
             $statusPayload = $statusResponse->json() ?? [];
@@ -64,11 +76,17 @@ class WhatsappMirrorController extends Controller
         // A disconnect invalidates the Baileys auth state; a subsequent pair
         // is a fresh pairing and should be allowed to run history sync again.
         WhatsappMirrorSession::where('tenant_id', $tenantId)
-            ->update([
+            ->update(array_filter([
+                'status' => 'disconnected',
+                'should_restore' => $this->supportsShouldRestore() ? false : null,
+                'connected_phone_number' => null,
+                'last_disconnected_at' => now(),
                 'history_synced_at' => null,
-                'reconnect_reason' => null,
-                'reconnect_detail' => null,
-            ]);
+                'reconnect_reason' => 'manual_disconnect',
+                'reconnect_detail' => 'Disconnected manually by the user.',
+            ], static fn ($value) => $value !== null));
+
+        $this->channelService->markMirrorDisconnected((int) $tenantId);
 
         return response()->json($response->json(), $response->status());
     }
@@ -87,6 +105,18 @@ class WhatsappMirrorController extends Controller
 
     protected function resolveDisplayedStatus(?WhatsappMirrorSession $session, string $remoteStatus, string $localStatus): string
     {
+        if (($session?->reconnect_reason ?? null) === 'manual_disconnect') {
+            return 'disconnected';
+        }
+
+        if ($this->supportsShouldRestore() && ! $session?->should_restore) {
+            return 'disconnected';
+        }
+
+        if ($remoteStatus === 'pending_qr') {
+            return 'pending_qr';
+        }
+
         if ($remoteStatus !== 'disconnected') {
             return $remoteStatus;
         }
@@ -117,5 +147,14 @@ class WhatsappMirrorController extends Controller
         $session->forceFill(['status' => 'reconnect_failed'])->save();
 
         return 'reconnect_failed';
+    }
+
+    protected function supportsShouldRestore(): bool
+    {
+        if ($this->hasShouldRestoreColumn !== null) {
+            return $this->hasShouldRestoreColumn;
+        }
+
+        return $this->hasShouldRestoreColumn = Schema::hasColumn('whatsapp_mirror_sessions', 'should_restore');
     }
 }

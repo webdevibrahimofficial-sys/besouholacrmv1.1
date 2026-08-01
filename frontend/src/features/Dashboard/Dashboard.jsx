@@ -186,6 +186,7 @@ export const Dashboard = () => {
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
+  const isRtl = i18n.dir() === 'rtl';
   const { user, impersonation, permissions, subscriptionPlan, panelMode, canAccess, crmSettings } = useAppState();
   const roleLower = String(user?.role || '').toLowerCase();
   const isSuperAdmin = shouldUseAdminPanel(user, impersonation, { permissions, subscriptionPlan, panelMode });
@@ -1234,9 +1235,9 @@ export const Dashboard = () => {
           <section className={`${(showSalesLimited && !isSalesPerson) ? 'grid grid-cols-1' : 'grid grid-cols-1 lg:grid-cols-3'} gap-4 mb-12 mt-8`}>
             <div className="lg:col-span-2">
               <div className="p-4 glass-panel h-full overflow-auto rounded-lg shadow-md">
-                <div className="section-header flex items-center w-full justify-between gap-2 mb-3">
-                  <div className={`flex min-w-0 flex-1 items-center gap-3 ${i18n.dir() === 'rtl' ? 'flex-row-reverse' : ''}`}>
-                    <h3 className={`text-xl font-semibold text-primary ${i18n.dir() === 'rtl' ? 'text-right' : 'text-left'}`}>{t('Delay Leads')}</h3>
+                <div dir={isRtl ? 'rtl' : 'ltr'} className={`section-header flex items-center w-full justify-between gap-2 mb-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
+                  <div className={`flex min-w-0 flex-1 items-center gap-3 ${isRtl ? 'justify-start text-right' : 'justify-start text-left'}`}>
+                    <h3 className={`min-w-0 text-xl font-semibold text-primary ${isRtl ? 'text-right' : 'text-left'}`}>{t('Delay Leads')}</h3>
                     <span className="inline-flex items-center justify-center min-w-9 rounded-full border border-blue-400/30 bg-blue-500/10 px-3 py-1 text-sm font-semibold text-blue-500">
                       {delayLeadsCount}
                     </span>

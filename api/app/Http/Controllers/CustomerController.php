@@ -6,10 +6,12 @@ use App\Models\Customer;
 use App\Models\Entity;
 use App\Models\FieldValue;
 use App\Models\Order;
+use App\Models\Opportunity;
 use App\Models\SalesInvoice;
 use App\Models\User;
 use App\Notifications\NewCustomer;
 use App\Traits\ResolvesNotificationRecipients;
+use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +23,7 @@ use Illuminate\Support\Str;
 
 class CustomerController extends Controller
 {
+    use UserHierarchyTrait;
     use ResolvesNotificationRecipients;
     
     private function normalizePhone($value)
@@ -122,64 +125,193 @@ class CustomerController extends Controller
             $perPage = 100;
         }
 
-        $paginator = Customer::with(['assignee.manager', 'customFieldValues.field'])->orderByDesc('created_at')->paginate($perPage);
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $query = Customer::with(['assignee.manager', 'customFieldValues.field'])
+            ->orderByDesc('created_at');
+
+        if ($user->tenant_id) {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        $viewableUserIds = $this->getViewableUserIds($user, $request->input('manager_id'));
+        if ($viewableUserIds !== null) {
+            $query->whereIn('assigned_to', $viewableUserIds);
+        }
+
+        $paginator = $query->paginate($perPage);
         $customerIds = $paginator->pluck('id')->all();
 
         if (empty($customerIds)) {
             return response()->json($paginator);
         }
 
-        $ordersAgg = Order::select(
-            'customer_id',
-            DB::raw('COUNT(*) as orders_count'),
-            DB::raw('COALESCE(SUM(total), 0) as orders_total'),
-            DB::raw('MAX(created_at) as last_order_at')
-        )
-            ->whereIn('customer_id', $customerIds)
-            ->groupBy('customer_id')
-            ->get()
-            ->keyBy('customer_id');
+        $customerRows = $paginator->getCollection()->values();
+        $customerCodes = $customerRows
+            ->pluck('customer_code')
+            ->filter(fn ($value) => filled($value))
+            ->map(fn ($value) => trim((string) $value))
+            ->unique()
+            ->values()
+            ->all();
+        $customerNames = $customerRows
+            ->pluck('name')
+            ->filter(fn ($value) => filled($value))
+            ->map(fn ($value) => trim((string) $value))
+            ->unique()
+            ->values()
+            ->all();
 
-        $invoicesAgg = SalesInvoice::select(
-            'customer_id',
-            DB::raw('COALESCE(SUM(total), 0) as invoices_total'),
-            DB::raw('MAX(issue_date) as last_invoice_at'),
-            DB::raw('MAX(created_at) as last_invoice_created_at'),
-            DB::raw('MAX(sales_person) as last_sales_person'),
-            DB::raw('SUM(CASE WHEN payment_status = \'Paid\' THEN total ELSE 0 END) as paid_total'),
-            DB::raw('SUM(CASE WHEN payment_status = \'Partial\' THEN total ELSE 0 END) as partial_total'),
-            DB::raw('SUM(CASE WHEN payment_status = \'Unpaid\' THEN total ELSE 0 END) as unpaid_total')
-        )
-            ->whereIn('customer_id', $customerIds)
-            ->groupBy('customer_id')
-            ->get()
-            ->keyBy('customer_id');
+        $visibleSalesNames = null;
+        if ($viewableUserIds !== null) {
+            $visibleSalesNames = User::query()
+                ->whereIn('id', $viewableUserIds)
+                ->pluck('name')
+                ->filter(fn ($value) => filled($value))
+                ->map(fn ($value) => trim((string) $value))
+                ->values()
+                ->all();
+        }
 
-        $quotationAgg = \App\Models\Quotation::select(
-            'customer_id',
-            DB::raw('COUNT(*) as quotations_count'),
-            DB::raw('SUM(CASE WHEN LOWER(status) IN (\'converted\', \'accepted\') THEN 1 ELSE 0 END) as converted_count'),
-            DB::raw('SUM(CASE WHEN LOWER(status) IN (\'pending\', \'sent\', \'draft\') THEN 1 ELSE 0 END) as pending_count'),
-            DB::raw('SUM(CASE WHEN LOWER(status) IN (\'lost\', \'cancelled\', \'canceled\') THEN 1 ELSE 0 END) as lost_count')
-        )
-            ->whereIn('customer_id', $customerIds)
-            ->groupBy('customer_id')
-            ->get()
-            ->keyBy('customer_id');
+        $matchesCustomer = function ($row, Customer $customer): bool {
+            $rowCustomerId = trim((string) ($row->customer_id ?? ''));
+            $customerId = trim((string) $customer->id);
+            $customerCode = trim((string) ($customer->customer_code ?? ''));
+            $rowCustomerCode = trim((string) ($row->customer_code ?? ''));
+            $customerName = mb_strtolower(trim((string) ($customer->name ?? '')));
+            $rowCustomerName = mb_strtolower(trim((string) ($row->customer_name ?? '')));
 
-        $collection = $paginator->getCollection()->map(function (Customer $customer) use ($ordersAgg, $invoicesAgg, $quotationAgg) {
-            $orderStats = $ordersAgg->get($customer->id);
-            $invoiceStats = $invoicesAgg->get($customer->id);
-            $quoteStats = $quotationAgg->get($customer->id);
+            if ($rowCustomerId !== '' && $rowCustomerId === $customerId) {
+                return true;
+            }
 
-            $ordersCount = $orderStats ? (int) $orderStats->orders_count : 0;
-            $ordersTotal = $orderStats ? (float) $orderStats->orders_total : 0.0;
-            $invoicesTotal = $invoiceStats ? (float) $invoiceStats->invoices_total : 0.0;
+            if ($customerCode !== '') {
+                if ($rowCustomerId !== '' && $rowCustomerId === $customerCode) {
+                    return true;
+                }
+                if ($rowCustomerCode !== '' && $rowCustomerCode === $customerCode) {
+                    return true;
+                }
+            }
+
+            return $customerName !== '' && $rowCustomerName !== '' && $rowCustomerName === $customerName;
+        };
+
+        $applySalesScope = function ($query, ?string $salesPersonColumn = 'sales_person') use ($user, $visibleSalesNames) {
+            if ($visibleSalesNames === null) {
+                return $query;
+            }
+
+            return $query->whereIn($salesPersonColumn, $visibleSalesNames);
+        };
+
+        $extractItemLabel = function ($item): string {
+            if (!is_array($item)) {
+                return '';
+            }
+
+            foreach (['name', 'item_name', 'product_name', 'title', 'label', 'description'] as $key) {
+                $value = trim((string) ($item[$key] ?? ''));
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+
+            return '';
+        };
+
+        $extractItemAmount = function ($item): float {
+            if (!is_array($item)) {
+                return 0.0;
+            }
+
+            foreach (['total', 'amount', 'line_total', 'subtotal'] as $key) {
+                if (isset($item[$key]) && is_numeric($item[$key])) {
+                    return (float) $item[$key];
+                }
+            }
+
+            $qty = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : (is_numeric($item['qty'] ?? null) ? (float) $item['qty'] : 1.0);
+            $price = is_numeric($item['price'] ?? null) ? (float) $item['price'] : (is_numeric($item['unit_price'] ?? null) ? (float) $item['unit_price'] : 0.0);
+
+            return $qty * $price;
+        };
+
+        $ordersRows = $applySalesScope(
+            Order::query()
+                ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
+                ->where(function ($sub) use ($customerIds, $customerCodes, $customerNames) {
+                    $sub->whereIn('customer_id', $customerIds);
+                    if (!empty($customerCodes)) {
+                        $sub->orWhereIn('customer_code', $customerCodes);
+                    }
+                    if (!empty($customerNames)) {
+                        $sub->orWhereIn('customer_name', $customerNames);
+                    }
+                })
+        )->get();
+
+        $invoicesRows = $applySalesScope(
+            SalesInvoice::query()
+                ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
+                ->where(function ($sub) use ($customerIds, $customerCodes, $customerNames) {
+                    $sub->whereIn('customer_id', $customerIds);
+                    if (!empty($customerCodes)) {
+                        $sub->orWhereIn('customer_code', $customerCodes);
+                    }
+                    if (!empty($customerNames)) {
+                        $sub->orWhereIn('customer_name', $customerNames);
+                    }
+                })
+        )->get();
+
+        $quotationRows = $applySalesScope(
+            \App\Models\Quotation::query()
+                ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
+                ->where(function ($sub) use ($customerIds, $customerCodes, $customerNames) {
+                    $stringIds = array_map('strval', $customerIds);
+                    $sub->whereIn('customer_id', $stringIds);
+                    if (!empty($customerCodes)) {
+                        $sub->orWhereIn('customer_id', $customerCodes)
+                            ->orWhereIn('customer_name', $customerNames);
+                    } elseif (!empty($customerNames)) {
+                        $sub->orWhereIn('customer_name', $customerNames);
+                    }
+                }),
+            'sales_person'
+        )->get();
+
+        $opportunityRows = Opportunity::query()
+            ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
+            ->where(function ($sub) use ($customerIds, $customerCodes, $customerNames) {
+                $stringIds = array_map('strval', $customerIds);
+                $sub->whereIn('customer_id', $stringIds);
+                if (!empty($customerCodes)) {
+                    $sub->orWhereIn('customer_id', $customerCodes);
+                }
+                if (!empty($customerNames)) {
+                    $sub->orWhereIn('customer_name', $customerNames);
+                }
+            })
+            ->get();
+
+        $collection = $paginator->getCollection()->map(function (Customer $customer) use ($ordersRows, $invoicesRows, $quotationRows, $opportunityRows, $matchesCustomer, $extractItemAmount, $extractItemLabel) {
+            $matchedOrders = $ordersRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
+            $matchedInvoices = $invoicesRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
+            $matchedQuotations = $quotationRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
+            $matchedOpportunities = $opportunityRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
+
+            $ordersCount = $matchedOrders->count();
+            $ordersTotal = (float) $matchedOrders->sum(fn ($row) => (float) ($row->total ?? 0));
+            $invoicesTotal = (float) $matchedInvoices->sum(fn ($row) => (float) ($row->total ?? 0));
 
             $totalRevenue = $invoicesTotal > 0 ? $invoicesTotal : $ordersTotal;
 
-            $lastOrderAt = $orderStats ? $orderStats->last_order_at : null;
-            $lastInvoiceAt = $invoiceStats ? ($invoiceStats->last_invoice_at ?: $invoiceStats->last_invoice_created_at) : null;
+            $lastOrderAt = $matchedOrders->max('created_at');
+            $lastInvoiceAt = $matchedInvoices->map(fn ($row) => $row->issue_date ?: $row->created_at)->filter()->max();
 
             $lastActivity = collect([
                 $lastOrderAt,
@@ -190,7 +322,8 @@ class CustomerController extends Controller
                 ->filter()
                 ->max();
 
-            $salesperson = $customer->assignee ? $customer->assignee->name : ($invoiceStats && $invoiceStats->last_sales_person ? $invoiceStats->last_sales_person : null);
+            $lastInvoiceSalesPerson = $matchedInvoices->pluck('sales_person')->filter()->last();
+            $salesperson = $customer->assignee ? $customer->assignee->name : $lastInvoiceSalesPerson;
             $manager = $customer->assignee && $customer->assignee->manager ? $customer->assignee->manager->name : null;
 
             $project = null;
@@ -208,14 +341,50 @@ class CustomerController extends Controller
 
             $clientType = $customer->company_name ? 'Company' : 'Individual';
 
-            $paidTotal = $invoiceStats ? (float) $invoiceStats->paid_total : 0.0;
-            $partialTotal = $invoiceStats ? (float) $invoiceStats->partial_total : 0.0;
-            $unpaidTotal = $invoiceStats ? (float) $invoiceStats->unpaid_total : 0.0;
+            $paidTotal = (float) $matchedInvoices
+                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'paid')
+                ->sum(fn ($row) => (float) ($row->total ?? 0));
+            $partialTotal = (float) $matchedInvoices
+                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'partial')
+                ->sum(fn ($row) => (float) ($row->total ?? 0));
+            $unpaidTotal = (float) $matchedInvoices
+                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'unpaid')
+                ->sum(fn ($row) => (float) ($row->total ?? 0));
+            $paidCount = $matchedInvoices
+                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'paid')
+                ->count();
+            $partialCount = $matchedInvoices
+                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'partial')
+                ->count();
+            $unpaidCount = $matchedInvoices
+                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'unpaid')
+                ->count();
 
-            $quotationTotal = $quoteStats ? (int) $quoteStats->quotations_count : 0;
-            $quotationConverted = $quoteStats ? (int) $quoteStats->converted_count : 0;
-            $quotationPending = $quoteStats ? (int) $quoteStats->pending_count : 0;
-            $quotationLost = $quoteStats ? (int) $quoteStats->lost_count : 0;
+            $invoicesCount = $matchedInvoices->count();
+            $quotationTotal = $matchedQuotations->count();
+            $quotationConverted = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['converted', 'accepted'], true))->count();
+            $quotationPending = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['pending', 'sent', 'draft'], true))->count();
+            $quotationLost = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['lost', 'cancelled', 'canceled'], true))->count();
+            $opportunitiesCount = $matchedOpportunities->count();
+            $revenueBreakdown = [];
+
+            $rowsForRevenueItems = $matchedInvoices->count() > 0 ? $matchedInvoices : $matchedOrders;
+            foreach ($rowsForRevenueItems as $row) {
+                $items = is_array($row->items ?? null) ? $row->items : [];
+                foreach ($items as $item) {
+                    $label = $extractItemLabel($item);
+                    if ($label === '') {
+                        continue;
+                    }
+
+                    $amount = $extractItemAmount($item);
+                    if ($amount <= 0) {
+                        continue;
+                    }
+
+                    $revenueBreakdown[$label] = ($revenueBreakdown[$label] ?? 0) + $amount;
+                }
+            }
 
             return [
                 'id' => $customer->id,
@@ -235,10 +404,16 @@ class CustomerController extends Controller
                 'invoicePaidTotal' => $paidTotal,
                 'invoicePartialTotal' => $partialTotal,
                 'invoiceUnpaidTotal' => $unpaidTotal,
+                'invoicePaidCount' => $paidCount,
+                'invoicePartialCount' => $partialCount,
+                'invoiceUnpaidCount' => $unpaidCount,
+                'invoicesCount' => $invoicesCount,
                 'quotationTotal' => $quotationTotal,
                 'quotationConverted' => $quotationConverted,
                 'quotationPending' => $quotationPending,
                 'quotationLost' => $quotationLost,
+                'opportunitiesCount' => $opportunitiesCount,
+                'revenueBreakdown' => $revenueBreakdown,
             ];
         });
 

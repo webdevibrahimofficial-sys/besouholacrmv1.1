@@ -29,6 +29,10 @@ function authDirForTenant(tenantId) {
   return path.join(authBaseDir, `session-${tenantId}`);
 }
 
+function manualDisconnectFlagForTenant(tenantId) {
+  return path.join(authBaseDir, `session-${tenantId}.manual-disconnect`);
+}
+
 function lidMapFileForTenant(tenantId) {
   return path.join(authDirForTenant(tenantId), 'lid-map.json');
 }
@@ -194,6 +198,22 @@ function persistedSessionDirs() {
 
 export function hasPersistedSession(tenantId) {
   return fs.existsSync(authDirForTenant(String(tenantId)));
+}
+
+export function hasManualDisconnectFlag(tenantId) {
+  return fs.existsSync(manualDisconnectFlagForTenant(String(tenantId)));
+}
+
+function clearManualDisconnectFlag(tenantId) {
+  const flagPath = manualDisconnectFlagForTenant(String(tenantId));
+  if (fs.existsSync(flagPath)) {
+    fs.rmSync(flagPath, { force: true });
+  }
+}
+
+function markManualDisconnectFlag(tenantId) {
+  fs.mkdirSync(authBaseDir, { recursive: true });
+  fs.writeFileSync(manualDisconnectFlagForTenant(String(tenantId)), '1');
 }
 
 function canRestorePersistedCreds(state) {
@@ -799,6 +819,7 @@ export async function initSession(tenantId) {
   }
 
   const initPromise = (async () => {
+    clearManualDisconnectFlag(key);
     const authDir = authDirForTenant(key);
     fs.mkdirSync(authDir, { recursive: true });
 
@@ -826,6 +847,7 @@ export async function initSession(tenantId) {
     sock.connectionStatus = canRestorePersistedCreds(state) ? 'reconnecting' : 'disconnected';
     sock.reconnectReason = null;
     sock.reconnectDetail = null;
+    sock.manualDisconnect = false;
     sock.hasEverConnected = false;
     sock.lidToPhoneMap = loadPersistedLidPhoneMap(key);
     sock.contactNameMap = loadPersistedContactNameMap(key);
@@ -893,15 +915,37 @@ export async function initSession(tenantId) {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const conflictDisconnect = isConflictDisconnect(statusCode, lastDisconnect);
         const loggedOut = isHardLoggedOutDisconnect(sock, statusCode, lastDisconnect);
+        const manualDisconnect = sock.manualDisconnect === true;
         const shouldReconnect = !loggedOut;
         const disconnectMeta = summarizeDisconnect(statusCode, lastDisconnect);
 
         console.log(`[Connection Close] Tenant ${key}`, {
           statusCode,
           conflictDisconnect,
+          manualDisconnect,
           shouldReconnect,
           message: lastDisconnect?.error?.message,
         });
+
+        if (manualDisconnect) {
+          sessions.delete(key);
+          sock.connectionStatus = 'disconnected';
+          sock.manualDisconnect = false;
+          setReconnectMeta(sock, null, null);
+          resetReconnectState(key);
+          fireWebhook(key, {
+            event: 'status_change',
+            status: 'disconnected',
+            reconnect_reason: null,
+            reconnect_detail: null,
+          });
+
+          if (fs.existsSync(authDir)) {
+            fs.rmSync(authDir, { recursive: true, force: true });
+          }
+
+          return;
+        }
 
         if (loggedOut) {
           sessions.delete(key);
@@ -1194,6 +1238,11 @@ export async function restorePersistedSessions() {
   for (const dir of dirs) {
     const tenantId = dir.replace(/^session-/, '');
     if (!tenantId) {
+      continue;
+    }
+
+    if (hasManualDisconnectFlag(tenantId)) {
+      console.log(`[Session Restore Skip] Tenant ${tenantId} was manually disconnected.`);
       continue;
     }
 
@@ -1551,9 +1600,11 @@ export async function resolveLidsForTenant(tenantId, lids = []) {
 export async function deleteSession(tenantId) {
   const key = String(tenantId);
   const sock = sessions.get(key);
+  markManualDisconnectFlag(key);
 
   if (sock) {
     try {
+      sock.manualDisconnect = true;
       await sock.logout();
     } catch (error) {
       console.error(`[Logout Error] Tenant ${key}:`, error.message);

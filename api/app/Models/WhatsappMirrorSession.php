@@ -10,6 +10,7 @@ class WhatsappMirrorSession extends TenantModel
     protected $fillable = [
         'tenant_id',
         'status',
+        'should_restore',
         'connected_phone_number',
         'last_connected_at',
         'last_disconnected_at',
@@ -19,6 +20,7 @@ class WhatsappMirrorSession extends TenantModel
     ];
 
     protected $casts = [
+        'should_restore' => 'boolean',
         'last_connected_at' => 'datetime',
         'last_disconnected_at' => 'datetime',
         'history_synced_at' => 'datetime',

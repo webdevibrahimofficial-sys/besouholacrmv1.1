@@ -20,7 +20,7 @@ const DEFAULT_CONVERT_FORM = {
   item_id: '',
 }
 
-export default function WhatsAppMirrorConnection() {
+export default function WhatsAppMirrorConnection({ mode = 'full', embedded = false }) {
   const { t, i18n } = useTranslation()
   const { company, crmSettings } = useAppState()
   const { resolvedTheme, theme } = useTheme()
@@ -286,8 +286,11 @@ export default function WhatsAppMirrorConnection() {
   }
 
   const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
+  const notifyConnectionStateChange = () => {
+    window.dispatchEvent(new CustomEvent('whatsapp-mirror-state-changed'))
+  }
 
-  const checkStatus = async () => {
+  const checkStatus = async ({ allowQrModal = false } = {}) => {
     try {
       const data = await whatsappMirrorService.getStatus()
       if (!data) return
@@ -297,7 +300,9 @@ export default function WhatsAppMirrorConnection() {
       setReconnectDetail(data.reconnect_detail || null)
       if (data.status === 'pending_qr' && data.qr_base64) {
         setQrCode(data.qr_base64)
-        setShowModal(true)
+        if (allowQrModal || showModal) {
+          setShowModal(true)
+        }
         setReconnectReason(null)
         setReconnectDetail(null)
       } else if (data.status === 'connected') {
@@ -309,6 +314,7 @@ export default function WhatsAppMirrorConnection() {
         setShowModal(false)
         setQrCode(null)
       }
+      notifyConnectionStateChange()
     } catch (error) {
       console.error('Error fetching WhatsApp Mirror status:', error)
     }
@@ -387,6 +393,7 @@ export default function WhatsAppMirrorConnection() {
         const nextStatus = data?.status || 'disconnected'
         setStatus(nextStatus)
         setConnectedPhoneNumber(data?.connected_phone_number || null)
+        notifyConnectionStateChange()
 
         if (nextStatus === 'connected') {
           return true
@@ -647,6 +654,7 @@ export default function WhatsAppMirrorConnection() {
     try {
       const data = await whatsappMirrorService.pair({ force: true })
       setStatus(data.status || 'pending_qr')
+      setConnectedPhoneNumber(data.connected_phone_number || null)
       if (data.qr_base64) {
         setQrCode(data.qr_base64)
         setShowModal(true)
@@ -656,6 +664,7 @@ export default function WhatsAppMirrorConnection() {
         setStatus('connected')
         setShowReconnectChoiceModal(false)
       }
+      notifyConnectionStateChange()
     } catch (error) {
       emitToast('error', t('Failed to start pairing. Please ensure the Mirror service is running.'))
     } finally {
@@ -680,6 +689,8 @@ export default function WhatsAppMirrorConnection() {
       setStatus('disconnected')
       setConnectedPhoneNumber(null)
       setQrCode(null)
+      setShowModal(false)
+      notifyConnectionStateChange()
     } catch (error) {
       emitToast('error', t('Failed to disconnect'))
     } finally {
@@ -884,6 +895,12 @@ export default function WhatsAppMirrorConnection() {
   const currentMeta = activeDirectory === 'groups' ? groupContactsMeta : contactsMeta
   const currentItems = activeDirectory === 'groups' ? groupContacts : contacts
   const currentLoading = activeDirectory === 'groups' ? loadingGroupContacts : loadingContacts
+  const showConnectionCard = mode === 'full' || mode === 'connection'
+  const showDirectoryCard = mode === 'full' || mode === 'directory'
+  const connectionWrapperClass = embedded ? '' : `${connectionCardClass} p-6`
+  const connectionHeaderClass = embedded
+    ? `flex items-start justify-between gap-4 pb-3 mb-3 ${isLight ? 'border-gray-100' : 'border-slate-800'}`
+    : `flex items-center justify-between border-b pb-4 mb-4 ${isLight ? 'border-gray-100' : 'border-slate-800'}`
   const looksLikeLid = (value) => {
     const digits = String(value || '').replace(/\D+/g, '')
     return digits.length >= 14
@@ -1534,13 +1551,16 @@ export default function WhatsAppMirrorConnection() {
 
   return (
     <div className="space-y-6">
-      <div className={`${connectionCardClass} p-6`}>
-        <div className={`flex items-center justify-between border-b pb-4 mb-4 ${isLight ? 'border-gray-100' : 'border-slate-800'}`}>
+      {showConnectionCard && (
+      <div className={connectionWrapperClass}>
+        <div className={connectionHeaderClass}>
           <div>
-            <h3 className={`text-lg font-semibold ${titleTextClass}`}>
-              {isArabic ? 'واتساب ميرور (ربط مباشر)' : t('WhatsApp Mirror (Direct Link)')}
+            <h3 className={`${embedded ? 'text-base' : 'text-lg'} font-semibold ${titleTextClass}`}>
+              {embedded
+                ? (isArabic ? 'الربط المباشر' : t('Direct Link'))
+                : (isArabic ? 'واتساب ميرور (ربط مباشر)' : t('WhatsApp Mirror (Direct Link)'))}
             </h3>
-            <p className={`text-sm ${mutedTextClass}`}>
+            <p className={`${embedded ? 'text-xs' : 'text-sm'} ${mutedTextClass}`}>
               {isArabic
                 ? 'اربط رقمك الشخصي عبر مسح رمز QR لتفعيل مزامنة واتساب المباشرة.'
                 : t('Link your personal number by scanning a QR for direct WhatsApp mirroring.')}
@@ -1560,14 +1580,14 @@ export default function WhatsAppMirrorConnection() {
                     : t('Disconnected')}
             </span>
             {status === 'connected' && connectedPhoneNumber && (
-              <span className={`text-xs font-mono ${mutedTextClass}`} dir="ltr">
+              <span className={`text-[11px] font-mono ${mutedTextClass}`} dir="ltr">
                 +{connectedPhoneNumber}
               </span>
             )}
           </div>
         </div>
 
-        <div className={`mb-6 rounded-xl border-l-4 p-4 text-sm ${
+        <div className={`mb-5 rounded-xl border-l-4 ${embedded ? 'p-3 text-xs' : 'p-4 text-sm'} ${
           isLight
             ? 'border-amber-500 bg-amber-50 text-amber-900'
             : 'border-amber-400 bg-amber-500/10 text-amber-100'
@@ -1628,14 +1648,20 @@ export default function WhatsAppMirrorConnection() {
             <button
               onClick={handleDisconnect}
               disabled={loading}
-              className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition disabled:opacity-50"
+              className={`px-5 py-2 rounded-xl text-sm font-medium transition disabled:opacity-50 ${
+                isLight
+                  ? 'border border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+                  : 'border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+              }`}
             >
               {loading ? (isArabic ? 'جاري الفصل...' : t('Disconnecting...')) : (isArabic ? 'فصل الرقم الحالي' : t('Disconnect current number'))}
             </button>
           )}
         </div>
       </div>
+      )}
 
+      {showDirectoryCard && (
       <div className={`${connectionCardClass} p-6`}>
         <div className={`${toolbarShellClass} p-4 md:p-5`}>
           <div className="flex flex-col gap-5">
@@ -1827,6 +1853,7 @@ export default function WhatsAppMirrorConnection() {
           )}
         </div>
       </div>
+      )}
 
       {showReconnectChoiceModal && (
         <div
