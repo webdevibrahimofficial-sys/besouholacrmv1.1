@@ -39,7 +39,7 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
       discount,
       tax,
       total,
-      orderNumber: order.orderNumber || order.order_number || order.id || 'SO-NEW',
+      orderNumber: order.orderNumber || order.order_number || order.uuid || order.code || order.orderCode || order.order_code || order.id || 'SO-NEW',
       issueDate: order.createdAt || order.created_at || order.date || null,
       deliveryDate: order.deliveryDate || order.delivery_date || null,
       customerName: order.customerName || order.customer_name || (isRTL ? 'عميل غير محدد' : 'Unnamed customer'),
