@@ -251,7 +251,12 @@ export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline
 
   const fetchStages = async () => {
     try {
-      const { data } = await api.get('/api/stages', { params: { workflow_key: workflowKey } })
+      const { data } = await api.get('/api/stages', {
+        params: {
+          workflow_key: workflowKey,
+          include_non_selectable: 1,
+        }
+      })
       const normalized = normalizeStages(sortByOrder(data))
       if (normalized.length > 0) {
         setPipelineStages(normalized)

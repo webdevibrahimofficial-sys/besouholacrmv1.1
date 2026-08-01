@@ -286,6 +286,7 @@ class StageController extends Controller
     {
         $workflowKey = strtolower(trim((string) request()->query('workflow_key', '')));
         $activeOnly = filter_var(request()->query('active', false), FILTER_VALIDATE_BOOL);
+        $includeNonSelectable = filter_var(request()->query('include_non_selectable', false), FILTER_VALIDATE_BOOL);
 
         if ($workflowKey === TelesalesService::WORKFLOW_TELESALES) {
             $this->ensureTelesalesFixedStages();
@@ -314,13 +315,16 @@ class StageController extends Controller
         $stages = $query->get()->reject(function (Stage $stage) {
             $meta = is_array($stage->meta_data ?? null) ? ($stage->meta_data ?? []) : [];
             return (bool) ($meta['hidden'] ?? false);
+        })->map(function (Stage $stage) {
+            $stage->setAttribute('ui_behavior', $this->buildUiBehavior($stage));
+            return $stage;
         })->values();
 
-        if ($workflowKey === TelesalesService::WORKFLOW_TELESALES) {
-            $stages = $stages->map(function (Stage $stage) {
-                $stage->setAttribute('ui_behavior', $this->buildUiBehavior($stage));
-                return $stage;
-            });
+        if (!$includeNonSelectable) {
+            $stages = $stages->filter(function (Stage $stage) {
+                $uiBehavior = $stage->getAttribute('ui_behavior');
+                return (bool) ($uiBehavior['selectable_in_add_action'] ?? true);
+            })->values();
         }
 
         return response()->json($stages);
