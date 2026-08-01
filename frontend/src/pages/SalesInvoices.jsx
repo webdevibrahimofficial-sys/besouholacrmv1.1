@@ -21,6 +21,15 @@ export default function SalesInvoices() {
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const isRTL = String(i18n.language || '').startsWith('ar')
+  const surfaceClass = isLight
+    ? 'bg-[var(--panel-bg)] border border-[var(--panel-border)]'
+    : 'bg-[var(--panel-bg)]/95 border border-[var(--panel-border)]'
+  const softSurfaceClass = isLight
+    ? 'bg-[var(--table-header-bg)] border border-[var(--panel-border)]'
+    : 'bg-[var(--table-header-bg)]/70 border border-[var(--panel-border)]'
+  const inputClass = isLight
+    ? 'bg-white border-[var(--panel-border)] text-[var(--content-text)] placeholder:text-[var(--muted-text)]'
+    : 'bg-slate-900/60 border-[var(--panel-border)] text-[var(--content-text)] placeholder:text-[var(--muted-text)]'
 
   // State
   const [items, setItems] = useState([])
@@ -162,6 +171,7 @@ export default function SalesInvoices() {
         paymentTerms: item.payment_terms || item.paymentTerms,
         customerName: item.customer_name || item.customerName,
         customerCode: item.customer_code || item.customerCode,
+        customerAddress: item.customer_address || item.customerAddress || '',
         dueDate: item.due_date || item.dueDate,
         createdAt: item.created_at || item.createdAt,
         issueDate: item.issue_date || item.issueDate,
@@ -224,6 +234,7 @@ export default function SalesInvoices() {
           paymentTerms: raw.payment_terms || raw.paymentTerms,
           customerName: raw.customer_name || raw.customerName,
           customerCode: raw.customer_code || raw.customerCode,
+          customerAddress: raw.customer_address || raw.customerAddress || '',
           dueDate: raw.due_date || raw.dueDate,
           createdAt: raw.created_at || raw.createdAt,
           issueDate: raw.issue_date || raw.issueDate,
@@ -308,6 +319,7 @@ export default function SalesInvoices() {
       const payload = {
         customer_name: data.customerName,
         customer_code: data.customerCode || null,
+        customer_address: data.customerAddress || null,
         sales_person: data.salesPerson || null,
         order_id: data.orderId ? Number(data.orderId) : null,
         invoice_type: normalizeInvoiceType(data.invoiceType),
@@ -798,7 +810,7 @@ export default function SalesInvoices() {
       </div>
 
       {/* Filter Section */}
-      <div className="glass-panel p-4 rounded-xl mb-6">
+      <div className={`${surfaceClass} p-4 rounded-xl mb-6 shadow-sm`}>
         <div className="flex justify-between items-center mb-3">
           <h2 className={`text-sm font-semibold flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} `}>
             <Filter className="text-blue-500" size={16} /> {isRTL ? 'تصفية' : 'Filter'}
@@ -806,7 +818,11 @@ export default function SalesInvoices() {
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setShowAllFilters(prev => !prev)} 
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+              className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                isLight
+                  ? 'text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-100'
+                  : 'text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20'
+              }`}
             >
               {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'عرض المزيد' : 'Show More')} 
               <ChevronDown size={14} className={`transform transition-transform ${showAllFilters ? 'rotate-180' : ''}`} />
@@ -846,7 +862,7 @@ export default function SalesInvoices() {
               <Search className="text-blue-500" size={10} /> {isRTL ? 'بحث عام' : 'Search All Data'}
             </label>
             <input
-              className="input w-full"
+              className={`input w-full ${inputClass}`}
               value={q}
               onChange={e => setQ(e.target.value)}
               placeholder={isRTL ? 'بحث في كل البيانات...' : 'Search in all data...'}
@@ -902,14 +918,14 @@ export default function SalesInvoices() {
                 placeholder={isRTL ? 'حد أدنى' : 'Min'}
                 value={filters.totalMin}
                 onChange={(e) => setFilters(prev => ({ ...prev, totalMin: e.target.value }))}
-                className="input w-full"
+                className={`input w-full ${inputClass}`}
               />
               <input
                 type="number"
                 placeholder={isRTL ? 'حد أقصى' : 'Max'}
                 value={filters.totalMax}
                 onChange={(e) => setFilters(prev => ({ ...prev, totalMax: e.target.value }))}
-                className="input w-full"
+                className={`input w-full ${inputClass}`}
               />
             </div>
           </div>
@@ -977,7 +993,7 @@ export default function SalesInvoices() {
                 }}
                 isClearable={true}
                 placeholderText={isRTL ? 'اختر الفترة الزمنية' : 'Select Due Date Range'}
-                className="input w-full text-sm"
+                className={`input w-full text-sm ${inputClass}`}
                 dateFormat="yyyy-MM-dd"
               />
             </div>
@@ -1004,7 +1020,7 @@ export default function SalesInvoices() {
                 }}
                 isClearable={true}
                 placeholderText={isRTL ? 'اختر الفترة الزمنية' : 'Select Creation Date Range'}
-                className="input w-full text-sm"
+                className={`input w-full text-sm ${inputClass}`}
                 dateFormat="yyyy-MM-dd"
               />
             </div>
@@ -1013,7 +1029,7 @@ export default function SalesInvoices() {
       </div>
 
       {/* Table */}
-      <div className="card glass-card overflow-hidden">
+      <div className={`${surfaceClass} overflow-hidden rounded-xl shadow-sm`}>
         {loading ? (
           <div className="p-8 text-center text-[var(--muted-text)]">
             <span className="loading loading-spinner loading-md"></span>
@@ -1023,9 +1039,9 @@ export default function SalesInvoices() {
           <>
           <div className="overflow-x-auto min-h-[400px] hidden md:block">
             <table className="w-full text-left border-collapse">
-              <thead className={`bg-gray-50/50 dark:bg-gray-800/50 text-xs uppercase ${isLight ? 'text-black' : 'text-white'} font-semibold backdrop-blur-sm`}>
+              <thead className={`text-xs uppercase ${isLight ? 'text-black' : 'text-white'} font-semibold backdrop-blur-sm`}>
                 <tr>
-                  <th className="p-4 w-10 sticky left-0 z-10 bg-gray-50/95 dark:bg-gray-800/95 backdrop-blur-sm">
+                  <th className={`p-4 w-10 min-w-[44px] backdrop-blur-sm ${softSurfaceClass}`}>
                     <input 
                       type="checkbox" 
                       className="checkbox checkbox-xs"
@@ -1069,7 +1085,7 @@ export default function SalesInvoices() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--border-color)] text-sm">
+              <tbody className="divide-y divide-[var(--panel-border)] text-sm">
                 {paginatedItems.length === 0 ? (
                   <tr>
                     <td colSpan={12} className="p-8 text-center text-[var(--muted-text)]">
@@ -1088,14 +1104,21 @@ export default function SalesInvoices() {
                         key={item.id} 
                         className={`
                           group transition-colors cursor-pointer
-                          ${activeRowId === item.id 
-                            ? 'bg-blue-700/50' 
-                            : 'hover:bg-gray-700/50 dark:hover:bg-gray-800/50'}
-                          ${selectedItems.includes(item.id) ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}
+                          ${activeRowId === item.id
+                            ? (isLight ? 'bg-blue-50' : 'bg-blue-500/12')
+                            : (isLight ? 'hover:bg-slate-50' : 'hover:bg-white/5')}
+                          ${selectedItems.includes(item.id) ? (isLight ? 'bg-blue-50/80' : 'bg-blue-500/10') : ''}
                         `}
                         onClick={() => setActiveRowId(activeRowId === item.id ? null : item.id)}
                       >
-                        <td className="p-4 sticky left-0 z-10  backdrop-blur-sm " onClick={(e) => e.stopPropagation()}>
+                        <td
+                          className={`p-4 w-10 min-w-[44px] ${
+                            activeRowId === item.id || selectedItems.includes(item.id)
+                              ? (isLight ? 'bg-blue-50' : 'bg-blue-500/10')
+                              : ''
+                          }`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <input 
                             type="checkbox" 
                             className="checkbox checkbox-xs"
@@ -1149,8 +1172,8 @@ export default function SalesInvoices() {
                         </td>
                         <td className="p-4 text-green-600">{Number(item.paidAmount || 0).toLocaleString()}</td>
                         <td className="p-4 text-red-500">{balanceDue.toLocaleString()}</td>
-                        <td className="p-4 text-end sticky right-0 z-10">
-                          <div className={`inline-flex p-2 bg-white items-center justify-end gap-1 transition-all duration-200 ${activeRowId === item.id ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none'}  shadow-lg rounded-full px-2 py-1 border border-gray-100 dark:border-gray-700`}>
+                        <td className="p-4 text-end min-w-[148px]">
+                          <div className={`inline-flex items-center justify-end gap-1 transition-all duration-200 ${activeRowId === item.id ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none'} shadow-sm rounded-full px-2 py-1 border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
                             {getAvailableActionsForInvoice(item, balanceDue).map((action, idx) => (
                               <button
                                 key={`action-${idx}`}
@@ -1188,14 +1211,14 @@ export default function SalesInvoices() {
                 const balanceDue = Number(item.balanceDue ?? ((Number(item.total) || 0) - (Number(item.paidAmount) || 0) - (Number(item.advanceAppliedAmount) || 0))) || 0
                 const overdue = isOverdueInvoice(item, balanceDue)
                 return (
-                  <div key={item.id} className=" p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
+                  <div key={item.id} className={`${surfaceClass} p-4 rounded-xl shadow-sm space-y-3`}>
                     <div className="flex justify-between items-start">
                       <div>
-                        <h3 className="font-bold text-gray-900  flex items-center gap-2">
+                        <h3 className={`font-bold flex items-center gap-2 ${isLight ? 'text-[var(--content-text)]' : 'text-white'}`}>
                            {item.invoiceNumber || item.id}
                            {selectedItems.includes(item.id) && <FaCheckCircle className="text-blue-600" size={14} />}
                         </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{item.customerName}</p>
+                        <p className="text-sm text-[var(--muted-text)]">{item.customerName}</p>
                       </div>
                       <div className="flex flex-wrap items-center gap-1 justify-end">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
@@ -1223,24 +1246,24 @@ export default function SalesInvoices() {
 
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <span className="text-gray-500 dark:text-gray-400 block text-xs">{isRTL ? 'تاريخ الاستحقاق' : 'Due Date'}</span>
+                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'تاريخ الاستحقاق' : 'Due Date'}</span>
                         <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{new Date(item.dueDate).toLocaleDateString()}</span>
                       </div>
                       <div>
-                        <span className="text-gray-500 dark:text-gray-400 block text-xs">{isRTL ? 'الإجمالي' : 'Total'}</span>
+                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'الإجمالي' : 'Total'}</span>
                         <span className={`font-bold ${isLight ? 'text-black' : 'text-white'}`}>{Number(item.total).toLocaleString()}</span>
                       </div>
                       <div>
-                        <span className="text-gray-500 dark:text-gray-400 block text-xs">{isRTL ? 'المدفوع' : 'Paid'}</span>
+                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'المدفوع' : 'Paid'}</span>
                         <span className="font-medium text-green-600">{Number(item.paidAmount || 0).toLocaleString()}</span>
                       </div>
                       <div>
-                        <span className="text-gray-500 dark:text-gray-400 block text-xs">{isRTL ? 'المتبقي' : 'Balance'}</span>
+                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'المتبقي' : 'Balance'}</span>
                         <span className="font-medium text-red-500">{balanceDue.toLocaleString()}</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <div className="flex items-center justify-between pt-3 border-t border-[var(--panel-border)]">
                       <div className="flex items-center gap-2">
                         <input 
                             type="checkbox" 
@@ -1274,7 +1297,7 @@ export default function SalesInvoices() {
         )}
 
         {/* Pagination */}
-        <nav className="flex flex-col gap-4 p-3 lg:p-4 border-t border-theme-border dark:border-gray-700 dark:bg-transparent rounded-b-lg backdrop-blur-sm">
+        <nav className="flex flex-col gap-4 p-3 lg:p-4 border-t border-[var(--panel-border)] dark:bg-transparent rounded-b-lg backdrop-blur-sm">
           <div className="flex  lg:flex-row justify-between items-center gap-3">
             {/* Show Entries */}
             <div className={`flex flex-wrap items-center gap-2 w-full lg:w-auto text-sm font-medium ${isLight ? 'text-black' : 'text-white'} `}>
@@ -1285,7 +1308,7 @@ export default function SalesInvoices() {
                   setItemsPerPage(Number(e.target.value)); 
                   setCurrentPage(1); 
                 }} 
-                className={`px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'}  text-xs`}
+                className={`px-2 py-1 border border-[var(--panel-border)] rounded-md backdrop-blur-sm ${inputClass} text-xs`}
               >
                 <option value={10}>10</option>
                 <option value={20}>20</option>
@@ -1309,7 +1332,7 @@ export default function SalesInvoices() {
                     }
                   }
                 }}
-                className={`ml-2 px-3 py-1.5 border border-theme-border dark:border-gray-600 rounded-lg  dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'}  text-xs w-full sm:w-64 lg:w-28  dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400`}
+                className={`ml-2 px-3 py-1.5 border border-[var(--panel-border)] rounded-lg backdrop-blur-sm ${inputClass} text-xs w-full sm:w-64 lg:w-28 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400`}
                 style={{ color: theme === 'dark' ? '#ffffff' : undefined }}
               />
             </div>
@@ -1319,7 +1342,7 @@ export default function SalesInvoices() {
               <button
                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
-                className={`block px-3 py-2 leading-tight ${isLight ? 'text-black' : 'text-white'} border border-theme-border rounded-l-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-transparent dark:border-gray-700  dark:hover:bg-gray-700 dark:hover:text-white disabled:opacity-50 backdrop-blur-sm`}
+                className={`block px-3 py-2 leading-tight ${isLight ? 'text-black' : 'text-white'} border border-[var(--panel-border)] rounded-l-lg ${isLight ? 'hover:bg-slate-100 hover:text-slate-700' : 'hover:bg-white/10 hover:text-white'} disabled:opacity-50 backdrop-blur-sm`}
               >
                 <span className={`sr-only ${isLight ? 'text-black' : 'text-white'}  focus:text-white`}>{t('Previous')}</span>
                 <svg className="w-5 h-5" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd"></path></svg>
@@ -1330,7 +1353,7 @@ export default function SalesInvoices() {
               <button
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredItems.length / itemsPerPage)))}
                 disabled={currentPage === Math.ceil(filteredItems.length / itemsPerPage)}
-                className={`block px-3 py-2 leading-tight ${isLight ? 'text-black' : 'text-white'} border border-theme-border rounded-r-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-transparent dark:border-gray-700  dark:hover:bg-gray-700 dark:hover:text-white disabled:opacity-50 backdrop-blur-sm`}
+                className={`block px-3 py-2 leading-tight ${isLight ? 'text-black' : 'text-white'} border border-[var(--panel-border)] rounded-r-lg ${isLight ? 'hover:bg-slate-100 hover:text-slate-700' : 'hover:bg-white/10 hover:text-white'} disabled:opacity-50 backdrop-blur-sm`}
               >
                 <span className={`sr-only ${isLight ? 'text-black' : 'text-white'}  focus:text-white`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Next')}</span>
                 <svg className="w-5 h-5" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"></path></svg>
@@ -1341,7 +1364,7 @@ export default function SalesInvoices() {
 
 
                   <div className="flex justify-center items-center">
-          <div className="flex items-center flex-wrap gap-2 w-full lg:w-auto border p-2 rounded-lg border-theme-border dark:border-gray-600  dark:bg-gray-700 justify-center">
+          <div className={`flex items-center flex-wrap gap-2 w-full lg:w-auto border p-2 rounded-lg justify-center ${softSurfaceClass}`}>
             <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('Export Pages')}</span>
             <input
               type="number"
@@ -1350,7 +1373,7 @@ export default function SalesInvoices() {
               placeholder="From"
               value={exportFrom}
               onChange={(e) => setExportFrom(e.target.value)}
-              className={`w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'} text-xs focus:border-blue-500`}
+              className={`w-16 px-2 py-1 border border-[var(--panel-border)] rounded-md backdrop-blur-sm ${inputClass} text-xs focus:border-blue-500`}
               style={{ color: theme === 'dark' ? '#ffffff' : undefined }}
             />
             <span className={`text-xs font-semibold ${isLight ? 'text-black' : 'text-white'} `} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>{t('to')}</span>
@@ -1361,7 +1384,7 @@ export default function SalesInvoices() {
               placeholder="To"
               value={exportTo}
               onChange={(e) => setExportTo(e.target.value)}
-              className={`w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'}  text-xs focus:border-blue-500`}
+              className={`w-16 px-2 py-1 border border-[var(--panel-border)] rounded-md backdrop-blur-sm ${inputClass} text-xs focus:border-blue-500`}
               style={{ color: theme === 'dark' ? '#ffffff' : undefined }}
             />
             <button

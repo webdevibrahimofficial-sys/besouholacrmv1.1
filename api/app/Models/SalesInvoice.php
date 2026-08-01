@@ -16,6 +16,7 @@ class SalesInvoice extends Model
         'customer_id',
         'customer_name',
         'customer_code',
+        'customer_address',
         'sales_person',
         'order_id',
         'invoice_type',

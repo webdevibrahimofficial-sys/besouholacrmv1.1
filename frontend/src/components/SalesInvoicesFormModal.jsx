@@ -9,6 +9,34 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
   const { t } = useTranslation()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
+  const buildCustomerAddress = (customer) => {
+    if (!customer) return ''
+
+    return [
+      customer.addressLine1,
+      customer.address_line1,
+      customer.addressLine,
+      customer.address_line,
+      customer.address,
+      customer.country,
+      customer.city,
+      customer.state,
+    ].find((value) => String(value || '').trim())
+      ? [
+          customer.addressLine1,
+          customer.address_line1,
+          customer.addressLine,
+          customer.address_line,
+          customer.address,
+          customer.country,
+          customer.city,
+          customer.state,
+        ].filter((value, index, arr) => {
+          const normalized = String(value || '').trim()
+          return normalized && arr.findIndex((candidate) => String(candidate || '').trim() === normalized) === index
+        }).join(', ')
+      : ''
+  }
   
   const [customers, setCustomers] = useState([])
   const [availableOrders, setAvailableOrders] = useState([])
@@ -69,6 +97,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
               label: o.uuid || o.id,
               customerCode: o.customer_code || o.customerCode,
               customerName: o.customer_name || o.customerName,
+              customerAddress: o.customer_address || o.customerAddress || '',
               salesPerson: o.sales_person || o.salesPerson,
             })))
           }
@@ -113,6 +142,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
     orderId: '',
     customerCode: '',
     customerName: '',
+    customerAddress: '',
     status: 'Draft',
     date: new Date().toISOString().split('T')[0],
     dueDate: '',
@@ -159,6 +189,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
         discountRate: initialData.discountRate || 0,
         customerCode: initialData.customerCode || '',
         customerName: initialData.customerName || '',
+        customerAddress: initialData.customerAddress || initialData.customer_address || '',
         salesPerson: initialData.salesPerson || '',
         paymentTerms: initialData.paymentTerms || '',
         paymentMethod: initialData.paymentMethod || initialData.paymentType || '',
@@ -173,6 +204,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
         orderId: '',
         customerCode: '',
         customerName: '',
+        customerAddress: '',
         status: 'Draft',
         date: new Date().toISOString().split('T')[0],
         dueDate: '',
@@ -201,6 +233,20 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
     setLastNonAdvanceTax(null)
     setLastNonAdvanceDiscountRate(null)
   }, [initialData, isOpen])
+
+  useEffect(() => {
+    if (!customers.length) return
+    if (!formData.customerCode) return
+    if (String(formData.customerAddress || '').trim()) return
+
+    const customer = customers.find((entry) => entry.code === formData.customerCode)
+    if (!customer) return
+
+    const resolvedAddress = buildCustomerAddress(customer)
+    if (!resolvedAddress) return
+
+    setFormData(prev => ({ ...prev, customerAddress: resolvedAddress }))
+  }, [customers, formData.customerCode, formData.customerAddress])
 
   useEffect(() => {
     const loadAdvanceSummary = async () => {
@@ -246,6 +292,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
           label: o.uuid || o.id,
           customerCode: o.customer_code || o.customerCode,
           customerName: o.customer_name || o.customerName,
+          customerAddress: o.customer_address || o.customerAddress || '',
           salesPerson: o.sales_person || o.salesPerson,
         }
 
@@ -742,7 +789,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                         type="button" 
                         onClick={() => {
                             setIsNewCustomer(!isNewCustomer)
-                            setFormData(prev => ({ ...prev, customerCode: '', customerName: '' }))
+                            setFormData(prev => ({ ...prev, customerCode: '', customerName: '', customerAddress: '' }))
                         }}
                         className="text-xs text-blue-600 hover:underline"
                     >
@@ -784,6 +831,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                           ...formData,
                           customerCode: selectedCode,
                           customerName: customer ? customer.name : '',
+                          customerAddress: buildCustomerAddress(customer),
                           salesPerson: salesPersonName,
                           orderId: ''
                         });
@@ -822,6 +870,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                             orderId: selectedOId,
                             customerCode: order.customerCode || prev.customerCode,
                             customerName: order.customerName || prev.customerName,
+                            customerAddress: order.customerAddress || prev.customerAddress,
                             salesPerson: order.salesPerson || prev.salesPerson,
                             invoiceType: 'Partial',
                             items: newItems,

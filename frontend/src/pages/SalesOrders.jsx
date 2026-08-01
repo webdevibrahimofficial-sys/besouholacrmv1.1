@@ -130,6 +130,7 @@ export default function SalesOrders() {
       orderId: order.id,
       customerCode: order.customerCode,
       customerName: order.customerName,
+      customerAddress: order.customerAddress || order.customer_address || '',
       salesPerson: order.salesPerson,
       currency: 'USD', // Default or from order
       date: new Date().toISOString().split('T')[0],
@@ -226,6 +227,7 @@ export default function SalesOrders() {
         customer_id: data?.customerId && !isNaN(data.customerId) ? Number(data.customerId) : null,
         customer_name: data?.customerName,
         customer_code: data?.customerCode || null,
+        customer_address: data?.customerAddress || null,
         sales_person: data?.salesPerson || null,
         order_id: data?.orderId ? Number(data.orderId) : null,
         invoice_type: normalizeInvoiceType(data?.invoiceType),

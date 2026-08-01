@@ -4,22 +4,17 @@ import { useReactToPrint } from 'react-to-print'
 import { FaDownload, FaPaperclip, FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { extractTenantCompanyProfile } from '@shared/utils/tenantCompanyProfile'
-
-const statusToneMap = {
-  Draft: 'bg-sky-100 text-sky-800 border-sky-200',
-  Sent: 'bg-amber-100 text-amber-800 border-amber-200',
-  Approved: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  Rejected: 'bg-rose-100 text-rose-800 border-rose-200',
-  Expired: 'bg-slate-100 text-slate-700 border-slate-200',
-}
+import { useTheme } from '@shared/context/ThemeProvider'
 
 function QuotationPreviewModal({ isOpen, onClose, quotation }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
   const { company, crmSettings } = useAppState()
+  const { resolvedTheme } = useTheme()
   const printRef = useRef()
   const [showAttachments, setShowAttachments] = useState(false)
   const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
+  const isDark = resolvedTheme === 'dark'
 
   const companyInfo = useMemo(() => extractTenantCompanyProfile(company), [company])
 
@@ -43,8 +38,7 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
       issueDate: quotation.createdAt || quotation.created_at || quotation.date || null,
       expiryDate: quotation.expiryDate || quotation.expiry_date || null,
       customerName: quotation.customerName || quotation.customer_name || (isRTL ? 'عميل غير محدد' : 'Unnamed customer'),
-      customerCode: quotation.customerCode || quotation.customer_code || '',
-      status: quotation.status || 'Draft',
+      customerAddress: quotation.customerAddress || quotation.customer_address || quotation.address || quotation.customer?.address || '',
       paymentTerms: quotation.paymentTerms || quotation.payment_terms || '',
       currency: currencyCode,
       notes: quotation.notes || '',
@@ -104,7 +98,47 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
 
   if (!isOpen || !normalizedQuotation) return null
 
-  const statusTone = statusToneMap[normalizedQuotation.status] || 'bg-slate-100 text-slate-700 border-slate-200'
+  const modalShellClass = isDark
+    ? 'relative z-[110] flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-700 bg-slate-950 shadow-2xl print:h-auto print:max-w-none print:rounded-none print:border-0 print:shadow-none'
+    : 'relative z-[110] flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl print:h-auto print:max-w-none print:rounded-none print:border-0 print:shadow-none'
+  const modalHeaderClass = isDark
+    ? 'modal-chrome no-print flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-6 py-4 backdrop-blur'
+    : 'modal-chrome no-print flex items-center justify-between border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur'
+  const previewBackgroundClass = isDark
+    ? 'print-scroll-reset flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#1e293b,_#0f172a_42%,_#020617_100%)] p-4 sm:p-6'
+    : 'print-scroll-reset flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#fff7ed,_#f8fafc_38%,_#e2e8f0_100%)] p-4 sm:p-6'
+  const pageClass = isDark
+    ? 'preview-print-page relative overflow-hidden rounded-[32px] border border-slate-800 bg-slate-900 shadow-[0_28px_80px_rgba(2,6,23,0.55)]'
+    : 'preview-print-page relative overflow-hidden rounded-[32px] bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)]'
+  const topSectionClass = isDark
+    ? 'relative overflow-hidden border-b border-slate-800 px-8 pb-0 pt-5 text-slate-100 avoid-page-break'
+    : 'relative overflow-hidden border-b border-slate-200 px-8 pb-0 pt-5 text-slate-900 avoid-page-break'
+  const titleTextClass = isDark ? 'text-slate-100' : 'text-slate-900'
+  const mainTextClass = isDark ? 'text-slate-200' : 'text-slate-800'
+  const subtleTextClass = isDark ? 'text-slate-400' : 'text-slate-500'
+  const borderStrongClass = isDark ? 'border-slate-700' : 'border-slate-300'
+  const borderSoftClass = isDark ? 'border-slate-800' : 'border-slate-200'
+  const tableCardClass = isDark
+    ? 'overflow-hidden rounded-[24px] border-2 border-slate-700 bg-slate-950/40'
+    : 'overflow-hidden rounded-[24px] border-2 border-slate-300 bg-slate-50/55'
+  const tableHeadRowClass = isDark
+    ? 'border-b-2 border-slate-700 bg-slate-900 text-slate-300'
+    : 'border-b-2 border-slate-300 bg-white text-slate-700'
+  const itemRowClass = isDark
+    ? 'border-t border-slate-700 align-top'
+    : 'border-t border-slate-300 align-top'
+  const summaryStrongRowClass = isDark
+    ? 'border-t-2 border-slate-700 bg-slate-900/70'
+    : 'border-t-2 border-slate-300 bg-white'
+  const summaryRowClass = isDark
+    ? 'border-t border-slate-700 bg-slate-900/45'
+    : 'border-t border-slate-300 bg-white'
+  const balanceRowClass = isDark
+    ? 'border-t-2 border-slate-500 bg-slate-950'
+    : 'border-t-2 border-slate-900 bg-slate-50'
+  const footerClass = isDark
+    ? 'print-footer border-t border-slate-800 px-8 py-4'
+    : 'print-footer border-t border-slate-200 px-8 py-4'
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
@@ -126,6 +160,32 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
             padding: 14mm 14mm 28mm;
             box-shadow: none !important;
             border-radius: 0 !important;
+            border: 0 !important;
+            background: white !important;
+            color: #0f172a !important;
+          }
+          .preview-print-page,
+          .preview-print-page * {
+            color-scheme: light !important;
+          }
+          .print-light-page,
+          .print-light-surface,
+          .print-light-card,
+          .print-light-row,
+          .print-light-balance {
+            background: white !important;
+            background-image: none !important;
+          }
+          .print-light-text,
+          .print-light-text * {
+            color: #0f172a !important;
+          }
+          .print-light-muted,
+          .print-light-muted * {
+            color: #475569 !important;
+          }
+          .print-light-border {
+            border-color: #cbd5e1 !important;
           }
           .print-footer {
             position: fixed;
@@ -155,7 +215,7 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
         }
       `}</style>
 
-      <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm no-print" onClick={onClose} />
+      <div className={`absolute inset-0 no-print ${isDark ? 'bg-black/80' : 'bg-slate-950/70'} backdrop-blur-sm`} onClick={onClose} />
 
       {showAttachments ? (
         <div className="absolute inset-0 z-[2100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm no-print">
@@ -195,11 +255,11 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
         </div>
       ) : null}
 
-      <div className="relative z-[110] flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl print:h-auto print:max-w-none print:rounded-none print:border-0 print:shadow-none">
-        <div className="modal-chrome no-print flex items-center justify-between border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
+      <div className={modalShellClass}>
+        <div className={modalHeaderClass}>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">{isRTL ? 'معاينة عرض السعر' : 'Quotation Preview'}</h2>
-            <p className="text-sm text-slate-500">
+            <h2 className={`text-lg font-semibold ${titleTextClass}`}>{isRTL ? 'معاينة عرض السعر' : 'Quotation Preview'}</h2>
+            <p className={`text-sm ${subtleTextClass}`}>
               {normalizedQuotation.quotationNumber} • {normalizedQuotation.customerName}
             </p>
           </div>
@@ -207,105 +267,94 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowAttachments(true)}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${isDark ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`}
             >
               <FaPaperclip />
               <span>{isRTL ? 'المرفقات' : 'Attachments'}</span>
             </button>
             <button
               onClick={handlePrint}
-              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-white transition ${isDark ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-900 hover:bg-slate-700'}`}
             >
               <FaPrint />
               <span>{isRTL ? 'طباعة / PDF' : 'Print / PDF'}</span>
             </button>
             <button
               onClick={onClose}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white' : 'border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
             >
               <FaTimes />
             </button>
           </div>
         </div>
 
-        <div className="print-scroll-reset flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#fff7ed,_#f8fafc_38%,_#e2e8f0_100%)] p-4 sm:p-6">
+        <div className={previewBackgroundClass}>
           <div ref={printRef} className="preview-print-shell mx-auto max-w-[210mm]">
-            <div className="preview-print-page relative overflow-hidden rounded-[32px] bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)]">
-              <div className="relative overflow-hidden border border-slate-200/70 bg-[linear-gradient(90deg,#dbeafe_0%,#3b82f6_42%,#0f172a_100%)] px-8 pb-0 pt-4 text-white avoid-page-break">
-                <div className={`absolute top-6 h-24 w-24 rounded-full bg-white/10 blur-2xl ${isRTL ? 'left-8' : 'right-8'}`} />
-                <div className={`absolute bottom-4 h-20 w-20 rounded-full bg-sky-300/20 blur-2xl ${isRTL ? 'right-12' : 'left-12'}`} />
-
+            <div className={`${pageClass} print-light-page print-light-text`}>
+              <div className={`${topSectionClass} print-light-surface print-light-text print-light-border`}>
                 <div className="relative">
                   <div className="flex items-start justify-between gap-6">
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-12 min-w-[84px] items-center justify-center overflow-hidden">
+                    <div className="flex flex-col items-start gap-3 print-light-text">
+                      <div className="flex h-[72px] w-[96px] items-center justify-start overflow-hidden">
                         {companyInfo.logoUrl ? (
-                          <img src={companyInfo.logoUrl} alt={companyInfo.name || 'Logo'} className="max-h-10 w-auto max-w-full object-contain" />
+                          <img src={companyInfo.logoUrl} alt={companyInfo.name || 'Logo'} className="max-h-[68px] w-auto max-w-full object-contain object-left" />
                         ) : (
-                          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                          <div className={`text-xs font-semibold uppercase tracking-[0.3em] ${subtleTextClass}`}>
                             {companyInfo.name?.slice(0, 3) || 'CRM'}
                           </div>
                         )}
                       </div>
                       <div>
-                        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 [text-shadow:0_1px_0_rgba(255,255,255,0.22)]">
+                        <h1 className={`text-[34px] font-semibold leading-none tracking-tight ${isDark ? 'text-white' : 'text-slate-950'}`}>
                           {companyInfo.name || (isRTL ? 'اسم الشركة' : 'Company Name')}
                         </h1>
-                        <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs font-semibold">
-                          <div className="text-slate-950">{normalizedQuotation.quotationNumber}</div>
-                          <div className="text-slate-800/90">{formatDate(normalizedQuotation.issueDate)}</div>
-                          <div className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusTone}`}>
-                            {normalizedQuotation.status}
-                          </div>
-                        </div>
                         {companyInfo.description ? (
-                          <p className="mt-0.5 max-w-xl text-xs text-slate-700/90">{companyInfo.description}</p>
+                          <p className={`mt-0.5 max-w-xl text-xs ${isDark ? 'text-slate-400' : 'text-slate-700/90'}`}>{companyInfo.description}</p>
                         ) : null}
                       </div>
                     </div>
 
-                    <div className="min-w-[260px] space-y-1 text-right text-sm text-white">
-                      {companyInfo.phone ? <div className="text-[13px] font-semibold text-white">{isRTL ? `${companyInfo.phone} :الهاتف` : `Phone: ${companyInfo.phone}`}</div> : null}
-                      {companyInfo.taxId ? <div className="text-[13px] font-semibold text-white">{isRTL ? `${companyInfo.taxId} :الرقم الضريبي` : `Tax ID: ${companyInfo.taxId}`}</div> : null}
+                    <div className={`min-w-[260px] space-y-1 text-right text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'} print-light-text`}>
+                      <div className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-950'}`}>{normalizedQuotation.quotationNumber}</div>
+                      {companyInfo.phone ? <div className={`text-[13px] font-semibold ${mainTextClass}`}>{isRTL ? `${companyInfo.phone} :الهاتف` : `Phone: ${companyInfo.phone}`}</div> : null}
+                      {companyInfo.taxId ? <div className={`text-[13px] font-semibold ${mainTextClass}`}>{isRTL ? `${companyInfo.taxId} :الرقم الضريبي` : `Tax ID: ${companyInfo.taxId}`}</div> : null}
                       {(companyInfo.addressLine1 || companyInfo.country || companyInfo.city) ? (
-                        <div className="text-[12px] font-medium text-white/85">
+                        <div className={`text-[12px] font-medium ${subtleTextClass}`}>
                           {[companyInfo.addressLine1, companyInfo.country, companyInfo.city].filter(Boolean).join(', ')}
                         </div>
                       ) : null}
                     </div>
                   </div>
 
-                  <div className="mt-5 border-t border-white/25" />
+                  <div className={`mt-5 border-t ${borderSoftClass} print-light-border`} />
                 </div>
               </div>
 
               <div className="px-8 pb-4 pt-5 avoid-page-break">
-                <div className="rounded-[20px] border border-slate-200 bg-slate-50/70 px-5 py-3">
-                  <div className="flex flex-wrap items-start gap-x-8 gap-y-3 text-sm">
-                    <div className="min-w-[220px] flex-1">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-                        {isRTL ? 'بيانات العميل' : 'Bill To'}
+                <div className={`border-y-2 px-3 py-4 ${borderStrongClass} print-light-surface print-light-border`}>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-[#d68a3c]">{isRTL ? 'العميل' : 'Customer'}</div>
+                      <div className={`mt-1 text-[17px] font-semibold leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {normalizedQuotation.customerName}
                       </div>
-                      <div className="mt-1 text-xl font-semibold text-slate-900">{normalizedQuotation.customerName}</div>
                     </div>
-                    <div className="min-w-[120px]">
-                      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'كود العميل' : 'Customer Code'}</div>
-                      <div className="mt-1 font-medium text-slate-800">{normalizedQuotation.customerCode || '-'}</div>
-                    </div>
-                    <div className="min-w-[150px]">
-                      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'صالح حتى' : 'Valid Until'}</div>
-                      <div className="mt-1 font-medium text-slate-800">{formatDate(normalizedQuotation.expiryDate)}</div>
+                    <div className="min-w-0 text-right">
+                      <div className="text-[11px] font-semibold text-[#d68a3c]">{isRTL ? 'العنوان' : 'Address'}</div>
+                      <div className={`mt-1 text-[16px] leading-7 ${mainTextClass}`}>
+                        {normalizedQuotation.customerAddress || (isRTL ? 'غير محدد' : 'Not specified')}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
               <div className="px-8 pb-7 avoid-page-break">
-                <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50/55">
+                <div className={`${tableCardClass} print-light-card print-light-border`}>
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[700px] border-collapse">
                       <thead>
-                        <tr className="border-b border-slate-200 bg-white text-slate-700">
+                        <tr className={`${tableHeadRowClass} print-light-row print-light-text print-light-border`}>
                           <th className="px-4 py-4 text-start text-xs font-semibold uppercase tracking-[0.24em]">#</th>
                           <th className="px-4 py-4 text-start text-xs font-semibold uppercase tracking-[0.24em]">
                             {isRTL ? 'الوصف' : 'Description'}
@@ -333,85 +382,61 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
                             const lineTotal = (quantity * unitPrice) - discount
 
                             return (
-                              <tr key={`${item.id || item.name || 'item'}-${index}`} className="border-t border-slate-200 align-top">
-                                <td className="px-4 py-4 text-sm font-medium text-slate-500">{String(index + 1).padStart(2, '0')}</td>
+                              <tr key={`${item.id || item.name || 'item'}-${index}`} className={`${itemRowClass} print-light-row print-light-text print-light-border`}>
+                                <td className={`px-4 py-4 text-sm font-medium ${subtleTextClass}`}>{String(index + 1).padStart(2, '0')}</td>
                                 <td className="px-4 py-4">
-                                  <div className="text-sm font-semibold text-slate-900">{getItemDescription(item)}</div>
-                                  {formatItemMeta(item) ? <div className="mt-1 text-xs font-medium text-slate-500">{formatItemMeta(item)}</div> : null}
+                                  <div className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>{getItemDescription(item)}</div>
+                                  {formatItemMeta(item) ? <div className={`mt-1 text-xs font-medium ${subtleTextClass}`}>{formatItemMeta(item)}</div> : null}
                                 </td>
-                                <td className="px-4 py-4 text-center text-sm font-medium text-slate-700">{quantity}</td>
-                                <td className="px-4 py-4 text-end text-sm font-medium text-slate-700">{formatMoney(unitPrice)}</td>
-                                <td className="px-4 py-4 text-end text-sm font-medium text-slate-700">{formatMoney(discount)}</td>
-                                <td className="px-4 py-4 text-end text-sm font-semibold text-slate-950">{formatMoney(lineTotal)}</td>
+                                <td className={`px-4 py-4 text-center text-sm font-medium ${mainTextClass}`}>{quantity}</td>
+                                <td className={`px-4 py-4 text-end text-sm font-medium ${mainTextClass}`}>{formatMoney(unitPrice)}</td>
+                                <td className={`px-4 py-4 text-end text-sm font-medium ${mainTextClass}`}>{formatMoney(discount)}</td>
+                                <td className={`px-4 py-4 text-end text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-950'}`}>{formatMoney(lineTotal)}</td>
                               </tr>
                             )
                           })
                         ) : (
                           <tr>
-                            <td colSpan="6" className="px-4 py-10 text-center text-sm text-slate-500">
+                            <td colSpan="6" className={`px-4 py-10 text-center text-sm ${subtleTextClass}`}>
                               {isRTL ? 'لا توجد بنود في عرض السعر' : 'No quotation items found'}
                             </td>
                           </tr>
                         )}
+                        <tr className={`${summaryStrongRowClass} print-light-row print-light-text print-light-border`}>
+                          <td colSpan="4" className={`px-4 py-3 text-sm font-medium ${mainTextClass}`}>
+                            {isRTL ? 'المجموع الفرعي' : 'Subtotal'}
+                          </td>
+                          <td colSpan="2" className={`px-4 py-3 text-end text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-950'}`}>
+                            {formatMoney(normalizedQuotation.subtotal)}
+                          </td>
+                        </tr>
+                        <tr className={`${summaryRowClass} print-light-row print-light-text print-light-border`}>
+                          <td colSpan="4" className={`px-4 py-3 text-sm font-medium ${mainTextClass}`}>
+                            {isRTL ? 'الضريبة' : 'Tax'}
+                          </td>
+                          <td colSpan="2" className={`px-4 py-3 text-end text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-950'}`}>
+                            {formatMoney(normalizedQuotation.tax)}
+                          </td>
+                        </tr>
+                        <tr className={`${balanceRowClass} print-light-balance print-light-text print-light-border`}>
+                          <td colSpan="4" className="px-4 py-4 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                            {isRTL ? 'الإجمالي' : 'Grand Total'}
+                          </td>
+                          <td colSpan="2" className={`px-4 py-4 text-end text-[17px] font-semibold ${isDark ? 'text-white' : 'text-slate-950'}`}>
+                            {formatMoney(normalizedQuotation.total)}
+                          </td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
               </div>
 
-              <div className="grid gap-4 px-8 pb-8">
-                <div className="avoid-page-break rounded-[22px] border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-[0_16px_30px_rgba(15,23,42,0.18)]">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="min-w-[180px] flex-1">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-                        {isRTL ? 'الملخص المالي' : 'Financial Summary'}
-                      </div>
-                    </div>
-                    <div className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80">
-                      {normalizedQuotation.currency}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
-                        <span className="text-white/60">{isRTL ? 'المجموع' : 'Subtotal'}</span>
-                        <span className="ms-2 font-semibold">{formatMoney(normalizedQuotation.subtotal)}</span>
-                      </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5">
-                        <span className="text-white/60">{isRTL ? 'الضريبة' : 'Tax'}</span>
-                        <span className="ms-2 font-semibold">{formatMoney(normalizedQuotation.tax)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2.5 rounded-[16px] bg-white px-4 py-2 text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                      {isRTL ? 'الإجمالي' : 'Grand Total'}
-                    </div>
-                    <div className="mt-0.5 flex items-baseline justify-between gap-3">
-                      <div className="text-lg font-semibold tracking-tight">{formatMoney(normalizedQuotation.total)}</div>
-                      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-300">
-                        {normalizedQuotation.currency}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="avoid-page-break">
-                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                    <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-                      {isRTL ? 'ملاحظات' : 'Notes'}
-                    </div>
-                    <div className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">
-                      {normalizedQuotation.notes || (isRTL ? 'لا توجد ملاحظات مضافة على عرض السعر.' : 'No notes were added to this quotation.')}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="print-footer border-t border-slate-200 px-8 py-4">
-                <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto whitespace-nowrap text-[10px] text-slate-400">
-                  <span className="font-semibold text-slate-800">{companyInfo.name || 'CRM'}</span>
+              <div className={`${footerClass} print-light-surface print-light-border`}>
+                <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto whitespace-nowrap text-[10px] text-slate-400 print-light-muted">
+                  <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{companyInfo.name || 'CRM'}</span>
                   <span>{new Date().getFullYear()} {isRTL ? 'جميع الحقوق محفوظة' : 'All rights reserved'}</span>
-                  <span className="font-semibold text-slate-700">
+                  <span className={`font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                     {companyInfo.websiteUrl || (typeof window !== 'undefined' ? window.location.host : 'crm.local')}
                   </span>
                 </div>
