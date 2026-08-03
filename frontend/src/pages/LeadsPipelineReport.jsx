@@ -12,17 +12,34 @@ import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
 import ReassignLeadsReport from '../components/LeadsReport/ReassignLeadsReport'
 import { LeadsAnalysisChart } from '../features/Dashboard/components/LeadsAnalysisChart'
+import { useStages } from '../hooks/useStages'
+import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
 
 export default function LeadsPipelineReport() {
-  const { i18n } = useTranslation()
+  const { i18n, t } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
+  const normalizeOptionKey = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ')
+  const getStageLocalizedLabel = (stage) => {
+    const english = String(stage?.name || '').trim()
+    const arabic = String(stage?.nameAr || stage?.name_ar || '').trim()
+    const typeKey = String(stage?.type || '').trim()
+    const translatedType = typeKey ? String(t(typeKey) || '').trim() : ''
+
+    if (isRTL) {
+      return arabic || translatedType || english
+    }
+
+    return english || arabic || translatedType
+  }
 
   const { isLight } = useTheme()
+  const { stages: stagesCatalog } = useStages({ workflowKey: 'sales', activeOnly: true })
 
   const [activeTab, setActiveTab] = useState('pipeline')
   const [users, setUsers] = useState([])
   const [tenantCompany, setTenantCompany] = useState(null)
   const [currentUser, setCurrentUser] = useState(null)
+  const [sourcesCatalog, setSourcesCatalog] = useState([])
   const { user } = useAppState()
   const canExport = canExportReport(user, 'Leads Pipeline')
   const [reportTotals, setReportTotals] = useState({
@@ -42,9 +59,10 @@ export default function LeadsPipelineReport() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [usersRes, companyRes] = await Promise.all([
+        const [usersRes, companyRes, sourcesRes] = await Promise.all([
           api.get('/api/users', { params: { per_page: 1000 } }),
-          api.get('/api/company-info')
+          api.get('/api/company-info'),
+          api.get('/api/sources', { params: { active: 1 } }),
         ])
 
         const rawUsers = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || [])
@@ -61,6 +79,7 @@ export default function LeadsPipelineReport() {
         
         const user = companyRes.data?.user || null
         setCurrentUser(user)
+        setSourcesCatalog(Array.isArray(sourcesRes.data) ? sourcesRes.data : [])
       } catch (err) {
         console.error('Failed to fetch leads or users', err)
       }
@@ -184,6 +203,83 @@ export default function LeadsPipelineReport() {
       ...uniqueValues.map(v => ({ value: v, label: v }))
     ]
   }, [reportOptions.projects, tenantCompany, isRTL])
+
+  const stageLabelMap = useMemo(() => {
+    const map = new Map()
+    ;(stagesCatalog || []).forEach((stage) => {
+      const english = String(stage?.name || '').trim()
+      const arabic = String(stage?.nameAr || stage?.name_ar || '').trim()
+      const label = getStageLocalizedLabel(stage)
+
+      ;[english, arabic].forEach((key) => {
+        const normalized = normalizeOptionKey(key)
+        if (normalized && label) map.set(normalized, label)
+      })
+    })
+    ;(reportOptions.stages || []).forEach((stage) => {
+      if (typeof stage === 'object' && stage !== null) {
+        const english = String(stage?.name || '').trim()
+        const arabic = String(stage?.name_ar || stage?.nameAr || '').trim()
+        const label = getStageLocalizedLabel(stage)
+        ;[english, arabic].forEach((key) => {
+          const normalized = normalizeOptionKey(key)
+          if (normalized && label) map.set(normalized, label)
+        })
+      }
+    })
+    return map
+  }, [stagesCatalog, reportOptions.stages, isRTL, t])
+
+  const sourceLabelMap = useMemo(() => {
+    const map = new Map()
+    ;(sourcesCatalog || []).forEach((item) => {
+      const value = getSourceCanonicalName(item)
+      const label = getSourceDisplayName(item, isRTL)
+      const normalized = normalizeOptionKey(value)
+      if (normalized && label) map.set(normalized, label)
+    })
+    ;(reportOptions.sources || []).forEach((source) => {
+      if (typeof source === 'object' && source !== null) {
+        const value = getSourceCanonicalName(source)
+        const label = getSourceDisplayName(source, isRTL)
+        const normalized = normalizeOptionKey(value)
+        if (normalized && label) map.set(normalized, label)
+      }
+    })
+    return map
+  }, [sourcesCatalog, reportOptions.sources, isRTL])
+
+  const stageFilterOptions = useMemo(() => ([
+    { value: '', label: isRTL ? 'الكل' : 'All Stages' },
+    ...Array.from(new Map(
+      (stagesCatalog || [])
+        .map((stage) => {
+          const value = typeof stage === 'object' && stage !== null
+            ? String(stage?.name || stage?.name_ar || stage?.nameAr || '').trim()
+            : String(stage || '').trim()
+          if (!value) return null
+          const label = stageLabelMap.get(normalizeOptionKey(value)) || value
+          return [value, { value, label }]
+        })
+        .filter(Boolean)
+    ).values()),
+  ]), [stagesCatalog, stageLabelMap, isRTL])
+
+  const sourceFilterOptions = useMemo(() => ([
+    { value: '', label: isRTL ? 'الكل' : 'All Sources' },
+    ...Array.from(new Map(
+      (sourcesCatalog || [])
+        .map((source) => {
+          const value = typeof source === 'object' && source !== null
+            ? String(source?.name || source?.name_ar || source?.nameAr || '').trim()
+            : String(source || '').trim()
+          if (!value) return null
+          const label = sourceLabelMap.get(normalizeOptionKey(value)) || value
+          return [value, { value, label }]
+        })
+        .filter(Boolean)
+    ).values()),
+  ]), [sourcesCatalog, sourceLabelMap, isRTL])
 
   // Filter Logic
   useEffect(() => {
@@ -394,7 +490,7 @@ export default function LeadsPipelineReport() {
             <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
               <Layers size={32} />
             </div>
-            {isRTL ? 'التقارير، مسار العملاء...' : 'Leads Pipeline'}
+            {isRTL ? 'التقارير، مسار العملاء المحتملين' : 'Leads Pipeline'}
             {reportLoading && (
               <span className={`text-xs font-medium opacity-70 ${isLight ? 'text-black' : 'text-white'}`}>
                 {isRTL ? 'جاري التحميل...' : 'Loading...'}
@@ -515,13 +611,10 @@ export default function LeadsPipelineReport() {
                 {isRTL ? 'المرحلة' : 'Stage'}
               </label>
               <SearchableSelect 
-                options={[
-                  { value: '', label: isRTL ? 'الكل' : 'All Stages' },
-                  ...Array.from(new Set((reportOptions.stages || []).filter(Boolean))).map(s => ({ value: s, label: s }))
-                ]}
+                options={stageFilterOptions}
                 value={stageFilter}
                 onChange={setStageFilter}
-                placeholder={isRTL ? 'اختر' : 'Stage Pipeline'}
+                placeholder={isRTL ? 'اختر' : 'Select stage'}
                 icon={<Layers size={16} />}
                 isRTL={isRTL}
               />
@@ -534,10 +627,7 @@ export default function LeadsPipelineReport() {
                 {isRTL ? 'المصدر' : 'Source'}
               </label>
               <SearchableSelect 
-                options={[
-                  { value: '', label: isRTL ? 'الكل' : 'All Sources' },
-                  ...Array.from(new Set((reportOptions.sources || []).filter(Boolean))).map(s => ({ value: s, label: s }))
-                ]}
+                options={sourceFilterOptions}
                 value={sourceFilter}
                 onChange={setSourceFilter}
                 placeholder={isRTL ? 'اختر' : 'Source'}
@@ -549,16 +639,16 @@ export default function LeadsPipelineReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                Agency
+                {isRTL ? 'الوكالة' : 'Agency'}
               </label>
               <SearchableSelect
                 options={[
-                  { value: '', label: 'All Agencies' },
+                  { value: '', label: isRTL ? 'الكل' : 'All Agencies' },
                   ...Array.from(new Set((reportOptions.agencies || []).filter(Boolean))).map(a => ({ value: a, label: a }))
                 ]}
                 value={agencyFilter}
                 onChange={setAgencyFilter}
-                placeholder="Agency"
+                placeholder={isRTL ? 'اختر' : 'Agency'}
                 icon={<Briefcase size={16} />}
                 isRTL={isRTL}
               />

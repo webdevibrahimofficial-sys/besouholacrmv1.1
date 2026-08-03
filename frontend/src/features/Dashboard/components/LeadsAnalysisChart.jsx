@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js'
 import { Bar, Line } from 'react-chartjs-2'
@@ -21,12 +21,9 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   const axisTitleFontSize = exportMode ? 14 : (isMobile ? 10 : 13)
   const xAxisLabel = lang === 'ar' ? 'الأشهر' : 'Months'
   const yAxisLabel = lang === 'ar' ? 'عدد العملاء المحتملين' : 'No. of Leads'
-  const [chartData, setChartData] = useState([])
-  const [maxValue, setMaxValue] = useState(0)
   const containerHeightPx = exportMode ? 420 : 192
   const chartHeightClass = exportMode ? 'h-[420px]' : 'h-40 sm:h-48'
   const pieSize = exportMode ? 260 : 192
-  const mobileScrollableChartMinWidth = exportMode ? '100%' : (isMobile ? `${Math.max(chartData.length, 12) * 58}px` : '100%')
   const monthLabelsEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
   const translateMonthLabel = (label) => {
@@ -303,23 +300,28 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     })
   }
 
-  useEffect(() => {
+  const chartData = useMemo(() => {
     const incomingData = data || sampleData[filters.dataType || 'monthly']
     const rawData = filters.dataType === 'monthly'
       ? buildCompleteMonthlySeries(incomingData)
       : incomingData
-    const filteredData = applyFilters(rawData).map(item => ({
+    return applyFilters(rawData).map(item => ({
       ...item,
       label: translateMonthLabel(item.label),
     }))
-    setChartData(filteredData)
-    
+  }, [data, filters, searchTerm, advancedFilters, lang])
+
+  const maxValue = useMemo(() => {
+    if (!Array.isArray(chartData) || chartData.length === 0) return 0
     if (chartType === 'pie' || chartType === 'doughnut') {
-      setMaxValue(filteredData.reduce((sum, item) => sum + item.value, 0))
-    } else {
-      setMaxValue(Math.max(...filteredData.map(item => item.value)) * 1.2)
+      return chartData.reduce((sum, item) => sum + (Number(item?.value) || 0), 0)
     }
-  }, [data, filters, chartType, searchTerm, advancedFilters, lang])
+
+    const max = Math.max(...chartData.map(item => Number(item?.value) || 0))
+    return max > 0 ? max * 1.2 : 0
+  }, [chartData, chartType])
+
+  const mobileScrollableChartMinWidth = exportMode ? '100%' : (isMobile ? `${Math.max(chartData.length, 12) * 58}px` : '100%')
 
   const getBarHeightPx = (value) => {
     if (!maxValue || maxValue <= 0) return '1px'

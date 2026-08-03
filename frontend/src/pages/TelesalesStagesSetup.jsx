@@ -8,7 +8,7 @@ export default function TelesalesStagesSetup() {
   return (
     <div className="space-y-6">
       <div className="px-0 py-0 w-full">
-        <ConfigurationManager workflowKey="telesales" title={isRtl ? 'إعداد بايبلاين التيليسيلز' : 'Telesales Pipeline Setup'} />
+        <ConfigurationManager workflowKey="telesales" title={isRtl ? 'إعداد مراحل التيلي سيلز' : 'Telesales Pipeline Setup'} />
       </div>
     </div>
   )

@@ -13,6 +13,7 @@ use App\Models\Activity;
 use App\Models\Project;
 use App\Models\Item;
 use App\Models\Stage;
+use App\Models\Source;
 use App\Models\Tenant;
 use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
@@ -206,6 +207,28 @@ class LeadController extends Controller
             ->filter()
             ->values()
             ->all();
+    }
+
+    private function resolvePipelineReportProjectOrItemLabel($lead, array $itemsById, array $projectsById, string $companyType): string
+    {
+        if ($companyType === 'general') {
+            $meta = is_array($lead?->meta_data ?? null) ? $lead->meta_data : [];
+            $itemId = (int) ($lead?->item_id ?? 0);
+            $label = trim((string) (
+                $lead?->item_name
+                ?? ($meta['lead_item_name'] ?? null)
+                ?? ($meta['item_name'] ?? null)
+                ?? ($itemId > 0 ? ($itemsById[$itemId] ?? '') : '')
+            ));
+
+            return $label;
+        }
+
+        $projectId = (int) ($lead?->project_id ?? 0);
+        return trim((string) (
+            $lead?->project
+            ?? ($projectId > 0 ? ($projectsById[$projectId] ?? '') : '')
+        ));
     }
 
     private function resolveDuplicateRootId(?Lead $lead, ?int $tenantId = null): ?int
@@ -2036,13 +2059,82 @@ class LeadController extends Controller
     {
         try {
             $user = $request->user();
+            $tenant = $user?->tenant_id ? Tenant::query()->find($user->tenant_id) : null;
+            $companyType = strtolower(trim((string) ($tenant?->company_type ?? '')));
+            $isGeneralCompany = $companyType === 'general';
 
             // Reporting should exclude duplicates by default.
             $query = $this->buildFilteredLeadsQuery($request, $user, false);
             // Do not exclude referral leads from this report; they can be assigned and owned like normal leads.
 
             if ($request->filled('project')) {
-                $query->whereIn('project', (array) $request->project);
+                $requestedLabels = collect((array) $request->project)
+                    ->map(fn ($value) => trim((string) $value))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if (!empty($requestedLabels)) {
+                    if ($isGeneralCompany) {
+                        $itemSelectColumns = ['id'];
+                        foreach (['name', 'title'] as $column) {
+                            if (\Illuminate\Support\Facades\Schema::hasColumn('items', $column)) {
+                                $itemSelectColumns[] = $column;
+                            }
+                        }
+
+                        $matchingItemIds = Item::query()
+                            ->when(!$user->is_super_admin, fn ($itemQuery) => $itemQuery->where('tenant_id', $user->tenant_id))
+                            ->get($itemSelectColumns)
+                            ->filter(function ($item) use ($requestedLabels) {
+                                return in_array(trim((string) ($item->name ?? '')), $requestedLabels, true)
+                                    || in_array(trim((string) ($item->title ?? '')), $requestedLabels, true);
+                            })
+                            ->pluck('id')
+                            ->map(fn ($value) => (int) $value)
+                            ->filter()
+                            ->values()
+                            ->all();
+
+                        $hasLeadItemNameColumn = \Illuminate\Support\Facades\Schema::hasColumn('leads', 'item_name');
+                        $leadItemNameExpr = $this->metaJsonTextExpression('leads.meta_data', 'lead_item_name');
+                        $itemNameExpr = $this->metaJsonTextExpression('leads.meta_data', 'item_name');
+
+                        $query->where(function ($projectQuery) use ($matchingItemIds, $requestedLabels, $hasLeadItemNameColumn, $leadItemNameExpr, $itemNameExpr) {
+                            if (!empty($matchingItemIds)) {
+                                $projectQuery->whereIn('leads.item_id', $matchingItemIds);
+                            }
+
+                            if ($hasLeadItemNameColumn) {
+                                $projectQuery->orWhereIn('leads.item_name', $requestedLabels);
+                            }
+
+                            $projectQuery->orWhereIn(DB::raw("TRIM({$leadItemNameExpr})"), $requestedLabels)
+                                ->orWhereIn(DB::raw("TRIM({$itemNameExpr})"), $requestedLabels);
+                        });
+                    } else {
+                        $matchingProjectIds = Project::query()
+                            ->when(!$user->is_super_admin, fn ($projectQuery) => $projectQuery->where('tenant_id', $user->tenant_id))
+                            ->where(function ($projectQuery) use ($requestedLabels) {
+                                $projectQuery->whereIn('name', $requestedLabels)
+                                    ->orWhereIn('name_ar', $requestedLabels);
+                            })
+                            ->pluck('id')
+                            ->map(fn ($value) => (int) $value)
+                            ->filter()
+                            ->values()
+                            ->all();
+
+                        $query->where(function ($projectQuery) use ($matchingProjectIds, $requestedLabels) {
+                            if (!empty($matchingProjectIds)) {
+                                $projectQuery->whereIn('leads.project_id', $matchingProjectIds);
+                            }
+
+                            $projectQuery->orWhereIn('leads.project', $requestedLabels);
+                        });
+                    }
+                }
             }
 
             // Use last_action_at so the report only includes real actions
@@ -2083,15 +2175,118 @@ class LeadController extends Controller
 
             $distinctAgencies = $this->distinctMetaDataTextValues($query, 'agency', 'agency', 'meta_data');
 
-            $distinctProjects = (clone $query)
-                ->whereNotNull('project')
-                ->select('project')
+            $itemSelectColumns = ['id'];
+            foreach (['name', 'title'] as $column) {
+                if (\Illuminate\Support\Facades\Schema::hasColumn('items', $column)) {
+                    $itemSelectColumns[] = $column;
+                }
+            }
+
+            $projectIds = (clone $query)
+                ->whereNotNull('project_id')
                 ->distinct()
-                ->limit(300)
-                ->pluck('project')
+                ->pluck('project_id')
+                ->map(fn ($value) => (int) $value)
                 ->filter()
-                ->values()
-                ->all();
+                ->values();
+
+            $itemIds = (clone $query)
+                ->whereNotNull('item_id')
+                ->distinct()
+                ->pluck('item_id')
+                ->map(fn ($value) => (int) $value)
+                ->filter()
+                ->values();
+
+            $projectsById = $projectIds->isEmpty()
+                ? []
+                : Project::query()
+                    ->when(!$user->is_super_admin, fn ($projectQuery) => $projectQuery->where('tenant_id', $user->tenant_id))
+                    ->whereIn('id', $projectIds->all())
+                    ->get(['id', 'name', 'name_ar'])
+                    ->mapWithKeys(function ($project) {
+                        $label = trim((string) ($project->name ?? $project->name_ar ?? ''));
+                        return $label === '' ? [] : [(int) $project->id => $label];
+                    })
+                    ->all();
+
+            $itemsById = $itemIds->isEmpty()
+                ? []
+                : Item::query()
+                    ->when(!$user->is_super_admin, fn ($itemQuery) => $itemQuery->where('tenant_id', $user->tenant_id))
+                    ->whereIn('id', $itemIds->all())
+                    ->get($itemSelectColumns)
+                    ->mapWithKeys(function ($item) {
+                        $label = trim((string) ($item->name ?? $item->title ?? ''));
+                        return $label === '' ? [] : [(int) $item->id => $label];
+                    })
+                    ->all();
+
+            $distinctProjects = [];
+            $distinctProjectMap = [];
+            $projectOptionColumns = ['id', 'project', 'project_id', 'item_id', 'meta_data'];
+            if (\Illuminate\Support\Facades\Schema::hasColumn('leads', 'item_name')) {
+                $projectOptionColumns[] = 'item_name';
+            }
+            (clone $query)
+                ->select($projectOptionColumns)
+                ->orderBy('id')
+                ->chunkById(2000, function ($leadsChunk) use (&$distinctProjects, &$distinctProjectMap, $itemsById, $projectsById, $companyType) {
+                    foreach ($leadsChunk as $lead) {
+                        $label = $this->resolvePipelineReportProjectOrItemLabel($lead, $itemsById, $projectsById, $companyType);
+                        if ($label === '' || isset($distinctProjectMap[$label])) {
+                            continue;
+                        }
+
+                        $distinctProjectMap[$label] = true;
+                        $distinctProjects[] = $label;
+
+                        if (count($distinctProjects) >= 300) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                });
+
+            $stageRows = Stage::query()
+                ->when(!$user->is_super_admin, fn ($stageQuery) => $stageQuery->where('tenant_id', $user->tenant_id))
+                ->where(function ($stageQuery) {
+                    $stageQuery->where('workflow_key', TelesalesService::WORKFLOW_SALES)
+                        ->orWhereNull('workflow_key')
+                        ->orWhere('workflow_key', '');
+                })
+                ->get(['name', 'name_ar']);
+            $stageNameMap = [];
+            foreach ($stageRows as $stageRow) {
+                $english = trim((string) ($stageRow->name ?? ''));
+                $arabic = trim((string) ($stageRow->name_ar ?? ''));
+                if ($english !== '') {
+                    $stageNameMap[$english] = ['name' => $english, 'name_ar' => $arabic];
+                }
+                if ($arabic !== '' && !isset($stageNameMap[$arabic])) {
+                    $stageNameMap[$arabic] = ['name' => $english ?: $arabic, 'name_ar' => $arabic];
+                }
+            }
+
+            $sourceSelect = ['name', 'meta_data'];
+            if (\Illuminate\Support\Facades\Schema::hasColumn('sources', 'name_ar')) {
+                $sourceSelect[] = 'name_ar';
+            }
+            $sourceRows = Source::query()
+                ->when(!$user->is_super_admin, fn ($sourceQuery) => $sourceQuery->where('tenant_id', $user->tenant_id))
+                ->get($sourceSelect);
+            $sourceNameMap = [];
+            foreach ($sourceRows as $sourceRow) {
+                $english = trim((string) ($sourceRow->name ?? ''));
+                $arabic = trim((string) ($sourceRow->name_ar ?? ((is_array($sourceRow->meta_data ?? null) ? ($sourceRow->meta_data['name_ar'] ?? null) : null) ?? '')));
+                if ($english !== '') {
+                    $sourceNameMap[$english] = ['name' => $english, 'name_ar' => $arabic];
+                }
+                if ($arabic !== '' && !isset($sourceNameMap[$arabic])) {
+                    $sourceNameMap[$arabic] = ['name' => $english ?: $arabic, 'name_ar' => $arabic];
+                }
+            }
 
             $userQuery = \App\Models\User::query();
             if (!$user->is_super_admin) {
@@ -2298,8 +2493,8 @@ class LeadController extends Controller
                 'salesPersonStats' => $salesStats,
                 'monthly' => $monthlySeries,
                 'options' => [
-                    'stages' => $distinctStages,
-                    'sources' => $distinctSources,
+                    'stages' => array_map(fn ($stage) => $stageNameMap[$stage] ?? ['name' => $stage, 'name_ar' => ''], $distinctStages),
+                    'sources' => array_map(fn ($source) => $sourceNameMap[$source] ?? ['name' => $source, 'name_ar' => ''], $distinctSources),
                     'agencies' => $distinctAgencies,
                     'projects' => $distinctProjects,
                 ],
