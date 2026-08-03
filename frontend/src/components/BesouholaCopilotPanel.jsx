@@ -42,7 +42,7 @@ function ActionButtons({ actions, onConfirm, confirmingKey, onNavigate }) {
             <button
               key={key}
               type="button"
-              onClick={() => onNavigate(action.path)}
+              onClick={() => onNavigate(action)}
               className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
             >
               {action.label || (action.type === 'download' ? 'Download' : 'Open')}
@@ -134,10 +134,18 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     listRef.current.scrollTop = listRef.current.scrollHeight
   }, [messages, sending, open])
 
-  const handleNavigate = (path) => {
-    if (!path) return
-    onClose()
-    navigate(path)
+  const handleNavigate = (actionOrPath) => {
+    const action = typeof actionOrPath === 'string'
+      ? { path: actionOrPath }
+      : (actionOrPath || {})
+
+    const pathname = action.pathname || (action.path ? String(action.path).split('?')[0] : '')
+    const search = action.search || (action.path && String(action.path).includes('?')
+      ? `?${String(action.path).split('?').slice(1).join('?')}`
+      : '')
+
+    if (!pathname) return
+    navigate({ pathname, search })
   }
 
   const handleSend = async () => {
@@ -159,15 +167,21 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
       const data = response?.data?.data || {}
       if (data.conversation_id) setConversationId(data.conversation_id)
 
+      const actions = data.ui_actions || []
       setMessages((current) => [
         ...current,
         {
           id: `a-${Date.now()}`,
           role: 'assistant',
           content: data.message || 'Done.',
-          ui_actions: data.ui_actions || [],
+          ui_actions: actions,
         },
       ])
+
+      const autoNavigate = actions.find((action) => action?.type === 'navigate' && (action.pathname || action.path))
+      if (autoNavigate) {
+        handleNavigate(autoNavigate)
+      }
     } catch (error) {
       setMessages((current) => [
         ...current,

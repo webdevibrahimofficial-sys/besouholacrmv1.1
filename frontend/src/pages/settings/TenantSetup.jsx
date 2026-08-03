@@ -645,7 +645,10 @@ const TenantSetup = () => {
       fetchTenants(pagination.current_page);
     } catch (error) {
       console.error('Failed to update tenant:', error);
-      toast.error(t('failed_update_tenant', 'Failed to update tenant'));
+      const message = error?.response?.data?.message
+        || Object.values(error?.response?.data?.errors || {}).flat()[0]
+        || t('failed_update_tenant', 'Failed to update tenant');
+      toast.error(message);
     }
   };
 

@@ -189,9 +189,19 @@ class AiCopilotToolExecutor
 
     protected function buildReportFilters(array $args): array
     {
+        $dateFrom = $this->normalizeDate(
+            $args['date_from'] ?? $args['created_from'] ?? $args['assigned_date_from'] ?? null
+        );
+        $dateTo = $this->normalizeDate(
+            $args['date_to'] ?? $args['created_to'] ?? $args['assigned_date_to'] ?? null
+        );
+
         $filters = array_filter([
-            'date_from' => $this->normalizeDate($args['date_from'] ?? null),
-            'date_to' => $this->normalizeDate($args['date_to'] ?? null),
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            // Pipeline report reads these query keys.
+            'created_from' => $dateFrom,
+            'created_to' => $dateTo,
             'assigned_to' => $args['assigned_to'] ?? null,
             'stage' => $args['stage'] ?? null,
             'workflow_key' => $args['workflow_key'] ?? null,
@@ -220,17 +230,21 @@ class AiCopilotToolExecutor
 
         $filters = $this->buildReportFilters($args)['filters'];
         $query = http_build_query($filters);
-        $path = $report['path'].($query !== '' ? "?{$query}" : '');
+        $path = $report['path'].($query !== '' ? '?'.$query : '');
 
         return [
             'ok' => true,
             'report' => $report['name'],
             'path' => $path,
+            'pathname' => $report['path'],
+            'search' => $query !== '' ? '?'.$query : '',
             'filters' => $filters,
             'ui_actions' => [
                 [
                     'type' => 'navigate',
                     'path' => $path,
+                    'pathname' => $report['path'],
+                    'search' => $query !== '' ? '?'.$query : '',
                     'label' => 'Open '.$report['name'],
                 ],
             ],
@@ -500,8 +514,30 @@ class AiCopilotToolExecutor
             return null;
         }
 
+        $raw = trim((string) $value);
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $raw, $m)) {
+            return sprintf('%04d-%02d-%02d', (int) $m[1], (int) $m[2], (int) $m[3]);
+        }
+
+        if (preg_match('/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/', $raw, $m)) {
+            $day = (int) $m[1];
+            $month = (int) $m[2];
+            $year = (int) $m[3];
+
+            if ($day <= 12 && $month > 12) {
+                [$day, $month] = [$month, $day];
+            }
+
+            if ($month < 1 || $month > 12 || $day < 1 || $day > 31) {
+                return null;
+            }
+
+            return sprintf('%04d-%02d-%02d', $year, $month, $day);
+        }
+
         try {
-            return \Carbon\Carbon::parse((string) $value)->toDateString();
+            return \Carbon\Carbon::parse($raw)->toDateString();
         } catch (\Throwable) {
             return null;
         }

@@ -12,10 +12,22 @@ export const COPILOT_REPORT_CATALOG = [
     path: '/reports/sales/activities',
   },
   {
+    key: 'sales_to_telesales',
+    name: 'Leads To Telesales',
+    permission: 'Leads Pipeline',
+    path: '/reports/sales/to-telesales',
+  },
+  {
     key: 'meetings',
     name: 'Meetings Report',
     permission: 'Meetings Report',
     path: '/reports/sales/meetings',
+  },
+  {
+    key: 'reservations',
+    name: 'Reservations Report',
+    permission: 'Reservations Report',
+    path: '/reports/sales/reservations',
   },
   {
     key: 'closed_deals',
@@ -24,10 +36,46 @@ export const COPILOT_REPORT_CATALOG = [
     path: '/reports/sales/closed-deals',
   },
   {
+    key: 'cancellation',
+    name: 'Cancellation Report',
+    permission: 'Cancellation Report',
+    path: '/reports/sales/cancellation',
+  },
+  {
+    key: 'rent',
+    name: 'Rent Report',
+    permission: 'Rent Report',
+    path: '/reports/sales/rent',
+  },
+  {
+    key: 'proposals',
+    name: 'Proposals Report',
+    permission: 'Proposals Report',
+    path: '/reports/sales/proposals',
+  },
+  {
+    key: 'check_in',
+    name: 'Check In Report',
+    permission: 'Check In Report',
+    path: '/reports/sales/check-in',
+  },
+  {
     key: 'customers',
     name: 'Customers Report',
     permission: 'Customers Report',
     path: '/reports/sales/customers',
+  },
+  {
+    key: 'targets_revenue',
+    name: 'Targets & Revenue',
+    permission: 'Targets & Revenue',
+    path: '/reports/sales/revenue',
+  },
+  {
+    key: 'imports',
+    name: 'Imports Report',
+    permission: 'Imports Report',
+    path: '/reports/sales/imports',
   },
   {
     key: 'exports',
@@ -36,9 +84,39 @@ export const COPILOT_REPORT_CATALOG = [
     path: '/reports/sales/exports',
   },
   {
-    key: 'cancellation',
-    name: 'Cancellation Report',
-    permission: 'Cancellation Report',
-    path: '/reports/sales/cancellation',
+    key: 'sales_overview',
+    name: 'Sales Report',
+    permission: 'Sales Activities',
+    path: '/reports/sales',
+  },
+  {
+    key: 'leads_report',
+    name: 'Leads Report',
+    permission: 'Leads Pipeline',
+    path: '/reports/leads',
+  },
+  {
+    key: 'team_performance',
+    name: 'Team Performance',
+    permission: 'Sales Activities',
+    path: '/reports/team',
+  },
+  {
+    key: 'campaign_duration',
+    name: 'Campaign Duration',
+    permission: 'Sales Activities',
+    path: '/reports/marketing/analysis/duration',
+  },
+  {
+    key: 'campaign_ab',
+    name: 'AB Campaign Comparison',
+    permission: 'Sales Activities',
+    path: '/reports/marketing/analysis/ab',
+  },
+  {
+    key: 'response_time',
+    name: 'Response Time',
+    permission: 'Sales Activities',
+    path: '/reports/marketing/operational/response-time',
   },
 ]

@@ -1,5 +1,6 @@
 ﻿import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation } from 'react-router-dom'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
@@ -13,8 +14,37 @@ import SearchableSelect from '../components/SearchableSelect'
 import ReassignLeadsReport from '../components/LeadsReport/ReassignLeadsReport'
 import { LeadsAnalysisChart } from '../features/Dashboard/components/LeadsAnalysisChart'
 
+function readQueryFilters(search) {
+  const params = new URLSearchParams(search || '')
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = params.get(key)
+      if (value) return value
+    }
+    return ''
+  }
+
+  return {
+    salesPersonFilter: pick('assigned_to', 'sales_person'),
+    managerFilter: pick('manager_id', 'manager'),
+    stageFilter: pick('stage'),
+    sourceFilter: pick('source'),
+    agencyFilter: pick('agency'),
+    projectFilter: pick('project'),
+    assignDateFrom: pick('assigned_date_from'),
+    assignDateTo: pick('assigned_date_to'),
+    creationDateFrom: pick('created_from', 'date_from', 'creation_date_from'),
+    creationDateTo: pick('created_to', 'date_to', 'creation_date_to'),
+    lastActionDateFrom: pick('last_action_date_from'),
+    lastActionDateTo: pick('last_action_date_to'),
+    closeDealsDateFrom: pick('closed_from', 'close_deals_date_from'),
+    closeDealsDateTo: pick('closed_to', 'close_deals_date_to'),
+  }
+}
+
 export default function LeadsPipelineReport() {
   const { i18n } = useTranslation()
+  const location = useLocation()
   const isRTL = i18n.dir() === 'rtl'
 
   const { isLight } = useTheme()
@@ -77,23 +107,50 @@ export default function LeadsPipelineReport() {
 
 
   // Filters State
-  const [salesPersonFilter, setSalesPersonFilter] = useState('')
-  const [managerFilter, setManagerFilter] = useState('')
-  const [stageFilter, setStageFilter] = useState('')
-  const [sourceFilter, setSourceFilter] = useState('')
-  const [agencyFilter, setAgencyFilter] = useState('')
-  const [projectFilter, setProjectFilter] = useState('')
-  const [assignDateFrom, setAssignDateFrom] = useState('')
-  const [assignDateTo, setAssignDateTo] = useState('')
-  const [creationDateFrom, setCreationDateFrom] = useState('')
-  const [creationDateTo, setCreationDateTo] = useState('')
-  const [lastActionDateFrom, setLastActionDateFrom] = useState('')
-  const [lastActionDateTo, setLastActionDateTo] = useState('')
-  const [closeDealsDateFrom, setCloseDealsDateFrom] = useState('')
-  const [closeDealsDateTo, setCloseDealsDateTo] = useState('')
-  const [showAllFilters, setShowAllFilters] = useState(false)
+  const initialQueryFilters = readQueryFilters(location.search)
+  const [salesPersonFilter, setSalesPersonFilter] = useState(initialQueryFilters.salesPersonFilter)
+  const [managerFilter, setManagerFilter] = useState(initialQueryFilters.managerFilter)
+  const [stageFilter, setStageFilter] = useState(initialQueryFilters.stageFilter)
+  const [sourceFilter, setSourceFilter] = useState(initialQueryFilters.sourceFilter)
+  const [agencyFilter, setAgencyFilter] = useState(initialQueryFilters.agencyFilter)
+  const [projectFilter, setProjectFilter] = useState(initialQueryFilters.projectFilter)
+  const [assignDateFrom, setAssignDateFrom] = useState(initialQueryFilters.assignDateFrom)
+  const [assignDateTo, setAssignDateTo] = useState(initialQueryFilters.assignDateTo)
+  const [creationDateFrom, setCreationDateFrom] = useState(initialQueryFilters.creationDateFrom)
+  const [creationDateTo, setCreationDateTo] = useState(initialQueryFilters.creationDateTo)
+  const [lastActionDateFrom, setLastActionDateFrom] = useState(initialQueryFilters.lastActionDateFrom)
+  const [lastActionDateTo, setLastActionDateTo] = useState(initialQueryFilters.lastActionDateTo)
+  const [closeDealsDateFrom, setCloseDealsDateFrom] = useState(initialQueryFilters.closeDealsDateFrom)
+  const [closeDealsDateTo, setCloseDealsDateTo] = useState(initialQueryFilters.closeDealsDateTo)
+  const [showAllFilters, setShowAllFilters] = useState(Boolean(
+    initialQueryFilters.creationDateFrom
+    || initialQueryFilters.creationDateTo
+    || initialQueryFilters.assignDateFrom
+    || initialQueryFilters.assignDateTo
+  ))
   const [showExportMenu, setShowExportMenu] = useState(false)
   const exportMenuRef = useRef(null)
+
+  useEffect(() => {
+    const next = readQueryFilters(location.search)
+    setSalesPersonFilter(next.salesPersonFilter)
+    setManagerFilter(next.managerFilter)
+    setStageFilter(next.stageFilter)
+    setSourceFilter(next.sourceFilter)
+    setAgencyFilter(next.agencyFilter)
+    setProjectFilter(next.projectFilter)
+    setAssignDateFrom(next.assignDateFrom)
+    setAssignDateTo(next.assignDateTo)
+    setCreationDateFrom(next.creationDateFrom)
+    setCreationDateTo(next.creationDateTo)
+    setLastActionDateFrom(next.lastActionDateFrom)
+    setLastActionDateTo(next.lastActionDateTo)
+    setCloseDealsDateFrom(next.closeDealsDateFrom)
+    setCloseDealsDateTo(next.closeDealsDateTo)
+    if (next.creationDateFrom || next.creationDateTo || next.assignDateFrom || next.assignDateTo) {
+      setShowAllFilters(true)
+    }
+  }, [location.search])
 
   useEffect(() => {
     function handleClickOutside(event) {
