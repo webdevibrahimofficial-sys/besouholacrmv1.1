@@ -6,6 +6,9 @@ use App\Models\User;
 
 class AiSystemCatalog
 {
+    /**
+     * Full CRM reports catalog. `permission` must match the Reports matrix labels.
+     */
     public const REPORTS = [
         [
             'key' => 'leads_pipeline',
@@ -13,6 +16,7 @@ class AiSystemCatalog
             'permission' => 'Leads Pipeline',
             'path' => '/reports/sales/pipeline',
             'description' => 'Pipeline stages and lead distribution report.',
+            'aliases' => ['pipeline', 'بايبلاين', 'leads pipeline', 'خط سير', 'بايب لاين'],
             'filters' => ['date_from', 'date_to', 'assigned_to', 'stage'],
         ],
         [
@@ -21,7 +25,17 @@ class AiSystemCatalog
             'permission' => 'Sales Activities',
             'path' => '/reports/sales/activities',
             'description' => 'Sales activity volume and outcomes.',
+            'aliases' => ['activities', 'activity', 'انشطة', 'أنشطة', 'sales activities', 'اكتيفتي'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
+        ],
+        [
+            'key' => 'sales_to_telesales',
+            'name' => 'Leads To Telesales',
+            'permission' => 'Leads Pipeline',
+            'path' => '/reports/sales/to-telesales',
+            'description' => 'Leads transferred from sales to telesales.',
+            'aliases' => ['telesales', 'تيلي', 'تيليسيلز', 'to telesales', 'محولة', 'تلي سيلز'],
+            'filters' => ['date_from', 'date_to'],
         ],
         [
             'key' => 'meetings',
@@ -29,6 +43,16 @@ class AiSystemCatalog
             'permission' => 'Meetings Report',
             'path' => '/reports/sales/meetings',
             'description' => 'Meetings scheduled and completed.',
+            'aliases' => ['meeting', 'meetings', 'ميتنج', 'ميتينج', 'ميتنج', 'اجتماع', 'اجتماعات', 'الميتنج'],
+            'filters' => ['date_from', 'date_to', 'assigned_to'],
+        ],
+        [
+            'key' => 'reservations',
+            'name' => 'Reservations Report',
+            'permission' => 'Reservations Report',
+            'path' => '/reports/sales/reservations',
+            'description' => 'Reservations listing and status report.',
+            'aliases' => ['reservation', 'reservations', 'ريزيرفيشن', 'ريزرفيشن', 'ريزيرفيشنز', 'حجز', 'حجوزات', 'الريزيرفيشن'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -37,6 +61,43 @@ class AiSystemCatalog
             'permission' => 'Closed Deals',
             'path' => '/reports/sales/closed-deals',
             'description' => 'Closed deals and conversion outcomes.',
+            'aliases' => ['closed', 'deals', 'صفقات', 'closed deals', 'مغلقة', 'كلوزد'],
+            'filters' => ['date_from', 'date_to', 'assigned_to'],
+        ],
+        [
+            'key' => 'cancellation',
+            'name' => 'Cancellation Report',
+            'permission' => 'Cancellation Report',
+            'path' => '/reports/sales/cancellation',
+            'description' => 'Cancelled deals and reasons.',
+            'aliases' => ['cancel', 'cancellation', 'الغاء', 'إلغاء', 'الغاءات', 'إلغاءات', 'كانسيل'],
+            'filters' => ['date_from', 'date_to', 'assigned_to'],
+        ],
+        [
+            'key' => 'rent',
+            'name' => 'Rent Report',
+            'permission' => 'Rent Report',
+            'path' => '/reports/sales/rent',
+            'description' => 'Active rent and rental performance.',
+            'aliases' => ['rent', 'rental', 'ايجار', 'إيجار', 'ايجارات', 'الإيجار'],
+            'filters' => ['date_from', 'date_to', 'assigned_to'],
+        ],
+        [
+            'key' => 'proposals',
+            'name' => 'Proposals Report',
+            'permission' => 'Proposals Report',
+            'path' => '/reports/sales/proposals',
+            'description' => 'Proposals sent and follow-up status.',
+            'aliases' => ['proposal', 'proposals', 'عرض', 'عروض', 'بروبوزال', 'البروبوزال'],
+            'filters' => ['date_from', 'date_to', 'assigned_to'],
+        ],
+        [
+            'key' => 'check_in',
+            'name' => 'Check In Report',
+            'permission' => 'Check In Report',
+            'path' => '/reports/sales/check-in',
+            'description' => 'Check-ins and visit tracking.',
+            'aliases' => ['check in', 'check-in', 'checkin', 'visit', 'زيارات', 'تشيك ان', 'تشيك-ان'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -45,6 +106,29 @@ class AiSystemCatalog
             'permission' => 'Customers Report',
             'path' => '/reports/sales/customers',
             'description' => 'Customer listing and status report.',
+            'aliases' => ['customer', 'customers', 'عميل', 'عملاء', 'كستمر'],
+            'filters' => ['date_from', 'date_to'],
+        ],
+        [
+            'key' => 'targets_revenue',
+            'name' => 'Targets & Revenue',
+            'permission' => 'Targets & Revenue',
+            'path' => '/reports/sales/revenue',
+            'description' => 'Targets and revenue performance.',
+            'aliases' => ['revenue', 'target', 'targets', 'ايراد', 'إيراد', 'اهداف', 'أهداف', 'ريفينيو'],
+            'filters' => ['date_from', 'date_to'],
+        ],
+        [
+            'key' => 'imports',
+            'name' => 'Imports Report',
+            'permission' => 'Imports Report',
+            'path' => '/reports/sales/imports',
+            'description' => 'Imported records history.',
+            'aliases' => [
+                'import', 'imports', 'استيراد', 'الاستيراد',
+                'امبورت', 'امبورتس', 'الامبورت', 'الامبورتس',
+                'إمبورت', 'إمبورتس', 'الإمبورت', 'الإمبورتس',
+            ],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -53,15 +137,66 @@ class AiSystemCatalog
             'permission' => 'Exports Report',
             'path' => '/reports/sales/exports',
             'description' => 'History of exported files.',
+            'aliases' => [
+                'export report', 'exports report', 'تصدير', 'تقرير التصدير', 'التصدير',
+                'اكسبورت', 'اكسبورتس', 'الاكسبورت', 'الاكسبورتس',
+                'إكسبورت', 'إكسبورتس',
+            ],
             'filters' => ['date_from', 'date_to'],
         ],
         [
-            'key' => 'cancellation',
-            'name' => 'Cancellation Report',
-            'permission' => 'Cancellation Report',
-            'path' => '/reports/sales/cancellation',
-            'description' => 'Cancelled deals and reasons.',
-            'filters' => ['date_from', 'date_to', 'assigned_to'],
+            'key' => 'sales_overview',
+            'name' => 'Sales Report',
+            'permission' => 'Sales Activities',
+            'path' => '/reports/sales',
+            'description' => 'Sales overview report.',
+            'aliases' => ['sales report', 'تقرير المبيعات', 'sales overview'],
+            'filters' => ['date_from', 'date_to'],
+        ],
+        [
+            'key' => 'leads_report',
+            'name' => 'Leads Report',
+            'permission' => 'Leads Pipeline',
+            'path' => '/reports/leads',
+            'description' => 'Leads summary report.',
+            'aliases' => ['leads report', 'تقرير الليدز'],
+            'filters' => ['date_from', 'date_to'],
+        ],
+        [
+            'key' => 'team_performance',
+            'name' => 'Team Performance',
+            'permission' => 'Sales Activities',
+            'path' => '/reports/team',
+            'description' => 'Team performance report.',
+            'aliases' => ['team performance', 'اداء الفريق', 'أداء الفريق', 'تيم'],
+            'filters' => ['date_from', 'date_to'],
+        ],
+        [
+            'key' => 'campaign_duration',
+            'name' => 'Campaign Duration',
+            'permission' => 'Sales Activities',
+            'path' => '/reports/marketing/analysis/duration',
+            'description' => 'Marketing campaign duration analysis.',
+            'aliases' => ['campaign duration', 'مدة الحملة', 'كامبين'],
+            'filters' => ['date_from', 'date_to'],
+        ],
+        [
+            'key' => 'campaign_ab',
+            'name' => 'AB Campaign Comparison',
+            'permission' => 'Sales Activities',
+            'path' => '/reports/marketing/analysis/ab',
+            'description' => 'A/B campaign comparison.',
+            'aliases' => ['ab campaign', 'a/b', 'مقارنة الحملات'],
+            'filters' => ['date_from', 'date_to'],
+        ],
+        [
+            'key' => 'response_time',
+            'name' => 'Response Time',
+            'permission' => 'Sales Activities',
+            'path' => '/reports/marketing/operational/response-time',
+            'description' => 'Marketing response time report.',
+            'aliases' => ['response time', 'وقت الاستجابة', 'سرعة الرد'],
+            'filters' => ['date_from', 'date_to'],
         ],
     ];
 
@@ -71,12 +206,12 @@ class AiSystemCatalog
         foreach (self::REPORTS as $report) {
             $canShow = $this->canShowReport($user, $report['permission']);
             $canExport = $this->canExportReport($user, $report['permission']);
-            if (! $canShow && ! $user->is_super_admin) {
+            if (! $canShow) {
                 continue;
             }
             $reports[] = array_merge($report, [
-                'can_show' => $canShow || (bool) $user->is_super_admin,
-                'can_export' => $canExport || (bool) $user->is_super_admin,
+                'can_show' => true,
+                'can_export' => $canExport,
             ]);
         }
 
@@ -84,7 +219,7 @@ class AiSystemCatalog
             'product' => 'Besouhola Copilot',
             'capabilities' => [
                 'Explain CRM modules, reports, and workflows available to the current user.',
-                'Open reports with filters derived from natural language.',
+                'Open any permitted report with filters derived from natural language.',
                 'Export or prepare download for reports the user can export.',
                 'List delayed leads within the user visibility scope.',
                 'Draft and confirm tasks related to delayed leads.',
@@ -108,28 +243,100 @@ class AiSystemCatalog
             return null;
         }
 
-        $needle = strtolower(trim($keyOrName));
+        $needle = $this->normalizeMatchText($keyOrName);
+
         foreach (self::REPORTS as $report) {
-            if (
-                $report['key'] === $needle
-                || strtolower($report['name']) === $needle
-                || str_contains(strtolower($report['name']), $needle)
-                || str_contains($needle, str_replace('_', ' ', $report['key']))
-            ) {
-                return $report;
+            $candidates = array_merge(
+                [$report['key'], $report['name']],
+                $report['aliases'] ?? []
+            );
+
+            foreach ($candidates as $candidate) {
+                $candidate = $this->normalizeMatchText((string) $candidate);
+                if ($candidate === '') {
+                    continue;
+                }
+                if (
+                    $needle === $candidate
+                    || str_contains($needle, $candidate)
+                    || str_contains($candidate, $needle)
+                ) {
+                    return $report;
+                }
             }
         }
 
         return null;
     }
 
+    public function guessReportKey(string $text): ?string
+    {
+        $normalizedText = $this->normalizeMatchText($text);
+        $bestKey = null;
+        $bestLen = 0;
+
+        foreach (self::REPORTS as $report) {
+            $candidates = array_merge(
+                [$report['key'], $report['name']],
+                $report['aliases'] ?? []
+            );
+
+            foreach ($candidates as $candidate) {
+                $candidate = $this->normalizeMatchText((string) $candidate);
+                if ($candidate === '') {
+                    continue;
+                }
+
+                // Prefer specific phrases; allow short Arabic tokens (2+).
+                $minLen = preg_match('/\p{Arabic}/u', $candidate) ? 2 : 4;
+                if (mb_strlen($candidate) < $minLen) {
+                    continue;
+                }
+
+                if (str_contains($normalizedText, $candidate) && mb_strlen($candidate) >= $bestLen) {
+                    $bestKey = $report['key'];
+                    $bestLen = mb_strlen($candidate);
+                }
+            }
+        }
+
+        return $bestKey;
+    }
+
+    protected function normalizeMatchText(string $value): string
+    {
+        $value = mb_strtolower(trim($value));
+        $value = str_replace(['إ', 'أ', 'آ', 'ى', 'ة'], ['ا', 'ا', 'ا', 'ي', 'ه'], $value);
+        // Drop Arabic definite article so "الامبورتس" matches "امبورتس".
+        $value = preg_replace('/(^|\s)ال(?=\p{Arabic})/u', '$1', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
+    }
+
     public function canShowReport(User $user, string $reportPermissionName): bool
     {
-        if ($user->is_super_admin) {
+        if ($this->isAdminRole($user)) {
             return true;
         }
 
-        $perms = data_get($user->meta_data, 'module_permissions.Reports', []);
+        $modulePermissions = data_get($user->meta_data, 'module_permissions', []);
+        if (! is_array($modulePermissions)) {
+            return false;
+        }
+
+        $controlPerms = $modulePermissions['Control'] ?? [];
+        $hasReportsAccess = is_array($controlPerms) && in_array('showReports', $controlPerms, true);
+        if (! $hasReportsAccess) {
+            return false;
+        }
+
+        // Legacy users without an explicit Reports matrix keep full show access.
+        if (! array_key_exists('Reports', $modulePermissions)) {
+            return true;
+        }
+
+        $perms = $modulePermissions['Reports'] ?? [];
         if (! is_array($perms)) {
             return false;
         }
@@ -139,15 +346,41 @@ class AiSystemCatalog
 
     public function canExportReport(User $user, string $reportPermissionName): bool
     {
-        if ($user->is_super_admin) {
+        if ($this->isAdminRole($user)) {
             return true;
         }
 
-        $perms = data_get($user->meta_data, 'module_permissions.Reports', []);
+        $modulePermissions = data_get($user->meta_data, 'module_permissions', []);
+        if (! is_array($modulePermissions)) {
+            return false;
+        }
+
+        $controlPerms = $modulePermissions['Control'] ?? [];
+        $hasReportsAccess = is_array($controlPerms) && in_array('showReports', $controlPerms, true);
+        if (! $hasReportsAccess) {
+            return false;
+        }
+
+        if (! array_key_exists('Reports', $modulePermissions)) {
+            return true;
+        }
+
+        $perms = $modulePermissions['Reports'] ?? [];
         if (! is_array($perms)) {
             return false;
         }
 
         return in_array("{$reportPermissionName}_export", $perms, true);
+    }
+
+    protected function isAdminRole(User $user): bool
+    {
+        if ($user->is_super_admin) {
+            return true;
+        }
+
+        $role = strtolower(trim((string) ($user->role ?? '')));
+
+        return in_array($role, ['admin', 'tenant admin', 'tenant-admin'], true);
     }
 }

@@ -29,6 +29,13 @@ class AiCopilotChatService
         $planned = $this->planWithGemini($user, $message);
         if (! $planned) {
             $planned = $this->planWithHeuristics($message);
+        } else {
+            $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
+        }
+
+        // Always re-apply explicit dates from the user text for filter intents.
+        if (in_array(($planned['tool'] ?? null), ['navigate_report', 'export_report', 'build_report_filters'], true)) {
+            $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
         }
 
         if (($planned['tool'] ?? null) && $planned['tool'] !== 'none') {
@@ -120,10 +127,15 @@ class AiCopilotChatService
 You are Besouhola Copilot, a CRM assistant.
 Choose at most one tool for the user request, or none for a direct answer.
 Available tools: {$toolNames}
-Available reports: {$reports}
+Available reports for this user: {$reports}
 
 Return ONLY JSON:
 {"tool":"tool_name_or_none","args":{},"reply":"optional direct reply if tool is none"}
+
+When opening/filtering a report, set args.report to the exact report key from the available list.
+When filtering reports, always put ISO dates in args as date_from and date_to (YYYY-MM-DD).
+If the user writes dates like 1/8/2025 treat them as day/month/year.
+Never invent a report that is not in the available list.
 
 User message:
 {$message}
@@ -214,46 +226,87 @@ PROMPT;
 
     protected function guessReport(string $text): ?string
     {
-        $map = [
-            'pipeline' => 'leads_pipeline',
-            'activit' => 'sales_activities',
-            'meeting' => 'meetings',
-            'closed' => 'closed_deals',
-            'customer' => 'customers',
-            'export' => 'exports',
-            'cancel' => 'cancellation',
-            'بايبلاين' => 'leads_pipeline',
-            'انشطة' => 'sales_activities',
-            'اجتماعات' => 'meetings',
-            'صفقات' => 'closed_deals',
-            'عملاء' => 'customers',
-            'الغاء' => 'cancellation',
-        ];
+        return $this->catalog->guessReportKey($text);
+    }
 
-        foreach ($map as $needle => $key) {
-            if (str_contains($text, $needle)) {
-                return $key;
-            }
+    protected function enrichPlanWithHeuristicDates(array $planned, string $message): array
+    {
+        $tool = (string) ($planned['tool'] ?? '');
+        if (! in_array($tool, ['navigate_report', 'export_report', 'build_report_filters'], true)) {
+            return $planned;
         }
 
-        return null;
+        $args = is_array($planned['args'] ?? null) ? $planned['args'] : [];
+        $dates = $this->guessDates($message);
+
+        // Explicit dates in the user message always win over model guesses.
+        foreach ($dates as $key => $value) {
+            $args[$key] = $value;
+        }
+
+        $guessedReport = $this->guessReport($message);
+        if ($guessedReport) {
+            $args['report'] = $guessedReport;
+        } elseif (! isset($args['report']) || $args['report'] === '') {
+            // Only fall back when the user did not name a specific report.
+            $args['report'] = 'leads_pipeline';
+        }
+
+        // If Gemini invented a report key, prefer the catalog guess when available.
+        if ($guessedReport && isset($args['report']) && $args['report'] !== $guessedReport) {
+            $args['report'] = $guessedReport;
+        }
+
+        $planned['args'] = $args;
+
+        return $planned;
     }
 
     protected function guessDates(string $text): array
     {
         $args = [];
-        if (preg_match('/\b(\d{4}-\d{2}-\d{2})\b/', $text, $from)) {
-            $args['date_from'] = $from[1];
+        $parsed = [];
+
+        if (preg_match_all('/(\d{4}-\d{2}-\d{2})/u', $text, $isoMatches)) {
+            foreach ($isoMatches[1] as $value) {
+                $parsed[] = $value;
+            }
         }
-        if (preg_match_all('/\b(\d{4}-\d{2}-\d{2})\b/', $text, $all) && count($all[1]) > 1) {
-            $args['date_from'] = $all[1][0];
-            $args['date_to'] = $all[1][1];
+
+        if (preg_match_all('/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/u', $text, $slashMatches, PREG_SET_ORDER)) {
+            foreach ($slashMatches as $match) {
+                $day = (int) $match[1];
+                $month = (int) $match[2];
+                $year = (int) $match[3];
+
+                // Prefer d/m/Y (common in AR locales). Swap if clearly m/d/Y.
+                if ($day <= 12 && $month > 12) {
+                    [$day, $month] = [$month, $day];
+                }
+
+                if ($month < 1 || $month > 12 || $day < 1 || $day > 31) {
+                    continue;
+                }
+
+                $parsed[] = sprintf('%04d-%02d-%02d', $year, $month, $day);
+            }
         }
-        if (str_contains($text, 'today') || str_contains($text, 'اليوم')) {
+
+        $parsed = array_values(array_unique($parsed));
+
+        if (count($parsed) >= 1) {
+            $args['date_from'] = $parsed[0];
+        }
+        if (count($parsed) >= 2) {
+            $args['date_to'] = $parsed[1];
+        }
+
+        $lower = mb_strtolower($text);
+        if (str_contains($lower, 'today') || str_contains($text, 'اليوم')) {
             $args['date_from'] = now()->toDateString();
             $args['date_to'] = now()->toDateString();
         }
-        if (str_contains($text, 'this month') || str_contains($text, 'هذا الشهر')) {
+        if (str_contains($lower, 'this month') || str_contains($text, 'هذا الشهر')) {
             $args['date_from'] = now()->startOfMonth()->toDateString();
             $args['date_to'] = now()->toDateString();
         }
@@ -270,12 +323,30 @@ PROMPT;
         return match ($tool) {
             'list_capabilities' => (string) ($result['summary'] ?? 'Here are the available capabilities.'),
             'explain_feature' => trim(($result['topic'] ?? 'Feature').': '.($result['explanation'] ?? '')),
-            'navigate_report' => 'Opening '.($result['report'] ?? 'the report').'.',
+            'navigate_report' => $this->composeNavigateReply($result),
             'export_report' => (string) ($result['message'] ?? 'Export is ready.'),
             'list_delayed_leads' => 'Found '.((int) ($result['count'] ?? 0)).' delayed leads.',
             'create_task_for_lead' => (string) ($result['message'] ?? 'Task draft ready.'),
             default => 'Done.',
         };
+    }
+
+    protected function composeNavigateReply(array $result): string
+    {
+        $report = (string) ($result['report'] ?? 'the report');
+        $filters = is_array($result['filters'] ?? null) ? $result['filters'] : [];
+        $from = $filters['created_from'] ?? $filters['date_from'] ?? null;
+        $to = $filters['created_to'] ?? $filters['date_to'] ?? null;
+
+        if ($from && $to) {
+            return "Opening {$report} filtered from {$from} to {$to}.";
+        }
+
+        if ($from) {
+            return "Opening {$report} filtered from {$from}.";
+        }
+
+        return "Opening {$report}.";
     }
 
     protected function defaultReply(User $user, string $message): string

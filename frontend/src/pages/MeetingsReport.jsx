@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { api, logExportEvent } from '../utils/api'
@@ -17,6 +18,7 @@ import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsMo
 
 export default function MeetingsReport() {
   const { t, i18n } = useTranslation()
+  const location = useLocation()
   const isRTL = i18n.language === 'ar'
   const { theme } = useTheme()
   const isLight = theme === 'light'
@@ -36,12 +38,16 @@ export default function MeetingsReport() {
     return ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager', 'sales manager', 'branch manager'].includes(role);
   }, [user]);
 
+  const initialParams = new URLSearchParams(location.search || '')
+  const initialFrom = initialParams.get('date_from') || initialParams.get('meeting_date_from') || initialParams.get('created_from') || ''
+  const initialTo = initialParams.get('date_to') || initialParams.get('meeting_date_to') || initialParams.get('created_to') || ''
+
   const [meetings, setMeetings] = useState([])
   const [loading, setLoading] = useState(false)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
   const [showExportMenu, setShowExportMenu] = useState(false)
-  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [showAllFilters, setShowAllFilters] = useState(Boolean(initialFrom || initialTo))
   const [expandedRows, setExpandedRows] = useState({})
   
   // Filter States
@@ -49,14 +55,23 @@ export default function MeetingsReport() {
   const [projectFilter, setProjectFilter] = useState([])
   const [sourceFilter, setSourceFilter] = useState([])
   const [managerFilter, setManagerFilter] = useState([])
-  const [meetingDateFrom, setMeetingDateFrom] = useState('')
-  const [meetingDateTo, setMeetingDateTo] = useState('')
+  const [meetingDateFrom, setMeetingDateFrom] = useState(initialFrom)
+  const [meetingDateTo, setMeetingDateTo] = useState(initialTo)
   const [users, setUsers] = useState([])
   const [projects, setProjects] = useState([])
   const [sources, setSources] = useState([])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    const from = params.get('date_from') || params.get('meeting_date_from') || params.get('created_from') || ''
+    const to = params.get('date_to') || params.get('meeting_date_to') || params.get('created_to') || ''
+    setMeetingDateFrom(from)
+    setMeetingDateTo(to)
+    if (from || to) setShowAllFilters(true)
+  }, [location.search])
 
   const sourceLabelMap = useMemo(() => {
     const map = new Map()

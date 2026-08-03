@@ -1,6 +1,6 @@
 ﻿import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
@@ -23,6 +23,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 export default function ReservationsReport() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const { user, company } = useAppState()
@@ -680,6 +681,10 @@ export default function ReservationsReport() {
   }
 
   // Filters
+  const initialParams = new URLSearchParams(location.search || '')
+  const initialFrom = initialParams.get('date_from') || initialParams.get('reservation_date_from') || initialParams.get('created_from') || ''
+  const initialTo = initialParams.get('date_to') || initialParams.get('reservation_date_to') || initialParams.get('created_to') || ''
+
   const [staff, setStaff] = useState('all')
   const [manager, setManager] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -687,9 +692,17 @@ export default function ReservationsReport() {
   const [project, setProject] = useState('all')
   const [unitFilter, setUnitFilter] = useState('all')
   const [lastActionDate, setLastActionDate] = useState('')
-  const [reservationDateFrom, setReservationDateFrom] = useState('')
-  const [reservationDateTo, setReservationDateTo] = useState('')
+  const [reservationDateFrom, setReservationDateFrom] = useState(initialFrom)
+  const [reservationDateTo, setReservationDateTo] = useState(initialTo)
   const [showAllFilters, setShowAllFilters] = useState(true)
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    const from = params.get('date_from') || params.get('reservation_date_from') || params.get('created_from') || ''
+    const to = params.get('date_to') || params.get('reservation_date_to') || params.get('created_to') || ''
+    setReservationDateFrom(from)
+    setReservationDateTo(to)
+  }, [location.search])
 
   const staffList = useMemo(() => {
     if (!usersList || usersList.length === 0) {
