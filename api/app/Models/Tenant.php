@@ -52,6 +52,13 @@ class Tenant extends BaseTenant
             ->withTimestamps();
     }
 
+    public function features()
+    {
+        return $this->belongsToMany(Feature::class, 'tenant_features')
+            ->withPivot(['is_enabled', 'config', 'enabled_at'])
+            ->withTimestamps();
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()

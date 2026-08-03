@@ -10,7 +10,8 @@ import { impersonationApi } from '@features/Impersonation/impersonationApi';
 import { useSubscriptionPlans, getPlanModulesForCompany } from '../../hooks/useSubscriptionPlans';
 import { useAppState } from '../../shared/context/AppStateProvider';
 import { useTheme } from '../../shared/context/ThemeProvider';
-import { AVAILABLE_MODULES } from '../../hooks/useTenants';
+import { AVAILABLE_MODULES, AVAILABLE_TENANT_FEATURES } from '../../hooks/useTenants';
+import { TENANT_FEATURE_KEYS } from '@features/tenant-features/utils/featureKeys';
 import {
   Plus, 
   Filter, 
@@ -203,6 +204,41 @@ const buildTransactionPayload = (data, fallbackBillingCycle = 'monthly') => {
   };
 };
 
+const getTenantFeatureEnabled = (tenant, featureKey) => Boolean(tenant?.features?.[featureKey]);
+
+const serializeTenantFeaturesPayload = (featureState = {}) => (
+  AVAILABLE_TENANT_FEATURES.map((feature) => ({
+    key: feature.key,
+    is_enabled: Boolean(featureState[feature.key]),
+  }))
+);
+
+const TenantFeaturesSection = ({ t, featureState, onToggle, className = '' }) => (
+  <div className={`mt-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800/40 ${className}`}>
+    <h3 className="mb-3 text-sm font-semibold text-theme">{t('features', 'Features')}</h3>
+    <div className="space-y-3">
+      {AVAILABLE_TENANT_FEATURES.map((feature) => (
+        <label key={feature.key} className="flex cursor-pointer items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-theme">{t(feature.name)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">{t(feature.description)}</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={Boolean(featureState[feature.key])}
+            onChange={() => onToggle(feature.key)}
+            className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+        </label>
+      ))}
+    </div>
+  </div>
+);
+
+const getEnabledTenantFeaturesForPreview = (tenant) => (
+  AVAILABLE_TENANT_FEATURES.filter((feature) => getTenantFeatureEnabled(tenant, feature.key))
+);
+
 const TenantSetup = () => {
   const { t } = useTranslation();
   const location = useLocation();
@@ -390,6 +426,9 @@ const TenantSetup = () => {
 
   const closeCreateModal = () => {
     setShowCreateModal(false);
+    reset();
+    setCustomModules([]);
+    setCreateFeatures({ [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: false });
 
     if (isCreateRoute) {
       navigate('/system/tenants', { replace: true });
@@ -634,6 +673,9 @@ const TenantSetup = () => {
   const transactionCurrency = watch('transaction_currency');
   const tenancyType = watch('tenancy_type');
   const [customModules, setCustomModules] = useState([]);
+  const [createFeatures, setCreateFeatures] = useState({
+    [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: false,
+  });
 
   const handleModuleToggle = (moduleId) => {
     setCustomModules(prev => 
@@ -641,6 +683,13 @@ const TenantSetup = () => {
         ? prev.filter(id => id !== moduleId)
         : [...prev, moduleId]
     );
+  };
+
+  const handleCreateFeatureToggle = (featureKey) => {
+    setCreateFeatures((prev) => ({
+      ...prev,
+      [featureKey]: !prev[featureKey],
+    }));
   };
 
   useEffect(() => {
@@ -685,6 +734,7 @@ const TenantSetup = () => {
         admin_password: data.password,
         plan: data.plan || 'basic',
         modules: data.plan === 'custom' ? finalModules : [],
+        features: serializeTenantFeaturesPayload(createFeatures),
         company_type: data.company_type || 'General',
         users_limit: data.users_limit || undefined,
         start_date: data.start_date || undefined,
@@ -710,6 +760,7 @@ const TenantSetup = () => {
       toast.success(`URL: ${fullUrl}`, { duration: 6000 });
 
       reset();
+      setCreateFeatures({ [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: false });
       closeCreateModal();
       fetchTenants();
     } catch (error) {
@@ -1954,6 +2005,12 @@ const TenantSetup = () => {
               </div>
             )}
 
+            <TenantFeaturesSection
+              t={t}
+              featureState={createFeatures}
+              onToggle={handleCreateFeatureToggle}
+            />
+
             <div className="pt-4 flex justify-end">
                <button
                  type="submit"
@@ -2286,6 +2343,38 @@ const PreviewTenantModal = ({ tenant, onClose }) => {
               </div>
             </div>
           )}
+
+          <div className={`rounded-3xl border p-5 md:p-6 ${infoCardClass}`}>
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <h4 className={`text-lg font-semibold ${sectionTitleClass}`}>{t('features', 'Features')}</h4>
+                <p className={`text-sm ${labelClass}`}>{t('Tenant-level feature flags enabled for this workspace')}</p>
+              </div>
+              <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                <Users size={14} />
+                {getEnabledTenantFeaturesForPreview(tenant).length}
+              </div>
+            </div>
+
+            {getEnabledTenantFeaturesForPreview(tenant).length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {getEnabledTenantFeaturesForPreview(tenant).map((feature) => (
+                  <span
+                    key={feature.key}
+                    className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                      isDark
+                        ? 'bg-blue-950/60 text-blue-200 ring-1 ring-blue-800/70'
+                        : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                    }`}
+                  >
+                    {t(feature.name)}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className={`text-sm ${labelClass}`}>{t('No tenant features are enabled for this workspace yet.')}</p>
+            )}
+          </div>
         </div>
 
         <div className={`flex justify-end border-t p-4 ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
@@ -2439,6 +2528,9 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
       ? normalizeCustomModulesForEditor(tenant.modules, tenant.company_type || 'General')
       : []
   );
+  const [featureState, setFeatureState] = useState({
+    [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: getTenantFeatureEnabled(tenant, TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT),
+  });
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
     defaultValues: {
@@ -2507,6 +2599,9 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
         ? normalizeCustomModulesForEditor(tenant.modules, tenant.company_type || 'General')
         : []
     );
+    setFeatureState({
+      [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: getTenantFeatureEnabled(tenant, TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT),
+    });
   }, [tenant, reset, setValue]);
 
   const selectedPlan = watch('plan');
@@ -2520,6 +2615,13 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
   const manualContractBillingCycle = watch('manual_contract_billing_cycle') || 'monthly';
   const manualContractAmount = watch('manual_contract_amount');
   const manualContractCurrency = watch('manual_contract_currency');
+
+  const handleFeatureToggle = (featureKey) => {
+    setFeatureState((prev) => ({
+      ...prev,
+      [featureKey]: !prev[featureKey],
+    }));
+  };
 
   const loadContracts = useCallback(async () => {
     try {
@@ -2641,6 +2743,7 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
         end_date: isLifetimeValue ? undefined : (data.end_date || undefined),
         is_lifetime: isLifetimeValue,
         modules: data.plan === 'custom' ? finalModules : [],
+        features: serializeTenantFeaturesPayload(featureState),
       };
 
       const transactionPayload = buildTransactionPayload(
@@ -3232,6 +3335,12 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
                 </div>
               </div>
             )}
+
+            <TenantFeaturesSection
+              t={t}
+              featureState={featureState}
+              onToggle={handleFeatureToggle}
+            />
 
             <div className="flex justify-end space-x-2 pt-4">
               <button 

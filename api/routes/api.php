@@ -46,6 +46,7 @@ use App\Http\Controllers\SuperAdminNotificationController;
 use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\ShareLinkController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\AiCopilotController;
 use App\Http\Controllers\TelesalesController;
 use App\Http\Controllers\ContractCollections\CcCustomersController;
 use App\Http\Controllers\ContractCollections\CcCustomerUnitsController;
@@ -330,6 +331,11 @@ Route::middleware([
     Route::post('/gemini/generate-icon', [GeminiController::class , 'generateIcon']);
 
     Route::post('/share-links', [ShareLinkController::class, 'store']);
+    Route::middleware('tenant.feature:besouhola_copilot')->group(function () {
+        Route::get('/ai/copilot/status', [AiCopilotController::class, 'status']);
+        Route::post('/ai/copilot/chat', [AiCopilotController::class, 'chat']);
+        Route::post('/ai/copilot/actions/confirm', [AiCopilotController::class, 'confirmAction']);
+    });
 
     Route::get('/website-connections', [\App\Http\Controllers\WebsiteConnectionController::class, 'index']);
     Route::post('/website-connections', [\App\Http\Controllers\WebsiteConnectionController::class, 'store']);

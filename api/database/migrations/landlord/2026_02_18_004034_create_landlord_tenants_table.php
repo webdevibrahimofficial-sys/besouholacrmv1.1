@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up()
     {
+        if (Schema::connection('landlord')->hasTable('tenants')) {
+            return;
+        }
+
         Schema::connection('landlord')->create('tenants', function (Blueprint $table) {
             $table->id();
             $table->string('name');

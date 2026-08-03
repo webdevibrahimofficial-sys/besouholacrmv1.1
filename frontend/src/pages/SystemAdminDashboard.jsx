@@ -564,11 +564,11 @@ export default function SystemAdminDashboard() {
               ))}
             </select>
           </div>
-          <div className="h-[240px]">
+          <div className="h-[240px] min-w-0">
             {loading ? (
               <div className="h-full animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="99%" height={240} minWidth={0}>
                 <AreaChart data={stats?.monthly_new || []} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
                   <defs>
                     <linearGradient id="tenantGrad" x1="0" y1="0" x2="0" y2="1">

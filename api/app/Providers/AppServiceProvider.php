@@ -83,6 +83,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->loadMigrationsFrom([
+            database_path('migrations/landlord/features'),
+        ]);
+
         if (app()->environment('production')) {
             \Illuminate\Support\Facades\URL::forceScheme('https');
             $this->app['request']->server->set('HTTPS', 'on');

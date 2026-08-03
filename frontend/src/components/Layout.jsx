@@ -3,16 +3,20 @@ import { Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Bot } from 'lucide-react'
 import { useAppState } from '@shared/context/AppStateProvider'
+import { useTenantFeature } from '@features/tenant-features/hooks/useTenantFeature'
+import { TENANT_FEATURE_KEYS } from '@features/tenant-features/utils/featureKeys'
 import { useNotifications } from '../hooks/useNotifications'
 import Topbar from '../shared/components/Topbar'
 import AppSidebar from '../shared/components/AppSidebar'
 import ImpersonationBanner from '@features/Impersonation/ImpersonationBanner'
+import BesouholaCopilotPanel from './BesouholaCopilotPanel'
 
 export const LayoutContext = createContext(null)
 
 export default function Layout({ children }) {
   const { i18n } = useTranslation()
   const { user, crmSettings } = useAppState()
+  const isBesouholaCopilotEnabled = useTenantFeature(TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT)
   
   // Initialize Notifications
   const { notifications, unreadCount, registerWebPush, fetchNotifications } = useNotifications(user);
@@ -22,6 +26,7 @@ export default function Layout({ children }) {
   const [isMobileView, setIsMobileView] = useState(() => window.matchMedia('(max-width: 768px)').matches)
   const [isModalOpen, setIsModalOpen] = useState(() => document.body.classList.contains('app-modal-open'))
   const [isWebsiteIntegrationOpen, setIsWebsiteIntegrationOpen] = useState(() => document.body.classList.contains('website-integration-open'))
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       const saved = window.localStorage.getItem('sidebarCollapsed')
@@ -146,17 +151,26 @@ useEffect(() => {
         </div>
       </div>
       
-      {/* Chatbot Button (Fixed) */}
-      <button
-        type="button"
-        aria-label="Chatbot"
-        title="Chatbot"
-        className={`fixed bottom-6 ${isRtl ? 'left-6' : 'right-6'} z-[140] rounded-full shadow-xl bg-gradient-to-br from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white flex items-center justify-center`}
-        style={{ width: 56, height: 56 }}
-        onClick={() => {}}
-      >
-        <Bot className="w-6 h-6" />
-      </button>
+      {isBesouholaCopilotEnabled ? (
+        <>
+          <button
+            type="button"
+            aria-label="Besouhola Copilot"
+            title="Besouhola Copilot"
+            className={`fixed bottom-6 ${isRtl ? 'left-6' : 'right-6'} z-[140] rounded-full shadow-xl bg-gradient-to-br from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 text-white flex items-center justify-center transition hover:scale-[1.03]`}
+            style={{ width: 56, height: 56 }}
+            onClick={() => setIsAiPanelOpen((value) => !value)}
+          >
+            <Bot className="w-6 h-6" />
+          </button>
+
+          <BesouholaCopilotPanel
+            open={isAiPanelOpen}
+            onClose={() => setIsAiPanelOpen(false)}
+            isRtl={isRtl}
+          />
+        </>
+      ) : null}
     </div>
   )
 }

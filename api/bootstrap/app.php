@@ -64,6 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'ensure.super_admin' => \App\Http\Middleware\EnsureSuperAdmin::class,
             'impersonation.active' => \App\Http\Middleware\EnsureActiveImpersonationSession::class,
             'impersonation.restrict' => \App\Http\Middleware\PreventDangerousImpersonatedActions::class,
+            'tenant.feature' => \App\Http\Middleware\EnsureTenantHasFeature::class,
         ]);
 
         $middleware->web(append: [
