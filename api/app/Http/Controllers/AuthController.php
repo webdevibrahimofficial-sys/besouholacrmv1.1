@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use App\Models\Tenant;
+use App\Services\TenantFeatureService;
 use App\Services\AdminEventNotificationService;
 use App\Services\TenantBootstrapper;
 use App\Services\UserPanelContextService;
@@ -18,7 +19,8 @@ class AuthController extends Controller
 {
     public function __construct(
         private readonly UserPanelContextService $panelContext,
-        private readonly \App\Services\AdminImpersonationService $impersonationService
+        private readonly \App\Services\AdminImpersonationService $impersonationService,
+        private readonly TenantFeatureService $tenantFeatureService
     ) {
     }
 
@@ -426,6 +428,7 @@ class AuthController extends Controller
             'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
         ]);
         $serializedUser = $this->serializeAuthUser($user);
+        $tenantPayload = $this->serializeProfileTenant($profileTenant);
         \Illuminate\Support\Facades\Log::info('Auth issueToken:user_serialized', [
             'user_id' => $user->id,
             'memory_mb' => round(memory_get_usage(true) / 1048576, 2),
@@ -435,8 +438,8 @@ class AuthController extends Controller
             'token' => $token,
             'redirect_url' => $this->resolveFrontendRedirectUrl($user, $profileTenant, $panelPayload),
             'user' => $serializedUser,
-            'tenant' => $profileTenant,
-            'company' => $profileTenant,
+            'tenant' => $tenantPayload,
+            'company' => $tenantPayload,
             'enabled_modules' => $enabledModules,
             'user_permissions' => $this->resolvedUserPermissions($user),
             'impersonation' => $impersonation,
@@ -453,6 +456,7 @@ class AuthController extends Controller
         if ($tenant) {
             $tenant->refresh();
         }
+        $tenantPayload = $this->serializeProfileTenant($tenant);
         $panelPayload = $this->panelContext->buildPayload($user, $tenant, $impersonation);
 
         if (!$tenant && !$this->panelContext->isSystemAdmin($user)) {
@@ -461,8 +465,8 @@ class AuthController extends Controller
 
         return response()->json(array_merge([
             'user' => $this->serializeAuthUser($user),
-            'tenant' => $tenant,
-            'company' => $tenant,
+            'tenant' => $tenantPayload,
+            'company' => $tenantPayload,
             'enabled_modules' => $this->resolveEnabledModules($user, $tenant, $panelPayload),
             'user_permissions' => $this->resolvedUserPermissions($user),
             'impersonation' => $impersonation,
@@ -479,6 +483,18 @@ class AuthController extends Controller
         $session = app('impersonation_session');
 
         return $this->impersonationService->serializeActiveContext($session);
+    }
+
+    protected function serializeProfileTenant(?Tenant $tenant): ?array
+    {
+        if (! $tenant) {
+            return null;
+        }
+
+        $data = $tenant->toArray();
+        $data['features'] = $this->tenantFeatureService->getFeatureMap($tenant);
+
+        return $data;
     }
 
     public function loginRedirect(Request $request)

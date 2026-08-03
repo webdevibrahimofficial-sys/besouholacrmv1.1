@@ -9,6 +9,7 @@ use App\Models\LandlordUser;
 use App\Models\User;
 use App\Services\AdminEventNotificationService;
 use App\Services\SubscriptionTransactionService;
+use App\Services\TenantFeatureService;
 use App\Services\TenantSubscriptionContractService;
 use App\Services\TenantService;
 use App\Services\TenantStatusService;
@@ -33,13 +34,15 @@ class SuperAdminController extends Controller
     protected TenantSubscriptionContractService $contractService;
     protected SubscriptionTransactionService $transactionService;
     protected AdminEventNotificationService $adminEventNotifications;
+    protected TenantFeatureService $tenantFeatureService;
 
     public function __construct(
         TenantService $tenantService,
         TenantStatusService $tenantStatusService,
         TenantSubscriptionContractService $contractService,
         SubscriptionTransactionService $transactionService,
-        AdminEventNotificationService $adminEventNotifications
+        AdminEventNotificationService $adminEventNotifications,
+        TenantFeatureService $tenantFeatureService
     )
     {
         $this->tenantService = $tenantService;
@@ -47,6 +50,7 @@ class SuperAdminController extends Controller
         $this->contractService = $contractService;
         $this->transactionService = $transactionService;
         $this->adminEventNotifications = $adminEventNotifications;
+        $this->tenantFeatureService = $tenantFeatureService;
     }
 
     protected function tenantAccessShouldBeBlocked(Tenant $tenant): bool
@@ -82,6 +86,7 @@ class SuperAdminController extends Controller
         $perPage = max(10, min($perPage, 100));
 
         $query = Tenant::on('landlord')->with(['modules'])
+            ->with(['features'])
             ->with(['backups' => function ($q) {
                 $q->latest()->limit(1);
             }])
@@ -206,6 +211,7 @@ class SuperAdminController extends Controller
             $data['last_backup_at']    = $last?->finished_at;
             $data['admin_name']        = $owner?->name;
             $data['admin_email']       = $owner?->email;
+            $data['features']          = $this->tenantFeatureService->getFeatureMap($tenant);
             $data['current_contract']  = $currentContract ? [
                 'id' => $currentContract->id,
                 'plan_code' => $currentContract->plan_code,
@@ -264,6 +270,10 @@ class SuperAdminController extends Controller
             'transaction.billing_cycle' => 'nullable|string|max:50',
             'transaction.payment_method' => 'nullable|string|max:50',
             'transaction.notes' => 'nullable|string|max:5000',
+            'features' => 'nullable|array',
+            'features.*.key' => 'required|string|exists:landlord.features,key',
+            'features.*.is_enabled' => 'required|boolean',
+            'features.*.config' => 'nullable|array',
         ]);
 
         $isLifetime = $request->boolean('is_lifetime', false);
@@ -335,6 +345,10 @@ class SuperAdminController extends Controller
             $modules = $request->input('modules', []);
             $this->tenantService->syncTenantModules($tenant, $plan, $modules);
 
+            if ($request->has('features')) {
+                $this->tenantFeatureService->syncTenantFeatures($tenant, $request->input('features', []));
+            }
+
             if ($this->subscriptionFeatureTablesExist() && $request->filled('transaction.amount') && $request->filled('transaction.currency')) {
                 $contract = $this->contractService->createContract($tenant, [
                     'plan_code' => $tenant->subscription_plan,
@@ -395,7 +409,9 @@ class SuperAdminController extends Controller
 
             return response()->json([
                 'message' => 'Tenant created successfully',
-                'tenant' => $tenant,
+                'tenant' => array_merge($tenant->fresh()->toArray(), [
+                    'features' => $this->tenantFeatureService->getFeatureMap($tenant),
+                ]),
             ], 201);
         } catch (Throwable $e) {
             Log::error('Tenant creation post-provisioning failed.', [
@@ -446,6 +462,7 @@ class SuperAdminController extends Controller
 
         try {
             $tenant->modules()->detach();
+            $tenant->features()->detach();
             $tenant->subscriptionContracts()->delete();
             $tenant->subscriptionTransactions()->delete();
             $tenant->delete();
@@ -513,6 +530,10 @@ class SuperAdminController extends Controller
             'transaction.billing_cycle' => 'nullable|string|max:50',
             'transaction.payment_method' => 'nullable|string|max:50',
             'transaction.notes' => 'nullable|string|max:5000',
+            'features' => 'nullable|array',
+            'features.*.key' => 'required|string|exists:landlord.features,key',
+            'features.*.is_enabled' => 'required|boolean',
+            'features.*.config' => 'nullable|array',
         ]);
 
         $isLifetime = $request->boolean('is_lifetime', false);
@@ -558,6 +579,10 @@ class SuperAdminController extends Controller
         if ($plan && $shouldSyncModules) {
             $modules = $request->input('modules', []);
             $this->tenantService->syncTenantModules($tenant, $plan, is_array($modules) ? $modules : []);
+        }
+
+        if ($request->has('features')) {
+            $this->tenantFeatureService->syncTenantFeatures($tenant, $request->input('features', []));
         }
 
         if ($owner) {
@@ -659,7 +684,9 @@ class SuperAdminController extends Controller
 
         return response()->json([
             'message' => 'Tenant updated successfully',
-            'tenant' => $tenant
+            'tenant' => array_merge($tenant->fresh()->toArray(), [
+                'features' => $this->tenantFeatureService->getFeatureMap($tenant),
+            ]),
         ]);
     }
 

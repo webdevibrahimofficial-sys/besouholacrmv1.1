@@ -8,4 +8,6 @@ use Spatie\Multitenancy\Models\Concerns\UsesLandlordConnection;
 abstract class LandlordModel extends Model
 {
     use UsesLandlordConnection;
+
+    protected $connection = 'landlord';
 }

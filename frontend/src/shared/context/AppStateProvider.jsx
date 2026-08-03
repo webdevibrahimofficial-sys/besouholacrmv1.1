@@ -26,6 +26,7 @@ export function AppStateProvider({ children }) {
   const [panelMode, setPanelMode] = useState(null)
   const [activeModules, setActiveModules] = useState([])
   const [permissions, setPermissions] = useState([])
+  const [tenantFeatures, setTenantFeatures] = useState({})
   const [bootstrapped, setBootstrapped] = useState(false)
   const [crmSettings, setCrmSettings] = useState(null)
   const [inventoryBadges, setInventoryBadges] = useState(null)
@@ -81,6 +82,7 @@ export function AppStateProvider({ children }) {
     }
 
     setCompany(payload.company || payload.tenant || null)
+    setTenantFeatures(payload?.tenant?.features || payload?.company?.features || {})
 
     let nextImpersonation = payload.impersonation || null
     try {
@@ -284,6 +286,7 @@ export function AppStateProvider({ children }) {
     setPanelMode(null)
     setActiveModules([])
     setPermissions([])
+    setTenantFeatures({})
     
     // 2. Clear tokens immediately (don't wait for server)
     window.localStorage.removeItem('token')
@@ -445,6 +448,7 @@ export function AppStateProvider({ children }) {
   const value = useMemo(() => ({
     user,
     company,
+    tenantFeatures,
     impersonation,
     subscription,
     subscriptionPlan,
@@ -463,7 +467,7 @@ export function AppStateProvider({ children }) {
     inventoryBadges,
       refreshInventoryBadges,
       saveUiPreference,
-    }), [user, company, impersonation, subscription, subscriptionPlan, panelMode, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges, saveUiPreference])
+    }), [user, company, tenantFeatures, impersonation, subscription, subscriptionPlan, panelMode, activeModules, permissions, isSubscriptionActive, setProfile, fetchCompanyInfo, login, logout, canAccess, bootstrapped, crmSettings, setCrmSettings, inventoryBadges, refreshInventoryBadges, saveUiPreference])
 
 useEffect(() => {
   if (bootstrapped) return

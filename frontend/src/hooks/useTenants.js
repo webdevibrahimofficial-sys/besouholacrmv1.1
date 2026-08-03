@@ -28,6 +28,14 @@ export const AVAILABLE_MODULES = [
   { id: 'settings',             name: 'Settings' },
 ]
 
+export const AVAILABLE_TENANT_FEATURES = [
+  {
+    key: 'besouhola_copilot',
+    name: 'Besouhola Copilot',
+    description: 'Enable Besouhola Copilot for reports, filters, delayed leads, and tasks.',
+  },
+]
+
 export const PLAN_COLOR = {
   core:         'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
   basic:        'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
