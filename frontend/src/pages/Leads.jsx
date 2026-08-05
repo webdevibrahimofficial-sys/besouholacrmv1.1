@@ -887,7 +887,23 @@ if (!s) {
         isDynamic: true
       }));
 
-    return [...staticStages, ...dynamicStages];
+    const combinedStages = [...staticStages, ...dynamicStages];
+    const seenStageKeys = new Set();
+
+    return combinedStages.reduce((uniqueStages, stage) => {
+      const normalizedKey = normalizeStageFilterValue(stage.backendKey || stage.key);
+      const stageId = normalizedKey || String(stage.key || '').toLowerCase().trim();
+      if (!stageId || seenStageKeys.has(stageId)) {
+        return uniqueStages;
+      }
+
+      seenStageKeys.add(stageId);
+      uniqueStages.push({
+        ...stage,
+        stageId,
+      });
+      return uniqueStages;
+    }, []);
   }, [crmSettings, isDuplicateAllowed, isSalesPerson, isAdminOrManager, stagesList, location.pathname]);
 
   // Helper for hierarchy
@@ -4256,7 +4272,7 @@ if (!s) {
 
         {sidebarStages.map((s) => (
           <button
-            key={s.key}
+            key={s.stageId || s.key}
             onClick={() => {
                 // Special handling for Cold Calls
                 if (s.backendKey === 'coldCall' || s.key === 'cold calls') {

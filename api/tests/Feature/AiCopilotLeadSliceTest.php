@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\CrmSetting;
 use App\Models\Feature;
 use App\Models\Tenant;
 use App\Models\User;
@@ -27,6 +28,7 @@ class AiCopilotLeadSliceTest extends TestCase
         parent::setUp();
 
         Cache::flush();
+        config(['activitylog.enabled' => false]);
         $this->ensureFeatureTables();
         $this->ensureCopilotTables();
         $this->ensureTenantDedicatedConnection();
@@ -52,6 +54,13 @@ class AiCopilotLeadSliceTest extends TestCase
         ]);
 
         app(TenantFeatureService::class)->enableFeature($this->tenant, 'besouhola_copilot');
+
+        CrmSetting::create([
+            'tenant_id' => $this->tenant->id,
+            'settings' => [
+                'duplicationSystem' => true,
+            ],
+        ]);
 
         \App\Models\Stage::create([
             'tenant_id' => $this->tenant->id,
@@ -98,9 +107,167 @@ class AiCopilotLeadSliceTest extends TestCase
             ->assertJsonPath('data.tool_result.payload.phone', '01012345678')
             ->assertJsonPath('data.tool_result.payload.email', 'ahmed@example.com')
             ->assertJsonPath('data.tool_result.missing_fields.0', 'source')
-            ->assertJsonPath('data.tool_result.missing_fields.1', 'item');
+            ->assertJsonPath('data.tool_result.missing_fields.1', 'item')
+            ->assertJsonPath('data.ui_actions.0.type', 'form')
+            ->assertJsonPath('data.ui_actions.0.fields.0.name', 'name')
+            ->assertJsonPath('data.ui_actions.0.fields.2.name', 'source')
+            ->assertJsonPath('data.ui_actions.0.fields.3.name', 'item_id');
     }
 
+    public function test_awaiting_confirmation_can_start_optional_question_flow(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => "create lead name Ahmed phone 01012345678 source Facebook item {$this->itemId}",
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool_result.state', 'awaiting_confirmation')
+            ->assertJsonPath('data.ui_actions.0.type', 'confirm_action')
+            ->assertJsonPath('data.ui_actions.1.type', 'prompt_message')
+            ->assertJsonPath('data.ui_actions.1.label', 'Add more details');
+
+        $conversationId = (int) $response->json('data.conversation_id');
+
+        $optional = $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => '__copilot_optional_start__',
+        ]);
+
+        $optional->assertOk()
+            ->assertJsonPath('data.tool_result.state', 'awaiting_optional_input')
+            ->assertJsonPath('data.tool_result.optional_step', 'secondary_phone')
+            ->assertJsonPath('data.ui_actions.0.type', 'form')
+            ->assertJsonPath('data.ui_actions.1.type', 'prompt_message')
+            ->assertJsonPath('data.ui_actions.1.label', 'Skip');
+    }
+
+    public function test_optional_estimated_value_does_not_replace_lead_name(): void
+    {
+        $this->actingAsTenantUser();
+
+        $draft = $this->postJson('/api/ai/copilot/chat', [
+            'message' => "create lead name Ibrahim phone 01012345678 source Facebook item {$this->itemId}",
+        ]);
+
+        $conversationId = (int) $draft->json('data.conversation_id');
+
+        $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => '__copilot_optional_start__',
+        ]);
+
+        $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => '__copilot_skip_optional__',
+        ]);
+
+        $estimated = $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => "Create lead\nestimated_value: 200000",
+        ]);
+
+        $estimated->assertOk()
+            ->assertJsonPath('data.tool_result.state', 'awaiting_optional_input')
+            ->assertJsonPath('data.tool_result.payload.name', 'Ibrahim')
+            ->assertJsonPath('data.tool_result.payload.estimated_value', '200000');
+    }
+    public function test_secondary_phone_is_saved_to_lead_meta_for_listing(): void
+    {
+        $this->actingAsTenantUser();
+
+        $draft = $this->postJson('/api/ai/copilot/chat', [
+            'message' => "create lead name Hazem phone 01555143125 source Facebook item {$this->itemId}",
+        ]);
+
+        $conversationId = (int) $draft->json('data.conversation_id');
+
+        $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => '__copilot_optional_start__',
+        ]);
+
+        $withSecondary = $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => "Create lead\nsecondary_phone: 01555143126",
+        ]);
+
+        $payload = $withSecondary->json('data.tool_result.payload');
+
+        $response = $this->postJson('/api/ai/copilot/actions/confirm', [
+            'action' => 'create_lead',
+            'payload' => $payload,
+        ]);
+
+        $response->assertOk();
+
+        $leadId = (int) $response->json('data.lead.id');
+        $meta = DB::table('leads')->where('id', $leadId)->value('meta_data');
+        $decoded = is_string($meta) ? json_decode($meta, true) : $meta;
+
+        $this->assertSame('01555143126', (string) ($decoded['other_phone'] ?? ''));
+        $this->assertSame('01555143126', (string) ($decoded['other_mobile'] ?? ''));
+    }
+
+    public function test_secondary_phone_message_does_not_override_primary_phone(): void
+    {
+        $this->actingAsTenantUser();
+
+        $draft = $this->postJson('/api/ai/copilot/chat', [
+            'message' => "create lead name Hazem phone 01555143125 source Facebook item {$this->itemId}",
+        ]);
+
+        $conversationId = (int) $draft->json('data.conversation_id');
+
+        $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => '__copilot_optional_start__',
+        ]);
+
+        $withSecondary = $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => "secondary_phone: 01555143126",
+        ]);
+
+        $withSecondary->assertOk()
+            ->assertJsonPath('data.tool_result.payload.phone', '01555143125')
+            ->assertJsonPath('data.tool_result.payload.secondary_phone', '01555143126');
+    }
+
+    public function test_multiline_create_lead_message_strips_name_label_from_arabic_name(): void
+    {
+        $this->actingAsTenantUser();
+
+        $expectedName = json_decode('"\u0645\u062D\u0645\u0648\u062F"', true);
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => "Create lead\nname: {$expectedName}\nphone: 01555258789\nsource: Facebook\nitem: {$this->itemId}",
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool_result.state', 'awaiting_confirmation')
+            ->assertJsonPath('data.tool_result.payload.name', $expectedName)
+            ->assertJsonPath('data.tool_result.payload.phone', '01555258789');
+    }
+    public function test_arabic_create_lead_phrase_stops_name_before_phone_and_source_keywords(): void
+    {
+        $this->actingAsTenantUser();
+
+        $message = json_decode('"\u0627\u0639\u0645\u0644 \u0644\u064A\u062F \u0628\u0627\u0633\u0645 \u0645\u062D\u0645\u0648\u062F \u0648\u0631\u0642\u0645 01555143658 \u0633\u0648\u0631\u0633 Facebook \u0627\u064A\u062A\u0645 '.$this->itemId.'"', true);
+        $expectedName = json_decode('"\u0645\u062D\u0645\u0648\u062F"', true);
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => $message,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'create_lead_draft')
+            ->assertJsonPath('data.tool_result.state', 'awaiting_confirmation')
+            ->assertJsonPath('data.tool_result.payload.name', $expectedName)
+            ->assertJsonPath('data.tool_result.payload.phone', '01555143658')
+            ->assertJsonPath('data.tool_result.payload.source', 'Facebook')
+            ->assertJsonPath('data.tool_result.payload.item_id', $this->itemId);
+    }
     public function test_arabic_name_stops_before_mobile_keyword(): void
     {
         $this->actingAsTenantUser();
@@ -158,7 +325,8 @@ class AiCopilotLeadSliceTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.tool', 'create_lead_draft')
             ->assertJsonPath('data.tool_result.state', 'rejected')
-            ->assertJsonPath('data.tool_result.message', 'Selected source does not exist for this tenant.');
+            ->assertJsonPath('data.tool_result.message', 'Selected source does not exist for this tenant.')
+            ->assertJsonPath('data.ui_actions.0.type', 'form');
     }
 
     public function test_real_estate_requires_project_and_accepts_project_name(): void
@@ -176,6 +344,13 @@ class AiCopilotLeadSliceTest extends TestCase
         ]);
 
         app(TenantFeatureService::class)->enableFeature($tenant, 'besouhola_copilot');
+
+        CrmSetting::create([
+            'tenant_id' => $tenant->id,
+            'settings' => [
+                'duplicationSystem' => true,
+            ],
+        ]);
 
         \App\Models\Stage::create([
             'tenant_id' => $tenant->id,
@@ -224,6 +399,86 @@ class AiCopilotLeadSliceTest extends TestCase
             ->assertJsonPath('data.tool_result.payload.source', 'Website')
             ->assertJsonPath('data.tool_result.payload.project_id', 1)
             ->assertJsonMissingPath('data.tool_result.payload.item_id');
+    }
+
+    public function test_confirm_marks_duplicate_using_existing_lead_management_logic(): void
+    {
+        $this->actingAsTenantUser();
+
+        $existingLeadId = DB::table('leads')->insertGetId([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Existing Ahmed',
+            'phone' => '+201012345678',
+            'email' => 'existing@example.com',
+            'source' => 'Facebook',
+            'item_id' => $this->itemId,
+            'stage' => 'New Lead',
+            'stage_id' => 1,
+            'workflow_key' => 'sales',
+            'created_by' => $this->user->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $draft = $this->postJson('/api/ai/copilot/chat', [
+            'message' => "create lead name Ahmed phone 01012345678 email ahmed@example.com source Facebook item {$this->itemId}",
+        ]);
+
+        $payload = $draft->json('data.tool_result.payload');
+
+        $response = $this->postJson('/api/ai/copilot/actions/confirm', [
+            'action' => 'create_lead',
+            'payload' => $payload,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.ok', true)
+            ->assertJsonPath('data.state', 'completed')
+            ->assertJsonPath('data.resource', 'lead')
+            ->assertJsonPath('data.ui_actions.1.type', 'prompt_message');
+
+        $createdLeadId = (int) $response->json('data.lead.id');
+
+        $this->assertDatabaseHas('leads', [
+            'id' => $createdLeadId,
+            'tenant_id' => $this->tenant->id,
+            'status' => 'duplicate',
+        ]);
+
+        $duplicateMeta = DB::table('leads')->where('id', $createdLeadId)->value('meta_data');
+        $decodedMeta = is_string($duplicateMeta) ? json_decode($duplicateMeta, true) : $duplicateMeta;
+
+        $this->assertSame($existingLeadId, (int) ($decodedMeta['duplicate_of'] ?? 0));
+    }
+
+    public function test_lead_advice_uses_existing_tenant_items_only(): void
+    {
+        $this->actingAsTenantUser();
+
+        $leadId = DB::table('leads')->insertGetId([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Advice Lead',
+            'phone' => '+201011111111',
+            'email' => 'advice@example.com',
+            'source' => 'Facebook',
+            'item_id' => $this->itemId,
+            'stage' => 'New Lead',
+            'stage_id' => 1,
+            'workflow_key' => 'sales',
+            'created_by' => $this->user->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'Suggest the best tenant item or project and handling tips for lead '.$leadId,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.ui_actions.0.type', 'navigate');
+
+        $this->assertStringContainsString('Starter Package', (string) $response->json('data.message'));
+        $this->assertStringNotContainsString('Skyline Residence', (string) $response->json('data.message'));
     }
 
     protected function actingAsTenantUser(): void
@@ -346,3 +601,8 @@ class AiCopilotLeadSliceTest extends TestCase
         }
     }
 }
+
+
+
+
+

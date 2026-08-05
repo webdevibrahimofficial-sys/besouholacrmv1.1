@@ -198,23 +198,23 @@ export default function ActiveUsersChart({ users = [] }) {
       </div>
 
       {/* Footer Stats */}
-      <div className={`px-3 py-2 border-t flex-shrink-0 ${isLight ? 'bg-[var(--lm-muted-surface)] border-white' : 'dark:bg-gray-700 dark:border-gray-600'}`}>
+      <div className={`px-3 py-2 border-t flex-shrink-0 ${isLight ? 'bg-[var(--lm-muted-surface)] border-gray-200 text-black' : 'bg-gray-800 border-gray-600 text-gray-100'}`}>
         <div className="flex items-center justify-between text-sm">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
-              <span className={`${isLight ? 'text-black' : 'text-white'} font-bold`}>
+              <span className="font-bold">
                 {activeCount} {lang === 'ar' ? 'نشط' : 'Active'}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <span className={`${isLight ? 'text-black' : 'text-white'} font-bold`}>
+              <span className="font-bold">
                 {totalCount - activeCount} {lang === 'ar' ? 'غير نشط' : 'Inactive'}
               </span>
             </div>
           </div>
-          <div className={`${isLight ? 'text-black' : 'text-white'} font-semibold`}>
+          <div className="font-semibold opacity-90">
             {lang === 'ar' ? 'آخر تحديث:' : 'Last updated:'} {formatHM(new Date())}
           </div>
         </div>

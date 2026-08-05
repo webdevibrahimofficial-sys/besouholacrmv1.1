@@ -4,6 +4,10 @@ namespace App\Services\AiCopilot;
 
 use App\Models\AiCopilotConversation;
 use App\Models\AiCopilotMessage;
+use App\Models\Item;
+use App\Models\Lead;
+use App\Models\Project;
+use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
@@ -25,34 +29,53 @@ class AiCopilotChatService
         $toolResult = null;
         $uiActions = [];
         $assistantText = '';
+        $planned = ['tool' => null, 'args' => []];
         $pendingLeadDraft = $this->resolvePendingLeadDraft($conversation);
+        $pendingOptionalLeadDraft = $this->resolvePendingOptionalLeadDraft($conversation);
+        $optionalStartDraft = $this->shouldStartOptionalLeadDraft($conversation, $message);
+        $adviceReply = $this->handleLeadAdviceIntent($user, $message);
 
-        if ($pendingLeadDraft) {
-            $planned = [
-                'tool' => 'create_lead_draft',
-                'args' => $this->mergePendingLeadDraftArgs($pendingLeadDraft, $message),
-            ];
+        if ($adviceReply) {
+            $assistantText = $adviceReply['message'];
+            $uiActions = $adviceReply['ui_actions'] ?? [];
         } else {
-            $planned = $this->planWithGemini($user, $message);
-            if (! $planned) {
-                $planned = $this->planWithHeuristics($message);
+            if ($pendingOptionalLeadDraft) {
+                $planned = [
+                    'tool' => 'create_lead_draft',
+                    'args' => $this->mergePendingOptionalLeadDraftArgs($pendingOptionalLeadDraft, $message),
+                ];
+            } elseif ($optionalStartDraft) {
+                $planned = [
+                    'tool' => 'create_lead_draft',
+                    'args' => $this->buildOptionalLeadStartArgs($optionalStartDraft),
+                ];
+            } elseif ($pendingLeadDraft) {
+                $planned = [
+                    'tool' => 'create_lead_draft',
+                    'args' => $this->mergePendingLeadDraftArgs($pendingLeadDraft, $message),
+                ];
             } else {
+                $planned = $this->planWithGemini($user, $message);
+                if (! $planned) {
+                    $planned = $this->planWithHeuristics($message);
+                } else {
+                    $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
+                }
+            }
+
+            if (in_array(($planned['tool'] ?? null), ['navigate_report', 'export_report', 'build_report_filters'], true)) {
                 $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
             }
-        }
 
-        if (in_array(($planned['tool'] ?? null), ['navigate_report', 'export_report', 'build_report_filters'], true)) {
-            $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
-        }
-
-        if (($planned['tool'] ?? null) && $planned['tool'] !== 'none') {
-            $toolResult = $this->tools->execute($user, $planned['tool'], $planned['args'] ?? []);
-            $uiActions = $toolResult['ui_actions'] ?? [];
-            $assistantText = $this->composeToolReply($planned['tool'], $toolResult, $message);
-            $this->storeMessage($conversation, 'tool', $assistantText, $planned['tool'], $toolResult, $uiActions);
-        } else {
-            $assistantText = $planned['reply']
-                ?? $this->defaultReply($user, $message);
+            if (($planned['tool'] ?? null) && $planned['tool'] !== 'none') {
+                $toolResult = $this->tools->execute($user, $planned['tool'], $planned['args'] ?? []);
+                $uiActions = $toolResult['ui_actions'] ?? [];
+                $assistantText = $this->composeToolReply($planned['tool'], $toolResult, $message);
+                $this->storeMessage($conversation, 'tool', $assistantText, $planned['tool'], $toolResult, $uiActions);
+            } else {
+                $assistantText = $planned['reply']
+                    ?? $this->defaultReply($user, $message);
+            }
         }
 
         $this->storeMessage($conversation, 'assistant', $assistantText, null, null, $uiActions);
@@ -380,35 +403,47 @@ PROMPT;
         $args = [];
         $normalized = preg_replace('/\s+/u', ' ', trim($message)) ?? trim($message);
 
-        if (preg_match('/name\s*[:\-]?\s*([a-z][a-z\s]+?)(?=\s+(?:phone|mobile|email|source|item|project)\b|$)/i', $normalized, $match)) {
+        if (preg_match('/(?:^|\s)name\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:phone|mobile|email|source|item|project|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
             $args['name'] = trim($match[1]);
         }
 
-        if (preg_match('/email\s*[:\-]?\s*([^\s]+@[^\s]+)/i', $normalized, $match)) {
+        if (preg_match('/(?:^|\s)email\s*[:\-]?\s*([^\s]+@[^\s]+)/iu', $normalized, $match)) {
             $args['email'] = trim($match[1]);
         }
 
-        if (preg_match('/phone\s*[:\-]?\s*([0-9\+\-\s]{6,})(?=\s+(?:email|source|item|project|name)\b|$)/i', $normalized, $match)) {
+        if (preg_match('/(?:^|\s)(?:phone|mobile)\s*[:\-]?\s*([0-9\+\-\s]{6,})(?=\s+(?:email|source|item|project|name|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
             $args['phone'] = trim($match[1]);
         }
 
-        if (preg_match('/source\s*[:\-]?\s*([a-z0-9_\-\s]+?)(?=\s+(?:item|project|phone|mobile|email|name)\b|$)/i', $normalized, $match)) {
+        if (preg_match('/(?:^|\s)source\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:item|project|phone|mobile|email|name|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
             $args['source'] = trim($match[1]);
         }
 
-        if (preg_match('/item\s*(?:id)?\s*[:\-]?\s*(\d+)(?=\s+(?:project|phone|mobile|email|source|name)\b|$)/i', $normalized, $match)) {
+        if (preg_match('/(?:^|\s)secondary[_ ]phone\s*[:\-]?\s*([0-9\+\-\s]{6,})(?=\s+(?:email|source|item|project|name|phone|mobile|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
+            $args['secondary_phone'] = trim($match[1]);
+        }
+
+        if (preg_match('/(?:^|\s)estimated[_ ]value\s*[:\-]?\s*([0-9]+(?:\.[0-9]+)?)/iu', $normalized, $match)) {
+            $args['estimated_value'] = trim($match[1]);
+        }
+
+        if (preg_match('/(?:^|\s)assigned[_ ]to\s*[:\-]?\s*(\d+)/iu', $normalized, $match)) {
+            $args['assigned_to'] = (int) $match[1];
+        }
+
+        if (preg_match('/(?:^|\s)item\s*(?:id)?\s*[:\-]?\s*(\d+)(?=\s+(?:project|phone|mobile|email|source|name|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
             $args['item_id'] = (int) $match[1];
-        } elseif (preg_match('/item\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:project|phone|mobile|email|source|name)\b|$)/i', $normalized, $match)) {
+        } elseif (preg_match('/(?:^|\s)item\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:project|phone|mobile|email|source|name|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
             $args['item'] = trim($match[1]);
         }
 
-        if (preg_match('/project\s*(?:id)?\s*[:\-]?\s*(\d+)(?=\s+(?:item|phone|mobile|email|source|name)\b|$)/i', $normalized, $match)) {
+        if (preg_match('/(?:^|\s)project\s*(?:id)?\s*[:\-]?\s*(\d+)(?=\s+(?:item|phone|mobile|email|source|name|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
             $args['project_id'] = (int) $match[1];
-        } elseif (preg_match('/project\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:item|phone|mobile|email|source|name)\b|$)/i', $normalized, $match)) {
+        } elseif (preg_match('/(?:^|\s)project\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:item|phone|mobile|email|source|name|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
             $args['project'] = trim($match[1]);
         }
 
-        if (! isset($args['name']) && preg_match('/(?:\x{0627}\x{0633}\x{0645}|\x{0628}\x{0627}\x{0633}\x{0645})\s*[:\-]?\s*([^\d@:\-\n\r]{2,}?)(?=\s+(?:\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{062A}\x{0644}\x{064A}\x{0641}\x{0648}\x{0646}|\x{0647}\x{0627}\x{062A}\x{0641}|\x{0631}\x{0642}\x{0645}|\x{0627}\x{064A}\x{0645}\x{064A}\x{0644}|\x{0627}\x{0644}\x{0628}\x{0631}\x{064A}\x{062F}|\x{0645}\x{0635}\x{062F}\x{0631}|\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639})\b|$)/u', $normalized, $match)) {
+        if (! isset($args['name']) && preg_match('/(?:\x{0627}\x{0633}\x{0645}|\x{0628}\x{0627}\x{0633}\x{0645})\s*[:\-]?\s*([^\d@:\-\n\r]{2,}?)(?=\s+(?:\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{062A}\x{0644}\x{064A}\x{0641}\x{0648}\x{0646}|\x{0647}\x{0627}\x{062A}\x{0641}|\x{0648}\x{0631}\x{0642}\x{0645}|\x{0631}\x{0642}\x{0645}|\x{0627}\x{064A}\x{0645}\x{064A}\x{0644}|\x{0627}\x{0644}\x{0628}\x{0631}\x{064A}\x{062F}|\x{0633}\x{0648}\x{0631}\x{0633}|\x{0645}\x{0635}\x{062F}\x{0631}|\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639})\b|$)/u', $normalized, $match)) {
             $candidate = trim($match[1]);
             if ($candidate !== '') {
                 $args['name'] = $candidate;
@@ -419,11 +454,11 @@ PROMPT;
             $args['email'] = trim($match[1]);
         }
 
-        if (! isset($args['phone']) && preg_match('/(?:\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{062A}\x{0644}\x{064A}\x{0641}\x{0648}\x{0646}|\x{0647}\x{0627}\x{062A}\x{0641}|\x{0631}\x{0642}\x{0645})\s*[:\-]?\s*([0-9\+\-\s]{6,})(?=\s+(?:\x{0627}\x{064A}\x{0645}\x{064A}\x{0644}|\x{0627}\x{0644}\x{0628}\x{0631}\x{064A}\x{062F}|\x{0645}\x{0635}\x{062F}\x{0631}|\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639})\b|$)/u', $normalized, $match)) {
+        if (! isset($args['phone']) && preg_match('/(?:\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{062A}\x{0644}\x{064A}\x{0641}\x{0648}\x{0646}|\x{0647}\x{0627}\x{062A}\x{0641}|\x{0648}\x{0631}\x{0642}\x{0645}|\x{0631}\x{0642}\x{0645})\s*[:\-]?\s*([0-9\+\-\s]{6,})(?=\s+(?:\x{0627}\x{064A}\x{0645}\x{064A}\x{0644}|\x{0627}\x{0644}\x{0628}\x{0631}\x{064A}\x{062F}|\x{0633}\x{0648}\x{0631}\x{0633}|\x{0645}\x{0635}\x{062F}\x{0631}|\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639})\b|$)/u', $normalized, $match)) {
             $args['phone'] = trim($match[1]);
         }
 
-        if (! isset($args['source']) && preg_match('/\x{0645}\x{0635}\x{062F}\x{0631}\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639}|\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{0627}\x{064A}\x{0645}\x{064A}\x{0644})\b|$)/u', $normalized, $match)) {
+        if (! isset($args['source']) && preg_match('/(?:\x{0633}\x{0648}\x{0631}\x{0633}|\x{0645}\x{0635}\x{062F}\x{0631})\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639}|\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{0627}\x{064A}\x{0645}\x{064A}\x{0644})\b|$)/u', $normalized, $match)) {
             $args['source'] = trim($match[1]);
         }
 
@@ -447,7 +482,8 @@ PROMPT;
 
         if (! isset($args['name']) && preg_match('/^(?:\x{0639}\x{0627}\x{064A}\x{0632}|\x{0645}\x{062D}\x{062A}\x{0627}\x{062C})?\s*(?:\x{0627}\x{0639}\x{0645}\x{0644}|\x{0627}\x{0646}\x{0634}\x{0626}|create)?\s*(?:lead|\x{0644}\x{064A}\x{062F})(?:\s+(?:new|\x{062C}\x{062F}\x{064A}\x{062F}))?\s*(?:\x{0628}\x{0627}\x{0633}\x{0645})?\s*(.+)$/iu', $normalized, $match)) {
             $candidate = trim($match[1], " \t\n\r\0\x0B:-");
-            $candidate = preg_split('/\s+(?:mobile|phone|email|source|item|project|\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{062A}\x{0644}\x{064A}\x{0641}\x{0648}\x{0646}|\x{0647}\x{0627}\x{062A}\x{0641}|\x{0631}\x{0642}\x{0645}|\x{0627}\x{064A}\x{0645}\x{064A}\x{0644}|\x{0627}\x{0644}\x{0628}\x{0631}\x{064A}\x{062F}|\x{0645}\x{0635}\x{062F}\x{0631}|\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639})\b/iu', $candidate, 2)[0] ?? $candidate;
+            $candidate = preg_replace('/^(?:name|phone|mobile|email|source|item|project|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to|\x{0627}\x{0633}\x{0645}|\x{0628}\x{0627}\x{0633}\x{0645}|\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{062A}\x{0644}\x{064A}\x{0641}\x{0648}\x{0646}|\x{0647}\x{0627}\x{062A}\x{0641}|\x{0648}\x{0631}\x{0642}\x{0645}|\x{0631}\x{0642}\x{0645}|\x{0627}\x{064A}\x{0645}\x{064A}\x{0644}|\x{0627}\x{0644}\x{0628}\x{0631}\x{064A}\x{062F}|\x{0633}\x{0648}\x{0631}\x{0633}|\x{0645}\x{0635}\x{062F}\x{0631}|\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639})\s*[:\-]\s*/iu', '', $candidate) ?? $candidate;
+            $candidate = preg_split('/\s+(?:mobile|phone|email|source|item|project|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to|\x{0645}\x{0648}\x{0628}\x{0627}\x{064A}\x{0644}|\x{062A}\x{0644}\x{064A}\x{0641}\x{0648}\x{0646}|\x{0647}\x{0627}\x{062A}\x{0641}|\x{0648}\x{0631}\x{0642}\x{0645}|\x{0631}\x{0642}\x{0645}|\x{0627}\x{064A}\x{0645}\x{064A}\x{0644}|\x{0627}\x{0644}\x{0628}\x{0631}\x{064A}\x{062F}|\x{0633}\x{0648}\x{0631}\x{0633}|\x{0645}\x{0635}\x{062F}\x{0631}|\x{0627}\x{064A}\x{062A}\x{0645}|\x{0622}\x{064A}\x{062A}\x{0645}|\x{0628}\x{0631}\x{0648}\x{062C}\x{064A}\x{0643}\x{062A}|\x{0645}\x{0634}\x{0631}\x{0648}\x{0639})\b/iu', $candidate, 2)[0] ?? $candidate;
             $candidate = trim($candidate, " \t\n\r\0\x0B:-");
             if ($candidate !== '') {
                 $args['name'] = $candidate;
@@ -456,8 +492,41 @@ PROMPT;
 
         return $args;
     }
-
     protected function resolvePendingLeadDraft(?AiCopilotConversation $conversation): ?array
+    {
+        $payload = $this->resolveLatestLeadDraftPayload($conversation);
+        if (! $payload || ($payload['state'] ?? null) !== 'needs_input') {
+            return null;
+        }
+
+        return $payload;
+    }
+
+    protected function resolvePendingOptionalLeadDraft(?AiCopilotConversation $conversation): ?array
+    {
+        $payload = $this->resolveLatestLeadDraftPayload($conversation);
+        if (! $payload || ($payload['state'] ?? null) !== 'awaiting_optional_input') {
+            return null;
+        }
+
+        return $payload;
+    }
+
+    protected function shouldStartOptionalLeadDraft(?AiCopilotConversation $conversation, string $message): ?array
+    {
+        if (trim($message) !== '__copilot_optional_start__') {
+            return null;
+        }
+
+        $payload = $this->resolveLatestLeadDraftPayload($conversation);
+        if (! $payload || ($payload['state'] ?? null) !== 'awaiting_confirmation') {
+            return null;
+        }
+
+        return is_array($payload['payload'] ?? null) ? $payload['payload'] : null;
+    }
+
+    protected function resolveLatestLeadDraftPayload(?AiCopilotConversation $conversation): ?array
     {
         if (! $conversation || ! Schema::hasTable('ai_copilot_messages')) {
             return null;
@@ -469,14 +538,40 @@ PROMPT;
             ->latest('id')
             ->first();
 
-        $payload = is_array($message?->tool_payload) ? $message->tool_payload : null;
-        if (! $payload || ($payload['state'] ?? null) !== 'needs_input') {
-            return null;
-        }
-
-        return $payload;
+        return is_array($message?->tool_payload) ? $message->tool_payload : null;
     }
 
+    protected function buildOptionalLeadStartArgs(array $payload): array
+    {
+        return array_merge($payload, ['copilot_optional_flow' => 'start']);
+    }
+
+    protected function mergePendingOptionalLeadDraftArgs(array $pendingDraft, string $message): array
+    {
+        $payload = is_array($pendingDraft['payload'] ?? null) ? $pendingDraft['payload'] : [];
+        $step = (string) ($pendingDraft['optional_step'] ?? '');
+
+        if (trim($message) === '__copilot_skip_optional__') {
+            return array_merge($payload, [
+                'copilot_optional_flow' => 'continue',
+                'copilot_optional_step' => $step,
+                'copilot_optional_skip' => true,
+            ]);
+        }
+
+        $guessed = $this->guessLeadArgs($message);
+        if (($payload['name'] ?? null) && ! preg_match('/(?:^|\\s)(?:name|\\x{0627}\\x{0633}\\x{0645}|\\x{0628}\\x{0627}\\x{0633}\\x{0645})\\s*[:\\-]/iu', $message)) {
+            unset($guessed['name']);
+        }
+        if ($this->hasNoDirectLeadFieldGuess(array_merge($payload, $guessed), $payload)) {
+            $guessed = $this->assignPendingLeadField($guessed, $step, trim($message));
+        }
+
+        return array_merge($payload, $guessed, [
+            'copilot_optional_flow' => 'continue',
+            'copilot_optional_step' => $step,
+        ]);
+    }
     protected function mergePendingLeadDraftArgs(array $pendingDraft, string $message): array
     {
         $payload = is_array($pendingDraft['payload'] ?? null) ? $pendingDraft['payload'] : [];
@@ -500,7 +595,7 @@ PROMPT;
 
     protected function hasNoDirectLeadFieldGuess(array $merged, array $originalPayload): bool
     {
-        foreach (['name', 'phone', 'email', 'source', 'item', 'item_id', 'project', 'project_id'] as $field) {
+        foreach (['name', 'phone', 'email', 'source', 'item', 'item_id', 'project', 'project_id', 'secondary_phone', 'estimated_value', 'assigned_to'] as $field) {
             if (($merged[$field] ?? null) !== ($originalPayload[$field] ?? null) && filled($merged[$field] ?? null)) {
                 return false;
             }
@@ -523,6 +618,11 @@ PROMPT;
             'project' => preg_match('/^\d+$/', $value)
                 ? array_merge($payload, ['project_id' => (int) $value])
                 : array_merge($payload, ['project' => $value]),
+            'assigned_to' => preg_match('/^\d+$/', $value)
+                ? array_merge($payload, ['assigned_to' => (int) $value])
+                : $payload,
+            'estimated_value' => array_merge($payload, ['estimated_value' => $value]),
+            'secondary_phone' => array_merge($payload, ['secondary_phone' => $value]),
             default => array_merge($payload, [$field => $value]),
         };
     }
@@ -578,6 +678,130 @@ PROMPT;
         return $args;
     }
 
+    protected function handleLeadAdviceIntent(User $user, string $message): ?array
+    {
+        if (! Schema::hasTable('leads') || ! preg_match('/\b(?:lead)\s+(\d+)\b/i', $message, $match)) {
+            return null;
+        }
+
+        $leadId = (int) $match[1];
+        if ($leadId <= 0) {
+            return null;
+        }
+
+        $lead = Lead::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->where('id', $leadId)
+            ->first();
+
+        if (! $lead) {
+            return [
+                'message' => 'Lead not found for this tenant.',
+                'ui_actions' => [],
+            ];
+        }
+
+        $normalized = mb_strtolower($message);
+        if (
+            ! preg_match('/(suggest|best fit|best item|best project|recommend|tips|advice|follow up|follow\\-up)/i', $normalized)
+        ) {
+            return null;
+        }
+
+        $tenant = Tenant::find($user->tenant_id);
+        $companyType = strtolower(trim((string) ($tenant?->company_type ?? 'general')));
+        $isGeneral = $companyType === 'general';
+        $choices = $isGeneral
+            ? Item::query()->where('tenant_id', $user->tenant_id)->orderBy('name')->limit(10)->get(['id', 'name'])
+            : Project::query()->where('tenant_id', $user->tenant_id)->orderBy('name')->limit(10)->get(['id', 'name']);
+
+        $choiceLabel = $isGeneral ? 'item' : 'project';
+        $suggestions = collect($choices)->map(fn ($choice) => '#'.$choice->id.' '.$choice->name)->values()->all();
+        $advice = $this->generateLeadAdviceText($lead, $suggestions, $choiceLabel);
+
+        return [
+            'message' => $advice,
+            'ui_actions' => [
+                [
+                    'type' => 'navigate',
+                    'path' => '/leads/'.$lead->id,
+                    'label' => 'Open lead',
+                ],
+            ],
+        ];
+    }
+
+    protected function generateLeadAdviceText(Lead $lead, array $suggestions, string $choiceLabel): string
+    {
+        $fallback = $this->buildFallbackLeadAdvice($lead, $suggestions, $choiceLabel);
+        $apiKey = env('GEMINI_API_KEY');
+
+        if (! $apiKey) {
+            return $fallback;
+        }
+
+        $options = $suggestions !== [] ? implode(', ', $suggestions) : 'No '.$choiceLabel.' options are available in this tenant right now.';
+        $prompt = <<<PROMPT
+You are Besouhola Copilot helping a CRM user after creating a lead.
+Only use the provided tenant options. Never invent an item or project outside the list.
+Write a concise answer with:
+1. A best-fit {$choiceLabel} recommendation from the provided options only.
+2. Why it fits this lead.
+3. 3 short follow-up tips for the sales user.
+
+Lead:
+- Name: {$lead->name}
+- Phone: {$lead->phone}
+- Email: {$lead->email}
+- Source: {$lead->source}
+- Company: {$lead->company}
+- Country: {$lead->country}
+
+Tenant {$choiceLabel} options:
+{$options}
+PROMPT;
+
+        try {
+            $response = Http::timeout(25)
+                ->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}", [
+                    'contents' => [[
+                        'role' => 'user',
+                        'parts' => [['text' => $prompt]],
+                    ]],
+                ]);
+
+            if (! $response->successful()) {
+                return $fallback;
+            }
+
+            $text = trim((string) data_get($response->json(), 'candidates.0.content.parts.0.text', ''));
+
+            return $text !== '' ? $text : $fallback;
+        } catch (\Throwable) {
+            return $fallback;
+        }
+    }
+
+    protected function buildFallbackLeadAdvice(Lead $lead, array $suggestions, string $choiceLabel): string
+    {
+        $topSuggestion = $suggestions[0] ?? null;
+        $lines = [];
+        $lines[] = 'Lead '.$lead->id.' is ready.';
+
+        if ($topSuggestion) {
+            $lines[] = 'Best-fit '.$choiceLabel.' suggestion: '.$topSuggestion.'.';
+        } else {
+            $lines[] = 'No '.$choiceLabel.' suggestions are available in this tenant yet.';
+        }
+
+        $source = $lead->source ?: 'unknown source';
+        $lines[] = 'Start by confirming budget, timeline, and the main need for this '.$source.' lead.';
+        $lines[] = 'Use the first follow-up to validate decision maker, preferred contact time, and deal urgency.';
+        $lines[] = 'If the lead engages well, log the next action immediately so the pipeline stays clean.';
+
+        return implode("\n", $lines);
+    }
+
     protected function extractJson(string $text): ?array
     {
         $start = strpos($text, '{');
@@ -591,3 +815,17 @@ PROMPT;
         return is_array($decoded) ? $decoded : null;
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

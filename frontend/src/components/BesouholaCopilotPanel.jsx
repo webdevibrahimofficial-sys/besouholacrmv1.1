@@ -1,15 +1,86 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, Send, Sparkles, X } from 'lucide-react'
+import { Bot, Maximize2, Minimize2, Send, Sparkles, X } from 'lucide-react'
 import { api } from '@utils/api'
 
-function ActionButtons({ actions, onConfirm, confirmingKey, onNavigate }) {
+function FormAction({ action, onSubmit, sending }) {
+  const fields = Array.isArray(action?.fields) ? action.fields : []
+  const [values, setValues] = useState(() => (
+    fields.reduce((carry, field) => {
+      carry[field.name] = field.value ?? ''
+      return carry
+    }, {})
+  ))
+
+  useEffect(() => {
+    setValues(fields.reduce((carry, field) => {
+      carry[field.name] = field.value ?? ''
+      return carry
+    }, {}))
+  }, [action, fields])
+
+  if (!fields.length) return null
+
+  const handleSubmit = (event) => {
+    event.preventDefault()
+    onSubmit(action, values)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 w-full rounded-2xl border border-sky-100 bg-sky-50/80 p-3 shadow-sm">
+      <div className="mb-3 text-xs font-semibold text-sky-700">{action.label || 'Complete the form'}</div>
+      <div className="space-y-2.5">
+        {fields.map((field) => (
+          <label key={field.name} className="block text-xs text-slate-600">
+            <span className="mb-1 block font-medium">
+              {field.label}
+              {field.required ? ' *' : ''}
+            </span>
+            {field.type === 'select' ? (
+              <select
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-sky-300"
+                value={values[field.name] ?? ''}
+                onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
+              >
+                <option value="">Select</option>
+                {(field.options || []).map((option) => (
+                  <option key={`${field.name}-${option.value}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={field.type === 'email' ? 'email' : 'text'}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-sky-300"
+                value={values[field.name] ?? ''}
+                onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
+              />
+            )}
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex justify-end">
+        <button
+          type="submit"
+          disabled={sending}
+          className="rounded-full bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+        >
+          {action.submit_label || 'Submit'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function ActionButtons({ actions, onConfirm, confirmingKey, onNavigate, onPrompt, onSubmitForm, sending }) {
   if (!Array.isArray(actions) || actions.length === 0) return null
 
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
+    <div className="mt-3 flex w-full flex-col gap-2">
       {actions.map((action, index) => {
         const key = `${action.type}-${index}`
+
         if (action.type === 'confirm_action') {
           return (
             <button
@@ -17,9 +88,23 @@ function ActionButtons({ actions, onConfirm, confirmingKey, onNavigate }) {
               type="button"
               disabled={confirmingKey === key}
               onClick={() => onConfirm(action, key)}
-              className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex w-fit max-w-full items-center justify-center rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
             >
               {confirmingKey === key ? 'Creating...' : (action.label || 'Confirm')}
+            </button>
+          )
+        }
+
+        if (action.type === 'prompt_message') {
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={sending}
+              onClick={() => onPrompt(action)}
+              className="inline-flex w-fit max-w-full items-center justify-center rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-60"
+            >
+              {action.label || 'Ask Copilot'}
             </button>
           )
         }
@@ -37,13 +122,17 @@ function ActionButtons({ actions, onConfirm, confirmingKey, onNavigate }) {
           )
         }
 
+        if (action.type === 'form') {
+          return <FormAction key={key} action={action} onSubmit={onSubmitForm} sending={sending} />
+        }
+
         if (action.type === 'navigate' || action.type === 'download') {
           return (
             <button
               key={key}
               type="button"
               onClick={() => onNavigate(action)}
-              className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+              className="inline-flex w-fit max-w-full items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-100"
             >
               {action.label || (action.type === 'download' ? 'Download' : 'Open')}
             </button>
@@ -65,6 +154,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
   const [sending, setSending] = useState(false)
   const [confirmingKey, setConfirmingKey] = useState('')
   const [messages, setMessages] = useState([])
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -88,7 +178,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
               : [{
                   id: 'welcome',
                   role: 'assistant',
-                  content: 'Besouhola Copilot is ready. Ask about reports, filters, exports, delayed leads, lead actions, or tasks.',
+                  content: 'Besouhola Copilot is ready. Ask about reports, filters, exports, delayed leads, lead actions, tasks, or creating a lead.',
                   ui_actions: [],
                 }]
           ))
@@ -148,20 +238,20 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     navigate({ pathname, search })
   }
 
-  const handleSend = async () => {
-    const text = draft.trim()
-    if (!text || sending) return
+  const sendMessage = async (text, visibleText = null) => {
+    const message = text.trim()
+    if (!message || sending) return
 
     setDraft('')
     setSending(true)
     setMessages((current) => [
       ...current,
-      { id: `u-${Date.now()}`, role: 'user', content: text, ui_actions: [] },
+      { id: `u-${Date.now()}`, role: 'user', content: visibleText || message, ui_actions: [] },
     ])
 
     try {
       const response = await api.post('/api/ai/copilot/chat', {
-        message: text,
+        message,
         conversation_id: conversationId || undefined,
       })
       const data = response?.data?.data || {}
@@ -195,6 +285,42 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     } finally {
       setSending(false)
     }
+  }
+
+  const handleSend = async () => {
+    await sendMessage(draft)
+  }
+
+  const handlePrompt = async (action) => {
+    await sendMessage(action?.message || '', action?.display_text || action?.label || action?.message || '')
+  }
+
+  const handleSubmitForm = async (action, values) => {
+    const prefix = action?.message_prefix || 'Create lead'
+    const lines = prefix.startsWith('__') ? [] : [prefix]
+
+    ;(action?.fields || []).forEach((field) => {
+      const value = values[field.name]
+      if (value === undefined || value === null || String(value).trim() === '') return
+
+      if (field.type === 'select') {
+        const selected = (field.options || []).find((option) => String(option.value) === String(value))
+        if (field.name === 'source') {
+          lines.push(`source: ${selected?.label || value}`)
+        } else if (field.name.endsWith('_id')) {
+          const plainName = field.name.replace(/_id$/, '')
+          lines.push(`${plainName}: ${value}`)
+        } else {
+          lines.push(`${field.name}: ${selected?.label || value}`)
+        }
+        return
+      }
+
+      lines.push(`${field.name}: ${value}`)
+    })
+
+    const outgoing = lines.join('\\n').trim()
+    await sendMessage(outgoing, action?.label || outgoing)
   }
 
   const handleConfirm = async (action, key) => {
@@ -231,6 +357,10 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
 
   if (!open) return null
 
+  const panelSizeClasses = expanded
+    ? 'h-[min(82vh,820px)] w-[min(760px,calc(100vw-24px))]'
+    : 'h-[min(620px,calc(100vh-128px))] w-[min(420px,calc(100vw-24px))]'
+
   return (
     <div className="fixed inset-0 z-[180]">
       <button
@@ -241,38 +371,48 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
       />
 
       <div
-        className={`absolute bottom-24 ${isRtl ? 'left-6' : 'right-6'} w-[min(380px,calc(100vw-24px))] overflow-hidden rounded-[28px] border border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(240,249,255,0.96))] text-slate-900 shadow-[0_30px_90px_-40px_rgba(14,116,144,0.65)]`}
+        className={`absolute bottom-24 ${isRtl ? 'left-6' : 'right-6'} ${panelSizeClasses} overflow-hidden rounded-[28px] border border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(240,249,255,0.96))] text-slate-900 shadow-[0_30px_90px_-40px_rgba(14,116,144,0.65)] transition-[width,height] duration-200`}
         dir={isRtl ? 'rtl' : 'ltr'}
         role="dialog"
         aria-modal="true"
       >
-        <div className="flex max-h-[min(620px,calc(100vh-128px))] flex-col">
+        <div className="flex h-full flex-col">
           <div className="relative overflow-hidden border-b border-sky-100 px-4 pb-3 pt-3.5">
             <div className="absolute inset-x-0 top-0 h-20 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.18),transparent_65%)]" />
             <div className="relative flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-600 to-cyan-500 text-white shadow-lg shadow-sky-200">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-600 to-cyan-500 text-white shadow-lg shadow-sky-200">
                   <Bot className="h-5 w-5" />
                 </div>
-                <div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700">
-                    <Sparkles className="h-3 w-3" />
-                    Besouhola Copilot
+                <div className="min-w-0">
+                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-sky-200 bg-white/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700">
+                    <Sparkles className="h-3 w-3 shrink-0" />
+                    <span className="truncate">Besouhola Copilot</span>
                   </div>
-                  <h2 className="mt-2 text-base font-semibold">
+                  <h2 className="mt-2 truncate text-base font-semibold">
                     {boot.payload?.tenant?.name || 'Workspace'}
                   </h2>
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-rose-200 hover:text-rose-600"
-                onClick={onClose}
-                title="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-sky-200 hover:text-sky-600"
+                  onClick={() => setExpanded((current) => !current)}
+                  title={expanded ? 'Reduce size' : 'Expand'}
+                >
+                  {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-rose-200 hover:text-rose-600"
+                  onClick={onClose}
+                  title="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -293,19 +433,22 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
               messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm ${
+                  className={`w-full rounded-2xl px-3 py-2 text-sm ${
                     message.role === 'user'
-                      ? 'ms-auto bg-sky-600 text-white'
-                      : 'me-auto border border-slate-200 bg-white text-slate-700'
+                      ? 'ml-auto max-w-[92%] bg-sky-600 text-white'
+                      : 'mr-auto max-w-full border border-slate-200 bg-white text-slate-700'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  <div className="whitespace-pre-wrap break-words">{message.content}</div>
                   {message.role === 'assistant' ? (
                     <ActionButtons
                       actions={message.ui_actions}
                       onConfirm={handleConfirm}
                       confirmingKey={confirmingKey}
                       onNavigate={handleNavigate}
+                      onPrompt={handlePrompt}
+                      onSubmitForm={handleSubmitForm}
+                      sending={sending}
                     />
                   ) : null}
                 </div>
@@ -313,7 +456,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
             ) : null}
 
             {sending ? (
-              <div className="me-auto rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-400">
+              <div className="mr-auto max-w-[75%] rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-400">
                 Thinking...
               </div>
             ) : null}
@@ -353,4 +496,6 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     </div>
   )
 }
+
+
 
