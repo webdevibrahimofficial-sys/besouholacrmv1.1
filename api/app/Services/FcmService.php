@@ -14,8 +14,10 @@ use Kreait\Firebase\Messaging\Notification;
 
 class FcmService
 {
-    public function __construct(protected Messaging $messaging)
-    {
+    public function __construct(
+        protected Messaging $messaging,
+        protected HuaweiPushService $huaweiPushService
+    ) {
     }
 
     public function sendToUser(User $user, string $title, string $body, array $data = []): array
@@ -23,13 +25,9 @@ class FcmService
         $tokens = DeviceToken::withoutGlobalScopes()
             ->where('tenant_id', $user->tenant_id)
             ->where('user_id', $user->id)
-            ->pluck('token')
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
+            ->get(['token', 'platform', 'push_provider']);
 
-        return $this->sendToTokens($tokens, $title, $body, $data);
+        return $this->sendToDeviceTokens($tokens, $title, $body, $data);
     }
 
     public function sendToUsers($users, string $title, string $body, array $data = []): array
@@ -39,16 +37,67 @@ class FcmService
         $tokens = DeviceToken::withoutGlobalScopes()
             ->whereIn('user_id', $users->pluck('id')->filter()->unique()->values())
             ->whereIn('tenant_id', $users->pluck('tenant_id')->filter()->unique()->values())
+            ->get(['token', 'platform', 'push_provider']);
+
+        return $this->sendToDeviceTokens($tokens, $title, $body, $data);
+    }
+
+    protected function sendToDeviceTokens(Collection $deviceTokens, string $title, string $body, array $data = []): array
+    {
+        $normalizedTokens = $deviceTokens
+            ->filter(fn ($deviceToken) => is_string($deviceToken->token ?? null) && trim((string) $deviceToken->token) !== '')
+            ->unique(fn ($deviceToken) => trim((string) $deviceToken->token))
+            ->values();
+
+        if ($normalizedTokens->isEmpty()) {
+            return $this->summary(true, 0, 0, 0, [], []);
+        }
+
+        $fcmTokens = $normalizedTokens
+            ->filter(fn ($deviceToken) => $this->shouldSendViaFcm($deviceToken->platform ?? null, $deviceToken->push_provider ?? null))
             ->pluck('token')
-            ->filter()
-            ->unique()
+            ->map(fn ($token) => trim((string) $token))
             ->values()
             ->all();
 
-        return $this->sendToTokens($tokens, $title, $body, $data);
+        $hmsTokens = $normalizedTokens
+            ->reject(fn ($deviceToken) => $this->shouldSendViaFcm($deviceToken->platform ?? null, $deviceToken->push_provider ?? null))
+            ->pluck('token')
+            ->map(fn ($token) => trim((string) $token))
+            ->values()
+            ->all();
+
+        $fcmResult = $this->sendToFcmTokens($fcmTokens, $title, $body, $data);
+        $hmsResult = $this->huaweiPushService->sendToTokens($hmsTokens, $title, $body, $data);
+
+        $invalidTokens = array_values(array_unique(array_merge(
+            $fcmResult['invalid_tokens'] ?? [],
+            $hmsResult['invalid_tokens'] ?? [],
+        )));
+
+        return $this->summary(
+            ($fcmResult['ok'] ?? true) && ($hmsResult['ok'] ?? true),
+            (int) ($fcmResult['total_tokens'] ?? 0) + (int) ($hmsResult['total_tokens'] ?? 0),
+            (int) ($fcmResult['successes'] ?? 0) + (int) ($hmsResult['successes'] ?? 0),
+            (int) ($fcmResult['failures'] ?? 0) + (int) ($hmsResult['failures'] ?? 0),
+            $invalidTokens,
+            [
+                'fcm' => $fcmResult,
+                'hms' => $hmsResult,
+            ]
+        );
     }
 
-    public function sendToTokens(array $tokens, string $title, string $body, array $data = []): array
+    protected function shouldSendViaFcm(?string $platform, ?string $pushProvider): bool
+    {
+        if ($platform === 'ios') {
+            return true;
+        }
+
+        return ($pushProvider ?? 'fcm') !== 'hms';
+    }
+
+    protected function sendToFcmTokens(array $tokens, string $title, string $body, array $data = []): array
     {
         $tokens = collect($tokens)
             ->filter(fn ($token) => is_string($token) && trim($token) !== '')
@@ -58,7 +107,7 @@ class FcmService
             ->all();
 
         if ($tokens === []) {
-            return $this->summary(true, 0, 0, 0, []);
+            return $this->summary(true, 0, 0, 0, [], []);
         }
 
         try {
@@ -89,7 +138,8 @@ class FcmService
                 count($tokens),
                 $report->successes()->count(),
                 $report->failures()->count(),
-                $invalidTokens
+                $invalidTokens,
+                []
             );
         } catch (MessagingException|FirebaseException|\Throwable $e) {
             Log::error('FCM send failed', [
@@ -97,7 +147,7 @@ class FcmService
                 'tokens_count' => count($tokens),
             ]);
 
-            return $this->summary(false, count($tokens), 0, count($tokens), []);
+            return $this->summary(false, count($tokens), 0, count($tokens), [], []);
         }
     }
 
@@ -133,7 +183,7 @@ class FcmService
             ->delete();
     }
 
-    protected function summary(bool $ok, int $total, int $successes, int $failures, array $invalidTokens): array
+    protected function summary(bool $ok, int $total, int $successes, int $failures, array $invalidTokens, array $providers): array
     {
         return [
             'ok' => $ok,
@@ -142,6 +192,7 @@ class FcmService
             'failures' => $failures,
             'invalid_tokens_removed' => count($invalidTokens),
             'invalid_tokens' => $invalidTokens,
+            'providers' => $providers,
         ];
     }
 }

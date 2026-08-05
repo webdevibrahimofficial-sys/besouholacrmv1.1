@@ -86,4 +86,11 @@ return [
         'token' => env('WA_MIRROR_INTERNAL_TOKEN'),
     ],
 
+    'huawei_push' => [
+        'client_id' => env('HUAWEI_PUSH_CLIENT_ID'),
+        'client_secret' => env('HUAWEI_PUSH_CLIENT_SECRET'),
+        'oauth_url' => env('HUAWEI_PUSH_OAUTH_URL', 'https://oauth-login.cloud.huawei.com/oauth2/v3/token'),
+        'api_base_url' => env('HUAWEI_PUSH_API_BASE_URL', 'https://push-api.cloud.huawei.com'),
+    ],
+
 ];

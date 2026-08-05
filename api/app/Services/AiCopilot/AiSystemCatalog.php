@@ -16,7 +16,7 @@ class AiSystemCatalog
             'permission' => 'Leads Pipeline',
             'path' => '/reports/sales/pipeline',
             'description' => 'Pipeline stages and lead distribution report.',
-            'aliases' => ['pipeline', 'بايبلاين', 'leads pipeline', 'خط سير', 'بايب لاين'],
+            'aliases' => ['pipeline', 'Ø¨Ø§ÙŠØ¨Ù„Ø§ÙŠÙ†', 'leads pipeline', 'Ø®Ø· Ø³ÙŠØ±', 'Ø¨Ø§ÙŠØ¨ Ù„Ø§ÙŠÙ†'],
             'filters' => ['date_from', 'date_to', 'assigned_to', 'stage'],
         ],
         [
@@ -25,7 +25,7 @@ class AiSystemCatalog
             'permission' => 'Sales Activities',
             'path' => '/reports/sales/activities',
             'description' => 'Sales activity volume and outcomes.',
-            'aliases' => ['activities', 'activity', 'انشطة', 'أنشطة', 'sales activities', 'اكتيفتي'],
+            'aliases' => ['activities', 'activity', 'Ø§Ù†Ø´Ø·Ø©', 'Ø£Ù†Ø´Ø·Ø©', 'sales activities', 'Ø§ÙƒØªÙŠÙØªÙŠ'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -34,7 +34,7 @@ class AiSystemCatalog
             'permission' => 'Leads Pipeline',
             'path' => '/reports/sales/to-telesales',
             'description' => 'Leads transferred from sales to telesales.',
-            'aliases' => ['telesales', 'تيلي', 'تيليسيلز', 'to telesales', 'محولة', 'تلي سيلز'],
+            'aliases' => ['telesales', 'ØªÙŠÙ„ÙŠ', 'ØªÙŠÙ„ÙŠØ³ÙŠÙ„Ø²', 'to telesales', 'Ù…Ø­ÙˆÙ„Ø©', 'ØªÙ„ÙŠ Ø³ÙŠÙ„Ø²'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -43,7 +43,7 @@ class AiSystemCatalog
             'permission' => 'Meetings Report',
             'path' => '/reports/sales/meetings',
             'description' => 'Meetings scheduled and completed.',
-            'aliases' => ['meeting', 'meetings', 'ميتنج', 'ميتينج', 'ميتنج', 'اجتماع', 'اجتماعات', 'الميتنج'],
+            'aliases' => ['meeting', 'meetings', 'Ù…ÙŠØªÙ†Ø¬', 'Ù…ÙŠØªÙŠÙ†Ø¬', 'Ù…ÙŠØªÙ†Ø¬', 'Ø§Ø¬ØªÙ…Ø§Ø¹', 'Ø§Ø¬ØªÙ…Ø§Ø¹Ø§Øª', 'Ø§Ù„Ù…ÙŠØªÙ†Ø¬'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -52,7 +52,7 @@ class AiSystemCatalog
             'permission' => 'Reservations Report',
             'path' => '/reports/sales/reservations',
             'description' => 'Reservations listing and status report.',
-            'aliases' => ['reservation', 'reservations', 'ريزيرفيشن', 'ريزرفيشن', 'ريزيرفيشنز', 'حجز', 'حجوزات', 'الريزيرفيشن'],
+            'aliases' => ['reservation', 'reservations', 'Ø±ÙŠØ²ÙŠØ±ÙÙŠØ´Ù†', 'Ø±ÙŠØ²Ø±ÙÙŠØ´Ù†', 'Ø±ÙŠØ²ÙŠØ±ÙÙŠØ´Ù†Ø²', 'Ø­Ø¬Ø²', 'Ø­Ø¬ÙˆØ²Ø§Øª', 'Ø§Ù„Ø±ÙŠØ²ÙŠØ±ÙÙŠØ´Ù†'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -61,7 +61,7 @@ class AiSystemCatalog
             'permission' => 'Closed Deals',
             'path' => '/reports/sales/closed-deals',
             'description' => 'Closed deals and conversion outcomes.',
-            'aliases' => ['closed', 'deals', 'صفقات', 'closed deals', 'مغلقة', 'كلوزد'],
+            'aliases' => ['closed', 'deals', 'ØµÙÙ‚Ø§Øª', 'closed deals', 'Ù…ØºÙ„Ù‚Ø©', 'ÙƒÙ„ÙˆØ²Ø¯'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -70,7 +70,7 @@ class AiSystemCatalog
             'permission' => 'Cancellation Report',
             'path' => '/reports/sales/cancellation',
             'description' => 'Cancelled deals and reasons.',
-            'aliases' => ['cancel', 'cancellation', 'الغاء', 'إلغاء', 'الغاءات', 'إلغاءات', 'كانسيل'],
+            'aliases' => ['cancel', 'cancellation', 'Ø§Ù„ØºØ§Ø¡', 'Ø¥Ù„ØºØ§Ø¡', 'Ø§Ù„ØºØ§Ø¡Ø§Øª', 'Ø¥Ù„ØºØ§Ø¡Ø§Øª', 'ÙƒØ§Ù†Ø³ÙŠÙ„'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -79,7 +79,7 @@ class AiSystemCatalog
             'permission' => 'Rent Report',
             'path' => '/reports/sales/rent',
             'description' => 'Active rent and rental performance.',
-            'aliases' => ['rent', 'rental', 'ايجار', 'إيجار', 'ايجارات', 'الإيجار'],
+            'aliases' => ['rent', 'rental', 'Ø§ÙŠØ¬Ø§Ø±', 'Ø¥ÙŠØ¬Ø§Ø±', 'Ø§ÙŠØ¬Ø§Ø±Ø§Øª', 'Ø§Ù„Ø¥ÙŠØ¬Ø§Ø±'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -88,7 +88,7 @@ class AiSystemCatalog
             'permission' => 'Proposals Report',
             'path' => '/reports/sales/proposals',
             'description' => 'Proposals sent and follow-up status.',
-            'aliases' => ['proposal', 'proposals', 'عرض', 'عروض', 'بروبوزال', 'البروبوزال'],
+            'aliases' => ['proposal', 'proposals', 'Ø¹Ø±Ø¶', 'Ø¹Ø±ÙˆØ¶', 'Ø¨Ø±ÙˆØ¨ÙˆØ²Ø§Ù„', 'Ø§Ù„Ø¨Ø±ÙˆØ¨ÙˆØ²Ø§Ù„'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -97,7 +97,7 @@ class AiSystemCatalog
             'permission' => 'Check In Report',
             'path' => '/reports/sales/check-in',
             'description' => 'Check-ins and visit tracking.',
-            'aliases' => ['check in', 'check-in', 'checkin', 'visit', 'زيارات', 'تشيك ان', 'تشيك-ان'],
+            'aliases' => ['check in', 'check-in', 'checkin', 'visit', 'Ø²ÙŠØ§Ø±Ø§Øª', 'ØªØ´ÙŠÙƒ Ø§Ù†', 'ØªØ´ÙŠÙƒ-Ø§Ù†'],
             'filters' => ['date_from', 'date_to', 'assigned_to'],
         ],
         [
@@ -106,7 +106,7 @@ class AiSystemCatalog
             'permission' => 'Customers Report',
             'path' => '/reports/sales/customers',
             'description' => 'Customer listing and status report.',
-            'aliases' => ['customer', 'customers', 'عميل', 'عملاء', 'كستمر'],
+            'aliases' => ['customer', 'customers', 'Ø¹Ù…ÙŠÙ„', 'Ø¹Ù…Ù„Ø§Ø¡', 'ÙƒØ³ØªÙ…Ø±'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -115,7 +115,7 @@ class AiSystemCatalog
             'permission' => 'Targets & Revenue',
             'path' => '/reports/sales/revenue',
             'description' => 'Targets and revenue performance.',
-            'aliases' => ['revenue', 'target', 'targets', 'ايراد', 'إيراد', 'اهداف', 'أهداف', 'ريفينيو'],
+            'aliases' => ['revenue', 'target', 'targets', 'Ø§ÙŠØ±Ø§Ø¯', 'Ø¥ÙŠØ±Ø§Ø¯', 'Ø§Ù‡Ø¯Ø§Ù', 'Ø£Ù‡Ø¯Ø§Ù', 'Ø±ÙŠÙÙŠÙ†ÙŠÙˆ'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -125,9 +125,9 @@ class AiSystemCatalog
             'path' => '/reports/sales/imports',
             'description' => 'Imported records history.',
             'aliases' => [
-                'import', 'imports', 'استيراد', 'الاستيراد',
-                'امبورت', 'امبورتس', 'الامبورت', 'الامبورتس',
-                'إمبورت', 'إمبورتس', 'الإمبورت', 'الإمبورتس',
+                'import', 'imports', 'Ø§Ø³ØªÙŠØ±Ø§Ø¯', 'Ø§Ù„Ø§Ø³ØªÙŠØ±Ø§Ø¯',
+                'Ø§Ù…Ø¨ÙˆØ±Øª', 'Ø§Ù…Ø¨ÙˆØ±ØªØ³', 'Ø§Ù„Ø§Ù…Ø¨ÙˆØ±Øª', 'Ø§Ù„Ø§Ù…Ø¨ÙˆØ±ØªØ³',
+                'Ø¥Ù…Ø¨ÙˆØ±Øª', 'Ø¥Ù…Ø¨ÙˆØ±ØªØ³', 'Ø§Ù„Ø¥Ù…Ø¨ÙˆØ±Øª', 'Ø§Ù„Ø¥Ù…Ø¨ÙˆØ±ØªØ³',
             ],
             'filters' => ['date_from', 'date_to'],
         ],
@@ -138,9 +138,9 @@ class AiSystemCatalog
             'path' => '/reports/sales/exports',
             'description' => 'History of exported files.',
             'aliases' => [
-                'export report', 'exports report', 'تصدير', 'تقرير التصدير', 'التصدير',
-                'اكسبورت', 'اكسبورتس', 'الاكسبورت', 'الاكسبورتس',
-                'إكسبورت', 'إكسبورتس',
+                'export report', 'exports report', 'ØªØµØ¯ÙŠØ±', 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„ØªØµØ¯ÙŠØ±', 'Ø§Ù„ØªØµØ¯ÙŠØ±',
+                'Ø§ÙƒØ³Ø¨ÙˆØ±Øª', 'Ø§ÙƒØ³Ø¨ÙˆØ±ØªØ³', 'Ø§Ù„Ø§ÙƒØ³Ø¨ÙˆØ±Øª', 'Ø§Ù„Ø§ÙƒØ³Ø¨ÙˆØ±ØªØ³',
+                'Ø¥ÙƒØ³Ø¨ÙˆØ±Øª', 'Ø¥ÙƒØ³Ø¨ÙˆØ±ØªØ³',
             ],
             'filters' => ['date_from', 'date_to'],
         ],
@@ -150,7 +150,7 @@ class AiSystemCatalog
             'permission' => 'Sales Activities',
             'path' => '/reports/sales',
             'description' => 'Sales overview report.',
-            'aliases' => ['sales report', 'تقرير المبيعات', 'sales overview'],
+            'aliases' => ['sales report', 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª', 'sales overview'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -159,7 +159,7 @@ class AiSystemCatalog
             'permission' => 'Leads Pipeline',
             'path' => '/reports/leads',
             'description' => 'Leads summary report.',
-            'aliases' => ['leads report', 'تقرير الليدز'],
+            'aliases' => ['leads report', 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„Ù„ÙŠØ¯Ø²'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -168,7 +168,7 @@ class AiSystemCatalog
             'permission' => 'Sales Activities',
             'path' => '/reports/team',
             'description' => 'Team performance report.',
-            'aliases' => ['team performance', 'اداء الفريق', 'أداء الفريق', 'تيم'],
+            'aliases' => ['team performance', 'Ø§Ø¯Ø§Ø¡ Ø§Ù„ÙØ±ÙŠÙ‚', 'Ø£Ø¯Ø§Ø¡ Ø§Ù„ÙØ±ÙŠÙ‚', 'ØªÙŠÙ…'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -177,7 +177,7 @@ class AiSystemCatalog
             'permission' => 'Sales Activities',
             'path' => '/reports/marketing/analysis/duration',
             'description' => 'Marketing campaign duration analysis.',
-            'aliases' => ['campaign duration', 'مدة الحملة', 'كامبين'],
+            'aliases' => ['campaign duration', 'Ù…Ø¯Ø© Ø§Ù„Ø­Ù…Ù„Ø©', 'ÙƒØ§Ù…Ø¨ÙŠÙ†'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -186,7 +186,7 @@ class AiSystemCatalog
             'permission' => 'Sales Activities',
             'path' => '/reports/marketing/analysis/ab',
             'description' => 'A/B campaign comparison.',
-            'aliases' => ['ab campaign', 'a/b', 'مقارنة الحملات'],
+            'aliases' => ['ab campaign', 'a/b', 'Ù…Ù‚Ø§Ø±Ù†Ø© Ø§Ù„Ø­Ù…Ù„Ø§Øª'],
             'filters' => ['date_from', 'date_to'],
         ],
         [
@@ -195,7 +195,7 @@ class AiSystemCatalog
             'permission' => 'Sales Activities',
             'path' => '/reports/marketing/operational/response-time',
             'description' => 'Marketing response time report.',
-            'aliases' => ['response time', 'وقت الاستجابة', 'سرعة الرد'],
+            'aliases' => ['response time', 'ÙˆÙ‚Øª Ø§Ù„Ø§Ø³ØªØ¬Ø§Ø¨Ø©', 'Ø³Ø±Ø¹Ø© Ø§Ù„Ø±Ø¯'],
             'filters' => ['date_from', 'date_to'],
         ],
     ];
@@ -223,6 +223,8 @@ class AiSystemCatalog
                 'Export or prepare download for reports the user can export.',
                 'List delayed leads within the user visibility scope.',
                 'Draft and confirm tasks related to delayed leads.',
+                'Draft and confirm lead creation using the existing backend lead flow.',
+                'Draft and confirm lead actions using the existing backend lead action flow.',
             ],
             'reports' => $reports,
             'tools' => [
@@ -306,9 +308,9 @@ class AiSystemCatalog
     protected function normalizeMatchText(string $value): string
     {
         $value = mb_strtolower(trim($value));
-        $value = str_replace(['إ', 'أ', 'آ', 'ى', 'ة'], ['ا', 'ا', 'ا', 'ي', 'ه'], $value);
-        // Drop Arabic definite article so "الامبورتس" matches "امبورتس".
-        $value = preg_replace('/(^|\s)ال(?=\p{Arabic})/u', '$1', $value) ?? $value;
+        $value = str_replace(['Ø¥', 'Ø£', 'Ø¢', 'Ù‰', 'Ø©'], ['Ø§', 'Ø§', 'Ø§', 'ÙŠ', 'Ù‡'], $value);
+        // Drop Arabic definite article so "Ø§Ù„Ø§Ù…Ø¨ÙˆØ±ØªØ³" matches "Ø§Ù…Ø¨ÙˆØ±ØªØ³".
+        $value = preg_replace('/(^|\s)Ø§Ù„(?=\p{Arabic})/u', '$1', $value) ?? $value;
         $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
 
         return trim($value);
@@ -384,3 +386,5 @@ class AiSystemCatalog
         return in_array($role, ['admin', 'tenant admin', 'tenant-admin'], true);
     }
 }
+
+

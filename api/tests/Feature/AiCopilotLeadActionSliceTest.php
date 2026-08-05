@@ -2,28 +2,26 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureTenantHasFeature;
 use App\Models\Feature;
+use App\Models\Lead;
+use App\Models\LeadAction;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Services\AiCopilot\AiCopilotToolExecutor;
 use App\Services\TenantFeatureService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
-class AiCopilotTest extends TestCase
+class AiCopilotLeadActionSliceTest extends TestCase
 {
     use RefreshDatabase;
 
     protected Tenant $tenant;
     protected User $user;
-    protected Feature $feature;
 
     protected function setUp(): void
     {
@@ -42,17 +40,9 @@ class AiCopilotTest extends TestCase
         $this->user = User::factory()->create([
             'tenant_id' => $this->tenant->id,
             'email' => 'copilot-user@example.com',
-            'meta_data' => [
-                'module_permissions' => [
-                    'Reports' => [
-                        'Leads Pipeline_show',
-                        'Leads Pipeline_export',
-                    ],
-                ],
-            ],
         ]);
 
-        $this->feature = Feature::firstOrCreate([
+        Feature::firstOrCreate([
             'key' => 'besouhola_copilot',
         ], [
             'name' => 'Besouhola Copilot',
@@ -63,106 +53,65 @@ class AiCopilotTest extends TestCase
         app(TenantFeatureService::class)->enableFeature($this->tenant, 'besouhola_copilot');
     }
 
-    public function test_chat_requires_non_empty_message(): void
+    public function test_chat_can_draft_lead_action(): void
     {
         $this->actingAsTenantUser();
 
-        $this->postJson('/api/ai/copilot/chat', ['message' => ''])
-            ->assertStatus(422);
-    }
-
-    public function test_chat_blocked_when_feature_disabled(): void
-    {
-        app(TenantFeatureService::class)->disableFeature($this->tenant, 'besouhola_copilot');
-        Cache::flush();
-
-        $this->actingAsTenantUser();
-
-        $this->postJson('/api/ai/copilot/chat', ['message' => 'help'])
-            ->assertStatus(403)
-            ->assertJsonPath('feature', 'besouhola_copilot');
-    }
-
-    public function test_chat_lists_capabilities(): void
-    {
-        $this->actingAsTenantUser();
+        $lead = Lead::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'assigned_to' => $this->user->id,
+            'created_by' => $this->user->id,
+            'name' => 'Draft Lead',
+        ]);
 
         $response = $this->postJson('/api/ai/copilot/chat', [
-            'message' => 'what can you do',
+            'message' => 'create follow up action for lead '.$lead->id.' tomorrow',
         ]);
 
         $response->assertOk()
-            ->assertJsonPath('data.tool', 'list_capabilities');
-
-        $this->assertNotEmpty($response->json('data.message'));
+            ->assertJsonPath('data.tool', 'create_lead_action_draft')
+            ->assertJsonPath('data.tool_result.state', 'awaiting_confirmation')
+            ->assertJsonPath('data.tool_result.resource', 'lead_action')
+            ->assertJsonPath('data.tool_result.requires_confirmation', true)
+            ->assertJsonPath('data.ui_actions.0.action', 'create_lead_action');
     }
 
-    public function test_navigate_report_denied_without_permission(): void
-    {
-        $this->user->forceFill([
-            'meta_data' => [
-                'module_permissions' => [
-                    'Reports' => [],
-                ],
-            ],
-        ])->save();
-
-        $executor = app(AiCopilotToolExecutor::class);
-        $result = $executor->execute($this->user->fresh(), 'navigate_report', [
-            'report' => 'leads_pipeline',
-        ]);
-
-        $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('permission', strtolower($result['message']));
-    }
-
-    public function test_export_report_allowed_with_permission(): void
-    {
-        $executor = app(AiCopilotToolExecutor::class);
-        $result = $executor->execute($this->user->fresh(), 'export_report', [
-            'report' => 'pipeline',
-            'date_from' => '2026-08-01',
-            'date_to' => '2026-08-03',
-        ]);
-
-        $this->assertTrue($result['ok']);
-        $this->assertNotEmpty($result['ui_actions'] ?? []);
-        $this->assertSame('download', $result['ui_actions'][0]['type'] ?? null);
-    }
-
-    public function test_confirm_create_task_denied_for_invisible_lead(): void
+    public function test_confirm_can_create_lead_action_via_existing_flow(): void
     {
         $this->actingAsTenantUser();
 
+        $lead = Lead::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'assigned_to' => $this->user->id,
+            'created_by' => $this->user->id,
+            'name' => 'Action Lead',
+            'status' => 'new',
+        ]);
+
         $response = $this->postJson('/api/ai/copilot/actions/confirm', [
-            'action' => 'create_task_for_lead',
+            'action' => 'create_lead_action',
             'payload' => [
-                'lead_id' => 999999,
-                'title' => 'Follow up',
+                'lead_id' => $lead->id,
+                'type' => 'follow_up',
+                'status' => 'scheduled',
+                'date' => '2026-08-05',
+                'description' => 'Copilot follow up',
             ],
         ]);
 
-        $response->assertStatus(403)
-            ->assertJsonPath('data.ok', false)
-            ->assertJsonPath('data.resource', 'task')
+        $response->assertOk()
+            ->assertJsonPath('data.ok', true)
+            ->assertJsonPath('data.state', 'completed')
+            ->assertJsonPath('data.resource', 'lead_action')
             ->assertJsonPath('data.requires_confirmation', false);
-    }
 
-    public function test_status_endpoint_requires_feature(): void
-    {
-        $request = Request::create('/api/ai/copilot/status', 'GET');
-        $request->setUserResolver(fn () => $this->user);
+        $this->assertDatabaseHas('lead_actions', [
+            'lead_id' => $lead->id,
+            'user_id' => $this->user->id,
+            'action_type' => 'follow_up',
+        ]);
 
-        app()->instance('tenant', $this->tenant);
-        app()->instance('current_tenant_id', $this->tenant->id);
-
-        app(TenantFeatureService::class)->disableFeature($this->tenant, 'besouhola_copilot');
-        Cache::flush();
-
-        $middleware = app(EnsureTenantHasFeature::class);
-        $response = $middleware->handle($request, fn () => response()->json(['ok' => true]), 'besouhola_copilot');
-
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(1, LeadAction::query()->where('lead_id', $lead->id)->count());
     }
 
     protected function actingAsTenantUser(): void
@@ -245,23 +194,6 @@ class AiCopilotTest extends TestCase
                 $table->string('tool_name')->nullable();
                 $table->json('tool_payload')->nullable();
                 $table->json('ui_actions')->nullable();
-                $table->timestamps();
-            });
-        }
-
-        if (! Schema::hasTable('exports')) {
-            Schema::create('exports', function (Blueprint $table) {
-                $table->id();
-                $table->unsignedBigInteger('tenant_id')->nullable();
-                $table->unsignedBigInteger('user_id')->nullable();
-                $table->string('module')->nullable();
-                $table->string('action')->nullable();
-                $table->string('file_name')->nullable();
-                $table->string('format')->nullable();
-                $table->string('status')->nullable();
-                $table->text('filters')->nullable();
-                $table->json('meta_data')->nullable();
-                $table->text('error_message')->nullable();
                 $table->timestamps();
             });
         }

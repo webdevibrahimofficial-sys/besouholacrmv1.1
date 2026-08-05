@@ -15,6 +15,7 @@ class DeviceTokenController extends Controller
             'token' => 'required|string|max:500',
             'platform' => 'nullable|string|in:android,ios',
             'device_name' => 'nullable|string|max:100',
+            'push_provider' => 'nullable|string|in:fcm,hms',
         ]);
 
         $user = $request->user();
@@ -26,6 +27,7 @@ class DeviceTokenController extends Controller
                 'user_id' => $user->id,
                 'platform' => $validated['platform'] ?? null,
                 'device_name' => $validated['device_name'] ?? null,
+                'push_provider' => $validated['push_provider'] ?? 'fcm',
                 'last_used_at' => now(),
             ]
         );

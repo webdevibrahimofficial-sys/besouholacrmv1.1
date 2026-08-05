@@ -61,7 +61,7 @@ class AiCopilotController extends Controller
     public function confirmAction(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'action' => 'required|string|in:create_task_for_lead',
+            'action' => 'required|string|in:create_task_for_lead,create_lead_action,create_lead',
             'payload' => 'required|array',
         ]);
 
@@ -74,3 +74,5 @@ class AiCopilotController extends Controller
         return response()->json(['data' => $result], ($result['ok'] ?? false) ? 200 : 403);
     }
 }
+
+

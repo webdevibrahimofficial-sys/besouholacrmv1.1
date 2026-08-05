@@ -16,7 +16,11 @@ class AiCopilotToolExecutor
     use UserHierarchyTrait;
 
     public function __construct(
-        private readonly AiSystemCatalog $catalog
+        private readonly AiSystemCatalog $catalog,
+        private readonly CopilotLeadDraftService $leadDrafts,
+        private readonly CopilotLeadCreationAdapter $leadCreation,
+        private readonly CopilotLeadActionDraftService $leadActionDrafts,
+        private readonly CopilotLeadActionCreationAdapter $leadActionCreation
     ) {
     }
 
@@ -103,6 +107,42 @@ class AiCopilotToolExecutor
                 ],
             ],
             [
+                'name' => 'create_lead_draft',
+                'description' => 'Draft a lead using the existing lead creation flow, then require confirmation before creation.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string'],
+                        'phone' => ['type' => 'string'],
+                        'email' => ['type' => 'string'],
+                        'source' => ['type' => 'string'],
+                        'company' => ['type' => 'string'],
+                        'campaign' => ['type' => 'string'],
+                        'country' => ['type' => 'string'],
+                        'phone_country' => ['type' => 'string'],
+                        'assigned_to' => ['type' => 'integer'],
+                        'stage_id' => ['type' => 'integer'],
+                    ],
+                ],
+            ],
+            [
+                'name' => 'create_lead_action_draft',
+                'description' => 'Draft a lead action using the same lead action rules, then require confirmation before creation.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'lead_id' => ['type' => 'integer'],
+                        'type' => ['type' => 'string'],
+                        'status' => ['type' => 'string'],
+                        'date' => ['type' => 'string'],
+                        'time' => ['type' => 'string'],
+                        'description' => ['type' => 'string'],
+                        'stage_id' => ['type' => 'integer'],
+                        'next_action_type' => ['type' => 'string'],
+                    ],
+                ],
+            ],
+            [
                 'name' => 'create_task_for_lead',
                 'description' => 'Draft a task for a lead. Requires user confirmation before creation.',
                 'parameters' => [
@@ -130,6 +170,8 @@ class AiCopilotToolExecutor
             'navigate_report' => $this->navigateReport($user, $args),
             'export_report' => $this->exportReport($user, $args),
             'list_delayed_leads' => $this->listDelayedLeads($user, $args),
+            'create_lead_draft' => $this->leadDrafts->build($user, $args),
+            'create_lead_action_draft' => $this->leadActionDrafts->build($user, $args),
             'create_task_for_lead' => $this->draftCreateTask($user, $args),
             default => [
                 'ok' => false,
@@ -140,11 +182,12 @@ class AiCopilotToolExecutor
 
     public function confirm(User $user, string $action, array $payload): array
     {
-        if ($action !== 'create_task_for_lead') {
-            return ['ok' => false, 'message' => 'Unsupported confirmation action.'];
-        }
-
-        return $this->createTaskForLead($user, $payload);
+        return match ($action) {
+            'create_lead' => $this->leadCreation->execute($user, $payload),
+            'create_lead_action' => $this->leadActionCreation->execute($user, $payload),
+            'create_task_for_lead' => $this->createTaskForLead($user, $payload),
+            default => ['ok' => false, 'message' => 'Unsupported confirmation action.'],
+        };
     }
 
     protected function listCapabilities(User $user): array
@@ -154,7 +197,7 @@ class AiCopilotToolExecutor
         return [
             'ok' => true,
             'catalog' => $catalog,
-            'summary' => 'Besouhola Copilot can explain the system, open/export permitted reports, list delayed leads, and draft tasks.',
+            'summary' => 'Besouhola Copilot can explain the system, open/export permitted reports, list delayed leads, and draft leads, lead actions, or tasks.',
         ];
     }
 
@@ -181,7 +224,7 @@ class AiCopilotToolExecutor
         return [
             'ok' => true,
             'topic' => $topic !== '' ? $topic : 'Besouhola Copilot',
-            'explanation' => 'Besouhola Copilot helps with CRM navigation, permission-aware reporting, delayed leads, and task drafting.',
+            'explanation' => 'Besouhola Copilot helps with CRM navigation, permission-aware reporting, delayed leads, lead drafting, lead action drafting, and task drafting.',
             'available_reports' => array_column($catalog['reports'], 'name'),
             'capabilities' => $catalog['capabilities'],
         ];
@@ -408,12 +451,28 @@ class AiCopilotToolExecutor
     {
         $leadId = (int) ($args['lead_id'] ?? 0);
         if ($leadId <= 0) {
-            return ['ok' => false, 'message' => 'lead_id is required.'];
+            return [
+                'ok' => false,
+                'state' => 'needs_input',
+                'resource' => 'task',
+                'requires_confirmation' => false,
+                'missing_fields' => ['lead_id'],
+                'message' => 'lead_id is required.',
+                'ui_actions' => [],
+            ];
         }
 
         $lead = $this->findVisibleLead($user, $leadId);
         if (! $lead) {
-            return ['ok' => false, 'message' => 'Lead not found or not visible to you.'];
+            return [
+                'ok' => false,
+                'state' => 'rejected',
+                'resource' => 'task',
+                'requires_confirmation' => false,
+                'missing_fields' => [],
+                'message' => 'Lead not found or not visible to you.',
+                'ui_actions' => [],
+            ];
         }
 
         $payload = [
@@ -430,9 +489,21 @@ class AiCopilotToolExecutor
 
         return [
             'ok' => true,
+            'state' => 'awaiting_confirmation',
+            'resource' => 'task',
             'requires_confirmation' => true,
+            'missing_fields' => [],
             'message' => 'Task draft ready. Confirm to create it.',
             'payload' => $payload,
+            'summary' => [
+                'lead_id' => $lead->id,
+                'lead_name' => $lead->name,
+                'title' => $payload['title'],
+                'priority' => $payload['priority'],
+                'status' => $payload['status'],
+                'due_date' => $payload['due_date'],
+                'assigned_to' => $payload['assigned_to'],
+            ],
             'ui_actions' => [
                 [
                     'type' => 'confirm_action',
@@ -449,11 +520,27 @@ class AiCopilotToolExecutor
         $leadId = (int) ($payload['lead_id'] ?? 0);
         $lead = $this->findVisibleLead($user, $leadId);
         if (! $lead) {
-            return ['ok' => false, 'message' => 'Lead not found or not visible to you.'];
+            return [
+                'ok' => false,
+                'state' => 'rejected',
+                'resource' => 'task',
+                'requires_confirmation' => false,
+                'missing_fields' => [],
+                'message' => 'Lead not found or not visible to you.',
+                'ui_actions' => [],
+            ];
         }
 
         if (! Schema::hasTable('tasks')) {
-            return ['ok' => false, 'message' => 'Tasks table is unavailable.'];
+            return [
+                'ok' => false,
+                'state' => 'failed',
+                'resource' => 'task',
+                'requires_confirmation' => false,
+                'missing_fields' => [],
+                'message' => 'Tasks table is unavailable.',
+                'ui_actions' => [],
+            ];
         }
 
         Auth::setUser($user);
@@ -473,7 +560,12 @@ class AiCopilotToolExecutor
 
         return [
             'ok' => true,
+            'state' => 'completed',
+            'resource' => 'task',
+            'requires_confirmation' => false,
+            'missing_fields' => [],
             'message' => 'Task created successfully.',
+            'payload' => $payload,
             'task' => [
                 'id' => $task->id,
                 'title' => $task->title,
@@ -543,3 +635,7 @@ class AiCopilotToolExecutor
         }
     }
 }
+
+
+
+

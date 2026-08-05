@@ -1,9 +1,11 @@
-# Flutter FCM Handoff
+# Flutter Mobile Push Handoff
 
 ## Overview
-- Use these endpoints to register and remove mobile FCM tokens per authenticated user.
+- Use these endpoints to register and remove mobile push tokens per authenticated user.
 - Existing web notifications (`database` + `broadcast` + web push) continue to work unchanged.
 - Mobile push is sent automatically when a database notification is created and user notification preferences allow app notifications.
+- Android devices can now register a `push_provider` of either `fcm` or `hms`.
+- iOS devices continue to be delivered through Firebase Admin even if `push_provider` is omitted.
 
 ## Required Headers
 - `Authorization: Bearer {sanctum_token}`
@@ -16,11 +18,16 @@
 ### Request Body
 ```json
 {
-  "token": "FCM_TOKEN",
+  "token": "DEVICE_PUSH_TOKEN",
   "platform": "android",
-  "device_name": "Samsung A52"
+  "device_name": "Huawei P40",
+  "push_provider": "hms"
 }
 ```
+
+### Allowed `push_provider` values
+- `fcm`: Firebase Cloud Messaging
+- `hms`: Huawei Push Kit
 
 ### Success Response
 ```json
@@ -31,7 +38,7 @@
 
 ### When Flutter Should Call
 - right after login
-- whenever Firebase issues a token refresh
+- whenever Firebase or Huawei issues a token refresh
 - whenever the app detects the token changed
 
 ## Delete Device Token
@@ -40,7 +47,7 @@
 ### Request Body
 ```json
 {
-  "token": "FCM_TOKEN"
+  "token": "DEVICE_PUSH_TOKEN"
 }
 ```
 
@@ -72,7 +79,7 @@
 }
 ```
 
-## FCM Payload Shape
+## Mobile Payload Shape
 ```json
 {
   "title": "Lead Assigned",
@@ -86,8 +93,19 @@
 }
 ```
 
+## Routing Rules In Backend
+- if `platform` is `ios`, the notification is sent through Firebase Admin
+- if `push_provider` is `fcm`, the notification is sent through Firebase Admin
+- if `push_provider` is `hms`, the notification is sent through Huawei Push Kit server API
+
+## Required Backend Environment Variables
+- `HUAWEI_PUSH_CLIENT_ID`
+- `HUAWEI_PUSH_CLIENT_SECRET`
+- optional: `HUAWEI_PUSH_OAUTH_URL`
+- optional: `HUAWEI_PUSH_API_BASE_URL`
+
 ## Notes For Flutter
-- all `data` values are strings
+- all `data` values should remain string-safe for navigation logic
 - use `type` and `screen` for navigation decisions
 - use `entity_id` or specific ids such as `lead_id` for detail screens
-- backend currently resolves `X-Tenant-Id` using the tenant slug in middleware, so pass the same tenant slug your app already uses
+- backend resolves `X-Tenant-Id` using the tenant slug in middleware, so pass the same tenant slug your app already uses

@@ -88,7 +88,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
               : [{
                   id: 'welcome',
                   role: 'assistant',
-                  content: 'Besouhola Copilot is ready. Ask about reports, filters, exports, delayed leads, or tasks.',
+                  content: 'Besouhola Copilot is ready. Ask about reports, filters, exports, delayed leads, lead actions, or tasks.',
                   ui_actions: [],
                 }]
           ))
@@ -324,7 +324,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
               <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-2">
                 <textarea
                   className="min-h-[72px] w-full resize-none bg-transparent px-2 pt-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                  placeholder="Ask Copilot about reports, delayed leads, or tasks..."
+                  placeholder="Ask Copilot about reports, delayed leads, lead actions, or tasks..."
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
@@ -353,3 +353,4 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     </div>
   )
 }
+

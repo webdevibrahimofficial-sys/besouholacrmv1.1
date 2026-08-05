@@ -64,6 +64,32 @@ class DeviceTokenControllerTest extends TestCase
             'token' => 'FCM_TOKEN_2',
             'platform' => 'android',
             'device_name' => 'Samsung A52',
+            'push_provider' => 'fcm',
+        ]);
+    }
+
+    public function test_authenticated_user_can_register_huawei_token(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $response = $this
+            ->withHeader('X-Tenant-Id', $this->tenant->slug)
+            ->postJson('/api/device-tokens', [
+                'token' => 'HMS_TOKEN_1',
+                'platform' => 'android',
+                'device_name' => 'Huawei P40',
+                'push_provider' => 'hms',
+            ]);
+
+        $response->assertOk();
+
+        $this->assertDatabaseHas('device_tokens', [
+            'tenant_id' => $this->tenant->id,
+            'user_id' => $this->user->id,
+            'token' => 'HMS_TOKEN_1',
+            'platform' => 'android',
+            'device_name' => 'Huawei P40',
+            'push_provider' => 'hms',
         ]);
     }
 
@@ -77,6 +103,7 @@ class DeviceTokenControllerTest extends TestCase
             'token' => 'FCM_DUPLICATE',
             'platform' => 'android',
             'device_name' => 'Old Device',
+            'push_provider' => 'fcm',
         ]);
 
         $response = $this
@@ -85,6 +112,7 @@ class DeviceTokenControllerTest extends TestCase
                 'token' => 'FCM_DUPLICATE',
                 'platform' => 'ios',
                 'device_name' => 'iPhone 15',
+                'push_provider' => 'hms',
             ]);
 
         $response->assertOk();
@@ -98,6 +126,7 @@ class DeviceTokenControllerTest extends TestCase
             'token' => 'FCM_DUPLICATE',
             'platform' => 'ios',
             'device_name' => 'iPhone 15',
+            'push_provider' => 'hms',
         ]);
     }
 
@@ -109,6 +138,7 @@ class DeviceTokenControllerTest extends TestCase
             'tenant_id' => $this->tenant->id,
             'user_id' => $this->user->id,
             'token' => 'FCM_OWN_TOKEN',
+            'push_provider' => 'fcm',
         ]);
 
         $response = $this
@@ -134,6 +164,7 @@ class DeviceTokenControllerTest extends TestCase
             'tenant_id' => $this->tenant->id,
             'user_id' => $otherUser->id,
             'token' => 'FCM_OTHER_TOKEN',
+            'push_provider' => 'fcm',
         ]);
 
         Sanctum::actingAs($this->user);
@@ -163,6 +194,7 @@ class DeviceTokenControllerTest extends TestCase
             'failures' => 0,
             'invalid_tokens_removed' => 0,
             'invalid_tokens' => [],
+            'providers' => [],
         ];
 
         $mock = Mockery::mock(FcmService::class);
