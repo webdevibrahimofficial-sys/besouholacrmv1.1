@@ -54,10 +54,6 @@ class MeetingActionService
             return 'done';
         }
 
-        if ($doneMeetingValue === false || $doneMeetingValue === 0 || $doneMeetingValue === '0' || $doneMeetingValue === 'false') {
-            return 'no_show';
-        }
-
         return 'scheduled';
     }
 

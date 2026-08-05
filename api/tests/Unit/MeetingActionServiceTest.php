@@ -78,6 +78,13 @@ class MeetingActionServiceTest extends TestCase
         $this->assertSame(2, DB::connection('tenant-dedicated')->table('lead_action_status_audits')->count());
     }
 
+
+    public function test_done_meeting_false_without_explicit_status_defaults_to_scheduled(): void
+    {
+        $this->assertSame('scheduled', $this->service->normalizeMeetingStatus(null, false));
+        $this->assertSame('scheduled', $this->service->normalizeMeetingStatus('', 'false'));
+    }
+
     public function test_get_lead_meeting_counts_returns_live_totals(): void
     {
         $tenant = Tenant::factory()->create();
