@@ -193,11 +193,24 @@ class AiCopilotToolExecutor
     protected function listCapabilities(User $user): array
     {
         $catalog = $this->catalog->forUser($user);
+        $reportNames = collect($catalog['reports'] ?? [])
+            ->pluck('name')
+            ->filter()
+            ->values()
+            ->all();
+
+        $summary = 'Besouhola Copilot can explain the system, open/export permitted reports, list delayed leads, and draft leads, lead actions, or tasks.';
+        if ($reportNames !== []) {
+            $summary .= ' Available reports: '.implode(', ', $reportNames).'.';
+        } else {
+            $summary .= ' No reports are currently available for your permissions.';
+        }
 
         return [
             'ok' => true,
             'catalog' => $catalog,
-            'summary' => 'Besouhola Copilot can explain the system, open/export permitted reports, list delayed leads, and draft leads, lead actions, or tasks.',
+            'reports' => $reportNames,
+            'summary' => $summary,
         ];
     }
 
@@ -438,12 +451,18 @@ class AiCopilotToolExecutor
             'count' => count($items),
             'workflow_key' => $workflow,
             'leads' => $items,
-            'ui_actions' => array_map(fn ($lead) => [
-                'type' => 'lead_card',
-                'lead_id' => $lead['id'],
-                'title' => $lead['name'] ?: ('Lead #'.$lead['id']),
-                'subtitle' => trim(($lead['stage'] ?? '').' · '.($lead['assigned_name'] ?? 'Unassigned')),
-            ], $items),
+            'ui_actions' => array_map(function ($lead) {
+                $title = $lead['name'] ?: ('Lead #'.$lead['id']);
+
+                return [
+                    'type' => 'lead_card',
+                    'lead_id' => $lead['id'],
+                    'title' => $title,
+                    'subtitle' => trim(($lead['stage'] ?? '').' · '.($lead['assigned_name'] ?? 'Unassigned')),
+                    'prompt_message' => 'Give me smart follow-up advice for lead '.$lead['id'],
+                    'prompt_label' => 'ابدأ بـ '.$title,
+                ];
+            }, $items),
         ];
     }
 

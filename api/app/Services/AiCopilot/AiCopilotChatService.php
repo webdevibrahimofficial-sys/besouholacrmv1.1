@@ -33,11 +33,11 @@ class AiCopilotChatService
         $pendingLeadDraft = $this->resolvePendingLeadDraft($conversation);
         $pendingOptionalLeadDraft = $this->resolvePendingOptionalLeadDraft($conversation);
         $optionalStartDraft = $this->shouldStartOptionalLeadDraft($conversation, $message);
-        $adviceReply = $this->handleLeadAdviceIntent($user, $message);
+        $focusReply = $this->handleLeadFocusIntent($user, $conversation, $message);
 
-        if ($adviceReply) {
-            $assistantText = $adviceReply['message'];
-            $uiActions = $adviceReply['ui_actions'] ?? [];
+        if ($focusReply) {
+            $assistantText = $focusReply['message'];
+            $uiActions = $focusReply['ui_actions'] ?? [];
         } else {
             if ($pendingOptionalLeadDraft) {
                 $planned = [
@@ -55,11 +55,16 @@ class AiCopilotChatService
                     'args' => $this->mergePendingLeadDraftArgs($pendingLeadDraft, $message),
                 ];
             } else {
-                $planned = $this->planWithGemini($user, $message);
-                if (! $planned) {
-                    $planned = $this->planWithHeuristics($message);
+                $forcedDelayed = $this->forceDelayedLeadsPlan($message);
+                if ($forcedDelayed) {
+                    $planned = $forcedDelayed;
                 } else {
-                    $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
+                    $planned = $this->planWithGemini($user, $message);
+                    if (! $planned) {
+                        $planned = $this->planWithHeuristics($message);
+                    } else {
+                        $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
+                    }
                 }
             }
 
@@ -144,8 +149,8 @@ class AiCopilotChatService
 
     protected function planWithGemini(User $user, string $message): ?array
     {
-        $apiKey = env('GEMINI_API_KEY');
-        if (! $apiKey) {
+        $apiKey = (string) config('services.gemini.api_key', '');
+        if ($apiKey === '') {
             return null;
         }
 
@@ -162,6 +167,9 @@ Available reports for this user: {$reports}
 Return ONLY JSON:
 {"tool":"tool_name_or_none","args":{},"reply":"optional direct reply if tool is none"}
 
+When the user asks what reports they can open or which reports are available, prefer tool "list_capabilities".
+When the user asks which leads to invest in, delayed leads, or overdue follow-ups, prefer tool "list_delayed_leads".
+When the user is choosing/starting one lead after a delayed-leads list (e.g. "اختار واحد", "ابدأ بيها", "start with one"), do NOT open reports. Prefer tool "none" with a short reply asking them to click a lead card or name the lead id.
 When opening/filtering a report, set args.report to the exact report key from the available list.
 When filtering reports, always put ISO dates in args as date_from and date_to (YYYY-MM-DD).
 If the user writes dates like 1/8/2025 treat them as day/month/year.
@@ -173,7 +181,7 @@ PROMPT;
 
         try {
             $response = Http::timeout(25)
-                ->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}", [
+                ->post($this->geminiGenerateContentUrl($apiKey), [
                     'contents' => [[
                         'role' => 'user',
                         'parts' => [['text' => $prompt]],
@@ -200,17 +208,31 @@ PROMPT;
         }
     }
 
+    protected function forceDelayedLeadsPlan(string $message): ?array
+    {
+        $text = mb_strtolower($message);
+        if (
+            ! preg_match('/(delayed|delay|ديلاي|متأخر)/u', $text)
+            && ! (preg_match('/(استثمر|invest)/u', $text) && preg_match('/(lead|ليد)/u', $text))
+        ) {
+            return null;
+        }
+
+        $workflow = preg_match('/telesales|تيلي/u', $text) ? 'telesales' : 'sales';
+
+        return [
+            'tool' => 'list_delayed_leads',
+            'args' => ['workflow_key' => $workflow, 'limit' => 10],
+        ];
+    }
+
     protected function planWithHeuristics(string $message): array
     {
         $text = mb_strtolower($message);
 
-        if (preg_match('/(delayed|delay|ديلاي|متأخر)/u', $text)) {
-            $workflow = preg_match('/telesales|تيلي/u', $text) ? 'telesales' : 'sales';
-
-            return [
-                'tool' => 'list_delayed_leads',
-                'args' => ['workflow_key' => $workflow, 'limit' => 10],
-            ];
+        $forcedDelayed = $this->forceDelayedLeadsPlan($message);
+        if ($forcedDelayed) {
+            return $forcedDelayed;
         }
 
         if ($this->looksLikeLeadCreationRequest($text)) {
@@ -233,6 +255,13 @@ PROMPT;
                     'lead_id' => (int) $m[1],
                     'title' => 'Follow up delayed lead #'.$m[1],
                 ],
+            ];
+        }
+
+        if (preg_match('/(what (reports|can)|which reports|available reports|ايه التقارير|ما هي التقارير|التقارير المتاحة)/u', $text)) {
+            return [
+                'tool' => 'list_capabilities',
+                'args' => [],
             ];
         }
 
@@ -361,15 +390,38 @@ PROMPT;
 
         return match ($tool) {
             'list_capabilities' => (string) ($result['summary'] ?? 'Here are the available capabilities.'),
-            'explain_feature' => trim(($result['topic'] ?? 'Feature').': '.($result['explanation'] ?? '')),
+            'explain_feature' => $this->composeExplainFeatureReply($result),
             'navigate_report' => $this->composeNavigateReply($result),
             'export_report' => (string) ($result['message'] ?? 'Export is ready.'),
-            'list_delayed_leads' => 'Found '.((int) ($result['count'] ?? 0)).' delayed leads.',
+            'list_delayed_leads' => 'Found '.((int) ($result['count'] ?? 0)).' delayed leads. Click a lead card to start working on it.',
             'create_lead_draft' => (string) ($result['message'] ?? 'Lead draft ready.'),
             'create_lead_action_draft' => (string) ($result['message'] ?? 'Lead action draft ready.'),
             'create_task_for_lead' => (string) ($result['message'] ?? 'Task draft ready.'),
             default => 'Done.',
         };
+    }
+
+    protected function composeExplainFeatureReply(array $result): string
+    {
+        $topic = trim((string) ($result['topic'] ?? 'Feature'));
+        $explanation = trim((string) ($result['explanation'] ?? ''));
+        $reports = collect($result['available_reports'] ?? [])
+            ->filter(fn ($name) => is_string($name) && trim($name) !== '')
+            ->values()
+            ->all();
+
+        $parts = [];
+        if ($explanation !== '') {
+            $parts[] = $topic.': '.$explanation;
+        } else {
+            $parts[] = $topic;
+        }
+
+        if ($reports !== []) {
+            $parts[] = 'Available reports: '.implode(', ', $reports).'.';
+        }
+
+        return trim(implode(' ', $parts));
     }
 
     protected function composeNavigateReply(array $result): string
@@ -697,14 +749,120 @@ PROMPT;
         return $args;
     }
 
-    protected function handleLeadAdviceIntent(User $user, string $message): ?array
+    protected function handleLeadFocusIntent(User $user, ?AiCopilotConversation $conversation, string $message): ?array
     {
-        if (! Schema::hasTable('leads') || ! preg_match('/\b(?:lead)\s+(\d+)\b/i', $message, $match)) {
+        $leadId = $this->extractLeadIdFromMessage($message);
+        $pendingDelayed = $this->resolveLatestDelayedLeads($conversation);
+        $pendingLeads = is_array($pendingDelayed['leads'] ?? null) ? $pendingDelayed['leads'] : [];
+        $wantsFocus = $this->looksLikeLeadFocusRequest($message);
+
+        if ($leadId && $wantsFocus) {
+            return $this->buildLeadFocusReply($user, $leadId);
+        }
+
+        if ($pendingLeads !== [] && $this->looksLikeDelayedLeadSelection($message)) {
+            if ($leadId) {
+                return $this->buildLeadFocusReply($user, $leadId);
+            }
+
+            if (count($pendingLeads) === 1) {
+                return $this->buildLeadFocusReply($user, (int) ($pendingLeads[0]['id'] ?? 0));
+            }
+
+            return $this->buildDelayedLeadChoicePrompt($pendingLeads);
+        }
+
+        // Keep legacy "lead {id} + advice keywords" behavior even without delayed context.
+        if ($leadId && $this->looksLikeLeadAdviceRequest($message)) {
+            return $this->buildLeadFocusReply($user, $leadId);
+        }
+
+        return null;
+    }
+
+    protected function extractLeadIdFromMessage(string $message): ?int
+    {
+        if (preg_match('/(?:\blead\s*#?\s*|#\s*)(\d+)\b/iu', $message, $match)) {
+            $leadId = (int) $match[1];
+
+            return $leadId > 0 ? $leadId : null;
+        }
+
+        if (preg_match('/(?:ليد|الليد)\s*(?:رقم|#)?\s*(\d+)/u', $message, $match)) {
+            $leadId = (int) $match[1];
+
+            return $leadId > 0 ? $leadId : null;
+        }
+
+        return null;
+    }
+
+    protected function looksLikeLeadFocusRequest(string $message): bool
+    {
+        return $this->looksLikeLeadAdviceRequest($message)
+            || $this->looksLikeDelayedLeadSelection($message);
+    }
+
+    protected function looksLikeLeadAdviceRequest(string $message): bool
+    {
+        $normalized = mb_strtolower($message);
+
+        return (bool) preg_match(
+            '/(suggest|best fit|best item|best project|recommend|tips|advice|follow[ -_]?up|نصيحة|متابعة|smart follow-up)/iu',
+            $normalized
+        );
+    }
+
+    protected function looksLikeDelayedLeadSelection(string $message): bool
+    {
+        $normalized = mb_strtolower($message);
+
+        return (bool) preg_match(
+            '/(اختار|اختر|ابدأ|ابدا|start with|choose one|pick one|work on|focus on|استثمر|invest)/iu',
+            $normalized
+        );
+    }
+
+    protected function resolveLatestDelayedLeads(?AiCopilotConversation $conversation): ?array
+    {
+        if (! $conversation || ! Schema::hasTable('ai_copilot_messages')) {
             return null;
         }
 
-        $leadId = (int) $match[1];
-        if ($leadId <= 0) {
+        $message = AiCopilotMessage::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('tool_name', 'list_delayed_leads')
+            ->latest('id')
+            ->first();
+
+        return is_array($message?->tool_payload) ? $message->tool_payload : null;
+    }
+
+    protected function buildDelayedLeadChoicePrompt(array $leads): array
+    {
+        $uiActions = array_map(function ($lead) {
+            $id = (int) ($lead['id'] ?? 0);
+            $title = ($lead['name'] ?? '') !== '' ? (string) $lead['name'] : ('Lead #'.$id);
+
+            return [
+                'type' => 'lead_card',
+                'lead_id' => $id,
+                'title' => $title,
+                'subtitle' => trim(($lead['stage'] ?? '').' · '.($lead['assigned_name'] ?? 'Unassigned')),
+                'prompt_message' => 'Give me smart follow-up advice for lead '.$id,
+                'prompt_label' => 'ابدأ بـ '.$title,
+            ];
+        }, array_values(array_filter($leads, fn ($lead) => (int) ($lead['id'] ?? 0) > 0)));
+
+        return [
+            'message' => 'تمام — اختار ليد من الكروت تحت عشان أديك نصيحة متابعة وأفتحه معاك.',
+            'ui_actions' => $uiActions,
+        ];
+    }
+
+    protected function buildLeadFocusReply(User $user, int $leadId): ?array
+    {
+        if ($leadId <= 0 || ! Schema::hasTable('leads')) {
             return null;
         }
 
@@ -720,13 +878,6 @@ PROMPT;
             ];
         }
 
-        $normalized = mb_strtolower($message);
-        if (
-            ! preg_match('/(suggest|best fit|best item|best project|recommend|tips|advice|follow up|follow\\-up)/i', $normalized)
-        ) {
-            return null;
-        }
-
         $tenant = Tenant::find($user->tenant_id);
         $companyType = strtolower(trim((string) ($tenant?->company_type ?? 'general')));
         $isGeneral = $companyType === 'general';
@@ -737,6 +888,7 @@ PROMPT;
         $choiceLabel = $isGeneral ? 'item' : 'project';
         $suggestions = collect($choices)->map(fn ($choice) => '#'.$choice->id.' '.$choice->name)->values()->all();
         $advice = $this->generateLeadAdviceText($lead, $suggestions, $choiceLabel);
+        $title = $lead->name ?: ('Lead #'.$lead->id);
 
         return [
             'message' => $advice,
@@ -746,6 +898,18 @@ PROMPT;
                     'path' => '/leads/'.$lead->id,
                     'label' => 'Open lead',
                 ],
+                [
+                    'type' => 'prompt_message',
+                    'message' => 'Create a follow-up action for lead '.$lead->id,
+                    'display_text' => 'اعمل أكشن متابعة لـ '.$title,
+                    'label' => 'Create follow-up action',
+                ],
+                [
+                    'type' => 'prompt_message',
+                    'message' => 'Create a task for lead '.$lead->id,
+                    'display_text' => 'اعمل تاسك لـ '.$title,
+                    'label' => 'Create task',
+                ],
             ],
         ];
     }
@@ -753,9 +917,9 @@ PROMPT;
     protected function generateLeadAdviceText(Lead $lead, array $suggestions, string $choiceLabel): string
     {
         $fallback = $this->buildFallbackLeadAdvice($lead, $suggestions, $choiceLabel);
-        $apiKey = env('GEMINI_API_KEY');
+        $apiKey = (string) config('services.gemini.api_key', '');
 
-        if (! $apiKey) {
+        if ($apiKey === '') {
             return $fallback;
         }
 
@@ -782,7 +946,7 @@ PROMPT;
 
         try {
             $response = Http::timeout(25)
-                ->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}", [
+                ->post($this->geminiGenerateContentUrl($apiKey), [
                     'contents' => [[
                         'role' => 'user',
                         'parts' => [['text' => $prompt]],
@@ -799,6 +963,19 @@ PROMPT;
         } catch (\Throwable) {
             return $fallback;
         }
+    }
+
+    protected function geminiGenerateContentUrl(string $apiKey): string
+    {
+        $model = trim((string) config('services.gemini.model', 'gemini-3.6-flash'));
+        if ($model === '') {
+            $model = 'gemini-3.6-flash';
+        }
+
+        return 'https://generativelanguage.googleapis.com/v1beta/models/'
+            .rawurlencode($model)
+            .':generateContent?key='
+            .urlencode($apiKey);
     }
 
     protected function buildFallbackLeadAdvice(Lead $lead, array $suggestions, string $choiceLabel): string

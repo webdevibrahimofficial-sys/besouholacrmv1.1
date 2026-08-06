@@ -3,10 +3,22 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 
 class GeminiController extends Controller
 {
+    protected function geminiGenerateContentUrl(string $key): string
+    {
+        $model = trim((string) config('services.gemini.model', 'gemini-3.6-flash'));
+        if ($model === '') {
+            $model = 'gemini-3.6-flash';
+        }
+
+        return 'https://generativelanguage.googleapis.com/v1beta/models/'
+            .rawurlencode($model)
+            .':generateContent?key='
+            .urlencode($key);
+    }
+
     protected function computeLocalSuggestions(?string $name, ?string $nameAr): array
     {
         $icons = ['🆕','🎯','⏳','✅','❌','📊','💼','🤝','🔁','📞','💬','🏆','🗂️','🗓️','💰','🔥','🧊'];
@@ -41,14 +53,14 @@ class GeminiController extends Controller
             return response()->json(['error' => 'missing_name'], 400);
         }
 
-        $key = env('GEMINI_API_KEY');
-        if (!$key) {
+        $key = (string) config('services.gemini.api_key', '');
+        if ($key === '') {
             return response()->json(['icons' => $this->computeLocalSuggestions($name, $nameAr), 'hint' => 'fallback_local']);
         }
 
         $prompt = 'You are helping pick emoji icons for CRM pipeline stage labels. Given English and/or Arabic stage names, suggest up to 10 suitable emoji characters for UI labels. Respond ONLY with JSON: {"icons":["emoji1","emoji2",...]}.';
         $client = new \GuzzleHttp\Client(['http_errors' => false, 'timeout' => 20]);
-        $r = $client->request('POST', "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$key}", [
+        $r = $client->request('POST', $this->geminiGenerateContentUrl($key), [
             'headers' => ['Content-Type' => 'application/json'],
             'json' => [
                 'contents' => [[ 'role' => 'user', 'parts' => [[ 'text' => $prompt."\n\nInput: \"".trim(($name ?? '').' '.($nameAr ?? ''))."\"" ]] ]]
@@ -80,14 +92,14 @@ class GeminiController extends Controller
             return response()->json(['error' => 'missing_name'], 400);
         }
 
-        $key = env('GEMINI_API_KEY');
-        if (!$key) {
+        $key = (string) config('services.gemini.api_key', '');
+        if ($key === '') {
             return response()->json(['error' => 'gemini_unavailable'], 400);
         }
 
         $prompt = 'You are helping pick ONE emoji icon for a CRM pipeline stage label. Respond ONLY with JSON {"icon":"EMOJI"}.';
         $client = new \GuzzleHttp\Client(['http_errors' => false, 'timeout' => 20]);
-        $r = $client->request('POST', "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$key}", [
+        $r = $client->request('POST', $this->geminiGenerateContentUrl($key), [
             'headers' => ['Content-Type' => 'application/json', 'x-goog-api-key' => $key],
             'json' => [
                 'contents' => [[ 'role' => 'user', 'parts' => [[ 'text' => $prompt."\n\nInput: \"".trim(($name ?? '').' '.($nameAr ?? ''))."\"" ]] ]]

@@ -57,6 +57,12 @@ return [
         'oauth_minimal_scopes' => env('META_OAUTH_MINIMAL_SCOPES', false),
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        // gemini-1.5-flash is shut down; keep this overridable for future model moves.
+        'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
+    ],
+
     'whatsapp' => [
         'webhook_verify_token' => env('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
         'oauth_enabled' => filter_var(env('WHATSAPP_OAUTH_ENABLED', false), FILTER_VALIDATE_BOOL),

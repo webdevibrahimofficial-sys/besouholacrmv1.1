@@ -111,14 +111,28 @@ function ActionButtons({ actions, onConfirm, confirmingKey, onNavigate, onPrompt
 
         if (action.type === 'lead_card') {
           return (
-            <div
+            <button
               key={key}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+              type="button"
+              disabled={sending}
+              onClick={() =>
+                onPrompt({
+                  message:
+                    action.prompt_message ||
+                    `Give me smart follow-up advice for lead ${action.lead_id}`,
+                  display_text: action.prompt_label || action.title,
+                  label: action.prompt_label || `ابدأ بـ ${action.title}`,
+                })
+              }
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-700 transition hover:border-violet-300 hover:bg-violet-50 disabled:opacity-60"
             >
               <div className="font-semibold">{action.title}</div>
               <div className="text-slate-500">{action.subtitle}</div>
-              <div className="mt-1 text-[11px] text-slate-400">Lead #{action.lead_id}</div>
-            </div>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-400">Lead #{action.lead_id}</span>
+                <span className="text-[11px] font-semibold text-violet-600">اضغط للبدء</span>
+              </div>
+            </button>
           )
         }
 
