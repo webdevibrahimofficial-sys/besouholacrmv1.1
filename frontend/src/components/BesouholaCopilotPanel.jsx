@@ -307,9 +307,10 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
         const selected = (field.options || []).find((option) => String(option.value) === String(value))
         if (field.name === 'source') {
           lines.push(`source: ${selected?.label || value}`)
-        } else if (field.name.endsWith('_id')) {
-          const plainName = field.name.replace(/_id$/, '')
-          lines.push(`${plainName}: ${value}`)
+        } else if (field.name === 'assigned_to' || field.name.endsWith('_id')) {
+          // Always send the option value (user/item/project id), not the display label.
+          const key = field.name.endsWith('_id') ? field.name.replace(/_id$/, '') : field.name
+          lines.push(`${key}: ${value}`)
         } else {
           lines.push(`${field.name}: ${selected?.label || value}`)
         }
@@ -319,8 +320,8 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
       lines.push(`${field.name}: ${value}`)
     })
 
-    const outgoing = lines.join('\\n').trim()
-    await sendMessage(outgoing, action?.label || outgoing)
+    const outgoing = lines.join('\n').trim()
+    await sendMessage(outgoing, action?.label || 'Continue')
   }
 
   const handleConfirm = async (action, key) => {

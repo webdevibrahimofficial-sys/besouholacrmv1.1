@@ -401,6 +401,7 @@ PROMPT;
     protected function guessLeadArgs(string $message): array
     {
         $args = [];
+        $message = $this->normalizeLeadMessageNewlines($message);
         $normalized = preg_replace('/\s+/u', ' ', trim($message)) ?? trim($message);
 
         if (preg_match('/(?:^|\s)name\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:phone|mobile|email|source|item|project|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
@@ -429,6 +430,11 @@ PROMPT;
 
         if (preg_match('/(?:^|\s)assigned[_ ]to\s*[:\-]?\s*(\d+)/iu', $normalized, $match)) {
             $args['assigned_to'] = (int) $match[1];
+        } elseif (preg_match('/(?:^|\s)assigned[_ ]to\s*[:\-]?\s*([^\n\r]+?)(?=\s+(?:phone|mobile|email|source|item|project|name|secondary[_ ]phone|estimated[_ ]value)\b|$)/iu', $normalized, $match)) {
+            $candidate = trim($match[1]);
+            if ($candidate !== '') {
+                $args['assigned_to_name'] = $candidate;
+            }
         }
 
         if (preg_match('/(?:^|\s)item\s*(?:id)?\s*[:\-]?\s*(\d+)(?=\s+(?:project|phone|mobile|email|source|name|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\b|$)/iu', $normalized, $match)) {
@@ -560,7 +566,7 @@ PROMPT;
         }
 
         $guessed = $this->guessLeadArgs($message);
-        if (($payload['name'] ?? null) && ! preg_match('/(?:^|\\s)(?:name|\\x{0627}\\x{0633}\\x{0645}|\\x{0628}\\x{0627}\\x{0633}\\x{0645})\\s*[:\\-]/iu', $message)) {
+        if (($payload['name'] ?? null) && ! preg_match('/(?:^|\s)(?:name|\x{0627}\x{0633}\x{0645}|\x{0628}\x{0627}\x{0633}\x{0645})\s*[:\-]/iu', $message)) {
             unset($guessed['name']);
         }
         if ($this->hasNoDirectLeadFieldGuess(array_merge($payload, $guessed), $payload)) {
@@ -572,9 +578,17 @@ PROMPT;
             'copilot_optional_step' => $step,
         ]);
     }
+
+    protected function normalizeLeadMessageNewlines(string $message): string
+    {
+        // Older clients accidentally joined form fields with the literal characters "\n".
+        return str_replace(["\\r\\n", "\\n", "\\r"], ["\n", "\n", "\n"], $message);
+    }
+
     protected function mergePendingLeadDraftArgs(array $pendingDraft, string $message): array
     {
         $payload = is_array($pendingDraft['payload'] ?? null) ? $pendingDraft['payload'] : [];
+        $message = $this->normalizeLeadMessageNewlines($message);
         $merged = array_merge($payload, $this->guessLeadArgs($message));
         $missingFields = array_values(array_filter($pendingDraft['missing_fields'] ?? [], fn ($field) => is_string($field)));
         $rawLines = preg_split('/\r\n|\r|\n/u', trim($message)) ?: [];
@@ -595,7 +609,7 @@ PROMPT;
 
     protected function hasNoDirectLeadFieldGuess(array $merged, array $originalPayload): bool
     {
-        foreach (['name', 'phone', 'email', 'source', 'item', 'item_id', 'project', 'project_id', 'secondary_phone', 'estimated_value', 'assigned_to'] as $field) {
+        foreach (['name', 'phone', 'email', 'source', 'item', 'item_id', 'project', 'project_id', 'secondary_phone', 'estimated_value', 'assigned_to', 'assigned_to_name'] as $field) {
             if (($merged[$field] ?? null) !== ($originalPayload[$field] ?? null) && filled($merged[$field] ?? null)) {
                 return false;
             }
@@ -611,6 +625,11 @@ PROMPT;
             return $payload;
         }
 
+        // Form submissions arrive as "assigned_to: 12" (or similar). Strip the label prefix.
+        if (preg_match('/^(?:name|phone|mobile|email|source|item|project|secondary[_ ]phone|estimated[_ ]value|assigned[_ ]to)\s*[:\-]\s*(.+)$/iu', $value, $match)) {
+            $value = trim($match[1]);
+        }
+
         return match ($field) {
             'item' => preg_match('/^\d+$/', $value)
                 ? array_merge($payload, ['item_id' => (int) $value])
@@ -620,7 +639,7 @@ PROMPT;
                 : array_merge($payload, ['project' => $value]),
             'assigned_to' => preg_match('/^\d+$/', $value)
                 ? array_merge($payload, ['assigned_to' => (int) $value])
-                : $payload,
+                : array_merge($payload, ['assigned_to_name' => $value]),
             'estimated_value' => array_merge($payload, ['estimated_value' => $value]),
             'secondary_phone' => array_merge($payload, ['secondary_phone' => $value]),
             default => array_merge($payload, [$field => $value]),

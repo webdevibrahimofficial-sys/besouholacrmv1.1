@@ -28,6 +28,7 @@ class CopilotLeadDraftService
         $projectInput = trim((string) ($args['project'] ?? ''));
         $itemId = isset($args['item_id']) ? (int) $args['item_id'] : null;
         $projectId = isset($args['project_id']) ? (int) $args['project_id'] : null;
+        $assignedToId = $this->resolveAssigneeId($tenantId, $args);
 
         if ($isGeneral && ! $itemId && $itemInput !== '') {
             $itemId = Item::query()
@@ -51,7 +52,7 @@ class CopilotLeadDraftService
             'campaign' => isset($args['campaign']) ? trim((string) $args['campaign']) : null,
             'country' => isset($args['country']) ? trim((string) $args['country']) : null,
             'phone_country' => isset($args['phone_country']) ? trim((string) $args['phone_country']) : null,
-            'assigned_to' => isset($args['assigned_to']) ? (int) $args['assigned_to'] : null,
+            'assigned_to' => $assignedToId ?: null,
             'stage_id' => isset($args['stage_id']) ? (int) $args['stage_id'] : null,
             'estimated_value' => isset($args['estimated_value']) ? $args['estimated_value'] : null,
             'secondary_phone' => isset($args['secondary_phone']) ? trim((string) $args['secondary_phone']) : null,
@@ -171,7 +172,7 @@ class CopilotLeadDraftService
 
         if ($optionalFlow === 'continue' && in_array($optionalStep, self::OPTIONAL_STEPS, true)) {
             if (! $optionalSkip) {
-                $payload = $this->applyOptionalStepPayload($payload, $optionalStep, $args);
+                $payload = $this->applyOptionalStepPayload($tenantId, $payload, $optionalStep, $args);
             }
 
             $nextStep = $this->nextOptionalStep($optionalStep);
@@ -300,7 +301,7 @@ class CopilotLeadDraftService
         ];
     }
 
-    protected function applyOptionalStepPayload(array $payload, string $step, array $args): array
+    protected function applyOptionalStepPayload(int $tenantId, array $payload, string $step, array $args): array
     {
         return match ($step) {
             'secondary_phone' => array_merge($payload, array_filter([
@@ -310,10 +311,45 @@ class CopilotLeadDraftService
                 'estimated_value' => trim((string) ($args['estimated_value'] ?? '')) ?: null,
             ], fn ($value) => $value !== null && $value !== '')),
             'assigned_to' => array_merge($payload, array_filter([
-                'assigned_to' => isset($args['assigned_to']) && $args['assigned_to'] !== '' ? (int) $args['assigned_to'] : null,
+                'assigned_to' => $this->resolveAssigneeId($tenantId, array_merge($payload, $args)),
             ], fn ($value) => $value !== null && $value !== '')),
             default => $payload,
         };
+    }
+
+    protected function resolveAssigneeId(int $tenantId, array $args): ?int
+    {
+        $rawAssignedTo = $args['assigned_to'] ?? null;
+        $assignedToName = trim((string) ($args['assigned_to_name'] ?? ''));
+
+        if (is_string($rawAssignedTo)) {
+            $rawAssignedTo = trim($rawAssignedTo);
+            if ($rawAssignedTo !== '' && ! preg_match('/^\d+$/', $rawAssignedTo) && $assignedToName === '') {
+                $assignedToName = $rawAssignedTo;
+                $rawAssignedTo = null;
+            }
+        }
+
+        if ($rawAssignedTo !== null && $rawAssignedTo !== '' && (int) $rawAssignedTo > 0) {
+            $candidateId = (int) $rawAssignedTo;
+            $exists = User::query()
+                ->where('tenant_id', $tenantId)
+                ->where('id', $candidateId)
+                ->exists();
+
+            return $exists ? $candidateId : null;
+        }
+
+        if ($assignedToName === '' || $tenantId <= 0) {
+            return null;
+        }
+
+        $resolvedId = User::query()
+            ->where('tenant_id', $tenantId)
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($assignedToName, 'UTF-8')])
+            ->value('id');
+
+        return $resolvedId ? (int) $resolvedId : null;
     }
 
     protected function nextOptionalStep(string $step): ?string
