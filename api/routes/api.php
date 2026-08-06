@@ -712,6 +712,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
         Route::get('/dashboard-data/recent-phone-calls', [ActivityLogController::class , 'recentPhoneCalls']);
         Route::get('/dashboard-data/sales-to-telesales-transfers', [ActivityLogController::class , 'salesToTelesalesTransfers']);
         Route::get('/dashboard-data/active-users', [ActivityLogController::class , 'activeUsers']);
+        Route::get('/dashboard-data/avg-response-time', [ActivityLogController::class , 'avgResponseTime']);
 
         // Dynamic Fields Routes
         Route::prefix('admin')->group(function () {

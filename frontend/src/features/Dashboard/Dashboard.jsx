@@ -315,6 +315,12 @@ export const Dashboard = () => {
     (isTeamLeader && !effectiveEmployeeId) ? Number(user?.id || 0) : undefined
   ), [isTeamLeader, effectiveEmployeeId, user?.id]);
   const [activeUsersData, setActiveUsersData] = useState([]);
+  const [avgResponseTimeData, setAvgResponseTimeData] = useState({
+    avg_minutes: null,
+    responded_leads_count: 0,
+    unresponded_leads_count: 0,
+    total_assigned_leads_count: 0,
+  });
 
   useEffect(() => {
     if (!canLoadDashboardData) return;
@@ -387,6 +393,45 @@ export const Dashboard = () => {
     fetchSalesToTelesalesTransfers();
     return () => { cancelled = true; };
   }, [canLoadDashboardData, dashboardEmployeeIds, dashboardManagerId, dateFrom, dateTo, refreshTrigger]);
+
+  useEffect(() => {
+    if (!canLoadDashboardData) return;
+    let cancelled = false;
+
+    const fetchAvgResponseTime = async () => {
+      try {
+        const params = {
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+          assigned_to: (selectedEmployee || '').trim() || undefined,
+          manager_id: (selectedManager || '').trim() || undefined,
+          _t: Date.now(),
+        };
+        const { data } = await axios.get('/api/dashboard-data/avg-response-time', { params });
+        if (!cancelled) {
+          setAvgResponseTimeData({
+            avg_minutes: typeof data?.avg_minutes === 'number' ? data.avg_minutes : null,
+            responded_leads_count: Number(data?.responded_leads_count || 0),
+            unresponded_leads_count: Number(data?.unresponded_leads_count || 0),
+            total_assigned_leads_count: Number(data?.total_assigned_leads_count || 0),
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch avg response time', error);
+        if (!cancelled) {
+          setAvgResponseTimeData({
+            avg_minutes: null,
+            responded_leads_count: 0,
+            unresponded_leads_count: 0,
+            total_assigned_leads_count: 0,
+          });
+        }
+      }
+    };
+
+    fetchAvgResponseTime();
+    return () => { cancelled = true; };
+  }, [canLoadDashboardData, dateFrom, dateTo, selectedEmployee, selectedManager, refreshTrigger]);
 
   // Load pipeline stages with colors/icons from Settings
   const defaultIconForName = (name) => {
@@ -716,6 +761,26 @@ export const Dashboard = () => {
   const leadsStats = leadsStatsData;
   const conversionRatePct = leadsStats.total > 0 ? ((Number(leadsStats.closedDeals || 0) / leadsStats.total) * 100) : 0;
   const hotLeadsPct = leadsStats.total > 0 ? ((Number(leadsStats.hotCount || leadsStats.byStage?.hot || 0) / leadsStats.total) * 100) : 0;
+  const formatAvgResponseTime = (minutes) => {
+    if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) return '-';
+    if (minutes < 60) {
+      return i18n.language === 'ar' ? `${minutes} دقيقة` : `${minutes} min`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (remainingMinutes === 0) {
+      return i18n.language === 'ar' ? `${hours} ساعة` : `${hours}h`;
+    }
+    return i18n.language === 'ar'
+      ? `${hours} ساعة ${remainingMinutes} دقيقة`
+      : `${hours}h ${remainingMinutes}m`;
+  };
+  const avgResponseTimeValue = formatAvgResponseTime(avgResponseTimeData.avg_minutes);
+  const avgResponseTimeChange = avgResponseTimeData.responded_leads_count > 0
+    ? (i18n.language === 'ar'
+      ? `${avgResponseTimeData.responded_leads_count} ليد`
+      : `${avgResponseTimeData.responded_leads_count} leads`)
+    : '-';
 
   const buildLeadsStageLink = (stageKey) => {
     const params = new URLSearchParams();
@@ -1350,8 +1415,8 @@ export const Dashboard = () => {
                 <div className={`p-3 rounded-lg bg-white border border-gray-200 shadow-sm`}>
                   <LeadsStatsCard
                     title={t('Avg Response Time')}
-                    value="-"
-                    change="-"
+                    value={avgResponseTimeValue}
+                    change={avgResponseTimeChange}
                     changeType="neutral"
                     icon={<Timer className="w-5 h-5" />}
                     color="bg-purple-500"

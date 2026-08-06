@@ -1279,6 +1279,135 @@ class ActivityLogController extends Controller
         return response()->json($data);
     }
 
+    public function avgResponseTime(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            abort(401, 'Unauthorized');
+        }
+
+        $tenantId = (int) $user->tenant_id;
+        $managerId = $request->input('manager_id');
+        $assignedTo = $request->input('assigned_to');
+        $rangeFrom = $request->input('date_from');
+        $rangeTo = $request->input('date_to');
+
+        try {
+            $assignedFrom = $rangeFrom
+                ? \Carbon\Carbon::parse($rangeFrom)->startOfDay()
+                : now()->startOfDay();
+        } catch (\Throwable $e) {
+            $assignedFrom = now()->startOfDay();
+        }
+
+        try {
+            $assignedToDate = $rangeTo
+                ? \Carbon\Carbon::parse($rangeTo)->endOfDay()
+                : ($rangeFrom ? $assignedFrom->copy()->endOfDay() : now()->endOfDay());
+        } catch (\Throwable $e) {
+            $assignedToDate = $assignedFrom->copy()->endOfDay();
+        }
+
+        if (!$rangeFrom && $rangeTo) {
+            $assignedFrom = $assignedToDate->copy()->startOfDay();
+        }
+
+        $ids = [];
+        $roles = $user->getRoleNames()->map(fn($r) => strtolower($r))->toArray();
+        $roleLower = strtolower($user->role ?? '');
+        $isSalesPerson = str_contains($roleLower, 'sales person')
+            || str_contains($roleLower, 'salesperson')
+            || in_array('sales person', $roles, true)
+            || in_array('salesperson', $roles, true);
+        $isTeamLeader = str_contains($roleLower, 'team leader') || in_array('team leader', $roles, true);
+        $shouldFilter = false;
+
+        if (!empty($assignedTo)) {
+            $ids = [(int) $assignedTo];
+            $shouldFilter = true;
+        } elseif ($isSalesPerson) {
+            $ids = [(int) $user->id];
+            $shouldFilter = true;
+        } elseif ($isTeamLeader) {
+            $ids = $this->collectSubordinatesIds($user);
+            $ids[] = (int) $user->id;
+            $shouldFilter = true;
+        } elseif (!empty($managerId)) {
+            $root = User::where('tenant_id', $tenantId)->find($managerId);
+            if ($root) {
+                $ids = $this->collectSubordinatesIds($root);
+                $ids[] = (int) $root->id;
+                $shouldFilter = true;
+            }
+        }
+
+        $query = Lead::query()
+            ->where('tenant_id', $tenantId)
+            ->whereNotNull('assigned_to')
+            ->whereNotNull('assigned_at')
+            ->whereBetween('assigned_at', [$assignedFrom, $assignedToDate]);
+
+        $this->applyGeneralDashboardLeadWorkflowScope($query, 'workflow_key');
+
+        if ($shouldFilter && !empty($ids)) {
+            $query->whereIn('assigned_to', array_values(array_unique(array_map('intval', $ids))));
+        }
+
+        $query->select([
+            'id',
+            'assigned_to',
+            'assigned_at',
+        ]);
+
+        $query->selectSub(function ($subQuery) use ($tenantId) {
+            $subQuery->from('lead_actions')
+                ->selectRaw('MIN(created_at)')
+                ->whereColumn('lead_actions.lead_id', 'leads.id')
+                ->whereColumn('lead_actions.user_id', 'leads.assigned_to')
+                ->whereColumn('lead_actions.created_at', '>=', 'leads.assigned_at')
+                ->where('lead_actions.tenant_id', $tenantId);
+        }, 'first_action_at');
+
+        $leads = $query->get();
+
+        $respondedLeads = $leads->filter(function ($lead) {
+            return !empty($lead->first_action_at) && !empty($lead->assigned_at);
+        });
+
+        $responseMinutes = $respondedLeads
+            ->map(function ($lead) {
+                try {
+                    $assignedAt = $lead->assigned_at instanceof \Carbon\Carbon
+                        ? $lead->assigned_at
+                        : \Carbon\Carbon::parse($lead->assigned_at);
+                    $firstActionAt = $lead->first_action_at instanceof \Carbon\Carbon
+                        ? $lead->first_action_at
+                        : \Carbon\Carbon::parse($lead->first_action_at);
+
+                    return max(0, $assignedAt->diffInMinutes($firstActionAt));
+                } catch (\Throwable $e) {
+                    return null;
+                }
+            })
+            ->filter(fn ($minutes) => $minutes !== null)
+            ->values();
+
+        $avgMinutes = $responseMinutes->isNotEmpty()
+            ? (int) round($responseMinutes->avg())
+            : null;
+
+        return response()->json([
+            'avg_minutes' => $avgMinutes,
+            'responded_leads_count' => $responseMinutes->count(),
+            'unresponded_leads_count' => max(0, $leads->count() - $responseMinutes->count()),
+            'total_assigned_leads_count' => $leads->count(),
+            'range' => [
+                'from' => $assignedFrom->toDateString(),
+                'to' => $assignedToDate->toDateString(),
+            ],
+        ]);
+    }
+
     protected function userMorphTypes(): array
     {
         return [
