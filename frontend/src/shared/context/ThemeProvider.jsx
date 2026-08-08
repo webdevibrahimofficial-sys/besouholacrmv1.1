@@ -24,13 +24,15 @@ function readSavedTheme() {
     if (prefsRaw) {
       const prefs = JSON.parse(prefsRaw)
       if (prefs?.theme === 'light' || prefs?.theme === 'dark' || prefs?.theme === 'auto') {
-        return prefs.theme
+        return { theme: prefs.theme, source: 'storage' }
       }
     }
     const saved = localStorage.getItem('theme')
-    if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved
+    if (saved === 'light' || saved === 'dark' || saved === 'auto') {
+      return { theme: saved, source: 'storage' }
+    }
   } catch {}
-  return 'light'
+  return { theme: 'light', source: 'default' }
 }
 
 // ─── helper: تطبيق الوضع الفعلي على <html> ────────────────────────────────────
@@ -74,9 +76,11 @@ export const ThemeProvider = ({ children }) => {
   const [crmTimeZone, setCrmTimeZone] = useState(
     () => getStoredCrmTimeZone() || DEFAULT_CRM_TIMEZONE,
   )
-  const [theme, setThemeState] = useState(() => readSavedTheme())
+  const initialTheme = readSavedTheme()
+  const [theme, setThemeState] = useState(() => initialTheme.theme)
+  const [themeSource, setThemeSource] = useState(() => initialTheme.source)
   const [resolvedTheme, setResolvedTheme] = useState(() => {
-    const saved = readSavedTheme()
+    const saved = initialTheme.theme
     if (saved === 'auto') {
       return resolveAutoModeByTime(getStoredCrmTimeZone() || DEFAULT_CRM_TIMEZONE)
     }
@@ -90,6 +94,7 @@ export const ThemeProvider = ({ children }) => {
     const normalized = String(val).toLowerCase()
     if (normalized !== 'light' && normalized !== 'dark' && normalized !== 'auto') return
     setThemeState(normalized)
+    setThemeSource('manual')
     persistThemeToBackend(normalized)
   }, [])
 
@@ -152,10 +157,11 @@ export const ThemeProvider = ({ children }) => {
   const syncThemeFromUser = useCallback((userThemeMode) => {
     if (!userThemeMode) return
     const normalized = String(userThemeMode).toLowerCase()
-    if (normalized === 'light' || normalized === 'dark' || normalized === 'auto') {
-      setThemeState(normalized)
-    }
-  }, [])
+    if (normalized !== 'light' && normalized !== 'dark' && normalized !== 'auto') return
+    if (themeSource === 'manual' || themeSource === 'storage') return
+    setThemeState(normalized)
+    setThemeSource('server')
+  }, [themeSource])
 
   // ─── مزامنة timezone من CRM Settings (يُستدعى من AppStateProvider) ─────────
   const syncCrmTimezone = useCallback((timezone) => {

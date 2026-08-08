@@ -12,7 +12,7 @@ export const COPILOT_REPORT_CATALOG = [
     path: '/reports/sales/activities',
   },
   {
-    key: 'sales_to_telesales',
+    key: 'sales_to_telesales_transfers',
     name: 'Leads To Telesales',
     permission: 'Leads Pipeline',
     path: '/reports/sales/to-telesales',
@@ -83,40 +83,5 @@ export const COPILOT_REPORT_CATALOG = [
     permission: 'Exports Report',
     path: '/reports/sales/exports',
   },
-  {
-    key: 'sales_overview',
-    name: 'Sales Report',
-    permission: 'Sales Activities',
-    path: '/reports/sales',
-  },
-  {
-    key: 'leads_report',
-    name: 'Leads Report',
-    permission: 'Leads Pipeline',
-    path: '/reports/leads',
-  },
-  {
-    key: 'team_performance',
-    name: 'Team Performance',
-    permission: 'Sales Activities',
-    path: '/reports/team',
-  },
-  {
-    key: 'campaign_duration',
-    name: 'Campaign Duration',
-    permission: 'Sales Activities',
-    path: '/reports/marketing/analysis/duration',
-  },
-  {
-    key: 'campaign_ab',
-    name: 'AB Campaign Comparison',
-    permission: 'Sales Activities',
-    path: '/reports/marketing/analysis/ab',
-  },
-  {
-    key: 'response_time',
-    name: 'Response Time',
-    permission: 'Sales Activities',
-    path: '/reports/marketing/operational/response-time',
-  },
 ]
+

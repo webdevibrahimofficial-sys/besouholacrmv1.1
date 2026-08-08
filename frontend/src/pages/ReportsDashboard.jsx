@@ -9,7 +9,7 @@ import { api } from '../utils/api'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '@shared/context/AppStateProvider'
 
-const REPORT_PERMISSION_MODULE_BY_KEY = {
+  const REPORT_PERMISSION_MODULE_BY_KEY = {
   leads_pipeline: 'Leads Pipeline',
   sales_activities: 'Sales Activities',
   sales_to_telesales_transfers: 'Leads Pipeline',
@@ -24,7 +24,7 @@ const REPORT_PERMISSION_MODULE_BY_KEY = {
   imports_report: 'Imports Report',
   export_report: 'Exports Report',
   cancellation_report: 'Cancellation Report',
-}
+ }
 
 
 const ReportsDashboard = () => {
@@ -275,7 +275,9 @@ const ReportsDashboard = () => {
     // as long as they still have global showReports access.
     if (!hasExplicitReportsPerms) return true
 
-    const reportModuleName = REPORT_PERMISSION_MODULE_BY_KEY[report.key]
+    // Prefer an explicit `permission` declared on the report card. Fall back
+    // to the legacy REPORT_PERMISSION_MODULE_BY_KEY map when missing.
+    const reportModuleName = report.permission || REPORT_PERMISSION_MODULE_BY_KEY[report.key]
     if (!reportModuleName) return false
 
     return reportsModulePerms.includes(`${reportModuleName}_show`)
