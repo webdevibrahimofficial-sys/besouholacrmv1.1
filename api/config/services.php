@@ -47,7 +47,7 @@ return [
         'minimal_scopes' => ['public_profile', 'email'],
         'scopes' => array_values(array_filter(array_map(
             'trim',
-            explode(',', env('FACEBOOK_SCOPES', 'pages_show_list,leads_retrieval,pages_read_engagement,pages_manage_metadata,business_management'))
+            explode(',', env('FACEBOOK_SCOPES', 'pages_show_list,leads_retrieval,pages_read_engagement,pages_manage_metadata,business_management,ads_read'))
         ))),
     ],
 

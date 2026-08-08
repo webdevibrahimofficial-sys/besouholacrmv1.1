@@ -23,7 +23,7 @@ Operational guide for the shared Meta (Facebook) application integration after m
 4. **App Review** (if required):
    - Data Deletion Callback URL: `{API_URL}/api/facebook/data-deletion`
    - Data Deletion Status URL: `{FRONTEND_URL}/privacy/dataDeletion`
-5. Ensure app has permissions: `pages_show_list`, `leads_retrieval`, `pages_read_engagement`, `pages_manage_metadata`, `business_management`.
+5. Ensure app has permissions: `pages_show_list`, `leads_retrieval`, `pages_read_engagement`, `pages_manage_metadata`, `business_management`, `ads_read`.
 
 ## Deployment Commands
 
