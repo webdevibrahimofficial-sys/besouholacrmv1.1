@@ -27,8 +27,24 @@ class RealMetaApiClient implements MetaApiClientInterface
 
     protected function resolveAppSecret(): ?string
     {
-        $credentials = $this->credentialsResolver->resolveShared();
-        return $credentials['app_secret'] ?? null;
+        $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
+
+        try {
+            $credentials = ($tenantId !== null && $tenantId !== '')
+                ? $this->credentialsResolver->resolveForTenant($tenantId)
+                : $this->credentialsResolver->resolveShared();
+
+            $secret = $credentials['app_secret'] ?? null;
+
+            return is_string($secret) && $secret !== '' ? $secret : null;
+        } catch (\Throwable $e) {
+            Log::warning('Failed resolving Meta app secret for Graph API client', [
+                'tenant_id' => $tenantId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     public function get(string $endpoint, array $params = []): array

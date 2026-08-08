@@ -180,6 +180,8 @@ class MetaAuthService
         $agencyId = $connection->agency_id;
         $syncWarnings = [];
 
+        app()->instance('current_tenant_id', $tenantId);
+
         // A. Fetch Businesses
         try {
             $businesses = $this->fetchGraphApi('/me/businesses', $accessToken);
