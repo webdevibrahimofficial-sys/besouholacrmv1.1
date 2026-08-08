@@ -11,9 +11,11 @@ use App\Models\MetaAdAccount;
 use App\Models\MetaPage;
 use App\Models\Integration;
 use App\Models\Tenant;
+use App\Models\TenantMetaApp;
 use App\Models\User;
 use App\Services\MetaSystemSettingsService;
 use App\Services\MetaCredentialsResolver;
+use App\Services\TenantMetaAppService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -27,16 +29,19 @@ class MetaAuthController extends Controller
     protected MetaAuthService $metaAuthService;
     protected MetaCredentialsResolver $credentialsResolver;
     protected MetaSystemSettingsService $metaSystemSettings;
+    protected TenantMetaAppService $tenantMetaApps;
 
     public function __construct(
         MetaAuthService $metaAuthService,
         MetaCredentialsResolver $credentialsResolver,
-        MetaSystemSettingsService $metaSystemSettings
+        MetaSystemSettingsService $metaSystemSettings,
+        TenantMetaAppService $tenantMetaApps
     )
     {
         $this->metaAuthService = $metaAuthService;
         $this->credentialsResolver = $credentialsResolver;
         $this->metaSystemSettings = $metaSystemSettings;
+        $this->tenantMetaApps = $tenantMetaApps;
     }
 
     public function redirect(Request $request)
@@ -68,7 +73,7 @@ class MetaAuthController extends Controller
             $this->credentialsResolver->resolveForTenant($user->tenant_id);
         } catch (\Throwable $e) {
             return response()->json([
-                'error' => 'Meta integration is not enabled. Please ask your system administrator to configure the shared Meta App.',
+                'error' => 'Meta integration is not ready. Configure the shared Meta App with your system administrator, or save your own Meta App credentials first.',
             ], 422);
         }
 
@@ -190,10 +195,23 @@ class MetaAuthController extends Controller
         $tenantHealth = $metaHealth->getTenantHealth($tenantId);
         $attention = $metaHealth->getTenantAttention($tenantId);
         $goLive = $metaHealth->getTenantGoLiveChecklist($tenantId);
+        $tenantApp = $this->tenantMetaApps->findForTenant($tenantId);
+        $connectionMode = $this->credentialsResolver->connectionMode($tenantId);
+        $metaReady = $this->credentialsResolver->isMetaReady($tenantId);
+        $sharedConfigured = $this->metaSystemSettings->isConfigured();
+        $webhookBase = rtrim((string) config('app.url'), '/');
+        $webhookUrl = $connectionMode === TenantMetaApp::MODE_CUSTOM && $tenantApp?->webhook_key
+            ? $webhookBase . '/api/meta/webhook/' . $tenantApp->webhook_key
+            : $webhookBase . '/api/meta/webhook';
 
         return response()->json([
             'connected' => $connections->exists(),
-            'shared_meta_configured' => $this->metaSystemSettings->isConfigured(),
+            'shared_meta_configured' => $sharedConfigured,
+            'meta_ready' => $metaReady,
+            'connection_mode' => $connectionMode,
+            'tenant_app' => $this->tenantMetaApps->toPublicArray($tenantApp),
+            'webhook_url' => $webhookUrl,
+            'oauth_callback_url' => $webhookBase . '/api/auth/meta/callback',
             'integration_status' => $integration ? $integration->status : 'inactive',
             'settings' => $settings,
             'sync_warnings' => $tenantHealth['sync_warnings'] ?? [],
@@ -432,18 +450,35 @@ class MetaAuthController extends Controller
 
     public function testWebhook(Request $request)
     {
-        $credentials = $this->metaSystemSettings->resolveSharedCredentials();
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        $mode = $this->credentialsResolver->connectionMode($tenantId);
+
+        try {
+            $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Meta App credentials are not configured.',
+            ], 422);
+        }
+
         $verifyToken = $credentials['verify_token'] ?? '';
-        $webhookUrl = rtrim((string) config('app.url'), '/') . '/api/meta/webhook';
+        $webhookPath = $mode === TenantMetaApp::MODE_CUSTOM && !empty($credentials['webhook_key'])
+            ? '/api/meta/webhook/' . $credentials['webhook_key']
+            : '/api/meta/webhook';
+        $webhookUrl = rtrim((string) config('app.url'), '/') . $webhookPath;
 
         if ($verifyToken === '') {
             return response()->json([
                 'ok' => false,
-                'message' => 'Webhook verify token is not configured by the system administrator.',
+                'message' => $mode === TenantMetaApp::MODE_CUSTOM
+                    ? 'Webhook verify token is not configured for your Meta App.'
+                    : 'Webhook verify token is not configured by the system administrator.',
             ], 422);
         }
 
-        $internalRequest = Request::create('/api/meta/webhook', 'GET', [
+        $internalRequest = Request::create($webhookPath, 'GET', [
             'hub.mode' => 'subscribe',
             'hub.verify_token' => $verifyToken,
             'hub.challenge' => 'TENANT_META_TEST',
@@ -455,10 +490,80 @@ class MetaAuthController extends Controller
         return response()->json([
             'ok' => $ok,
             'webhook_url' => $webhookUrl,
+            'connection_mode' => $mode,
             'status' => $internalResponse->getStatusCode(),
             'message' => $ok
                 ? 'Webhook endpoint is reachable and verification succeeded.'
-                : 'Webhook verification failed. Contact your system administrator.',
+                : ($mode === TenantMetaApp::MODE_CUSTOM
+                    ? 'Webhook verification failed. Check your verify token and Meta Developer Console webhook URL.'
+                    : 'Webhook verification failed. Contact your system administrator.'),
         ], $ok ? 200 : 422);
+    }
+
+    public function showApp(Request $request)
+    {
+        $user = $request->user();
+        if (!$this->isMetaTenantAdmin($user)) {
+            return response()->json(['error' => 'Only tenant admins can manage Meta App credentials.'], 403);
+        }
+
+        $tenantId = $user->tenant_id;
+        $app = $this->tenantMetaApps->findForTenant($tenantId);
+
+        return response()->json([
+            'connection_mode' => $this->credentialsResolver->connectionMode($tenantId),
+            'meta_ready' => $this->credentialsResolver->isMetaReady($tenantId),
+            'shared_meta_configured' => $this->metaSystemSettings->isConfigured(),
+            'tenant_app' => $this->tenantMetaApps->toPublicArray($app),
+            'oauth_callback_url' => rtrim((string) config('app.url'), '/') . '/api/auth/meta/callback',
+        ]);
+    }
+
+    public function updateApp(Request $request)
+    {
+        $user = $request->user();
+        if (!$this->isMetaTenantAdmin($user)) {
+            return response()->json(['error' => 'Only tenant admins can manage Meta App credentials.'], 403);
+        }
+
+        $validated = $request->validate([
+            'mode' => 'required|string|in:shared,custom',
+            'app_id' => 'nullable|string|max:255',
+            'app_secret' => 'nullable|string|max:2000',
+            'verify_token' => 'nullable|string|max:2000',
+        ]);
+
+        $app = $this->tenantMetaApps->upsertForTenant($user->tenant_id, $validated);
+        $mode = $this->credentialsResolver->connectionMode($user->tenant_id);
+
+        return response()->json([
+            'message' => $mode === TenantMetaApp::MODE_CUSTOM
+                ? 'Custom Meta App saved. Reconnect Facebook if you switched modes or changed app credentials.'
+                : 'Switched to shared Meta App. Reconnect Facebook if you previously used a custom app.',
+            'connection_mode' => $mode,
+            'meta_ready' => $this->credentialsResolver->isMetaReady($user->tenant_id),
+            'shared_meta_configured' => $this->metaSystemSettings->isConfigured(),
+            'tenant_app' => $this->tenantMetaApps->toPublicArray($app),
+            'oauth_callback_url' => rtrim((string) config('app.url'), '/') . '/api/auth/meta/callback',
+        ]);
+    }
+
+    public function resetApp(Request $request)
+    {
+        $user = $request->user();
+        if (!$this->isMetaTenantAdmin($user)) {
+            return response()->json(['error' => 'Only tenant admins can manage Meta App credentials.'], 403);
+        }
+
+        $app = $this->tenantMetaApps->switchToShared($user->tenant_id);
+
+        return response()->json([
+            'message' => 'Switched back to the shared Meta App. Reconnect Facebook accounts if needed.',
+            'connection_mode' => TenantMetaApp::MODE_SHARED,
+            'meta_ready' => $this->credentialsResolver->isMetaReady($user->tenant_id),
+            'shared_meta_configured' => $this->metaSystemSettings->isConfigured(),
+            'tenant_app' => $this->tenantMetaApps->toPublicArray($app),
+            'oauth_callback_url' => rtrim((string) config('app.url'), '/') . '/api/auth/meta/callback',
+        ]);
     }
 }

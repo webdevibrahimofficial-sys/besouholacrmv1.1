@@ -12,7 +12,8 @@ class MetaHealthService
 {
     public function __construct(
         protected MetaSystemSettingsService $metaSystemSettings,
-        protected MetaRateLimitTracker $rateLimitTracker
+        protected MetaRateLimitTracker $rateLimitTracker,
+        protected MetaCredentialsResolver $credentialsResolver
     ) {
     }
 
@@ -49,6 +50,8 @@ class MetaHealthService
 
         return [
             'shared_meta_configured' => $this->metaSystemSettings->isConfigured(),
+            'meta_ready' => $this->credentialsResolver->isMetaReady($tenantId),
+            'connection_mode' => $this->credentialsResolver->connectionMode($tenantId),
             'connections_needing_reauth' => MetaConnection::where('tenant_id', $tenantId)->where('needs_reauth', true)->count(),
             'active_pages' => $activePages,
             'sync_warnings' => is_array($settings['sync_warnings'] ?? null) ? $settings['sync_warnings'] : [],
@@ -139,10 +142,10 @@ class MetaHealthService
 
         $items = [
             [
-                'id' => 'shared_app',
+                'id' => 'meta_app_configured',
                 'group' => 'platform',
                 'automated' => true,
-                'complete' => (bool) ($health['shared_meta_configured'] ?? false),
+                'complete' => (bool) ($health['meta_ready'] ?? false),
             ],
             [
                 'id' => 'meta_connected',

@@ -18,9 +18,21 @@ class MetaWebhookController extends Controller
         $this->credentialsResolver = $credentialsResolver;
     }
 
-    public function verify(Request $request)
+    public function verify(Request $request, ?string $webhookKey = null)
     {
-        $credentials = $this->credentialsResolver->resolveShared();
+        try {
+            $credentials = $webhookKey
+                ? $this->credentialsResolver->resolveByWebhookKey($webhookKey)
+                : $this->credentialsResolver->resolveShared();
+        } catch (\Throwable $e) {
+            Log::warning('Meta Webhook Verify failed to resolve credentials', [
+                'has_webhook_key' => filled($webhookKey),
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json(['error' => 'Verification failed'], 403);
+        }
+
         $verifyToken = $credentials['verify_token'] ?? null;
 
         $mode = $request->query('hub_mode')
@@ -42,6 +54,7 @@ class MetaWebhookController extends Controller
             'token_present' => $token !== null && $token !== '',
             'token_matches' => $tokenMatches,
             'challenge_present' => $challenge !== null && $challenge !== '',
+            'source' => $credentials['source'] ?? ($webhookKey ? 'custom' : 'shared'),
         ]);
 
         if ($mode === 'subscribe' && $tokenMatches) {
@@ -54,23 +67,51 @@ class MetaWebhookController extends Controller
         return response()->json(['error' => 'Verification failed'], 403);
     }
 
-    public function receive(Request $request)
+    public function receive(Request $request, ?string $webhookKey = null)
     {
         try {
+            $credentials = null;
+            if ($webhookKey) {
+                try {
+                    $credentials = $this->credentialsResolver->resolveByWebhookKey($webhookKey);
+                } catch (\Throwable $e) {
+                    Log::warning('Meta Webhook Receive: invalid webhook key', [
+                        'message' => $e->getMessage(),
+                    ]);
+                    return response()->json(['ok' => false, 'error' => 'Invalid webhook key'], 404);
+                }
+            }
+
             $payload = $request->all();
             $entryCount = is_array($payload['entry'] ?? null) ? count($payload['entry']) : 0;
             Log::info('Meta Webhook Receive', [
                 'object' => $payload['object'] ?? null,
                 'entry_count' => $entryCount,
+                'source' => $credentials['source'] ?? 'shared',
             ]);
 
-            $this->webhookService->handleWebhook($request);
+            $this->webhookService->handleWebhook($request, $credentials);
             return response()->json(['ok' => true], 200);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            $status = $e->getStatusCode();
+            Log::error('Meta Webhook Receive Error', [
+                'message' => $e->getMessage(),
+                'object' => $request->input('object'),
+                'has_webhook_key' => filled($webhookKey),
+                'status' => $status,
+            ]);
+
+            return response()->json([
+                'ok' => false,
+                'error' => $status === 403 ? 'Invalid signature' : 'Webhook processing failed',
+            ], $status);
         } catch (\Throwable $e) {
             Log::error('Meta Webhook Receive Error', [
                 'message' => $e->getMessage(),
                 'object' => $request->input('object'),
+                'has_webhook_key' => filled($webhookKey),
             ]);
+
             return response()->json(['ok' => false, 'error' => 'Webhook processing failed'], 500);
         }
     }

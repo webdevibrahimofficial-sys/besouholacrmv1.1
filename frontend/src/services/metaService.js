@@ -169,6 +169,21 @@ export const metaService = {
     return res.data
   },
 
+  getMetaApp: async () => {
+    const res = await api.get('/api/auth/meta/app')
+    return res.data
+  },
+
+  saveMetaApp: async (payload) => {
+    const res = await api.put('/api/auth/meta/app', payload)
+    return res.data
+  },
+
+  resetMetaApp: async () => {
+    const res = await api.delete('/api/auth/meta/app')
+    return res.data
+  },
+
   verifyWebhook: async (token, webhookUrl) => {
     const url = buildWebhookVerificationUrl(token, webhookUrl)
     const r = await api.get(url)

@@ -24,7 +24,7 @@ export function useIntegrations() {
       const connections = Array.isArray(metaSettings?.connections) ? metaSettings.connections : []
       const attention = metaSettings?.attention || {}
       setMetaConnected(connections.length > 0)
-      setMetaConfigured(!!metaSettings?.shared_meta_configured)
+      setMetaConfigured(!!(metaSettings?.meta_ready ?? metaSettings?.shared_meta_configured))
       setMetaNeedsAttention(!!attention?.needs_attention)
       setMetaAttentionLabel(attention?.label || null)
     }).catch(() => {

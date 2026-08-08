@@ -144,7 +144,7 @@ class MetaMockModeTest extends TestCase
         $mockService = app(\App\Services\Meta\MetaMockService::class);
         $payload = $mockService->generateLeadWebhookPayload($page->page_id, 'mock_queue_lead_1');
 
-        $response = $this->postJson('/api/meta/webhook/tenant-webhook-key', $payload);
+        $response = $this->postJson('/api/meta/webhook', $payload);
 
         $response->assertStatus(200);
         $response->assertJson(['ok' => true]);
@@ -277,7 +277,7 @@ class MetaMockModeTest extends TestCase
 
         // Send POST request to REAL webhook endpoint WITHOUT signature
         // This validates that mock mode bypasses signature verification
-        $response = $this->postJson('/api/meta/webhook/tenant-webhook-key', $payload);
+        $response = $this->postJson('/api/meta/webhook', $payload);
 
         $response->assertStatus(200);
         $response->assertJson(['ok' => true]);

@@ -107,8 +107,38 @@ flowchart LR
 - Masked values (`**`) in API responses are not re-saved on update
 - CAPI test endpoint (`POST /api/meta/capi/test`) is for diagnostics only
 
+## Tenant Bring-Your-Own-App (BYOA)
+
+Hybrid mode (default remains Shared App):
+
+- Tenant admins can open **Marketing → Meta Integration → Connection Mode**
+- Modes: `shared` (platform app) or `custom` (tenant-owned Meta App)
+- Custom credentials are stored in `tenant_meta_apps` (`app_id`, encrypted `app_secret`, `verify_token`, unique `webhook_key`)
+- OAuth / Lead Ads / page subscribe use tenant credentials when `mode=custom`
+- **WhatsApp always uses the shared Meta App** (`resolveShared()`), even if the tenant uses BYOA for Lead Ads
+
+### Custom app webhook
+
+- Shared path (unchanged): `{API_URL}/api/meta/webhook`
+- Tenant path: `{API_URL}/api/meta/webhook/{webhook_key}`
+- Tenant must register their webhook URL + verify token in their Meta Developer Console
+- OAuth callback remains: `{API_URL}/api/auth/meta/callback` (must also be allowlisted on the tenant app)
+
+### Mode switch
+
+- Switching `shared` ↔ `custom` (or changing app id/secret) marks tenant `meta_connections.needs_reauth=true`
+- Tenant must reconnect Facebook after switching
+
+### Tenant API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/auth/meta/app` | Current mode + public tenant app details |
+| `PUT /api/auth/meta/app` | Save mode + credentials |
+| `DELETE /api/auth/meta/app` | Switch back to shared |
+
 ## Rollback Considerations
 
-- Do **not** rollback to per-tenant Meta apps without data migration plan
-- If rollback needed: restore `tenant_meta_apps` migration + per-tenant webhook URLs from backup
+- Shared App remains the default production path; BYOA is additive
+- Dropping `tenant_meta_apps` returns tenants to shared-only resolution
 - Minimum safe action: disable Meta app in Super Admin until tenants are notified

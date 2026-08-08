@@ -51,7 +51,8 @@ class WhatsappMetaAuthService
             throw new \RuntimeException('WhatsApp OAuth is not enabled yet.');
         }
 
-        $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+        // WhatsApp always uses the platform shared Meta App (not tenant BYOA).
+        $credentials = $this->credentialsResolver->resolveShared();
 
         /** @var FacebookProvider $driver */
         $driver = Socialite::buildProvider(FacebookProvider::class, [
@@ -225,7 +226,8 @@ class WhatsappMetaAuthService
 
     public function exchangeAuthorizationCode(int $tenantId, string $code): string
     {
-        $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+        // WhatsApp always uses the platform shared Meta App (not tenant BYOA).
+        $credentials = $this->credentialsResolver->resolveShared();
 
         $response = Http::asForm()->post("https://graph.facebook.com/{$this->apiVersion}/oauth/access_token", [
             'client_id' => $credentials['app_id'],
@@ -243,7 +245,7 @@ class WhatsappMetaAuthService
         }
 
         $shortToken = (string) $response->json('access_token');
-        $longLived = $this->accessTokenService->exchangeForLongLivedToken($shortToken, $tenantId);
+        $longLived = $this->accessTokenService->exchangeForLongLivedToken($shortToken, $tenantId, true);
 
         return (string) ($longLived['access_token'] ?? $shortToken);
     }

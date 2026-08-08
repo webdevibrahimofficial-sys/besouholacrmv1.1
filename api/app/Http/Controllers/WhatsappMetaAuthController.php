@@ -34,7 +34,7 @@ class WhatsappMetaAuthController extends Controller
         }
 
         try {
-            $this->credentialsResolver->resolveForTenant($user->tenant_id);
+            $this->credentialsResolver->resolveShared();
         } catch (\Throwable $e) {
             return response()->json([
                 'error' => 'Shared Meta App is not configured. Please ask your system administrator.',
@@ -104,7 +104,7 @@ class WhatsappMetaAuthController extends Controller
         ]);
 
         try {
-            $this->credentialsResolver->resolveForTenant($user->tenant_id);
+            $this->credentialsResolver->resolveShared();
             $channels = $this->whatsappMetaAuthService->completeEmbeddedSignup(
                 (int) $user->tenant_id,
                 (int) $user->id,
@@ -146,7 +146,7 @@ class WhatsappMetaAuthController extends Controller
 
         $credentials = [];
         try {
-            $credentials = $this->credentialsResolver->resolveForTenant((int) $user->tenant_id);
+            $credentials = $this->credentialsResolver->resolveShared();
         } catch (\Throwable $e) {
             $credentials = $this->metaSystemSettings->resolveSharedCredentials(false);
         }

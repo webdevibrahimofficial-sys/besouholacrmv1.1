@@ -2,7 +2,8 @@ import { useTranslation } from 'react-i18next'
 import { CheckCircle2, Circle, ClipboardCheck, Server, User } from 'lucide-react'
 
 const ITEM_LABELS = {
-  shared_app: { en: 'Shared Meta App configured (Super Admin)', ar: 'تطبيق ميتا المشترك مُعدّ (مسؤول النظام)' },
+  meta_app_configured: { en: 'Meta App configured (shared or your own app)', ar: 'تطبيق ميتا مُعدّ (مشترك أو تطبيقك الخاص)' },
+  shared_app: { en: 'Meta App configured (shared or your own app)', ar: 'تطبيق ميتا مُعدّ (مشترك أو تطبيقك الخاص)' },
   meta_connected: { en: 'Facebook account connected', ar: 'حساب فيسبوك مربوط' },
   active_pages: { en: 'At least one active lead page', ar: 'صفحة ليدز نشطة واحدة على الأقل' },
   webhook_subscribed: { en: 'Page webhook subscription active', ar: 'اشتراك ويب هوك الصفحة نشط' },

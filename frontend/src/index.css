@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Class-based dark mode (html.dark from ThemeProvider). Required in Tailwind v4 —
+   without this, dark: utilities only follow prefers-color-scheme and break in-app dark theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Browser Reset for Cross-Browser Compatibility */
 * {
   box-sizing: border-box;

@@ -100,6 +100,8 @@ Route::post('/crm/login-redirect', [AuthController::class , 'loginRedirect'])
     ->withoutMiddleware([\Illuminate\Routing\Middleware\ThrottleRequests::class]);
 Route::get('/meta/webhook', [MetaWebhookController::class , 'verify']);
 Route::post('/meta/webhook', [MetaWebhookController::class , 'receive']);
+Route::get('/meta/webhook/{webhookKey}', [MetaWebhookController::class , 'verify']);
+Route::post('/meta/webhook/{webhookKey}', [MetaWebhookController::class , 'receive']);
 Route::post('/meta/mock/webhook/{page_id}', [\App\Http\Controllers\MetaMockController::class, 'triggerMockLead']);
 Route::post('/internal/mock/google-ads/campaigns/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockCampaigns']);
 Route::post('/internal/mock/google-ads/leads/{tenant}', [\App\Http\Controllers\GoogleMockController::class, 'triggerMockLeads']);
@@ -419,6 +421,9 @@ Route::middleware([
     Route::get('/auth/meta/redirect', [\App\Http\Controllers\MetaAuthController::class, 'redirect']);
     Route::post('/auth/meta/callback', [\App\Http\Controllers\MetaAuthController::class, 'callback']);
     Route::get('/auth/meta/status', [\App\Http\Controllers\MetaAuthController::class, 'status']);
+    Route::get('/auth/meta/app', [\App\Http\Controllers\MetaAuthController::class, 'showApp']);
+    Route::put('/auth/meta/app', [\App\Http\Controllers\MetaAuthController::class, 'updateApp']);
+    Route::delete('/auth/meta/app', [\App\Http\Controllers\MetaAuthController::class, 'resetApp']);
     Route::post('/auth/meta/settings', [\App\Http\Controllers\MetaAuthController::class, 'updateSettings']);
     Route::post('/auth/meta/disconnect', [\App\Http\Controllers\MetaAuthController::class, 'disconnect']);
     Route::post('/auth/meta/sync', [\App\Http\Controllers\MetaAuthController::class, 'sync']);

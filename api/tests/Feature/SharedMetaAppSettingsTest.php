@@ -76,17 +76,8 @@ class SharedMetaAppSettingsTest extends TestCase
 
         $user = User::factory()->create([
             'tenant_id' => $tenant->id,
-            'is_super_admin' => true,
+            'job_title' => 'Tenant Admin',
         ]);
-
-        $redirect = $this->actingAs($user)->getJson('/api/auth/meta/redirect');
-        $redirect->assertStatus(422)->assertJson([
-            'error' => 'Meta integration is not enabled. Please ask your system administrator to configure the shared Meta App.',
-        ]);
-
-        $this->seedSharedMetaApp();
-
-        config(['services.meta.mock_mode' => true]);
 
         $agency = Agency::create([
             'tenant_id' => $tenant->id,
@@ -94,6 +85,15 @@ class SharedMetaAppSettingsTest extends TestCase
             'key' => 'default-agency',
             'is_active' => true,
         ]);
+
+        $redirect = $this->actingAs($user)->getJson('/api/auth/meta/redirect?agency_id=' . $agency->key);
+        $redirect->assertStatus(422)->assertJson([
+            'error' => 'Meta integration is not ready. Configure the shared Meta App with your system administrator, or save your own Meta App credentials first.',
+        ]);
+
+        $this->seedSharedMetaApp();
+
+        config(['services.meta.mock_mode' => true]);
 
         $redirectAfterConfig = $this->actingAs($user)->getJson('/api/auth/meta/redirect?agency_id=' . $agency->key);
         $redirectAfterConfig->assertOk()->assertJsonStructure(['url']);

@@ -20,6 +20,7 @@ import {
 import { api } from '../../utils/api'
 import { useAppState } from '../../shared/context/AppStateProvider'
 import MetaSetupGuide from './meta/MetaSetupGuide'
+import MetaConnectionModePanel from './meta/MetaConnectionModePanel'
 
 const normalizeAgencyKey = (value) => {
   const normalized = String(value ?? '').trim()
@@ -30,23 +31,29 @@ const sameAgency = (left, right) => normalizeAgencyKey(left) === normalizeAgency
 
 const isTenantAdminUser = (user) => {
   if (!user) return false
-  if (user.is_super_admin || user.is_primary_admin) return true
+  if (user.is_super_admin || user.is_primary_admin || user.is_tenant_admin) return true
 
   const roleValues = [
     user.role,
     user.job_title,
-    ...(Array.isArray(user.roles) ? user.roles.map((role) => role?.name || role) : []),
+    user.user_type,
+    ...(Array.isArray(user.roles) ? user.roles.map((role) => role?.name || role?.title || role) : []),
   ]
     .filter(Boolean)
     .map((value) => String(value).toLowerCase().trim())
 
-  return roleValues.some((role) => ['admin', 'tenant admin', 'tenant-admin', 'owner'].includes(role))
+  return roleValues.some((role) =>
+    ['admin', 'tenant admin', 'tenant-admin', 'tenant_admin', 'owner', 'administrator'].includes(role)
+  )
 }
 
 // --- Components ---
 
 const StatusBadge = ({ connected }) => (
-  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${connected ? 'bg-green-100 text-green-800 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border dark:border-emerald-400/20' : 'bg-white/90 text-gray-700 border border-gray-200 dark:bg-white/5 dark:text-slate-200 dark:border-white/10'}`}>
+  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${connected
+    ? 'bg-green-100 text-green-800 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border dark:border-emerald-400/25'
+    : 'border border-gray-200 bg-white/90 text-gray-800 dark:border-white/20 dark:bg-black/35 dark:text-[var(--theme-text)]'
+  }`}>
     {connected ? (
       <>
         <CheckCircle className="w-3 h-3 mr-1" />
@@ -54,7 +61,7 @@ const StatusBadge = ({ connected }) => (
       </>
     ) : (
       <>
-        <XCircle className="w-3 h-3 mr-1" />
+        <XCircle className="w-3 h-3 mr-1 shrink-0" />
         Not Connected
       </>
     )}
@@ -64,13 +71,13 @@ const StatusBadge = ({ connected }) => (
 const TabButton = ({ active, id, icon: Icon, label, onClick }) => (
   <button
     onClick={() => onClick(id)}
-    className={`flex items-center w-full px-4 py-3 text-sm font-medium transition-all duration-200 border-l-4 ${
-      active 
-        ? 'bg-blue-50/90 border-blue-600 text-blue-700 shadow-sm dark:border-blue-400 dark:bg-[linear-gradient(90deg,rgba(37,99,235,0.26),rgba(29,78,216,0.10))] dark:text-blue-100' 
-        : 'border-transparent text-theme hover:bg-white/80 hover:text-gray-900 dark:hover:bg-slate-800/80 dark:hover:text-slate-100'
+    className={`flex w-full items-center border-l-4 px-4 py-3 text-sm font-medium transition-all duration-200 ${
+      active
+        ? 'border-blue-600 bg-blue-50/90 text-blue-800 shadow-sm dark:border-blue-300 dark:bg-[linear-gradient(90deg,rgba(37,99,235,0.34),rgba(29,78,216,0.14))] dark:text-white'
+        : 'border-transparent text-[var(--color-text-secondary)] hover:bg-white/80 hover:text-gray-900 dark:text-[var(--theme-text)] dark:hover:bg-white/10 dark:hover:text-white'
     }`}
   >
-    <Icon className={`w-5 h-5 mr-3 ${active ? 'text-blue-600 dark:text-blue-300' : 'text-theme'}`} />
+    <Icon className={`mr-3 h-5 w-5 shrink-0 ${active ? 'text-blue-700 dark:text-blue-200' : 'text-[var(--color-text-secondary)] dark:text-[var(--theme-text)]'}`} />
     {label}
   </button>
 )
@@ -142,6 +149,16 @@ export default function MetaSettings({ onClose }) {
   const [forceShowSetup, setForceShowSetup] = useState(false)
   const [settings, setSettings] = useState({})
   const [sharedMetaConfigured, setSharedMetaConfigured] = useState(false)
+  const [metaReady, setMetaReady] = useState(false)
+  const [connectionMode, setConnectionMode] = useState('shared')
+  const [tenantApp, setTenantApp] = useState(null)
+  const [oauthCallbackUrl, setOauthCallbackUrl] = useState('')
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [appFormMode, setAppFormMode] = useState('shared')
+  const [appFormAppId, setAppFormAppId] = useState('')
+  const [appFormAppSecret, setAppFormAppSecret] = useState('')
+  const [appFormVerifyToken, setAppFormVerifyToken] = useState('')
+  const [savingApp, setSavingApp] = useState(false)
   
   // Multi-account State
   const [connections, setConnections] = useState([])
@@ -206,13 +223,13 @@ export default function MetaSettings({ onClose }) {
   const setupCoreComplete = useMemo(() => {
     const subscribed = Number(tenantHealth?.subscribe_summary?.subscribed ?? 0)
     return Boolean(
-      sharedMetaConfigured &&
+      metaReady &&
       hasConnectionForActiveAgency &&
       activePagesCount > 0 &&
       autoSync &&
       subscribed > 0
     )
-  }, [sharedMetaConfigured, hasConnectionForActiveAgency, activePagesCount, autoSync, tenantHealth])
+  }, [metaReady, hasConnectionForActiveAgency, activePagesCount, autoSync, tenantHealth])
   const showSetupInNav = !setupCoreComplete || forceShowSetup
   const activeTitle = useMemo(() => {
     if (activeTab === 'setup') return isArabic ? 'دليل إعداد ميتا' : 'Meta Setup Guide'
@@ -238,6 +255,15 @@ export default function MetaSettings({ onClose }) {
       setAdAccounts(data.ad_accounts || [])
       setPages(data.pages || [])
       setSharedMetaConfigured(!!data.shared_meta_configured)
+      setMetaReady(!!(data.meta_ready ?? data.shared_meta_configured))
+      setConnectionMode(data.connection_mode || 'shared')
+      setTenantApp(data.tenant_app || null)
+      setOauthCallbackUrl(data.oauth_callback_url || '')
+      setWebhookUrl(data.webhook_url || '')
+      setAppFormMode(data.connection_mode || 'shared')
+      setAppFormAppId(data.tenant_app?.app_id || '')
+      setAppFormAppSecret('')
+      setAppFormVerifyToken(data.tenant_app?.verify_token || '')
       setSyncWarnings(data.sync_warnings || [])
       setTenantHealth(data.tenant_health || null)
 
@@ -410,14 +436,75 @@ export default function MetaSettings({ onClose }) {
     setSettings(prev => ({ ...prev, [key]: value }))
   }
 
+  const handleSaveMetaApp = async () => {
+    if (!isTenantAdmin) {
+      showToast('error', isArabic ? 'مسؤول التينانت فقط يمكنه تعديل إعدادات التطبيق.' : 'Only tenant admins can manage Meta App settings.')
+      return
+    }
+
+    setSavingApp(true)
+    try {
+      const payload = {
+        mode: appFormMode,
+        app_id: appFormAppId,
+        verify_token: appFormVerifyToken,
+      }
+      if (appFormAppSecret.trim()) {
+        payload.app_secret = appFormAppSecret
+      }
+
+      const data = await metaService.saveMetaApp(payload)
+      showToast('success', data.message || (isArabic ? 'تم حفظ إعدادات تطبيق ميتا' : 'Meta App settings saved'))
+      setAppFormAppSecret('')
+      await loadData(activeAgencyId)
+    } catch (error) {
+      const message = error?.response?.data?.error
+        || error?.response?.data?.message
+        || Object.values(error?.response?.data?.errors || {})?.[0]?.[0]
+        || (isArabic ? 'فشل حفظ إعدادات تطبيق ميتا' : 'Failed to save Meta App settings')
+      showToast('error', message)
+    } finally {
+      setSavingApp(false)
+    }
+  }
+
+  const handleResetMetaApp = async () => {
+    if (!isTenantAdmin) return
+    setSavingApp(true)
+    try {
+      const data = await metaService.resetMetaApp()
+      showToast('success', data.message || (isArabic ? 'تم الرجوع للتطبيق المشترك' : 'Switched back to shared Meta App'))
+      setAppFormAppSecret('')
+      await loadData(activeAgencyId)
+    } catch (error) {
+      showToast('error', error?.response?.data?.error || (isArabic ? 'فشل الرجوع للتطبيق المشترك' : 'Failed to switch to shared Meta App'))
+    } finally {
+      setSavingApp(false)
+    }
+  }
+
+  const copyText = async (value, label) => {
+    try {
+      await navigator.clipboard.writeText(value || '')
+      showToast('success', isArabic ? `تم نسخ ${label}` : `${label} copied`)
+    } catch {
+      showToast('error', isArabic ? 'تعذر النسخ' : 'Copy failed')
+    }
+  }
+
   // --- Actions ---
 
   const handleConnect = async (e) => {
     try {
       e?.preventDefault?.()
       e?.stopPropagation?.()
-      if (!sharedMetaConfigured) {
-        showToast('error', isArabic ? 'تكامل ميتا غير مفعّل. تواصل مع مسؤول النظام.' : 'Meta integration is not enabled. Contact your system administrator.')
+      if (!metaReady) {
+        showToast(
+          'error',
+          isArabic
+            ? 'تكامل ميتا غير جاهز. استخدم التطبيق المشترك أو احفظ تطبيق ميتا الخاص بك أولاً.'
+            : 'Meta is not ready. Use the shared app or save your own Meta App credentials first.'
+        )
         return
       }
       if (isTenantAdmin && !activeAgencyId) {
@@ -594,6 +681,8 @@ export default function MetaSettings({ onClose }) {
   const renderSetupGuide = () => (
     <MetaSetupGuide
       sharedMetaConfigured={sharedMetaConfigured}
+      metaReady={metaReady}
+      connectionMode={connectionMode}
       connections={connections}
       pages={pages}
       hasConnectionForActiveAgency={hasConnectionForActiveAgency}
@@ -622,12 +711,14 @@ export default function MetaSettings({ onClose }) {
 
   const renderOverview = () => {
     const sameId = (left, right) => String(left ?? '') === String(right ?? '')
-    const canConnect = sharedMetaConfigured && !hasConnectionForActiveAgency && (!isTenantAdmin || !!activeAgencyId)
+    const canConnect = metaReady && !hasConnectionForActiveAgency && (!isTenantAdmin || !!activeAgencyId)
     // Admins must pick a specific agency before they can toggle/delete/link assets,
     // otherwise a click would act across agencies without an agency filter.
     const canManageAssets = !isTenantAdmin || !!activeAgencyId
-    const connectDisabledReason = !sharedMetaConfigured
-      ? (isArabic ? 'تكامل ميتا غير مفعّل من إدارة النظام' : 'Meta integration is not enabled by system admin')
+    const connectDisabledReason = !metaReady
+      ? (isArabic
+        ? 'فعّل التطبيق المشترك أو احفظ تطبيق ميتا الخاص بك أولاً'
+        : 'Enable the shared app or save your own Meta App first')
       : isTenantAdmin && !activeAgencyId
         ? (isArabic ? 'اختر الأجينسي أولاً' : 'Select an agency first')
         : hasConnectionForActiveAgency
@@ -653,6 +744,28 @@ export default function MetaSettings({ onClose }) {
           </button>
         </div>
       )}
+
+      <MetaConnectionModePanel
+        isArabic={isArabic}
+        sharedMetaConfigured={sharedMetaConfigured}
+        connectionMode={connectionMode}
+        tenantApp={tenantApp}
+        oauthCallbackUrl={oauthCallbackUrl}
+        webhookUrl={webhookUrl}
+        appFormMode={appFormMode}
+        setAppFormMode={setAppFormMode}
+        appFormAppId={appFormAppId}
+        setAppFormAppId={setAppFormAppId}
+        appFormAppSecret={appFormAppSecret}
+        setAppFormAppSecret={setAppFormAppSecret}
+        appFormVerifyToken={appFormVerifyToken}
+        setAppFormVerifyToken={setAppFormVerifyToken}
+        savingApp={savingApp}
+        onSave={handleSaveMetaApp}
+        onReset={handleResetMetaApp}
+        onCopy={copyText}
+        canEdit={isTenantAdmin}
+      />
 
       <div className="rounded-2xl border border-gray-200  p-4 dark:border-white/10 dark:bg-white/5 backdrop-blur-xl">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted-text)]">
@@ -720,11 +833,21 @@ export default function MetaSettings({ onClose }) {
             : 'You are viewing all agencies in read-only mode. Select a specific agency above to enable toggling, deleting, or linking assets.'}
         </div>
       )}
-      {!sharedMetaConfigured && (
-        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
-          {isArabic
-            ? 'تكامل ميتا غير مفعّل بعد. يجب على مسؤول النظام ضبط تطبيق ميتا المشترك من لوحة إدارة النظام.'
-            : 'Meta integration is not enabled yet. A system administrator must configure the shared Meta App in System Admin settings.'}
+      {!metaReady && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/25 dark:text-amber-100">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" />
+            <div>
+              <p className="font-semibold">
+                {isArabic ? 'ميتا غير جاهز للربط بعد' : 'Meta is not ready to connect yet'}
+              </p>
+              <p className="mt-1 text-amber-900/80 dark:text-amber-100/80">
+                {isArabic
+                  ? 'استخدم التطبيق المشترك بعد ضبطه من إدارة النظام، أو أدخل بيانات تطبيق ميتا الخاص بك من قسم وضع الاتصال بالأعلى.'
+                  : 'Use the shared Meta App after system admin configures it, or enter your own Meta App credentials in Connection Mode above.'}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -762,49 +885,68 @@ export default function MetaSettings({ onClose }) {
       )}
 
       {/* Header / Connect Button */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="max-w-2xl">
-           <h3 className="text-lg font-medium text-theme">{isArabic ? 'الحسابات المتصلة' : 'Connected Accounts'}</h3>
-           <p className="text-sm text-theme">{isArabic ? 'إدارة اتصالات فيسبوك وإنستغرام الخاصة بك.' : 'Manage your Facebook & Instagram connections.'}</p>
-        </div>
-        <button
-          type="button"
-          onClick={handleConnect}
-          disabled={!canConnect}
-          title={connectDisabledReason}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-[#1877F2] px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-[#166fe5] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-        >
-          <Facebook className="h-4 w-4" />
-          {hasConnectionForActiveAgency
-            ? (isArabic ? 'افصل الحالي للربط' : 'Disconnect to Connect')
-            : (isArabic ? 'ربط حساب ميتا' : 'Connect Meta Account')}
-        </button>
-      </div>
-
-      {/* Connections List */}
-      <div className="grid grid-cols-1 gap-6">
-        {connections.length === 0 ? (
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md p-6 text-center">
-             <AlertCircle className="h-8 w-8 text-blue-400 mx-auto mb-2" />
-             <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">{isArabic ? 'لا توجد حسابات متصلة' : 'No Accounts Connected'}</h4>
-             <p className="mt-1 text-sm text-blue-700 dark:text-blue-400 max-w-sm mx-auto">
-               {isArabic ? 'اربط حساب فيسبوك لبدء مزامنة الأنشطة التجارية وحسابات الإعلانات والصفحات.' : 'Connect a Facebook account to start syncing businesses, ad accounts, and pages.'}
-             </p>
+      <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 dark:bg-white/5">
+        <div className="flex flex-col gap-4 border-b border-gray-200 px-5 py-4 dark:border-white/10 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2">
+              <Facebook className="h-5 w-5 text-[#1877F2]" />
+              <h3 className="text-lg font-semibold text-theme">
+                {isArabic ? 'الحسابات المتصلة' : 'Connected Accounts'}
+              </h3>
+            </div>
+            <p className="mt-1 text-sm text-[var(--muted-text)]">
+              {isArabic
+                ? 'اربط فيسبوك لمزامنة الأنشطة التجارية وحسابات الإعلانات والصفحات.'
+                : 'Connect Facebook to sync businesses, ad accounts, and pages.'}
+            </p>
+            {connectDisabledReason ? (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{connectDisabledReason}</p>
+            ) : null}
           </div>
-        ) : (
-          connections.map(conn => (
-            <div key={conn.id} className="overflow-hidden rounded-2xl border border-gray-200 bg-white/45 shadow backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+          <button
+            type="button"
+            onClick={handleConnect}
+            disabled={!canConnect}
+            title={connectDisabledReason}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1877F2] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#166fe5] focus:outline-none focus:ring-2 focus:ring-[#1877F2]/30 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          >
+            <Facebook className="h-4 w-4" />
+            {hasConnectionForActiveAgency
+              ? (isArabic ? 'افصل الحالي للربط' : 'Disconnect to Connect')
+              : (isArabic ? 'ربط حساب ميتا' : 'Connect Meta Account')}
+          </button>
+        </div>
+
+        <div className="p-5">
+          {connections.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 px-6 py-10 text-center dark:border-white/15 dark:bg-transparent">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1877F2]/15 text-[#1877F2]">
+                <Facebook className="h-6 w-6" />
+              </div>
+              <h4 className="text-sm font-semibold text-theme">
+                {isArabic ? 'لا توجد حسابات متصلة' : 'No Accounts Connected'}
+              </h4>
+              <p className="mx-auto mt-2 max-w-md text-sm text-[var(--muted-text)]">
+                {isArabic
+                  ? 'بعد تجهيز وضع الاتصال، اربط حساب فيسبوك لبدء مزامنة الأصول واستقبال Lead Ads.'
+                  : 'After connection mode is ready, connect Facebook to sync assets and receive Lead Ads.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6">
+              {connections.map(conn => (
+            <div key={conn.id} className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 dark:bg-white/[0.03]">
               {/* Connection Header */}
-              <div className="border-b border-gray-200 bg-white/40 px-4 py-3 flex items-center justify-between dark:border-white/10 dark:bg-white/5">
+              <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-white/10">
                 <div className="flex items-center space-x-3">
-                   <div className="h-8 w-8 rounded-full bg-[#1877F2] text-white flex items-center justify-center font-bold">
+                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1877F2] font-bold text-white">
                      {conn.name ? conn.name.charAt(0).toUpperCase() : 'F'}
                    </div>
                    <div>
                      <h4 className="text-sm font-bold text-theme" title={conn.fb_user_id ? `ID: ${conn.fb_user_id}` : undefined}>
                        {conn.name || 'Facebook User'}
                      </h4>
-                     <p className="text-xs text-theme/60">
+                     <p className="text-xs text-[var(--muted-text)]">
                        {isArabic ? 'حساب فيسبوك متصل' : 'Connected Facebook account'}
                      </p>
                    </div>
@@ -812,7 +954,7 @@ export default function MetaSettings({ onClose }) {
                 <div className="flex items-center space-x-2">
                    <button 
                      onClick={() => confirmDisconnect(conn.id)}
-                     className="text-red-600 hover:text-red-700 text-xs font-medium px-3 py-1 border border-red-200 rounded hover:bg-red-50 dark:border-red-900/30 dark:hover:bg-red-900/20 transition-colors"
+                     className="rounded border border-red-200 px-3 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-400/30 dark:text-red-300 dark:hover:bg-red-500/10"
                    >
                      Disconnect
                    </button>
@@ -975,23 +1117,24 @@ export default function MetaSettings({ onClose }) {
 
               </div>
             </div>
-          ))
+              ))}
+            </div>
+          )}
+        </div>
+
+        {connections.length > 0 && (
+          <div className="flex justify-end border-t border-gray-200/80 px-5 py-4 dark:border-white/10">
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="inline-flex items-center rounded-xl border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Sync Assets Now' : 'Sync All Assets'}
+            </button>
+          </div>
         )}
       </div>
-
-      {/* Sync Action */}
-      {connections.length > 0 && (
-        <div className="flex justify-end pt-4">
-           <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Sync Assets Now' : 'Sync All Assets'}
-          </button>
-        </div>
-      )}
     </div>
     )
   }
@@ -1102,9 +1245,13 @@ export default function MetaSettings({ onClose }) {
 
         <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/80 p-4 dark:border-blue-400/20 dark:bg-blue-500/10 backdrop-blur-xl">
           <p className="text-sm text-blue-800 dark:text-blue-300">
-            {isArabic
-              ? 'إعداد الويب هوك تتم إدارته من مسؤول النظام. تأكد أن صفحتك مربوطة ومفعّلة لاستقبال الليدز.'
-              : 'Webhook configuration is managed by the System Administrator. Ensure your Facebook Page is connected and active for leads to sync.'}
+            {connectionMode === 'custom'
+              ? (isArabic
+                ? 'أنت تستخدم تطبيق ميتا الخاص بك. تأكد أن Webhook URL و Verify Token مضبوطان في Meta Developer Console، وأن الصفحة مفعّلة.'
+                : 'You are using your own Meta App. Ensure Webhook URL and Verify Token are set in Meta Developer Console, and your page is active.')
+              : (isArabic
+                ? 'إعداد الويب هوك تتم إدارته من مسؤول النظام عند استخدام التطبيق المشترك. تأكد أن صفحتك مربوطة ومفعّلة لاستقبال الليدز.'
+                : 'Webhook configuration is managed by the System Administrator when using the shared app. Ensure your Facebook Page is connected and active for leads to sync.')}
           </p>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
             <button
@@ -1228,8 +1375,8 @@ export default function MetaSettings({ onClose }) {
         <div className="w-full flex-shrink-0 bg-transparent border-b border-gray-200 dark:border-gray-800 flex flex-col min-h-0 sm:border-b-0 sm:border-r">
           <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800">
             <div className="flex items-start justify-between gap-3">
-              <h2 className="text-xl font-bold text-theme flex items-center">
-                <span className="bg-blue-600 text-white p-1.5 rounded mr-2">
+              <h2 className="flex items-center text-xl font-bold text-[var(--theme-text)]">
+                <span className="mr-2 rounded bg-blue-600 p-1.5 text-white">
                    <Facebook className="w-4 h-4" />
                 </span>
                 {isArabic ? 'مزامنة ميتا' : 'Meta Sync'}
@@ -1242,7 +1389,7 @@ export default function MetaSettings({ onClose }) {
                 <XCircle className="w-6 h-6 text-gray-900 dark:text-gray-100" />
               </button>
             </div>
-            <p className="text-xs text-theme mt-2">v2.5.0 • Graph API v19.0</p>
+            <p className="mt-2 text-xs font-medium text-[var(--color-text-secondary)]">v2.5.0 • Graph API v19.0</p>
             <div className="mt-3">
               <StatusBadge connected={isConnected} />
             </div>

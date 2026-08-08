@@ -109,13 +109,15 @@ class MetaAccessTokenService
         }
     }
 
-    public function exchangeForLongLivedToken(string $shortLivedToken, int|string|null $tenantId = null): array
+    public function exchangeForLongLivedToken(string $shortLivedToken, int|string|null $tenantId = null, bool $forceShared = false): array
     {
         if (!$tenantId) {
             $tenantId = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
         }
 
-        $credentials = $this->credentialsResolver->resolveForTenant($tenantId);
+        $credentials = $forceShared
+            ? $this->credentialsResolver->resolveShared()
+            : $this->credentialsResolver->resolveForTenant($tenantId);
 
         try {
             return $this->apiClient->get('/oauth/access_token', [
