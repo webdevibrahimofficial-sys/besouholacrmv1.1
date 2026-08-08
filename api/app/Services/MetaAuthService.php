@@ -73,14 +73,11 @@ class MetaAuthService
         }
 
         return config('services.facebook.scopes', [
-            'public_profile',
-            'email',
             'pages_show_list',
-            'pages_read_engagement',
-            'ads_read',
             'leads_retrieval',
-            'business_management',
+            'pages_read_engagement',
             'pages_manage_metadata',
+            'business_management',
         ]);
     }
 
