@@ -17,6 +17,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Visit;
 use App\Services\Imports\Contracts\ImportHandler;
+use App\Services\LeadRotationEngine;
 use App\Services\TelesalesService;
 use App\Support\PhoneNormalizer;
 use App\Support\LeadStageResolver;
@@ -57,6 +58,16 @@ class LeadsImportHandler implements ImportHandler
         $phoneCountryHint = isset($options['phone_country']) ? (string) $options['phone_country'] : null;
         $forcedWorkflowKey = strtolower(trim((string) ($options['workflow_key'] ?? '')));
         $isTelesalesImport = $forcedWorkflowKey === TelesalesService::WORKFLOW_TELESALES;
+
+        $rotationEngine = app(LeadRotationEngine::class);
+        $uploader = $uploaderId
+            ? User::query()->where('tenant_id', $tenantId)->find($uploaderId)
+            : null;
+        $isTeamScopedImporter = $rotationEngine->isTeamScopedImporter($uploader);
+        $teamScopeUserIds = $isTeamScopedImporter && $uploader
+            ? $rotationEngine->collectTeamMemberIds($uploader, false)
+            : null;
+        $teamScopeManagerId = $isTeamScopedImporter && $uploader ? (int) $uploader->id : null;
 
         $crm = CrmSetting::first();
         $enableDup = is_array($crm?->settings) ? (bool) ($crm->settings['duplicationSystem'] ?? false) : false;
@@ -475,6 +486,11 @@ class LeadsImportHandler implements ImportHandler
             // Do not allow setting created_by from file; always set uploader.
             $normalized['created_by'] = $uploaderId;
 
+            // Team Leader / Sales Manager imports own the leads under their management.
+            if ($teamScopeManagerId && empty($normalized['manager_id'])) {
+                $normalized['manager_id'] = $teamScopeManagerId;
+            }
+
             // Strip fields that are not columns (best-effort).
             unset($normalized['custom_fields'], $normalized['attachments']);
             $normalized = $this->filterToAllowedColumns($normalized, $allowedColumns);
@@ -562,9 +578,44 @@ class LeadsImportHandler implements ImportHandler
                     if ($assignedUser) {
                         $lead->assigned_to = $assignedUser->id;
                         $lead->sales_person = $assignedUser->name;
+                        if ($teamScopeManagerId && empty($lead->manager_id)) {
+                            $lead->manager_id = $teamScopeManagerId;
+                        }
                         $lead->save();
                     } else {
                         $warnings[] = ['code' => 'sales_person_not_found', 'message' => "Sales Person '{$assignedToRaw}' not found.", 'field' => 'assignedTo'];
+                    }
+                }
+
+                // If still unassigned: for TL/SM keep under manager, and rotate only inside their team when enabled.
+                if (!$isDuplicateRow && empty($lead->assigned_to) && $tenantId) {
+                    try {
+                        if ($teamScopeManagerId && empty($lead->manager_id)) {
+                            $lead->manager_id = $teamScopeManagerId;
+                            $lead->save();
+                        }
+
+                        if ($rotationEngine->isNewLeadStage($lead)) {
+                            $settings = $rotationEngine->getSettings((int) $tenantId);
+                            if ($settings->allow_assign_rotation && $rotationEngine->isWithinWindow((string) $settings->work_from, (string) $settings->work_to, now())) {
+                                $filters = $rotationEngine->resolveLeadFilters($lead, (int) $tenantId);
+                                $scopeManagerId = $teamScopeManagerId;
+                                $scopeUserIds = $teamScopeUserIds;
+                                $queueKey = $rotationEngine->buildQueueKey($lead, $filters, $scopeManagerId);
+                                $eligible = $rotationEngine->getEligibleAssignUserIds((int) $tenantId, $filters, $scopeUserIds);
+                                $next = $rotationEngine->pickNextUserId((int) $tenantId, $queueKey, $eligible);
+                                if ($next) {
+                                    $rotationEngine->assignLeadToUser($lead, $next);
+                                    $lead->refresh();
+                                }
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        $warnings[] = [
+                            'code' => 'team_rotation_failed',
+                            'message' => "Team-scoped rotation skipped ({$e->getMessage()}).",
+                            'field' => 'assignedTo',
+                        ];
                     }
                 }
 

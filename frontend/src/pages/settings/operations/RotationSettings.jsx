@@ -21,6 +21,7 @@ export default function SettingsRotation() {
 
   const [prefs, setPrefs] = useState(defaultPrefs)
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   // Load from API
   useEffect(() => {
@@ -43,9 +44,16 @@ export default function SettingsRotation() {
           localStorage.setItem('rotationSettings', JSON.stringify(mapped))
         } catch {}
       })
-      .catch(() => {})
+      .catch((error) => {
+        const message =
+          error?.response?.data?.message ||
+          (isRTL ? 'فشل تحميل إعدادات الروتيشن' : 'Failed to load rotation settings')
+        window.dispatchEvent(new CustomEvent('app:toast', {
+          detail: { type: 'error', message },
+        }))
+      })
     return () => { mounted = false }
-  }, [defaultPrefs])
+  }, [defaultPrefs, isRTL])
 
   const update = (patch) => {
     setPrefs(prev => ({ ...prev, ...patch }))
@@ -53,6 +61,8 @@ export default function SettingsRotation() {
   }
 
   const save = async () => {
+    if (saving) return
+
     const payload = {
       allow_assign_rotation: !!prefs.allowAssignRotation,
       delay_assign_rotation: !!prefs.delayAssignRotation,
@@ -63,12 +73,46 @@ export default function SettingsRotation() {
       reshuffle_cold_leads: !!prefs.reshuffleColdLeads,
       reshuffle_cold_leads_number: Number(prefs.reshuffleColdLeadsNumber || 0),
     }
-    const saved = await updateRotationSettings(payload)
-    if (saved) {
+
+    setSaving(true)
+    try {
+      const saved = await updateRotationSettings(payload)
+      if (!saved) {
+        throw new Error(isRTL ? 'فشل حفظ الإعدادات' : 'Failed to save settings')
+      }
+
+      const mapped = {
+        allowAssignRotation: !!saved.allow_assign_rotation,
+        delayAssignRotation: !!saved.delay_assign_rotation,
+        workFrom: saved.work_from || prefs.workFrom,
+        workTo: saved.work_to || prefs.workTo,
+        delayWorkFrom: saved.delay_work_from || prefs.delayWorkFrom,
+        delayWorkTo: saved.delay_work_to || prefs.delayWorkTo,
+        reshuffleColdLeads: !!saved.reshuffle_cold_leads,
+        reshuffleColdLeadsNumber: Number(saved.reshuffle_cold_leads_number || 0),
+      }
+      setPrefs(mapped)
       setDirty(false)
       try {
-        localStorage.setItem('rotationSettings', JSON.stringify(prefs))
+        localStorage.setItem('rotationSettings', JSON.stringify(mapped))
       } catch {}
+
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'success',
+          message: isRTL ? 'تم حفظ إعدادات الروتيشن بنجاح' : 'Rotation settings saved successfully',
+        },
+      }))
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        (isRTL ? 'فشل حفظ إعدادات الروتيشن' : 'Failed to save rotation settings')
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: { type: 'error', message },
+      }))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -164,8 +208,22 @@ export default function SettingsRotation() {
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-4 border-t border-[var(--panel-border)] mt-4">
-            <button className="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100" onClick={reset}>{t('Reset')}</button>
-            <button className="px-4 py-2 rounded-lg bg-blue-600 text-white shadow hover:bg-blue-700 disabled:opacity-50" disabled={!dirty} onClick={save}>{t('Save')}</button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50"
+              onClick={reset}
+              disabled={saving}
+            >
+              {t('Reset')}
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white shadow hover:bg-blue-700 disabled:opacity-50"
+              disabled={!dirty || saving}
+              onClick={save}
+            >
+              {saving ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : t('Save')}
+            </button>
           </div>
         </div>
       </div>

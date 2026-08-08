@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Models\LeadAction;
 use App\Models\Stage;
 use App\Models\Tenant;
+use App\Models\User;
 use App\Services\LeadRotationEngine;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -82,8 +83,25 @@ class ProcessRotationRules extends Command
             }
 
             $filters = $engine->resolveLeadFilters($lead, $tenantId);
-            $queueKey = $engine->buildQueueKey($lead, $filters);
-            $eligible = $engine->getEligibleAssignUserIds($tenantId, $filters);
+            $scopeManagerId = !empty($lead->manager_id) ? (int) $lead->manager_id : null;
+            $scopeUserIds = null;
+
+            if ($scopeManagerId) {
+                $manager = User::query()
+                    ->where('tenant_id', $tenantId)
+                    ->find($scopeManagerId);
+                if ($manager && $engine->isTeamScopedImporter($manager)) {
+                    $scopeUserIds = $engine->collectTeamMemberIds($manager, false);
+                    if (!$scopeUserIds) {
+                        continue;
+                    }
+                } else {
+                    $scopeManagerId = null;
+                }
+            }
+
+            $queueKey = $engine->buildQueueKey($lead, $filters, $scopeManagerId);
+            $eligible = $engine->getEligibleAssignUserIds($tenantId, $filters, $scopeUserIds);
             if (!$eligible) {
                 continue;
             }
@@ -190,13 +208,30 @@ class ProcessRotationRules extends Command
                 continue;
             }
 
-            $eligible = $engine->getEligibleAssignUserIds($tenantId, $filters);
+            $scopeManagerId = !empty($lead->manager_id) ? (int) $lead->manager_id : null;
+            $scopeUserIds = null;
+            if ($scopeManagerId) {
+                $manager = User::query()
+                    ->where('tenant_id', $tenantId)
+                    ->find($scopeManagerId);
+                if ($manager && $engine->isTeamScopedImporter($manager)) {
+                    $scopeUserIds = $engine->collectTeamMemberIds($manager, false);
+                    if (!$scopeUserIds) {
+                        $engine->unassignToAdminFallback($lead);
+                        continue;
+                    }
+                } else {
+                    $scopeManagerId = null;
+                }
+            }
+
+            $eligible = $engine->getEligibleAssignUserIds($tenantId, $filters, $scopeUserIds);
             if (!$eligible) {
                 $engine->unassignToAdminFallback($lead);
                 continue;
             }
 
-            $queueKey = $engine->buildQueueKey($lead, $filters);
+            $queueKey = $engine->buildQueueKey($lead, $filters, $scopeManagerId);
             $next = $engine->pickNextAfterUserId($tenantId, $queueKey, $eligible, $assignedTo);
             if (!$next) {
                 $engine->unassignToAdminFallback($lead);

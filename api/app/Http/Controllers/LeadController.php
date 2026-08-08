@@ -720,6 +720,7 @@ class LeadController extends Controller
 
     protected function hasControlModulePermission($user, string $permissionKey): bool
     {
+        if ($this->isTenantAdminLike($user)) return true;
         return in_array($permissionKey, $this->getControlModulePerms($user), true);
     }
 
@@ -3420,12 +3421,25 @@ class LeadController extends Controller
                     $tenantId = (int) ($actor?->tenant_id ?? 0);
                     if ($tenantId && empty($lead->assigned_to) && !$creatorIsSalesPerson) {
                         $engine = app(LeadRotationEngine::class);
+
+                        // Team Leader / Sales Manager: keep lead under their management.
+                        if ($engine->isTeamScopedImporter($actor) && empty($lead->manager_id)) {
+                            $lead->manager_id = $actor->id;
+                            $lead->save();
+                        }
+
                         if ($engine->isNewLeadStage($lead)) {
                             $settings = $engine->getSettings($tenantId);
                             if ($settings->allow_assign_rotation && $engine->isWithinWindow((string) $settings->work_from, (string) $settings->work_to, now())) {
                                 $filters = $engine->resolveLeadFilters($lead, $tenantId);
-                                $queueKey = $engine->buildQueueKey($lead, $filters);
-                                $eligible = $engine->getEligibleAssignUserIds($tenantId, $filters);
+                                $scopeManagerId = null;
+                                $scopeUserIds = null;
+                                if ($engine->isTeamScopedImporter($actor)) {
+                                    $scopeManagerId = (int) $actor->id;
+                                    $scopeUserIds = $engine->collectTeamMemberIds($actor, false);
+                                }
+                                $queueKey = $engine->buildQueueKey($lead, $filters, $scopeManagerId);
+                                $eligible = $engine->getEligibleAssignUserIds($tenantId, $filters, $scopeUserIds);
                                 $next = $engine->pickNextUserId($tenantId, $queueKey, $eligible);
                                 if ($next) {
                                     $engine->assignLeadToUser($lead, $next);

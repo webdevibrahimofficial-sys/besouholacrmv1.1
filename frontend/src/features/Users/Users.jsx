@@ -95,11 +95,15 @@ const UserActions = ({
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
   const menuButtonRef = useRef(null);
+  const menuPortalRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+      const target = event.target;
+      const inTrigger = dropdownRef.current?.contains(target);
+      const inMenu = menuPortalRef.current?.contains(target);
+      if (!inTrigger && !inMenu) {
         setShowDropdown(false);
       }
     };
@@ -201,28 +205,44 @@ const UserActions = ({
             <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5 block shrink-0 text-gray-600 dark:text-gray-400" />
           </button>
           {showDropdown && dropdownStyle && createPortal(
-            <div style={dropdownStyle} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 animate-in fade-in zoom-in-95 duration-100">
+            <div
+              ref={menuPortalRef}
+              style={dropdownStyle}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 animate-in fade-in zoom-in-95 duration-100"
+            >
                 {canManageRotation && (
-                  <button onClick={() => { onAssignRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                     <UserCog className="w-4 h-4 block shrink-0 text-purple-500"/> {isArabic ? 'تعيين في الروتيشن' : 'Assign Rotation'}
-                    {isRotationAssigned ? <Check className="w-4 h-4 ms-auto text-green-500" /> : null}
-                 </button>
-                )}
-                {canManageRotation && isRotationAssigned && (
-                  <button onClick={() => { onUnassignRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                    <X className="w-4 h-4 block shrink-0 text-red-500"/> {isArabic ? 'إلغاء التعيين من الروتيشن' : 'Unassign Rotation'}
-                 </button>
+                  isRotationAssigned ? (
+                    <button
+                      onClick={() => { onUnassignRotation?.(); setShowDropdown(false); }}
+                      className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-red-600 dark:text-red-400"
+                    >
+                      <X className="w-4 h-4 block shrink-0 text-red-500"/> {isArabic ? 'إلغاء التعيين من الروتيشن' : 'Unassign Rotation'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { onAssignRotation(); setShowDropdown(false); }}
+                      className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200"
+                    >
+                      <UserCog className="w-4 h-4 block shrink-0 text-purple-500"/> {isArabic ? 'تعيين في الروتيشن' : 'Assign Rotation'}
+                    </button>
+                  )
                 )}
                 {canManageRotation && (
-                  <button onClick={() => { onDelayRotation(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                    <Clock className="w-4 h-4 block shrink-0 text-orange-500"/> {isArabic ? 'تأخير الروتيشن' : 'Delay Rotation'}
-                    {isDelayRotation ? <Check className="w-4 h-4 ms-auto text-green-500" /> : null}
-                 </button>
-                )}
-                {canManageRotation && isDelayRotation && (
-                  <button onClick={() => { onRemoveDelayRotation?.(); setShowDropdown(false); }} className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-red-600 dark:text-red-400">
-                    <X className="w-4 h-4 block shrink-0 text-red-500"/> {isArabic ? 'إلغاء تأخير الروتيشن' : 'Remove Delay Rotation'}
-                 </button>
+                  isDelayRotation ? (
+                    <button
+                      onClick={() => { onRemoveDelayRotation?.(); setShowDropdown(false); }}
+                      className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-red-600 dark:text-red-400"
+                    >
+                      <X className="w-4 h-4 block shrink-0 text-red-500"/> {isArabic ? 'إلغاء تأخير الروتيشن' : 'Remove Delay Rotation'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { onDelayRotation(); setShowDropdown(false); }}
+                      className="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 text-gray-700 dark:text-gray-200"
+                    >
+                      <Clock className="w-4 h-4 block shrink-0 text-orange-500"/> {isArabic ? 'تأخير الروتيشن' : 'Delay Rotation'}
+                    </button>
+                  )
                 )}
                {canManageRotation && canDelete && <div className="h-px bg-gray-100 dark:bg-gray-700 my-1"></div>}
                 {canDelete && (
@@ -308,7 +328,22 @@ export default function UserManagementUsers() {
     return targetRole === 'admin' || targetRole === 'tenant admin' || targetRole === 'tenant-admin';
   };
 
+  // Admin / Director / Operation Manager are not eligible for assign/delay rotation.
+  const isRotationExcludedRole = (targetUser) => {
+    const targetRole = String(targetUser?.role || '').trim().toLowerCase();
+    return (
+      targetRole === 'admin' ||
+      targetRole === 'tenant admin' ||
+      targetRole === 'tenant-admin' ||
+      targetRole.includes('director') ||
+      targetRole.includes('operation manager') ||
+      targetRole.includes('operations manager')
+    );
+  };
+
   const getUserActionPermissions = (targetUser) => {
+    const canManageRotationForUser = canRunMultiAction && !isRotationExcludedRole(targetUser);
+
     if (isProtectedAdminUser(targetUser) && !canModifyAdminUsers) {
       return {
         canEdit: false,
@@ -324,8 +359,8 @@ export default function UserManagementUsers() {
         canEdit: canEditUsers,
         canChangePassword: canChangeUsersPassword,
         canToggleStatus: false,
-        canDelete: canDeleteUsers,
-        canManageRotation: canRunMultiAction,
+        canDelete: false,
+        canManageRotation: canManageRotationForUser,
       };
     }
 
@@ -334,7 +369,7 @@ export default function UserManagementUsers() {
       canChangePassword: canChangeUsersPassword,
       canToggleStatus: canToggleUsers,
       canDelete: canDeleteUsers,
-      canManageRotation: canRunMultiAction,
+      canManageRotation: canManageRotationForUser,
     };
   };
 
@@ -875,14 +910,38 @@ export default function UserManagementUsers() {
   const [rotationRuleUser, setRotationRuleUser] = useState(null)
 
   const assignRotation = (id) => {
+    if (!canRunMultiAction) return;
     const target = users.find(u => Number(u.id) === Number(id)) || { id }
+    if (isRotationExcludedRole(target)) {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isArabic
+            ? 'لا يمكن تعيين الروتيشن لأدوار الأدمن أو الدايركتور أو الأوبريشن'
+            : 'Rotation cannot be assigned to Admin, Director, or Operation roles',
+        },
+      }));
+      return;
+    }
     setRotationRuleType('assign')
     setRotationRuleUser(target)
     setRotationRuleOpen(true)
   };
 
   const delayRotation = (id) => {
+    if (!canRunMultiAction) return;
     const target = users.find(u => Number(u.id) === Number(id)) || { id }
+    if (isRotationExcludedRole(target)) {
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isArabic
+            ? 'لا يمكن تأخير الروتيشن لأدوار الأدمن أو الدايركتور أو الأوبريشن'
+            : 'Delay rotation cannot be set for Admin, Director, or Operation roles',
+        },
+      }));
+      return;
+    }
     setRotationRuleType('delay')
     setRotationRuleUser(target)
     setRotationRuleOpen(true)

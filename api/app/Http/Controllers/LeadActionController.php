@@ -411,6 +411,7 @@ class LeadActionController extends Controller
 
     private function hasControlModulePermission($user, string $permissionKey): bool
     {
+        if ($this->isTenantAdminLike($user)) return true;
         return in_array($permissionKey, $this->getControlModulePerms($user), true);
     }
 

@@ -55,6 +55,12 @@ class RotationRuleController extends Controller
 
         $user = User::where('tenant_id', $auth->tenant_id)->findOrFail((int) $validated['user_id']);
 
+        if ($this->isRotationExcludedRole($user)) {
+            return response()->json([
+                'message' => 'Rotation cannot be assigned to Admin, Director, or Operation roles.',
+            ], 422);
+        }
+
         if ($validated['type'] === 'assign' && empty($validated['position'])) {
             $validated['position'] = 1;
         }
@@ -147,5 +153,17 @@ class RotationRuleController extends Controller
             'ok' => true,
             'updated' => (int) $updated,
         ]);
+    }
+
+    private function isRotationExcludedRole(User $user): bool
+    {
+        $role = strtolower(trim((string) ($user->role ?? $user->job_title ?? '')));
+
+        return $role === 'admin'
+            || $role === 'tenant admin'
+            || $role === 'tenant-admin'
+            || str_contains($role, 'director')
+            || str_contains($role, 'operation manager')
+            || str_contains($role, 'operations manager');
     }
 }

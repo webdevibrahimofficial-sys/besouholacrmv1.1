@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { X, Plus } from 'lucide-react'
+import { X, Plus, Clock, UserCog, Loader2 } from 'lucide-react'
 import { api } from '@utils/api'
 import SearchableSelect from '@components/SearchableSelect'
 import { createRotationRule } from '@services/rotationRulesService'
+import { useTheme } from '@shared/context/ThemeProvider'
 
 const normalizeSource = (s) => {
   if (!s) return ''
@@ -29,8 +30,10 @@ const toBool = (v) => {
 }
 
 export default function RotationRuleModal({ open, onClose, user, type, onSaved }) {
-  const { i18n, t } = useTranslation()
+  const { i18n } = useTranslation()
+  const { theme, resolvedTheme } = useTheme()
   const isArabic = i18n.language === 'ar'
+  const isDark = (resolvedTheme || theme) === 'dark'
   const isAssign = type === 'assign'
 
   const [loading, setLoading] = useState(false)
@@ -49,9 +52,17 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
   const [isActive, setIsActive] = useState(true)
 
   const title = useMemo(() => {
-    if (isAssign) return isArabic ? 'Assign Rotation' : 'Assign Rotation'
-    return isArabic ? 'Delay Rotation' : 'Delay Rotation'
+    if (isAssign) return isArabic ? 'تعيين الروتيشن' : 'Assign Rotation'
+    return isArabic ? 'تأخير الروتيشن' : 'Delay Rotation'
   }, [isArabic, isAssign])
+
+  const subtitle = useMemo(() => {
+    return user?.name || user?.fullName || user?.email || ''
+  }, [user])
+
+  const accentClass = isAssign
+    ? (isDark ? 'bg-purple-500/15 text-purple-300' : 'bg-purple-50 text-purple-600')
+    : (isDark ? 'bg-orange-500/15 text-orange-300' : 'bg-orange-50 text-orange-600')
 
   const fetchData = useCallback(async () => {
     if (!user?.id) return
@@ -67,7 +78,7 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
     } finally {
       setLoading(false)
     }
-  }, [type, user?.id])
+  }, [user?.id])
 
   useEffect(() => {
     if (!open) return
@@ -192,6 +203,7 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
 
       let okCount = 0
       let failCount = 0
+      let lastErrorMessage = ''
 
       for (const pid of primaryValues) {
         for (const src of sourceVals) {
@@ -208,8 +220,11 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
             }
             await createRotationRule(payload)
             okCount += 1
-          } catch {
+          } catch (err) {
             failCount += 1
+            lastErrorMessage =
+              err?.response?.data?.message ||
+              lastErrorMessage
           }
         }
       }
@@ -232,127 +247,195 @@ export default function RotationRuleModal({ open, onClose, user, type, onSaved }
         }))
       } else {
         window.dispatchEvent(new CustomEvent('app:toast', {
-          detail: { type: 'error', message: isArabic ? 'فشل الإضافة' : 'Add failed' },
+          detail: {
+            type: 'error',
+            message: lastErrorMessage || (isArabic ? 'فشل الإضافة' : 'Add failed'),
+          },
         }))
       }
 
-      // UX: close modal automatically when at least one rule is added successfully.
-      if (okCount > 0) {
-        try {
-          if (typeof onClose === 'function') onClose()
-        } catch {}
-      }
-    } catch {
+      try {
+        if (typeof onClose === 'function') onClose()
+      } catch {}
+    } catch (e) {
+      const message =
+        e?.response?.data?.message ||
+        (isArabic ? 'فشل الإضافة' : 'Add failed')
       window.dispatchEvent(new CustomEvent('app:toast', {
-        detail: { type: 'error', message: isArabic ? 'فشل الإضافة' : 'Add failed' },
+        detail: { type: 'error', message },
       }))
+      try {
+        if (typeof onClose === 'function') onClose()
+      } catch {}
     } finally {
       setSaving(false)
     }
-  }, [companyType, fetchData, isActive, isArabic, isAssign, itemIds, normalizedRegionValues, onSaved, position, projectIds, sourceValues, type, user?.id])
+  }, [companyType, fetchData, isActive, isArabic, isAssign, itemIds, normalizedRegionValues, onClose, onSaved, position, projectIds, sourceValues, type, user?.id])
 
   if (!open) return null
 
+  const fieldShell = 'space-y-1.5'
+  const positionInputClass = `w-full px-3.5 py-2.5 rounded-xl border outline-none transition-all text-sm ${
+    isDark
+      ? 'bg-gray-800/60 border-gray-700/60 text-gray-100 focus:border-blue-500/50'
+      : 'bg-gray-50 border-gray-200 text-gray-800 focus:border-blue-500'
+  }`
+
   return createPortal(
-    <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm p-4 flex items-center justify-center">
-      <div className="w-full card max-w-2xl rounded-2xl bg-[var(--bg-primary)] border border-[var(--panel-border)] shadow-xl">
-        <div className="p-4 border-b border-[var(--panel-border)] flex items-center justify-between gap-3">
-          <div className="font-semibold text-theme-text">
-            {title} — {user?.name || user?.fullName || user?.email || ''}
+    <div className="fixed inset-0 z-[310] flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+
+      <div
+        className={`relative w-full max-w-2xl overflow-hidden rounded-2xl shadow-2xl flex flex-col transform transition-all ${
+          isDark ? 'bg-gray-900 ring-1 ring-white/10' : 'bg-white ring-1 ring-black/5'
+        }`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rotation-rule-modal-title"
+      >
+        <div className={`flex items-center justify-between gap-3 px-5 py-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accentClass}`}>
+              {isAssign ? <UserCog size={20} /> : <Clock size={20} />}
+            </div>
+            <div className="min-w-0">
+              <h2 id="rotation-rule-modal-title" className="text-base sm:text-lg font-bold text-theme-text truncate">
+                {title}
+              </h2>
+              {subtitle ? (
+                <p className="text-xs sm:text-sm opacity-60 text-theme-text truncate">{subtitle}</p>
+              ) : null}
+            </div>
           </div>
-          <button className="btn btn-circle btn-sm btn-ghost" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn btn-sm btn-circle btn-ghost text-theme-text opacity-70 hover:opacity-100 shrink-0"
+            aria-label={isArabic ? 'إغلاق' : 'Close'}
+          >
             <X size={18} />
           </button>
         </div>
 
-        <div className="card p-4 space-y-4">
-          <div className=" card grid grid-cols-12 gap-3">
-            {!isGeneralTenant ? (
-              <div className="col-span-12 md:col-span-4">
-                <SearchableSelect
-                  options={[{ value: '', label: isArabic ? 'الكل' : 'All' }, ...projectOptions]}
-                  value={projectIds}
-                  onChange={(v) => setProjectIds(v)}
-                  placeholder={isArabic ? 'Select Project' : 'Select Project'}
-                  label={isArabic ? 'المشروع' : 'Project'}
-                  isRTL={isArabic}
-                  multiple
-                  showAllOption={false}
-                />
-              </div>
-            ) : (
-              <div className="col-span-12 md:col-span-4">
-                <SearchableSelect
-                  options={[{ value: '', label: isArabic ? 'الكل' : 'All' }, ...itemOptions]}
-                  value={itemIds}
-                  onChange={(v) => setItemIds(v)}
-                  placeholder={isArabic ? 'اختر منتج' : 'Select Item'}
-                  label={isArabic ? 'المنتج' : 'Item'}
-                  isRTL={isArabic}
-                  multiple
-                  showAllOption={false}
-                />
-              </div>
-            )}
-            <div className="col-span-12 md:col-span-4">
-              <SearchableSelect
-                options={[{ value: '', label: isArabic ? 'الكل' : 'All' }, ...sourceOptions]}
-                value={sourceValues}
-                onChange={(v) => setSourceValues(v)}
-                placeholder={isArabic ? 'Select Source' : 'Select Source'}
-                label={isArabic ? 'المصدر' : 'Source'}
-                isRTL={isArabic}
-                multiple
-                showAllOption={false}
-              />
+        <div className="p-5 space-y-5">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm opacity-70 text-theme-text">
+              <Loader2 size={18} className="animate-spin" />
+              {isArabic ? 'جاري التحميل...' : 'Loading...'}
             </div>
-            <div className="col-span-12 md:col-span-4">
-              <SearchableSelect
-                options={regionOptions}
-                value={regionValues}
-                onChange={(v) => setRegionValues(v)}
-                placeholder={isArabic ? 'Select Regions' : 'Select Regions'}
-                label={isArabic ? 'المناطق' : 'Regions'}
-                isRTL={isArabic}
-                multiple
-                showAllOption={true}
-              />
-            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {!isGeneralTenant ? (
+                  <div className={fieldShell}>
+                    <SearchableSelect
+                      options={[{ value: '', label: isArabic ? 'الكل' : 'All' }, ...projectOptions]}
+                      value={projectIds}
+                      onChange={(v) => setProjectIds(v)}
+                      placeholder={isArabic ? 'اختر المشروع' : 'Select Project'}
+                      label={isArabic ? 'المشروع' : 'Project'}
+                      isRTL={isArabic}
+                      multiple
+                      showAllOption={false}
+                    />
+                  </div>
+                ) : (
+                  <div className={fieldShell}>
+                    <SearchableSelect
+                      options={[{ value: '', label: isArabic ? 'الكل' : 'All' }, ...itemOptions]}
+                      value={itemIds}
+                      onChange={(v) => setItemIds(v)}
+                      placeholder={isArabic ? 'اختر منتج' : 'Select Item'}
+                      label={isArabic ? 'المنتج' : 'Item'}
+                      isRTL={isArabic}
+                      multiple
+                      showAllOption={false}
+                    />
+                  </div>
+                )}
 
-            {isAssign && (
-              <div className="col-span-12 md:col-span-4">
-                <label className="label-text text-xs opacity-70 mb-1 block">{isArabic ? 'Position in Rotation' : 'Position in Rotation'}</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={position}
-                  onChange={(e) => setPosition(Number(e.target.value || 1))}
-                  className="w-full border rounded-lg p-2 bg-[var(--dropdown-bg)]"
-                />
+                <div className={fieldShell}>
+                  <SearchableSelect
+                    options={[{ value: '', label: isArabic ? 'الكل' : 'All' }, ...sourceOptions]}
+                    value={sourceValues}
+                    onChange={(v) => setSourceValues(v)}
+                    placeholder={isArabic ? 'اختر المصدر' : 'Select Source'}
+                    label={isArabic ? 'المصدر' : 'Source'}
+                    isRTL={isArabic}
+                    multiple
+                    showAllOption={false}
+                  />
+                </div>
+
+                <div className={fieldShell}>
+                  <SearchableSelect
+                    options={regionOptions}
+                    value={regionValues}
+                    onChange={(v) => setRegionValues(v)}
+                    placeholder={isArabic ? 'اختر المناطق' : 'Select Regions'}
+                    label={isArabic ? 'المناطق' : 'Regions'}
+                    isRTL={isArabic}
+                    multiple
+                    showAllOption={true}
+                  />
+                </div>
               </div>
-            )}
 
-            <div className="col-span-12 md:col-span-4 flex items-center gap-2 pt-5">
-              <input
-                type="checkbox"
-                className="toggle toggle-sm"
-                checked={!!isActive}
-                onChange={(e) => setIsActive(e.target.checked)}
-              />
-              <span className="text-sm text-theme-text">{isArabic ? 'Active' : 'Active'}</span>
-            </div>
+              {isAssign ? (
+                <div className="max-w-[220px]">
+                  <label className="block text-xs font-semibold mb-1.5 text-theme-text opacity-70 uppercase tracking-wider">
+                    {isArabic ? 'الترتيب في الروتيشن' : 'Position in Rotation'}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={position}
+                    onChange={(e) => setPosition(Number(e.target.value || 1))}
+                    className={positionInputClass}
+                  />
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
 
-            <div className="col-span-12 md:col-span-4 flex items-center justify-end pt-5">
-              <button
-                className="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                onClick={saveRule}
-                disabled={saving || loading}
-                type="button"
-              >
-                <Plus size={16} />
-                {isArabic ? 'إضافة' : 'Add'}
-              </button>
-            </div>
+        <div className={`flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-t ${isDark ? 'border-gray-800 bg-gray-900/80' : 'border-gray-100 bg-gray-50/70'}`}>
+          <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="toggle toggle-sm toggle-success"
+              checked={!!isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+            />
+            <span className="text-sm font-medium text-theme-text">
+              {isArabic ? 'نشط' : 'Active'}
+            </span>
+          </label>
+
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                isDark
+                  ? 'text-gray-300 hover:bg-gray-800'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              disabled={saving}
+            >
+              {isArabic ? 'إلغاء' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={saveRule}
+              disabled={saving || loading}
+              className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 shadow-sm shadow-blue-600/20"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              {saving
+                ? (isArabic ? 'جاري الإضافة...' : 'Adding...')
+                : (isArabic ? 'إضافة' : 'Add')}
+            </button>
           </div>
         </div>
       </div>

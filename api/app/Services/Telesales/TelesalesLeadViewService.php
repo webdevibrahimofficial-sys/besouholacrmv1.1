@@ -478,6 +478,16 @@ class TelesalesLeadViewService
 
     private function hasControlModulePermission(?User $user, string $permissionKey): bool
     {
+        if (!$user) {
+            return false;
+        }
+
+        // Tenant admin always has Control permissions (matches Leads module admin bypass).
+        if (($user->is_super_admin ?? false)
+            || in_array($this->normalizedRole($user), ['admin', 'tenant admin', 'tenant-admin'], true)) {
+            return true;
+        }
+
         return in_array($permissionKey, $this->getControlModulePerms($user), true);
     }
 

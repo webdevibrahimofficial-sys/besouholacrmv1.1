@@ -58,7 +58,7 @@ class LeadRotationEngine
         return $stage === '' && $status === 'new';
     }
 
-    public function buildQueueKey(Lead $lead, array $filters): string
+    public function buildQueueKey(Lead $lead, array $filters, ?int $scopeManagerId = null): string
     {
         $tenantId = (int) ($lead->tenant_id ?? 0);
         $isGeneral = $tenantId ? $this->isGeneralTenant($tenantId) : false;
@@ -68,6 +68,7 @@ class LeadRotationEngine
             'item_id' => $filters['item_id'] ?? null,
             'source' => $this->normalizeSource($filters['source'] ?? null),
             'region' => $this->normalizeRegion($filters['region'] ?? null),
+            'scope_manager_id' => $scopeManagerId ? (int) $scopeManagerId : null,
         ];
 
         return sha1(json_encode($payload));
@@ -98,7 +99,66 @@ class LeadRotationEngine
         ];
     }
 
-    public function getEligibleAssignUserIds(int $tenantId, array $filters): array
+    /**
+     * Full subtree under a manager (does not include the manager by default).
+     *
+     * @return array<int, int>
+     */
+    public function collectTeamMemberIds(User $root, bool $includeSelf = false): array
+    {
+        $ids = [];
+        $all = User::where('tenant_id', $root->tenant_id)->get(['id', 'manager_id', 'tenant_id']);
+        $byManager = [];
+        foreach ($all as $u) {
+            $byManager[$u->manager_id ?? 0][] = $u;
+        }
+
+        $queue = [(int) $root->id];
+        $visited = [];
+        while (!empty($queue)) {
+            $current = array_shift($queue);
+            if (isset($visited[$current])) {
+                continue;
+            }
+            $visited[$current] = true;
+            $children = $byManager[$current] ?? [];
+            foreach ($children as $child) {
+                $ids[] = (int) $child->id;
+                $queue[] = (int) $child->id;
+            }
+        }
+
+        if ($includeSelf) {
+            $ids[] = (int) $root->id;
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    public function isTeamScopedImporter(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $roles = method_exists($user, 'getRoleNames')
+            ? $user->getRoleNames()->map(fn ($r) => strtolower((string) $r))->toArray()
+            : [];
+        $roleLower = strtolower(trim((string) ($user->role ?? $user->job_title ?? '')));
+
+        $isTeamLeader = str_contains($roleLower, 'team leader')
+            || str_contains($roleLower, 'teamleader')
+            || in_array('team leader', $roles, true);
+
+        $isSalesManager = str_contains($roleLower, 'sales manager')
+            || in_array('sales manager', $roles, true)
+            || str_contains($roleLower, 'telesales manager')
+            || in_array('telesales manager', $roles, true);
+
+        return $isTeamLeader || $isSalesManager;
+    }
+
+    public function getEligibleAssignUserIds(int $tenantId, array $filters, ?array $scopeUserIds = null): array
     {
         $q = RotationRule::query()
             ->where('tenant_id', $tenantId)
@@ -165,7 +225,14 @@ class LeadRotationEngine
             ->all();
 
         $activeSet = array_flip($activeUserIds);
-        return array_values(array_filter($userIds, fn ($id) => isset($activeSet[(int) $id])));
+        $eligible = array_values(array_filter($userIds, fn ($id) => isset($activeSet[(int) $id])));
+
+        if ($scopeUserIds !== null) {
+            $scopeSet = array_flip(array_map('intval', $scopeUserIds));
+            $eligible = array_values(array_filter($eligible, fn ($id) => isset($scopeSet[(int) $id])));
+        }
+
+        return $eligible;
     }
 
     public function isUserInDelayRotation(int $tenantId, int $userId, array $filters): bool
