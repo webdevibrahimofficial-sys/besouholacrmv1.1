@@ -69,9 +69,13 @@ class MetaWebhookService
                     ]);
 
                     if (isset($change['field']) && $change['field'] === 'leadgen') {
-                        $value = $change['value'] ?? [];
-                        $pageId = $entry['id'] ?? ($value['page_id'] ?? null);
-                        $leadGenId = $value['leadgen_id'] ?? null;
+                        $value = is_array($change['value'] ?? null) ? $change['value'] : [];
+                        $entryPageId = $entry['id'] ?? null;
+                        // Lead Ads Testing Tool sometimes sends entry.id as "0"; prefer value.page_id then.
+                        $pageId = $this->normalizeMetaPageId($entryPageId)
+                            ?? $this->normalizeMetaPageId($value['page_id'] ?? null);
+                        $leadGenId = isset($value['leadgen_id']) ? trim((string) $value['leadgen_id']) : null;
+                        $leadGenId = $leadGenId !== '' ? $leadGenId : null;
 
                         if ($leadGenId && $pageId) {
                             $resolvedTenantId = $this->findTenantIdByPageId($pageId);
@@ -100,6 +104,14 @@ class MetaWebhookService
                             } else {
                                 Log::warning("No tenant found for page_id: {$pageId}");
                             }
+                        } else {
+                            Log::warning('Meta leadgen webhook skipped due to missing page_id or leadgen_id', [
+                                'entry_id' => $entryPageId,
+                                'value_page_id' => $value['page_id'] ?? null,
+                                'leadgen_id' => $leadGenId,
+                                'value_keys' => array_keys($value),
+                                'source' => $source,
+                            ]);
                         }
                     }
                 }
@@ -161,5 +173,19 @@ class MetaWebhookService
         $page = $pages->first();
 
         return $page ? $page->tenant_id : null;
+    }
+
+    protected function normalizeMetaPageId(mixed $pageId): ?string
+    {
+        if ($pageId === null) {
+            return null;
+        }
+
+        $normalized = trim((string) $pageId);
+        if ($normalized === '' || $normalized === '0') {
+            return null;
+        }
+
+        return $normalized;
     }
 }
