@@ -79,6 +79,7 @@ class MetaAuthService
             'pages_manage_metadata',
             'business_management',
             'ads_read',
+            'pages_manage_ads',
         ]);
     }
 
