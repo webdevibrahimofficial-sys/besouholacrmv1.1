@@ -7,6 +7,7 @@ import { useAppState } from '../shared/context/AppStateProvider.jsx';
 import { api } from '../utils/api';
 import { setLastActionStageId } from '../utils/lastActionStage';
 import { buildLeadTransferPayload } from '../shared/utils/leadTransfer';
+import { getCrmDateFormat, formatPartsByCrmDateFormat } from '../shared/utils/crmDateTime';
 import { isSuperAdminUser, isTenantAdminUser } from '../services/leadPermissions';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -17,8 +18,14 @@ import SearchableSelect from './SearchableSelect.jsx';
 const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initialType = 'call', initialDate, isOwnerProp, isSuperAdminProp: _isSuperAdminProp }) => {
   const { i18n } = useTranslation();
   const { theme: _theme, resolvedTheme } = useTheme();
-  const { user, company } = useAppState();
+  const { user, company, crmSettings } = useAppState();
   const isLight = resolvedTheme === 'light';
+  const crmDateFormat = getCrmDateFormat(crmSettings);
+  const datePickerFormat = useMemo(() => {
+    if (crmDateFormat === 'MM/DD/YYYY') return 'MM/dd/yyyy';
+    if (crmDateFormat === 'YYYY-MM-DD') return 'yyyy-MM-dd';
+    return 'dd/MM/yyyy';
+  }, [crmDateFormat]);
   const _lintKeep = { createPortal, DatePicker, SearchableSelect, FaClock, FaHandshake, FaTimes, FaChevronDown, FaToggleOn, FaToggleOff, FaTrash, FaPlus };
 
   const isRTL = i18n.dir() === 'rtl';
@@ -385,10 +392,14 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   const formatScheduleDate = (d) => {
     if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-    const dd = pad2(d.getDate());
-    const mm = pad2(d.getMonth() + 1);
-    const yyyy = d.getFullYear();
-    return isArabic ? `${dd}/${mm}/${yyyy}` : `${mm}/${dd}/${yyyy}`;
+    return formatPartsByCrmDateFormat(
+      {
+        year: d.getFullYear(),
+        month: d.getMonth() + 1,
+        day: d.getDate(),
+      },
+      crmDateFormat
+    );
   };
 
   const handleScheduleClickOutside = (event) => {
@@ -632,7 +643,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     return stages.filter((stage) => {
       const uiBehavior = getStageUiBehavior(stage);
       const normalizedStageKey = normalizeStageToken(uiBehavior.stage_key || stage?.name || stage?.type || '');
-      const isHiddenTelesalesStage = ['fresh', 'cold calls', 'cold call'].includes(normalizedStageKey);
+      const isHiddenTelesalesStage = ['fresh', 'cold calls', 'cold call', 'new lead'].includes(normalizedStageKey);
 
       if (isHiddenTelesalesStage && String(stage?.id) !== String(actionData.stage_id || '')) {
         return false;
@@ -2452,7 +2463,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                     open={schedulePickerOpen}
                     shouldCloseOnSelect={false}
                     closeOnScroll={false}
-                    dateFormat={isArabic ? 'dd/MM/yyyy' : 'MM/dd/yyyy'}
+                    dateFormat={datePickerFormat}
                     popperProps={{ strategy: 'fixed' }}
                     popperModifiers={[
                       offset(8),

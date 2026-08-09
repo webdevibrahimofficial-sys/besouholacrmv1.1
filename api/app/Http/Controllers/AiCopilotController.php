@@ -51,12 +51,14 @@ class AiCopilotController extends Controller
         $validated = $request->validate([
             'message' => 'required|string|max:4000',
             'conversation_id' => 'nullable|integer',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
         ]);
 
         $result = $this->chatService->chat(
             $request->user(),
             trim($validated['message']),
-            $validated['conversation_id'] ?? null
+            $validated['conversation_id'] ?? null,
+            $validated['locale'] ?? null
         );
 
         return response()->json(['data' => $result]);
@@ -138,10 +140,17 @@ class AiCopilotController extends Controller
         }
 
         $quickActions[] = [
+            'id' => 'explain-system',
+            'label' => ['ar' => 'اشرح السيستم', 'en' => 'Explain system'],
+            'message' => 'Explain the system',
+            'displayText' => ['ar' => 'اشرح لي السيستم', 'en' => 'Explain the system'],
+        ];
+
+        $quickActions[] = [
             'id' => 'help',
-            'label' => ['ar' => 'مساعدة', 'en' => 'Help'],
+            'label' => ['ar' => 'إيه أقدر أعمل؟', 'en' => 'What can I do?'],
             'message' => 'What can you help me with?',
-            'displayText' => ['ar' => 'إيه اللي تقدر تساعدني فيه؟', 'en' => 'What can you help me with?'],
+            'displayText' => ['ar' => 'إيه اللي أقدر أعمله؟', 'en' => 'What can I do?'],
         ];
 
         return $quickActions;

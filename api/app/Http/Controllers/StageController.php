@@ -112,7 +112,8 @@ class StageController extends Controller
         $name = $this->normalizeStageToken((string) ($stage->name ?? ''));
         $stageKey = $type !== '' ? $type : $name;
         $displayOnly = (bool) ($meta['display_only'] ?? false);
-        $isEntryStage = in_array($stageKey, ['fresh', 'cold calls', 'cold call'], true);
+        $isEntryStage = in_array($stageKey, ['fresh', 'cold calls', 'cold call', 'new lead'], true)
+            || in_array((string) ($meta['system_key'] ?? ''), ['sales_new_lead', 'telesales_fresh', 'sales_cold_calls', 'telesales_cold_calls'], true);
         $isTransfer = in_array($stageKey, ['convert', 'transfer', 'transferred'], true);
         $isTerminal = in_array($stageKey, ['closing deals', 'cancel', 'not interested'], true);
         $defaultActionType = in_array($stageKey, ['proposal', 'reservation', 'closing deals', 'rent', 'meeting'], true)

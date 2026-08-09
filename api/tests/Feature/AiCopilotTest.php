@@ -130,6 +130,110 @@ class AiCopilotTest extends TestCase
         $this->assertSame('download', $result['ui_actions'][0]['type'] ?? null);
     }
 
+    public function test_catalog_guesses_arabic_report_aliases(): void
+    {
+        $catalog = app(\App\Services\AiCopilot\AiSystemCatalog::class);
+
+        $this->assertSame('meetings', $catalog->guessReportKey('افتح تقرير الميتنج'));
+        $this->assertSame('leads_pipeline', $catalog->guessReportKey('تقرير البايبلاين'));
+        $this->assertSame('sales_to_telesales', $catalog->guessReportKey('to telesales'));
+        $this->assertSame('sales_to_telesales', $catalog->guessReportKey('sales_to_telesales_transfers'));
+        $this->assertSame('sales_to_telesales', $catalog->guessReportKey('تيليسيلز'));
+        $this->assertNotNull($catalog->findReport('sales_to_telesales'));
+    }
+
+    public function test_chat_service_guesses_relative_date_ranges(): void
+    {
+        $service = app(\App\Services\AiCopilot\AiCopilotChatService::class);
+        $method = new \ReflectionMethod($service, 'guessDates');
+        $method->setAccessible(true);
+
+        $today = now()->toDateString();
+        $thisWeekStart = now()->subDays(6)->toDateString();
+        $monthStart = now()->startOfMonth()->toDateString();
+
+        $this->assertSame(
+            ['date_from' => $today, 'date_to' => $today],
+            $method->invoke($service, 'افتح التقرير اليوم')
+        );
+
+        $this->assertSame(
+            ['date_from' => $thisWeekStart, 'date_to' => $today],
+            $method->invoke($service, 'pipeline last 7 days')
+        );
+
+        $this->assertSame(
+            ['date_from' => $monthStart, 'date_to' => $today],
+            $method->invoke($service, 'تقرير هذا الشهر')
+        );
+
+        $this->assertSame(
+            ['date_from' => '2026-01-01', 'date_to' => '2026-01-31'],
+            $method->invoke($service, 'من 2026-01-01 إلى 2026-01-31')
+        );
+    }
+
+    public function test_catalog_modules_are_permission_aware(): void
+    {
+        $catalog = app(\App\Services\AiCopilot\AiSystemCatalog::class);
+        $user = $this->user->fresh();
+
+        $forUser = $catalog->forUser($user);
+        $moduleKeys = collect($forUser['modules'] ?? [])->pluck('key')->all();
+
+        $this->assertContains('tasks', $moduleKeys);
+        $this->assertNotContains('settings', $moduleKeys);
+        $this->assertNotContains('marketing_meta', $moduleKeys);
+        $this->assertSame('leads', $catalog->guessModuleKey('اشرح الليدز'));
+        $this->assertTrue($catalog->isSystemOverviewTopic('اشرح السيستم'));
+    }
+
+    public function test_explain_system_returns_only_visible_modules(): void
+    {
+        $executor = app(AiCopilotToolExecutor::class);
+        $result = $executor->execute($this->user->fresh(), 'explain_feature', [
+            'topic' => 'system',
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $moduleKeys = collect($result['modules'] ?? [])->pluck('key')->all();
+        $this->assertContains('tasks', $moduleKeys);
+        $this->assertNotContains('settings', $moduleKeys);
+        $this->assertNotEmpty($result['ui_actions'] ?? []);
+        $this->assertSame('navigate', $result['ui_actions'][0]['type'] ?? null);
+    }
+
+    public function test_chat_explain_system_uses_explain_feature(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'اشرح لي السيستم',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'explain_feature')
+            ->assertJsonPath('data.locale', 'ar');
+        $this->assertNotEmpty($response->json('data.message'));
+        $this->assertNotEmpty($response->json('data.ui_actions'));
+        $this->assertStringContainsString('تقدر', (string) $response->json('data.message'));
+    }
+
+    public function test_chat_english_message_replies_in_english(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'Explain the system',
+            'locale' => 'en',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'explain_feature')
+            ->assertJsonPath('data.locale', 'en');
+        $this->assertStringContainsString('access', (string) $response->json('data.message'));
+    }
+
     public function test_confirm_create_task_denied_for_invisible_lead(): void
     {
         $this->actingAsTenantUser();

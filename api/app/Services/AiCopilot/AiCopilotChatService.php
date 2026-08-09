@@ -21,10 +21,11 @@ class AiCopilotChatService
     ) {
     }
 
-    public function chat(User $user, string $message, ?int $conversationId = null): array
+    public function chat(User $user, string $message, ?int $conversationId = null, ?string $preferredLocale = null): array
     {
         $conversation = $this->resolveConversation($user, $conversationId);
         $this->storeMessage($conversation, 'user', $message);
+        $locale = $this->detectReplyLocale($message, $preferredLocale);
 
         $toolResult = null;
         $uiActions = [];
@@ -32,14 +33,39 @@ class AiCopilotChatService
         $planned = ['tool' => null, 'args' => []];
         $pendingLeadDraft = $this->resolvePendingLeadDraft($conversation);
         $pendingOptionalLeadDraft = $this->resolvePendingOptionalLeadDraft($conversation);
+        $pendingActionDraft = $this->resolvePendingLeadActionDraft($conversation);
         $optionalStartDraft = $this->shouldStartOptionalLeadDraft($conversation, $message);
-        $focusReply = $this->handleLeadFocusIntent($user, $conversation, $message);
+        $focusReply = $this->handleLeadFocusIntent($user, $conversation, $message, $locale);
 
         if ($focusReply) {
             $assistantText = $focusReply['message'];
             $uiActions = $focusReply['ui_actions'] ?? [];
         } else {
-            if ($pendingOptionalLeadDraft) {
+            $actionRestartArgs = $this->buildLeadActionRestartArgs($conversation, $message);
+            $actionStartOverride = null;
+            if ($pendingActionDraft && $this->looksLikeCreateLeadActionRequest($message)) {
+                $candidateStart = $this->buildLeadActionWizardStartArgs($message, $user, $locale, $conversation);
+                if (! empty($candidateStart['lead_id'])) {
+                    $actionStartOverride = $candidateStart;
+                }
+            }
+
+            if ($actionRestartArgs) {
+                $planned = [
+                    'tool' => 'create_lead_action_draft',
+                    'args' => $actionRestartArgs,
+                ];
+            } elseif ($actionStartOverride) {
+                $planned = [
+                    'tool' => 'create_lead_action_draft',
+                    'args' => $actionStartOverride,
+                ];
+            } elseif ($pendingActionDraft) {
+                $planned = [
+                    'tool' => 'create_lead_action_draft',
+                    'args' => $this->mergePendingLeadActionDraftArgs($pendingActionDraft, $message, $user, $locale, $conversation),
+                ];
+            } elseif ($pendingOptionalLeadDraft) {
                 $planned = [
                     'tool' => 'create_lead_draft',
                     'args' => $this->mergePendingOptionalLeadDraftArgs($pendingOptionalLeadDraft, $message),
@@ -58,12 +84,26 @@ class AiCopilotChatService
                 $forcedDelayed = $this->forceDelayedLeadsPlan($message);
                 if ($forcedDelayed) {
                     $planned = $forcedDelayed;
+                } elseif ($this->looksLikeCreateLeadActionRequest($message)) {
+                    $planned = [
+                        'tool' => 'create_lead_action_draft',
+                        'args' => $this->buildLeadActionWizardStartArgs($message, $user, $locale, $conversation),
+                    ];
+                } elseif ($this->looksLikeCreateTaskRequest($message) && preg_match('/\b(\d+)\b/', $message, $taskMatch)) {
+                    $planned = [
+                        'tool' => 'create_task_for_lead',
+                        'args' => [
+                            'lead_id' => (int) $taskMatch[1],
+                            'title' => 'Follow up delayed lead #'.$taskMatch[1],
+                        ],
+                    ];
                 } else {
-                    $planned = $this->planWithGemini($user, $message);
+                    $planned = $this->planWithGemini($user, $message, $locale);
                     if (! $planned) {
-                        $planned = $this->planWithHeuristics($message);
+                        $planned = $this->planWithHeuristics($message, $user);
                     } else {
                         $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
+                        $planned = $this->sanitizeLeadActionPlan($planned, $message, $user, $locale, $conversation);
                     }
                 }
             }
@@ -73,13 +113,14 @@ class AiCopilotChatService
             }
 
             if (($planned['tool'] ?? null) && $planned['tool'] !== 'none') {
-                $toolResult = $this->tools->execute($user, $planned['tool'], $planned['args'] ?? []);
+                $toolArgs = array_merge($planned['args'] ?? [], ['_locale' => $locale]);
+                $toolResult = $this->tools->execute($user, $planned['tool'], $toolArgs);
                 $uiActions = $toolResult['ui_actions'] ?? [];
-                $assistantText = $this->composeToolReply($planned['tool'], $toolResult, $message);
+                $assistantText = $this->composeToolReply($planned['tool'], $toolResult, $message, $locale);
                 $this->storeMessage($conversation, 'tool', $assistantText, $planned['tool'], $toolResult, $uiActions);
             } else {
                 $assistantText = $planned['reply']
-                    ?? $this->defaultReply($user, $message);
+                    ?? $this->defaultReply($user, $message, $locale);
             }
         }
 
@@ -98,7 +139,21 @@ class AiCopilotChatService
             'tool' => $planned['tool'] ?? null,
             'tool_result' => $toolResult,
             'ui_actions' => $uiActions,
+            'locale' => $locale,
         ];
+    }
+
+    protected function detectReplyLocale(string $message, ?string $preferredLocale = null): string
+    {
+        if (preg_match('/\p{Arabic}/u', $message)) {
+            return 'ar';
+        }
+
+        if (preg_match('/[A-Za-z]{3,}/u', $message)) {
+            return 'en';
+        }
+
+        return $this->catalog->normalizeLocale($preferredLocale ?: 'en');
     }
 
     protected function resolveConversation(User $user, ?int $conversationId): ?AiCopilotConversation
@@ -147,7 +202,7 @@ class AiCopilotChatService
         ]);
     }
 
-    protected function planWithGemini(User $user, string $message): ?array
+    protected function planWithGemini(User $user, string $message, string $locale = 'en'): ?array
     {
         $apiKey = (string) config('services.gemini.api_key', '');
         if ($apiKey === '') {
@@ -157,23 +212,31 @@ class AiCopilotChatService
         $catalog = $this->catalog->forUser($user);
         $toolNames = implode(', ', array_column($this->tools->definitions(), 'name'));
         $reports = collect($catalog['reports'])->map(fn ($r) => $r['key'].' ('.$r['name'].')')->implode(', ');
+        $modules = collect($catalog['modules'] ?? [])->map(fn ($m) => $m['key'].' ('.$m['name'].')')->implode(', ');
+        $replyLanguage = $locale === 'ar' ? 'Arabic' : 'English';
 
         $prompt = <<<PROMPT
 You are Besouhola Copilot, a CRM assistant.
 Choose at most one tool for the user request, or none for a direct answer.
 Available tools: {$toolNames}
+Available modules for this user: {$modules}
 Available reports for this user: {$reports}
 
 Return ONLY JSON:
 {"tool":"tool_name_or_none","args":{},"reply":"optional direct reply if tool is none"}
 
+Language rule: any "reply" text MUST be written in {$replyLanguage}, matching the user message language.
+When the user asks what they can do, what you can help with, or available capabilities, prefer tool "list_capabilities".
+When the user asks to explain the system/CRM/overview, prefer tool "explain_feature" with args.topic="system".
+When the user asks about a module (Leads, Reports, Tasks, Telesales, Marketing/Meta, Settings), prefer tool "explain_feature" with that module key.
 When the user asks what reports they can open or which reports are available, prefer tool "list_capabilities".
 When the user asks which leads to invest in, delayed leads, or overdue follow-ups, prefer tool "list_delayed_leads".
 When the user is choosing/starting one lead after a delayed-leads list (e.g. "اختار واحد", "ابدأ بيها", "start with one"), do NOT open reports. Prefer tool "none" with a short reply asking them to click a lead card or name the lead id.
+When the user wants to create/log a lead action (أكشن / follow-up / meeting outcome), prefer tool "create_lead_action_draft" with lead_id only when known. Do NOT invent stage_id, type, outcome, or description — the wizard asks what happened, then recommends a stage, then confirms.
 When opening/filtering a report, set args.report to the exact report key from the available list.
 When filtering reports, always put ISO dates in args as date_from and date_to (YYYY-MM-DD).
 If the user writes dates like 1/8/2025 treat them as day/month/year.
-Never invent a report that is not in the available list.
+Never invent a report or module that is not in the available lists.
 
 User message:
 {$message}
@@ -226,7 +289,7 @@ PROMPT;
         ];
     }
 
-    protected function planWithHeuristics(string $message): array
+    protected function planWithHeuristics(string $message, ?User $user = null): array
     {
         $text = mb_strtolower($message);
 
@@ -242,13 +305,13 @@ PROMPT;
             ];
         }
 
-        if (preg_match('/(action|follow[ -_]?up|meeting|comment|note)/u', $text)) {
+        if ($this->looksLikeCreateLeadActionRequest($message) || preg_match('/(action|follow[ -_]?up|meeting|comment|note|أكشن|اكشن)/u', $text)) {
             return [
                 'tool' => 'create_lead_action_draft',
-                'args' => $this->guessLeadActionArgs($message),
+                'args' => $this->buildLeadActionWizardStartArgs($message, $user),
             ];
         }
-        if (preg_match('/(task|تاسك|مهمة)/u', $text) && preg_match('/\b(\d+)\b/', $text, $m)) {
+        if (($this->looksLikeCreateTaskRequest($message) || preg_match('/(task|تاسك|مهمة)/u', $text)) && preg_match('/\b(\d+)\b/', $text, $m)) {
             return [
                 'tool' => 'create_task_for_lead',
                 'args' => [
@@ -263,6 +326,27 @@ PROMPT;
                 'tool' => 'list_capabilities',
                 'args' => [],
             ];
+        }
+
+        if (
+            preg_match('/(اشرح|شرح|explain|overview|وصف).{0,40}(السيستم|السيستيم|النظام|system|crm)/u', $text)
+            || preg_match('/(explain|اشرح).{0,20}(the )?(system|crm)/u', $text)
+            || preg_match('/(how does (the )?(system|crm) work)/u', $text)
+        ) {
+            return [
+                'tool' => 'explain_feature',
+                'args' => ['topic' => 'system'],
+            ];
+        }
+
+        if (preg_match('/(اشرح|شرح|explain|what is|يعني ايه|ما هو)/u', $text)) {
+            $module = $this->catalog->guessModuleKey($text);
+            if ($module) {
+                return [
+                    'tool' => 'explain_feature',
+                    'args' => ['topic' => $module],
+                ];
+            }
         }
 
         if (preg_match('/(export|download|تصدير|تحميل)/u', $text)) {
@@ -283,7 +367,7 @@ PROMPT;
             ];
         }
 
-        if (preg_match('/(what can|capabilities|تقدر|اقدر|help|مساعد|سيستم|system|features)/u', $text)) {
+        if (preg_match('/(what can|capabilities|تقدر|اقدر|help|مساعد|features|ايه اللي اقدر|ايه اللي تقدر)/u', $text)) {
             return [
                 'tool' => 'list_capabilities',
                 'args' => [],
@@ -369,67 +453,216 @@ PROMPT;
             $args['date_to'] = $parsed[1];
         }
 
-        $lower = mb_strtolower($text);
-        if (str_contains($lower, 'today') || str_contains($text, 'اليوم')) {
-            $args['date_from'] = now()->toDateString();
-            $args['date_to'] = now()->toDateString();
+        // Relative phrases only when the user did not already give explicit dates.
+        if ($parsed !== []) {
+            return $args;
         }
-        if (str_contains($lower, 'this month') || str_contains($text, 'هذا الشهر')) {
+
+        $lower = mb_strtolower($text);
+        $today = now()->toDateString();
+
+        // More specific relative ranges first.
+        if (
+            preg_match('/\blast\s*30\s*days?\b/u', $lower)
+            || preg_match('/آخر\s*30\s*يوم/u', $text)
+            || preg_match('/اخر\s*30\s*يوم/u', $text)
+            || preg_match('/خلال\s*شهر/u', $text)
+        ) {
+            $args['date_from'] = now()->subDays(29)->toDateString();
+            $args['date_to'] = $today;
+        } elseif (
+            preg_match('/\blast\s*7\s*days?\b/u', $lower)
+            || preg_match('/\blast\s*week\b/u', $lower)
+            || preg_match('/past\s*week/u', $lower)
+            || preg_match('/آخر\s*7\s*أيام/u', $text)
+            || preg_match('/اخر\s*7\s*ايام/u', $text)
+            || preg_match('/آخر\s*أسبوع/u', $text)
+            || preg_match('/اخر\s*اسبوع/u', $text)
+            || preg_match('/الأسبوع\s*الماضي/u', $text)
+            || preg_match('/الاسبوع\s*الماضي/u', $text)
+        ) {
+            $args['date_from'] = now()->subDays(6)->toDateString();
+            $args['date_to'] = $today;
+        } elseif (
+            preg_match('/\byesterday\b/u', $lower)
+            || preg_match('/أمس/u', $text)
+            || preg_match('/امس/u', $text)
+        ) {
+            $yesterday = now()->subDay()->toDateString();
+            $args['date_from'] = $yesterday;
+            $args['date_to'] = $yesterday;
+        } elseif (
+            preg_match('/\btoday\b/u', $lower)
+            || preg_match('/اليوم/u', $text)
+        ) {
+            $args['date_from'] = $today;
+            $args['date_to'] = $today;
+        } elseif (
+            preg_match('/\bthis\s*month\b/u', $lower)
+            || preg_match('/هذا\s*الشهر/u', $text)
+            || preg_match('/الشهر\s*الحالي/u', $text)
+        ) {
             $args['date_from'] = now()->startOfMonth()->toDateString();
-            $args['date_to'] = now()->toDateString();
+            $args['date_to'] = $today;
+        } elseif (
+            preg_match('/\blast\s*month\b/u', $lower)
+            || preg_match('/الشهر\s*الماضي/u', $text)
+            || preg_match('/الشهر\s*اللي\s*فات/u', $text)
+        ) {
+            $args['date_from'] = now()->subMonthNoOverflow()->startOfMonth()->toDateString();
+            $args['date_to'] = now()->subMonthNoOverflow()->endOfMonth()->toDateString();
+        } elseif (
+            preg_match('/\bthis\s*year\b/u', $lower)
+            || preg_match('/هذه\s*السنة/u', $text)
+            || preg_match('/السنة\s*الحالية/u', $text)
+            || preg_match('/العام\s*الحالي/u', $text)
+        ) {
+            $args['date_from'] = now()->startOfYear()->toDateString();
+            $args['date_to'] = $today;
         }
 
         return $args;
     }
 
-    protected function composeToolReply(string $tool, array $result, string $message): string
+    protected function composeToolReply(string $tool, array $result, string $message, string $locale = 'en'): string
     {
         if (! ($result['ok'] ?? false)) {
-            return (string) ($result['message'] ?? 'I could not complete that request.');
+            $fallback = $locale === 'ar' ? 'معرفتش أكمل الطلب ده.' : 'I could not complete that request.';
+
+            return (string) ($result['message'] ?? $fallback);
         }
 
+        $locale = $this->catalog->normalizeLocale($result['locale'] ?? $locale);
+
         return match ($tool) {
-            'list_capabilities' => (string) ($result['summary'] ?? 'Here are the available capabilities.'),
-            'explain_feature' => $this->composeExplainFeatureReply($result),
-            'navigate_report' => $this->composeNavigateReply($result),
-            'export_report' => (string) ($result['message'] ?? 'Export is ready.'),
-            'list_delayed_leads' => 'Found '.((int) ($result['count'] ?? 0)).' delayed leads. Click a lead card to start working on it.',
-            'create_lead_draft' => (string) ($result['message'] ?? 'Lead draft ready.'),
-            'create_lead_action_draft' => (string) ($result['message'] ?? 'Lead action draft ready.'),
-            'create_task_for_lead' => (string) ($result['message'] ?? 'Task draft ready.'),
-            default => 'Done.',
+            'list_capabilities' => (string) ($result['summary'] ?? (
+                $locale === 'ar' ? 'دي الإمكانيات المتاحة.' : 'Here are the available capabilities.'
+            )),
+            'explain_feature' => $this->composeExplainFeatureReply($result, $locale),
+            'navigate_report' => $this->composeNavigateReply($result, $locale),
+            'export_report' => (string) ($result['message'] ?? (
+                $locale === 'ar' ? 'التصدير جاهز.' : 'Export is ready.'
+            )),
+            'list_delayed_leads' => $locale === 'ar'
+                ? 'لقيت '.((int) ($result['count'] ?? 0)).' ليد متأخر. اضغط على كارت ليد عشان نبدأ.'
+                : 'Found '.((int) ($result['count'] ?? 0)).' delayed leads. Click a lead card to start working on it.',
+            'create_lead_draft' => (string) ($result['message'] ?? (
+                $locale === 'ar' ? 'مسودة الليد جاهزة.' : 'Lead draft ready.'
+            )),
+            'create_lead_action_draft' => (string) ($result['message'] ?? (
+                $locale === 'ar' ? 'مسودة الأكشن جاهزة.' : 'Lead action draft ready.'
+            )),
+            'create_task_for_lead' => (string) ($result['message'] ?? (
+                $locale === 'ar' ? 'مسودة التاسك جاهزة.' : 'Task draft ready.'
+            )),
+            default => $locale === 'ar' ? 'تم.' : 'Done.',
         };
     }
 
-    protected function composeExplainFeatureReply(array $result): string
+    protected function composeExplainFeatureReply(array $result, string $locale = 'en'): string
     {
         $topic = trim((string) ($result['topic'] ?? 'Feature'));
         $explanation = trim((string) ($result['explanation'] ?? ''));
+        $modules = collect($result['modules'] ?? [])
+            ->filter(fn ($module) => is_array($module) && trim((string) ($module['name'] ?? '')) !== '')
+            ->values()
+            ->all();
         $reports = collect($result['available_reports'] ?? [])
             ->filter(fn ($name) => is_string($name) && trim($name) !== '')
             ->values()
             ->all();
+        $copilot = collect($result['copilot'] ?? [])
+            ->filter(fn ($item) => is_string($item) && trim($item) !== '')
+            ->values()
+            ->all();
 
-        $parts = [];
+        if ($modules !== []) {
+            $lines = [
+                $explanation !== ''
+                    ? $explanation
+                    : ($locale === 'ar'
+                        ? 'ده اللي تقدر توصل له في Besouhola CRM.'
+                        : 'Here is what you can access in Besouhola CRM.'),
+                '',
+            ];
+
+            foreach ($modules as $module) {
+                $name = trim((string) ($module['name'] ?? ''));
+                $description = trim((string) ($module['description'] ?? ''));
+                $lines[] = $description !== ''
+                    ? "• {$name} — {$description}"
+                    : "• {$name}";
+            }
+
+            $reportCount = count($reports);
+            $lines[] = '';
+            if ($locale === 'ar') {
+                $lines[] = $reportCount > 0
+                    ? "التقارير: {$reportCount} متاحة. اطلب فتح أو تصدير أي تقرير بالاسم."
+                    : 'التقارير: مفيش تقارير متاحة حسب صلاحياتك.';
+                $lines[] = '';
+                $lines[] = 'اضغط على موديول تحت عشان تفتحه.';
+            } else {
+                $lines[] = $reportCount > 0
+                    ? "Reports: {$reportCount} available. Ask me to open or export any report by name."
+                    : 'Reports: none available for your permissions.';
+                $lines[] = '';
+                $lines[] = 'Tap a module below to open it.';
+            }
+
+            return implode("\n", $lines);
+        }
+
+        $lines = [];
         if ($explanation !== '') {
-            $parts[] = $topic.': '.$explanation;
+            $lines[] = $topic;
+            $lines[] = $explanation;
         } else {
-            $parts[] = $topic;
+            $lines[] = $topic;
+        }
+
+        if ($copilot !== []) {
+            $lines[] = '';
+            $lines[] = $locale === 'ar' ? 'من الكوبايلوت:' : 'From Copilot:';
+            foreach ($copilot as $item) {
+                $lines[] = '• '.$item;
+            }
         }
 
         if ($reports !== []) {
-            $parts[] = 'Available reports: '.implode(', ', $reports).'.';
+            $lines[] = '';
+            $lines[] = $locale === 'ar'
+                ? 'التقارير: '.count($reports).' متاحة — اطلب فتح تقرير بالاسم.'
+                : 'Reports: '.count($reports).' available — ask me to open one by name.';
         }
 
-        return trim(implode(' ', $parts));
+        if (($result['can_show'] ?? null) === false) {
+            $lines[] = '';
+            $lines[] = $locale === 'ar'
+                ? 'حالياً معندكش صلاحية تفتح ده.'
+                : 'You currently do not have access to open this.';
+        }
+
+        return trim(implode("\n", $lines));
     }
 
-    protected function composeNavigateReply(array $result): string
+    protected function composeNavigateReply(array $result, string $locale = 'en'): string
     {
-        $report = (string) ($result['report'] ?? 'the report');
+        $report = (string) ($result['report'] ?? ($locale === 'ar' ? 'التقرير' : 'the report'));
         $filters = is_array($result['filters'] ?? null) ? $result['filters'] : [];
         $from = $filters['created_from'] ?? $filters['date_from'] ?? null;
         $to = $filters['created_to'] ?? $filters['date_to'] ?? null;
+
+        if ($locale === 'ar') {
+            if ($from && $to) {
+                return "بفتح {$report} من {$from} إلى {$to}.";
+            }
+            if ($from) {
+                return "بفتح {$report} من {$from}.";
+            }
+
+            return "بفتح {$report}.";
+        }
 
         if ($from && $to) {
             return "Opening {$report} filtered from {$from} to {$to}.";
@@ -442,12 +675,21 @@ PROMPT;
         return "Opening {$report}.";
     }
 
-    protected function defaultReply(User $user, string $message): string
+    protected function defaultReply(User $user, string $message, string $locale = 'en'): string
     {
         $catalog = $this->catalog->forUser($user);
-        $reportNames = collect($catalog['reports'])->pluck('name')->take(5)->implode(', ');
+        $moduleNames = collect($catalog['modules'] ?? [])
+            ->map(fn ($module) => $this->catalog->localizeModule($module, $locale)['name'] ?? null)
+            ->filter()
+            ->take(6)
+            ->implode($locale === 'ar' ? ' · ' : ', ');
+        $reportNames = collect($catalog['reports'])->pluck('name')->take(5)->implode($locale === 'ar' ? ' · ' : ', ');
 
-        return "I'm Besouhola Copilot. I can help with reports ({$reportNames}), delayed leads, leads, lead actions, and tasks. Ask me to open a report, export one, create a lead, create a lead action, or list delayed leads.";
+        if ($locale === 'ar') {
+            return "أنا Besouhola Copilot. أقدر أشرح الموديولات ({$moduleNames})، أفتح التقارير ({$reportNames})، أعرض الليدز المتأخرة، وأنشئ ليد أو أكشن أو تاسك. اطلب مني اشرح السيستم أو افتح تقرير أو اعرض الليدز المتأخرة.";
+        }
+
+        return "I'm Besouhola Copilot. I can explain modules ({$moduleNames}), open reports ({$reportNames}), list delayed leads, and draft leads, actions, or tasks. Ask me to explain the system, open a report, or show delayed leads.";
     }
 
     protected function guessLeadArgs(string $message): array
@@ -703,78 +945,294 @@ PROMPT;
         return (bool) preg_match('/(create lead|new lead|lead name|lead named|create a lead|\x{0627}\x{0646}\x{0634}\x{0626}\s+\x{0644}\x{064A}\x{062F}|\x{0627}\x{0639}\x{0645}\x{0644}\s+\x{0644}\x{064A}\x{062F}|\x{0644}\x{064A}\x{062F}\s+\x{062C}\x{062F}\x{064A}\x{062F}|\x{0644}\x{064A}\x{062F}\s+\x{0628}\x{0627}\x{0633}\x{0645}|\x{0639}\x{0627}\x{064A}\x{0632}\s+\x{0627}\x{0646}\x{0634}\x{0626}\s+\x{0644}\x{064A}\x{062F}|\x{0639}\x{0627}\x{064A}\x{0632}\s+\x{0627}\x{0639}\x{0645}\x{0644}\s+\x{0644}\x{064A}\x{062F})/iu', $text);
     }
 
-    protected function guessLeadActionArgs(string $message): array
+    protected function sanitizeLeadActionPlan(array $planned, string $message, ?User $user = null, string $locale = 'en', ?AiCopilotConversation $conversation = null): array
     {
-        $text = mb_strtolower($message);
+        if (($planned['tool'] ?? null) !== 'create_lead_action_draft') {
+            return $planned;
+        }
+
+        // Wizard owns stage/type/outcome; only seed lead_id.
+        $fromMessage = $this->buildLeadActionWizardStartArgs($message, $user, $locale, $conversation);
+        $geminiLeadId = (int) (($planned['args']['lead_id'] ?? 0));
+        if (empty($fromMessage['lead_id']) && $geminiLeadId > 0) {
+            $fromMessage['lead_id'] = $geminiLeadId;
+        }
+
+        $planned['args'] = $fromMessage;
+
+        return $planned;
+    }
+
+    protected function resolvePendingLeadActionDraft(?AiCopilotConversation $conversation): ?array
+    {
+        $payload = $this->resolveLatestLeadActionDraftPayload($conversation);
+        if (! $payload) {
+            return null;
+        }
+
+        $state = (string) ($payload['state'] ?? '');
+        if (! in_array($state, ['needs_input', 'awaiting_details', 'awaiting_stage', 'awaiting_schedule'], true)) {
+            return null;
+        }
+
+        return $payload;
+    }
+
+    protected function resolveLatestLeadActionDraftPayload(?AiCopilotConversation $conversation): ?array
+    {
+        if (! $conversation || ! Schema::hasTable('ai_copilot_messages')) {
+            return null;
+        }
+
+        $message = AiCopilotMessage::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('tool_name', 'create_lead_action_draft')
+            ->latest('id')
+            ->first();
+
+        return is_array($message?->tool_payload) ? $message->tool_payload : null;
+    }
+
+    protected function buildLeadActionWizardStartArgs(string $message, ?User $user = null, string $locale = 'en', ?AiCopilotConversation $conversation = null): array
+    {
         $args = [];
 
-        if (preg_match('/\b(\d+)\b/', $text, $match)) {
-            $args['lead_id'] = (int) $match[1];
-        }
-
-        if (preg_match('/(follow[ -_]?up|Ù…ØªØ§Ø¨Ø¹Ø©)/u', $text)) {
-            $args['type'] = 'follow_up';
-        } elseif (preg_match('/(meeting|Ø§Ø¬ØªÙ…Ø§Ø¹)/u', $text)) {
-            $args['type'] = 'meeting';
-        } elseif (preg_match('/(comment|ØªØ¹Ù„ÙŠÙ‚)/u', $text)) {
-            $args['type'] = 'comment';
-        } elseif (preg_match('/(note|Ù…Ù„Ø§Ø­Ø¸Ø©)/u', $text)) {
-            $args['type'] = 'note';
-        }
-
-        $dates = $this->guessDates($message);
-        if (isset($dates['date_from'])) {
-            $args['date'] = $dates['date_from'];
-        }
-
-        if (str_contains($text, 'tomorrow') || str_contains($text, 'Ø¨ÙƒØ±Ø©') || str_contains($text, 'ØºØ¯Ø§')) {
-            $args['date'] = now()->addDay()->toDateString();
-        }
-
-        if (preg_match('/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i', $message, $timeMatch)) {
-            $hour = (int) $timeMatch[1];
-            $minute = isset($timeMatch[2]) ? (int) $timeMatch[2] : 0;
-            $meridiem = strtolower((string) ($timeMatch[3] ?? ''));
-
-            if ($meridiem === 'pm' && $hour < 12) {
-                $hour += 12;
+        $leadId = $this->extractLeadIdFromMessage($message);
+        if ($leadId) {
+            $args['lead_id'] = $leadId;
+        } elseif ($user) {
+            $resolvedId = $this->resolveLeadIdByName($user, $message);
+            if (! $resolvedId && $conversation) {
+                $resolvedId = $this->resolveLeadIdFromRecentContext($user, $conversation);
             }
-            if ($meridiem === 'am' && $hour === 12) {
-                $hour = 0;
+            if ($resolvedId) {
+                $args['lead_id'] = $resolvedId;
             }
-
-            $args['time'] = sprintf('%02d:%02d', $hour, $minute);
         }
 
         return $args;
     }
 
-    protected function handleLeadFocusIntent(User $user, ?AiCopilotConversation $conversation, string $message): ?array
+    protected function buildLeadActionRestartArgs(?AiCopilotConversation $conversation, string $message): ?array
     {
+        if (trim($message) !== '__copilot_action_restart_stage__') {
+            return null;
+        }
+
+        $payload = $this->resolveLatestLeadActionDraftPayload($conversation);
+        if (! $payload) {
+            return null;
+        }
+
+        $state = (string) ($payload['state'] ?? '');
+        if (! in_array($state, ['awaiting_confirmation', 'awaiting_stage'], true)) {
+            return null;
+        }
+
+        $draft = is_array($payload['payload'] ?? null) ? $payload['payload'] : [];
+        $leadId = (int) ($draft['lead_id'] ?? 0);
+        $detailsText = trim((string) ($draft['details_text'] ?? $draft['description'] ?? ''));
+        if ($leadId <= 0 || $detailsText === '') {
+            return null;
+        }
+
+        return [
+            'lead_id' => $leadId,
+            'details_text' => $detailsText,
+        ];
+    }
+
+    protected function mergePendingLeadActionDraftArgs(
+        array $pendingDraft,
+        string $message,
+        ?User $user = null,
+        string $locale = 'en',
+        ?AiCopilotConversation $conversation = null
+    ): array {
+        $payload = is_array($pendingDraft['payload'] ?? null) ? $pendingDraft['payload'] : [];
+        $state = (string) ($pendingDraft['state'] ?? '');
+        $leadId = (int) ($payload['lead_id'] ?? 0);
+        $detailsText = trim((string) ($payload['details_text'] ?? ''));
+        $trimmed = trim($message);
+
+        $args = [
+            'lead_id' => $leadId > 0 ? $leadId : null,
+            'details_text' => $detailsText !== '' ? $detailsText : null,
+        ];
+
+        if (preg_match('/^__copilot_action_stage__:(\d+)$/', $trimmed, $match)) {
+            $args['stage_id'] = (int) $match[1];
+
+            return array_filter($args, fn ($value) => $value !== null && $value !== '');
+        }
+
+        if ($state === 'needs_input' || $leadId <= 0) {
+            $resolvedId = $this->extractLeadIdFromMessage($trimmed);
+            if (! $resolvedId && $user) {
+                $resolvedId = $this->resolveLeadIdByName($user, $trimmed);
+            }
+            if (! $resolvedId && $user && $conversation) {
+                $resolvedId = $this->resolveLeadIdFromRecentContext($user, $conversation);
+            }
+            if ($resolvedId) {
+                $args['lead_id'] = $resolvedId;
+            }
+
+            return array_filter($args, fn ($value) => $value !== null && $value !== '');
+        }
+
+        if ($state === 'awaiting_details') {
+            // If the user picks a stage button while we still need details, ignore it and keep asking.
+            if (preg_match('/^__copilot_action_stage__:\d+$/', $trimmed)) {
+                return array_filter($args, fn ($value) => $value !== null && $value !== '');
+            }
+            $args['details_text'] = $trimmed;
+
+            return array_filter($args, fn ($value) => $value !== null && $value !== '');
+        }
+
+        if ($state === 'awaiting_schedule') {
+            $args['stage_id'] = (int) ($payload['stage_id'] ?? 0) ?: null;
+            $args['schedule_text'] = $trimmed;
+            if (! empty($payload['type'])) {
+                $args['type'] = $payload['type'];
+            }
+            if (! empty($payload['next_action_type'])) {
+                $args['next_action_type'] = $payload['next_action_type'];
+            }
+
+            return array_filter($args, fn ($value) => $value !== null && $value !== '');
+        }
+
+        if ($state === 'awaiting_stage') {
+            if (preg_match('/^\d+$/', $trimmed)) {
+                $args['stage_id'] = (int) $trimmed;
+            } else {
+                $args['stage_name'] = $trimmed;
+            }
+        }
+
+        return array_filter($args, fn ($value) => $value !== null && $value !== '');
+    }
+
+    protected function guessLeadActionArgs(string $message, ?User $user = null): array
+    {
+        // Kept for backwards compatibility; wizard start should use buildLeadActionWizardStartArgs.
+        return $this->buildLeadActionWizardStartArgs($message, $user);
+    }
+
+    protected function resolveLeadIdByName(User $user, string $message): ?int
+    {
+        $name = $this->extractLeadNameCandidate($message);
+        if ($name === null || $name === '' || mb_strlen($name) < 2 || ! Schema::hasTable('leads')) {
+            return null;
+        }
+
+        $query = Lead::query()->where('tenant_id', $user->tenant_id)
+            ->where('name', 'like', '%'.$name.'%')
+            ->orderByDesc('id');
+
+        $lead = $query->first(['id']);
+
+        return $lead ? (int) $lead->id : null;
+    }
+
+    protected function extractLeadNameCandidate(string $message): ?string
+    {
+        $trimmed = trim($message);
+        $name = null;
+
+        if (preg_match('/(?:على\s*(?:ال)?ليد|لـ|للليد|للـ)\s*(.+)$/u', $trimmed, $match)) {
+            $name = trim((string) $match[1]);
+        } elseif (preg_match('/\b(?:on|for)\s+(?:lead\s+)?(.+)$/iu', $trimmed, $match)) {
+            $name = trim((string) $match[1]);
+        } elseif (preg_match('/(?:^|\s)(?:lead|ليد)\s+([A-Za-z\p{Arabic}][\w\p{Arabic}\s\.\-]{1,80})$/iu', $trimmed, $match)) {
+            $name = trim((string) $match[1]);
+        } elseif (preg_match('/^(?!.*(action|task|أكشن|اكشن|تاسك|مهمة|report|تقرير))([A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]{1,40}(?:\s+[A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]{1,40}){0,3})$/iu', $trimmed, $match)) {
+            // Bare person name reply while wizard is waiting for a lead.
+            $name = trim((string) $match[2]);
+        }
+
+        $name = trim((string) $name, " \t\n\r\0\x0B\"'.,");
+        $name = preg_replace('/\s+/u', ' ', $name) ?? $name;
+
+        // Drop leftover action phrasing if somehow still attached.
+        $name = preg_replace('/^(?:اعمل|أنشئ|انشئ|ابدأ|create|add|start)\s+/iu', '', $name) ?? $name;
+        $name = trim($name);
+
+        if ($name === '' || mb_strlen($name) < 2) {
+            return null;
+        }
+
+        if (preg_match('/^\d+$/', $name)) {
+            return null;
+        }
+
+        return $name;
+    }
+
+    protected function resolveLeadIdFromRecentContext(User $user, ?AiCopilotConversation $conversation): ?int
+    {
+        if (! $conversation || ! Schema::hasTable('ai_copilot_messages')) {
+            return null;
+        }
+
+        $recent = AiCopilotMessage::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('role', 'user')
+            ->latest('id')
+            ->limit(6)
+            ->get(['content']);
+
+        foreach ($recent as $row) {
+            $content = trim((string) ($row->content ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $leadId = $this->extractLeadIdFromMessage($content);
+            if ($leadId) {
+                return $leadId;
+            }
+            $byName = $this->resolveLeadIdByName($user, $content);
+            if ($byName) {
+                return $byName;
+            }
+        }
+
+        return null;
+    }
+
+    protected function handleLeadFocusIntent(User $user, ?AiCopilotConversation $conversation, string $message, string $locale = 'en'): ?array
+    {
+        // Creating a follow-up/action/task must go through tools, not advice focus.
+        if ($this->looksLikeCreateLeadActionRequest($message) || $this->looksLikeCreateTaskRequest($message)) {
+            return null;
+        }
+
         $leadId = $this->extractLeadIdFromMessage($message);
         $pendingDelayed = $this->resolveLatestDelayedLeads($conversation);
         $pendingLeads = is_array($pendingDelayed['leads'] ?? null) ? $pendingDelayed['leads'] : [];
         $wantsFocus = $this->looksLikeLeadFocusRequest($message);
 
         if ($leadId && $wantsFocus) {
-            return $this->buildLeadFocusReply($user, $leadId);
+            return $this->buildLeadFocusReply($user, $leadId, $locale);
         }
 
         if ($pendingLeads !== [] && $this->looksLikeDelayedLeadSelection($message)) {
             if ($leadId) {
-                return $this->buildLeadFocusReply($user, $leadId);
+                return $this->buildLeadFocusReply($user, $leadId, $locale);
             }
 
             if (count($pendingLeads) === 1) {
-                return $this->buildLeadFocusReply($user, (int) ($pendingLeads[0]['id'] ?? 0));
+                return $this->buildLeadFocusReply($user, (int) ($pendingLeads[0]['id'] ?? 0), $locale);
             }
 
-            return $this->buildDelayedLeadChoicePrompt($pendingLeads);
+            return $this->buildDelayedLeadChoicePrompt($pendingLeads, $locale);
         }
 
         // Keep legacy "lead {id} + advice keywords" behavior even without delayed context.
         if ($leadId && $this->looksLikeLeadAdviceRequest($message)) {
-            return $this->buildLeadFocusReply($user, $leadId);
+            return $this->buildLeadFocusReply($user, $leadId, $locale);
         }
 
         return null;
@@ -788,7 +1246,7 @@ PROMPT;
             return $leadId > 0 ? $leadId : null;
         }
 
-        if (preg_match('/(?:ليد|الليد)\s*(?:رقم|#)?\s*(\d+)/u', $message, $match)) {
+        if (preg_match('/(?:لليد|الليد|ليد)\s*(?:رقم|#)?\s*(\d+)/u', $message, $match)) {
             $leadId = (int) $match[1];
 
             return $leadId > 0 ? $leadId : null;
@@ -803,12 +1261,37 @@ PROMPT;
             || $this->looksLikeDelayedLeadSelection($message);
     }
 
-    protected function looksLikeLeadAdviceRequest(string $message): bool
+    protected function looksLikeCreateLeadActionRequest(string $message): bool
     {
         $normalized = mb_strtolower($message);
 
         return (bool) preg_match(
-            '/(suggest|best fit|best item|best project|recommend|tips|advice|follow[ -_]?up|نصيحة|متابعة|smart follow-up)/iu',
+            '/(اعمل\s*أكشن|اعمل\s*اكشن|انشئ\s*أكشن|أنشئ\s*أكشن|إنشاء\s*أكشن|ابدأ\s*أكشن|ابدأ\s*اكشن|أكشن\s*متابعة|اكشن\s*متابعة|add\s+(an\s+)?action|create\s+(a\s+)?(follow[ -_]?up\s+)?action|start\s+(an\s+)?action|follow[ -_]?up\s+action|log\s+(an\s+)?action)/iu',
+            $normalized
+        );
+    }
+
+    protected function looksLikeCreateTaskRequest(string $message): bool
+    {
+        $normalized = mb_strtolower($message);
+
+        return (bool) preg_match(
+            '/(اعمل\s*تاسك|انشئ\s*تاسك|أنشئ\s*تاسك|إنشاء\s*تاسك|create\s+(a\s+)?task)/iu',
+            $normalized
+        );
+    }
+
+    protected function looksLikeLeadAdviceRequest(string $message): bool
+    {
+        $normalized = mb_strtolower($message);
+
+        // Avoid treating "أكشن متابعة" / create-action prompts as advice requests.
+        if ($this->looksLikeCreateLeadActionRequest($normalized) || $this->looksLikeCreateTaskRequest($normalized)) {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/(suggest|best fit|best item|best project|recommend|tips|advice|نصيحة|نصايح|smart follow-up|اديني\s*نصيحة)/iu',
             $normalized
         );
     }
@@ -838,9 +1321,9 @@ PROMPT;
         return is_array($message?->tool_payload) ? $message->tool_payload : null;
     }
 
-    protected function buildDelayedLeadChoicePrompt(array $leads): array
+    protected function buildDelayedLeadChoicePrompt(array $leads, string $locale = 'en'): array
     {
-        $uiActions = array_map(function ($lead) {
+        $uiActions = array_map(function ($lead) use ($locale) {
             $id = (int) ($lead['id'] ?? 0);
             $title = ($lead['name'] ?? '') !== '' ? (string) $lead['name'] : ('Lead #'.$id);
 
@@ -848,19 +1331,23 @@ PROMPT;
                 'type' => 'lead_card',
                 'lead_id' => $id,
                 'title' => $title,
-                'subtitle' => trim(($lead['stage'] ?? '').' · '.($lead['assigned_name'] ?? 'Unassigned')),
-                'prompt_message' => 'Give me smart follow-up advice for lead '.$id,
-                'prompt_label' => 'ابدأ بـ '.$title,
+                'subtitle' => trim(($lead['stage'] ?? '').' · '.($lead['assigned_name'] ?? ($locale === 'ar' ? 'غير معيّن' : 'Unassigned'))),
+                'prompt_message' => $locale === 'ar'
+                    ? 'اديني نصيحة متابعة ذكية لليد '.$id
+                    : 'Give me smart follow-up advice for lead '.$id,
+                'prompt_label' => ($locale === 'ar' ? 'ابدأ بـ ' : 'Start with ').$title,
             ];
         }, array_values(array_filter($leads, fn ($lead) => (int) ($lead['id'] ?? 0) > 0)));
 
         return [
-            'message' => 'تمام — اختار ليد من الكروت تحت عشان أديك نصيحة متابعة وأفتحه معاك.',
+            'message' => $locale === 'ar'
+                ? 'تمام — اختار ليد من الكروت تحت عشان أديك نصيحة متابعة وأفتحه معاك.'
+                : 'Sure — pick a lead from the cards below so I can give follow-up advice and open it with you.',
             'ui_actions' => $uiActions,
         ];
     }
 
-    protected function buildLeadFocusReply(User $user, int $leadId): ?array
+    protected function buildLeadFocusReply(User $user, int $leadId, string $locale = 'en'): ?array
     {
         if ($leadId <= 0 || ! Schema::hasTable('leads')) {
             return null;
@@ -873,7 +1360,9 @@ PROMPT;
 
         if (! $lead) {
             return [
-                'message' => 'Lead not found for this tenant.',
+                'message' => $locale === 'ar'
+                    ? 'الليد مش موجود للمستأجر ده.'
+                    : 'Lead not found for this tenant.',
                 'ui_actions' => [],
             ];
         }
@@ -887,47 +1376,72 @@ PROMPT;
 
         $choiceLabel = $isGeneral ? 'item' : 'project';
         $suggestions = collect($choices)->map(fn ($choice) => '#'.$choice->id.' '.$choice->name)->values()->all();
-        $advice = $this->generateLeadAdviceText($lead, $suggestions, $choiceLabel);
+        $advice = $this->generateLeadAdviceText($lead, $suggestions, $choiceLabel, $locale);
         $title = $lead->name ?: ('Lead #'.$lead->id);
+        $taskPayload = [
+            'lead_id' => $lead->id,
+            'title' => $locale === 'ar'
+                ? ('متابعة ليد #'.$lead->id)
+                : ('Follow up lead #'.$lead->id),
+            'description' => $locale === 'ar'
+                ? ('متابعة الليد المتأخر: '.($lead->name ?: ('#'.$lead->id)))
+                : ('Follow up delayed lead: '.($lead->name ?: ('#'.$lead->id))),
+            'priority' => 'medium',
+            'status' => 'pending',
+            'assigned_to' => $lead->assigned_to ?: $user->id,
+            'related_to' => 'lead',
+            'related_ref' => (string) $lead->id,
+        ];
 
         return [
             'message' => $advice,
             'ui_actions' => [
                 [
+                    'type' => 'prompt_message',
+                    'message' => $locale === 'ar'
+                        ? 'ابدأ أكشن على الليد '.$lead->id
+                        : 'Start an action on lead '.$lead->id,
+                    'display_text' => ($locale === 'ar' ? 'ابدأ أكشن لـ ' : 'Start action for ').$title,
+                    'label' => $locale === 'ar' ? 'ابدأ أكشن' : 'Start action',
+                ],
+                [
+                    'type' => 'confirm_action',
+                    'action' => 'create_task_for_lead',
+                    'payload' => $taskPayload,
+                    'label' => $locale === 'ar' ? 'إنشاء تاسك' : 'Create task',
+                ],
+                [
                     'type' => 'navigate',
-                    'path' => '/leads/'.$lead->id,
-                    'label' => 'Open lead',
-                ],
-                [
-                    'type' => 'prompt_message',
-                    'message' => 'Create a follow-up action for lead '.$lead->id,
-                    'display_text' => 'اعمل أكشن متابعة لـ '.$title,
-                    'label' => 'Create follow-up action',
-                ],
-                [
-                    'type' => 'prompt_message',
-                    'message' => 'Create a task for lead '.$lead->id,
-                    'display_text' => 'اعمل تاسك لـ '.$title,
-                    'label' => 'Create task',
+                    'path' => '/leads?lead_id='.$lead->id,
+                    'pathname' => '/leads',
+                    'search' => '?lead_id='.$lead->id,
+                    'label' => $locale === 'ar' ? 'افتح الليد' : 'Open lead',
                 ],
             ],
         ];
     }
 
-    protected function generateLeadAdviceText(Lead $lead, array $suggestions, string $choiceLabel): string
+    protected function generateLeadAdviceText(Lead $lead, array $suggestions, string $choiceLabel, string $locale = 'en'): string
     {
-        $fallback = $this->buildFallbackLeadAdvice($lead, $suggestions, $choiceLabel);
+        $fallback = $this->buildFallbackLeadAdvice($lead, $suggestions, $choiceLabel, $locale);
         $apiKey = (string) config('services.gemini.api_key', '');
 
         if ($apiKey === '') {
             return $fallback;
         }
 
-        $options = $suggestions !== [] ? implode(', ', $suggestions) : 'No '.$choiceLabel.' options are available in this tenant right now.';
+        $options = $suggestions !== []
+            ? implode(', ', $suggestions)
+            : ($locale === 'ar'
+                ? 'مفيش خيارات '.$choiceLabel.' متاحة حالياً في المستأجر.'
+                : 'No '.$choiceLabel.' options are available in this tenant right now.');
+        $replyLanguage = $locale === 'ar' ? 'Arabic' : 'English';
         $prompt = <<<PROMPT
 You are Besouhola Copilot helping a CRM user after creating a lead.
 Only use the provided tenant options. Never invent an item or project outside the list.
-Write a concise answer with:
+Write the entire answer in {$replyLanguage}.
+Do NOT use markdown. No asterisks, no bold markers, no bullet markdown.
+Write a concise plain-text answer with:
 1. A best-fit {$choiceLabel} recommendation from the provided options only.
 2. Why it fits this lead.
 3. 3 short follow-up tips for the sales user.
@@ -978,10 +1492,26 @@ PROMPT;
             .urlencode($apiKey);
     }
 
-    protected function buildFallbackLeadAdvice(Lead $lead, array $suggestions, string $choiceLabel): string
+    protected function buildFallbackLeadAdvice(Lead $lead, array $suggestions, string $choiceLabel, string $locale = 'en'): string
     {
         $topSuggestion = $suggestions[0] ?? null;
         $lines = [];
+
+        if ($locale === 'ar') {
+            $lines[] = 'الليد '.$lead->id.' جاهز.';
+            if ($topSuggestion) {
+                $lines[] = 'أفضل اقتراح '.$choiceLabel.': '.$topSuggestion.'.';
+            } else {
+                $lines[] = 'مفيش اقتراحات '.$choiceLabel.' متاحة حالياً في المستأجر.';
+            }
+            $source = $lead->source ?: 'مصدر غير معروف';
+            $lines[] = 'ابدأ بتأكيد الميزانية والتايملاين والاحتياج الأساسي لليد من '.$source.'.';
+            $lines[] = 'في أول متابعة تأكد من متخذ القرار ووقت التواصل المناسب ومدى الاستعجال.';
+            $lines[] = 'لو الليد متجاوب، سجّل الأكشن التالي فوراً عشان البايبلاين يفضل مرتب.';
+
+            return implode("\n", $lines);
+        }
+
         $lines[] = 'Lead '.$lead->id.' is ready.';
 
         if ($topSuggestion) {

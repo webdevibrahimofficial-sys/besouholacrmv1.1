@@ -30,6 +30,7 @@ import { getLeadModulePermissions, getLeadPermissionFlags, isSuperAdminUser, isT
 import { normalizeColumnOrder, getFavoriteColumnOrder } from '../utils/columnPreferences'
 import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
+import { formatCrmCalendarDateTime, formatCrmDateTime } from '@shared/utils/crmDateTime'
 import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
 
 export const Leads = () => {
@@ -4987,9 +4988,10 @@ if (!s) {
                               const datePart = String(dateRaw || '').includes('T') ? String(dateRaw).split('T')[0] : String(dateRaw || '').trim()
                               const timePart = String(timeRaw || '').trim()
                               if (!datePart) return '-'
+                              const formatted = formatCrmCalendarDateTime(datePart, timePart, { crmSettings })
                               return (
                                 <span dir="ltr">
-                                  {datePart}{timePart ? ` ${String(timePart).slice(0, 5)}` : ''}
+                                  {formatted || `${datePart}${timePart ? ` ${String(timePart).slice(0, 5)}` : ''}`}
                                 </span>
                               )
                             })()}
@@ -5012,12 +5014,14 @@ if (!s) {
                               const iso = lead.lastActionAt || lead.last_action_at || lead.lastContact || ''
                               if (!iso) return '-'
                               try {
-                                const d = new Date(iso)
-                                if (Number.isNaN(d.getTime())) return '-'
-                                const locale = i18n.language === 'ar' ? 'ar-EG' : 'en-US'
+                                const formatted = formatCrmDateTime(iso, {
+                                  crmSettings,
+                                  language: i18n.language,
+                                })
+                                if (!formatted || formatted === '-') return '-'
                                 return (
                                   <span dir="ltr">
-                                    {d.toLocaleDateString(locale)} {d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+                                    {formatted}
                                   </span>
                                 )
                               } catch {

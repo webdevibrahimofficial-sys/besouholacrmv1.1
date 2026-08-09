@@ -23,7 +23,7 @@ import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
 import { getPhoneDigits, getPhoneLines } from '../utils/phoneDisplay'
 import { buildLeadTransferPayload } from '../utils/leadTransfer'
-import { formatCrmDateTime, isCrmHour12 } from '@shared/utils/crmDateTime'
+import { formatCrmDateTime, formatCrmCalendarDateTime, formatCrmDate } from '@shared/utils/crmDateTime'
 
 const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId, onImportHistory }) => {
   const { theme: contextTheme, resolvedTheme } = useTheme();
@@ -1319,7 +1319,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     location: effectiveLead?.location || (isArabic ? 'غير محدد' : 'Not specified'),
     source: effectiveLead?.source || '-',
     notes: effectiveLead?.notes || effectiveLead?.note || '',
-    createdDate: effectiveLead?.created_at ? new Date(effectiveLead.created_at).toLocaleDateString() : (effectiveLead?.createdDate || '-'),
+    createdDate: effectiveLead?.created_at
+      ? formatCrmDate(effectiveLead.created_at, { crmSettings })
+      : (effectiveLead?.createdDate || '-'),
     status: effectiveLead?.status || 'qualified',
     priority: effectiveLead?.priority || 'high',
     stage: effectiveLead?.stage || (isArabic ? 'جديد' : 'New'),
@@ -2266,22 +2268,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       return '';
     }
 
-    const locale = isArabic ? 'ar-EG' : 'en-US';
-    const normalizedTime = timePart ? timePart.slice(0, 5) : '00:00';
-    const parsed = new Date(`${datePart}T${normalizedTime}`);
-
-    if (!Number.isNaN(parsed.getTime())) {
-      return new Intl.DateTimeFormat(locale, {
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: isCrmHour12(crmSettings),
-      }).format(parsed);
-    }
-
-    return `${datePart}${timePart ? ` ${normalizedTime}` : ''}`;
+    return formatCrmCalendarDateTime(datePart, timePart, { crmSettings }) || `${datePart}${timePart ? ` ${timePart.slice(0, 5)}` : ''}`;
   };
 
   const formatActionDateTime = (value) => {

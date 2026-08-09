@@ -1,6 +1,6 @@
 ﻿import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
@@ -47,6 +47,8 @@ function readQueryFilters(search) {
 export default function LeadsPipelineReport() {
   const { i18n, t } = useTranslation()
   const location = useLocation()
+  const navigate = useNavigate()
+  const autoExportDoneRef = useRef(false)
   const isRTL = i18n.dir() === 'rtl'
   const normalizeOptionKey = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ')
   const getStageLocalizedLabel = (stage) => {
@@ -466,7 +468,9 @@ export default function LeadsPipelineReport() {
       const ws = XLSX.utils.json_to_sheet(exportSummaryRows)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Leads Overview')
-      const fileName = 'leads_pipeline_report.xlsx'
+      const params = new URLSearchParams(location.search || '')
+      const requestedName = params.get('file_name')
+      const fileName = requestedName || 'leads_pipeline_report.xlsx'
       XLSX.writeFile(wb, fileName)
       logExportEvent({
         module: 'Leads Pipeline Report',
@@ -484,7 +488,7 @@ export default function LeadsPipelineReport() {
       const jsPDF = (await import('jspdf')).default
       const autoTable = await import('jspdf-autotable')
       const doc = new jsPDF({ orientation: 'landscape' })
-      
+
       const tableColumn = [
         isRTL ? 'مسؤول المبيعات' : 'Sales Person',
         isRTL ? 'إجمالي العملاء' : 'Total Leads',
@@ -530,6 +534,46 @@ export default function LeadsPipelineReport() {
       console.error('Export PDF Error:', error)
     }
   }
+
+  // Copilot / deep-link: ?export=1 triggers download once data is ready.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || reportLoading || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const run = async () => {
+      const format = String(params.get('format') || 'xlsx').toLowerCase()
+      if (format === 'pdf') {
+        await exportToPdf()
+      } else {
+        await handleExport()
+      }
+
+      params.delete('export')
+      params.delete('format')
+      params.delete('file_name')
+      const nextSearch = params.toString()
+      navigate(
+        { pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' },
+        { replace: true }
+      )
+
+      try {
+        sessionStorage.removeItem('copilot_pending_export')
+      } catch {
+        // ignore
+      }
+    }
+
+    run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot export after load
+  }, [canExport, reportLoading, location.search, salesPersonStats])
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 min-h-screen ">

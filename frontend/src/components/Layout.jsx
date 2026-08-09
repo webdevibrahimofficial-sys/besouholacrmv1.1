@@ -155,8 +155,8 @@ useEffect(() => {
         <>
           <button
             type="button"
-            aria-label="Besouhola Copilot"
-            title="Besouhola Copilot"
+            aria-label={isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'}
+            title={isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'}
             className={`fixed bottom-6 ${isRtl ? 'left-6' : 'right-6'} z-[140] rounded-full shadow-xl bg-gradient-to-br from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 text-white flex items-center justify-center transition hover:scale-[1.03]`}
             style={{ width: 56, height: 56 }}
             onClick={() => setIsAiPanelOpen((value) => !value)}

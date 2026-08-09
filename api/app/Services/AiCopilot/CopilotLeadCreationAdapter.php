@@ -56,7 +56,9 @@ class CopilotLeadCreationAdapter
             if ($leadId > 0) {
                 $uiActions[] = [
                     'type' => 'navigate',
-                    'path' => '/leads/'.$leadId,
+                    'path' => '/leads?lead_id='.$leadId,
+                    'pathname' => '/leads',
+                    'search' => '?lead_id='.$leadId,
                     'label' => 'Open lead',
                 ];
                 $uiActions[] = [

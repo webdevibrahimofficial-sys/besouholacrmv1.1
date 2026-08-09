@@ -29,7 +29,7 @@ class AiCopilotToolExecutor
         return [
             [
                 'name' => 'list_capabilities',
-                'description' => 'List Besouhola Copilot capabilities and reports available to the current user.',
+                'description' => 'List Besouhola Copilot capabilities, CRM modules, and reports available to the current user.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => (object) [],
@@ -37,13 +37,13 @@ class AiCopilotToolExecutor
             ],
             [
                 'name' => 'explain_feature',
-                'description' => 'Explain a CRM feature, report, or workflow the user asked about.',
+                'description' => 'Explain a CRM module, report, workflow, or the overall system available to the current user.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
                         'topic' => [
                             'type' => 'string',
-                            'description' => 'Feature or report topic to explain.',
+                            'description' => 'Module, report, workflow, or "system" overview to explain.',
                         ],
                     ],
                     'required' => ['topic'],
@@ -127,17 +127,20 @@ class AiCopilotToolExecutor
             ],
             [
                 'name' => 'create_lead_action_draft',
-                'description' => 'Draft a lead action using the same lead action rules, then require confirmation before creation.',
+                'description' => 'Start or continue the lead-action wizard (ask what happened → recommend stage → confirm). Prefer lead_id only; do not invent stage/outcome.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
                         'lead_id' => ['type' => 'integer'],
+                        'details_text' => ['type' => 'string'],
+                        'stage_id' => ['type' => 'integer'],
+                        'stage_name' => ['type' => 'string'],
                         'type' => ['type' => 'string'],
                         'status' => ['type' => 'string'],
                         'date' => ['type' => 'string'],
                         'time' => ['type' => 'string'],
                         'description' => ['type' => 'string'],
-                        'stage_id' => ['type' => 'integer'],
+                        'outcome' => ['type' => 'string'],
                         'next_action_type' => ['type' => 'string'],
                     ],
                 ],
@@ -163,19 +166,22 @@ class AiCopilotToolExecutor
 
     public function execute(User $user, string $name, array $args = []): array
     {
+        $locale = $this->catalog->normalizeLocale($args['_locale'] ?? 'en');
+        unset($args['_locale']);
+
         return match ($name) {
-            'list_capabilities' => $this->listCapabilities($user),
-            'explain_feature' => $this->explainFeature($user, (string) ($args['topic'] ?? '')),
+            'list_capabilities' => $this->listCapabilities($user, $locale),
+            'explain_feature' => $this->explainFeature($user, (string) ($args['topic'] ?? ''), $locale),
             'build_report_filters' => $this->buildReportFilters($args),
-            'navigate_report' => $this->navigateReport($user, $args),
-            'export_report' => $this->exportReport($user, $args),
-            'list_delayed_leads' => $this->listDelayedLeads($user, $args),
+            'navigate_report' => $this->navigateReport($user, $args, $locale),
+            'export_report' => $this->exportReport($user, $args, $locale),
+            'list_delayed_leads' => $this->listDelayedLeads($user, $args, $locale),
             'create_lead_draft' => $this->leadDrafts->build($user, $args),
             'create_lead_action_draft' => $this->leadActionDrafts->build($user, $args),
-            'create_task_for_lead' => $this->draftCreateTask($user, $args),
+            'create_task_for_lead' => $this->draftCreateTask($user, $args, $locale),
             default => [
                 'ok' => false,
-                'message' => "Unknown tool: {$name}",
+                'message' => $locale === 'ar' ? "أداة غير معروفة: {$name}" : "Unknown tool: {$name}",
             ],
         };
     }
@@ -190,38 +196,123 @@ class AiCopilotToolExecutor
         };
     }
 
-    protected function listCapabilities(User $user): array
+    protected function listCapabilities(User $user, string $locale = 'en'): array
     {
         $catalog = $this->catalog->forUser($user);
+        $modules = collect($catalog['modules'] ?? [])
+            ->map(fn ($module) => $this->catalog->localizeModule($module, $locale))
+            ->values()
+            ->all();
+        $moduleNames = collect($modules)->pluck('name')->filter()->values()->all();
         $reportNames = collect($catalog['reports'] ?? [])
             ->pluck('name')
             ->filter()
             ->values()
             ->all();
+        $reportCount = count($reportNames);
 
-        $summary = 'Besouhola Copilot can explain the system, open/export permitted reports, list delayed leads, and draft leads, lead actions, or tasks.';
-        if ($reportNames !== []) {
-            $summary .= ' Available reports: '.implode(', ', $reportNames).'.';
+        if ($locale === 'ar') {
+            $lines = [
+                'أقدر أساعدك في:',
+                '',
+                '• شرح الموديولات والفلوهات المتاحة لك',
+                '• فتح أو تصدير التقارير حسب صلاحياتك',
+                '• عرض الليدز المتأخرة في نطاقك',
+                '• إنشاء ليد أو أكشن أو تاسك (بعد التأكيد)',
+            ];
+            if ($moduleNames !== []) {
+                $lines[] = '';
+                $lines[] = 'الموديولات: '.implode(' · ', $moduleNames);
+            }
+            $lines[] = '';
+            $lines[] = $reportCount > 0
+                ? "التقارير: {$reportCount} متاحة — قولي اسم التقرير عشان أفتحه أو أصدّره."
+                : 'التقارير: مفيش تقارير متاحة حسب صلاحياتك.';
+            $lines[] = '';
+            $lines[] = 'استخدم الأزرار تحت، أو اطلب «اشرح السيستم».';
         } else {
-            $summary .= ' No reports are currently available for your permissions.';
+            $lines = [
+                'Here is what I can help you with:',
+                '',
+                '• Explain modules and workflows you can access',
+                '• Open or export permitted reports',
+                '• List delayed leads in your scope',
+                '• Draft leads, lead actions, and follow-up tasks',
+            ];
+            if ($moduleNames !== []) {
+                $lines[] = '';
+                $lines[] = 'Modules: '.implode(' · ', $moduleNames);
+            }
+            $lines[] = '';
+            $lines[] = $reportCount > 0
+                ? "Reports: {$reportCount} available — ask me to open or export one by name."
+                : 'Reports: none available for your permissions.';
+            $lines[] = '';
+            $lines[] = 'Use the buttons below, or ask “explain the system”.';
         }
 
         return [
             'ok' => true,
             'catalog' => $catalog,
+            'modules' => $moduleNames,
             'reports' => $reportNames,
-            'summary' => $summary,
+            'locale' => $locale,
+            'summary' => implode("\n", $lines),
+            'ui_actions' => $this->moduleNavigateActions($catalog['modules'] ?? [], $locale),
         ];
     }
 
-    protected function explainFeature(User $user, string $topic): array
+    protected function explainFeature(User $user, string $topic, string $locale = 'en'): array
     {
+        if ($this->catalog->isSystemOverviewTopic($topic) || trim($topic) === '') {
+            return $this->explainSystemOverview($user, null, $locale);
+        }
+
+        $module = $this->catalog->findModule($topic);
+        if ($module) {
+            $canShow = $this->catalog->canShowModule($user, $module);
+            $localized = $this->catalog->localizeModule($module, $locale);
+            if (! $canShow) {
+                return [
+                    'ok' => true,
+                    'topic' => $localized['name'],
+                    'explanation' => $locale === 'ar'
+                        ? 'الموديول ده مش متاح حسب صلاحياتك أو إعدادات المستأجر.'
+                        : 'This module is not available for your current permissions or tenant setup.',
+                    'can_show' => false,
+                    'available_reports' => [],
+                    'capabilities' => [],
+                    'locale' => $locale,
+                ];
+            }
+
+            $copilot = array_values(array_filter($localized['copilot'] ?? [], fn ($item) => is_string($item) && trim($item) !== ''));
+
+            return [
+                'ok' => true,
+                'topic' => $localized['name'],
+                'explanation' => $localized['description'],
+                'path' => $module['path'],
+                'can_show' => true,
+                'copilot' => $copilot,
+                'locale' => $locale,
+                'ui_actions' => [
+                    [
+                        'type' => 'navigate',
+                        'path' => $module['path'],
+                        'pathname' => $module['path'],
+                        'label' => $localized['name'],
+                    ],
+                ],
+            ];
+        }
+
         $report = $this->catalog->findReport($topic);
         if ($report) {
             $canShow = $this->catalog->canShowReport($user, $report['permission']);
             $canExport = $this->catalog->canExportReport($user, $report['permission']);
 
-            return [
+            $result = [
                 'ok' => true,
                 'topic' => $report['name'],
                 'explanation' => $report['description'],
@@ -229,18 +320,73 @@ class AiCopilotToolExecutor
                 'can_show' => $canShow,
                 'can_export' => $canExport,
                 'filters' => $report['filters'],
+                'locale' => $locale,
             ];
+
+            if ($canShow) {
+                $result['ui_actions'] = [
+                    [
+                        'type' => 'navigate',
+                        'path' => $report['path'],
+                        'pathname' => $report['path'],
+                        'label' => $locale === 'ar' ? 'افتح '.$report['name'] : 'Open '.$report['name'],
+                    ],
+                ];
+            }
+
+            return $result;
         }
 
+        return $this->explainSystemOverview($user, $topic, $locale);
+    }
+
+    protected function explainSystemOverview(User $user, ?string $requestedTopic = null, string $locale = 'en'): array
+    {
         $catalog = $this->catalog->forUser($user);
+        $modules = collect($catalog['modules'] ?? [])
+            ->map(fn ($module) => $this->catalog->localizeModule($module, $locale))
+            ->values()
+            ->all();
+        $reportNames = array_column($catalog['reports'] ?? [], 'name');
+
+        $topic = ($requestedTopic !== null && trim($requestedTopic) !== '')
+            ? trim($requestedTopic)
+            : ($locale === 'ar' ? 'نظام Besouhola' : 'Besouhola CRM');
 
         return [
             'ok' => true,
-            'topic' => $topic !== '' ? $topic : 'Besouhola Copilot',
-            'explanation' => 'Besouhola Copilot helps with CRM navigation, permission-aware reporting, delayed leads, lead drafting, lead action drafting, and task drafting.',
-            'available_reports' => array_column($catalog['reports'], 'name'),
-            'capabilities' => $catalog['capabilities'],
+            'topic' => $topic,
+            'explanation' => $locale === 'ar'
+                ? 'ده اللي تقدر توصل له في Besouhola CRM.'
+                : 'Here is what you can access in Besouhola CRM.',
+            'modules' => $modules,
+            'available_reports' => $reportNames,
+            'capabilities' => $catalog['capabilities'] ?? [],
+            'locale' => $locale,
+            'ui_actions' => $this->moduleNavigateActions($catalog['modules'] ?? [], $locale),
         ];
+    }
+
+    protected function moduleNavigateActions(array $modules, string $locale = 'en'): array
+    {
+        $actions = [];
+        foreach ($modules as $module) {
+            $path = (string) ($module['path'] ?? '');
+            $localized = $this->catalog->localizeModule($module, $locale);
+            $name = (string) ($localized['name'] ?? '');
+            if ($path === '' || $name === '') {
+                continue;
+            }
+            $actions[] = [
+                'type' => 'navigate',
+                'path' => $path,
+                'pathname' => $path,
+                'label' => $name,
+                'group' => 'modules',
+            ];
+        }
+
+        return $actions;
     }
 
     protected function buildReportFilters(array $args): array
@@ -269,17 +415,22 @@ class AiCopilotToolExecutor
         ];
     }
 
-    protected function navigateReport(User $user, array $args): array
+    protected function navigateReport(User $user, array $args, string $locale = 'en'): array
     {
         $report = $this->catalog->findReport((string) ($args['report'] ?? ''));
         if (! $report) {
-            return ['ok' => false, 'message' => 'Report not found in catalog.'];
+            return [
+                'ok' => false,
+                'message' => $locale === 'ar' ? 'التقرير مش موجود في الكتالوج.' : 'Report not found in catalog.',
+            ];
         }
 
         if (! $this->catalog->canShowReport($user, $report['permission'])) {
             return [
                 'ok' => false,
-                'message' => 'You do not have permission to view this report.',
+                'message' => $locale === 'ar'
+                    ? 'معندكش صلاحية عرض التقرير ده.'
+                    : 'You do not have permission to view this report.',
                 'report' => $report['name'],
             ];
         }
@@ -295,29 +446,36 @@ class AiCopilotToolExecutor
             'pathname' => $report['path'],
             'search' => $query !== '' ? '?'.$query : '',
             'filters' => $filters,
+            'locale' => $locale,
             'ui_actions' => [
                 [
                     'type' => 'navigate',
                     'path' => $path,
                     'pathname' => $report['path'],
                     'search' => $query !== '' ? '?'.$query : '',
-                    'label' => 'Open '.$report['name'],
+                    'label' => $locale === 'ar' ? 'افتح '.$report['name'] : 'Open '.$report['name'],
+                    'auto' => true,
                 ],
             ],
         ];
     }
 
-    protected function exportReport(User $user, array $args): array
+    protected function exportReport(User $user, array $args, string $locale = 'en'): array
     {
         $report = $this->catalog->findReport((string) ($args['report'] ?? ''));
         if (! $report) {
-            return ['ok' => false, 'message' => 'Report not found in catalog.'];
+            return [
+                'ok' => false,
+                'message' => $locale === 'ar' ? 'التقرير مش موجود في الكتالوج.' : 'Report not found in catalog.',
+            ];
         }
 
         if (! $this->catalog->canExportReport($user, $report['permission'])) {
             return [
                 'ok' => false,
-                'message' => 'You do not have permission to export this report.',
+                'message' => $locale === 'ar'
+                    ? 'معندكش صلاحية تصدير التقرير ده.'
+                    : 'You do not have permission to export this report.',
                 'report' => $report['name'],
             ];
         }
@@ -325,7 +483,9 @@ class AiCopilotToolExecutor
         if (! $this->catalog->canShowReport($user, $report['permission'])) {
             return [
                 'ok' => false,
-                'message' => 'You do not have permission to view this report.',
+                'message' => $locale === 'ar'
+                    ? 'معندكش صلاحية عرض التقرير ده.'
+                    : 'You do not have permission to view this report.',
                 'report' => $report['name'],
             ];
         }
@@ -371,32 +531,42 @@ class AiCopilotToolExecutor
             'export_id' => $exportId,
             'path' => $path,
             'filters' => $filters,
-            'message' => 'Export is ready. Open the report to download with the applied filters.',
+            'locale' => $locale,
+            'message' => $locale === 'ar'
+                ? 'التصدير جاهز. اضغط تحميل لحفظ الملف هنا، أو افتح لعرض التقرير.'
+                : 'Export is ready. Click Download to save the file here, or Open to view the report.',
             'ui_actions' => [
                 [
                     'type' => 'download',
                     'path' => $path,
+                    'pathname' => $report['path'],
+                    'search' => $query !== '' ? "?{$query}" : '',
                     'file_name' => $fileName,
                     'format' => $format,
-                    'label' => 'Download '.$report['name'],
+                    'label' => $locale === 'ar' ? 'تحميل '.$report['name'] : 'Download '.$report['name'],
                 ],
                 [
                     'type' => 'navigate',
-                    'path' => $path,
-                    'label' => 'Open '.$report['name'],
+                    'path' => $report['path'].($filters !== [] ? ('?'.http_build_query($filters)) : ''),
+                    'pathname' => $report['path'],
+                    'search' => $filters !== [] ? ('?'.http_build_query($filters)) : '',
+                    'label' => $locale === 'ar' ? 'افتح '.$report['name'] : 'Open '.$report['name'],
                 ],
             ],
         ];
     }
 
-    protected function listDelayedLeads(User $user, array $args): array
+    protected function listDelayedLeads(User $user, array $args, string $locale = 'en'): array
     {
         if (! class_exists(Lead::class) || ! Schema::hasTable('leads')) {
             return [
                 'ok' => true,
                 'count' => 0,
                 'leads' => [],
-                'message' => 'Delayed leads are unavailable in this environment.',
+                'locale' => $locale,
+                'message' => $locale === 'ar'
+                    ? 'الليدز المتأخرة غير متاحة في البيئة دي.'
+                    : 'Delayed leads are unavailable in this environment.',
             ];
         }
 
@@ -451,22 +621,25 @@ class AiCopilotToolExecutor
             'count' => count($items),
             'workflow_key' => $workflow,
             'leads' => $items,
-            'ui_actions' => array_map(function ($lead) {
+            'locale' => $locale,
+            'ui_actions' => array_map(function ($lead) use ($locale) {
                 $title = $lead['name'] ?: ('Lead #'.$lead['id']);
 
                 return [
                     'type' => 'lead_card',
                     'lead_id' => $lead['id'],
                     'title' => $title,
-                    'subtitle' => trim(($lead['stage'] ?? '').' · '.($lead['assigned_name'] ?? 'Unassigned')),
-                    'prompt_message' => 'Give me smart follow-up advice for lead '.$lead['id'],
-                    'prompt_label' => 'ابدأ بـ '.$title,
+                    'subtitle' => trim(($lead['stage'] ?? '').' · '.($lead['assigned_name'] ?? ($locale === 'ar' ? 'غير معيّن' : 'Unassigned'))),
+                    'prompt_message' => $locale === 'ar'
+                        ? 'اديني نصيحة متابعة ذكية لليد '.$lead['id']
+                        : 'Give me smart follow-up advice for lead '.$lead['id'],
+                    'prompt_label' => ($locale === 'ar' ? 'ابدأ بـ ' : 'Start with ').$title,
                 ];
             }, $items),
         ];
     }
 
-    protected function draftCreateTask(User $user, array $args): array
+    protected function draftCreateTask(User $user, array $args, string $locale = 'en'): array
     {
         $leadId = (int) ($args['lead_id'] ?? 0);
         if ($leadId <= 0) {
@@ -476,7 +649,7 @@ class AiCopilotToolExecutor
                 'resource' => 'task',
                 'requires_confirmation' => false,
                 'missing_fields' => ['lead_id'],
-                'message' => 'lead_id is required.',
+                'message' => $locale === 'ar' ? 'محتاج رقم الليد (lead_id).' : 'lead_id is required.',
                 'ui_actions' => [],
             ];
         }
@@ -489,7 +662,9 @@ class AiCopilotToolExecutor
                 'resource' => 'task',
                 'requires_confirmation' => false,
                 'missing_fields' => [],
-                'message' => 'Lead not found or not visible to you.',
+                'message' => $locale === 'ar'
+                    ? 'الليد مش موجود أو مش ظاهر لك.'
+                    : 'Lead not found or not visible to you.',
                 'ui_actions' => [],
             ];
         }
@@ -512,7 +687,10 @@ class AiCopilotToolExecutor
             'resource' => 'task',
             'requires_confirmation' => true,
             'missing_fields' => [],
-            'message' => 'Task draft ready. Confirm to create it.',
+            'locale' => $locale,
+            'message' => $locale === 'ar'
+                ? 'مسودة التاسك جاهزة. أكّد عشان أنشئها.'
+                : 'Task draft ready. Confirm to create it.',
             'payload' => $payload,
             'summary' => [
                 'lead_id' => $lead->id,
@@ -528,7 +706,7 @@ class AiCopilotToolExecutor
                     'type' => 'confirm_action',
                     'action' => 'create_task_for_lead',
                     'payload' => $payload,
-                    'label' => 'Create task',
+                    'label' => $locale === 'ar' ? 'إنشاء التاسك' : 'Create task',
                 ],
             ],
         ];
