@@ -689,8 +689,8 @@ export default function ProposalsReport() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {renderPieCard('Proposals by channel', proposalsByChannelSegments)}
-        {renderPieCard(isRealEstate ? 'Proposals by project' : 'Proposals by item', proposalsByProjectSegments)}
+        {renderPieCard(t('Proposals by channel'), proposalsByChannelSegments)}
+        {renderPieCard(t(isRealEstate ? 'Proposals by project' : 'Proposals by item'), proposalsByProjectSegments)}
         <div className="group relative  backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
             <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100 dark:border-gray-700/50">
               <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg text-yellow-400">
@@ -785,7 +785,7 @@ export default function ProposalsReport() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className={`text-xs uppercase  ${isLight ? 'text-black' : 'text-white'} hidden md:table-header-group`}>
+            <thead className={`text-xs ${isLight ? 'text-black' : 'text-white'} hidden md:table-header-group`}>
               <tr>
                 <th className="px-4 py-3">{t('Lead Name')}</th>
                 <th className="px-4 py-3">{t('Contact')}</th>
@@ -893,7 +893,9 @@ export default function ProposalsReport() {
         </div>
         <div className="px-6 py-3 bg-theme-bg border-t border-theme-border dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className={`text-[11px] sm:text-xs ${isLight ? 'text-black' : 'text-white'}`}>
-            {`Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} of ${totalRecords}`}
+            {isRTL
+              ? `عرض ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} من ${totalRecords}`
+              : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalRecords)}-${Math.min(currentPage * entriesPerPage, totalRecords)} of ${totalRecords}`}
           </div>
 
           <div className="flex items-center gap-4">
@@ -911,7 +913,9 @@ export default function ProposalsReport() {
                 )}
               </button>
               <span className="text-sm whitespace-nowrap">
-                {`Page ${currentPage} of ${pageCount}`}
+                {isRTL
+                  ? `الصفحة ${currentPage} من ${pageCount}`
+                  : `Page ${currentPage} of ${pageCount}`}
               </span>
 
               <button
@@ -929,7 +933,7 @@ export default function ProposalsReport() {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
-                {t('Per page:')}
+                {isRTL ? 'لكل صفحة:' : 'Per page:'}
               </span>
               <select
                 className="input w-24 text-sm py-0 px-2 h-8"
