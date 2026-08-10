@@ -349,7 +349,7 @@ export const PipelineAnalysis = ({
                  aggregator === 'avg' ? sum + value :
                  aggregator === 'min' ? Math.min(sum, value) :
                  aggregator === 'max' ? Math.max(sum, value) : sum + value;
-        }, aggregator === 'min' ? Infinity : aggregator === 'max' ? -Infinity : 0);
+        }, aggregator === 'min' ? Infinity : (aggregator === 'max' ? -Infinity : 0));
 
       if (aggregator === 'avg') {
         const count = filteredData.filter(item => matchStage(item.stage, label)).length;
@@ -460,7 +460,7 @@ export const PipelineAnalysis = ({
                  aggregator === 'avg' ? sum + val :
                  aggregator === 'min' ? Math.min(sum, val) :
                  aggregator === 'max' ? Math.max(sum, val) : sum + val;
-        }, aggregator === 'min' ? Infinity : aggregator === 'max' ? -Infinity : 0);
+        }, aggregator === 'min' ? Infinity : (aggregator === 'max' ? -Infinity : 0));
         
         if (aggregator === 'avg' && items.length > 0) {
           return value / items.length;

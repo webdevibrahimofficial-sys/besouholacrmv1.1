@@ -432,7 +432,7 @@ export default function MatchingSettingsManager() {
       </div>
 
       {toast && (
-        <div className={`fixed bottom-4 ${isRTL ? 'left-4' : 'right-4'} px-3 py-2 rounded text-sm shadow ${toast.type === 'error' ? 'bg-red-600 text-white' : toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-gray-800 text-white'}`}>
+        <div className={`fixed bottom-4 ${isRTL ? 'left-4' : 'right-4'} px-3 py-2 rounded text-sm shadow ${toast.type === 'error' ? 'bg-red-600 text-white' : (toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-gray-800 text-white')}`}>
           {toast.message}
         </div>
       )}

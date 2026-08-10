@@ -268,6 +268,171 @@ class LeadController extends Controller
         return (int) ($current->id ?? null);
     }
 
+    private function isLeadMarkedDuplicate(?Lead $lead): bool
+    {
+        if (!$lead) {
+            return false;
+        }
+
+        $statusLower = strtolower(trim((string) ($lead->status ?? '')));
+        $stageLower = strtolower(trim((string) ($lead->stage ?? '')));
+        $stageRaw = trim((string) ($lead->stage ?? ''));
+        if (in_array($statusLower, ['duplicate'], true)
+            || in_array($stageLower, ['duplicate'], true)
+            || $stageRaw === 'Ù…ÙƒØ±Ø±') {
+            return true;
+        }
+
+        if (!empty($lead->stage_id)) {
+            $linkedStage = Stage::query()->find((int) $lead->stage_id);
+            $linkedName = strtolower(trim((string) ($linkedStage?->name ?? '')));
+            $linkedType = strtolower(trim((string) ($linkedStage?->type ?? '')));
+            $linkedNameAr = trim((string) ($linkedStage?->name_ar ?? ''));
+            if ($linkedName === 'duplicate' || $linkedType === 'duplicate' || $linkedNameAr === 'Ù…ÙƒØ±Ø±') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve the canonical original lead for a duplicate lead.
+     * All duplicate pairing decisions belong here (not in the frontend).
+     */
+    private function findOriginalLeadForDuplicate(Lead $duplicateLead, ?int $tenantId = null): ?Lead
+    {
+        $tenantId = $tenantId ?: (int) ($duplicateLead->tenant_id ?? 0) ?: null;
+        $duplicateId = (int) ($duplicateLead->id ?? 0);
+        if ($duplicateId <= 0) {
+            return null;
+        }
+
+        $meta = is_array($duplicateLead->meta_data ?? null) ? ($duplicateLead->meta_data ?? []) : [];
+        $linkedId = $meta['duplicate_of']
+            ?? $meta['duplicateOf']
+            ?? $duplicateLead->original_lead_id
+            ?? null;
+
+        if (is_numeric($linkedId) && (int) $linkedId > 0 && (int) $linkedId !== $duplicateId) {
+            $linkedQuery = Lead::query()->where('id', (int) $linkedId);
+            if ($tenantId) {
+                $linkedQuery->where('tenant_id', $tenantId);
+            }
+            $linked = $linkedQuery->first();
+            if ($linked) {
+                $rootId = $this->resolveDuplicateRootId($linked, $tenantId);
+                if ($rootId && (int) $rootId !== $duplicateId) {
+                    $root = Lead::query()->where('id', (int) $rootId)
+                        ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+                        ->first();
+                    if ($root && !$this->isLeadMarkedDuplicate($root)) {
+                        return $root;
+                    }
+                    if ($root) {
+                        // Linked chain ends on another duplicate; fall through to phone search.
+                    } elseif ($linked && (int) $linked->id !== $duplicateId && !$this->isLeadMarkedDuplicate($linked)) {
+                        return $linked;
+                    }
+                }
+            }
+        }
+
+        $rawPhone = trim((string) ($duplicateLead->phone ?? ''));
+        if ($rawPhone === '') {
+            return null;
+        }
+
+        $phoneCountryHint = is_string($meta['phone_country'] ?? null) ? $meta['phone_country'] : null;
+        $variants = PhoneNormalizer::variantsForSearch($rawPhone, $phoneCountryHint);
+        $variants = !empty($variants) ? $variants : [$rawPhone];
+
+        $workflowKey = strtolower(trim((string) ($duplicateLead->workflow_key ?? '')));
+        $base = Lead::query()->where('id', '!=', $duplicateId);
+        $this->applyDuplicateWorkflowScope($base, $tenantId, $workflowKey);
+
+        $candidates = (clone $base)
+            ->whereIn('phone', $variants)
+            ->where(function ($q) {
+                $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
+            })
+            ->orderBy('id', 'asc')
+            ->limit(50)
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            $candidates = (clone $base)
+                ->whereIn('phone', $variants)
+                ->orderBy('id', 'asc')
+                ->limit(50)
+                ->get();
+        }
+
+        $nonDuplicates = $candidates->filter(fn (Lead $lead) => !$this->isLeadMarkedDuplicate($lead));
+        $pool = $nonDuplicates->isNotEmpty() ? $nonDuplicates : $candidates;
+        $original = $pool->first();
+
+        if (!$original) {
+            return null;
+        }
+
+        $rootId = $this->resolveDuplicateRootId($original, $tenantId);
+        if ($rootId && (int) $rootId !== $duplicateId) {
+            $root = Lead::query()->where('id', (int) $rootId)
+                ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+                ->first();
+            if ($root && (int) $root->id !== $duplicateId) {
+                return $root;
+            }
+        }
+
+        return (int) $original->id !== $duplicateId ? $original : null;
+    }
+
+    /**
+     * Return the original lead paired with a duplicate (backend-owned decision).
+     */
+    public function duplicateOriginal(Request $request, $id)
+    {
+        $duplicateLead = Lead::query()->findOrFail($id);
+
+        if (!$this->canViewDuplicates($request->user()) && $this->isLeadMarkedDuplicate($duplicateLead)) {
+            abort(403, 'Unauthorized to view duplicate leads');
+        }
+
+        $original = $this->findOriginalLeadForDuplicate(
+            $duplicateLead,
+            ($request->user()?->tenant_id ? (int) $request->user()->tenant_id : ((int) ($duplicateLead->tenant_id ?? 0) ?: null))
+        );
+
+        if (!$original || (int) $original->id === (int) $duplicateLead->id) {
+            return response()->json([
+                'message' => 'Original record not found',
+                'original' => null,
+                'duplicate_id' => (int) $duplicateLead->id,
+            ], 404);
+        }
+
+        try {
+            $original->loadMissing(['assignedAgent:id,name', 'creator:id,name']);
+        } catch (\Throwable $e) {
+        }
+        $this->appendLeadDisplayLabels($original);
+
+        try {
+            $duplicateLead->loadMissing(['assignedAgent:id,name', 'creator:id,name']);
+        } catch (\Throwable $e) {
+        }
+        $this->appendLeadDisplayLabels($duplicateLead);
+
+        return response()->json([
+            'original' => $original,
+            'duplicate' => $duplicateLead,
+            'original_lead_id' => (int) $original->id,
+            'duplicate_id' => (int) $duplicateLead->id,
+        ]);
+    }
+
     /**
      * Find an "active" duplicate lead for the same phone + duplicate_of.
      * Active means it's still marked as duplicate (status or stage) and still linked via meta_data.duplicate_of.
@@ -699,12 +864,12 @@ class LeadController extends Controller
         if ($user->is_super_admin) return true;
 
         $role = strtolower($user->role ?? '');
-        // بناءً على الورقة: المدير ومدير العمليات ملهومش صلاحية حذف نهائياً
+        // Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ Ø§Ù„ÙˆØ±Ù‚Ø©: Ø§Ù„Ù…Ø¯ÙŠØ± ÙˆÙ…Ø¯ÙŠØ± Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ù…Ù„Ù‡ÙˆÙ…Ø´ ØµÙ„Ø§Ø­ÙŠØ© Ø­Ø°Ù Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹
         if (in_array($role, ['director', 'operation manager'])) {
             return false;
         }
 
-        // الـ Admin فقط هو اللي بيمسح
+        // Ø§Ù„Ù€ Admin ÙÙ‚Ø· Ù‡Ùˆ Ø§Ù„Ù„ÙŠ Ø¨ÙŠÙ…Ø³Ø­
         if (in_array($role, ['admin', 'tenant admin', 'tenant-admin'], true)) {
             return true;
         }
@@ -2212,7 +2377,7 @@ class LeadController extends Controller
             }
 
             $isRTL = $request->get('lang') === 'ar';
-            $unassignedLabel = $isRTL ? 'غير معين' : 'Unassigned';
+            $unassignedLabel = $isRTL ? 'ØºÙŠØ± Ù…Ø¹ÙŠÙ†' : 'Unassigned';
 
             $distinctStages = (clone $query)
                 ->whereNotNull('stage')
@@ -2454,7 +2619,7 @@ class LeadController extends Controller
                     $isNewStage = $stage === 'new' || $stage === 'new lead' || ($status === 'new' && $stage === '');
                     $isColdStage = in_array($stage, ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'], true)
                         || str_contains($stage, 'cold')
-                        || str_contains($stage, 'العملاء المحتمل');
+                        || str_contains($stage, 'Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ù…Ø­ØªÙ…Ù„');
                     $isExplicitPendingStage = in_array($stage, ['pending', 'in-progress'], true)
                         || in_array($status, ['pending', 'in-progress'], true);
 
@@ -2474,19 +2639,19 @@ class LeadController extends Controller
                     }
 
                     $totals['totalLeads'] += 1;
-                    if (str_contains($stage, 'meeting') || str_contains($stage, 'اجتماع')) {
+                    if (str_contains($stage, 'meeting') || str_contains($stage, 'Ø§Ø¬ØªÙ…Ø§Ø¹')) {
                         $totals['meetings'] += 1;
                     }
-                    if (str_contains($stage, 'proposal') || str_contains($stage, 'عرض')) {
+                    if (str_contains($stage, 'proposal') || str_contains($stage, 'Ø¹Ø±Ø¶')) {
                         $totals['proposals'] += 1;
                     }
-                    if (str_contains($stage, 'reservation') || str_contains($stage, 'حجز')) {
+                    if (str_contains($stage, 'reservation') || str_contains($stage, 'Ø­Ø¬Ø²')) {
                         $totals['reservations'] += 1;
                     }
-                    if (str_contains($stage, 'closing') || str_contains($stage, 'closed') || str_contains($stage, 'إغلاق') || in_array($status, ['converted', 'won', 'فوز'], true)) {
+                    if (str_contains($stage, 'closing') || str_contains($stage, 'closed') || str_contains($stage, 'Ø¥ØºÙ„Ø§Ù‚') || in_array($status, ['converted', 'won', 'ÙÙˆØ²'], true)) {
                         $totals['closedDeals'] += 1;
                     }
-                    if (str_contains($stage, 'cancel') || str_contains($stage, 'إلغاء') || in_array($status, ['canceled', 'lost', 'خسارة'], true)) {
+                    if (str_contains($stage, 'cancel') || str_contains($stage, 'Ø¥Ù„ØºØ§Ø¡') || in_array($status, ['canceled', 'lost', 'Ø®Ø³Ø§Ø±Ø©'], true)) {
                         $totals['cancelation'] += 1;
                     }
 
@@ -2518,22 +2683,22 @@ class LeadController extends Controller
                     if ($isPendingCold) {
                         $bySales[$salespersonName]['pendingCold'] += 1;
                     }
-                    if (str_contains($stage, 'follow') || str_contains($stage, 'متابعة')) {
+                    if (str_contains($stage, 'follow') || str_contains($stage, 'Ù…ØªØ§Ø¨Ø¹Ø©')) {
                         $bySales[$salespersonName]['followUp'] += 1;
                     }
-                    if (str_contains($stage, 'proposal') || str_contains($stage, 'عرض')) {
+                    if (str_contains($stage, 'proposal') || str_contains($stage, 'Ø¹Ø±Ø¶')) {
                         $bySales[$salespersonName]['proposal'] += 1;
                     }
-                    if (str_contains($stage, 'meeting') || str_contains($stage, 'اجتماع')) {
+                    if (str_contains($stage, 'meeting') || str_contains($stage, 'Ø§Ø¬ØªÙ…Ø§Ø¹')) {
                         $bySales[$salespersonName]['meeting'] += 1;
                     }
-                    if (str_contains($stage, 'reservation') || str_contains($stage, 'حجز')) {
+                    if (str_contains($stage, 'reservation') || str_contains($stage, 'Ø­Ø¬Ø²')) {
                         $bySales[$salespersonName]['reservation'] += 1;
                     }
-                    if (str_contains($stage, 'closing') || str_contains($stage, 'closed') || str_contains($stage, 'إغلاق') || in_array($status, ['converted', 'won', 'فوز'], true)) {
+                    if (str_contains($stage, 'closing') || str_contains($stage, 'closed') || str_contains($stage, 'Ø¥ØºÙ„Ø§Ù‚') || in_array($status, ['converted', 'won', 'ÙÙˆØ²'], true)) {
                         $bySales[$salespersonName]['closed'] += 1;
                     }
-                    if (str_contains($stage, 'cancel') || str_contains($stage, 'إلغاء') || in_array($status, ['canceled', 'lost', 'خسارة'], true)) {
+                    if (str_contains($stage, 'cancel') || str_contains($stage, 'Ø¥Ù„ØºØ§Ø¡') || in_array($status, ['canceled', 'lost', 'Ø®Ø³Ø§Ø±Ø©'], true)) {
                         $bySales[$salespersonName]['canceled'] += 1;
                     }
                 }
@@ -2882,8 +3047,8 @@ class LeadController extends Controller
                     (
                         lower(coalesce(stage,'')) like '%closing%' OR
                         lower(coalesce(stage,'')) like '%closed%' OR
-                        lower(coalesce(stage,'')) like '%إغلاق%' OR
-                        lower(coalesce(status,'')) in ('converted','won','فوز')
+                        lower(coalesce(stage,'')) like '%Ø¥ØºÙ„Ø§Ù‚%' OR
+                        lower(coalesce(status,'')) in ('converted','won','ÙÙˆØ²')
                     )
                 ")->count();
 
@@ -3886,10 +4051,23 @@ class LeadController extends Controller
                     $base = Lead::query();
                     $this->applyDuplicateWorkflowScope($base, $tenantId, $workflowKey);
 
+                    // Only conflict with active non-exception leads. Existing Duplicate-stage
+                    // rows must not flip a normal lead into Duplicate on a routine update
+                    // (e.g. Enable Duplicate accidentally PUTting the original first).
                     $isDuplicate = (clone $base)->whereIn('phone', $variants)
                         ->where('id', '!=', $lead->id)
                         ->where(function ($q) {
                             $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
+                        })
+                        ->where(function ($q) {
+                            $q->whereNull('status')->orWhereRaw("lower(coalesce(status, '')) != 'duplicate'");
+                        })
+                        ->where(function ($q) {
+                            $q->whereNull('stage')
+                                ->orWhere(function ($inner) {
+                                    $inner->whereRaw("lower(coalesce(stage, '')) != 'duplicate'")
+                                        ->whereRaw("trim(coalesce(stage, '')) != ?", ['Ù…ÙƒØ±Ø±']);
+                                });
                         })
                         ->exists();
 
@@ -3897,7 +4075,14 @@ class LeadController extends Controller
                         $original = (clone $base)->whereIn('phone', $variants)
                             ->where('id', '!=', $lead->id)
                             ->where(function ($q) {
-                                $q->whereNull('status')->orWhere('status', '!=', 'duplicate');
+                                $q->whereNull('status')->orWhereRaw("lower(coalesce(status, '')) != 'duplicate'");
+                            })
+                            ->where(function ($q) {
+                                $q->whereNull('stage')
+                                    ->orWhere(function ($inner) {
+                                        $inner->whereRaw("lower(coalesce(stage, '')) != 'duplicate'")
+                                            ->whereRaw("trim(coalesce(stage, '')) != ?", ['Ù…ÙƒØ±Ø±']);
+                                    });
                             })
                             ->where(function ($q) {
                                 $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
@@ -3909,6 +4094,16 @@ class LeadController extends Controller
                                 ->where('id', '!=', $lead->id)
                                 ->where(function ($q) {
                                     $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
+                                })
+                                ->where(function ($q) {
+                                    $q->whereNull('status')->orWhereRaw("lower(coalesce(status, '')) != 'duplicate'");
+                                })
+                                ->where(function ($q) {
+                                    $q->whereNull('stage')
+                                        ->orWhere(function ($inner) {
+                                            $inner->whereRaw("lower(coalesce(stage, '')) != 'duplicate'")
+                                                ->whereRaw("trim(coalesce(stage, '')) != ?", ['Ù…ÙƒØ±Ø±']);
+                                        });
                                 })
                                 ->orderBy('id', 'asc')
                                 ->first();
@@ -4126,9 +4321,9 @@ class LeadController extends Controller
              return response()->json(['message' => 'You do not have permission to delete leads.'], 403);
         }
 
-        // استخدام Transaction لضمان سلامة البيانات (إما أن تتم العمليتان معًا أو تفشلا معًا)
+        // Ø§Ø³ØªØ®Ø¯Ø§Ù… Transaction Ù„Ø¶Ù…Ø§Ù† Ø³Ù„Ø§Ù…Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª (Ø¥Ù…Ø§ Ø£Ù† ØªØªÙ… Ø§Ù„Ø¹Ù…Ù„ÙŠØªØ§Ù† Ù…Ø¹Ù‹Ø§ Ø£Ùˆ ØªÙØ´Ù„Ø§ Ù…Ø¹Ù‹Ø§)
         \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
-            // 1. جلب بيانات الليد الأصلي
+            // 1. Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù„ÙŠØ¯ Ø§Ù„Ø£ØµÙ„ÙŠ
             $lead = Lead::findOrFail($id);
 
             // Enterprise Referral Supervision: Block Delete
@@ -4136,17 +4331,17 @@ class LeadController extends Controller
                 abort(403, 'Referral supervisors cannot delete leads.');
             }
 
-            // 2. إنشاء سجل جديد في جدول Recycle
+            // 2. Ø¥Ù†Ø´Ø§Ø¡ Ø³Ø¬Ù„ Ø¬Ø¯ÙŠØ¯ ÙÙŠ Ø¬Ø¯ÙˆÙ„ Recycle
             \App\Models\RecycleLead::create([
                 'original_lead_id' => $lead->id,
-                'lead_data' => $lead->toArray(), // تخزين كامل البيانات كـ JSON
+                'lead_data' => $lead->toArray(), // ØªØ®Ø²ÙŠÙ† ÙƒØ§Ù…Ù„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙƒÙ€ JSON
                 'deleted_by' => \Illuminate\Support\Facades\Auth::id(),
                 'deleted_at' => now(),
             ]);
 
-            // 3. حذف الليد نهائيًا من الجدول الأصلي (لأنه تم نقله للأرشيف)
-            // ملاحظة: نستخدم forceDelete لأننا احتفظنا بنسخة بالفعل في RecycleLead
-            // إذا كنت تفضل إبقاءه SoftDeleted في الجدول الأصلي أيضًا، استبدل forceDelete بـ delete
+            // 3. Ø­Ø°Ù Ø§Ù„Ù„ÙŠØ¯ Ù†Ù‡Ø§Ø¦ÙŠÙ‹Ø§ Ù…Ù† Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø£ØµÙ„ÙŠ (Ù„Ø£Ù†Ù‡ ØªÙ… Ù†Ù‚Ù„Ù‡ Ù„Ù„Ø£Ø±Ø´ÙŠÙ)
+            // Ù…Ù„Ø§Ø­Ø¸Ø©: Ù†Ø³ØªØ®Ø¯Ù… forceDelete Ù„Ø£Ù†Ù†Ø§ Ø§Ø­ØªÙØ¸Ù†Ø§ Ø¨Ù†Ø³Ø®Ø© Ø¨Ø§Ù„ÙØ¹Ù„ ÙÙŠ RecycleLead
+            // Ø¥Ø°Ø§ ÙƒÙ†Øª ØªÙØ¶Ù„ Ø¥Ø¨Ù‚Ø§Ø¡Ù‡ SoftDeleted ÙÙŠ Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø£ØµÙ„ÙŠ Ø£ÙŠØ¶Ù‹Ø§ØŒ Ø§Ø³ØªØ¨Ø¯Ù„ forceDelete Ø¨Ù€ delete
             $lead->forceDelete();
         });
 
@@ -4176,13 +4371,13 @@ class LeadController extends Controller
 
     private function _restoreRecycleLead(RecycleLead $recycleLead)
     {
-        // 1. استرجاع البيانات الأصلية
+        // 1. Ø§Ø³ØªØ±Ø¬Ø§Ø¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø£ØµÙ„ÙŠØ©
         $leadData = $recycleLead->lead_data;
         if (!is_array($leadData)) {
             $leadData = json_decode($leadData, true) ?? [];
         }
         
-        // 2. تنظيف البيانات
+        // 2. ØªÙ†Ø¸ÙŠÙ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
         unset($leadData['deleted_at']);
         unset($leadData['created_at']); // Let DB handle timestamps
         unset($leadData['updated_at']);
@@ -4199,41 +4394,41 @@ class LeadController extends Controller
             $leadData['tenant_id'] = $tenantId;
         }
         
-        // تصفية البيانات لتشمل فقط الأعمدة الموجودة في جدول leads
+        // ØªØµÙÙŠØ© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„ØªØ´Ù…Ù„ ÙÙ‚Ø· Ø§Ù„Ø£Ø¹Ù…Ø¯Ø© Ø§Ù„Ù…ÙˆØ¬ÙˆØ¯Ø© ÙÙŠ Ø¬Ø¯ÙˆÙ„ leads
         $columns = \Illuminate\Support\Facades\Schema::getColumnListing('leads');
         $validData = \Illuminate\Support\Arr::only($leadData, $columns);
         
-        // 3. التحقق من تضارب الـ ID
+        // 3. Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØªØ¶Ø§Ø±Ø¨ Ø§Ù„Ù€ ID
         if (isset($validData['id'])) {
             $exists = Lead::withTrashed()->where('id', $validData['id'])->exists();
             if ($exists) {
-                // إذا كان الـ ID موجوداً، نحذفه لإنشاء ID جديد
+                // Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ù€ ID Ù…ÙˆØ¬ÙˆØ¯Ø§Ù‹ØŒ Ù†Ø­Ø°ÙÙ‡ Ù„Ø¥Ù†Ø´Ø§Ø¡ ID Ø¬Ø¯ÙŠØ¯
                 unset($validData['id']);
             }
         }
 
-        // التحقق من صلاحية المستخدم المسند إليه (assigned_to)
+        // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ù…Ø³Ù†Ø¯ Ø¥Ù„ÙŠÙ‡ (assigned_to)
         if (isset($validData['assigned_to']) && $validData['assigned_to']) {
             if (!\App\Models\User::where('id', $validData['assigned_to'])->exists()) {
                 $validData['assigned_to'] = null;
             }
         }
 
-        // التحقق من صلاحية المشروع (project_id)
+        // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ (project_id)
         if (isset($validData['project_id']) && $validData['project_id']) {
             if (!\App\Models\Project::where('id', $validData['project_id'])->exists()) {
                 $validData['project_id'] = null;
             }
         }
 
-        // التحقق من صلاحية العنصر (item_id)
+        // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø¹Ù†ØµØ± (item_id)
         if (isset($validData['item_id']) && $validData['item_id']) {
             if (!\App\Models\Item::where('id', $validData['item_id'])->exists()) {
                 $validData['item_id'] = null;
             }
         }
 
-        // معالجة تكرار البريد الإلكتروني (Email Uniqueness)
+        // Ù…Ø¹Ø§Ù„Ø¬Ø© ØªÙƒØ±Ø§Ø± Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ (Email Uniqueness)
         if (isset($validData['email']) && $validData['email']) {
             $emailExists = Lead::where('email', $validData['email'])->exists();
             if ($emailExists) {
@@ -4241,7 +4436,7 @@ class LeadController extends Controller
             }
         }
         
-        // معالجة تكرار الهاتف (Phone Uniqueness)
+        // Ù…Ø¹Ø§Ù„Ø¬Ø© ØªÙƒØ±Ø§Ø± Ø§Ù„Ù‡Ø§ØªÙ (Phone Uniqueness)
         if (isset($validData['phone']) && $validData['phone']) {
             $phoneExists = Lead::where('phone', $validData['phone'])->exists();
             if ($phoneExists) {
@@ -4249,15 +4444,15 @@ class LeadController extends Controller
             }
         }
 
-        // تنظيف حقول الحذف
+        // ØªÙ†Ø¸ÙŠÙ Ø­Ù‚ÙˆÙ„ Ø§Ù„Ø­Ø°Ù
         unset($validData['deleted_by']);
         
-        // 4. إنشاء الليد من جديد
+        // 4. Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù„ÙŠØ¯ Ù…Ù† Ø¬Ø¯ÙŠØ¯
         $lead = new Lead();
         $lead->forceFill($validData);
         $lead->save();
         
-        // 5. حذف السجل من الأرشيف
+        // 5. Ø­Ø°Ù Ø§Ù„Ø³Ø¬Ù„ Ù…Ù† Ø§Ù„Ø£Ø±Ø´ÙŠÙ
         $recycleLead->delete();
         
         return $lead;
@@ -4267,7 +4462,7 @@ class LeadController extends Controller
     {
         \Illuminate\Support\Facades\Log::info("Restore request received for RecycleLead ID: " . $id);
         try {
-            // استخدام Transaction لضمان سلامة البيانات
+            // Ø§Ø³ØªØ®Ø¯Ø§Ù… Transaction Ù„Ø¶Ù…Ø§Ù† Ø³Ù„Ø§Ù…Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
             return \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
                 $recycleLead = RecycleLead::findOrFail($id);
                 $this->_restoreRecycleLead($recycleLead);
@@ -4561,7 +4756,7 @@ class LeadController extends Controller
                     // Treat common template placeholders as empty (do not attempt lookup).
                     $assignedToNorm = mb_strtolower(trim($assignedToRaw));
                     $assignedToNorm = preg_replace('/\s+/u', ' ', $assignedToNorm);
-                    if (in_array($assignedToNorm, ['اسم البائع', 'sales person', 'salesperson'], true)) {
+                    if (in_array($assignedToNorm, ['Ø§Ø³Ù… Ø§Ù„Ø¨Ø§Ø¦Ø¹', 'sales person', 'salesperson'], true)) {
                         $assignedToRaw = '';
                     }
                 }
@@ -5288,15 +5483,31 @@ class LeadController extends Controller
             }
             
             $request->validate([
-                'original_lead_id' => 'required|exists:leads,id',
+                'original_lead_id' => 'nullable|integer|exists:leads,id',
                 'action' => 'required|in:keep_original,keep_duplicate',
                 'updated_data' => 'nullable|array',
                 // When keeping the original, callers may optionally choose not to merge/transfer history from duplicate.
                 // Default is true for backward compatibility.
                 'move_history' => 'nullable|boolean',
             ]);
-            
-            $originalLead = Lead::findOrFail($request->original_lead_id);
+
+            $resolvedOriginal = null;
+            if ($request->filled('original_lead_id')) {
+                $resolvedOriginal = Lead::query()->find((int) $request->input('original_lead_id'));
+            }
+            if (!$resolvedOriginal) {
+                $resolvedOriginal = $this->findOriginalLeadForDuplicate(
+                    $duplicateLead,
+                    ($request->user()?->tenant_id ? (int) $request->user()->tenant_id : ((int) ($duplicateLead->tenant_id ?? 0) ?: null))
+                );
+            }
+            if (!$resolvedOriginal) {
+                return response()->json([
+                    'message' => 'Original record not found',
+                ], 422);
+            }
+
+            $originalLead = $resolvedOriginal;
             $action = $request->action;
             $moveHistory = filter_var($request->input('move_history', true), FILTER_VALIDATE_BOOLEAN);
 
@@ -5624,22 +5835,7 @@ class LeadController extends Controller
             try {
                 /** @var Lead $dup */
                 $dup = Lead::findOrFail($id);
-                $stageLower = strtolower(trim((string) ($dup->stage ?? '')));
-                $statusLower = strtolower(trim((string) ($dup->status ?? '')));
-                $isDup = in_array($statusLower, ['duplicate'], true)
-                    || in_array($stageLower, ['duplicate'], true)
-                    || $stageLower === 'مكرر'
-                    || trim((string) ($dup->stage ?? '')) === 'مكرر';
-
-                if (!$isDup && !empty($dup->stage_id)) {
-                    $linkedStage = Stage::query()->find((int) $dup->stage_id);
-                    $linkedName = strtolower(trim((string) ($linkedStage?->name ?? '')));
-                    $linkedType = strtolower(trim((string) ($linkedStage?->type ?? '')));
-                    $linkedNameAr = trim((string) ($linkedStage?->name_ar ?? ''));
-                    $isDup = $linkedName === 'duplicate'
-                        || $linkedType === 'duplicate'
-                        || $linkedNameAr === 'مكرر';
-                }
+                $isDup = $this->isLeadMarkedDuplicate($dup);
 
                 if (!$isDup) {
                     $failed[] = ['id' => $id, 'reason' => 'Not a duplicate lead'];
@@ -5647,7 +5843,13 @@ class LeadController extends Controller
                 }
 
                 $meta = is_array($dup->meta_data ?? null) ? ($dup->meta_data ?? []) : [];
-                $originalId = $explicitOriginalId ?: ($meta['duplicate_of'] ?? null);
+                $originalFromBackend = $this->findOriginalLeadForDuplicate(
+                    $dup,
+                    ($user?->tenant_id ? (int) $user->tenant_id : ((int) ($dup->tenant_id ?? 0) ?: null))
+                );
+                $originalId = $originalFromBackend?->id
+                    ?: $explicitOriginalId
+                    ?: ($meta['duplicate_of'] ?? $meta['duplicateOf'] ?? null);
 
                 if (in_array($action, ['resolve_keep_original', 'keep_save', 'keep_and_save'], true)) {
                     if (!$originalId) {
@@ -5665,11 +5867,13 @@ class LeadController extends Controller
                 }
 
                 if ($action === 'enable_duplicate') {
-                    // Convert to normal lead and mark as an intentional duplicate exception
-                    // so the same phone can coexist with the original without being re-flagged.
+                    // Convert THIS duplicate lead into a normal lead with an intentional exception.
+                    // Do not mutate the original lead â€” it must remain a normal active lead.
+                    // Clear the duplicate link so the pair is no longer associated for duplicate UI.
                     $meta = is_array($dup->meta_data ?? null) ? ($dup->meta_data ?? []) : [];
                     $enteredStage = trim((string) ($meta['entered_stage'] ?? $meta['enteredStage'] ?? ''));
-                    $linkedOriginalId = $explicitOriginalId
+                    // Backend decides the linked original; ignore any client-provided id for pairing.
+                    $linkedOriginalId = $originalFromBackend?->id
                         ?: ($meta['duplicate_of'] ?? $meta['duplicateOf'] ?? null);
 
                     unset(
@@ -5680,6 +5884,7 @@ class LeadController extends Controller
                     );
                     $dup->meta_data = !empty($meta) ? $meta : null;
                     $dup->is_duplicate_exception = true;
+                    // Keep a soft audit pointer only; duplicate_of (active link) is cleared above.
                     if ($linkedOriginalId !== null && is_numeric($linkedOriginalId)) {
                         $dup->original_lead_id = (int) $linkedOriginalId;
                     }
@@ -5701,7 +5906,7 @@ class LeadController extends Controller
                     $statusAfter = strtolower(trim((string) ($dup->status ?? '')));
                     $stillDuplicate = in_array($statusAfter, ['duplicate'], true)
                         || in_array($stageAfter, ['duplicate'], true)
-                        || trim((string) ($dup->stage ?? '')) === 'مكرر';
+                        || trim((string) ($dup->stage ?? '')) === 'Ù…ÙƒØ±Ø±';
                     if ($stillDuplicate) {
                         $dup->status = 'new';
                         $dup->stage = $target['stage'] ?: 'New Lead';
@@ -5770,13 +5975,25 @@ class LeadController extends Controller
         try {
             $duplicateLead = Lead::findOrFail($id);
             
-            // Validate request
+            // Validate request â€” original is resolved on the backend when omitted.
             $request->validate([
-                'original_lead_id' => 'required|exists:leads,id',
+                'original_lead_id' => 'nullable|integer|exists:leads,id',
                 'notes' => 'nullable|string'
             ]);
-            
-            $originalLead = Lead::findOrFail($request->original_lead_id);
+
+            $originalLead = null;
+            if ($request->filled('original_lead_id')) {
+                $originalLead = Lead::query()->find((int) $request->input('original_lead_id'));
+            }
+            if (!$originalLead) {
+                $originalLead = $this->findOriginalLeadForDuplicate(
+                    $duplicateLead,
+                    ($request->user()?->tenant_id ? (int) $request->user()->tenant_id : ((int) ($duplicateLead->tenant_id ?? 0) ?: null))
+                );
+            }
+            if (!$originalLead || (int) $originalLead->id === (int) $duplicateLead->id) {
+                return response()->json(['message' => 'Original record not found'], 422);
+            }
             
             // Update the duplicate lead notes
             if ($request->has('notes')) {
@@ -5806,7 +6023,7 @@ class LeadController extends Controller
 
     /**
      * Clone a lead and assign the clone to a new salesperson as a fresh lead.
-     * The original lead is NOT modified — it stays with its current assignee, stage, and history.
+     * The original lead is NOT modified â€” it stays with its current assignee, stage, and history.
      * The new lead is flagged with is_duplicate_exception = true so it never gets blocked by
      * duplicate detection, and linked back via original_lead_id.
      */
@@ -5833,7 +6050,7 @@ class LeadController extends Controller
         }
 
         $clonedLead = DB::transaction(function () use ($originalLead, $user, $newAgentId, $clearHistory, $currentUser) {
-            // Copy core fields — skip identity/tracking fields
+            // Copy core fields â€” skip identity/tracking fields
             $skip = [
                 'id', 'created_at', 'updated_at', 'deleted_at', 'deleted_by',
                 'assigned_to', 'sales_person', 'manager_id',
@@ -6063,7 +6280,7 @@ class LeadController extends Controller
             $lead->save();
 
             // Handle History Visibility
-            // Clear History is an independent visibility flag — it does NOT affect stage or status.
+            // Clear History is an independent visibility flag â€” it does NOT affect stage or status.
             // Stage was already set above based on $targetStage (new_lead / cold_calls / same_stage).
             if ($historyOption === 'assign_as_new') {
                 // Keep all history in DB; just hide old actions from the new assignee's view.
@@ -6071,7 +6288,7 @@ class LeadController extends Controller
                 $lastActionId = \App\Models\LeadAction::where('lead_id', $lead->id)->max('id');
                 $lead->history_hidden_before_action_id = $lastActionId ?: null;
                 $lead->sales_view_reset_at = now();
-                // ⚠️ Do NOT force stage here — stage was already resolved above via $targetStage.
+                // âš ï¸ Do NOT force stage here â€” stage was already resolved above via $targetStage.
                 $lead->save();
             } else {
                 // Keep history fully visible for the new assignee
@@ -6234,3 +6451,4 @@ class LeadController extends Controller
         return $query->whereIn($normalizedDisplayStageExpr, $expandedTargets);
     }
 }
+

@@ -1215,7 +1215,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 {form.password && (
                   <div className="mt-3 space-y-2">
                     <div className="flex gap-1 h-1 w-full bg-base-300 rounded-full overflow-hidden">
-                      <div className={`h-full flex-1 transition-all duration-300 ${passwordStrength > 0 ? (passwordStrength === 1 ? 'bg-error' : passwordStrength === 2 ? 'bg-warning' : 'bg-success') : 'bg-transparent'}`} />
+                      <div className={`h-full flex-1 transition-all duration-300 ${passwordStrength > 0 ? (passwordStrength === 1 ? 'bg-error' : (passwordStrength === 2 ? 'bg-warning' : 'bg-success')) : 'bg-transparent'}`} />
                       <div className={`h-full flex-1 transition-all duration-300 ${passwordStrength > 1 ? (passwordStrength === 2 ? 'bg-warning' : 'bg-success') : 'bg-transparent'}`} />
                       <div className={`h-full flex-1 transition-all duration-300 ${passwordStrength > 2 ? 'bg-success' : 'bg-transparent'}`} />
                     </div>

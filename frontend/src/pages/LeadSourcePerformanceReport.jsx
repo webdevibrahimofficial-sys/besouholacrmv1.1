@@ -36,7 +36,7 @@ export default function LeadsPerformance() {
       if (sortBy === 'Conversion Rate') {
         return descending ? (getConvRate(b) - getConvRate(a)) : (getConvRate(a) - getConvRate(b))
       }
-      const metric = sortBy === 'Leads' ? 'leads' : sortBy === 'Converted' ? 'converted' : 'revenue'
+      const metric = sortBy === 'Leads' ? 'leads' : (sortBy === 'Converted' ? 'converted' : 'revenue')
       return descending ? (b[metric] - a[metric]) : (a[metric] - b[metric])
     })
     if (topN && topN > 0) arr = arr.slice(0, Math.min(topN, arr.length))

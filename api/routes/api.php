@@ -507,6 +507,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::get('referral-supervisors', [LeadController::class, 'getReferralSupervisors']);
     Route::post('leads/{id}/warn-duplicate', [LeadController::class , 'warnDuplicate']);
     Route::post('leads/{id}/resolve-duplicate', [LeadController::class , 'resolveDuplicate']);
+    Route::get('leads/{id}/duplicate-original', [LeadController::class , 'duplicateOriginal']);
     Route::post('leads/duplicates/bulk-action', [LeadController::class , 'bulkDuplicateAction']);
     Route::post('leads/{id}/transfer', [LeadController::class , 'transfer']);
     Route::post('leads/{id}/transfer-to-telesales', [LeadController::class , 'transferToTelesales']);

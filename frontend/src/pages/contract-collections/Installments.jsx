@@ -1235,7 +1235,7 @@ export default function ContractCollectionsInstallments() {
             <button
               type="button"
               className={`px-4 py-2 rounded-xl text-white text-sm disabled:opacity-50 ${
-                actionType === 'reject' ? 'bg-red-600' : actionType === 'unpaid' ? 'bg-gray-900' : 'bg-amber-600'
+                actionType === 'reject' ? 'bg-red-600' : (actionType === 'unpaid' ? 'bg-gray-900' : 'bg-amber-600')
               }`}
               onClick={submitAction}
               disabled={actionSaving || (actionType === 'reject' && !actionReason.trim())}

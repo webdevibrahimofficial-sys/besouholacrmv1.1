@@ -600,7 +600,7 @@ export default function SystemSubscriptions() {
                           : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    {t(option === 'all' ? 'All' : option === 'active' ? 'Active' : 'Inactive')}
+                    {t(option === 'all' ? 'All' : (option === 'active' ? 'Active' : 'Inactive'))}
                   </button>
                 ))}
               </div>

@@ -61,9 +61,9 @@ export default function Requests() {
 
   const [filtersOpen, setFiltersOpen] = useState(true);
 
-  const translateStatus = (s) => isRTL ? (s === 'Pending' ? 'قيد الانتظار' : s === 'In Progress' ? 'قيد التنفيذ' : s === 'Approved' ? 'معتمد' : s === 'Rejected' ? 'مرفوض' : s) : s;
-  const translateType = (s) => isRTL ? (s === 'Inquiry' ? 'استفسار' : s === 'Maintenance' ? 'صيانة' : s === 'Booking' ? 'حجز' : s) : s;
-  const translatePriority = (p) => isRTL ? (p === 'High' ? 'عالية' : p === 'Medium' ? 'متوسطة' : p === 'Low' ? 'منخفضة' : p) : p;
+  const translateStatus = (s) => isRTL ? (s === 'Pending' ? 'قيد الانتظار' : (s === 'In Progress' ? 'قيد التنفيذ' : (s === 'Approved' ? 'معتمد' : (s === 'Rejected' ? 'مرفوض' : s)))) : s;
+  const translateType = (s) => isRTL ? (s === 'Inquiry' ? 'استفسار' : (s === 'Maintenance' ? 'صيانة' : (s === 'Booking' ? 'حجز' : s))) : s;
+  const translatePriority = (p) => isRTL ? (p === 'High' ? 'عالية' : (p === 'Medium' ? 'متوسطة' : (p === 'Low' ? 'منخفضة' : p))) : p;
   const Label = {
     title: isRTL ? 'لوحة الطلبات' : 'Requests',
     addRequest: isRTL ? 'إضافة طلب' : 'Add Request',
@@ -293,7 +293,7 @@ export default function Requests() {
     try {
       await saveRequest(payload);
       const s = String(payload?.status || 'Pending');
-      const type = s === 'Approved' ? 'success' : s === 'Rejected' ? 'error' : 'info';
+      const type = s === 'Approved' ? 'success' : (s === 'Rejected' ? 'error' : 'info');
       const msg = isRTL
         ? (s === 'Approved' ? 'تمت إضافة الطلب وتمت الموافقة عليه' : s === 'Rejected' ? 'تمت إضافة الطلب وتم رفضه' : s === 'In Progress' ? 'تمت إضافة الطلب، الحالة: قيد التنفيذ' : 'تمت إضافة الطلب، الحالة: قيد الانتظار')
         : (s === 'Approved' ? 'Request added and approved' : s === 'Rejected' ? 'Request added and rejected' : s === 'In Progress' ? 'Request added, status: In Progress' : 'Request added, status: Pending');

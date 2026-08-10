@@ -20,7 +20,7 @@ const generateTrendData = (days, t) => {
 }
 
 const generateKPIs = (range, t) => {
-  const multiplier = range === '7d' ? 0.9 : range === '30d' ? 1 : 1.1;
+  const multiplier = range === '7d' ? 0.9 : (range === '30d' ? 1 : 1.1);
   return {
     avgResponse: { 
       value: `${Math.floor(8 * multiplier)}m ${Math.floor(42 * multiplier)}s`, 
@@ -48,7 +48,7 @@ const generateBottlenecks = (range, t) => {
   return hourlyBottlenecks.map(b => ({
     ...b,
     load: t(b.load), // Translate load status
-    time: Math.floor(b.time * (range === '7d' ? 0.8 : range === '90d' ? 1.2 : 1))
+    time: Math.floor(b.time * (range === '7d' ? 0.8 : (range === '90d' ? 1.2 : 1)))
   }))
 }
 
@@ -64,12 +64,12 @@ const generateImpactData = (range, t) => {
     ...d,
     time: t(d.time), // Translate time label
     conversion: Math.floor(d.conversion * (range === '7d' ? 1.1 : 0.9)),
-    leads: Math.floor(d.leads * (range === '7d' ? 0.25 : range === '90d' ? 3 : 1))
+    leads: Math.floor(d.leads * (range === '7d' ? 0.25 : (range === '90d' ? 3 : 1)))
   }))
 }
 
 const generateAgents = (range, t) => {
-  const multiplier = range === '7d' ? 1 : range === '30d' ? 1.2 : 1.5
+  const multiplier = range === '7d' ? 1 : (range === '30d' ? 1.2 : 1.5)
   return [
     { name: 'Sarah Ahmed', avgTime: `${Math.floor(3 * multiplier)}m`, score: 98, status: 'Top Performer' },
     { name: 'Mohamed Ali', avgTime: `${Math.floor(7 * multiplier)}m`, score: 85, status: 'Good' },
@@ -93,7 +93,7 @@ const KPICard = ({ title, value, subtext, icon: Icon, color, trend }) => (
         <h3 className="font-medium  dark:text-white text-sm">{title}</h3>
       </div>
       <div className="text-3xl font-bold dark:text-white mb-1">{value}</div>
-      <div className={`text-xs font-medium flex items-center gap-1 ${trend === 'up' ? 'text-emerald-500' : trend === 'down' ? 'text-rose-500' : ''}`}>
+      <div className={`text-xs font-medium flex items-center gap-1 ${trend === 'up' ? 'text-emerald-500' : (trend === 'down' ? 'text-rose-500' : '')}`}>
         {subtext}
       </div>
     </div>
@@ -128,7 +128,7 @@ const ResponseTimeReport = () => {
 
   // Dynamic Data based on Time Range
   const trendData = useMemo(() => {
-    const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 14 : 30 // Reduced points for 30/90d for cleaner chart
+    const days = timeRange === '7d' ? 7 : (timeRange === '30d' ? 14 : 30) // Reduced points for 30/90d for cleaner chart
     return generateTrendData(days, t)
   }, [timeRange, t])
 
@@ -353,7 +353,7 @@ const ResponseTimeReport = () => {
                 <Tooltip cursor={{fill: 'white'}} content={<CustomTooltip />} />
                 <Bar  dataKey="time" name={t('Avg Wait Time')} radius={[4, 4, 0, 0]}>
                   {hourlyData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.time > 15 ? '#EF4444' : entry.time > 10 ? '#F59E0B' : '#3B82F6'} />
+                    <Cell key={`cell-${index}`} fill={entry.time > 15 ? '#EF4444' : (entry.time > 10 ? '#F59E0B' : '#3B82F6')} />
                   ))}
                 </Bar>
               </BarChart>
@@ -388,7 +388,7 @@ const ResponseTimeReport = () => {
                     <td className="p-4">
                       <div className="w-full   rounded-full h-1.5 w-24">
                         <div 
-                          className={`h-1.5 rounded-full ${agent.score > 90 ? 'bg-emerald-500' : agent.score > 70 ? 'bg-amber-500' : 'bg-rose-500'}`} 
+                          className={`h-1.5 rounded-full ${agent.score > 90 ? 'bg-emerald-500' : (agent.score > 70 ? 'bg-amber-500' : 'bg-rose-500')}`} 
                           style={{ width: `${agent.score}%` }}
                         ></div>
                       </div>

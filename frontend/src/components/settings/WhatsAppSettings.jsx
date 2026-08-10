@@ -144,7 +144,7 @@ export default function WhatsAppSettings() {
         id: m.id,
         recipient: m?.direction === 'outbound' ? (m?.to || '') : (m?.from || ''),
         template: m?.type || 'message',
-        status: (m?.status === 'accepted' ? 'Delivered' : m?.status === 'received' ? 'Read' : 'Failed'),
+        status: (m?.status === 'accepted' ? 'Delivered' : (m?.status === 'received' ? 'Read' : 'Failed')),
         at: new Date(m?.created_at || Date.now()).toLocaleString(),
       }))
       setLogs(mapped)
@@ -277,7 +277,7 @@ export default function WhatsAppSettings() {
       {/* Connection Status */}
       <div className="glass-panel rounded-2xl p-4 mb-6 flex items-center justify-between">
         <div className="flex items-center gap-2"><WaIcon /><h3 className="text-lg font-semibold">WhatsApp Connection</h3></div>
-        <div className={`px-3 py-1 rounded-full text-sm font-medium ${connStatus==='connected'?'bg-emerald-100 text-emerald-700':connStatus==='failed'?'bg-rose-100 text-rose-700':'bg-gray-100 text-gray-700'}`}>{connStatus==='connected'?'Connected':connStatus==='failed'?'Disconnected':'Disconnected'}</div>
+        <div className={`px-3 py-1 rounded-full text-sm font-medium ${connStatus==='connected'?'bg-emerald-100 text-emerald-700':(connStatus==='failed'?'bg-rose-100 text-rose-700':'bg-gray-100 text-gray-700')}`}>{connStatus==='connected'?'Connected':(connStatus==='failed'?'Disconnected':'Disconnected')}</div>
       </div>
 
       {/* Integration Setup */}
@@ -349,7 +349,7 @@ export default function WhatsAppSettings() {
                   <td className="px-4 py-2">{t.name}</td>
                   <td className="px-4 py-2">{t.category}</td>
                   <td className="px-4 py-2">{t.language}</td>
-                  <td className={`px-4 py-2 font-medium ${t.status==='Approved'?'text-emerald-600':t.status==='Pending'?'text-amber-600':'text-rose-600'}`}>{t.status}</td>
+                  <td className={`px-4 py-2 font-medium ${t.status==='Approved'?'text-emerald-600':(t.status==='Pending'?'text-amber-600':'text-rose-600')}`}>{t.status}</td>
                   <td className="px-4 py-2 flex items-center gap-1">
                     <button className="btn btn-glass btn-sm text-xs scale-90" onClick={()=>setTplBody(t.body)}><WaIcon /> Preview</button>
                     <button className="btn btn-danger btn-sm text-xs scale-90" onClick={()=>requestDeleteTemplate(t)}>Delete</button>
@@ -501,7 +501,7 @@ export default function WhatsAppSettings() {
                 <tr key={l.id} className="border-t border-gray-200 dark:border-gray-700">
                   <td className="px-4 py-2">{l.recipient}</td>
                   <td className="px-4 py-2">{l.template}</td>
-                  <td className={`px-4 py-2 font-medium ${l.status==='Delivered'?'text-emerald-600':l.status==='Read'?'text-blue-600':'text-rose-600'}`}>{l.status}</td>
+                  <td className={`px-4 py-2 font-medium ${l.status==='Delivered'?'text-emerald-600':(l.status==='Read'?'text-blue-600':'text-rose-600')}`}>{l.status}</td>
                   <td className="px-4 py-2">{l.at}</td>
                 </tr>
               ))}

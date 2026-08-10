@@ -3547,8 +3547,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                                   return (
                                     <span className={`px-2 py-1 rounded border text-xs ${getPriorityColor(displayPriority)}`}>
                                       {isArabic
-                                        ? (displayPriority === 'high' ? 'عالية' : displayPriority === 'medium' ? 'متوسطة' : 'منخفضة')
-                                        : (displayPriority === 'high' ? 'High' : displayPriority === 'medium' ? 'Medium' : 'Low')}
+                                        ? (displayPriority === 'high' ? 'عالية' : (displayPriority === 'medium' ? 'متوسطة' : 'منخفضة'))
+                                        : (displayPriority === 'high' ? 'High' : (displayPriority === 'medium' ? 'Medium' : 'Low'))}
                                     </span>
                                   );
                                 })()}

@@ -233,7 +233,7 @@ export default function MarketingPerformance() {
       legend: { display: mode !== 'simple', labels: { color: tickColor } },
       title: {
         display: mode === 'advanced',
-        text: `${t('Marketing Performance')} • ${granularity === 'day' ? t('Daily') : granularity === 'week' ? t('Weekly') : t('Monthly')} • ${startDate} → ${endDate}`,
+        text: `${t('Marketing Performance')} • ${granularity === 'day' ? t('Daily') : (granularity === 'week' ? t('Weekly') : t('Monthly'))} • ${startDate} → ${endDate}`,
         color: tickColor,
         font: { weight: '600' }
       },

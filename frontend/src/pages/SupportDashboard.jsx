@@ -434,7 +434,7 @@ function Sparkline({ data = [], color = 'emerald' }) {
     const y = h - p - ((v - min) / range) * (h - p * 2)
     return `${x},${y}`
   }).join(' ')
-  const stroke = color === 'emerald' ? '#10b981' : color === 'rose' ? '#ef4444' : '#94a3b8'
+  const stroke = color === 'emerald' ? '#10b981' : (color === 'rose' ? '#ef4444' : '#94a3b8')
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="opacity-70">
       <polyline fill="none" stroke={stroke} strokeWidth="2" points={points} />

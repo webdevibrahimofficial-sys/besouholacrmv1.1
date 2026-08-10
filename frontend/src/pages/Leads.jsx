@@ -1499,7 +1499,6 @@ if (!s) {
     const originalLead = await resolveDuplicateOriginalLead({
       api,
       duplicateLead,
-      localLeads: leads,
     })
 
     if (!originalLead) {
@@ -2785,7 +2784,7 @@ if (!s) {
     }
 
     const { stage, history_option } = buildLeadTransferPayload(assignData)
-    const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : stage === 'new_lead' ? 'New Lead' : null
+    const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : (stage === 'new_lead' ? 'New Lead' : null)
     const optimisticStage = nextStageLabel || leads.find(l => l.id === leadId)?.stage || 'Pending'
 
     // Optimistic Update
@@ -2919,7 +2918,7 @@ if (!s) {
       }
 
       // Normal assign: fresh / cold_call / same_stage (+ optional clear history)
-      const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : stage === 'new_lead' ? 'New Lead' : null;
+      const nextStageLabel = stage === 'cold_calls' ? 'Cold Calls' : (stage === 'new_lead' ? 'New Lead' : null);
 
       await api.post('/api/leads/bulk-assign', {
         ids: selectedLeads,
@@ -5296,16 +5295,8 @@ if (!s) {
             return false;
           }
 
-          const isMergeLike = action === 'keep_duplicate' || action === 'save_info';
-          // Handle edits to original lead (legacy behavior; skipped for merge-like actions)
-          if (!isMergeLike && updatedOriginal && JSON.stringify(updatedOriginal) !== JSON.stringify(original)) {
-             try {
-                await api.put(`/api/leads/${originalId}`, updatedOriginal);
-                handleUpdateLead(updatedOriginal);
-             } catch (e) { console.error('Failed to update original lead', e); }
-          }
-          
-          // Use updated duplicate if available
+          // Duplicate pairing/enable/resolve decisions are backend-owned.
+          // Never mutate the original lead from the compare modal.
           const targetDuplicate = updatedDuplicate || duplicate;
           const targetDuplicateId = targetDuplicate.id || targetDuplicate._id || duplicateId;
 
@@ -5339,7 +5330,6 @@ if (!s) {
             switch (action) {
               case 'keep_save': {
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                  original_lead_id: originalId,
                   action: 'keep_original',
                   move_history: false,
                 });
@@ -5353,7 +5343,6 @@ if (!s) {
                 const enableResponse = await api.post('/api/leads/duplicates/bulk-action', {
                   action: 'enable_duplicate',
                   lead_ids: [targetDuplicateId],
-                  original_lead_id: originalId,
                 });
 
                 const enabledIds = (enableResponse?.data?.success || []).map((id) => String(id));
@@ -5377,7 +5366,6 @@ if (!s) {
               case 'save_info': {
                 const mergedData = toScalarMergePayload(extraData?.merged_data || {});
                 const resolveResponse = await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                  original_lead_id: originalId,
                   action: 'keep_duplicate',
                   updated_data: mergedData,
                 });
@@ -5398,12 +5386,10 @@ if (!s) {
               }
 
               case 'warn': {
-                // Call backend to warn agent
                 const warnNotes =
                   (targetDuplicate.notes ? targetDuplicate.notes + '\n' : '') +
                   `[System Warning] This lead is a duplicate of ${original.name} (#${originalId}).`
                 await api.post(`/api/leads/${targetDuplicateId}/warn-duplicate`, {
-                  original_lead_id: originalId,
                   notes: warnNotes,
                 })
 
@@ -5427,16 +5413,14 @@ if (!s) {
                   return false
                 }
 
-                // Call backend transfer
-                await api.post(`/api/leads/${originalId}/transfer`, {
-                  assigned_to: salesPersonId,
+                // Backend resolves original from the duplicate id.
+                await api.post('/api/leads/duplicates/bulk-action', {
+                  action: 'transfer',
+                  lead_ids: [targetDuplicateId],
+                  sales_id: salesPersonId,
                   stage: stageOption,
                   history_option: historyOption,
-                  assign_as_new: historyOption === 'assign_as_new',
-                  duplicate_id: targetDuplicateId, // Inform backend to resolve this duplicate
                 })
-
-                // The backend now handles deletion of the duplicate and updating original
 
                 // Add to deleted leads local storage for undo (optional)
                 const deletedLeadTransfer = { ...targetDuplicate, id: targetDuplicateId, deletedAt: new Date().toISOString() }
@@ -5479,7 +5463,6 @@ if (!s) {
 
                 // Call atomic backend merge endpoint
                 const resolveResponse = await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                  original_lead_id: originalId,
                   action: 'keep_duplicate',
                   updated_data: mergePayload,
                 })
@@ -5495,7 +5478,6 @@ if (!s) {
               case 'keep_original': {
                 // Call atomic backend resolve endpoint
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                  original_lead_id: originalId,
                   action: 'keep_original',
                 })
 

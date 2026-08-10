@@ -900,7 +900,6 @@ export default function Telesales() {
     const originalLead = await resolveDuplicateOriginalLead({
       api,
       duplicateLead,
-      localLeads: rows,
     })
 
     if (!originalLead) {
@@ -2788,7 +2787,6 @@ export default function Telesales() {
               case 'keep_save':
               case 'keep_original':
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                  original_lead_id: originalId,
                   action: 'keep_original',
                   move_history: action === 'keep_save' ? false : undefined,
                 })
@@ -2798,7 +2796,6 @@ export default function Telesales() {
                 const enableResponse = await api.post('/api/leads/duplicates/bulk-action', {
                   action: 'enable_duplicate',
                   lead_ids: [targetDuplicateId],
-                  original_lead_id: originalId,
                 })
                 const enabledIds = (enableResponse?.data?.success || []).map((id) => String(id))
                 if (!enabledIds.includes(String(targetDuplicateId))) {
@@ -2818,7 +2815,6 @@ export default function Telesales() {
                   cleanMerged[key] = typeof value === 'string' ? value.trim() : value
                 })
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                  original_lead_id: originalId,
                   action: 'keep_duplicate',
                   updated_data: cleanMerged,
                 })
@@ -2830,7 +2826,6 @@ export default function Telesales() {
                   (targetDuplicate.notes ? `${targetDuplicate.notes}\n` : '') +
                   `[System Warning] This lead is a duplicate of ${original.name} (#${originalId}).`
                 await api.post(`/api/leads/${targetDuplicateId}/warn-duplicate`, {
-                  original_lead_id: originalId,
                   notes: warnNotes,
                 })
                 break
@@ -2839,12 +2834,12 @@ export default function Telesales() {
               case 'transfer': {
                 const { salesPersonId, historyOption, stageOption } = extraData || {}
                 if (!salesPersonId) break
-                await api.post(`/api/leads/${originalId}/transfer`, {
-                  assigned_to: salesPersonId,
+                await api.post('/api/leads/duplicates/bulk-action', {
+                  action: 'transfer',
+                  lead_ids: [targetDuplicateId],
+                  sales_id: salesPersonId,
                   stage: stageOption,
                   history_option: historyOption,
-                  assign_as_new: historyOption === 'assign_as_new',
-                  duplicate_id: targetDuplicateId,
                 })
                 break
               }
@@ -2865,7 +2860,6 @@ export default function Telesales() {
                 } = targetDuplicate
 
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
-                  original_lead_id: originalId,
                   action: 'keep_duplicate',
                   updated_data: {
                     ...duplicateData,

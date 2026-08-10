@@ -704,7 +704,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 <button
                   key={filter.key}
                   onClick={() => setSelectedFilter(filter.key)}
-                  className={`px-3 py-2 text-xs sm:px-2 sm:py-1 sm:text-sm rounded ${selectedFilter === filter.key ? 'bg-blue-600 text-white' : isLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-700'}`}
+                  className={`px-3 py-2 text-xs sm:px-2 sm:py-1 sm:text-sm rounded ${selectedFilter === filter.key ? 'bg-blue-600 text-white' : (isLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-700')}`}
                 >
                   <span>{filter.label}</span>
                   <span className="ml-1">{filter.count}</span>
@@ -727,7 +727,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 <button
                   key={filter.key}
                   onClick={() => setSelectedFilter(filter.key)}
-                  className={`px-3 py-2 text-xs sm:px-2 sm:py-1 sm:text-sm rounded ${selectedFilter === filter.key ? 'bg-blue-600 text-white' : isLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-700'}`}
+                  className={`px-3 py-2 text-xs sm:px-2 sm:py-1 sm:text-sm rounded ${selectedFilter === filter.key ? 'bg-blue-600 text-white' : (isLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-700')}`}
                 >
                   <span>{filter.label}</span>
                   <span className="ml-1">{filter.count}</span>

@@ -1942,7 +1942,7 @@ export default function TelesalesDashboard() {
                 ) : filteredRecentCalls.map((call) => (
                   <div key={call.id} className={`p-3 rounded-lg border hover:shadow-md transition-shadow ${
                     isLight
-                      ? (call.callType === 'missed' ? 'bg-red-50 border-white' : call.callType === 'incoming' ? 'bg-blue-50 border-white' : 'bg-emerald-50 border-white')
+                      ? (call.callType === 'missed' ? 'bg-red-50 border-white' : (call.callType === 'incoming' ? 'bg-blue-50 border-white' : 'bg-emerald-50 border-white'))
                       : 'dark:bg-gray-800 dark:border-gray-700 dark:text-white'
                   }`}>
                     <div className="flex items-start justify-between mb-2">
@@ -2023,7 +2023,7 @@ export default function TelesalesDashboard() {
 
             <div data-export-ignore="true" className={`${leadsAnalysisOpenMobile ? 'flex' : 'hidden'} md:flex flex-wrap items-center gap-2 mb-3 justify-end`}>
               <span className={`${isLight ? 'text-blue-700 font-semibold' : 'dark:text-gray-300'} text-sm`}>
-                {leadsChartType === 'bar' ? t('Bar Chart') : leadsChartType === 'line' ? t('Line Chart') : t('Pie Chart')}
+                {leadsChartType === 'bar' ? t('Bar Chart') : (leadsChartType === 'line' ? t('Line Chart') : t('Pie Chart'))}
               </span>
               <div className="flex items-center gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <button

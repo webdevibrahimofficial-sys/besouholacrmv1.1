@@ -49,8 +49,8 @@ export default function MonthlyMarketingOverview() {
     let qualifiedData = []
     let convertedData = []
 
-    const count = granularity === 'day' ? 30 : granularity === 'week' ? 12 : 12
-    const labelPrefix = granularity === 'day' ? 'Day' : granularity === 'week' ? 'Week' : 'Month'
+    const count = granularity === 'day' ? 30 : (granularity === 'week' ? 12 : 12)
+    const labelPrefix = granularity === 'day' ? 'Day' : (granularity === 'week' ? 'Week' : 'Month')
 
     for (let i = 1; i <= count; i++) {
       labels.push(`${labelPrefix} ${i}`)

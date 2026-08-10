@@ -1809,7 +1809,7 @@ export default function Projects() {
       {/* Toasts */}
       <div className="fixed z-50 top-20 end-4 flex flex-col gap-2">
         {toasts.map(t => (
-          <div key={t.id} className={`px-4 py-2 rounded-lg shadow-lg ${t.type === 'success' ? 'bg-emerald-600 text-white' : t.type === 'error' ? 'bg-rose-600 text-white' : 'bg-gray-800 text-white'}`}>{t.message}</div>
+          <div key={t.id} className={`px-4 py-2 rounded-lg shadow-lg ${t.type === 'success' ? 'bg-emerald-600 text-white' : (t.type === 'error' ? 'bg-rose-600 text-white' : 'bg-gray-800 text-white')}`}>{t.message}</div>
         ))}
       </div>
     </div>

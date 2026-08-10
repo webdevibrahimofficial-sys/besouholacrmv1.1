@@ -170,7 +170,7 @@ export default function WebsiteConnectionForm({
             disabled={saving || !originValidation.isValid}
             className="px-4 py-2 rounded-lg bg-[var(--primary-color)] text-white font-medium hover:bg-[var(--primary-hover)] disabled:opacity-60"
           >
-            {saving ? t('Saving...') : mode === 'edit' ? t('Save Changes') : t('Create Connection')}
+            {saving ? t('Saving...') : (mode === 'edit' ? t('Save Changes') : t('Create Connection'))}
           </button>
         </div>
       </form>

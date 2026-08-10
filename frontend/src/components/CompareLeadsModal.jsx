@@ -16,10 +16,11 @@ import {
 import TransferSalesModal from './TransferSalesModal'
 
 // UI for resolving duplicates (duplicates are stored inside leads).
-// Allows per-field selection between Original vs Duplicate, then:
+// Field picks below are user merge choices for Save Info only.
+// Pairing / enable / resolve / transfer decisions are owned by the backend.
 // - Save Info: merge into original + delete duplicate (resolve-duplicate keep_duplicate)
 // - Enable Duplicate: convert duplicate lead into normal lead with is_duplicate_exception
-// - Transfer: re-assign original lead and delete duplicate (transfer with duplicate_id)
+// - Transfer: re-assign original lead and delete duplicate (duplicates/bulk-action transfer)
 const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onResolve, usersList = [], companyType = '' }) => {
   const { t, i18n } = useTranslation()
   const { theme } = useTheme()

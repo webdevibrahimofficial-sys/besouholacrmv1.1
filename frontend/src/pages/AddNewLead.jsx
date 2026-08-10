@@ -504,21 +504,32 @@ export const AddNewLead = () => {
     setStatus('');
   }, [isSelectedTelesalesWorkflow]);
 
+  const isGeneralCompany = String(tenantCompany?.company_type || '').toLowerCase() === 'general';
+  const hasPrimaryProjectOrItem = isGeneralCompany
+    ? Boolean(item)
+    : project.trim().length > 0;
+
   const isPrimaryValid =
     name.trim().length > 0 &&
     source.trim().length > 0 &&
-    (String(tenantCompany?.company_type || '').toLowerCase() === 'general' ? item : project.trim().length > 0) &&
+    hasPrimaryProjectOrItem &&
     mobileNumbers.length > 0 &&
     mobileNumbers.some((n) => n.number.trim().length > 0) &&
     mobileNumbers.every((n) => validatePhone(n.code, n.number).isValid);
 
-  const isLeadValid = (l) =>
-    (l.name || '').trim().length > 0 &&
-    (l.source || '').trim().length > 0 &&
-    (String(tenantCompany?.company_type || '').toLowerCase() === 'general' ? l.item : (l.project || '').trim().length > 0) &&
-    Array.isArray(l.mobileNumbers) &&
-    l.mobileNumbers.length > 0 &&
-    l.mobileNumbers.some((n) => (n.number || '').trim().length > 0);
+  const isLeadValid = (l) => {
+    const hasProjectOrItem = isGeneralCompany
+      ? Boolean(l.item)
+      : (l.project || '').trim().length > 0;
+    return (
+      (l.name || '').trim().length > 0 &&
+      (l.source || '').trim().length > 0 &&
+      hasProjectOrItem &&
+      Array.isArray(l.mobileNumbers) &&
+      l.mobileNumbers.length > 0 &&
+      l.mobileNumbers.some((n) => (n.number || '').trim().length > 0)
+    );
+  };
 
   const isFormValid = isPrimaryValid && extraLeads.every(isLeadValid);
 
@@ -704,7 +715,8 @@ export const AddNewLead = () => {
         ? Object.values(responseData.errors).flat().map((item) => String(item || '').trim()).filter(Boolean).join(' | ')
         : '';
 
-      alert(directMessage || validationMessage || t('Failed to save lead'));
+      const fallbackMessage = String(error?.message || '').trim();
+      alert(directMessage || validationMessage || fallbackMessage || t('Failed to save lead'));
     }
   };
 

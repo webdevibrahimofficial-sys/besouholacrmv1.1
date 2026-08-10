@@ -755,7 +755,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
     if (!years) {
       const freq = String(plan.frequency || 'monthly').toLowerCase()
       const inst = Number(plan.installments || 0)
-      years = freq.includes('quarter') ? inst / 4 : freq.includes('semi') ? inst / 2 : inst / 12
+      years = freq.includes('quarter') ? inst / 4 : (freq.includes('semi') ? inst / 2 : inst / 12)
     }
 
     const nowYear = new Date().getFullYear()
@@ -850,7 +850,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
       const paidByInstallments = instAmt * installmentsCount
       const leftover = base - paidByInstallments
       const freq = String(plan.extraPaymentFrequency || 'Monthly')
-      const perYear = freq === 'Monthly' ? 12 : freq === 'Quarterly' ? 4 : freq === 'Semi-Annual' ? 2 : freq === 'Annual' ? 1 : 12
+      const perYear = freq === 'Monthly' ? 12 : (freq === 'Quarterly' ? 4 : (freq === 'Semi-Annual' ? 2 : (freq === 'Annual' ? 1 : 12)))
       const count = years > 0 ? Math.max(0, Math.round(years * perYear)) : 0
       const extraAmt = (count > 0 && leftover > 0) ? Math.round((leftover / count) * 100) / 100 : 0
       const next = {

@@ -390,7 +390,7 @@ const CampaignDurationReport = () => {
                   <td className="text-center"><StatusBadge status={campaign.status} /></td>
                   <td className="text-center">
                     <div className="flex flex-col items-center">
-                      <span className={`font-bold text-lg ${parseFloat(campaign.roas) >= 3 ? 'text-emerald-500' : parseFloat(campaign.roas) >= 2 ? 'text-amber-500' : 'text-rose-500'}`}>
+                      <span className={`font-bold text-lg ${parseFloat(campaign.roas) >= 3 ? 'text-emerald-500' : (parseFloat(campaign.roas) >= 2 ? 'text-amber-500' : 'text-rose-500')}`}>
                         {campaign.roas}
                       </span>
                       <span className="text-[10px]  uppercase tracking-wide">{t('Return')}</span>
