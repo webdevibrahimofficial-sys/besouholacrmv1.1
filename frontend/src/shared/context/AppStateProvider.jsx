@@ -127,7 +127,12 @@ export function AppStateProvider({ children }) {
   }, [syncThemeFromUser])
 
   const fetchCompanyInfo = useCallback(async () => {
-    const payload = await getProfile()
+    const payload = await getProfile({
+      skipAuthRedirect: true,
+      suppressRequestLog: true,
+      suppressErrorLog: true,
+      suppressErrorStatuses: [401],
+    })
     setProfile(payload)
 
     // Start / refresh WebSocket connection (Reverb) after a valid token exists.
@@ -477,6 +482,10 @@ useEffect(() => {
     location.pathname === '/landing-preview' ||
     location.pathname.startsWith('/landing-preview/') ||
     location.pathname.startsWith('/p/')
+  const isAuthRoute =
+    location.pathname === '/login' ||
+    location.pathname === '/forgot-password' ||
+    location.pathname.startsWith('/reset-password')
   let cancelled = false
 
   if (isImpersonationCallback || isPublicLandingRoute) {
@@ -489,6 +498,31 @@ useEffect(() => {
     const parts = value.split(`; ${name}=`);
     if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
   };
+
+  const clearStoredTokens = () => {
+    try {
+      window.localStorage.removeItem('token')
+      window.sessionStorage.removeItem('token')
+    } catch {}
+
+    try {
+      document.cookie = 'token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;'
+      const host = window.location.hostname
+      const parts = host.split('.')
+      if (parts[0] === 'www') parts.shift()
+      const rootDomain = parts.length > 1 ? '.' + parts.slice(-2).join('.') : null
+      if (rootDomain) {
+        document.cookie = `token=; Path=/; Domain=${rootDomain}; Expires=Thu, 01 Jan 1970 00:00:01 GMT;`
+      }
+      const currentDomain = parts.length ? '.' + parts.join('.') : null
+      if (currentDomain && currentDomain !== rootDomain) {
+        document.cookie = `token=; Path=/; Domain=${currentDomain}; Expires=Thu, 01 Jan 1970 00:00:01 GMT;`
+      }
+      if (host === 'localhost' || host.endsWith('.localhost')) {
+        document.cookie = `token=; Path=/; Domain=.localhost; Expires=Thu, 01 Jan 1970 00:00:01 GMT;`
+      }
+    } catch {}
+  }
 
   const lsToken = window.localStorage.getItem('token');
   const ssToken = window.sessionStorage.getItem('token');
@@ -511,26 +545,33 @@ useEffect(() => {
           throw err
         }
 
+        // Login/forgot-password: drop stale tokens immediately (no second 401).
+        if (isAuthRoute) {
+          clearStoredTokens()
+          throw err
+        }
+
         // Cross-subdomain redirects can briefly race token persistence on the
-        // first dashboard load. Retry once after rehydrating from cookie before
-        // treating the session as invalid.
+        // first dashboard load. Retry once only when cookie can actually recover
+        // a missing local/session token.
         const latestCookieToken = getCookie('token')
         const latestLocalToken = window.localStorage.getItem('token')
         const latestSessionToken = window.sessionStorage.getItem('token')
-        const recoveredToken = latestLocalToken || latestSessionToken || latestCookieToken
+        const canRecoverFromCookie = Boolean(latestCookieToken && !latestLocalToken && !latestSessionToken)
 
-        if (latestCookieToken && !latestLocalToken && !latestSessionToken) {
+        if (canRecoverFromCookie) {
           window.sessionStorage.setItem('token', latestCookieToken)
-        }
-
-        if (recoveredToken) {
           await new Promise((resolve) => window.setTimeout(resolve, 250))
-          await fetchCompanyInfo()
-          return
+          try {
+            await fetchCompanyInfo()
+            return
+          } catch (retryErr) {
+            clearStoredTokens()
+            throw retryErr
+          }
         }
 
-        window.localStorage.removeItem('token');
-        window.sessionStorage.removeItem('token');
+        clearStoredTokens()
         throw err
       }
     }

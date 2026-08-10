@@ -252,7 +252,7 @@ api.interceptors.request.use((config) => {
     }
   }
 
-  if (isApiDebugEnabled()) {
+  if (isApiDebugEnabled() && config?.suppressRequestLog !== true) {
     const fullUrl = buildAxiosLikeUrl(config.baseURL, config.url)
     console.info('API REQUEST', {
       url: fullUrl,

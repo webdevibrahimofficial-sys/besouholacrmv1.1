@@ -248,11 +248,11 @@ export const logout = async ({ tokenOverride } = {}) => {
   window.dispatchEvent(evt)
 }
 
-export const getProfile = async () => {
-  const res = await api.get('/api/company-info')
+export const getProfile = async (config = {}) => {
+  const res = await api.get('/api/company-info', config)
   return res?.data?.data || res?.data
 }
 
-export const useProfile = () => useQuery({ queryKey: ['profile'], queryFn: getProfile })
+export const useProfile = () => useQuery({ queryKey: ['profile'], queryFn: () => getProfile() })
 
 export const useLogin = () => useMutation({ mutationFn: ({ email, password, rememberMe }) => login(email, password, undefined, rememberMe) })
