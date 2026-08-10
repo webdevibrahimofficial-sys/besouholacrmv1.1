@@ -5,8 +5,10 @@ namespace App\Services;
 use App\Models\LandlordUser;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\CrmSetting;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class TenantBootstrapper
 {
@@ -16,6 +18,7 @@ class TenantBootstrapper
     {
         return $tenant->execute(function () use ($tenant, $adminData) {
             $this->ensureTenantRolesExist($tenant);
+            $this->ensureCrmSettingsExist($tenant);
 
             $admin = null;
 
@@ -55,6 +58,18 @@ class TenantBootstrapper
                     'created_at' => $timestamp,
                 ]
             );
+        }
+    }
+
+    public function ensureCrmSettingsExist(Tenant $tenant): void
+    {
+        try {
+            if (! Schema::hasTable('crm_settings')) {
+                return;
+            }
+            CrmSetting::ensureInitialized((int) $tenant->id);
+        } catch (\Throwable) {
+            // Bootstrap must not fail tenant creation if settings table is not ready yet.
         }
     }
 

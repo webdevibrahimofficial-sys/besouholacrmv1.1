@@ -10,77 +10,38 @@ use Illuminate\Support\Facades\Schema;
 
 class CrmSettingsController extends Controller
 {
-    protected function defaults(): array
-    {
-        return [
-            'requestApprovals' => false,
-            'duplicationSystem' => true,
-            'allowDuplicateProjects' => false,
-            'allowDuplicateProperties' => false,
-            'allowCustomerPaymentPlan' => true,
-            'showBroker' => true,
-            'showDeveloper' => true,
-            'showColdCallsStage' => true,
-            'showMobileNumber' => true,
-            'startUnitCode' => '0001',
-            'startCustomerCode' => '0001',
-            'startInvoiceCode' => '0001',
-            'startOrderCode' => '0001',
-            'startQuotationCode' => '0001',
-            'allowConvertToCustomers' => true,
-            'enableTwoFactorAuth' => false,
-            'defaultCountryCode' => 'EG',
-            'defaultCurrency' => 'EGP',
-            'timeZone' => 'Africa/Cairo',
-            'dateFormat' => 'DD/MM/YYYY',
-            'timeFormat' => '24h',
-            'numberFormat' => '1,234.56',
-            'animations' => true,
-            'sidebarCollapsible' => true,
-            'allowTimeline' => true,
-            'allowCallLog' => true,
-            'allowChatbot' => false,
-
-            // Reservation hold time in hours. null/empty = lifetime (no auto-expiry)
-            'reservationHoldHours' => null,
-
-            // Integration lead defaults (Meta / Google Ads, etc.)
-            'integrationDefaultStage' => 'New Lead',
-            // Choose one of these to attach incoming integration leads automatically.
-            // If both are null, the backend will fall back to the first available project/item for the tenant (when possible).
-            'integrationDefaultProjectId' => null,
-            'integrationDefaultItemId' => null,
-            'salesEntryStageIdForTransferredLeads' => null,
-            'defaultWorkflowFallback' => 'sales',
-            'leadWorkflowSourceMappings' => [],
-        ];
-    }
-
     public function show(Request $request)
     {
         try {
             if (Schema::hasTable('crm_settings')) {
-                $record = CrmSetting::first();
-                $settings = $record && is_array($record->settings) ? $record->settings : $this->defaults();
-                return response()->json(['settings' => $settings]);
+                // Persist defaults for brand-new tenants so runtime matches the UI toggle.
+                $record = CrmSetting::ensureInitialized(
+                    $request->user()?->tenant_id ? (int) $request->user()->tenant_id : null
+                );
+
+                return response()->json(['settings' => CrmSetting::resolved($record)]);
             }
-        } catch (\Throwable $e) {}
-        return response()->json(['settings' => $this->defaults()]);
+        } catch (\Throwable $e) {
+        }
+
+        return response()->json(['settings' => CrmSetting::defaults()]);
     }
 
     public function update(Request $request)
     {
         $payload = $request->input('settings', $request->all());
-        if (!is_array($payload)) {
+        if (! is_array($payload)) {
             return response()->json(['message' => 'Invalid settings payload'], 422);
         }
-        if (!Schema::hasTable('crm_settings')) {
-            $next = array_merge($this->defaults(), $payload);
+        if (! Schema::hasTable('crm_settings')) {
+            $next = array_merge(CrmSetting::defaults(), $payload);
+
             return response()->json(['settings' => $next, 'message' => 'Settings storage not ready'], 200);
         }
-        $record = CrmSetting::first() ?? new CrmSetting();
-        $previous = $record->settings ?? $this->defaults();
-        $next = array_merge($this->defaults(), $payload);
+
+        $tenantId = $request->user()?->tenant_id ? (int) $request->user()->tenant_id : null;
+        $record = CrmSetting::ensureInitialized($tenantId);
+        $next = array_merge(CrmSetting::defaults(), is_array($record->settings) ? $record->settings : [], $payload);
         $record->settings = $next;
         $record->save();
 

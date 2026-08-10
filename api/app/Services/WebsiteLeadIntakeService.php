@@ -92,8 +92,7 @@ class WebsiteLeadIntakeService
 
     private function createOrUpdateLead(int $tenantId, array $data, string $rawPhone): array
     {
-        $crm = CrmSetting::first();
-        $enableDup = is_array($crm?->settings) ? (bool) ($crm->settings['duplicationSystem'] ?? false) : false;
+        $enableDup = CrmSetting::isDuplicationEnabled();
         $workflowKey = strtolower(trim((string) ($data['workflow_key'] ?? '')));
 
         $duplicateOfId = null;

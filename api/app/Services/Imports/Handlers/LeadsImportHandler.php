@@ -69,8 +69,7 @@ class LeadsImportHandler implements ImportHandler
             : null;
         $teamScopeManagerId = $isTeamScopedImporter && $uploader ? (int) $uploader->id : null;
 
-        $crm = CrmSetting::first();
-        $enableDup = is_array($crm?->settings) ? (bool) ($crm->settings['duplicationSystem'] ?? false) : false;
+        $enableDup = CrmSetting::isDuplicationEnabled();
 
         $companyType = '';
         try {

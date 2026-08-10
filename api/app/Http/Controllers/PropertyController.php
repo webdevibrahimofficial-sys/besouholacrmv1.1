@@ -587,8 +587,7 @@ class PropertyController extends Controller
                 }
             }
 
-            $crmSetting = CrmSetting::first();
-            $settings = ($crmSetting && is_array($crmSetting->settings ?? null)) ? $crmSetting->settings : [];
+            $settings = CrmSetting::resolved();
             $autoGenerateUnitCode = array_key_exists('unitCodeGeneration', $settings)
                 ? (bool) $settings['unitCodeGeneration']
                 : true;
@@ -598,7 +597,7 @@ class PropertyController extends Controller
                 $data['unit_code'] = $this->generateNextUnitCode($prefix, $data['tenant_id'] ?? null);
             }
 
-            $checkDup = (bool) ($settings['duplicationSystem'] ?? false);
+            $checkDup = (bool) ($settings['duplicationSystem'] ?? true);
             $allowDup = (bool) ($settings['allowDuplicateProperties'] ?? false);
             if (!empty($data['unit_code']) && (($checkDup && !$allowDup) || !$allowDup)) {
                 if ($this->isActiveUnitCodeTaken($data['unit_code'], $data['tenant_id'] ?? null)) {

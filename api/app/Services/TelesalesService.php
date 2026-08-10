@@ -262,11 +262,12 @@ class TelesalesService
     public function getCrmSettings(?int $tenantId): array
     {
         if (!$tenantId) {
-            return [];
+            return CrmSetting::defaults();
         }
 
-        $settings = CrmSetting::query()->where('tenant_id', $tenantId)->first();
-        return is_array($settings?->settings ?? null) ? ($settings->settings ?? []) : [];
+        $record = CrmSetting::query()->where('tenant_id', $tenantId)->first();
+
+        return CrmSetting::resolved($record);
     }
 
     public function normalizeSource(?string $source): string
