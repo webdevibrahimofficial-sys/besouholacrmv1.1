@@ -525,6 +525,67 @@ class LeadController extends Controller
         return preg_replace('/\s+/u', ' ', $normalized) ?: '';
     }
 
+    /**
+     * Resolve the business stage a duplicate should return to when Enable Duplicate runs.
+     * Always clears any Duplicate stage_id so Lead::saving syncLeadStageFields cannot
+     * overwrite the stage name back to Duplicate.
+     *
+     * @return array{stage: string, stage_id: int|null}
+     */
+    private function resolveEnableDuplicateTargetStage(Lead $dup, string $enteredStage): array
+    {
+        $tenantId = (int) ($dup->tenant_id ?? 0);
+        $workflowKey = strtolower(trim((string) ($dup->workflow_key ?? '')));
+        if ($workflowKey === '') {
+            $workflowKey = TelesalesService::WORKFLOW_SALES;
+        }
+
+        $normalizedEntered = $this->normalizeStageLookupValue($enteredStage);
+        if ($normalizedEntered === '' || $normalizedEntered === 'duplicate') {
+            $stageId = $this->resolveSalesAssignmentStageId($tenantId, 'new_lead', null);
+
+            return [
+                'stage' => 'New Lead',
+                'stage_id' => $stageId,
+            ];
+        }
+
+        /** @var TelesalesService $telesalesService */
+        $telesalesService = app(TelesalesService::class);
+        $stages = $telesalesService->getStagesForWorkflow($tenantId, $workflowKey, false);
+        if ($stages->isEmpty() && $workflowKey !== TelesalesService::WORKFLOW_SALES) {
+            $stages = $telesalesService->getStagesForWorkflow($tenantId, TelesalesService::WORKFLOW_SALES, false);
+        }
+
+        $matched = $stages->first(function ($stage) use ($normalizedEntered, $enteredStage) {
+            $name = $this->normalizeStageLookupValue((string) ($stage->name ?? ''));
+            $type = $this->normalizeStageLookupValue((string) ($stage->type ?? ''));
+            $nameAr = trim((string) ($stage->name_ar ?? ''));
+
+            if ($name === 'duplicate' || $type === 'duplicate') {
+                return false;
+            }
+
+            return $name === $normalizedEntered
+                || $type === $normalizedEntered
+                || ($nameAr !== '' && mb_strtolower($nameAr) === mb_strtolower($enteredStage));
+        });
+
+        if ($matched) {
+            return [
+                'stage' => trim((string) ($matched->name ?? 'New Lead')) ?: 'New Lead',
+                'stage_id' => (int) $matched->id,
+            ];
+        }
+
+        $stageId = $this->resolveSalesAssignmentStageId($tenantId, 'new_lead', null);
+
+        return [
+            'stage' => 'New Lead',
+            'stage_id' => $stageId,
+        ];
+    }
+
     private function resolveRequestedStageId(?int $tenantId, string $workflowKey, mixed $requestedStage): ?int
     {
         $requestedStageId = is_numeric($requestedStage) ? (int) $requestedStage : 0;
@@ -1636,8 +1697,7 @@ class LeadController extends Controller
         }
 
         // 2. Duplicate Filtering
-        $crm = \App\Models\CrmSetting::first();
-        $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
+        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
 
         // Duplicates should be excluded from normal views/reports for everyone.
         // They should only show up when explicitly requested by privileged users (Duplicate stage view),
@@ -2394,7 +2454,7 @@ class LeadController extends Controller
                     $isNewStage = $stage === 'new' || $stage === 'new lead' || ($status === 'new' && $stage === '');
                     $isColdStage = in_array($stage, ['coldcalls', 'cold calls', 'cold-call', 'cold_call', 'cold_calls', 'cold call'], true)
                         || str_contains($stage, 'cold')
-                        || str_contains($stage, '????');
+                        || str_contains($stage, 'العملاء المحتمل');
                     $isExplicitPendingStage = in_array($stage, ['pending', 'in-progress'], true)
                         || in_array($status, ['pending', 'in-progress'], true);
 
@@ -3214,8 +3274,7 @@ class LeadController extends Controller
             }
 
             // 3. Create Lead
-            $crm = CrmSetting::first();
-            $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
+            $enableDup = CrmSetting::isDuplicationEnabled();
             $variantsForSearch = null;
             
             if ($enableDup) {
@@ -3566,8 +3625,7 @@ class LeadController extends Controller
         \Illuminate\Support\Facades\Log::info("Lead loaded. Actions count: " . $lead->actions->count());
         
         // Guard duplicate visibility if duplication system enabled
-        $crm = \App\Models\CrmSetting::first();
-        $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
+        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
         if ($enableDup && (strtolower($lead->status ?? '') === 'duplicate' || strtolower($lead->stage ?? '') === 'duplicate')) {
             if (!$this->canViewDuplicates($user)) {
                 abort(403, 'Unauthorized to view duplicate leads');
@@ -3614,8 +3672,7 @@ class LeadController extends Controller
 
             // Hide duplicates from non-privileged users when duplication system enabled
             // EXCEPT if the lead is assigned to them directly
-            $crm = \App\Models\CrmSetting::first();
-            $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
+            $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
             
             if ($enableDup && !$this->canViewDuplicates($user)) {
                 $query->where(function($q) use ($user) {
@@ -3814,12 +3871,11 @@ class LeadController extends Controller
             }
             
             // Check for duplicate leads on update
-            $crm = CrmSetting::first();
-            $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
+            $enableDup = CrmSetting::isDuplicationEnabled();
+            $duplicateOfId = null;
 
-            if ($enableDup) {
+            if ($enableDup && !((bool) ($lead->is_duplicate_exception ?? false))) {
                 $isDuplicate = false;
-                $duplicateOfId = null;
                 $workflowKey = strtolower(trim((string) ($data['workflow_key'] ?? ($lead->workflow_key ?? ''))));
                 if (!empty($data['phone']) && $rawPhone !== '') {
                     $phoneSegments = $this->normalizePhoneInputSegments($rawPhone, $phoneCountryHint);
@@ -3830,8 +3886,11 @@ class LeadController extends Controller
                     $base = Lead::query();
                     $this->applyDuplicateWorkflowScope($base, $tenantId, $workflowKey);
 
-                    $isDuplicate = $isDuplicate || (clone $base)->whereIn('phone', $variants)
+                    $isDuplicate = (clone $base)->whereIn('phone', $variants)
                         ->where('id', '!=', $lead->id)
+                        ->where(function ($q) {
+                            $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
+                        })
                         ->exists();
 
                     if ($isDuplicate) {
@@ -3840,11 +3899,17 @@ class LeadController extends Controller
                             ->where(function ($q) {
                                 $q->whereNull('status')->orWhere('status', '!=', 'duplicate');
                             })
+                            ->where(function ($q) {
+                                $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
+                            })
                             ->orderBy('id', 'asc')
                             ->first();
                         if (!$original) {
                             $original = (clone $base)->whereIn('phone', $variants)
                                 ->where('id', '!=', $lead->id)
+                                ->where(function ($q) {
+                                    $q->whereNull('is_duplicate_exception')->orWhere('is_duplicate_exception', false);
+                                })
                                 ->orderBy('id', 'asc')
                                 ->first();
                         }
@@ -4246,8 +4311,7 @@ class LeadController extends Controller
         $duplicateExistingCount = 0;
         $duplicateInFileCount = 0;
 
-        $crm = \App\Models\CrmSetting::first();
-        $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
+        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
         $tenant = app()->bound('tenant') ? app('tenant') : null;
         $companyType = strtolower((string)($tenant?->company_type ?? ''));
         $currentUserId = \Illuminate\Support\Facades\Auth::id();
@@ -5216,8 +5280,7 @@ class LeadController extends Controller
             $duplicateLead = Lead::findOrFail($id);
 
             // Only privileged users can work with duplicates.
-            $crm = \App\Models\CrmSetting::first();
-            $enableDup = is_array($crm?->settings) ? (bool)($crm->settings['duplicationSystem'] ?? false) : false;
+            $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
             if ($enableDup && (strtolower((string)($duplicateLead->status ?? '')) === 'duplicate' || strtolower((string)($duplicateLead->stage ?? '')) === 'duplicate')) {
                 if (!$this->canViewDuplicates($request->user())) {
                     abort(403, 'Unauthorized to resolve duplicate leads');
@@ -5236,34 +5299,57 @@ class LeadController extends Controller
             $originalLead = Lead::findOrFail($request->original_lead_id);
             $action = $request->action;
             $moveHistory = filter_var($request->input('move_history', true), FILTER_VALIDATE_BOOLEAN);
+
+            if ((int) $originalLead->id === (int) $duplicateLead->id) {
+                return response()->json([
+                    'message' => 'Original and duplicate lead must be different records',
+                ], 422);
+            }
             
-            DB::transaction(function() use ($originalLead, $duplicateLead, $action, $request, $moveHistory) {
+            // Must use the tenant connection: Lead/Activity run on tenant-dedicated while
+            // DB::transaction() defaults to mysql. Mixing them locks activity_log on one
+            // PDO and deadlocks the Spatie insert on the other (lock wait timeout / 500).
+            $this->tenantConnection()->transaction(function () use ($originalLead, $duplicateLead, $action, $request, $moveHistory) {
                 if ($action === 'keep_duplicate') {
                     // 1. Update original lead with data from request (which came from duplicate)
                     if ($request->has('updated_data')) {
-                        // Exclude fields that shouldn't be overwritten
-                        $data = $request->updated_data;
-                        unset($data['id'], $data['_id'], $data['created_at'], $data['updated_at'], $data['deleted_at']);
-                        
+                        $data = $this->sanitizeDuplicateMergeData(
+                            is_array($request->input('updated_data')) ? $request->input('updated_data') : [],
+                            $originalLead
+                        );
+
                         // Ensure we don't copy the 'duplicate' status/stage to the original lead
-                        if (isset($data['status']) && strtolower($data['status']) === 'duplicate') {
-                            $data['status'] = 'new'; // Reset to new if it was marked as duplicate
+                        if (isset($data['status']) && strtolower((string) $data['status']) === 'duplicate') {
+                            $data['status'] = 'new';
                         }
-                        if (isset($data['stage']) && strtolower($data['stage']) === 'duplicate') {
-                            $data['stage'] = 'New Lead'; // Reset to default stage
+                        if (isset($data['stage']) && strtolower((string) $data['stage']) === 'duplicate') {
+                            $data['stage'] = 'New Lead';
                         }
-                        
-                        $originalLead->update($data);
+
+                        if ($data !== []) {
+                            $originalLead->fill($data);
+                            $originalLead->save();
+                        }
                     }
+
+                    // Ensure original is an active lead after merge.
+                    if (strtolower((string) ($originalLead->status ?? '')) === 'duplicate') {
+                        $originalLead->status = 'new';
+                    }
+                    if (strtolower((string) ($originalLead->stage ?? '')) === 'duplicate') {
+                        $originalLead->stage = 'New Lead';
+                    }
+                    $meta = is_array($originalLead->meta_data) ? $originalLead->meta_data : [];
+                    unset($meta['duplicate_of'], $meta['duplicateOf'], $meta['entered_stage'], $meta['enteredStage']);
+                    $originalLead->meta_data = $meta;
+                    $originalLead->save();
                     
                     // 2. Move history (actions) from duplicate to original
                     \App\Models\LeadAction::where('lead_id', $duplicateLead->id)
                         ->update(['lead_id' => $originalLead->id]);
                         
-                    // 3. Move activity logs (Spatie)
-                    \Spatie\Activitylog\Models\Activity::where('subject_type', Lead::class)
-                        ->where('subject_id', $duplicateLead->id)
-                        ->update(['subject_id' => $originalLead->id]);
+                    // 3. Move activity logs on the same tenant connection as this transaction
+                    $this->reassignLeadActivityLogs((int) $duplicateLead->id, (int) $originalLead->id, (int) ($duplicateLead->tenant_id ?? 0));
                 } else {
                     // keep_original: ensure original is NOT marked as duplicate
                     if (strtolower($originalLead->status) === 'duplicate') {
@@ -5278,11 +5364,16 @@ class LeadController extends Controller
                         // move history from duplicate to original
                         \App\Models\LeadAction::where('lead_id', $duplicateLead->id)
                             ->update(['lead_id' => $originalLead->id]);
+
+                        $this->reassignLeadActivityLogs((int) $duplicateLead->id, (int) $originalLead->id, (int) ($duplicateLead->tenant_id ?? 0));
                     }
                 }
                 
-                // Finally delete the duplicate lead
-                $duplicateLead->delete();
+                // Soft-delete without Spatie's "Lead has been deleted" log (merge is logged below).
+                // That insert was the query that hit lock wait timeout under mixed connections.
+                activity()->withoutLogs(function () use ($duplicateLead) {
+                    $duplicateLead->delete();
+                });
                 
                 // Log the merge on original lead
                 // Only log if we actually altered data/history, otherwise "Keep & Save" should be a no-op on the original.
@@ -5295,18 +5386,203 @@ class LeadController extends Controller
                 }
             });
             
-            $freshLead = $originalLead->fresh(['actions', 'activities', 'assignedAgent:id,name', 'creator:id,name']);
-            $this->appendLeadDisplayLabels($freshLead);
+            try {
+                $freshLead = $originalLead->fresh(['actions', 'assignedAgent:id,name', 'creator:id,name']);
+            } catch (\Throwable $e) {
+                $freshLead = $originalLead->fresh();
+            }
+            if ($freshLead) {
+                $this->appendLeadDisplayLabels($freshLead);
+            }
 
             return response()->json([
                 'message' => 'Duplicate lead resolved successfully',
-                'lead' => $freshLead
+                'lead' => $freshLead ?: $originalLead->refresh()
             ]);
             
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Resolve Duplicate Error: ' . $e->getMessage());
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Resolve Duplicate Error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json(['message' => 'Failed to resolve duplicate', 'error' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Reassign Spatie activity rows from one lead to another on the tenant connection.
+     * Avoids Spatie\Activitylog\Models\Activity (default/mysql connection) which can
+     * lock activity_log outside the tenant transaction and cause lock-wait timeouts.
+     */
+    protected function reassignLeadActivityLogs(int $fromLeadId, int $toLeadId, int $tenantId = 0): void
+    {
+        if ($fromLeadId <= 0 || $toLeadId <= 0 || $fromLeadId === $toLeadId) {
+            return;
+        }
+
+        $query = $this->tenantConnection()->table('activity_log')
+            ->where('subject_type', Lead::class)
+            ->where('subject_id', $fromLeadId);
+
+        if ($tenantId > 0) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $query->update(['subject_id' => $toLeadId]);
+    }
+
+    /**
+     * Keep only safe scalar lead columns for duplicate merge (Save Info).
+     */
+    protected function sanitizeDuplicateMergeData(array $data, Lead $originalLead): array
+    {
+        unset(
+            $data['id'],
+            $data['_id'],
+            $data['created_at'],
+            $data['updated_at'],
+            $data['deleted_at'],
+            $data['deleted_by'],
+            $data['tenant_id'],
+            $data['permissions'],
+            $data['activities'],
+            $data['creator'],
+            $data['assignedAgent'],
+            $data['customFieldValues'],
+            $data['custom_fields'],
+            $data['actions'],
+            $data['meta_data'],
+            $data['metaData'],
+            $data['field_source']
+        );
+
+        $allowed = [
+            'name', 'phone', 'email', 'company', 'type', 'stage', 'stage_id', 'status', 'priority',
+            'source', 'campaign', 'assigned_to', 'sales_person', 'notes', 'estimated_value',
+            'project', 'project_id', 'item', 'item_name', 'item_id', 'secondary_phone', 'manager_id',
+        ];
+
+        $clean = [];
+        foreach ($allowed as $key) {
+            if (! array_key_exists($key, $data)) {
+                continue;
+            }
+            $value = $data[$key];
+            if (is_array($value) || is_object($value)) {
+                if (is_array($value) && isset($value['id']) && in_array($key, ['assigned_to', 'project_id', 'item_id', 'stage_id'], true)) {
+                    $value = $value['id'];
+                } elseif (is_object($value) && isset($value->id) && in_array($key, ['assigned_to', 'project_id', 'item_id', 'stage_id'], true)) {
+                    $value = $value->id;
+                } elseif (is_array($value) && isset($value['name']) && in_array($key, ['project', 'stage', 'source', 'name', 'item', 'item_name'], true)) {
+                    $value = $value['name'];
+                } elseif (is_object($value) && isset($value->name) && in_array($key, ['project', 'stage', 'source', 'name', 'item', 'item_name'], true)) {
+                    $value = $value->name;
+                } else {
+                    continue;
+                }
+            }
+            if ($value === null) {
+                continue;
+            }
+            if (is_string($value)) {
+                $value = trim($value);
+                if ($value === '' || $value === '-') {
+                    continue;
+                }
+            }
+            $clean[$key] = $value;
+        }
+
+        $tenantId = (int) ($originalLead->tenant_id ?? 0);
+
+        if (! empty($clean['stage']) && empty($clean['stage_id']) && class_exists(\App\Support\LeadStageResolver::class)) {
+            try {
+                $resolvedStage = \App\Support\LeadStageResolver::resolve($tenantId, $clean['stage'], true);
+                if (is_string($resolvedStage) && $resolvedStage !== '') {
+                    $clean['stage'] = $resolvedStage;
+                }
+            } catch (\Throwable) {
+                // Keep raw stage label if resolver is unavailable/strict.
+            }
+        }
+
+        if (! empty($clean['stage']) && empty($clean['stage_id']) && \Illuminate\Support\Facades\Schema::hasTable('stages')) {
+            $stageName = trim((string) $clean['stage']);
+            $stageQuery = Stage::query()->where('tenant_id', $tenantId);
+            $stageQuery->where(function ($q) use ($stageName) {
+                $q->where('name', $stageName);
+                if (\Illuminate\Support\Facades\Schema::hasColumn('stages', 'name_ar')) {
+                    $q->orWhere('name_ar', $stageName);
+                }
+            });
+            $stage = $stageQuery->orderByDesc('id')->first(['id', 'name']);
+            if ($stage) {
+                $clean['stage_id'] = (int) $stage->id;
+                $clean['stage'] = (string) ($stage->name ?: $stageName);
+            }
+        }
+
+        if (! empty($clean['project']) && empty($clean['project_id']) && \Illuminate\Support\Facades\Schema::hasTable('projects')) {
+            $projectName = trim((string) $clean['project']);
+            $projectQuery = Project::query()->where('tenant_id', $tenantId);
+            $projectQuery->where(function ($q) use ($projectName) {
+                $q->where('name', $projectName);
+                if (\Illuminate\Support\Facades\Schema::hasColumn('projects', 'name_ar')) {
+                    $q->orWhere('name_ar', $projectName);
+                }
+            });
+            $project = $projectQuery->orderByDesc('id')->first(['id', 'name']);
+            if ($project) {
+                $clean['project_id'] = (int) $project->id;
+                $clean['project'] = (string) ($project->name ?: $projectName);
+            }
+        }
+
+        $itemLabel = trim((string) ($clean['item_name'] ?? $clean['item'] ?? ''));
+        if ($itemLabel !== '' && empty($clean['item_id']) && \Illuminate\Support\Facades\Schema::hasTable('items')) {
+            $itemQuery = Item::query()->where('tenant_id', $tenantId);
+            $itemQuery->where(function ($q) use ($itemLabel) {
+                $q->where('name', $itemLabel);
+                if (\Illuminate\Support\Facades\Schema::hasColumn('items', 'title')) {
+                    $q->orWhere('title', $itemLabel);
+                }
+                if (\Illuminate\Support\Facades\Schema::hasColumn('items', 'name_ar')) {
+                    $q->orWhere('name_ar', $itemLabel);
+                }
+            });
+            $item = $itemQuery->orderByDesc('id')->first(['id', 'name']);
+            if ($item) {
+                $clean['item_id'] = (int) $item->id;
+                $resolvedItemName = (string) ($item->name ?: $itemLabel);
+                if (\Illuminate\Support\Facades\Schema::hasColumn('leads', 'item')) {
+                    $clean['item'] = $resolvedItemName;
+                }
+                if (\Illuminate\Support\Facades\Schema::hasColumn('leads', 'item_name')) {
+                    $clean['item_name'] = $resolvedItemName;
+                }
+            }
+        }
+
+        if (isset($clean['assigned_to']) && ! is_numeric($clean['assigned_to'])) {
+            unset($clean['assigned_to']);
+        } elseif (isset($clean['assigned_to'])) {
+            $clean['assigned_to'] = (int) $clean['assigned_to'];
+        }
+
+        // Never attempt to write columns that do not exist on this DB.
+        try {
+            $columns = array_flip(\Illuminate\Support\Facades\Schema::getColumnListing('leads'));
+            $clean = array_filter(
+                $clean,
+                static fn ($key) => isset($columns[$key]),
+                ARRAY_FILTER_USE_KEY
+            );
+        } catch (\Throwable) {
+            // Keep cleaned payload if schema introspection fails.
+        }
+
+        return $clean;
     }
 
     /**
@@ -5348,7 +5624,23 @@ class LeadController extends Controller
             try {
                 /** @var Lead $dup */
                 $dup = Lead::findOrFail($id);
-                $isDup = strtolower((string)($dup->status ?? '')) === 'duplicate' || strtolower((string)($dup->stage ?? '')) === 'duplicate';
+                $stageLower = strtolower(trim((string) ($dup->stage ?? '')));
+                $statusLower = strtolower(trim((string) ($dup->status ?? '')));
+                $isDup = in_array($statusLower, ['duplicate'], true)
+                    || in_array($stageLower, ['duplicate'], true)
+                    || $stageLower === 'مكرر'
+                    || trim((string) ($dup->stage ?? '')) === 'مكرر';
+
+                if (!$isDup && !empty($dup->stage_id)) {
+                    $linkedStage = Stage::query()->find((int) $dup->stage_id);
+                    $linkedName = strtolower(trim((string) ($linkedStage?->name ?? '')));
+                    $linkedType = strtolower(trim((string) ($linkedStage?->type ?? '')));
+                    $linkedNameAr = trim((string) ($linkedStage?->name_ar ?? ''));
+                    $isDup = $linkedName === 'duplicate'
+                        || $linkedType === 'duplicate'
+                        || $linkedNameAr === 'مكرر';
+                }
+
                 if (!$isDup) {
                     $failed[] = ['id' => $id, 'reason' => 'Not a duplicate lead'];
                     continue;
@@ -5373,20 +5665,52 @@ class LeadController extends Controller
                 }
 
                 if ($action === 'enable_duplicate') {
-                    // Convert to normal lead: clear duplicate status/stage and unlink.
+                    // Convert to normal lead and mark as an intentional duplicate exception
+                    // so the same phone can coexist with the original without being re-flagged.
                     $meta = is_array($dup->meta_data ?? null) ? ($dup->meta_data ?? []) : [];
-                    $enteredStage = trim((string) ($meta['entered_stage'] ?? ''));
-                    if (array_key_exists('duplicate_of', $meta)) {
-                        unset($meta['duplicate_of']);
+                    $enteredStage = trim((string) ($meta['entered_stage'] ?? $meta['enteredStage'] ?? ''));
+                    $linkedOriginalId = $explicitOriginalId
+                        ?: ($meta['duplicate_of'] ?? $meta['duplicateOf'] ?? null);
+
+                    unset(
+                        $meta['duplicate_of'],
+                        $meta['duplicateOf'],
+                        $meta['entered_stage'],
+                        $meta['enteredStage']
+                    );
+                    $dup->meta_data = !empty($meta) ? $meta : null;
+                    $dup->is_duplicate_exception = true;
+                    if ($linkedOriginalId !== null && is_numeric($linkedOriginalId)) {
+                        $dup->original_lead_id = (int) $linkedOriginalId;
                     }
-                    $dup->meta_data = $meta;
-                    if (strtolower((string)$dup->status) === 'duplicate') {
-                        $dup->status = 'new';
-                    }
-                    if (strtolower((string)$dup->stage) === 'duplicate') {
-                        $dup->stage = $enteredStage !== '' ? $enteredStage : 'New Lead';
-                    }
+
+                    $target = $this->resolveEnableDuplicateTargetStage($dup, $enteredStage);
+                    // Set stage_id first so Lead::saving syncLeadStageFields cannot pull
+                    // the old Duplicate stage name back over the restored business stage.
+                    $dup->stage_id = $target['stage_id'];
+                    $dup->stage = $target['stage'];
+                    $dup->status = strtolower((string) ($dup->status ?? '')) === 'duplicate'
+                        ? 'new'
+                        : (string) ($dup->status ?: 'new');
+
                     $dup->save();
+
+                    // Hard guarantee: never leave the lead marked as duplicate after enable.
+                    $dup->refresh();
+                    $stageAfter = strtolower(trim((string) ($dup->stage ?? '')));
+                    $statusAfter = strtolower(trim((string) ($dup->status ?? '')));
+                    $stillDuplicate = in_array($statusAfter, ['duplicate'], true)
+                        || in_array($stageAfter, ['duplicate'], true)
+                        || trim((string) ($dup->stage ?? '')) === 'مكرر';
+                    if ($stillDuplicate) {
+                        $dup->status = 'new';
+                        $dup->stage = $target['stage'] ?: 'New Lead';
+                        $dup->stage_id = $target['stage_id'];
+                        $dup->is_duplicate_exception = true;
+                        // Bypass model events so syncLeadStageFields cannot flip stage back.
+                        $dup->saveQuietly();
+                    }
+
                     $success[] = $id;
                     continue;
                 }
@@ -5631,7 +5955,7 @@ class LeadController extends Controller
         $historyOption = $request->history_option;
         $duplicateId = $request->duplicate_id;
 
-        DB::transaction(function() use ($lead, $newAgentId, $targetStage, $historyOption, $duplicateId, $request) {
+        $this->tenantConnection()->transaction(function () use ($lead, $newAgentId, $targetStage, $historyOption, $duplicateId, $request) {
             // Resolve User
             $user = \App\Models\User::where('id', $newAgentId)->orWhere('name', $newAgentId)->first();
             $resolvedStageId = $this->resolveSalesAssignmentStageId((int) ($lead->tenant_id ?? $request->user()?->tenant_id ?? 0), (string) $targetStage, $lead->stage_id ? (int) $lead->stage_id : null);
@@ -5723,13 +6047,16 @@ class LeadController extends Controller
                     \App\Models\LeadAction::where('lead_id', $duplicateLead->id)
                         ->update(['lead_id' => $lead->id]);
                     
-                    // Move activities
-                    \Spatie\Activitylog\Models\Activity::where('subject_type', Lead::class)
-                        ->where('subject_id', $duplicateLead->id)
-                        ->update(['subject_id' => $lead->id]);
+                    $this->reassignLeadActivityLogs(
+                        (int) $duplicateLead->id,
+                        (int) $lead->id,
+                        (int) ($duplicateLead->tenant_id ?? 0)
+                    );
 
-                    // Delete the duplicate
-                    $duplicateLead->delete();
+                    // Delete without Spatie's deleted log to avoid cross-connection lock waits
+                    activity()->withoutLogs(function () use ($duplicateLead) {
+                        $duplicateLead->delete();
+                    });
                 }
             }
 
