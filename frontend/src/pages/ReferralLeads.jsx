@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useQuery, keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -28,6 +28,7 @@ import { normalizeColumnOrder, getFavoriteColumnOrder } from '../utils/columnPre
 import { formatPhoneForDisplay, getPhoneDigits } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
+import { resolveDuplicateOriginalLead } from '../utils/resolveDuplicateOriginalLead'
 
 export const ReferralLeads = () => {
   const { t, i18n } = useTranslation()
@@ -521,61 +522,25 @@ export const ReferralLeads = () => {
   }, [location.search, location.pathname, user])
 
   const handleCompareLead = async (duplicateLead) => {
-    // Attempt to find the "original" lead
-    // 1. Search by phone number (clean format)
-    // 2. Search by email
-    // 3. Exclude the current duplicate lead ID
-    // 4. Sort by creation date (oldest is original)
-    
-    const cleanPhone = (p) => String(p || '').replace(/[^0-9]/g, '')
-    const targetPhone = cleanPhone(duplicateLead.phone || duplicateLead.mobile)
-    const targetEmail = (duplicateLead.email || '').toLowerCase()
-    
-    const possibleOriginals = leads.filter(l => {
-      if (l.id === duplicateLead.id) return false // Skip self
-      
-      const lPhone = cleanPhone(l.phone || l.mobile)
-      const lEmail = (l.email || '').toLowerCase()
-      
-      const phoneMatch = targetPhone && lPhone && targetPhone === lPhone
-      const emailMatch = targetEmail && lEmail && targetEmail === lEmail
-      
-      return phoneMatch || emailMatch
-    }).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-    
-    // If found, take the oldest one as original
-    // If not found (e.g. pagination), mock one for demonstration or show alert
-    let originalLead = possibleOriginals[0]
-    
-    if (!originalLead) {
-       // Try to find via API
-       try {
-         const searchQ = targetPhone || targetEmail;
-         if (searchQ) {
-            const { data } = await api.get('/api/leads', { 
-              params: { 
-                search: searchQ
-              } 
-            });
-            const apiLeads = Array.isArray(data) ? data : (data.data || []);
-            // Filter out self and find match
-            originalLead = apiLeads.find(l => l.id !== duplicateLead.id);
-         }
-       } catch (err) {
-         console.error('Failed to search original lead', err);
-       }
-    }
+    const originalLead = await resolveDuplicateOriginalLead({
+      api,
+      duplicateLead,
+      localLeads: leads,
+    })
 
     if (!originalLead) {
-        // If still not found, show toast and return
-        const evt = new CustomEvent('app:toast', { detail: { type: 'error', message: isRtl ? 'لم يتم العثور على السجل الأصلي' : 'Original record not found' } })
-        window.dispatchEvent(evt)
-        return
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRtl ? 'لم يتم العثور على السجل الأصلي' : 'Original record not found',
+        },
+      }))
+      return
     }
-    
+
     setCompareData({
       duplicate: duplicateLead,
-      original: originalLead
+      original: originalLead,
     })
     setShowCompareModal(true)
   }
@@ -701,15 +666,15 @@ export const ReferralLeads = () => {
 
   // Columns visibility state (ordered to match requested design)
   const allColumns = useMemo(() => ({
-    lead: t('Lead'),
-    contact: t('Contact'),
-    stage: t('Stage'),
-    assignedTo: t('Assigned To'),
-    referralTo: t('Referral To'),
-    referralFrom: t('Referral From'),
-    referralDate: t('Referral Date'),
-    actions: t('Actions')
-  }), [t])
+    lead: isRtl ? 'العميل المحتمل' : t('Lead'),
+    contact: isRtl ? 'جهة اتصال' : t('Contact'),
+    stage: isRtl ? 'المرحلة' : t('Stage'),
+    assignedTo: isRtl ? 'مسند إلى' : t('Assigned To'),
+    referralTo: isRtl ? 'محال إلى' : t('Referral To'),
+    referralFrom: isRtl ? 'محال من' : t('Referral From'),
+    referralDate: isRtl ? 'تاريخ الإحالة' : t('Referral Date'),
+    actions: isRtl ? 'الإجراءات' : t('Actions')
+  }), [isRtl, t])
 
   const displayColumns = useMemo(() => {
     const dynamicCols = dynamicFields.reduce((acc, field) => {
@@ -1582,7 +1547,7 @@ export const ReferralLeads = () => {
       <div className={`p-4 flex justify-between items-center gap-4 mb-6`} dir={isRtl ? 'rtl' : 'ltr'}>
         <div className={`relative inline-flex items-center ${isRtl ? 'flex-row-reverse' : ''} gap-2`}>
           <h1 className={`page-title text-2xl md:text-3xl font-bold text-black  flex items-center gap-2 ${isRtl ? 'text-right' : 'text-left'}`} style={{ textAlign: isRtl ? 'right' : 'left', color: theme === 'dark' ? '#ffffff' : '#000000' }}>
-            {i18n.language === 'ar' ? 'إحالات' : t('Referral Leads')}
+            {isRtl ? 'الإحالات' : t('Referral Leads')}
           </h1>
           <span
             aria-hidden
@@ -1599,11 +1564,11 @@ export const ReferralLeads = () => {
       <div className={`glass-panel rounded-2xl p-3 mb-6 filters-compact`}>
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-lg font-semibold   flex items-center gap-2">
-            <FaFilter size={16} className="text-blue-500 dark:text-blue-400" /> {t('Filters')}
+            <FaFilter size={16} className="text-blue-500 dark:text-blue-400" /> {isRtl ? 'الفلاتر' : t('Filters')}
           </h2>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowAllFilters(prev => !prev)} className={`flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors`}>
-              {showAllFilters ? t('Hide ') : t('Show ')}
+              {showAllFilters ? (isRtl ? 'إخفاء' : t('Hide ')) : (isRtl ? 'إظهار' : t('Show '))}
               <FaChevronDown size={12} className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`} />
             </button>
             <button
@@ -1636,11 +1601,11 @@ export const ReferralLeads = () => {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'} `}>
                 <FaSearch size={12} className="text-blue-500 dark:text-blue-400" />
-                {t('Search')}
+                {isRtl ? 'البحث' : t('Search')}
               </label>
               <input
                 type="text"
-                placeholder={t('Search leads...')}
+                placeholder={isRtl ? 'ابحث في العملاء...' : t('Search leads...')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className={`w-full px-3 py-2 border border-theme-border dark:border-gray-500 rounded-lg    ${isLight ? 'text-black' : 'text-white'} text-sm font-medium  dark:placeholder-white focus:border-blue-500 focus:ring-1 focus:ring-blue-200 dark:focus:ring-blue-400 transition-all duration-200`}
@@ -1693,7 +1658,7 @@ export const ReferralLeads = () => {
                 <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
-                {t('Referral To')}
+                {isRtl ? 'محال إلى' : t('Referral To')}
               </label>
               <SearchableSelect
                 value={salesPersonFilter}
@@ -1711,7 +1676,7 @@ export const ReferralLeads = () => {
                 <svg className="w-3 h-3 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20h18" />
                 </svg>
-                {t('Referral From')}
+                {isRtl ? 'محال من' : t('Referral From')}
               </label>
               <SearchableSelect
                 value={createdByFilter}
@@ -1814,7 +1779,7 @@ export const ReferralLeads = () => {
       <div className={`flex items-center justify-between mb-3`}>
         <div className="flex items-center gap-3">
           <h2 className={`text-xl font-bold ${isLight ? 'text-black' : 'text-white'}`} style={{ color: theme === 'dark' ? '#ffffff' : undefined }}>
-            {i18n.language === 'ar' ? 'مسار الإحالات' : t('Referral Leads Pipeline')}
+            {isRtl ? 'مسار الإحالات' : t('Referral Leads Pipeline')}
           </h2>
 
         </div>
@@ -1825,7 +1790,7 @@ export const ReferralLeads = () => {
           onClick={() => setStageFilter([])}
           className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor}`}
         >
-          <span className="flex items-center gap-2 text-left"><span>Σ</span><span>{t('total leads')}</span></span>
+          <span className="flex items-center gap-2 text-left"><span>#</span><span>{t('total leads')}</span></span>
           <span className="font-bold">{new Intl.NumberFormat(i18n.language.startsWith('ar') ? 'ar-EG' : 'en-US').format(stageCounts.total || 0)}</span>
         </button>
 
@@ -2337,7 +2302,7 @@ export const ReferralLeads = () => {
                 type="number"
                 min="1"
                 max={Math.ceil(filteredLeads.length / itemsPerPage)}
-                placeholder="From"
+                placeholder={isRtl ? 'من' : 'From'}
                 value={exportFrom}
                 onChange={(e) => setExportFrom(e.target.value)}
                 className="w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md dark:bg-transparent backdrop-blur-sm text-white text-xs focus:border-blue-500"
@@ -2348,7 +2313,7 @@ export const ReferralLeads = () => {
                 type="number"
                 min="1"
                 max={Math.ceil(filteredLeads.length / itemsPerPage)}
-                placeholder="To"
+                placeholder={isRtl ? 'إلى' : 'To'}
                 value={exportTo}
                 onChange={(e) => setExportTo(e.target.value)}
                 className={`w-16 px-2 py-1 border border-theme-border dark:border-gray-600 rounded-md dark:bg-transparent backdrop-blur-sm ${isLight ? 'text-black' : 'text-white'} text-xs focus:border-blue-500`}
@@ -2419,7 +2384,6 @@ export const ReferralLeads = () => {
                 break
               case 'video':
                 // Handle video call action
-                console.log('Video call:', hoveredLead)
                 break
               case 'convert':
                 handleConvertCustomer(hoveredLead)
@@ -2453,6 +2417,7 @@ export const ReferralLeads = () => {
         duplicateLead={compareData.duplicate}
         originalLead={compareData.original}
         usersList={usersList}
+        companyType={company?.company_type}
         onResolve={async (action, updatedOriginal, updatedDuplicate, extraData) => {
           const { duplicate, original } = compareData;
           if (!duplicate || !original) {
@@ -2482,19 +2447,33 @@ export const ReferralLeads = () => {
                 setLeads(prev => prev.filter(l => l.id !== targetDuplicate.id));
                 break;
 
-              case 'enable_duplicate':
-                await api.post('/api/leads/duplicates/bulk-action', {
+              case 'enable_duplicate': {
+                const enableResponse = await api.post('/api/leads/duplicates/bulk-action', {
                   action: 'enable_duplicate',
                   lead_ids: [targetDuplicate.id],
+                  original_lead_id: original.id,
                 });
+                const enabledIds = (enableResponse?.data?.success || []).map((id) => String(id));
+                if (!enabledIds.includes(String(targetDuplicate.id))) {
+                  const reason = enableResponse?.data?.failed?.[0]?.reason;
+                  throw new Error(reason || 'Failed to enable duplicate');
+                }
                 break;
+              }
 
               case 'save_info': {
                 const mergedData = extraData?.merged_data || {};
+                const cleanMerged = {};
+                Object.entries(mergedData).forEach(([key, value]) => {
+                  if (value === null || value === undefined || value === '-') return;
+                  if (typeof value === 'object') return;
+                  if (typeof value === 'string' && !value.trim()) return;
+                  cleanMerged[key] = typeof value === 'string' ? value.trim() : value;
+                });
                 await api.post(`/api/leads/${targetDuplicate.id}/resolve-duplicate`, {
                   original_lead_id: original.id,
                   action: 'keep_duplicate',
-                  updated_data: mergedData,
+                  updated_data: cleanMerged,
                 });
                 setLeads(prev => prev.filter(l => l.id !== targetDuplicate.id));
                 break;
@@ -2575,12 +2554,20 @@ export const ReferralLeads = () => {
                 setLeads(prev => prev.filter(l => l.id !== targetDuplicate.id));
                 break;
             }
+
+            fetchLeads();
+            setShowCompareModal(false);
+            return true;
           } catch (e) {
             console.error('Failed to resolve duplicate action', e);
-            // alert(t('Failed to save changes. Please try again.'));
+            window.dispatchEvent(new CustomEvent('app:toast', {
+              detail: {
+                type: 'error',
+                message: e?.message || t('Failed to save changes. Please try again.'),
+              },
+            }));
+            return false;
           }
-          fetchLeads();
-          setShowCompareModal(false);
         }}
       />
       {showEditModal && (
@@ -2743,7 +2730,6 @@ export const ReferralLeads = () => {
 
                 if (isGeneralReservation) {
                     // TODO: Migrate to API
-                    console.log('General Reservation: Inventory Request creation via API pending.');
                     /*
                     try {
                         let existingRequests = [];
@@ -2791,7 +2777,6 @@ export const ReferralLeads = () => {
                         // Force update event for other components listening
                         window.dispatchEvent(new Event('storage'));
                         
-                        console.log('Successfully created order request:', newRequest);
                     } catch (error) {
                         console.error('Failed to create order request:', error);
                     }
@@ -2860,3 +2845,6 @@ export const ReferralLeads = () => {
 }
 
 export default ReferralLeads;
+
+
+

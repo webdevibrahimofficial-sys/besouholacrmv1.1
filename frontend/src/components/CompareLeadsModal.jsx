@@ -18,18 +18,23 @@ import TransferSalesModal from './TransferSalesModal'
 // UI for resolving duplicates (duplicates are stored inside leads).
 // Allows per-field selection between Original vs Duplicate, then:
 // - Save Info: merge into original + delete duplicate (resolve-duplicate keep_duplicate)
-// - Enable Duplicate: convert duplicate lead into normal lead (bulk-action enable_duplicate)
+// - Enable Duplicate: convert duplicate lead into normal lead with is_duplicate_exception
 // - Transfer: re-assign original lead and delete duplicate (transfer with duplicate_id)
-const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onResolve, usersList = [] }) => {
+const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onResolve, usersList = [], companyType = '' }) => {
   const { t, i18n } = useTranslation()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const isRtl = i18n.language === 'ar'
+  const isGeneralTenant = String(companyType || '').toLowerCase().includes('general')
+  const projectItemLabel = isGeneralTenant ? t('Item') : t('Project')
+  // Keep a stable merge key so fieldSource selection stays consistent.
+  const projectItemKey = 'project'
 
   const [localOriginal, setLocalOriginal] = useState(originalLead)
   const [localDuplicate, setLocalDuplicate] = useState(duplicateLead)
   const [fieldSource, setFieldSource] = useState({})
   const [showTransferModal, setShowTransferModal] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const getAssigneeName = (lead) => {
     if (!lead) return t('Unassigned')
@@ -103,17 +108,18 @@ const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onRes
     setLocalOriginal(o)
     setLocalDuplicate(d)
     setShowTransferModal(false)
+    setIsSaving(false)
 
     const keys = ['name', 'phone', 'project', 'source', 'assigned_to', 'stage', 'notes']
     const next = {}
     for (const k of keys) {
-      const ov = getFieldValueForKey(o, k)
-      const dv = getFieldValueForKey(d, k)
+      const ov = getFieldValueForKey(o, k, isGeneralTenant)
+      const dv = getFieldValueForKey(d, k, isGeneralTenant)
       if (isEmptyValue(ov) && !isEmptyValue(dv)) next[k] = 'duplicate'
       else next[k] = 'original'
     }
     setFieldSource(next)
-  }, [isOpen, originalLead, duplicateLead])
+  }, [isOpen, originalLead, duplicateLead, isGeneralTenant])
 
   const formatDate = (dateString) => {
     if (!dateString) return '-'
@@ -129,12 +135,12 @@ const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onRes
   const mergeFields = useMemo(() => ([
     { key: 'name', label: t('Name'), icon: <FaUser /> },
     { key: 'phone', label: t('Phone'), icon: <FaPhone /> },
-    { key: 'project', label: t('Project'), icon: <FaBuilding /> },
+    { key: projectItemKey, label: projectItemLabel, icon: <FaBuilding /> },
     { key: 'source', label: t('Source'), icon: <FaWhatsapp /> },
     { key: 'assigned_to', label: t('Sales Person'), icon: <FaUserShield /> },
     { key: 'stage', label: t('Stage'), icon: <FaExclamationTriangle /> },
     { key: 'notes', label: t('Last Comment'), icon: <FaExclamationTriangle /> },
-  ]), [t])
+  ]), [t, projectItemLabel, projectItemKey])
 
   const handlePick = (key, src) => {
     setFieldSource((prev) => ({ ...prev, [key]: src }))
@@ -143,14 +149,36 @@ const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onRes
   const resolveMergedPayload = () => {
     const pickLeadFor = (k) => (fieldSource?.[k] === 'duplicate' ? localDuplicate : localOriginal)
 
+    const projectLead = pickLeadFor(projectItemKey)
+    const stageLead = pickLeadFor('stage')
+    const projectOrItemValue = stringifyValue(getFieldValueForKey(projectLead, projectItemKey, isGeneralTenant))
+    const stageValue = stringifyValue(getFieldValueForKey(stageLead, 'stage', isGeneralTenant))
+
     const merged = {
-      name: getFieldValueForKey(pickLeadFor('name'), 'name'),
-      phone: getFieldValueForKey(pickLeadFor('phone'), 'phone'),
-      project: getFieldValueForKey(pickLeadFor('project'), 'project'),
-      source: getFieldValueForKey(pickLeadFor('source'), 'source'),
-      stage: getFieldValueForKey(pickLeadFor('stage'), 'stage'),
-      notes: getFieldValueForKey(pickLeadFor('notes'), 'notes'),
+      name: stringifyValue(getFieldValueForKey(pickLeadFor('name'), 'name', isGeneralTenant)),
+      phone: stringifyValue(getFieldValueForKey(pickLeadFor('phone'), 'phone', isGeneralTenant)),
+      source: stringifyValue(getFieldValueForKey(pickLeadFor('source'), 'source', isGeneralTenant)),
+      stage: stageValue === '-' ? null : stageValue,
+      notes: stringifyValue(getFieldValueForKey(pickLeadFor('notes'), 'notes', isGeneralTenant)),
     }
+
+    if (isGeneralTenant) {
+      if (projectOrItemValue && projectOrItemValue !== '-') {
+        merged.item = projectOrItemValue
+        merged.item_name = projectOrItemValue
+      }
+      const itemId = getItemId(projectLead)
+      if (!isEmptyValue(itemId)) merged.item_id = itemId
+    } else {
+      if (projectOrItemValue && projectOrItemValue !== '-') {
+        merged.project = projectOrItemValue
+      }
+      const projectId = getProjectId(projectLead)
+      if (!isEmptyValue(projectId)) merged.project_id = projectId
+    }
+
+    const stageId = getStageId(stageLead)
+    if (!isEmptyValue(stageId)) merged.stage_id = stageId
 
     const assignedLead = pickLeadFor('assigned_to')
     const assignedId = getAssignedToId(assignedLead)
@@ -159,19 +187,33 @@ const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onRes
     if (!isEmptyValue(salesPersonName) && salesPersonName !== t('Unassigned')) merged.sales_person = salesPersonName
 
     Object.keys(merged).forEach((k) => {
-      if (isEmptyValue(merged[k])) delete merged[k]
+      if (isEmptyValue(merged[k]) || merged[k] === '-') delete merged[k]
     })
 
     return merged
   }
 
-  const handleSaveInfo = () => {
-    const merged = resolveMergedPayload()
-    onResolve?.('save_info', localOriginal, localDuplicate, { merged_data: merged, field_source: fieldSource })
+  const runResolve = async (action, extraData) => {
+    if (isSaving) return false
+    setIsSaving(true)
+    try {
+      const result = await onResolve?.(action, localOriginal, localDuplicate, extraData)
+      return result !== false
+    } catch (err) {
+      console.error('Resolve duplicate action failed', err)
+      return false
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleEnableDuplicate = () => {
-    onResolve?.('enable_duplicate', localOriginal, localDuplicate)
+  const handleSaveInfo = async () => {
+    const merged = resolveMergedPayload()
+    await runResolve('save_info', { merged_data: merged, field_source: fieldSource })
+  }
+
+  const handleEnableDuplicate = async () => {
+    await runResolve('enable_duplicate')
   }
 
   const renderCreatorBlock = (lead) => {
@@ -208,7 +250,7 @@ const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onRes
           const value =
             f.key === 'assigned_to'
               ? getAssigneeName(lead)
-              : stringifyValue(getFieldValueForKey(lead, f.key))
+              : stringifyValue(getFieldValueForKey(lead, f.key, isGeneralTenant))
 
           return (
             <div
@@ -320,26 +362,34 @@ const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onRes
         {/* Footer Actions */}
         <div className={`${!isDark ? 'bg-white/60 border-gray-200' : 'bg-slate-800 border-slate-700'} p-3 sm:p-4 border-t flex flex-row flex-nowrap items-center justify-center gap-2 sm:gap-3 shrink-0 overflow-x-auto`}>
           <button
+            type="button"
+            disabled={isSaving}
             onClick={handleEnableDuplicate}
-            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-slate-100 text-slate-900 hover:bg-slate-200 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
+            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-slate-100 text-slate-900 hover:bg-slate-200 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {t('Enable Duplicate')}
           </button>
           <button
-            onClick={() => onResolve?.('keep_save', localOriginal, localDuplicate)}
-            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-white text-slate-900 hover:bg-slate-50 border border-slate-200 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800 dark:border-slate-700"
+            type="button"
+            disabled={isSaving}
+            onClick={() => runResolve('keep_save')}
+            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-white text-slate-900 hover:bg-slate-50 border border-slate-200 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800 dark:border-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {t('Keep & Save')}
           </button>
           <button
+            type="button"
+            disabled={isSaving}
             onClick={handleSaveInfo}
-            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-emerald-600 text-white hover:bg-emerald-700"
+            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {t('Save Info')}
+            {isSaving ? t('Saving...') : t('Save Info')}
           </button>
           <button
+            type="button"
+            disabled={isSaving}
             onClick={() => setShowTransferModal(true)}
-            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-blue-600 text-white hover:bg-blue-700"
+            className="shrink-0 px-3 py-2 sm:px-5 sm:py-3 rounded-lg font-bold transition-colors text-xs sm:text-sm shadow-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {t('Transfer')}
           </button>
@@ -350,7 +400,7 @@ const CompareLeadsModal = ({ isOpen, onClose, duplicateLead, originalLead, onRes
       <TransferSalesModal
         isOpen={showTransferModal}
         onClose={() => setShowTransferModal(false)}
-        onConfirm={(data) => onResolve?.('transfer', localOriginal, localDuplicate, data)}
+        onConfirm={(data) => runResolve('transfer', data)}
         usersList={usersList}
       />
     </div>,
@@ -385,13 +435,53 @@ function getAssignedToId(lead) {
   return null
 }
 
-function getFieldValueForKey(lead, key) {
+function getProjectId(lead) {
+  if (!lead) return null
+  const direct = lead.project_id ?? lead.projectId
+  if (typeof direct === 'number') return direct
+  if (typeof direct === 'string' && /^\d+$/.test(direct)) return Number(direct)
+  const obj = lead.project
+  if (obj && typeof obj === 'object' && obj.id) return obj.id
+  return null
+}
+
+function getItemId(lead) {
+  if (!lead) return null
+  const direct = lead.item_id ?? lead.itemId
+  if (typeof direct === 'number') return direct
+  if (typeof direct === 'string' && /^\d+$/.test(direct)) return Number(direct)
+  const obj = lead.item
+  if (obj && typeof obj === 'object' && obj.id) return obj.id
+  return null
+}
+
+function getStageId(lead) {
+  if (!lead) return null
+  const direct = lead.stage_id ?? lead.stageId
+  if (typeof direct === 'number') return direct
+  if (typeof direct === 'string' && /^\d+$/.test(direct)) return Number(direct)
+  const obj = lead.stageRelation || lead.stage_relation
+  if (obj && typeof obj === 'object' && obj.id) return obj.id
+  return null
+}
+
+function getFieldValueForKey(lead, key, isGeneralTenant = false) {
   if (!lead) return null
   if (key === 'assigned_to') return getAssignedToId(lead) ?? lead.assigned_to ?? lead.assignedTo
   if (key === 'notes') return lead.last_comment || lead.lastComment || lead.notes || lead.description
   if (key === 'phone') return lead.phone || lead.mobile
   if (key === 'name') return lead.name || lead.fullName
   if (key === 'project') {
+    if (isGeneralTenant) {
+      return (
+        lead.item_name ||
+        lead.itemName ||
+        lead.item?.name ||
+        lead.item?.title ||
+        lead.item ||
+        null
+      )
+    }
     return (
       lead.project_name ||
       lead.projectName ||

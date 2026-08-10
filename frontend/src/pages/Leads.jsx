@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useQuery, keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -32,6 +32,7 @@ import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/ut
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 import { formatCrmCalendarDateTime, formatCrmDateTime } from '@shared/utils/crmDateTime'
 import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
+import { resolveDuplicateOriginalLead } from '../utils/resolveDuplicateOriginalLead'
 
 export const Leads = () => {
   const { t, i18n } = useTranslation()
@@ -261,9 +262,10 @@ export const Leads = () => {
 
   const isDuplicateLead = (lead) => {
     if (!lead) return false;
-    const st = String(lead.stage || '').toLowerCase();
-    const status = String(lead.status || '').toLowerCase();
-    return st === 'duplicate' || status === 'duplicate';
+    const st = String(lead.stage || '').toLowerCase().trim();
+    const status = String(lead.status || '').toLowerCase().trim();
+    const stageAr = String(lead.stage_ar || lead.name_ar || '').trim();
+    return st === 'duplicate' || status === 'duplicate' || st === 'مكرر' || stageAr === 'مكرر';
   };
 
   const getSelectedDuplicateIds = () => {
@@ -280,16 +282,27 @@ export const Leads = () => {
     const ids = getSelectedDuplicateIds();
     if (!ids.length) return;
     try {
-      await api.post('/api/leads/duplicates/bulk-action', {
+      const response = await api.post('/api/leads/duplicates/bulk-action', {
         action,
         lead_ids: ids,
         ...extra,
       });
 
+      const failedCount = Number(response?.data?.failed_count ?? 0);
+      const successCount = Number(response?.data?.success_count ?? 0);
+      if (failedCount > 0 && successCount === 0) {
+        const reason = response?.data?.failed?.[0]?.reason;
+        throw new Error(reason || (isRtl ? 'فشل تنفيذ الإجراء' : 'Action failed'));
+      }
+
       const okEvt = new CustomEvent('app:toast', {
         detail: {
-          type: 'success',
-          message: isRtl ? 'تم تنفيذ الإجراء بنجاح' : 'Action completed successfully',
+          type: failedCount > 0 ? 'warning' : 'success',
+          message: failedCount > 0
+            ? (isRtl
+              ? `تم تنفيذ ${successCount} وفشل ${failedCount}`
+              : `Completed ${successCount}, failed ${failedCount}`)
+            : (isRtl ? 'تم تنفيذ الإجراء بنجاح' : 'Action completed successfully'),
         },
       });
       window.dispatchEvent(okEvt);
@@ -298,7 +311,7 @@ export const Leads = () => {
       fetchLeads();
     } catch (e) {
       console.error('Bulk duplicate action failed', e);
-      const msg = e?.response?.data?.message || (isRtl ? 'فشل تنفيذ الإجراء' : 'Action failed');
+      const msg = e?.response?.data?.message || e?.message || (isRtl ? 'فشل تنفيذ الإجراء' : 'Action failed');
       const errEvt = new CustomEvent('app:toast', { detail: { type: 'error', message: msg } });
       window.dispatchEvent(errEvt);
     }
@@ -1483,76 +1496,25 @@ if (!s) {
   }, [location.search, location.pathname, stageAliasMap, user])
 
   const handleCompareLead = async (duplicateLead) => {
-    // Attempt to find the "original" lead
-    // 1) Prefer backend link meta_data.duplicate_of when available
-    // 2) Otherwise search by phone number only (duplicates are phone-based)
-    // 3) Exclude the current duplicate lead ID
-    // 4) Sort by creation date (oldest is original)
-    
-    const cleanPhone = (p) => String(p || '').replace(/[^0-9]/g, '')
-    const targetPhone = cleanPhone(duplicateLead.phone || duplicateLead.mobile)
-
-    const duplicateOfId =
-      duplicateLead?.meta_data?.duplicate_of ||
-      duplicateLead?.meta_data?.duplicateOf ||
-      duplicateLead?.metaData?.duplicate_of ||
-      duplicateLead?.metaData?.duplicateOf ||
-      null
-
-    const leadCreatedAt = (l) => l?.createdAt || l?.created_at || l?.created || null
-
-    let originalLead = null
-
-    if (duplicateOfId) {
-      try {
-        const { data } = await api.get(`/api/leads/${encodeURIComponent(String(duplicateOfId))}`)
-        originalLead = data?.data || data
-      } catch (err) {
-        console.error('Failed to load original lead by duplicate_of', err)
-      }
-    }
-    
-    if (!originalLead) {
-      const possibleOriginals = leads
-        .filter(l => {
-          if ((l.id || l._id) === (duplicateLead.id || duplicateLead._id)) return false // Skip self
-          const lPhone = cleanPhone(l.phone || l.mobile)
-          return targetPhone && lPhone && targetPhone === lPhone
-        })
-        .sort((a, b) => new Date(leadCreatedAt(a) || 0) - new Date(leadCreatedAt(b) || 0))
-
-      originalLead = possibleOriginals[0] || null
-    }
-    
-    if (!originalLead) {
-       // Try to find via API
-       try {
-         const searchQ = targetPhone;
-         if (searchQ) {
-             const { data } = await api.get('/api/leads', { 
-               params: { 
-                 search: searchQ
-               } 
-             });
-             const apiLeads = Array.isArray(data) ? data : (data.data || []);
-             // Filter out self and find match
-             originalLead = apiLeads.find(l => l.id !== duplicateLead.id);
-         }
-       } catch (err) {
-         console.error('Failed to search original lead', err);
-       }
-    }
+    const originalLead = await resolveDuplicateOriginalLead({
+      api,
+      duplicateLead,
+      localLeads: leads,
+    })
 
     if (!originalLead) {
-        // If still not found, show toast and return
-        const evt = new CustomEvent('app:toast', { detail: { type: 'error', message: isRtl ? 'لم يتم العثور على السجل الأصلي' : 'Original record not found' } })
-        window.dispatchEvent(evt)
-        return
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRtl ? 'لم يتم العثور على السجل الأصلي' : 'Original record not found',
+        },
+      }))
+      return
     }
-    
+
     setCompareData({
       duplicate: duplicateLead,
-      original: originalLead
+      original: originalLead,
     })
     setShowCompareModal(true)
   }
@@ -3835,7 +3797,7 @@ if (!s) {
                     const fixedStages = [
                       { name: 'New', name_ar: 'جديد', icon: 'Sparkles' },
                       { name: 'Follow Up', name_ar: 'متابعة', icon: 'Clock' },
-                      { name: 'Cold Calls', name_ar: 'العملاء المحتملون', icon: 'Phone' },
+                      { name: 'Cold Calls', name_ar: 'العملاء المحتملين', icon: 'Phone' },
                       ...(!isSalesPerson ? [{ name: 'Pending', name_ar: 'معلقة', icon: 'Hourglass' }] : []),
                       { name: 'Duplicate', name_ar: 'مكرر', icon: 'Copy' },
                     ]
@@ -5274,7 +5236,6 @@ if (!s) {
                 break
               case 'video':
                 // Handle video call action
-                console.log('Video call:', hoveredLead)
                 break
               case 'convert':
                 handleConvertCustomer(hoveredLead)
@@ -5313,12 +5274,15 @@ if (!s) {
         duplicateLead={compareData.duplicate}
         originalLead={compareData.original}
         usersList={usersList}
+        companyType={company?.company_type}
         onResolve={async (action, updatedOriginal, updatedDuplicate, extraData) => {
           const { duplicate, original } = compareData;
           if (!duplicate || !original) {
              console.error('Resolve failed: Missing duplicate or original lead data');
-             setShowCompareModal(false);
-             return;
+             window.dispatchEvent(new CustomEvent('app:toast', {
+               detail: { type: 'error', message: isRtl ? 'بيانات الليد غير مكتملة' : 'Lead data is incomplete' }
+             }));
+             return false;
           }
 
           const originalId = original.id || original._id;
@@ -5326,12 +5290,10 @@ if (!s) {
 
           if (!originalId || !duplicateId) {
             console.error('Resolve failed: Missing lead IDs', { originalId, duplicateId });
-            const errEvt = new CustomEvent('app:toast', { 
+            window.dispatchEvent(new CustomEvent('app:toast', { 
               detail: { type: 'error', message: isRtl ? 'فشل التحقق من معرفات البيانات' : 'Failed to verify lead IDs' } 
-            });
-            window.dispatchEvent(errEvt);
-            setShowCompareModal(false);
-            return;
+            }));
+            return false;
           }
 
           const isMergeLike = action === 'keep_duplicate' || action === 'save_info';
@@ -5346,6 +5308,32 @@ if (!s) {
           // Use updated duplicate if available
           const targetDuplicate = updatedDuplicate || duplicate;
           const targetDuplicateId = targetDuplicate.id || targetDuplicate._id || duplicateId;
+
+          const toScalarMergePayload = (payload = {}) => {
+            const out = {};
+            Object.entries(payload || {}).forEach(([key, value]) => {
+              if (value === null || value === undefined) return;
+              if (typeof value === 'object') {
+                if (value?.id != null && ['assigned_to', 'project_id', 'item_id', 'stage_id'].includes(key)) {
+                  out[key] = value.id;
+                  return;
+                }
+                if (value?.name != null && ['project', 'stage', 'source', 'name'].includes(key)) {
+                  out[key] = String(value.name).trim();
+                  return;
+                }
+                return;
+              }
+              if (typeof value === 'string') {
+                const trimmed = value.trim();
+                if (!trimmed || trimmed === '-') return;
+                out[key] = trimmed;
+                return;
+              }
+              out[key] = value;
+            });
+            return out;
+          };
 
           try {
             switch (action) {
@@ -5362,16 +5350,32 @@ if (!s) {
               }
 
               case 'enable_duplicate': {
-                await api.post('/api/leads/duplicates/bulk-action', {
+                const enableResponse = await api.post('/api/leads/duplicates/bulk-action', {
                   action: 'enable_duplicate',
                   lead_ids: [targetDuplicateId],
+                  original_lead_id: originalId,
                 });
+
+                const enabledIds = (enableResponse?.data?.success || []).map((id) => String(id));
+                if (!enabledIds.includes(String(targetDuplicateId))) {
+                  const reason = enableResponse?.data?.failed?.[0]?.reason;
+                  throw new Error(reason || (isRtl ? 'فشل السماح بالتكرار' : 'Failed to enable duplicate'));
+                }
+
+                // Remove from current list immediately (especially Duplicate stage view).
+                setLeads((prev) => prev.filter((l) => String(l.id || l._id) !== String(targetDuplicateId)));
                 fetchLeads();
+                window.dispatchEvent(new CustomEvent('app:toast', {
+                  detail: {
+                    type: 'success',
+                    message: isRtl ? 'تم السماح بالتكرار وتحويل الليد لليد عادي' : 'Duplicate allowed and converted to a normal lead',
+                  }
+                }));
                 break;
               }
 
               case 'save_info': {
-                const mergedData = extraData?.merged_data || {};
+                const mergedData = toScalarMergePayload(extraData?.merged_data || {});
                 const resolveResponse = await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
                   original_lead_id: originalId,
                   action: 'keep_duplicate',
@@ -5384,6 +5388,12 @@ if (!s) {
                 handleUpdateLead(updatedOriginalFromMerge);
                 setLeads(prev => prev.filter(l => (l.id || l._id) !== targetDuplicateId));
                 fetchLeads();
+                window.dispatchEvent(new CustomEvent('app:toast', {
+                  detail: {
+                    type: 'success',
+                    message: isRtl ? 'تم حفظ المعلومات ودمج الليد بنجاح' : 'Lead info saved and duplicate resolved',
+                  }
+                }));
                 break;
               }
 
@@ -5411,7 +5421,10 @@ if (!s) {
                 const { salesPersonId, historyOption, stageOption } = extraData || {}
                 if (!salesPersonId) {
                   console.error('Transfer failed: No sales person selected')
-                  break
+                  window.dispatchEvent(new CustomEvent('app:toast', {
+                    detail: { type: 'error', message: isRtl ? 'اختر مسؤول المبيعات أولاً' : 'Please select a sales person first' }
+                  }));
+                  return false
                 }
 
                 // Call backend transfer
@@ -5456,13 +5469,13 @@ if (!s) {
                   ...duplicateData
                 } = targetDuplicate
 
-                const mergePayload = {
+                const mergePayload = toScalarMergePayload({
                   ...duplicateData,
                   // Ensure we use correct keys for API
                   name: duplicateData.name || duplicateData.fullName,
                   assigned_to: duplicateData.assigned_to || duplicateData.assignedTo,
                   sales_person: duplicateData.sales_person || duplicateData.salesPerson,
-                }
+                })
 
                 // Call atomic backend merge endpoint
                 const resolveResponse = await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
@@ -5501,16 +5514,26 @@ if (!s) {
                 fetchLeads()
                 break
               }
+
+              default: {
+                console.warn('Unknown duplicate resolve action', action);
+                return false;
+              }
             }
+
+            setShowCompareModal(false);
+            return true;
           } catch (e) {
             console.error('Failed to resolve duplicate action', e);
-            const errEvt = new CustomEvent('app:toast', { 
-              detail: { type: 'error', message: isRtl ? 'فشل في تنفيذ الإجراء. يرجى المحاولة مرة أخرى.' : 'Failed to resolve duplicate. Please try again.' } 
-            });
-            window.dispatchEvent(errEvt);
+            const apiMessage =
+              e?.response?.data?.error ||
+              e?.response?.data?.message ||
+              (isRtl ? 'فشل في تنفيذ الإجراء. يرجى المحاولة مرة أخرى.' : 'Failed to resolve duplicate. Please try again.');
+            window.dispatchEvent(new CustomEvent('app:toast', { 
+              detail: { type: 'error', message: apiMessage } 
+            }));
+            return false;
           }
-          fetchLeads();
-          setShowCompareModal(false);
         }}
       />
 
@@ -5741,7 +5764,6 @@ if (!s) {
 
                 if (isGeneralReservation) {
                     // TODO: Migrate to API
-                    console.log('General Reservation: Inventory Request creation via API pending.');
                     /*
                     try {
                         let existingRequests = [];
@@ -5789,7 +5811,6 @@ if (!s) {
                         // Force update event for other components listening
                         window.dispatchEvent(new Event('storage'));
                         
-                        console.log('Successfully created order request:', newRequest);
                     } catch (error) {
                         console.error('Failed to create order request:', error);
                     }

@@ -24,6 +24,7 @@ import ColumnToggle from '../components/ColumnToggle'
 import { buildLeadTransferPayload } from '../shared/utils/leadTransfer'
 import { getFavoriteColumnOrder, normalizeColumnOrder } from '../utils/columnPreferences'
 import { filterTelesalesRowsByScope, shouldUseLocalScopedSummary } from '../shared/utils/telesalesScope'
+import { resolveDuplicateOriginalLead } from '../utils/resolveDuplicateOriginalLead'
 
 function hasTelesalesPermission(user, permission) {
   if (isTenantAdminUser(user) || isSuperAdminUser(user)) return true
@@ -73,7 +74,7 @@ function deriveStageCardKey(stage) {
 
 function resolveTelesalesStageLabel(stage, isRtl) {
   const key = deriveStageCardKey(stage)
-  if (isRtl && key === 'cold calls') return 'العملاء المحتملون'
+  if (isRtl && key === 'cold calls') return 'العملاء المحتملين'
 
   const stageName = String(stage?.name || stage?.stage_name || '').trim()
   const stageNameAr = String(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar || '').trim()
@@ -896,48 +897,11 @@ export default function Telesales() {
   }
 
   const handleCompareLead = async (duplicateLead) => {
-    const cleanPhone = (value) => String(value || '').replace(/[^0-9]/g, '')
-    const targetPhone = cleanPhone(duplicateLead?.phone || duplicateLead?.mobile)
-    const duplicateOfId =
-      duplicateLead?.meta_data?.duplicate_of ||
-      duplicateLead?.meta_data?.duplicateOf ||
-      duplicateLead?.metaData?.duplicate_of ||
-      duplicateLead?.metaData?.duplicateOf ||
-      null
-
-    const leadCreatedAt = (lead) => lead?.createdAt || lead?.created_at || lead?.created || null
-    let originalLead = null
-
-    if (duplicateOfId) {
-      try {
-        const { data } = await api.get(`/api/leads/${encodeURIComponent(String(duplicateOfId))}`)
-        originalLead = data?.data || data
-      } catch (error) {
-        console.error('Failed to load original telesales lead by duplicate_of', error)
-      }
-    }
-
-    if (!originalLead) {
-      const possibleOriginals = rows
-        .filter((lead) => {
-          if ((lead.id || lead._id) === (duplicateLead.id || duplicateLead._id)) return false
-          const leadPhone = cleanPhone(lead.phone || lead.mobile)
-          return targetPhone && leadPhone && targetPhone === leadPhone
-        })
-        .sort((a, b) => new Date(leadCreatedAt(a) || 0) - new Date(leadCreatedAt(b) || 0))
-
-      originalLead = possibleOriginals[0] || null
-    }
-
-    if (!originalLead && targetPhone) {
-      try {
-        const { data } = await api.get('/api/leads', { params: { search: targetPhone } })
-        const apiLeads = Array.isArray(data) ? data : (data?.data || [])
-        originalLead = apiLeads.find((lead) => String(lead?.id) !== String(duplicateLead?.id)) || null
-      } catch (error) {
-        console.error('Failed to search original telesales lead', error)
-      }
-    }
+    const originalLead = await resolveDuplicateOriginalLead({
+      api,
+      duplicateLead,
+      localLeads: rows,
+    })
 
     if (!originalLead) {
       window.dispatchEvent(new CustomEvent('app:toast', {
@@ -2806,6 +2770,7 @@ export default function Telesales() {
         duplicateLead={compareData.duplicate}
         originalLead={compareData.original}
         usersList={users}
+        companyType={company?.company_type}
         onResolve={async (action, updatedOriginal, updatedDuplicate, extraData) => {
           const { duplicate, original } = compareData
           if (!duplicate || !original) {
@@ -2829,19 +2794,33 @@ export default function Telesales() {
                 })
                 break
 
-              case 'enable_duplicate':
-                await api.post('/api/leads/duplicates/bulk-action', {
+              case 'enable_duplicate': {
+                const enableResponse = await api.post('/api/leads/duplicates/bulk-action', {
                   action: 'enable_duplicate',
                   lead_ids: [targetDuplicateId],
+                  original_lead_id: originalId,
                 })
+                const enabledIds = (enableResponse?.data?.success || []).map((id) => String(id))
+                if (!enabledIds.includes(String(targetDuplicateId))) {
+                  const reason = enableResponse?.data?.failed?.[0]?.reason
+                  throw new Error(reason || (isRtl ? 'فشل السماح بالتكرار' : 'Failed to enable duplicate'))
+                }
                 break
+              }
 
               case 'save_info': {
                 const mergedData = extraData?.merged_data || {}
+                const cleanMerged = {}
+                Object.entries(mergedData).forEach(([key, value]) => {
+                  if (value === null || value === undefined || value === '-') return
+                  if (typeof value === 'object') return
+                  if (typeof value === 'string' && !value.trim()) return
+                  cleanMerged[key] = typeof value === 'string' ? value.trim() : value
+                })
                 await api.post(`/api/leads/${targetDuplicateId}/resolve-duplicate`, {
                   original_lead_id: originalId,
                   action: 'keep_duplicate',
-                  updated_data: mergedData,
+                  updated_data: cleanMerged,
                 })
                 break
               }
@@ -2903,17 +2882,18 @@ export default function Telesales() {
             }
 
             await loadOperational()
+            setShowCompareModal(false)
+            return true
           } catch (error) {
             console.error('Failed to resolve telesales duplicate action', error)
             window.dispatchEvent(new CustomEvent('app:toast', {
               detail: {
                 type: 'error',
-                message: isRtl ? 'فشل في تنفيذ إجراء المقارنة' : 'Failed to resolve duplicate action',
+                message: error?.message || (isRtl ? 'فشل في تنفيذ إجراء المقارنة' : 'Failed to resolve duplicate action'),
               },
             }))
+            return false
           }
-
-          setShowCompareModal(false)
         }}
       />
 
