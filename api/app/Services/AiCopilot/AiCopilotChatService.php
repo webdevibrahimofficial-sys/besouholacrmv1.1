@@ -7,14 +7,17 @@ use App\Models\AiCopilotMessage;
 use App\Models\Item;
 use App\Models\Lead;
 use App\Models\Project;
+use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Str;
 
 class AiCopilotChatService
 {
+    use UserHierarchyTrait;
     public function __construct(
         private readonly AiSystemCatalog $catalog,
         private readonly AiCopilotToolExecutor $tools
@@ -103,6 +106,8 @@ class AiCopilotChatService
                         $planned = $this->planWithHeuristics($message, $user);
                     } else {
                         $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
+                $planned = $this->enrichPlanWithHeuristicFilters($planned, $message, $user);
+                    $planned = $this->enrichPlanWithHeuristicFilters($planned, $message, $user);
                         $planned = $this->sanitizeLeadActionPlan($planned, $message, $user, $locale, $conversation);
                     }
                 }
@@ -110,6 +115,7 @@ class AiCopilotChatService
 
             if (in_array(($planned['tool'] ?? null), ['navigate_report', 'export_report', 'build_report_filters'], true)) {
                 $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
+                $planned = $this->enrichPlanWithHeuristicFilters($planned, $message, $user);
             }
 
             if (($planned['tool'] ?? null) && $planned['tool'] !== 'none') {
@@ -413,6 +419,122 @@ PROMPT;
         $planned['args'] = $args;
 
         return $planned;
+    }
+
+    protected function enrichPlanWithHeuristicFilters(array $planned, string $message, User $user): array
+    {
+        $tool = (string) ($planned['tool'] ?? '');
+        if (! in_array($tool, ['navigate_report', 'export_report', 'build_report_filters'], true)) {
+            return $planned;
+        }
+
+        $args = is_array($planned['args'] ?? null) ? $planned['args'] : [];
+        $reportKey = (string) ($args['report'] ?? $this->guessReport($message) ?? 'leads_pipeline');
+
+        if (empty($args['assigned_to'])) {
+            $resolvedAssigneeId = $this->resolveReportAssigneeId($user, $message);
+            if ($resolvedAssigneeId) {
+                $args['assigned_to'] = $resolvedAssigneeId;
+            }
+        }
+
+        if (empty($args['stage'])) {
+            $resolvedStage = $this->resolveReportStageLabel($user, $message, $reportKey);
+            if ($resolvedStage) {
+                $args['stage'] = $resolvedStage;
+            }
+        }
+
+        $planned['args'] = $args;
+
+        return $planned;
+    }
+
+    protected function resolveReportAssigneeId(User $user, string $message): ?int
+    {
+        $normalizedText = $this->normalizeFilterMatchText($message);
+        if ($normalizedText === '') {
+            return null;
+        }
+
+        $query = User::query()->where('tenant_id', $user->tenant_id);
+        $viewableIds = $this->getViewableUserIds($user);
+        if ($viewableIds !== null) {
+            $query->whereIn('id', array_map('intval', (array) $viewableIds));
+        }
+
+        $users = $query->get(['id', 'name']);
+        $bestId = null;
+        $bestLen = 0;
+
+        foreach ($users as $candidateUser) {
+            $candidates = array_filter(array_unique([
+                $this->normalizeFilterMatchText((string) ($candidateUser->name ?? '')),
+                $this->normalizeFilterMatchText(strtok((string) ($candidateUser->name ?? ''), ' ')),
+            ]));
+
+            foreach ($candidates as $candidate) {
+                if (mb_strlen($candidate) < 2) {
+                    continue;
+                }
+
+                if (str_contains($normalizedText, $candidate) && mb_strlen($candidate) > $bestLen) {
+                    $bestId = (int) $candidateUser->id;
+                    $bestLen = mb_strlen($candidate);
+                }
+            }
+        }
+
+        return $bestId;
+    }
+
+    protected function resolveReportStageLabel(User $user, string $message, string $reportKey = 'leads_pipeline'): ?string
+    {
+        $normalizedText = $this->normalizeFilterMatchText($message);
+        if ($normalizedText === '') {
+            return null;
+        }
+
+        $workflowKey = $reportKey === 'sales_to_telesales' ? 'telesales' : 'sales';
+        $stages = Stage::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->where(function ($query) use ($workflowKey) {
+                $query->whereNull('workflow_key')->orWhere('workflow_key', '')->orWhere('workflow_key', $workflowKey);
+            })
+            ->get(['name', 'name_ar', 'type']);
+
+        $bestLabel = null;
+        $bestLen = 0;
+
+        foreach ($stages as $stage) {
+            $aliases = array_filter(array_unique([
+                $this->normalizeFilterMatchText((string) ($stage->name ?? '')),
+                $this->normalizeFilterMatchText((string) ($stage->name_ar ?? '')),
+                $this->normalizeFilterMatchText((string) ($stage->type ?? '')),
+            ]));
+
+            foreach ($aliases as $alias) {
+                if (mb_strlen($alias) < 2) {
+                    continue;
+                }
+
+                if (str_contains($normalizedText, $alias) && mb_strlen($alias) > $bestLen) {
+                    $bestLabel = trim((string) ($stage->name ?? $stage->name_ar ?? $stage->type ?? ''));
+                    $bestLen = mb_strlen($alias);
+                }
+            }
+        }
+
+        return $bestLabel ?: null;
+    }
+
+    protected function normalizeFilterMatchText(string $value): string
+    {
+        $value = mb_strtolower(trim($value));
+        $value = str_replace(['?', '?', '?', '?', '?', '_', '-'], ['?', '?', '?', '?', '?', ' ', ' '], $value);
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
     }
 
     protected function guessDates(string $text): array
@@ -971,7 +1093,7 @@ PROMPT;
         }
 
         $state = (string) ($payload['state'] ?? '');
-        if (! in_array($state, ['needs_input', 'awaiting_details', 'awaiting_stage', 'awaiting_schedule'], true)) {
+        if (! in_array($state, ['needs_input', 'awaiting_action_type', 'awaiting_details', 'awaiting_stage', 'awaiting_schedule'], true)) {
             return null;
         }
 
@@ -1008,6 +1130,16 @@ PROMPT;
             if ($resolvedId) {
                 $args['lead_id'] = $resolvedId;
             }
+        }
+
+        $details = $this->extractActionDetailsFromMessage($message);
+        if ($details !== null && $details !== '') {
+            $args['details_text'] = $details;
+        }
+
+        $rawDetails = trim($message);
+        if ($rawDetails !== '') {
+            $args['raw_details'] = $rawDetails;
         }
 
         return $args;
@@ -1058,10 +1190,17 @@ PROMPT;
         $args = [
             'lead_id' => $leadId > 0 ? $leadId : null,
             'details_text' => $detailsText !== '' ? $detailsText : null,
+            'type' => ! empty($payload['type']) ? $payload['type'] : null,
         ];
 
         if (preg_match('/^__copilot_action_stage__:(\d+)$/', $trimmed, $match)) {
             $args['stage_id'] = (int) $match[1];
+
+            return array_filter($args, fn ($value) => $value !== null && $value !== '');
+        }
+
+        if (preg_match('/^__copilot_action_type__:(.+)$/', $trimmed, $match)) {
+            $args['type'] = trim((string) $match[1]);
 
             return array_filter($args, fn ($value) => $value !== null && $value !== '');
         }
@@ -1071,12 +1210,26 @@ PROMPT;
             if (! $resolvedId && $user) {
                 $resolvedId = $this->resolveLeadIdByName($user, $trimmed);
             }
+            // Last resort: treat the whole reply as an exact lead name (e.g. "t").
+            if (! $resolvedId && $user && preg_match('/^[A-Za-z\p{Arabic}\w.\-]{1,60}$/u', $trimmed)) {
+                $resolvedId = $this->findLeadByNameCandidate($user, $trimmed)?->id;
+            }
             if (! $resolvedId && $user && $conversation) {
                 $resolvedId = $this->resolveLeadIdFromRecentContext($user, $conversation);
             }
             if ($resolvedId) {
-                $args['lead_id'] = $resolvedId;
+                $args['lead_id'] = (int) $resolvedId;
             }
+
+            return array_filter($args, fn ($value) => $value !== null && $value !== '');
+        }
+
+        if ($state === 'awaiting_action_type') {
+            $normalizedType = $trimmed;
+            if (preg_match('/^__copilot_action_type__:(.+)$/', $trimmed, $match)) {
+                $normalizedType = trim((string) $match[1]);
+            }
+            $args['type'] = $normalizedType;
 
             return array_filter($args, fn ($value) => $value !== null && $value !== '');
         }
@@ -1124,17 +1277,71 @@ PROMPT;
     protected function resolveLeadIdByName(User $user, string $message): ?int
     {
         $name = $this->extractLeadNameCandidate($message);
-        if ($name === null || $name === '' || mb_strlen($name) < 2 || ! Schema::hasTable('leads')) {
+        if ($name === null || $name === '' || ! Schema::hasTable('leads')) {
             return null;
         }
 
-        $query = Lead::query()->where('tenant_id', $user->tenant_id)
-            ->where('name', 'like', '%'.$name.'%')
-            ->orderByDesc('id');
+        $candidates = $this->leadNameLookupCandidates($name);
+        foreach ($candidates as $candidate) {
+            $lead = $this->findLeadByNameCandidate($user, $candidate);
+            if ($lead) {
+                return (int) $lead->id;
+            }
+        }
 
-        $lead = $query->first(['id']);
+        return null;
+    }
 
-        return $lead ? (int) $lead->id : null;
+    protected function findLeadByNameCandidate(User $user, string $candidate): ?Lead
+    {
+        $base = Lead::query()->where('tenant_id', $user->tenant_id);
+        $needle = mb_strtolower(trim($candidate));
+        if ($needle === '') {
+            return null;
+        }
+
+        // Short names like "t" / "r" must match exactly to avoid noisy LIKE hits.
+        if (mb_strlen($needle) <= 2) {
+            return (clone $base)
+                ->whereRaw('LOWER(TRIM(name)) = ?', [$needle])
+                ->orderByDesc('id')
+                ->first(['id', 'name']);
+        }
+
+        $exact = (clone $base)
+            ->whereRaw('LOWER(TRIM(name)) = ?', [$needle])
+            ->orderByDesc('id')
+            ->first(['id', 'name']);
+        if ($exact) {
+            return $exact;
+        }
+
+        return (clone $base)
+            ->where('name', 'like', '%'.$candidate.'%')
+            ->orderByDesc('id')
+            ->first(['id', 'name']);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function leadNameLookupCandidates(string $name): array
+    {
+        $normalized = trim(preg_replace('/\s+/u', ' ', $name) ?? $name);
+        if ($normalized === '') {
+            return [];
+        }
+
+        $parts = preg_split('/\s+/u', $normalized) ?: [];
+        $candidates = [$normalized];
+        if (count($parts) >= 2) {
+            $candidates[] = trim($parts[0].' '.$parts[1]);
+        }
+        if ($parts !== []) {
+            $candidates[] = $parts[0];
+        }
+
+        return array_values(array_unique(array_filter($candidates, fn ($item) => mb_strlen(trim($item)) >= 1)));
     }
 
     protected function extractLeadNameCandidate(string $message): ?string
@@ -1142,33 +1349,96 @@ PROMPT;
         $trimmed = trim($message);
         $name = null;
 
-        if (preg_match('/(?:على\s*(?:ال)?ليد|لـ|للليد|للـ)\s*(.+)$/u', $trimmed, $match)) {
+        // "on lead hazem ..." / "for lead gehad mo ..." / "lead hazem i ..."
+        if (preg_match(
+            '/(?:\b(?:on|for)\s+lead\b|\blead\b|على\s*(?:ال)?ليد|لـ|للليد)\s+([A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]*(?:\s+[A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]*){0,2})/iu',
+            $trimmed,
+            $match
+        )) {
             $name = trim((string) $match[1]);
-        } elseif (preg_match('/\b(?:on|for)\s+(?:lead\s+)?(.+)$/iu', $trimmed, $match)) {
+        } elseif (preg_match('/^([A-Za-z\p{Arabic}\w.\-]{1,40})\s+اسم\s*(?:ال)?ليد\b/u', $trimmed, $match)) {
+            // "t اسم الليد"
             $name = trim((string) $match[1]);
-        } elseif (preg_match('/(?:^|\s)(?:lead|ليد)\s+([A-Za-z\p{Arabic}][\w\p{Arabic}\s\.\-]{1,80})$/iu', $trimmed, $match)) {
+        } elseif (preg_match('/اسم\s*(?:ال)?ليد\s*[:\-]?\s*([A-Za-z\p{Arabic}\w.\- ]{1,80})$/u', $trimmed, $match)) {
+            // "اسم الليد t" / "اسم الليد hazem"
             $name = trim((string) $match[1]);
-        } elseif (preg_match('/^(?!.*(action|task|أكشن|اكشن|تاسك|مهمة|report|تقرير))([A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]{1,40}(?:\s+[A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]{1,40}){0,3})$/iu', $trimmed, $match)) {
-            // Bare person name reply while wizard is waiting for a lead.
+        } elseif (preg_match(
+            '/^(?!.*(action|task|أكشن|اكشن|تاسك|مهمة|report|تقرير|اسم))([A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]{0,40}(?:\s+[A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]{0,40}){0,3})$/iu',
+            $trimmed,
+            $match
+        )) {
+            // Bare person name reply while wizard is waiting for a lead (allows 1-char names like "t").
             $name = trim((string) $match[2]);
         }
 
-        $name = trim((string) $name, " \t\n\r\0\x0B\"'.,");
-        $name = preg_replace('/\s+/u', ' ', $name) ?? $name;
+        return $this->cleanLeadNameCandidate((string) $name);
+    }
 
-        // Drop leftover action phrasing if somehow still attached.
+    protected function cleanLeadNameCandidate(string $name): ?string
+    {
+        $name = trim($name, " \t\n\r\0\x0B\"'.,");
+        $name = preg_replace('/\s+/u', ' ', $name) ?? $name;
         $name = preg_replace('/^(?:اعمل|أنشئ|انشئ|ابدأ|create|add|start)\s+/iu', '', $name) ?? $name;
         $name = trim($name);
 
-        if ($name === '' || mb_strlen($name) < 2) {
-            return null;
+        // Stop narrative words from sticking to the name ("hazem i meet...").
+        $stop = '(?:i|he|she|they|we|and|who|that|because|after|before|with|for|to|from|about|met|meet|meeting|call|called|tomorrow|tommorow|today|yesterday|اسم|و|انا|أنا|هو|هي|اتصلت|كلمته|مع|بكرة|بكرا|غدا|غداً|اليوم|اجتماع|مكالمة)';
+        if (preg_match('/^(.+?)(?:\s+'.$stop.'\b.*)?$/iu', $name, $match)) {
+            $name = trim((string) $match[1]);
         }
 
-        if (preg_match('/^\d+$/', $name)) {
+        if ($name === '' || mb_strlen($name) < 1 || preg_match('/^\d+$/', $name)) {
             return null;
         }
 
         return $name;
+    }
+
+    protected function extractActionDetailsFromMessage(string $message): ?string
+    {
+        $trimmed = trim($message);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $leadName = $this->extractLeadNameCandidate($trimmed);
+        if ($leadName) {
+            // Prefer splitting on the cleaned lead name so "i meet..." is not swallowed.
+            $quoted = preg_quote($leadName, '/');
+            if (preg_match(
+                '/(?:\b(?:on|for)\s+lead\b|\blead\b|على\s*(?:ال)?ليد|لـ|للليد)\s+'.$quoted.'\s+(.+)$/iu',
+                $trimmed,
+                $match
+            )) {
+                $details = trim((string) $match[1], " \t\n\r\0\x0B\"'.,");
+                if (mb_strlen($details) >= 8) {
+                    return $details;
+                }
+            }
+        }
+
+        // Fallback: story after lead token, stopping name at first narrative word.
+        if (preg_match(
+            '/(?:\b(?:on|for)\s+lead\b|\blead\b|على\s*(?:ال)?ليد|لـ|للليد)\s+[A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]*(?:\s+[A-Za-z\p{Arabic}][\w\p{Arabic}\.\-]*){0,2}\s+(.+)$/iu',
+            $trimmed,
+            $match
+        )) {
+            $details = trim((string) $match[1], " \t\n\r\0\x0B\"'.,");
+            // If the greedy name ate "i meet...", recover common openings.
+            if (! preg_match('/^(?:i|he|she|we|they|met|meet|call|called|اتصلت|كلمته|اجتمع)/iu', $details)) {
+                if (preg_match('/\b((?:i\s+)?(?:met|meet(?:ing)?)\s+with\b.+)$/iu', $trimmed, $recover)) {
+                    $details = trim((string) $recover[1]);
+                }
+            }
+
+            return mb_strlen($details) >= 8 ? $details : null;
+        }
+
+        if ($this->looksLikeCreateLeadActionRequest($trimmed) && mb_strlen($trimmed) < 40) {
+            return null;
+        }
+
+        return null;
     }
 
     protected function resolveLeadIdFromRecentContext(User $user, ?AiCopilotConversation $conversation): ?int
@@ -1246,7 +1516,7 @@ PROMPT;
             return $leadId > 0 ? $leadId : null;
         }
 
-        if (preg_match('/(?:لليد|الليد|ليد)\s*(?:رقم|#)?\s*(\d+)/u', $message, $match)) {
+        if (preg_match('/(?:\x{0644}\x{0644}\x{064A}\x{062F}|\x{0627}\x{0644}\x{0644}\x{064A}\x{062F}|\x{0644}\x{064A}\x{062F})\s*(?:\x{0631}\x{0642}\x{0645}|#)?\s*(\d+)/u', $message, $match)) {
             $leadId = (int) $match[1];
 
             return $leadId > 0 ? $leadId : null;
@@ -1266,7 +1536,7 @@ PROMPT;
         $normalized = mb_strtolower($message);
 
         return (bool) preg_match(
-            '/(اعمل\s*أكشن|اعمل\s*اكشن|انشئ\s*أكشن|أنشئ\s*أكشن|إنشاء\s*أكشن|ابدأ\s*أكشن|ابدأ\s*اكشن|أكشن\s*متابعة|اكشن\s*متابعة|add\s+(an\s+)?action|create\s+(a\s+)?(follow[ -_]?up\s+)?action|start\s+(an\s+)?action|follow[ -_]?up\s+action|log\s+(an\s+)?action)/iu',
+            '/(?:\x{0627}\x{0639}\x{0645}\x{0644}\s*\x{0623}\x{0643}\x{0634}\x{0646}|\x{0627}\x{0639}\x{0645}\x{0644}\s*\x{0627}\x{0643}\x{0634}\x{0646}|\x{0627}\x{0646}\x{0634}\x{0626}\s*\x{0623}\x{0643}\x{0634}\x{0646}|\x{0623}\x{0646}\x{0634}\x{0626}\s*\x{0623}\x{0643}\x{0634}\x{0646}|\x{0625}\x{0646}\x{0634}\x{0627}\x{0621}\s*\x{0623}\x{0643}\x{0634}\x{0646}|\x{0627}\x{0628}\x{062F}\x{0623}\s*\x{0623}\x{0643}\x{0634}\x{0646}|\x{0627}\x{0628}\x{062F}\x{0623}\s*\x{0627}\x{0643}\x{0634}\x{0646}|\x{0627}\x{0628}\x{062F}\x{0627}\s*\x{0623}\x{0643}\x{0634}\x{0646}|\x{0627}\x{0628}\x{062F}\x{0627}\s*\x{0627}\x{0643}\x{0634}\x{0646}|\x{0623}\x{0643}\x{0634}\x{0646}\s*\x{0645}\x{062A}\x{0627}\x{0628}\x{0639}\x{0629}|\x{0627}\x{0643}\x{0634}\x{0646}\s*\x{0645}\x{062A}\x{0627}\x{0628}\x{0639}\x{0629}|add\s+(an\s+)?action|create\s+(a\s+)?(follow[ -_]?up\s+)?action|start\s+(an\s+)?action|follow[ -_]?up\s+action|log\s+(an\s+)?action)/iu',
             $normalized
         );
     }
@@ -1276,7 +1546,7 @@ PROMPT;
         $normalized = mb_strtolower($message);
 
         return (bool) preg_match(
-            '/(اعمل\s*تاسك|انشئ\s*تاسك|أنشئ\s*تاسك|إنشاء\s*تاسك|create\s+(a\s+)?task)/iu',
+            '/(?:\x{0627}\x{0639}\x{0645}\x{0644}\s*\x{062A}\x{0627}\x{0633}\x{0643}|\x{0627}\x{0646}\x{0634}\x{0626}\s*\x{062A}\x{0627}\x{0633}\x{0643}|\x{0623}\x{0646}\x{0634}\x{0626}\s*\x{062A}\x{0627}\x{0633}\x{0643}|\x{0625}\x{0646}\x{0634}\x{0627}\x{0621}\s*\x{062A}\x{0627}\x{0633}\x{0643}|create\s+(a\s+)?task)/iu',
             $normalized
         );
     }
@@ -1285,13 +1555,13 @@ PROMPT;
     {
         $normalized = mb_strtolower($message);
 
-        // Avoid treating "أكشن متابعة" / create-action prompts as advice requests.
+        // Avoid treating action-creation prompts as advice requests.
         if ($this->looksLikeCreateLeadActionRequest($normalized) || $this->looksLikeCreateTaskRequest($normalized)) {
             return false;
         }
 
         return (bool) preg_match(
-            '/(suggest|best fit|best item|best project|recommend|tips|advice|نصيحة|نصايح|smart follow-up|اديني\s*نصيحة)/iu',
+            '/(suggest|best fit|best item|best project|recommend|tips|advice|\x{0646}\x{0635}\x{064A}\x{062D}\x{0629}|\x{0646}\x{0635}\x{0627}\x{064A}\x{062D}|smart follow-up|\x{0627}\x{062F}\x{064A}\x{0646}\x{064A}\s*\x{0646}\x{0635}\x{064A}\x{062D}\x{0629})/iu',
             $normalized
         );
     }
@@ -1301,7 +1571,7 @@ PROMPT;
         $normalized = mb_strtolower($message);
 
         return (bool) preg_match(
-            '/(اختار|اختر|ابدأ|ابدا|start with|choose one|pick one|work on|focus on|استثمر|invest)/iu',
+            '/(?:\x{0627}\x{062E}\x{062A}\x{0627}\x{0631}|\x{0627}\x{062E}\x{062A}\x{0631}|\x{0627}\x{0628}\x{062F}\x{0623}|\x{0627}\x{0628}\x{062F}\x{0627}|start with|choose one|pick one|work on|focus on|\x{0627}\x{0633}\x{062A}\x{062B}\x{0645}\x{0631}|invest)/iu',
             $normalized
         );
     }
@@ -1397,6 +1667,13 @@ PROMPT;
             'message' => $advice,
             'ui_actions' => [
                 [
+                    'type' => 'navigate',
+                    'path' => '/leads?lead_id='.$lead->id,
+                    'pathname' => '/leads',
+                    'search' => '?lead_id='.$lead->id,
+                    'label' => $locale === 'ar' ? 'افتح الليد' : 'Open lead',
+                ],
+                [
                     'type' => 'prompt_message',
                     'message' => $locale === 'ar'
                         ? 'ابدأ أكشن على الليد '.$lead->id
@@ -1409,13 +1686,6 @@ PROMPT;
                     'action' => 'create_task_for_lead',
                     'payload' => $taskPayload,
                     'label' => $locale === 'ar' ? 'إنشاء تاسك' : 'Create task',
-                ],
-                [
-                    'type' => 'navigate',
-                    'path' => '/leads?lead_id='.$lead->id,
-                    'pathname' => '/leads',
-                    'search' => '?lead_id='.$lead->id,
-                    'label' => $locale === 'ar' ? 'افتح الليد' : 'Open lead',
                 ],
             ],
         ];

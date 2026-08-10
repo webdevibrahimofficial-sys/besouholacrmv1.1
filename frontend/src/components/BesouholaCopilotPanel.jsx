@@ -17,18 +17,18 @@ function tUi(isRtl, en, ar) {
 }
 
 function getCopilotBrandLabel(isRtl) {
-  return isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'
+  return isRtl ? 'Besouhola Copilot \u2014 \u0627\u0644\u0645\u0633\u0627\u0639\u062f' : 'Besouhola Copilot'
 }
 
 function getWelcomeMessage(isRtl) {
   return isRtl
-    ? 'Besouhola Copilot (المساعد) جاهز. اختار اختصار أو اكتب سؤالك.'
+    ? 'Besouhola Copilot (\u0627\u0644\u0645\u0633\u0627\u0639\u062f) \u062c\u0627\u0647\u0632. \u0627\u062e\u062a\u0627\u0631 \u0627\u062e\u062a\u0635\u0627\u0631 \u0623\u0648 \u0627\u0643\u062a\u0628 \u0633\u0624\u0627\u0644\u0643.'
     : 'Besouhola Copilot is ready. Pick a shortcut or type your question.'
 }
 
 function getInputPlaceholder(isRtl) {
   return isRtl
-    ? 'اسأل عن التقارير، الليدز المتأخرة، الأكشنز، أو التاسكات...'
+    ? '\u0627\u0633\u0623\u0644 \u0639\u0646 \u0627\u0644\u062a\u0642\u0627\u0631\u064a\u0631\u060c \u0627\u0644\u0644\u064a\u062f\u0632 \u0627\u0644\u0645\u062a\u0623\u062e\u0631\u0629\u060c \u0627\u0644\u0623\u0643\u0634\u0646\u0632\u060c \u0623\u0648 \u0627\u0644\u062a\u0627\u0633\u0643\u0627\u062a...'
     : 'Ask Copilot about reports, delayed leads, lead actions, or tasks...'
 }
 
@@ -752,7 +752,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${isLight ? 'border-slate-200 bg-white text-slate-500 hover:border-sky-200 hover:text-sky-600' : 'border-slate-700 bg-slate-900 text-slate-200 hover:border-sky-500 hover:text-sky-300'}`}
                   onClick={() => setExpanded((current) => !current)}
                   title={expanded ? tUi(isRtl, 'Reduce size', 'تصغير') : tUi(isRtl, 'Expand', 'تكبير')}
-                  aria-label={expanded ? tUi(isRtl, 'Reduce size', 'تصغير') : tUi(isRtl, 'Expand', 'تكبير')}
+                  aria-label={expanded ? tUi(isRtl, 'Reduce size', '\u062a\u0635\u063a\u064a\u0631') : tUi(isRtl, 'Expand', '\u062a\u0643\u0628\u064a\u0631')}
                 >
                   {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </button>

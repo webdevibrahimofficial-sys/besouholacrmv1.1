@@ -28,6 +28,7 @@ class AiCopilotLeadActionSliceTest extends TestCase
         parent::setUp();
 
         Cache::flush();
+        config(['activitylog.enabled' => false]);
         $this->ensureFeatureTables();
         $this->ensureCopilotTables();
 
@@ -76,6 +77,51 @@ class AiCopilotLeadActionSliceTest extends TestCase
             ->assertJsonPath('data.ui_actions.0.action', 'create_lead_action');
     }
 
+    public function test_generic_action_request_asks_for_action_type_before_stage(): void
+    {
+        $this->actingAsTenantUser();
+
+        $lead = Lead::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'assigned_to' => $this->user->id,
+            'created_by' => $this->user->id,
+            'name' => 'Generic Lead',
+        ]);
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'start an action on lead '.$lead->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'create_lead_action_draft')
+            ->assertJsonPath('data.tool_result.state', 'awaiting_action_type')
+            ->assertJsonPath('data.tool_result.resource', 'lead_action')
+            ->assertJsonPath('data.ui_actions.0.label', 'Call')
+            ->assertJsonPath('data.ui_actions.1.label', 'WhatsApp');
+    }
+
+
+    public function test_arabic_action_request_from_chat_ui_is_recognized(): void
+    {
+        $this->actingAsTenantUser();
+
+        $lead = Lead::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'assigned_to' => $this->user->id,
+            'created_by' => $this->user->id,
+            'name' => 'Arabic Lead',
+        ]);
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => json_decode('"\u0627\u0628\u062f\u0623 \u0623\u0643\u0634\u0646 \u0639\u0644\u0649 \u0627\u0644\u0644\u064a\u062f "', true).$lead->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'create_lead_action_draft')
+            ->assertJsonPath('data.tool_result.state', 'awaiting_action_type')
+            ->assertJsonPath('data.tool_result.payload.lead_id', $lead->id);
+    }
+
     public function test_confirm_can_create_lead_action_via_existing_flow(): void
     {
         $this->actingAsTenantUser();
@@ -109,6 +155,99 @@ class AiCopilotLeadActionSliceTest extends TestCase
             'lead_id' => $lead->id,
             'user_id' => $this->user->id,
             'action_type' => 'follow_up',
+        ]);
+
+        $this->assertSame(1, LeadAction::query()->where('lead_id', $lead->id)->count());
+    }
+
+
+    public function test_arabic_action_wizard_can_go_from_start_to_confirm_and_create(): void
+    {
+        $this->actingAsTenantUser();
+
+        $followUpStageId = DB::table('stages')->insertGetId([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Follow Up',
+            'name_ar' => json_decode('"\u0645\u062a\u0627\u0628\u0639\u0629"', true),
+            'type' => 'follow_up',
+            'workflow_key' => 'sales',
+            'is_active' => true,
+            'order' => 2,
+            'color' => '#10B981',
+            'icon' => 'PhoneCall',
+            'meta_data' => json_encode([]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $lead = Lead::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'assigned_to' => $this->user->id,
+            'created_by' => $this->user->id,
+            'name' => json_decode('"\u0645\u062d\u0645\u0648\u062f"', true),
+            'workflow_key' => 'sales',
+            'status' => 'new',
+        ]);
+
+        $start = $this->postJson('/api/ai/copilot/chat', [
+            'message' => json_decode('"\u0627\u0628\u062f\u0623 \u0623\u0643\u0634\u0646 \u0639\u0644\u0649 \u0627\u0644\u0644\u064a\u062f "', true).$lead->id,
+        ]);
+
+        $start->assertOk()
+            ->assertJsonPath('data.tool', 'create_lead_action_draft')
+            ->assertJsonPath('data.tool_result.state', 'awaiting_action_type')
+            ->assertJsonPath('data.tool_result.resource', 'lead_action');
+
+        $conversationId = (int) $start->json('data.conversation_id');
+
+        $typeSelection = $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => '__copilot_action_type__:call',
+        ]);
+
+        $typeSelection->assertOk()
+            ->assertJsonPath('data.tool_result.state', 'awaiting_stage')
+            ->assertJsonPath('data.tool_result.resource', 'lead_action');
+
+        $stageSelection = $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => '__copilot_action_stage__:'.$followUpStageId,
+        ]);
+
+        $stageSelection->assertOk()
+            ->assertJsonPath('data.tool_result.state', 'awaiting_schedule')
+            ->assertJsonPath('data.tool_result.payload.lead_id', $lead->id);
+
+        $schedule = $this->postJson('/api/ai/copilot/chat', [
+            'conversation_id' => $conversationId,
+            'message' => json_decode('"بكرة الساعة 4 مساءً"', true),
+        ]);
+
+        $schedule->assertOk()
+            ->assertJsonPath('data.tool_result.state', 'awaiting_confirmation')
+            ->assertJsonPath('data.tool_result.requires_confirmation', true)
+            ->assertJsonPath('data.ui_actions.0.action', 'create_lead_action')
+            ->assertJsonPath('data.tool_result.payload.lead_id', $lead->id)
+            ->assertJsonPath('data.tool_result.payload.date', '2026-08-11')
+            ->assertJsonPath('data.tool_result.payload.time', '16:00');
+
+        $confirmPayload = $schedule->json('data.ui_actions.0.payload');
+        $this->assertIsArray($confirmPayload);
+
+        $confirm = $this->postJson('/api/ai/copilot/actions/confirm', [
+            'action' => 'create_lead_action',
+            'payload' => $confirmPayload,
+        ]);
+
+        $confirm->assertOk()
+            ->assertJsonPath('data.ok', true)
+            ->assertJsonPath('data.state', 'completed')
+            ->assertJsonPath('data.resource', 'lead_action');
+
+        $this->assertDatabaseHas('lead_actions', [
+            'lead_id' => $lead->id,
+            'user_id' => $this->user->id,
+            'action_type' => 'call',
         ]);
 
         $this->assertSame(1, LeadAction::query()->where('lead_id', $lead->id)->count());

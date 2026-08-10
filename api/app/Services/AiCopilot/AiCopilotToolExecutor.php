@@ -8,6 +8,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -169,7 +170,7 @@ class AiCopilotToolExecutor
         $locale = $this->catalog->normalizeLocale($args['_locale'] ?? 'en');
         unset($args['_locale']);
 
-        return match ($name) {
+        $result = match ($name) {
             'list_capabilities' => $this->listCapabilities($user, $locale),
             'explain_feature' => $this->explainFeature($user, (string) ($args['topic'] ?? ''), $locale),
             'build_report_filters' => $this->buildReportFilters($args),
@@ -184,16 +185,24 @@ class AiCopilotToolExecutor
                 'message' => $locale === 'ar' ? "أداة غير معروفة: {$name}" : "Unknown tool: {$name}",
             ],
         };
+
+        $this->logToolResult($user, $name, $result);
+
+        return $result;
     }
 
     public function confirm(User $user, string $action, array $payload): array
     {
-        return match ($action) {
+        $result = match ($action) {
             'create_lead' => $this->leadCreation->execute($user, $payload),
             'create_lead_action' => $this->leadActionCreation->execute($user, $payload),
             'create_task_for_lead' => $this->createTaskForLead($user, $payload),
             default => ['ok' => false, 'message' => 'Unsupported confirmation action.'],
         };
+
+        $this->logToolResult($user, 'confirm:'.$action, $result);
+
+        return $result;
     }
 
     protected function listCapabilities(User $user, string $locale = 'en'): array
@@ -771,11 +780,41 @@ class AiCopilotToolExecutor
             'ui_actions' => [
                 [
                     'type' => 'navigate',
+                    'path' => '/leads/'.$lead->id,
+                    'label' => 'Open lead',
+                ],
+                [
+                    'type' => 'navigate',
+                    'path' => '/tasks?task_id='.$task->id,
+                    'pathname' => '/tasks',
+                    'search' => '?task_id='.$task->id,
+                    'label' => 'Open task',
+                ],
+                [
+                    'type' => 'navigate',
                     'path' => '/tasks',
                     'label' => 'Open tasks',
                 ],
             ],
         ];
+    }
+
+    protected function logToolResult(User $user, string $toolName, array $result): void
+    {
+        $message = strtolower((string) ($result['message'] ?? ''));
+        $status = ($result['ok'] ?? false) ? 'ok' : 'fail';
+
+        if (str_contains($message, 'permission')) {
+            $status = 'permission_denied';
+        }
+
+        Log::info('besouhola_copilot.tool_result', [
+            'tool' => $toolName,
+            'status' => $status,
+            'user_id' => $user->id,
+            'tenant_id' => $user->tenant_id,
+            'resource' => $result['resource'] ?? null,
+        ]);
     }
 
     protected function findVisibleLead(User $user, int $leadId): ?Lead

@@ -20,13 +20,17 @@ class CopilotLeadActionDraftService
 
         $leadId = (int) ($args['lead_id'] ?? 0);
         $detailsText = trim((string) ($args['details_text'] ?? ''));
+        $rawDetails = trim((string) ($args['raw_details'] ?? ''));
         if ($detailsText === '') {
             // Legacy callers may send description as the free-text details.
-            $detailsText = trim((string) ($args['raw_details'] ?? ''));
+            $detailsText = $rawDetails;
         }
 
         $stageId = (int) ($args['stage_id'] ?? 0);
         $explicitType = $this->normalizeActionType((string) ($args['type'] ?? $args['action_type'] ?? ''));
+        if ($explicitType === '') {
+            $explicitType = $this->inferActionTypeFromText($rawDetails !== '' ? $rawDetails : $detailsText);
+        }
 
         if ($leadId <= 0) {
             return [
@@ -67,6 +71,10 @@ class CopilotLeadActionDraftService
 
         $leadName = $lead->name ?: ('#'.$lead->id);
 
+        if ($explicitType === '') {
+            return $this->buildAwaitingActionTypeResult($lead, $detailsText, $locale);
+        }
+
         // Step 1: gather what happened on the call/meeting before choosing stage.
         if (! $this->isSufficientActionDetails($detailsText)) {
             $hint = $detailsText !== ''
@@ -87,6 +95,7 @@ class CopilotLeadActionDraftService
                     'lead_id' => $lead->id,
                     'details_text' => null,
                     'stage_id' => null,
+                    'type' => $explicitType !== '' ? $explicitType : null,
                 ],
                 'message' => $locale === 'ar'
                     ? "{$hint}تمام — هنعمل أكشن على {$leadName}.\nاكتب بكلامك إيه اللي حصل بينك وبين العميل: ردّ ولا لأ، مهتم بإيه، في موعد؟ أي اعتراضات؟"
@@ -97,6 +106,11 @@ class CopilotLeadActionDraftService
 
         $stages = $this->selectableStagesForLead($lead);
         if ($stages === []) {
+            $directDraft = $this->buildDirectActionDraftWithoutStages($lead, $args, $detailsText, $explicitType, $locale);
+            if ($directDraft !== null) {
+                return $directDraft;
+            }
+
             return [
                 'ok' => false,
                 'state' => 'rejected',
@@ -142,15 +156,23 @@ class CopilotLeadActionDraftService
             }
 
             $recLabel = $recommended ? $this->stageLabel($recommended, $locale) : null;
-            $missedHint = $this->guessMeetingStatus($detailsText) === 'no_show'
-                ? ($locale === 'ar'
+            $meetingGuess = $this->guessMeetingStatus($detailsText);
+            $meetingHint = match ($meetingGuess) {
+                'no_show' => $locale === 'ar'
                     ? "من كلامك باين إن الميتنج السابق ميسد (No Show).\n"
-                    : "From your details, the previous meeting looks missed (No Show).\n")
-                : '';
+                    : "From your details, the previous meeting looks missed (No Show).\n",
+                'done' => $locale === 'ar'
+                    ? "من كلامك باين إن الميتنج السابق تم (Done)، وهنجدول اللي بعده.\n"
+                    : "From your details, the previous meeting looks Done, and we'll schedule the next one.\n",
+                'scheduled' => $locale === 'ar'
+                    ? "من كلامك باين إننا بنرتب ميتنج جديد (Scheduled).\n"
+                    : "From your details, this looks like arranging a new meeting (Scheduled).\n",
+                default => '',
+            };
             $message = $locale === 'ar'
-                ? "فهمت التفاصيل.\n{$missedHint}".($recLabel ? "مرشّح لك مرحلة: {$recLabel}.\n" : '')
+                ? "فهمت التفاصيل.\n{$meetingHint}".($recLabel ? "مرشّح لك مرحلة: {$recLabel}.\n" : '')
                     ."اختار المرحلة المناسبة من الأزرار، أو اكتب اسم المرحلة."
-                : "Got the details.\n{$missedHint}".($recLabel ? "Recommended stage: {$recLabel}.\n" : '')
+                : "Got the details.\n{$meetingHint}".($recLabel ? "Recommended stage: {$recLabel}.\n" : '')
                     .'Pick a stage from the buttons, or type the stage name.';
 
             return [
@@ -167,6 +189,7 @@ class CopilotLeadActionDraftService
                     'lead_id' => $lead->id,
                     'details_text' => $detailsText,
                     'stage_id' => null,
+                    'type' => $explicitType !== '' ? $explicitType : null,
                 ],
                 'message' => $message,
                 'ui_actions' => $stageActions,
@@ -281,6 +304,9 @@ class CopilotLeadActionDraftService
             $meetingStatus = (string) ($this->guessMeetingStatus($detailsText) ?? '');
         }
 
+        // Match Add Action: Done / No Show label must lead the comment.
+        $description = $this->prependMeetingStatusToComment($description, $meetingStatus, $locale);
+
         $payload = array_filter([
             'lead_id' => $lead->id,
             'type' => $channelType,
@@ -357,6 +383,142 @@ class CopilotLeadActionDraftService
         }
 
         return $query->first();
+    }
+
+    protected function buildAwaitingActionTypeResult(Lead $lead, string $detailsText, string $locale): array
+    {
+        $title = $lead->name ?: ('#'.$lead->id);
+
+        return [
+            'ok' => true,
+            'state' => 'awaiting_action_type',
+            'resource' => 'lead_action',
+            'requires_confirmation' => false,
+            'missing_fields' => ['type'],
+            'wizard_step' => 'action_type',
+            'locale' => $locale,
+            'payload' => [
+                'lead_id' => $lead->id,
+                'details_text' => $detailsText !== '' ? $detailsText : null,
+                'stage_id' => null,
+                'type' => null,
+            ],
+            'message' => $locale === 'ar'
+                ? "تمام - هنعمل أكشن على {$title}. أسجله كمكالمة، واتساب، اجتماع، أو تعليق؟"
+                : "Okay - let's start an action for {$title}. Should I log it as a call, WhatsApp, meeting, or comment?",
+            'ui_actions' => $this->buildActionTypeActions($locale),
+        ];
+    }
+
+    protected function buildActionTypeActions(string $locale): array
+    {
+        return [
+            $this->buildActionTypePrompt('call', $locale, $locale === 'ar' ? 'مكالمة' : 'Call'),
+            $this->buildActionTypePrompt('whatsapp', $locale, $locale === 'ar' ? 'واتساب' : 'WhatsApp'),
+            $this->buildActionTypePrompt('meeting', $locale, $locale === 'ar' ? 'اجتماع' : 'Meeting'),
+            $this->buildActionTypePrompt('comment', $locale, $locale === 'ar' ? 'تعليق' : 'Comment'),
+        ];
+    }
+
+    protected function buildActionTypePrompt(string $type, string $locale, string $label): array
+    {
+        return [
+            'type' => 'prompt_message',
+            'message' => '__copilot_action_type__:'.$type,
+            'display_text' => $label,
+            'label' => $label,
+        ];
+    }
+
+    protected function buildDirectActionDraftWithoutStages(Lead $lead, array $args, string $detailsText, string $explicitType, string $locale): ?array
+    {
+        $scheduleSource = trim((string) (($args['raw_details'] ?? '').' '.($args['schedule_text'] ?? '').' '.($args['date'] ?? '').' '.($args['time'] ?? '')));
+        $parsedSchedule = $this->extractScheduleFromText($scheduleSource);
+        $date = $this->normalizeDate($args['date'] ?? $parsedSchedule['date'] ?? null);
+        $time = $this->normalizeTime($args['time'] ?? $parsedSchedule['time'] ?? null);
+        $channelType = $explicitType !== '' && $explicitType !== 'follow_up' ? $explicitType : 'call';
+
+        if ($date === null || ! in_array($explicitType, ['follow_up', 'call', 'whatsapp', 'meeting'], true)) {
+            return null;
+        }
+
+        $description = trim((string) ($args['description'] ?? $detailsText));
+        if ($description === '') {
+            $description = $locale === 'ar' ? 'متابعة من الكوبايلوت.' : 'Copilot follow up.';
+        }
+
+        $payload = array_filter([
+            'lead_id' => $lead->id,
+            'type' => $channelType,
+            'status' => 'pending',
+            'date' => $date,
+            'time' => $time,
+            'description' => $description,
+        ], fn ($value) => $value !== null && $value !== '');
+
+        $wizardPayload = array_merge($payload, [
+            'details_text' => $detailsText !== '' ? $detailsText : $description,
+        ]);
+
+        $leadName = $lead->name ?: ('#'.$lead->id);
+        $when = $date.($time ? " {$time}" : '');
+
+        return [
+            'ok' => true,
+            'state' => 'awaiting_confirmation',
+            'resource' => 'lead_action',
+            'requires_confirmation' => true,
+            'missing_fields' => [],
+            'wizard_step' => 'confirm',
+            'locale' => $locale,
+            'message' => $locale === 'ar'
+                ? "مسودة الأكشن جاهزة لـ {$leadName}.\nموعد المتابعة: {$when}\nأكّد عشان أنشئ الأكشن."
+                : "Action draft ready for {$leadName}.\nNext action: {$when}\nConfirm to create it.",
+            'payload' => $wizardPayload,
+            'summary' => [
+                'lead_id' => $lead->id,
+                'lead_name' => $lead->name,
+                'type' => $channelType,
+                'status' => 'pending',
+                'date' => $date,
+                'time' => $time,
+                'description' => $description,
+            ],
+            'ui_actions' => [
+                [
+                    'type' => 'confirm_action',
+                    'action' => 'create_lead_action',
+                    'payload' => $payload,
+                    'label' => $locale === 'ar' ? 'تأكيد إنشاء الأكشن' : 'Confirm create action',
+                ],
+            ],
+        ];
+    }
+
+    protected function inferActionTypeFromText(string $text): string
+    {
+        $normalized = mb_strtolower(trim($text));
+        if ($normalized === '') {
+            return '';
+        }
+
+        if (str_contains($normalized, 'follow up') || str_contains($normalized, 'follow-up') || str_contains($normalized, 'follow_up') || str_contains($normalized, 'followup')) {
+            return 'follow_up';
+        }
+        if (str_contains($normalized, 'meeting')) {
+            return 'meeting';
+        }
+        if (str_contains($normalized, 'whatsapp')) {
+            return 'whatsapp';
+        }
+        if (str_contains($normalized, 'call')) {
+            return 'call';
+        }
+        if (str_contains($normalized, 'comment') || str_contains($normalized, 'note')) {
+            return 'comment';
+        }
+
+        return '';
     }
 
     /**
@@ -539,6 +701,7 @@ class CopilotLeadActionDraftService
     {
         $text = mb_strtolower($detailsText);
 
+        // Missed / cancelled past meeting wins over done/schedule.
         if (preg_match('/(no\s*show|noshow|missed\s+meeting|meeting\s+missed|ميسد|لم يحضر|ما جاش|مجاش)/u', $text)) {
             return 'no_show';
         }
@@ -547,8 +710,14 @@ class CopilotLeadActionDraftService
             return 'no_show';
         }
 
-        if (preg_match('/(meeting\s+done|done\s+meeting|تم\s+الاجتماع|حضر\s+الاجتماع)/u', $text)) {
+        // Past meeting completed (even if another meeting is also being scheduled).
+        if (preg_match('/(meeting\s+done|done\s+meeting|تم\s+الاجتماع|حضر\s+الاجتماع|اجتمعنا|اتقابلنا|قابلت[هو]?|i\s+meet(?:ing)?\s+with|i\s+met\s+with|we\s+met|had\s+(?:a\s+)?meeting|met\s+with\s+him|meet\s+with\s+him)/u', $text)) {
             return 'done';
+        }
+
+        // Explicit arrange/schedule only (no past outcome stated).
+        if (preg_match('/(arrang(?:e|ed|ing)\s+(?:a\s+)?meeting|schedule(?:d)?\s+(?:a\s+)?meeting|نرتب\s+اجتماع|هنعمل\s+اجتماع|اجتماع\s+بكرة|meeting\s+tomorrow|another\s+meeting)/u', $text)) {
+            return 'scheduled';
         }
 
         return null;
@@ -565,6 +734,39 @@ class CopilotLeadActionDraftService
         }
 
         return null;
+    }
+
+    protected function meetingStatusCommentPrefix(string $status, string $locale): ?string
+    {
+        // Keep labels identical to AddActionModal meetingStatuses.
+        return match ($status) {
+            'done' => $locale === 'ar' ? 'تم الاجتماع' : 'Meeting Done',
+            'no_show' => $locale === 'ar' ? 'لم يحضر (ميسد)' : 'No Show (Missed)',
+            default => null,
+        };
+    }
+
+    protected function prependMeetingStatusToComment(string $description, string $meetingStatus, string $locale): string
+    {
+        $prefix = $this->meetingStatusCommentPrefix($meetingStatus, $locale);
+        if ($prefix === null) {
+            return trim($description);
+        }
+
+        $trimmed = trim($description);
+        if ($trimmed === '') {
+            return $prefix;
+        }
+
+        // Already starts with the Add Action label (AR or EN).
+        $knownPrefixes = ['Meeting Done', 'No Show (Missed)', 'تم الاجتماع', 'لم يحضر (ميسد)'];
+        foreach ($knownPrefixes as $known) {
+            if (str_starts_with(mb_strtolower($trimmed), mb_strtolower($known))) {
+                return $trimmed;
+            }
+        }
+
+        return $prefix."\n".$trimmed;
     }
 
     protected function meetingStatusLabel(string $status, string $locale): string
@@ -666,7 +868,7 @@ class CopilotLeadActionDraftService
 
         $lower = mb_strtolower($raw);
 
-        if (preg_match('/\btomorrow\b/u', $lower) || preg_match('/بكرة|بكرا|غداً?|غدا/u', $raw)) {
+        if (preg_match('/\b(?:tomorrow|tommorow|tomorow)\b/u', $lower) || preg_match('/بكرة|بكرا|غداً?|غدا/u', $raw)) {
             $date = now()->addDay()->toDateString();
         } elseif (preg_match('/\btoday\b/u', $lower) || preg_match('/\bاليوم\b/u', $raw)) {
             $date = now()->toDateString();
@@ -738,7 +940,7 @@ class CopilotLeadActionDraftService
             return now()->toDateString();
         }
 
-        if (in_array($lower, ['tomorrow', 'بكرة', 'غدا', 'غداً', 'بكرا'], true)) {
+        if (in_array($lower, ['tomorrow', 'tommorow', 'tomorow', 'بكرة', 'غدا', 'غداً', 'بكرا'], true)) {
             return now()->addDay()->toDateString();
         }
 

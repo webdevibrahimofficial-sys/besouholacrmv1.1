@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\EnsureTenantHasFeature;
 use App\Models\Feature;
+use App\Models\Lead;
+use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\AiCopilot\AiCopilotToolExecutor;
@@ -44,6 +46,9 @@ class AiCopilotTest extends TestCase
             'email' => 'copilot-user@example.com',
             'meta_data' => [
                 'module_permissions' => [
+                    'Control' => [
+                        'showReports',
+                    ],
                     'Reports' => [
                         'Leads Pipeline_show',
                         'Leads Pipeline_export',
@@ -232,6 +237,65 @@ class AiCopilotTest extends TestCase
             ->assertJsonPath('data.tool', 'explain_feature')
             ->assertJsonPath('data.locale', 'en');
         $this->assertStringContainsString('access', (string) $response->json('data.message'));
+    }
+
+    public function test_confirm_create_task_success_returns_open_lead_and_open_task_actions(): void
+    {
+        $lead = Lead::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'assigned_to' => $this->user->id,
+            'manager_id' => $this->user->id,
+        ]);
+
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/actions/confirm', [
+            'action' => 'create_task_for_lead',
+            'payload' => [
+                'lead_id' => $lead->id,
+                'title' => 'Follow up',
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.ok', true)
+            ->assertJsonPath('data.ui_actions.0.label', 'Open lead')
+            ->assertJsonPath('data.ui_actions.1.label', 'Open task')
+            ->assertJsonPath('data.ui_actions.2.label', 'Open tasks');
+    }
+
+    public function test_chat_resolves_arabic_employee_and_stage_filters_for_reports(): void
+    {
+        $employee = User::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'أحمد سامي',
+            'manager_id' => $this->user->id,
+        ]);
+
+        Stage::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Meeting',
+            'name_ar' => 'اجتماع',
+            'type' => 'meeting',
+            'workflow_key' => 'sales',
+            'is_active' => true,
+        ]);
+
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'افتح تقرير pipeline من 2026-07-01 إلى 2026-07-31 للموظف أحمد سامي مرحلة اجتماع',
+            'locale' => 'ar',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'navigate_report');
+
+        $path = (string) $response->json('data.ui_actions.0.path');
+        $this->assertStringContainsString('assigned_to='.$employee->id, $path);
+        $this->assertStringContainsString('stage=Meeting', $path);
+        $this->assertStringContainsString('created_from=2026-07-01', $path);
+        $this->assertStringContainsString('created_to=2026-07-31', $path);
     }
 
     public function test_confirm_create_task_denied_for_invisible_lead(): void
