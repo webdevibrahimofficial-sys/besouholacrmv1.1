@@ -526,7 +526,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     const label = s === 'new' ? (isAr ? 'جديد' : 'New')
       : s === 'duplicate' ? (isAr ? 'مكرر' : 'Duplicate')
       : s === 'pending' ? (isAr ? 'معلقة' : 'Pending')
-      : s === 'coldcalls' ? (isAr ? 'العملاء المحتملون' : 'Cold Calls')
+      : s === 'coldcalls' ? (isAr ? 'العملاء المحتملين' : 'Cold Calls')
       : s === 'followup' ? (isAr ? 'متابعة' : 'Follow-up')
       : (pipelineStage || '-')
 
@@ -686,7 +686,7 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
                 if (name === 'new') label = isAr ? 'جديد' : 'New';
                 else if (name === 'duplicate') label = isAr ? 'مكرر' : 'Duplicate';
                 else if (name === 'pending') label = isAr ? 'معلقة' : 'Pending';
-                else if (name === 'coldcalls') label = isAr ? 'العملاء المحتملون' : 'Cold Calls';
+                else if (name === 'coldcalls') label = isAr ? 'العملاء المحتملين' : 'Cold Calls';
                 else if (name === 'followup') label = isAr ? 'متابعة' : 'Follow-up';
             }
 

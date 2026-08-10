@@ -97,7 +97,7 @@ function deriveStageCardKey(stage) {
 
 function resolveTelesalesStageLabel(stage, isRtl) {
   const key = deriveStageCardKey(stage)
-  if (isRtl && key === 'cold calls') return 'العملاء المحتملون'
+  if (isRtl && key === 'cold calls') return 'العملاء المحتملين'
 
   const stageName = String(stage?.name || stage?.stage_name || '').trim()
   const stageNameAr = String(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar || '').trim()
@@ -106,7 +106,7 @@ function resolveTelesalesStageLabel(stage, isRtl) {
 
 function getCanonicalTelesalesStageLabel(stage, isRtl) {
   const key = deriveStageCardKey(stage)
-  if (isRtl && key === 'cold calls') return 'العملاء المحتملون'
+  if (isRtl && key === 'cold calls') return 'العملاء المحتملين'
 
   const stageName = String(stage?.name || stage?.stage_name || '').trim()
   const stageNameAr = String(stage?.name_ar || stage?.nameAr || stage?.stage_name_ar || '').trim()

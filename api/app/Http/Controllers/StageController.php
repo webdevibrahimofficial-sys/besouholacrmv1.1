@@ -45,7 +45,7 @@ class StageController extends Controller
         [
             'system_key' => 'telesales_cold_calls',
             'name' => 'Cold Calls',
-            'name_ar' => 'مكالمات باردة',
+            'name_ar' => 'العملاء المحتملين',
             'type' => 'cold_calls',
             'order' => 4,
             'color' => '#0EA5E9',
@@ -67,7 +67,7 @@ class StageController extends Controller
         [
             'system_key' => 'sales_cold_calls',
             'name' => 'Cold Calls',
-            'name_ar' => 'مكالمات باردة',
+            'name_ar' => 'العملاء المحتملين',
             'type' => 'cold_calls',
             'order' => -10,
             'color' => '#0EA5E9',
@@ -195,6 +195,10 @@ class StageController extends Controller
                     'meta_data' => $mergedMeta,
                     'workflow_key' => TelesalesService::WORKFLOW_TELESALES,
                     'is_active' => true,
+                    // Correct legacy Arabic label for Cold Calls.
+                    ...((string) $existing->name_ar === 'مكالمات باردة'
+                        ? ['name_ar' => $stageData['name_ar']]
+                        : []),
                 ])->save();
                 continue;
             }
@@ -249,6 +253,10 @@ class StageController extends Controller
                     'meta_data' => $mergedMeta,
                     'workflow_key' => TelesalesService::WORKFLOW_SALES,
                     'is_active' => true,
+                    // Correct legacy Arabic label for Cold Calls.
+                    ...((string) $existing->name_ar === 'مكالمات باردة'
+                        ? ['name_ar' => $stageData['name_ar']]
+                        : []),
                 ])->save();
                 continue;
             }

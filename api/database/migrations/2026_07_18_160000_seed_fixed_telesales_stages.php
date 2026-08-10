@@ -40,7 +40,7 @@ return new class extends Migration
         [
             'system_key' => 'telesales_cold_calls',
             'name' => 'Cold Calls',
-            'name_ar' => 'مكالمات باردة',
+            'name_ar' => 'العملاء المحتملين',
             'type' => 'cold_calls',
             'order' => 4,
             'color' => '#0EA5E9',

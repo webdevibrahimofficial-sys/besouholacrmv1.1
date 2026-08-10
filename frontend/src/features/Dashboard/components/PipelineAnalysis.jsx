@@ -142,11 +142,11 @@ export const PipelineAnalysis = ({
         ['مكالمات باردة', 'العملاء المحتملين', 'العملاء المحتملون'].includes(normalizedArabicName)
       )
     ) {
-      return 'العملاء المحتملون';
+      return 'العملاء المحتملين';
     }
 
     if (lang === 'ar' && ['cold calls', 'cold call'].includes(normalizedType)) {
-      return 'العملاء المحتملون';
+      return 'العملاء المحتملين';
     }
 
     return lang === 'ar'

@@ -209,7 +209,7 @@ function mapTransferStageLabel(value, isRtl = false, fallback = '-', defaultLabe
   if (!normalized) return resolvedDefault
   if (['same stage', 'same_stage'].includes(normalized)) return resolvedDefault
   if (['new lead', 'new_lead', 'new'].includes(normalized)) return isRtl ? 'عميل جديد' : 'New Lead'
-  if (['cold calls', 'cold call', 'cold_calls', 'coldcalls'].includes(normalized)) return isRtl ? 'العملاء المحتملون' : 'Cold Calls'
+  if (['cold calls', 'cold call', 'cold_calls', 'coldcalls'].includes(normalized)) return isRtl ? 'العملاء المحتملين' : 'Cold Calls'
   if (['transferred', 'converted', 'convert'].includes(normalized)) return resolvedDefault
   return String(value || '').trim() || resolvedDefault
 }

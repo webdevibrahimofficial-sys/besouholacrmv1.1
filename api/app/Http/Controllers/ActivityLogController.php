@@ -1007,7 +1007,7 @@ class ActivityLogController extends Controller
 
             $fallbackStageKey = strtolower(trim((string) ($meta['target_stage_key'] ?? '')));
             [$inferredFromStageLabelEn, $inferredFromStageLabelAr] = match ($fallbackStageKey) {
-                'cold_calls' => ['Cold Calls', 'مكالمات باردة'],
+                'cold_calls' => ['Cold Calls', 'العملاء المحتملين'],
                 'new_lead' => ['New', 'جديد'],
                 default => [null, null],
             };
