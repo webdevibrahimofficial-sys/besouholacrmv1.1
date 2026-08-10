@@ -911,11 +911,34 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       }, 0);
 
       setActionData(prev => {
-        if (prev.reservationAmount === total) return prev;
-        return { ...prev, reservationAmount: total };
+        const shouldSyncRevenue = prev.nextAction === 'closing_deals';
+        if (
+          prev.reservationAmount === total &&
+          (!shouldSyncRevenue || String(prev.closingRevenue ?? '') === String(total))
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          reservationAmount: total,
+          ...(shouldSyncRevenue ? { closingRevenue: total } : {}),
+        };
       });
     }
   }, [actionData.reservationGeneralItems, actionData.nextAction, actionData.reservationType]);
+
+  // Keep Revenue in sync with Total Price / Reservation Amount for closing deals
+  useEffect(() => {
+    if (actionData.nextAction !== 'closing_deals') return;
+    if (actionData.reservationType === 'general') return; // handled above with line-item totals
+
+    const total = actionData.reservationAmount;
+    setActionData(prev => {
+      if (prev.nextAction !== 'closing_deals') return prev;
+      if (String(prev.closingRevenue ?? '') === String(total ?? '')) return prev;
+      return { ...prev, closingRevenue: total ?? '' };
+    });
+  }, [actionData.nextAction, actionData.reservationAmount, actionData.reservationType]);
 
   const actionTypes = [
     { value: 'call', label: isArabic ? 'مكالمة' : 'Call', icon: FaPhone, color: 'bg-blue-500' },
@@ -1173,8 +1196,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       reservationProject: snapshot?.reservationProject ?? '',
       reservationUnit: snapshot?.reservationUnit ?? '',
       reservationAmount: snapshot?.reservationAmount ?? '',
-      closingRevenue: (prev.nextAction === 'closing_deals' && String(prev.closingRevenue || '').trim() === '')
-        ? (snapshot?.reservationAmount ?? '')
+      closingRevenue: prev.nextAction === 'closing_deals'
+        ? (snapshot?.reservationAmount ?? prev.closingRevenue ?? '')
         : prev.closingRevenue,
       sourceReservationActionId: snapshot?.sourceReservationActionId ? String(snapshot.sourceReservationActionId) : '',
       sourceReservationLoadedAt: new Date().toISOString(),
@@ -1449,6 +1472,27 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         // If General, remove Project/Unit fields
         cleanedData.reservationProject = '';
         cleanedData.reservationUnit = '';
+        cleanedData.reservationGeneralItems = (cleanedData.reservationGeneralItems || []).map((row) => {
+          const categoryId = row?.category ?? row?.category_id ?? '';
+          const itemId = row?.item ?? row?.item_id ?? '';
+          const categoryName =
+            row?.category_name ||
+            categories.find((c) => String(c.id) === String(categoryId))?.name ||
+            '';
+          const itemName =
+            row?.item_name ||
+            items.find((i) => String(i.id) === String(itemId))?.name ||
+            '';
+          const { total } = getGeneralRowTotals(row);
+          return {
+            ...row,
+            category: categoryId,
+            item: itemId,
+            category_name: categoryName,
+            item_name: itemName,
+            line_total: total,
+          };
+        });
       } else {
         // If Project (default), remove General fields
         cleanedData.reservationCategory = '';
@@ -2181,7 +2225,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                       value={formatDisplayNumber(actionData.reservationAmount)}
                       onChange={(e) => {
                         const rawValue = parseDisplayNumber(e.target.value);
-                        setActionData(prev => ({ ...prev, reservationAmount: rawValue }));
+                        setActionData(prev => ({
+                          ...prev,
+                          reservationAmount: rawValue,
+                          ...(prev.nextAction === 'closing_deals' ? { closingRevenue: rawValue } : {}),
+                        }));
                       }}
                       {...numericFieldProps}
                       className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}

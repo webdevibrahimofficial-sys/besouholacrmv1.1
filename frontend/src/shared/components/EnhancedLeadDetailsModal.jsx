@@ -41,6 +41,8 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
   const [uploadingLeadAttachments, setUploadingLeadAttachments] = useState(false);
   const leadAttachmentInputRef = useRef(null);
   const [countriesList, setCountriesList] = useState([]);
+  const [inventoryCategories, setInventoryCategories] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
 
   const reloadWhatsappMessages = useCallback(async (leadId) => {
     if (!leadId) return;
@@ -1221,24 +1223,115 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     const currentType = String(merged.action_type || merged.type || '').toLowerCase();
     const nextType = merged.next_action_type || merged.nextAction || merged.next_action || '';
     const lowerNext = String(nextType || '').toLowerCase();
+    const isClosing = currentType === 'closing_deals' || lowerNext === 'closing_deals';
+    const isReservation = currentType === 'reservation' || lowerNext === 'reservation';
+    const reservationType = String(merged.reservationType || '').toLowerCase();
+    const generalItemsRaw = Array.isArray(merged.reservationGeneralItems) ? merged.reservationGeneralItems : [];
+    const hasGeneralRows = generalItemsRaw.some((row) =>
+      row && (row.item || row.item_id || row.item_name || row.category || row.category_id || row.category_name)
+    );
+    const isGeneralReservation = reservationType === 'general' || (!reservationType && hasGeneralRows);
 
-    if (currentType === 'closing_deals' || lowerNext === 'closing_deals') {
-      addField('closingRevenue', 'الإيرادات', 'Revenue', v => Number(v).toLocaleString());
+    const resolveCategoryName = (row) => {
+      if (row?.category_name) return String(row.category_name);
+      const id = row?.category ?? row?.category_id;
+      if (id === undefined || id === null || id === '') return '';
+      const match = inventoryCategories.find((c) => String(c.id) === String(id));
+      return match?.name || String(id);
+    };
+
+    const resolveItemName = (row) => {
+      if (row?.item_name) return String(row.item_name);
+      const id = row?.item ?? row?.item_id;
+      if (id === undefined || id === null || id === '') return '';
+      const match = inventoryItems.find((i) => String(i.id) === String(id));
+      return match?.name || String(id);
+    };
+
+    const formatMoney = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toLocaleString() : String(v ?? '');
+    };
+
+    const calcLineTotal = (row) => {
+      if (row?.line_total !== undefined && row?.line_total !== null && row?.line_total !== '') {
+        return Number(row.line_total) || 0;
+      }
+      const quantity = Number(row?.quantity || 0);
+      const price = Number(row?.price || 0);
+      const subTotal = quantity * price;
+      const discountType = row?.discount_type || 'value';
+      const discountValue = Number(row?.discount_value || 0);
+      const discountAmount = discountType === 'percent'
+        ? (subTotal * Math.min(Math.max(discountValue, 0), 100)) / 100
+        : Math.min(Math.max(discountValue, 0), subTotal);
+      return Math.max(0, subTotal - discountAmount);
+    };
+
+    let generalItems = [];
+
+    if (isClosing || isReservation) {
+      if (isGeneralReservation) {
+        fields.push({
+          key: 'reservationType',
+          label: isArabic ? 'النوع' : 'Type',
+          value: isArabic ? 'عام' : 'General',
+        });
+        generalItems = generalItemsRaw
+          .filter((row) => row && (row.item || row.item_id || row.item_name || row.category || row.category_name))
+          .map((row, index) => {
+            const qty = Number(row.quantity || 0);
+            const price = Number(row.price || 0);
+            const discountType = row.discount_type || 'value';
+            const discountValue = Number(row.discount_value || 0);
+            const discountLabel = discountType === 'percent'
+              ? `${discountValue}%`
+              : formatMoney(discountValue);
+            return {
+              key: `general-item-${index}`,
+              category: resolveCategoryName(row),
+              item: resolveItemName(row),
+              quantity: qty,
+              price: formatMoney(price),
+              discount: discountLabel,
+              total: formatMoney(calcLineTotal(row)),
+            };
+          });
+
+        addField('reservationAmount', 'إجمالي السعر', 'Total Price', formatMoney);
+        if (isClosing) {
+          addField('closingRevenue', 'الإيرادات', 'Revenue', formatMoney);
+        }
+        addField('reservationNotes', 'ملاحظات', 'Notes');
+      } else {
+        if (isReservation) {
+          addField('reservationType', 'نوع الحجز', 'Reservation Type', (v) => {
+            const t = String(v || '').toLowerCase();
+            if (t === 'general') return isArabic ? 'عام' : 'General';
+            if (t === 'project') return isArabic ? 'مشروع' : 'Project';
+            return v;
+          });
+        }
+        addField('project', 'المشروع', 'Project');
+        addField('reservationProject', 'المشروع', 'Project');
+        addField('unit', 'الوحدة', 'Unit');
+        addField('reservationUnit', 'الوحدة', 'Unit');
+        addField('reservationAmount', 'قيمة الحجز', 'Reservation Amount', formatMoney);
+        if (isClosing) {
+          addField('closingRevenue', 'الإيرادات', 'Revenue', formatMoney);
+        }
+        addField('reservationNotes', 'ملاحظات', 'Notes');
+      }
     }
 
     if (currentType === 'proposal' || lowerNext === 'proposal') {
-      addField('proposalAmount', 'قيمة العرض', 'Proposal Amount', v => Number(v).toLocaleString());
+      addField('proposalAmount', 'قيمة العرض', 'Proposal Amount', formatMoney);
       addField('proposalDiscount', 'الخصم %', 'Discount %');
       addField('proposalValidityDays', 'مدة الصلاحية (أيام)', 'Validity Days');
     }
 
-    if (currentType === 'reservation' || lowerNext === 'reservation') {
-      addField('reservationType', 'نوع الحجز', 'Reservation Type');
-      addField('reservationAmount', 'قيمة الحجز', 'Reservation Amount', v => Number(v).toLocaleString());
-    }
-
     if (currentType === 'rent' || lowerNext === 'rent') {
-      addField('rentAmount', 'قيمة الإيجار', 'Rent Amount', v => Number(v).toLocaleString());
+      addField('rentAmount', 'قيمة الإيجار', 'Rent Amount', formatMoney);
       addField('rentStart', 'بداية الإيجار', 'Rent Start');
       addField('rentEnd', 'نهاية الإيجار', 'Rent End');
     }
@@ -1275,8 +1368,32 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       addField('answerStatus', 'حالة الرد', 'Answer Status', v => v === 'answer' ? (isArabic ? 'إجابة' : 'Answered') : (isArabic ? 'لا يوجد رد' : 'No Answer'));
     }
 
-    return fields;
+    return { fields, generalItems };
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [categoriesRes, itemsRes] = await Promise.all([
+          api.get('/api/item-categories'),
+          api.get('/api/items'),
+        ]);
+        if (cancelled) return;
+        setInventoryCategories(Array.isArray(categoriesRes.data) ? categoriesRes.data : (categoriesRes.data?.data || []));
+        setInventoryItems(Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data?.data || []));
+      } catch (e) {
+        if (!cancelled) {
+          setInventoryCategories([]);
+          setInventoryItems([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     const source = fetchedLead || lead;
@@ -1424,7 +1541,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     },
     {
       key: 'phone',
-      label: isArabic ? 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ:' : 'Phone:',
+      label: isArabic ? 'رقم الهاتف:' : 'Phone:',
       value: entries.length > 0
         ? entries.map((entry) => entry.display).join('\n')
         : '-',
@@ -2307,22 +2424,26 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
   function getTypeLabel(type) {
     switch (String(type).toLowerCase()) {
-      case 'call': return isArabic ? '??????' : 'Call';
-      case 'email': return isArabic ? '????' : 'Email';
-      case 'meeting': return isArabic ? '??????' : 'Meeting';
-      case 'whatsapp': return isArabic ? '??????' : 'WhatsApp';
-      case 'sms': return isArabic ? '????? ????' : 'SMS';
-      case 'comment': return isArabic ? '?????' : 'Comment';
-      case 'google_meet': return isArabic ? '???? ???' : 'Google Meet';
-      case 'follow_up': return isArabic ? '??????' : 'Follow Up';
-      case 'proposal': return isArabic ? '??? ???' : 'Proposal';
-      case 'reservation': return isArabic ? '???' : 'Reservation';
-      case 'closing_deals': return isArabic ? '????? ????' : 'Close Deal';
-      case 'rent': return isArabic ? '?????' : 'Rent';
-      case 'cancel': return isArabic ? '?????' : 'Cancel';
-      case 'task': return isArabic ? '????' : 'Task';
-      case 'note': return isArabic ? '??????' : 'Note';
-      default: return isArabic ? '??? ????' : 'Unknown';
+      case 'call': return isArabic ? 'مكالمة' : 'Call';
+      case 'email': return isArabic ? 'بريد' : 'Email';
+      case 'meeting': return isArabic ? 'اجتماع' : 'Meeting';
+      case 'whatsapp': return isArabic ? 'واتساب' : 'WhatsApp';
+      case 'sms': return isArabic ? 'رسالة نصية' : 'SMS';
+      case 'comment': return isArabic ? 'تعليق' : 'Comment';
+      case 'google_meet': return isArabic ? 'جوجل ميت' : 'Google Meet';
+      case 'follow_up': return isArabic ? 'متابعة' : 'Follow Up';
+      case 'proposal': return isArabic ? 'عرض سعر' : 'Proposal';
+      case 'reservation': return isArabic ? 'حجز' : 'Reservation';
+      case 'closing_deals':
+      case 'closing_deal':
+      case 'deal':
+        return isArabic ? 'إغلاق صفقة' : 'Close Deal';
+      case 'rent': return isArabic ? 'إيجار' : 'Rent';
+      case 'cancel': return isArabic ? 'إلغاء' : 'Cancel';
+      case 'not_interested': return isArabic ? 'غير مهتم' : 'Not Interested';
+      case 'task': return isArabic ? 'مهمة' : 'Task';
+      case 'note': return isArabic ? 'ملاحظة' : 'Note';
+      default: return isArabic ? 'غير معروف' : 'Unknown';
     }
   }
 
@@ -3610,15 +3731,46 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                           </div>
                           {(() => {
                             const extra = getActionExtraFields(action);
-                            if (!extra || extra.length === 0) return null;
+                            const fields = Array.isArray(extra?.fields) ? extra.fields : [];
+                            const generalItems = Array.isArray(extra?.generalItems) ? extra.generalItems : [];
+                            if (fields.length === 0 && generalItems.length === 0) return null;
                             return (
-                              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {extra.map(field => (
-                                  <div key={field.key} className="text-xs">
-                                    <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'}`}>{field.label}: </span>
-                                    <span className={`${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{field.value}</span>
+                              <div className="mt-3 space-y-3">
+                                {generalItems.length > 0 && (
+                                  <div className={`rounded-lg border overflow-hidden ${isLight ? 'border-gray-200' : 'border-slate-600'}`}>
+                                    <div className={`grid grid-cols-6 gap-2 px-3 py-2 text-[11px] font-semibold ${isLight ? 'bg-gray-50 text-slate-600' : 'bg-slate-700/60 text-slate-300'}`}>
+                                      <span>{isArabic ? 'الفئة' : 'Category'}</span>
+                                      <span>{isArabic ? 'العنصر' : 'Item'}</span>
+                                      <span>{isArabic ? 'الكمية' : 'Qty'}</span>
+                                      <span>{isArabic ? 'السعر' : 'Price'}</span>
+                                      <span>{isArabic ? 'الخصم' : 'Discount'}</span>
+                                      <span>{isArabic ? 'الإجمالي' : 'Total'}</span>
+                                    </div>
+                                    {generalItems.map((row) => (
+                                      <div
+                                        key={row.key}
+                                        className={`grid grid-cols-6 gap-2 px-3 py-2 text-xs border-t ${isLight ? 'border-gray-100 text-slate-800' : 'border-slate-600 text-slate-100'}`}
+                                      >
+                                        <span>{row.category || '-'}</span>
+                                        <span>{row.item || '-'}</span>
+                                        <span>{row.quantity || 0}</span>
+                                        <span>{row.price}</span>
+                                        <span>{row.discount}</span>
+                                        <span className="font-medium">{row.total}</span>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
+                                )}
+                                {fields.length > 0 && (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {fields.map(field => (
+                                      <div key={field.key} className="text-xs">
+                                        <span className={`${isLight ? 'text-slate-600' : 'text-slate-400'}`}>{field.label}: </span>
+                                        <span className={`${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{field.value}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}
