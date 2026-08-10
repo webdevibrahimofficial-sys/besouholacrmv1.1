@@ -32,7 +32,7 @@ export const Recycle = () => {
   const isRtl = String(i18n.language || '').startsWith('ar')
 
   const renderStageIcon = (icon) => {
-    if (!icon) return '📊';
+    if (!icon) return 'CircleDot';
     if (typeof icon !== 'string') return icon;
     
     // Check if it's a Lucide icon name
@@ -175,11 +175,11 @@ export const Recycle = () => {
   const sidebarStages = useMemo(() => {
     const showColdCalls = crmSettings?.showColdCallsStage !== false
     const staticStages = [
-      { key: 'new lead', icon: '🆕' },
-      { key: 'duplicate', icon: '🔄' },
-      { key: 'pending', icon: '⏳' },
-      ...(showColdCalls ? [{ key: 'cold calls', icon: '📞' }] : []),
-      { key: 'follow up', icon: '🔁' },
+      { key: 'new lead', icon: 'BadgePlus' },
+      { key: 'duplicate', icon: 'Copy' },
+      { key: 'pending', icon: 'Clock3' },
+      ...(showColdCalls ? [{ key: 'cold calls', icon: 'PhoneCall' }] : []),
+      { key: 'follow up', icon: 'RefreshCw' },
     ].filter(stage => stage.key !== 'duplicate' || isDuplicateAllowed);
 
     // Filter out stages from stagesList that are already covered by static stages to avoid duplication
@@ -188,7 +188,7 @@ export const Recycle = () => {
       .filter(s => !staticKeys.some(sk => s.name.toLowerCase().includes(sk) || sk.includes(s.name.toLowerCase())))
       .map(s => ({
         key: s.name,
-        icon: s.icon || '📊',
+        icon: s.icon || 'CircleDot',
         isDynamic: true
       }));
 
@@ -440,7 +440,11 @@ export const Recycle = () => {
       const normalized = Array.isArray(saved)
         ? (typeof saved[0] === 'string'
             ? saved.map((name) => ({ name, color: defaultColorForName(name), icon: defaultIconForName(name) }))
-            : saved.map((s) => ({ name: s.name || String(s), color: s.color || defaultColorForName(s.name || String(s)), icon: s.icon || defaultIconForName(s.name || String(s)) }))
+            : saved.map((s) => ({
+                name: s.name || String(s),
+                color: s.color || defaultColorForName(s.name || String(s)),
+                icon: s.icon || defaultIconForName(s.name || String(s)),
+              }))
           )
         : [];
       
@@ -862,7 +866,7 @@ export const Recycle = () => {
       case 'in-progress': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
       case 'converted': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
       case 'lost': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+      default: return 'ClipboardList'
     }
   }
 
@@ -872,22 +876,22 @@ export const Recycle = () => {
       case 'high': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
       case 'medium': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
       case 'low': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+      default: return 'ClipboardList'
     }
   }
 
   const getSourceIcon = (source) => {
     switch (source) {
-      case 'Facebook': return '📱'
-      case 'Website': return '🌐'
-      case 'Referral': return '👥'
-      case 'Campaign': return '📧'
-      case 'website': return '🌐'
-      case 'social-media': return '📱'
-      case 'referral': return '👥'
-      case 'email-campaign': return '📧'
-      case 'direct': return '🏢'
-      default: return '📋'
+      case 'Facebook': return 'Phone'
+      case 'Website': return 'Globe'
+      case 'Referral': return 'Users'
+      case 'Campaign': return 'Mail'
+      case 'website': return 'Globe'
+      case 'social-media': return 'Phone'
+      case 'referral': return 'Users'
+      case 'email-campaign': return 'Mail'
+      case 'direct': return 'Building2'
+      default: return 'ClipboardList'
     }
   }
 
@@ -1721,7 +1725,7 @@ export const Recycle = () => {
           onClick={() => setStageFilter([])}
           className={`btn btn-glass text-sm flex items-center justify-between gap-2 px-3 py-2 min-h-[56px] h-full ${textColor}`}
         >
-          <span className="flex items-center gap-2 text-left"><span>Σ</span><span>{t('total leads')}</span></span>
+          <span className="flex items-center gap-2 text-left"><LucideIcons.BarChart3 size={14} /><span>{t('total leads')}</span></span>
           <span className="font-bold">{stageCounts.total}</span>
         </button>
 
@@ -2205,7 +2209,6 @@ export const Recycle = () => {
                 break
               case 'video':
                 // Handle video call action
-                console.log('Video call:', hoveredLead)
                 break
               case 'convert':
                 handleConvertCustomer(hoveredLead)

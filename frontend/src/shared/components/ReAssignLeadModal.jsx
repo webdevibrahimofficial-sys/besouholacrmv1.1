@@ -73,9 +73,9 @@ const ReAssignLeadModal = ({
 
   const resolvedFreshLabel = freshLabel || (isArabic ? 'جديد' : 'Fresh');
   const resolvedColdCallLabel = coldCallLabel || (isArabic ? 'عميل محتمل' : 'As cold call');
-  const resolvedSalesRoleLabel = salesRoleLabel || (isArabic ? 'ÙƒØªÙŠÙ„ÙŠ Ø³ÙŠÙ„Ø²' : 'As Telesales Agent');
-  const resolvedManagerRoleLabel = managerRoleLabel || (isArabic ? 'ÙƒÙ…Ø¯ÙŠØ± ØªÙŠÙ„ÙŠ Ø³ÙŠÙ„Ø²' : 'As Telesales Manager');
-  const resolvedDuplicateLabel = duplicateLabel || (isArabic ? 'Ù†Ø³Ø® ÙˆØªØ¹ÙŠÙŠÙ† ÙƒØ¬Ø¯ÙŠØ¯' : 'Duplicate and assign as fresh');
+  const resolvedSalesRoleLabel = salesRoleLabel || (isArabic ? 'كتيلي سيلز' : 'As Telesales Agent');
+  const resolvedManagerRoleLabel = managerRoleLabel || (isArabic ? 'كمدير تيلي سيلز' : 'As Telesales Manager');
+  const resolvedDuplicateLabel = duplicateLabel || (isArabic ? 'نسخ وتعيين كجديد' : 'Duplicate and assign as fresh');
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);

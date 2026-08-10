@@ -1327,7 +1327,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                 </div>
                 {!readOnly && (
                   <p className="text-[11px] text-theme-text opacity-70 text-end">
-                    {isRTL ? 'ÙŠØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…Ù† Ù†Ø§ÙØ°Ø© Ø§Ù„ØªØ­ØµÙŠÙ„ ÙÙ‚Ø·.' : 'Payments are recorded via the Payment modal only.'}
+                    {isRTL ? 'يتم تسجيل المدفوعات من نافذة التحصيل فقط.' : 'Payments are recorded via the Payment modal only.'}
                   </p>
                 )}
                 {errors.paidAmount && <p className="text-xs text-red-500 text-end mt-1">{errors.paidAmount}</p>}

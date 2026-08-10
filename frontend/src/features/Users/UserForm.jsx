@@ -1413,7 +1413,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 <div>
                   <label className="label pt-0">
                     <span className="label-text font-medium text-base-content/80">
-                      {isArabic ? 'Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)' : 'Projects (Optional)'}
+                      {isArabic ? 'المشاريع (اختياري)' : 'Projects (Optional)'}
                     </span>
                   </label>
                   <SearchableSelect
@@ -1421,7 +1421,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     options={projectOptions}
                     value={form.allowedProjects}
                     onChange={(vals) => updateField('allowedProjects', vals)}
-                    placeholder={isArabic ? 'Ø§Ø®ØªØ± Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹' : 'Select projects'}
+                    placeholder={isArabic ? 'اختر المشاريع' : 'Select projects'}
                     multiple
                   />
                 </div>

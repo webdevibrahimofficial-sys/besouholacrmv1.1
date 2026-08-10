@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import { logExportEvent } from '../utils/api'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
 import { useAppState } from '@shared/context/AppStateProvider'
@@ -26,6 +26,7 @@ export default function RevenueReport() {
   const isLight = theme === 'light'
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const isRTL = i18n.language === 'ar'
   const { user: currentUser, company } = useAppState()
   const canExport = canExportReport(currentUser, 'Targets & Revenue')
@@ -45,6 +46,7 @@ export default function RevenueReport() {
   const [revenuePieMode, setRevenuePieMode] = useState('project')
   const salesMenuRef = useRef(null)
   const timeMenuRef = useRef(null)
+  const autoExportDoneRef = useRef(false)
   const [usersList, setUsersList] = useState([])
   const [sourcesCatalog, setSourcesCatalog] = useState([])
   const [projectOptions, setProjectOptions] = useState(['all'])
@@ -936,6 +938,31 @@ export default function RevenueReport() {
     setShowExportMenu(false)
   }
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const format = String(params.get('format') || 'xlsx').toLowerCase()
+    if (format === 'pdf') {
+      handleExportPdf()
+    } else {
+      handleExportExcel()
+    }
+
+    params.delete('export')
+    params.delete('format')
+    params.delete('file_name')
+    const nextSearch = params.toString()
+    navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+  }, [canExport, filtered, location.pathname, location.search, navigate])
+
   const clearFilters = () => {
     setSalesPersonFilter('all')
     setManagerFilter('all')
@@ -1071,7 +1098,7 @@ export default function RevenueReport() {
                 options={normalizedProjectOptions}
                 value={projectFilter}
                 onChange={v => setProjectFilter(v)}
-                placeholder={isRTL ? '????' : 'Select'}
+                placeholder={isRTL ? 'اختر' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1108,7 +1135,7 @@ export default function RevenueReport() {
                 options={dealTypeOptions}
                 value={dealTypeFilter}
                 onChange={v => setDealTypeFilter(v)}
-                placeholder={isRTL ? '????' : 'Select'}
+                placeholder={isRTL ? 'اختر' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />
@@ -1122,7 +1149,7 @@ export default function RevenueReport() {
                 options={statusOptions}
                 value={statusFilter}
                 onChange={v => setStatusFilter(v)}
-                placeholder={isRTL ? '????' : 'Select'}
+                placeholder={isRTL ? 'اختر' : 'Select'}
                 isRTL={isRTL}
                 showAllOption={false}
               />

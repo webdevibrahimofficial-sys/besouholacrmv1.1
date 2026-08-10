@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { logExportEvent } from '../utils/api'
 import { Users, Target, FileText, DollarSign, Filter, ChevronDown as LucideChevronDown, User, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, Search, Eye } from 'lucide-react'
@@ -21,6 +21,7 @@ export default function CustomersReport() {
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const navigate = useNavigate()
+  const location = useLocation()
   const isRTL = i18n.language === 'ar'
   const { user } = useAppState()
   const canExport = canExportReport(user, 'Customers Report')
@@ -39,6 +40,7 @@ export default function CustomersReport() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
   const exportMenuRef = useRef(null)
+  const autoExportDoneRef = useRef(false)
 
   // Filter options state
   const [usersList, setUsersList] = useState([])
@@ -368,6 +370,35 @@ export default function CustomersReport() {
       console.error('Export PDF Error:', error)
     }
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const run = async () => {
+      const format = String(params.get('format') || 'xlsx').toLowerCase()
+      if (format === 'pdf') {
+        await exportPdf()
+      } else {
+        await exportExcel()
+      }
+
+      params.delete('export')
+      params.delete('format')
+      params.delete('file_name')
+      const nextSearch = params.toString()
+      navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+    }
+
+    run()
+  }, [canExport, filtered, location.pathname, location.search, navigate])
 
   const statusBadge = (active) => (
     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${active ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300'}`}>

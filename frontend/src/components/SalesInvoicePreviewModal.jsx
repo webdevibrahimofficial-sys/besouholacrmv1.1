@@ -327,12 +327,12 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                         <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs font-semibold">
                           <div>
                             <span className="hidden uppercase tracking-[0.24em] text-slate-700/70">
-                              {isRTL ? 'ÙØ§ØªÙˆØ±Ø©' : 'Invoice'}
+                              {isRTL ? 'فاتورة' : 'Invoice'}
                             </span>
                           </div>
                           <div>
                             <span className="hidden uppercase tracking-[0.24em] text-slate-700/70">
-                              {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥ØµØ¯Ø§Ø±' : 'Issue Date'}
+                              {isRTL ? 'تاريخ الإصدار' : 'Issue Date'}
                             </span>
                             <span className={isDark ? 'text-slate-300' : 'text-slate-800/90'}>{formatDate(normalizedInvoice.issueDate)}</span>
                           </div>
@@ -401,13 +401,13 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                   <div className="flex items-center gap-8 text-sm">
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        {isRTL ? 'ÙØ§ØªÙˆØ±Ø©' : 'Invoice'}
+                        {isRTL ? 'فاتورة' : 'Invoice'}
                       </div>
                       <div className="mt-0.5 text-base font-semibold leading-none text-slate-950">{normalizedInvoice.invoiceNumber}</div>
                     </div>
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        {isRTL ? 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥ØµØ¯Ø§Ø±' : 'Issue Date'}
+                        {isRTL ? 'تاريخ الإصدار' : 'Issue Date'}
                       </div>
                       <div className="mt-0.5 font-semibold text-slate-950">{formatDate(normalizedInvoice.issueDate)}</div>
                     </div>

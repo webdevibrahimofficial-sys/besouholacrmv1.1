@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
 import i18n from '../i18n'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { FileText, CheckCircle2, XCircle, Filter, Calendar, ChevronLeft, ChevronRight, ChevronDown, Eye, Download, Building2, User, Clock, AlertCircle } from 'lucide-react'
 import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
@@ -35,6 +35,7 @@ const ExportsReport = () => {
   const isLight = theme === 'light'
   const isRTL = i18n.dir() === 'rtl'
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAppState()
   const canExport = canExportReport(user, 'Exports Report')
 
@@ -46,6 +47,7 @@ const ExportsReport = () => {
   const [showExportModal, setShowExportModal] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const exportMenuRef = useRef(null)
+  const autoExportDoneRef = useRef(false)
   
   // Filters
   const [selectedManager, setSelectedManager] = useState('All')
@@ -55,10 +57,10 @@ const ExportsReport = () => {
   const [datePreset, setDatePreset] = useState('year')
 
   const dateOptions = [
-    { value: 'today', label: isRTL ? 'Ã˜Â§Ã™â€žÃ™Å Ã™Ë†Ã™â€¦' : 'Today' },
-    { value: 'week', label: isRTL ? 'Ã˜Â£Ã˜Â³Ã˜Â¨Ã™Ë†Ã˜Â¹Ã™Å Ã™â€¹Ã˜Â§' : 'Weekly' },
-    { value: 'month', label: isRTL ? 'Ã˜Â´Ã™â€¡Ã˜Â±Ã™Å Ã™â€¹Ã˜Â§' : 'Monthly' },
-    { value: 'year', label: isRTL ? 'Ã˜Â³Ã™â€ Ã™Ë†Ã™Å Ã™â€¹Ã˜Â§' : 'Yearly' },
+    { value: 'today', label: isRTL ? '\u0627\u0644\u064a\u0648\u0645' : 'Today' },
+    { value: 'week', label: isRTL ? '\u0623\u0633\u0628\u0648\u0639\u064a' : 'Weekly' },
+    { value: 'month', label: isRTL ? '\u0634\u0647\u0631\u064a' : 'Monthly' },
+    { value: 'year', label: isRTL ? '\u0633\u0646\u0648\u064a' : 'Yearly' },
   ]
 
   const [exportsData, setExportsData] = useState([])
@@ -115,7 +117,6 @@ const ExportsReport = () => {
           }
         })
         const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
-        console.log('Raw Exports Data:', data)
         const mapped = data
           .map((row) => {
             const tsRaw = row.created_at || null
@@ -268,12 +269,12 @@ const ExportsReport = () => {
   const exportExcel = () => {
     if (!canExport) return
     const rows = filtered.map(r => ({
-      [isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name']: r.fileName,
-      [isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department']: r.department,
-      [isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By']: r.performedBy,
-      [isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â® Ã™Ë†Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Date & Time']: r.timestamp.toLocaleString(),
-      [isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â©' : 'Status']: r.status,
-      [isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error']: r.error || '',
+      [isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0645\u0644\u0641' : 'File Name']: r.fileName,
+      [isRTL ? '\u0627\u0644\u0642\u0633\u0645' : 'Department']: r.department,
+      [isRTL ? '\u062a\u0645 \u0628\u0648\u0627\u0633\u0637\u0629' : 'Performed By']: r.performedBy,
+      [isRTL ? '\u0627\u0644\u062a\u0627\u0631\u064a\u062e \u0648\u0627\u0644\u0648\u0642\u062a' : 'Date & Time']: r.timestamp.toLocaleString(),
+      [isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status']: r.status,
+      [isRTL ? '\u0627\u0644\u062e\u0637\u0623' : 'error']: r.error || '',
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -293,12 +294,12 @@ const ExportsReport = () => {
     const doc = new jsPDF('l', 'pt', 'a4')
     
     const tableColumn = [
-      isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name',
-      isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department',
-      isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By',
-      isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â® Ã™Ë†Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Date & Time',
-      isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â©' : 'Status',
-      isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error'
+      isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0645\u0644\u0641' : 'File Name',
+      isRTL ? '\u0627\u0644\u0642\u0633\u0645' : 'Department',
+      isRTL ? '\u062a\u0645 \u0628\u0648\u0627\u0633\u0637\u0629' : 'Performed By',
+      isRTL ? '\u0627\u0644\u062a\u0627\u0631\u064a\u062e \u0648\u0627\u0644\u0648\u0642\u062a' : 'Date & Time',
+      isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status',
+      isRTL ? '\u0627\u0644\u062e\u0637\u0623' : 'error'
     ]
     
     const tableRows = filtered.map(r => [
@@ -310,7 +311,7 @@ const ExportsReport = () => {
       r.error || ''
     ])
 
-    doc.text(isRTL ? 'Ã˜ÂªÃ™â€šÃ˜Â±Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports Report', 40, 40)
+    doc.text(isRTL ? '\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u062a\u0635\u062f\u064a\u0631' : 'Exports Report', 40, 40)
     doc.autoTable({
       head: [tableColumn],
       body: tableRows,
@@ -327,13 +328,42 @@ const ExportsReport = () => {
     setShowExportMenu(false)
   }
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const run = async () => {
+      const format = String(params.get('format') || 'xlsx').toLowerCase()
+      if (format === 'pdf') {
+        await exportPDF()
+      } else {
+        await exportExcel()
+      }
+
+      params.delete('export')
+      params.delete('format')
+      params.delete('file_name')
+      const nextSearch = params.toString()
+      navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+    }
+
+    run()
+  }, [canExport, filtered, location.pathname, location.search, navigate])
+
   // Charts
   // Removed Exports Over Time line chart per latest design
 
   // UI helpers
   const StatusBadge = ({ status }) => {
     const isSuccess = status === 'Success'
-    const label = isRTL ? (isSuccess ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Ã™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©') : status
+    const label = isRTL ? (isSuccess ? '\u0646\u0627\u062c\u062d' : '\u0641\u0627\u0634\u0644') : status
     const ring = isSuccess ? 'ring-emerald-200' : 'ring-rose-200'
     const bg = isSuccess ? 'bg-emerald-100' : 'bg-rose-100'
     const text = isSuccess ? 'text-emerald-700' : 'text-rose-700'
@@ -387,21 +417,21 @@ const ExportsReport = () => {
 
   const kpiCards = [
     {
-      title: isRTL ? 'Ã˜Â¥Ã˜Â¬Ã™â€¦Ã˜Â§Ã™â€žÃ™Å  Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¯Ã˜Â±Ã˜Â§Ã˜Âª' : 'Total Exports',
+      title: isRTL ? '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u062a\u0635\u062f\u064a\u0631' : 'Total Exports',
       value: kpiData.total,
       icon: FileText,
       color: 'text-blue-600 dark:text-blue-400',
       bgColor: 'bg-blue-50 dark:bg-blue-900/20'
     },
     {
-      title: isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¯Ã˜Â±Ã˜Â§Ã˜Âª Ã˜Â§Ã™â€žÃ™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Successful Exports',
+      title: isRTL ? '\u0627\u0644\u062a\u0635\u062f\u064a\u0631\u0627\u062a \u0627\u0644\u0646\u0627\u062c\u062d\u0629' : 'Successful Exports',
       value: kpiData.success,
       icon: CheckCircle2,
       color: 'text-emerald-600 dark:text-emerald-400',
       bgColor: 'bg-emerald-50 dark:bg-emerald-900/20'
     },
     {
-      title: isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¯Ã˜Â±Ã˜Â§Ã˜Âª Ã˜Â§Ã™â€žÃ™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Failed Exports',
+      title: isRTL ? '\u0627\u0644\u062a\u0635\u062f\u064a\u0631\u0627\u062a \u0627\u0644\u0641\u0627\u0634\u0644\u0629' : 'Failed Exports',
       value: kpiData.failed,
       icon: XCircle,
       color: 'text-red-600 dark:text-red-400',
@@ -415,10 +445,10 @@ const ExportsReport = () => {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'} mb-2`}>
-              {isRTL ? 'Ã˜ÂªÃ™â€šÃ˜Â±Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports Report'}
+              {isRTL ? '\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u062a\u0635\u062f\u064a\u0631' : 'Exports Report'}
             </h1>
             <p className={`${isLight ? 'text-black' : 'text-white'} text-sm opacity-70`}>
-              {isRTL ? 'Ã˜Â±Ã˜Â§Ã™â€šÃ˜Â¨ Ã™Æ’Ã™â€ž Ã˜Â¹Ã™â€¦Ã™â€žÃ™Å Ã˜Â§Ã˜Âª Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª Ã™Ë†Ã™â€¦Ã˜Â´Ã˜Â§Ã™Æ’Ã™â€žÃ™â€¡Ã˜Â§' : 'Monitor all data export operations and issues'}
+              {isRTL ? '\u062a\u0627\u0628\u0639 \u062c\u0645\u064a\u0639 \u0639\u0645\u0644\u064a\u0627\u062a \u062a\u0635\u062f\u064a\u0631 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0648\u0627\u0644\u0645\u0634\u0627\u0643\u0644' : 'Monitor all data export operations and issues'}
             </p>
           </div>
         </div>
@@ -446,7 +476,7 @@ const ExportsReport = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                {isRTL ? 'ØªÙ… Ø¨ÙˆØ§Ø³Ø·Ø©' : 'Performed By'}
+                {isRTL ? '\u062a\u0645 \u0628\u0648\u0627\u0633\u0637\u0629' : 'Performed By'}
               </label>
               <select
                 value={selectedManager}
@@ -481,9 +511,9 @@ const ExportsReport = () => {
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>
                     {status === 'Success'
-                      ? isRTL ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­' : 'Success'
+                      ? isRTL ? '\u0646\u062c\u0627\u062d' : 'Success'
                       : status === 'Failed'
-                        ? isRTL ? 'Ã™ÂÃ˜Â´Ã™â€ž' : 'Failed'
+                        ? isRTL ? '\u0641\u0634\u0644' : 'Failed'
                         : status}
                   </option>
                 ))}
@@ -547,7 +577,7 @@ const ExportsReport = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
         <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm p-4 rounded-2xl">
-          <div className={`font-semibold mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'عدد عمليات التصدير حسب المستخدم' : 'Exports Quantity per User'}</div>
+          <div className={`font-semibold mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0639\u062f\u062f \u0627\u0644\u062a\u0635\u062f\u064a\u0631\u0627\u062a \u0644\u0643\u0644 \u0645\u0633\u062a\u062e\u062f\u0645' : 'Exports Quantity per User'}</div>
           <div className="h-[260px]">
             <Bar
               data={{
@@ -577,7 +607,7 @@ const ExportsReport = () => {
                     },
                     title: {
                       display: true,
-                      text: isRTL ? 'ØªÙ… Ø¨ÙˆØ§Ø³Ø·Ø©' : 'Performed By',
+                      text: isRTL ? '\u062a\u0645 \u0628\u0648\u0627\u0633\u0637\u0629' : 'Performed By',
                     },
                   },
                   y: {
@@ -589,7 +619,7 @@ const ExportsReport = () => {
                     },
                     title: {
                       display: true,
-                      text: isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports',
+                      text: isRTL ? '\u0627\u0644\u062a\u0635\u062f\u064a\u0631\u0627\u062a' : 'Exports',
                     },
                   },
                 },
@@ -598,24 +628,24 @@ const ExportsReport = () => {
           </div>
         </div>
         <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm p-4 rounded-2xl">
-          <div className={`text-sm font-medium mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã˜Â§Ã™â€žÃ™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â© / Ã˜Â§Ã™â€žÃ™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Success & Fail'}</div>
+          <div className={`text-sm font-medium mb-2 ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0627\u0644\u0646\u062c\u0627\u062d / \u0627\u0644\u0641\u0634\u0644' : 'Success & Fail'}</div>
           <div className="h-[260px] flex flex-col items-center justify-center">
             <div className="flex-1 flex items-center justify-center">
               <PieChart
                 segments={[
-                  { label: isRTL ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Success', value: kpiData.success, color: '#10b981' },
-                  { label: isRTL ? 'Ã™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Failed', value: kpiData.failed, color: '#ef4444' },
+                  { label: isRTL ? '\u0646\u0627\u062c\u062d' : 'Success', value: kpiData.success, color: '#10b981' },
+                  { label: isRTL ? '\u0641\u0627\u0634\u0644' : 'Failed', value: kpiData.failed, color: '#ef4444' },
                 ]}
                 size={170}
                 centerValue={kpiData.total}
-                centerLabel={isRTL ? 'Ã˜Â¥Ã˜Â¬Ã™â€¦Ã˜Â§Ã™â€žÃ™Å  Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Total Exports'}
+                centerLabel={isRTL ? '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u062a\u0635\u062f\u064a\u0631' : 'Total Exports'}
               />
             </div>
             <div className="mt-4 w-full flex items-center justify-between gap-4 text-xs md:text-sm">
               <div className="inline-flex items-center gap-2">
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
                 <span className={`text-[var(--content-text)] ${isLight ? 'text-black' : 'text-white'}`}>
-                  {isRTL ? 'Ã™â€ Ã˜Â§Ã˜Â¬Ã˜Â­Ã˜Â©' : 'Success'}: {kpiData.success}
+                  {isRTL ? '\u0646\u0627\u062c\u062d' : 'Success'}: {kpiData.success}
                   {kpiData.total > 0 && (
                     <> ({Math.round((kpiData.success / kpiData.total) * 100)}%)</>
                   )}
@@ -624,7 +654,7 @@ const ExportsReport = () => {
               <div className="inline-flex items-center gap-2">
                 <span className="inline-block w-2 h-2 rounded-full bg-rose-500" />
                 <span className={`text-[var(--content-text)] ${isLight ? 'text-black' : 'text-white'}`}>
-                  {isRTL ? 'Ã™ÂÃ˜Â§Ã˜Â´Ã™â€žÃ˜Â©' : 'Failed'}: {kpiData.failed}
+                  {isRTL ? '\u0641\u0627\u0634\u0644' : 'Failed'}: {kpiData.failed}
                   {kpiData.total > 0 && (
                     <> ({Math.round((kpiData.failed / kpiData.total) * 100)}%)</>
                   )}
@@ -638,7 +668,7 @@ const ExportsReport = () => {
       <div className=" backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden mb-4">
         <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
           <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>
-            {isRTL ? 'Ã™â€šÃ˜Â§Ã˜Â¦Ã™â€¦Ã˜Â© Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Exports List'}
+            {isRTL ? '\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062a\u0635\u062f\u064a\u0631' : 'Exports List'}
           </h2>
           {canExport && (
             <div className="relative" ref={exportMenuRef}>
@@ -646,7 +676,7 @@ const ExportsReport = () => {
                 onClick={() => setShowExportMenu(!showExportMenu)}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >
-                <FaFileExport /> {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Export'}
+                <FaFileExport /> {isRTL ? '\u062a\u0635\u062f\u064a\u0631' : 'Export'}
                 <ChevronDown
                   className={`transform transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`}
                   size={12}
@@ -660,13 +690,13 @@ const ExportsReport = () => {
                     onClick={exportExcel}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                   >
-                    <FaFileExcel className="text-green-600" /> {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã™Æ’Ã™â‚¬ Excel' : 'Export to Excel'}
+                    <FaFileExcel className='text-green-600' /> {isRTL ? '\u062a\u0635\u062f\u064a\u0631 \u0625\u0644\u0649 Excel' : 'Export to Excel'}
                   </button>
                   <button
                     onClick={exportPDF}
                     className={`w-full text-start px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}
                   >
-                    <FaFilePdf className="text-red-600" /> {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã™Æ’Ã™â‚¬ PDF' : 'Export to PDF'}
+                    <FaFilePdf className='text-red-600' /> {isRTL ? '\u062a\u0635\u062f\u064a\u0631 \u0625\u0644\u0649 PDF' : 'Export to PDF'}
                   </button>
                 </div>
               )}
@@ -690,15 +720,15 @@ const ExportsReport = () => {
                 
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u062a\u0645 \u0628\u0648\u0627\u0633\u0637\u0629' : 'Performed By'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{row.performedBy}</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â®' : 'Date'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0627\u0644\u062a\u0627\u0631\u064a\u062e' : 'Date'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">{row.timestamp.toLocaleString()}</span>
                   </div>
                   <div className="col-span-2 flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0627\u0644\u062e\u0637\u0623' : 'error'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'} truncate`}>{row.error || '-'}</span>
                   </div>
                 </div>
@@ -709,7 +739,7 @@ const ExportsReport = () => {
                     className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm font-medium"
                   >
                     <Eye size={16} />
-                    {isRTL ? 'Ã™â€¦Ã˜Â¹Ã˜Â§Ã™Å Ã™â€ Ã˜Â©' : 'Preview'}
+                    {isRTL ? '\u0645\u0639\u0627\u064a\u0646\u0629' : 'Preview'}
                   </button>
                   {canExport && (
                     <button
@@ -717,7 +747,7 @@ const ExportsReport = () => {
                       className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors text-sm font-medium"
                     >
                       <Download size={16} />
-                      {isRTL ? 'Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž' : 'Download'}
+                      {isRTL ? '\u062a\u062d\u0645\u064a\u0644' : 'Download'}
                     </button>
                   )}
                 </div>
@@ -726,7 +756,7 @@ const ExportsReport = () => {
           })}
           {paginatedRows.length === 0 && (
             <div className={`text-center py-8 ${isLight ? 'text-black' : 'text-white'}`}>
-              {isRTL ? 'Ã™â€žÃ˜Â§ Ã˜ÂªÃ™Ë†Ã˜Â¬Ã˜Â¯ Ã˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª' : 'No data available'}
+              {isRTL ? '\u0644\u0627 \u062a\u0648\u062c\u062f \u0628\u064a\u0627\u0646\u0627\u062a' : 'No data available'}
             </div>
           )}
         </div>
@@ -736,13 +766,13 @@ const ExportsReport = () => {
           <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
             <thead className={`text-xs ${isLight ? 'text-black' : 'text-white'} uppercase  dark:bg-gray-700/50`}>
               <tr>
-                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â©' : 'Status'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â® Ã™Ë†Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Date & Time'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã˜Â®Ã˜Â·Ã˜Â§Ã˜Â¡' : 'error'}</th>
-                <th className="px-4 py-3 text-start">{isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â¥Ã˜Â¬Ã˜Â±Ã˜Â§Ã˜Â¡' : 'Action'}</th>
+                <th className='px-4 py-3 text-start'>{isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0645\u0644\u0641' : 'File Name'}</th>
+                <th className='px-4 py-3 text-start'>{isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status'}</th>
+                <th className='px-4 py-3 text-start'>{isRTL ? '\u0627\u0644\u0642\u0633\u0645' : 'Department'}</th>
+                <th className='px-4 py-3 text-start'>{isRTL ? '\u062a\u0645 \u0628\u0648\u0627\u0633\u0637\u0629' : 'Performed By'}</th>
+                <th className='px-4 py-3 text-start'>{isRTL ? '\u0627\u0644\u062a\u0627\u0631\u064a\u062e \u0648\u0627\u0644\u0648\u0642\u062a' : 'Date & Time'}</th>
+                <th className='px-4 py-3 text-start'>{isRTL ? '\u0627\u0644\u062e\u0637\u0623' : 'error'}</th>
+                <th className='px-4 py-3 text-start'>{isRTL ? '\u0627\u0644\u0625\u062c\u0631\u0627\u0621' : 'Action'}</th>
               </tr>
             </thead>
             <tbody>
@@ -770,7 +800,7 @@ const ExportsReport = () => {
                           <button
                             onClick={() => setPreviewItem(row)}
                             className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded text-blue-600 dark:text-blue-400 transition-colors"
-                            title={isRTL ? 'Ã™â€¦Ã˜Â¹Ã˜Â§Ã™Å Ã™â€ Ã˜Â©' : 'Preview'}
+                            title={isRTL ? '\u0645\u0639\u0627\u064a\u0646\u0629' : 'Preview'}
                           >
                             <Eye size={16} />
                           </button>
@@ -778,7 +808,7 @@ const ExportsReport = () => {
                             <button
                               onClick={() => handleDownloadRowCSV(row)}
                               className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded text-blue-600 dark:text-blue-400 transition-colors"
-                              title={isRTL ? 'Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž' : 'Download'}
+                              title={isRTL ? '\u062a\u062d\u0645\u064a\u0644' : 'Download'}
                             >
                               <Download size={16} />
                             </button>
@@ -791,7 +821,7 @@ const ExportsReport = () => {
               ) : (
                 <tr>
                   <td colSpan={7} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
-                    {isRTL ? 'Ã™â€žÃ˜Â§ Ã˜ÂªÃ™Ë†Ã˜Â¬Ã˜Â¯ Ã˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª' : 'No data available'}
+                    {isRTL ? '\u0644\u0627 \u062a\u0648\u062c\u062f \u0628\u064a\u0627\u0646\u0627\u062a' : 'No data available'}
                   </td>
                 </tr>
               )}
@@ -802,7 +832,7 @@ const ExportsReport = () => {
         <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
             {isRTL
-              ? `Ã˜Â¥Ã˜Â¸Ã™â€¡Ã˜Â§Ã˜Â± ${Math.min((currentPage - 1) * entriesPerPage + 1, totalExports)}-${Math.min(currentPage * entriesPerPage, totalExports)} Ã™â€¦Ã™â€  ${totalExports}`
+              ? `\u0625\u0638\u0647\u0627\u0631 ${Math.min((currentPage - 1) * entriesPerPage + 1, totalExports)}-${Math.min(currentPage * entriesPerPage, totalExports)} \u0645\u0646 ${totalExports}`
               : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalExports)}-${Math.min(currentPage * entriesPerPage, totalExports)} of ${totalExports}`}
           </div>
           <div className="flex items-center gap-4">
@@ -811,7 +841,7 @@ const ExportsReport = () => {
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                title={isRTL ? 'Ã˜Â§Ã™â€žÃ˜Â³Ã˜Â§Ã˜Â¨Ã™â€š' : 'Prev'}
+                title={isRTL ? '\u0627\u0644\u0633\u0627\u0628\u0642' : 'Prev'}
               >
                 {isRTL ? (
                   <ChevronRight className="w-4 h-4" />
@@ -821,14 +851,14 @@ const ExportsReport = () => {
               </button>
               <span className="text-sm whitespace-nowrap">
                 {isRTL
-                  ? `Ã˜Â§Ã™â€žÃ˜ÂµÃ™ÂÃ˜Â­Ã˜Â© ${currentPage} Ã™â€¦Ã™â€  ${pageCount}`
+                  ? `\u0627\u0644\u0635\u0641\u062d\u0629 ${currentPage} \u0645\u0646 ${pageCount}`
                   : `Page ${currentPage} of ${pageCount}`}
               </span>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                 disabled={currentPage === pageCount}
-                title={isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã™â€žÃ™Å ' : 'Next'}
+                title={isRTL ? '\u0627\u0644\u062a\u0627\u0644\u064a' : 'Next'}
               >
                 {isRTL ? (
                   <ChevronLeft className="w-4 h-4" />
@@ -839,7 +869,7 @@ const ExportsReport = () => {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className={`text-[10px] sm:text-xs ${isLight ? 'text-black' : 'text-white'} whitespace-nowrap`}>
-                {isRTL ? 'Ã™â€žÃ™Æ’Ã™â€ž Ã˜ÂµÃ™ÂÃ˜Â­Ã˜Â©:' : 'Per page:'}
+                {isRTL ? '\u0644\u0643\u0644 \u0635\u0641\u062d\u0629:' : 'Per page:'}
               </span>
               <select
                 className={`input w-24 text-sm py-0 px-2 h-8 ${isLight ? 'text-black' : 'text-white'}`}
@@ -870,7 +900,7 @@ const ExportsReport = () => {
             <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
               <h2 className={`text-lg font-bold text-gray-900 ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2`}>
                 <Eye size={20} className="text-blue-500" />
-                {isRTL ? 'Ã˜ÂªÃ™ÂÃ˜Â§Ã˜ÂµÃ™Å Ã™â€ž Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Details'}
+                {isRTL ? '\u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u0645\u0644\u0641' : 'File Details'}
               </h2>
               <button
                 onClick={() => setPreviewItem(null)}
@@ -902,7 +932,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <Building2 size={16} />
-                    {isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department'}
+                    {isRTL ? '\u0627\u0644\u0642\u0633\u0645' : 'Department'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`}>
                     {previewItem.department}
@@ -911,7 +941,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <User size={16} />
-                    {isRTL ? 'Ã™â€ Ã™ÂÃ™â€˜Ã˜Â° Ã˜Â¨Ã™Ë†Ã˜Â§Ã˜Â³Ã˜Â·Ã˜Â©' : 'Performed By'}
+                    {isRTL ? '\u062a\u0645 \u0628\u0648\u0627\u0633\u0637\u0629' : 'Performed By'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`}>
                     {previewItem.performedBy}
@@ -920,7 +950,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <Calendar size={16} />
-                    {isRTL ? 'Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â®' : 'Date'}
+                    {isRTL ? '\u0627\u0644\u062a\u0627\u0631\u064a\u062e' : 'Date'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">
                     {previewItem.timestamp.toLocaleDateString()}
@@ -929,7 +959,7 @@ const ExportsReport = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-400 flex items-center gap-2">
                     <Clock size={16} />
-                    {isRTL ? 'Ã˜Â§Ã™â€žÃ™Ë†Ã™â€šÃ˜Âª' : 'Time'}
+                    {isRTL ? '\u0627\u0644\u0648\u0642\u062a' : 'Time'}
                   </span>
                   <span className={`text-sm font-medium text-gray-900 ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">
                     {previewItem.timestamp.toLocaleTimeString()}
@@ -951,7 +981,7 @@ const ExportsReport = () => {
                 onClick={() => setPreviewItem(null)}
                 className={`${canExport ? 'flex-1' : 'w-full'} px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-sm transition-colors`}
               >
-                {isRTL ? 'Ã˜Â¥Ã˜ÂºÃ™â€žÃ˜Â§Ã™â€š' : 'Close'}
+                {isRTL ? '\u0625\u063a\u0644\u0627\u0642' : 'Close'}
               </button>
               {canExport && (
                 <button
@@ -962,7 +992,7 @@ const ExportsReport = () => {
                   className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
                 >
                   <Download size={18} />
-                  {isRTL ? 'Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž' : 'Download'}
+                  {isRTL ? '\u062a\u062d\u0645\u064a\u0644' : 'Download'}
                 </button>
               )}
             </div>
@@ -979,7 +1009,7 @@ const ExportsReport = () => {
           <div className="relative z-50 glass-panel rounded-xl p-4 w-[560px] max-w-[95vw] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-3">
               <h2 className={`text-lg font-semibold ${isLight ? 'text-black' : 'text-white'}`}>
-                {isRTL ? 'Ã˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â± Ã˜Â¬Ã˜Â¯Ã™Å Ã˜Â¯' : 'New Export'}
+                {isRTL ? '\u062a\u0635\u062f\u064a\u0631 \u062c\u062f\u064a\u062f' : 'New Export'}
               </h2>
               <button
                 className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
@@ -991,7 +1021,7 @@ const ExportsReport = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className={`${isLight ? 'text-black' : 'text-white'} label`} >
-                  {isRTL ? 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™â€žÃ™Â' : 'File Name'}
+                  {isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0645\u0644\u0641' : 'File Name'}
                 </label>
                 <input
                   className={`input w-full dark:bg-gray-700 ${isLight ? 'text-black' : 'text-white'} dark:border-gray-600`}
@@ -1004,7 +1034,7 @@ const ExportsReport = () => {
               </div>
               <div>
                 <label className="label dark:text-white">
-                  {isRTL ? 'Ã˜Â§Ã™â€žÃ™â€šÃ˜Â³Ã™â€¦' : 'Department'}
+                  {isRTL ? '\u0627\u0644\u0642\u0633\u0645' : 'Department'}
                 </label>
                 <select
                   className="input w-full dark:bg-gray-700 dark:text-white dark:border-gray-600"
@@ -1028,10 +1058,10 @@ const ExportsReport = () => {
                 className={`px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700  ${isLight ? 'text-black' : 'text-white'} transition-colors`}
                 onClick={() => setShowExportModal(false)}
               >
-                {isRTL ? 'Ã˜Â¥Ã™â€žÃ˜ÂºÃ˜Â§Ã˜Â¡' : 'Cancel'}
+                {isRTL ? '\u0625\u0644\u063a\u0627\u0621' : 'Cancel'}
               </button>
               <button className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors" onClick={performExport}>
-                {isRTL ? 'Ã˜ÂªÃ™â€ Ã™ÂÃ™Å Ã˜Â° Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂµÃ˜Â¯Ã™Å Ã˜Â±' : 'Perform Export'}
+                {isRTL ? '\u062a\u0646\u0641\u064a\u0630 \u0627\u0644\u062a\u0635\u062f\u064a\u0631' : 'Perform Export'}
               </button>
             </div>
           </div>

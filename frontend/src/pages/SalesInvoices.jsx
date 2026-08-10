@@ -1147,7 +1147,7 @@ export default function SalesInvoices() {
                             </span>
                             {overdue && (
                               <span className="px-2 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800">
-                                {isRTL ? 'Ù…ØªØ£Ø®Ø±Ø©' : 'Overdue'}
+                                {isRTL ? 'متأخرة' : 'Overdue'}
                               </span>
                             )}
                           </div>
@@ -1238,7 +1238,7 @@ export default function SalesInvoices() {
                         </span>
                         {overdue && (
                           <span className="px-2 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800">
-                            {isRTL ? 'Ù…ØªØ£Ø®Ø±Ø©' : 'Overdue'}
+                            {isRTL ? 'متأخرة' : 'Overdue'}
                           </span>
                         )}
                       </div>

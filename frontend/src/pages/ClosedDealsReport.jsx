@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
@@ -22,6 +22,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 export default function ClosedDealsReport() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
@@ -29,17 +30,18 @@ export default function ClosedDealsReport() {
   const canExport = canExportReport(user, 'Closed Deals')
   const companyType = String(company?.company_type || '').toLowerCase()
   const isRealEstate = companyType === 'real estate'
-  const projectLabel = isRealEstate ? t('Project') : t('Item')
+  const projectLabel = isRTL ? (isRealEstate ? '\u0627\u0644\u0645\u0634\u0631\u0648\u0639' : '\u0627\u0644\u0645\u0646\u062a\u062c') : (isRealEstate ? 'Project' : 'Item')
   const dealTypeValue = isRealEstate ? 'unit' : 'item'
-  const unitOrItemLabel = isRealEstate ? 'Unit Number' : 'Item'
-  const closedByProjectTitle = isRealEstate
-    ? t('Closed Deals by Project')
-    : (isRTL ? 'الصفقات المغلقة حسب المنتج' : 'Closed Deals by Item')
+  const unitOrItemLabel = isRTL ? (isRealEstate ? '\u0631\u0642\u0645 \u0627\u0644\u0648\u062d\u062f\u0629' : '\u0627\u0644\u0645\u0646\u062a\u062c') : (isRealEstate ? 'Unit Number' : 'Item')
+  const closedByProjectTitle = isRTL
+    ? (isRealEstate ? '\u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629 \u062d\u0633\u0628 \u0627\u0644\u0645\u0634\u0631\u0648\u0639' : '\u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629 \u062d\u0633\u0628 \u0627\u0644\u0645\u0646\u062a\u062c')
+    : (isRealEstate ? 'Closed Deals by Project' : 'Closed Deals by Item')
 
   const [deals, setDeals] = useState([])
   const [usersList, setUsersList] = useState([])
   const [sourcesCatalog, setSourcesCatalog] = useState([])
   const [projectOptions, setProjectOptions] = useState(['all'])
+  const [projectsList, setProjectsList] = useState([])
   const [itemsList, setItemsList] = useState([])
 
   const [salesPersonFilter, setSalesPersonFilter] = useState('all')
@@ -54,6 +56,7 @@ export default function ClosedDealsReport() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
+  const autoExportDoneRef = useRef(false)
 
   const isSuperManagerRole = (role) => {
     const r = String(role || '').toLowerCase()
@@ -126,6 +129,8 @@ export default function ClosedDealsReport() {
         lead.project ||
         lead.project_name ||
         (lead.projectRelation && (lead.projectRelation.name || lead.projectRelation.name_ar)) ||
+        projectsList.find(p => String(p.id) === String(lead.project_id || ''))?.name ||
+        projectsList.find(p => String(p.id) === String(lead.project_id || ''))?.name_ar ||
         ''
       )
     }
@@ -320,12 +325,15 @@ export default function ClosedDealsReport() {
         if (companyType === 'real estate') {
           const res = await api.get('/api/projects')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          setProjectsList(data)
           names = data.map(p => p.name || p.name_ar || p.title).filter(Boolean)
         } else if (companyType === 'general') {
           const res = await api.get('/api/items?all=1')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          setProjectsList([])
           names = data.map(it => it.name || it.product || it.title).filter(Boolean)
         } else {
+          setProjectsList([])
           const set = new Set(deals.map(d => d.project).filter(Boolean))
           names = Array.from(set)
         }
@@ -333,6 +341,7 @@ export default function ClosedDealsReport() {
         setProjectOptions(['all', ...unique])
       } catch (e) {
         console.error('Failed to fetch projects/items for closed deals report', e)
+        setProjectsList([])
         const set = new Set(deals.map(d => d.project).filter(Boolean))
         setProjectOptions(['all', ...Array.from(set)])
       }
@@ -349,13 +358,13 @@ export default function ClosedDealsReport() {
             .map(d => [String(d.salespersonId), { value: String(d.salespersonId), label: d.salesperson }])
         ).values()
       )
-      return [{ value: 'all', label: t('All') }, ...unique]
+      return [{ value: 'all', label: isRTL ? '\u0627\u0644\u0643\u0644' : 'All' }, ...unique]
     }
 
     if (!managerFilter || managerFilter === 'all') {
       const uniqueUsers = Array.from(new Map(usersList.map(u => [u.id, u])).values())
       return [
-        { value: 'all', label: t('All') },
+        { value: 'all', label: isRTL ? '\u0627\u0644\u0643\u0644' : 'All' },
         ...uniqueUsers
           .filter(u => String(u?.name || '').trim() !== '')
           .map(u => ({ value: String(u.id), label: u.name }))
@@ -388,7 +397,7 @@ export default function ClosedDealsReport() {
     }
 
     return [
-      { value: 'all', label: t('All') },
+      { value: 'all', label: isRTL ? '\u0627\u0644\u0643\u0644' : 'All' },
       ...Array.from(new Map(
         candidates
           .filter(u => String(u?.name || '').trim() !== '')
@@ -399,7 +408,7 @@ export default function ClosedDealsReport() {
 
   const managerOptions = useMemo(() => {
     if (!usersList || usersList.length === 0) {
-      return [{ value: 'all', label: t('All') }]
+      return [{ value: 'all', label: isRTL ? '\u0627\u0644\u0643\u0644' : 'All' }]
     }
     const directManagerIds = new Set(usersList.map(u => Number(u.manager_id)).filter(Number.isFinite))
     const managers = usersList.filter(u => {
@@ -409,7 +418,7 @@ export default function ClosedDealsReport() {
     })
     const uniqueManagers = Array.from(new Map(managers.map(m => [String(m.id), m])).values())
     return [
-      { value: 'all', label: t('All') },
+      { value: 'all', label: isRTL ? '\u0627\u0644\u0643\u0644' : 'All' },
       ...uniqueManagers.map(m => ({
         value: String(m.id),
         label: m.role ? `${m.name || `#${m.id}`} (${m.role})` : (m.name || `#${m.id}`)
@@ -424,13 +433,13 @@ export default function ClosedDealsReport() {
     ]))
 
     return [
-      { value: 'all', label: t('All') },
+      { value: 'all', label: isRTL ? '\u0627\u0644\u0643\u0644' : 'All' },
       ...values.map((value) => ({ value, label: localizeSourceLabel(value) })),
     ]
   }, [deals, sourceLabelMap, sourcesCatalog, t])
 
   const projectSelectOptions = useMemo(() => (
-    projectOptions.map(p => ({ value: p, label: p === 'all' ? t('All') : p }))
+    projectOptions.map(p => ({ value: p, label: p === 'all' ? (isRTL ? '\u0627\u0644\u0643\u0644' : 'All') : p }))
   ), [projectOptions, t])
 
   const filtered = useMemo(() => {
@@ -546,7 +555,7 @@ export default function ClosedDealsReport() {
       labels,
       datasets: [
         {
-          label: t('Deal Value'),
+          label: isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value',
           data: values,
           backgroundColor: 'rgba(59, 130, 246, 0.7)'
         }
@@ -563,14 +572,14 @@ export default function ClosedDealsReport() {
       x: {
         title: {
           display: true,
-          text: t('Sales Person')
+          text: isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person'
         }
       },
       y: {
         beginAtZero: true,
         title: {
           display: true,
-          text: t('Deal Value')
+          text: isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value'
         }
       }
     }
@@ -578,16 +587,16 @@ export default function ClosedDealsReport() {
 
   const handleExportExcel = () => {
     const rows = filtered.map(d => ({
-      [t('Sales Person')]: d.salesperson,
-      [t('Lead Name')]: d.leadName,
-      [t('Contact')]: d.contact,
-      [t('Source')]: d.source,
+      [isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person']: d.salesperson,
+      [isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064a\u0644' : 'Lead Name']: d.leadName,
+      [isRTL ? '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062a\u0648\u0627\u0635\u0644' : 'Contact']: d.contact,
+      [isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source']: d.source,
       [projectLabel]: d.project,
-      [t('Deal Type')]: d.dealType,
+      [isRTL ? '\u0646\u0648\u0639 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Type']: d.dealType,
       [unitOrItemLabel]: d.unitOrItemName,
-      [t('Deal Value')]: d.value,
-      [t('Closed Deal Date')]: formatDateTime(d.closedDateTime),
-      [t('Status')]: d.status
+      [isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value']: d.value,
+      [isRTL ? '\u062a\u0627\u0631\u064a\u062e \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Closed Deal Date']: formatDateTime(d.closedDateTime),
+      [isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status']: d.status
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -640,6 +649,31 @@ export default function ClosedDealsReport() {
     setClosedDealDateTo('')
   }
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const format = String(params.get('format') || 'xlsx').toLowerCase()
+    if (format === 'pdf') {
+      handleExportPdf()
+    } else {
+      handleExportExcel()
+    }
+
+    params.delete('export')
+    params.delete('format')
+    params.delete('file_name')
+    const nextSearch = params.toString()
+    navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+  }, [canExport, filtered, location.pathname, location.search, navigate])
+
   const renderPieCard = (title, data) => {
     const total = data.reduce((sum, item) => sum + (item.value || 0), 0)
     return (
@@ -673,10 +707,10 @@ export default function ClosedDealsReport() {
       <div className="mb-8">
         <BackButton to="/reports" />
         <h1 className={`text-2xl font-bold ${isLight ? 'text-black' : 'text-white'} mb-2`}>
-          {t(' Closed Deals')}
+          {isRTL ? '\u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629' : 'Closed Deals'}
         </h1>
         <p className={`${isLight ? 'text-black' : 'text-white'} text-sm`}>
-          {t('Analyze your closed deals performance and revenue')}
+          {isRTL ? '\u062d\u0644\u0644 \u0623\u062f\u0627\u0621 \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629 \u0648\u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a' : 'Analyze your closed deals performance and revenue'}
         </p>
       </div>
 
@@ -684,14 +718,14 @@ export default function ClosedDealsReport() {
         <div className="flex justify-between items-center mb-3">
           <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} font-semibold`}>
             <Filter size={20} className="text-blue-500 dark:text-blue-400" />
-            <h3 className={`${isLight ? 'text-black' : 'text-white'}`}>{t('Filter')}</h3>
+            <h3 className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0641\u0644\u062a\u0631' : 'Filter'}</h3>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAllFilters(prev => !prev)}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
             >
-              {showAllFilters ? (isRTL ? 'إخفاء' : 'Hide') : (isRTL ? 'عرض الكل' : 'Show All')}
+              {showAllFilters ? (isRTL ? '\u0625\u062e\u0641\u0627\u0621' : 'Hide') : (isRTL ? '\u0639\u0631\u0636 \u0627\u0644\u0643\u0644' : 'Show All')}
               <FaChevronDown
                 size={12}
                 className={`transform transition-transform duration-300 ${showAllFilters ? 'rotate-180' : 'rotate-0'}`}
@@ -711,13 +745,13 @@ export default function ClosedDealsReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <User size={12} className="text-blue-500 dark:text-blue-400" />
-                {t('Sales Person')}
+                {isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person'}
               </label>
               <SearchableSelect
                 options={salesPersonOptions}
                 value={salesPersonFilter}
                 onChange={v => setSalesPersonFilter(v)}
-                placeholder={t('Sales Person')}
+                placeholder={isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person'}
                 isRTL={isRTL}
                 icon={<User size={16} />}
               />
@@ -739,13 +773,13 @@ export default function ClosedDealsReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Tag size={12} className="text-blue-500 dark:text-blue-400" />
-                {t('Source')}
+                {isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source'}
               </label>
               <SearchableSelect
                 options={sourceSelectOptions}
                 value={sourceFilter}
                 onChange={v => setSourceFilter(v)}
-                placeholder={t('Source')}
+                placeholder={isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source'}
                 isRTL={isRTL}
                 icon={<Tag size={16} />}
               />
@@ -753,7 +787,7 @@ export default function ClosedDealsReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                {isRTL ? (isRealEstate ? 'المشروع' : 'المنتج') : projectLabel}
+                {projectLabel}
               </label>
               <SearchableSelect
                 options={projectSelectOptions}
@@ -790,7 +824,7 @@ export default function ClosedDealsReport() {
             <div className="space-y-1">
               <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                 <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
-                {t('Closed Deal Date')}
+                {isRTL ? '\u062a\u0627\u0631\u064a\u062e \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Closed Deal Date'}
               </label>
               <DateRangePicker
                 from={closedDealDateFrom}
@@ -809,10 +843,10 @@ export default function ClosedDealsReport() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: t('Total Closed Deals'), value: totalDeals, accent: 'bg-emerald-500' },
+          { label: isRTL ? '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629' : 'Total Closed Deals', value: totalDeals, accent: 'bg-emerald-500' },
           { label: t('Total Leads'), value: totalLeads, accent: 'bg-indigo-500' },
           { label: t('Total Revenue'), value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-blue-500' },
-          { label: t('Achieved of Target'), value: `${achievedPercent}%`, accent: 'bg-orange-500' }
+          { label: isRTL ? '\u0627\u0644\u0645\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0647\u062f\u0641' : 'Achieved of Target', value: `${achievedPercent}%`, accent: 'bg-orange-500' }
         ].map(card => (
           <div
             key={card.label}
@@ -828,14 +862,14 @@ export default function ClosedDealsReport() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {renderPieCard(t('Closed Deals by Channels'), closedByChannelSegments)}
+        {renderPieCard(isRTL ? '\u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629 \u062d\u0633\u0628 \u0627\u0644\u0645\u0635\u062f\u0631' : 'Closed Deals by Channels', closedByChannelSegments)}
         {renderPieCard(closedByProjectTitle, closedByProjectSegments)}
         <div className="group relative backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
           <div className="flex items-center gap-2 mb-4">
             <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
               <Trophy size={20} />
             </div>
-            <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{t('Deal Value for each Person')}</div>
+            <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0644\u0643\u0644 \u0645\u0633\u0624\u0648\u0644' : 'Deal Value for each Person'}</div>
           </div>
           <div className="flex-1 mt-2 w-full min-h-[220px]">
             <Bar data={barData} options={barOptions} />
@@ -845,7 +879,7 @@ export default function ClosedDealsReport() {
 
       <div className="backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden">
         <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
-          <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{t('Closed Deals Overview')}</h2>
+          <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0646\u0638\u0631\u0629 \u0639\u0627\u0645\u0629 \u0639\u0644\u0649 \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629' : 'Closed Deals Overview'}</h2>
           {canExport && (
             <div className="relative">
               <button
@@ -906,7 +940,7 @@ export default function ClosedDealsReport() {
                   <div className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(deal)}</div>
                 </div>
                 <div className="space-y-1">
-                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Source')}</p>
+                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source'}</p>
                   <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{localizeSourceLabel(deal.source)}</p>
                 </div>
                 <div className="space-y-1">
@@ -914,7 +948,7 @@ export default function ClosedDealsReport() {
                   <p className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{formatDateTime(deal.closedDateTime)}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{t('Status')}</p>
+                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status'}</p>
                   <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${dealStatusClass(deal.status)}`}>{deal.status}</span>
                 </div>
               </div>
@@ -925,7 +959,7 @@ export default function ClosedDealsReport() {
                   className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
                 >
                   <Eye size={14} />
-                  {t('Preview')}
+                  {isRTL ? '\u0645\u0639\u0627\u064a\u0646\u0629' : 'Preview'}
                 </button>
                 <button
                   onClick={() => handleDelete(deal.id)}
@@ -939,7 +973,7 @@ export default function ClosedDealsReport() {
           ))}
           {filtered.length === 0 && (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              {t('No closed deals found')}
+              {isRTL ? '\u0644\u0627 \u062a\u0648\u062c\u062f \u0635\u0641\u0642\u0627\u062a \u0645\u063a\u0644\u0642\u0629' : 'No closed deals found'}
             </div>
           )}
         </div>
@@ -949,17 +983,17 @@ export default function ClosedDealsReport() {
           <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
             <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
               <tr>
-                <th className="px-4 py-3">{t('Sales Person')}</th>
-                <th className="px-4 py-3">{t('Lead Name')}</th>
-                <th className="px-4 py-3">{t('Contact')}</th>
-                <th className="px-4 py-3">{t('Source')}</th>
+                <th className="px-4 py-3">{isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person'}</th>
+                <th className="px-4 py-3">{isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064a\u0644' : 'Lead Name'}</th>
+                <th className="px-4 py-3">{isRTL ? '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062a\u0648\u0627\u0635\u0644' : 'Contact'}</th>
+                <th className="px-4 py-3">{isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source'}</th>
                 <th className="px-4 py-3">{projectLabel}</th>
-                <th className="px-4 py-3">{t('Deal Type')}</th>
+                <th className="px-4 py-3">{isRTL ? '\u0646\u0648\u0639 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Type'}</th>
                 <th className="px-4 py-3">{unitOrItemLabel}</th>
-                <th className="px-4 py-3 text-center">{t('Deal Value')}</th>
-                <th className="px-4 py-3">{t('Closed Deal Date')}</th>
-                <th className="px-4 py-3">{t('Status')}</th>
-                <th className="px-4 py-3 text-center">{t('Actions')}</th>
+                <th className="px-4 py-3 text-center">{isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value'}</th>
+                <th className="px-4 py-3">{isRTL ? '\u062a\u0627\u0631\u064a\u062e \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Closed Deal Date'}</th>
+                <th className="px-4 py-3">{isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status'}</th>
+                <th className="px-4 py-3 text-center">{isRTL ? '\u0627\u0644\u0625\u062c\u0631\u0627\u0621\u0627\u062a' : 'Actions'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
@@ -982,7 +1016,7 @@ export default function ClosedDealsReport() {
                       <button
                         onClick={() => handlePreview(deal)}
                         className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-                        title={t('Preview')}
+                        title={isRTL ? '\u0645\u0639\u0627\u064a\u0646\u0629' : 'Preview'}
                       >
                         <Eye size={16} />
                       </button>
@@ -1000,7 +1034,7 @@ export default function ClosedDealsReport() {
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={11} className={`px-4 py-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
-                    {t('No closed deals found')}
+                    {isRTL ? '\u0644\u0627 \u062a\u0648\u062c\u062f \u0635\u0641\u0642\u0627\u062a \u0645\u063a\u0644\u0642\u0629' : 'No closed deals found'}
                   </td>
                 </tr>
               )}
@@ -1011,7 +1045,7 @@ export default function ClosedDealsReport() {
         <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">
             {isRTL
-              ? `إظهار ${Math.min((currentPage - 1) * entriesPerPage + 1, totalDeals)}-${Math.min(currentPage * entriesPerPage, totalDeals)} من ${totalDeals}`
+              ? `\u0625\u0638\u0647\u0627\u0631 ${Math.min((currentPage - 1) * entriesPerPage + 1, totalDeals)}-${Math.min(currentPage * entriesPerPage, totalDeals)} \u0645\u0646 ${totalDeals}`
               : `Showing ${Math.min((currentPage - 1) * entriesPerPage + 1, totalDeals)}-${Math.min(currentPage * entriesPerPage, totalDeals)} of ${totalDeals}`}
           </div>
           <div className="flex items-center gap-4">
@@ -1020,7 +1054,7 @@ export default function ClosedDealsReport() {
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                title={isRTL ? 'السابق' : 'Prev'}
+                title={isRTL ? '\u0627\u0644\u0633\u0627\u0628\u0642' : 'Prev'}
               >
                 {isRTL ? (
                   <ChevronRight className="w-4 h-4" />
@@ -1030,14 +1064,14 @@ export default function ClosedDealsReport() {
               </button>
               <span className="text-sm whitespace-nowrap">
                 {isRTL
-                  ? `الصفحة ${currentPage} من ${pageCount}`
+                  ? `\u0627\u0644\u0635\u0641\u062d\u0629 ${currentPage} \u0645\u0646 ${pageCount}`
                   : `Page ${currentPage} of ${pageCount}`}
               </span>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setCurrentPage(p => Math.min(p + 1, pageCount))}
                 disabled={currentPage === pageCount}
-                title={isRTL ? 'التالي' : 'Next'}
+                title={isRTL ? '\u0627\u0644\u062a\u0627\u0644\u064a' : 'Next'}
               >
                 {isRTL ? (
                   <ChevronLeft className="w-4 h-4" />
@@ -1048,7 +1082,7 @@ export default function ClosedDealsReport() {
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] sm:text-xs text-[var(--muted-text)] whitespace-nowrap">
-                {isRTL ? 'لكل صفحة:' : 'Per page:'}
+                {isRTL ? '\u0644\u0643\u0644 \u0635\u0641\u062d\u0629:' : 'Per page:'}
               </span>
               <select
                 className="input w-24 text-sm py-0 px-2 h-8"

@@ -972,17 +972,17 @@ export default function UserManagementUsers() {
     if (!canRunMultiAction) return;
     const target = users.find(u => Number(u.id) === Number(id)) || { id };
     const ok = window.confirm(isArabic
-      ? `Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø¥Ù„ØºØ§Ø¡ Delay Rotation Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù… ${target.name || ''}ØŸ`
+      ? `هل أنت متأكد من إلغاء Delay Rotation للمستخدم ${target.name || ''}؟`
       : `Remove delay rotation for ${target.name || ''}?`);
     if (!ok) return;
     try {
       await api.post('/api/rotation-rules/unassign', { user_id: Number(id), type: 'delay' });
       await fetchRotationRuleUsers();
       window.dispatchEvent(new CustomEvent('app:toast', {
-        detail: { type: 'success', message: isArabic ? 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ£Ø®ÙŠØ± Ø¨Ù†Ø¬Ø§Ø­' : 'Delay rotation removed' },
+        detail: { type: 'success', message: isArabic ? 'تم إلغاء التأخير بنجاح' : 'Delay rotation removed' },
       }));
     } catch (e) {
-      const message = e?.response?.data?.message || (isArabic ? 'ÙØ´Ù„ Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ£Ø®ÙŠØ±' : 'Failed to remove delay rotation');
+      const message = e?.response?.data?.message || (isArabic ? 'فشل إلغاء التأخير' : 'Failed to remove delay rotation');
       window.dispatchEvent(new CustomEvent('app:toast', {
         detail: { type: 'error', message },
       }));

@@ -321,11 +321,11 @@ export default function RealEstateRequestsPage() {
                     ? prev.map((r) => (r.id === request.id ? { ...r, status: 'Converted' } : r))
                     : prev
             );
-            alert(isRTL ? 'ØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨ Ø¥Ù„Ù‰ ØµÙÙ‚Ø© Ø¨Ù†Ø¬Ø§Ø­' : 'Request converted to deal successfully');
+            alert(isRTL ? 'تم تحويل الطلب إلى صفقة بنجاح' : 'Request converted to deal successfully');
         } catch (error) {
             console.error('Error converting to deal:', error);
             const msg = error?.response?.data?.message;
-            alert(msg || (isRTL ? 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„ØªØ­ÙˆÙŠÙ„' : 'Error converting to deal'));
+            alert(msg || (isRTL ? 'حدث خطأ أثناء التحويل' : 'Error converting to deal'));
         }
         return;
         // Create a new opportunity in localStorage

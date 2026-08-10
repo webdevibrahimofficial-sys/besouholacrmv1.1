@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation, useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -18,6 +19,8 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 export default function ProposalsReport() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
+  const location = useLocation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
@@ -60,6 +63,7 @@ export default function ProposalsReport() {
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
   const [expandedRows, setExpandedRows] = useState({})
+  const autoExportDoneRef = useRef(false)
 
   const getDescendants = (rootId, allUsers) => {
     let descendants = []
@@ -487,6 +491,35 @@ export default function ProposalsReport() {
       console.error("Export PDF Error:", error)
     }
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const run = async () => {
+      const format = String(params.get('format') || 'xlsx').toLowerCase()
+      if (format === 'pdf') {
+        await exportToPdf()
+      } else {
+        await handleExportExcel()
+      }
+
+      params.delete('export')
+      params.delete('format')
+      params.delete('file_name')
+      const nextSearch = params.toString()
+      navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+    }
+
+    run()
+  }, [canExport, filtered, location.pathname, location.search, navigate])
 
   const handleDelete = (id) => {
     setProposals(prev => prev.filter(p => p.id !== id))

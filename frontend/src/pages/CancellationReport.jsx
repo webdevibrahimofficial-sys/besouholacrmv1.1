@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation, useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '@shared/context/AppStateProvider'
@@ -181,6 +182,7 @@ export default function CancellationReport() {
   const [loading, setLoading] = useState(true)
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const autoExportDoneRef = useRef(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const exportMenuRef = useRef(null)
@@ -481,6 +483,31 @@ export default function CancellationReport() {
       cancelled_to: '',
     })
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || loading || !(report?.table?.rows || []).length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const format = String(params.get('format') || 'xlsx').toLowerCase()
+    if (format === 'pdf') {
+      handleExportPdf()
+    } else {
+      handleExportExcel()
+    }
+
+    params.delete('export')
+    params.delete('format')
+    params.delete('file_name')
+    const nextSearch = params.toString()
+    navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+  }, [canExport, loading, location.pathname, location.search, navigate, report])
 
   const emptyTitle = isRTL ? 'لا توجد بيانات إلغاء متاحة' : 'No cancellation data available'
   const emptySubtitle = isRTL ? 'جرّب تغيير الفلاتر أو اختيار نطاق تاريخ آخر.' : 'Try changing filters or selecting another date range.'

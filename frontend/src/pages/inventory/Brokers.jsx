@@ -759,7 +759,7 @@ export default function Brokers() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-xs text-gray-400 italic">{isArabic ? 'ØºÙŠØ± Ù…Ø¹ÙŠÙ†' : 'Unassigned'}</div>
+                      <div className="text-xs text-gray-400 italic">{isArabic ? 'غير معين' : 'Unassigned'}</div>
                     )}
                   </div>
 

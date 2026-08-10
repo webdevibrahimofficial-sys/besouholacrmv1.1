@@ -37,6 +37,7 @@ export default function ReservationsReport() {
   const [selectedLead, setSelectedLead] = useState(null)
   const [expandedRows, setExpandedRows] = useState({})
   const exportMenuRef = useRef(null)
+  const autoExportDoneRef = useRef(false)
   const [raw, setRaw] = useState([])
   const [sourceList, setSourceList] = useState(['all'])
   const [projectList, setProjectList] = useState(['all'])
@@ -801,6 +802,35 @@ export default function ReservationsReport() {
       return byStaff && byStatus && byManager && bySource && byProject && byUnit && byLastAction && byReservationDate
     })
   }, [raw, staff, statusFilter, manager, source, project, unitFilter, lastActionDate, reservationDateFrom, reservationDateTo])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const run = async () => {
+      const format = String(params.get('format') || 'xlsx').toLowerCase()
+      if (format === 'pdf') {
+        await exportToPdf()
+      } else {
+        await exportToExcel()
+      }
+
+      params.delete('export')
+      params.delete('format')
+      params.delete('file_name')
+      const nextSearch = params.toString()
+      navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+    }
+
+    run()
+  }, [canExport, filtered, location.pathname, location.search, navigate])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)

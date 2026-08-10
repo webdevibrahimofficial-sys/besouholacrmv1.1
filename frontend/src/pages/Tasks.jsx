@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { api, logExportEvent } from '../utils/api'
 import { FaDownload, FaFilter, FaChevronDown, FaSearch } from 'react-icons/fa'
@@ -28,6 +28,7 @@ export default function Tasks() {
   const isLight = theme === 'light'
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const _lintKeep = { Badge, FaDownload, FaFilter, FaChevronDown, FaSearch, SearchableSelect, NewTaskModal, TaskDetailsModal }
   const closePage = () => navigate(-1)
   const isArabic = (i18n?.language || '').toLowerCase().startsWith('ar')
@@ -121,7 +122,7 @@ export default function Tasks() {
           t?.assigned_to_user?.name ||
           t?.assigned_to_name ||
           usersData.find(u => u.id == (t?.assigned_to && typeof t.assigned_to === 'object' ? t.assigned_to?.id : t?.assigned_to))?.name ||
-          'â€”'
+          '—'
         ),
         assigneeId: (t?.assigned_to && typeof t.assigned_to === 'object' ? t.assigned_to?.id : t?.assigned_to) || t?.assignedTo?.id || null,
         state1: 'New', // Placeholder
@@ -154,6 +155,16 @@ export default function Tasks() {
   useEffect(() => {
     fetchData()
   }, [])
+
+  useEffect(() => {
+    const taskId = new URLSearchParams(location.search || '').get('task_id')
+    if (!taskId || !rows.length) return
+
+    const matchedTask = rows.find((task) => String(task.id) === String(taskId))
+    if (matchedTask) {
+      setSelectedTask((current) => (String(current?.id || '') === String(matchedTask.id) ? current : matchedTask))
+    }
+  }, [location.search, rows])
 
   const setStatus = async (id, status) => {
     // Optimistic update

@@ -64,7 +64,7 @@ const stripWordTipsFromHtml = (html) => {
   const raw = String(html || '')
   if (!raw) return raw
 
-  const shouldStrip = /Word\s*:|Ù†ØµØ§Ø¦Ø­\s*Ø¹Ù†Ø¯\s*Ù†Ù‚Ù„\s*Ø§Ù„Ù…Ø­ØªÙˆÙ‰/i.test(raw)
+  const shouldStrip = /Word\s*:|نصائح\s*عند\s*نقل\s*المحتوى/i.test(raw)
   if (!shouldStrip) return raw
 
   try {
@@ -78,15 +78,15 @@ const stripWordTipsFromHtml = (html) => {
       if (!t.trim()) return false
       return (
         /Word\s*:/i.test(t) ||
-        /Ù†ØµØ§Ø¦Ø­\s*Ø¹Ù†Ø¯\s*Ù†Ù‚Ù„\s*Ø§Ù„Ù…Ø­ØªÙˆÙ‰/i.test(t) ||
-        t.includes('Ù‚Ù… Ø¨Ù†Ø³Ø®') ||
-        t.includes('ÙˆÙ„ØµÙ‚Ù‡') ||
-        t.includes('ØªØ£ÙƒØ¯ Ù…Ù† ÙƒØªØ§Ø¨Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª') ||
-        t.includes('Ø¨ÙŠÙ† Ø§Ù„Ù‚ÙˆØ³ÙŠÙ†') ||
-        t.includes('ÙŠÙØ¶Ù„ Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø¹Ù‚Ø¯') ||
-        t.includes('Ù…Ø­Ø§Ù…') ||
-        t.includes('Ù„Ø¶Ù…Ø§Ù† Ø§Ù„ØªÙˆØ§ÙÙ‚') ||
-        t.includes('Ø§Ù„Ù‚ÙˆØ§Ù†ÙŠÙ† Ø§Ù„Ù…Ø­Ù„ÙŠØ©')
+        /نصائح\s*عند\s*نقل\s*المحتوى/i.test(t) ||
+        t.includes('قم بنسخ') ||
+        t.includes('ولصقه') ||
+        t.includes('تأكد من كتابة البيانات') ||
+        t.includes('بين القوسين') ||
+        t.includes('يفضل مراجعة العقد') ||
+        t.includes('محام') ||
+        t.includes('لضمان التوافق') ||
+        t.includes('القوانين المحلية')
       )
     }
 
@@ -1672,7 +1672,7 @@ export default function ContractsSettings() {
     },
   })
 
-  // Note: do not touch `editor.view.dom` here â€” the view may not be mounted yet and TipTap will throw.
+  // Note: do not touch `editor.view.dom` here — the view may not be mounted yet and TipTap will throw.
   // Direction is controlled via `editorProps.attributes.dir` and the wrapper around `<EditorContent />`.
 
   const safeSetEditorContent = (html) => {
@@ -2119,7 +2119,7 @@ export default function ContractsSettings() {
                  className={`px-2 py-1 rounded hover:bg-gray-100/10 ${editor?.isActive('bulletList') ? 'bg-white/10' : ''}`}
                  title={t('Bullet List')}
                >
-                 {t('â€¢ List')}
+                 {t('• List')}
                </button>
                <button
                  type="button"

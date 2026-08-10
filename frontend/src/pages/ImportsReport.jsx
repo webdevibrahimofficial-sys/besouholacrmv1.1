@@ -12,11 +12,14 @@ import BackButton from '../components/BackButton'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 const ImportsReport = () => {
   const { theme } = useTheme()
+  const navigate = useNavigate()
+  const location = useLocation()
   const isLight = theme === 'light'
   const { user } = useAppState()
   const canExport = canExportReport(user, 'Imports Report')
@@ -33,6 +36,7 @@ const ImportsReport = () => {
   const [jobPreview, setJobPreview] = useState(null)
   const [downloadingJobId, setDownloadingJobId] = useState(null)
   const exportMenuRef = useRef(null)
+  const autoExportDoneRef = useRef(false)
 
   const managers = useMemo(() => Array.from(new Set(logs.map(l => l.manager))), [logs])
 
@@ -468,6 +472,35 @@ const ImportsReport = () => {
     })
     setShowExportMenu(false)
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const run = async () => {
+      const format = String(params.get('format') || 'xlsx').toLowerCase()
+      if (format === 'pdf') {
+        await exportPDF()
+      } else {
+        await handleExport()
+      }
+
+      params.delete('export')
+      params.delete('format')
+      params.delete('file_name')
+      const nextSearch = params.toString()
+      navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+    }
+
+    run()
+  }, [canExport, filtered, location.pathname, location.search, navigate])
 
   const downloadReviewedFileForRow = async (row, { issuesOnly = false } = {}) => {
     const jobId = row?.jobId ? Number(row.jobId) : null

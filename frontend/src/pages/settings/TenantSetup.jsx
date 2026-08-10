@@ -311,7 +311,6 @@ const TenantSetup = () => {
       payment_method: params.get('payment_method') || 'all',
     };
 
-    console.log('📍 URL changed. nextFilters:', nextFilters);
     skipNextUrlSync.current = true;
     setTenantView((prev) => (prev === nextView ? prev : nextView));
     setFilters(nextFilters);
@@ -367,7 +366,6 @@ const TenantSetup = () => {
     };
     const urlView = params.get('view') || 'current';
     
-    console.log('🔍 URL changed - Fetching with filters:', urlFilters);
     setLoadingList(true);
     
     (async () => {
@@ -393,9 +391,7 @@ const TenantSetup = () => {
         if (!reqParams.expiration_from) delete reqParams.expiration_from;
         if (!reqParams.expiration_to) delete reqParams.expiration_to;
 
-        console.log('📤 Sending API request with params:', reqParams);
         const response = await axios.get('/api/super-admin/tenants', { params: reqParams });
-        console.log('📥 Response received:', response.data.tenants.data.length, 'items');
         setTenants(response.data.tenants.data);
         setTenantCounts(response.data.counts || { current: 0, archived: 0 });
         setPagination({
@@ -477,7 +473,6 @@ const TenantSetup = () => {
       if (!params.expiration_to) delete params.expiration_to;
 
       const response = await axios.get('/api/super-admin/tenants', { params });
-      console.log('✅ Tenants fetched with status filter:', params.status, 'Data received:', response.data.tenants.data.length);
       setTenants(response.data.tenants.data);
       setTenantCounts(response.data.counts || { current: 0, archived: 0 });
       setPagination({

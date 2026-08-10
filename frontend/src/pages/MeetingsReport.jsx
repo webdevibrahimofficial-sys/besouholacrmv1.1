@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { api, logExportEvent } from '../utils/api'
@@ -19,6 +19,7 @@ import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsMo
 export default function MeetingsReport() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
+  const navigate = useNavigate()
   const isRTL = i18n.language === 'ar'
   const { theme } = useTheme()
   const isLight = theme === 'light'
@@ -49,6 +50,7 @@ export default function MeetingsReport() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showAllFilters, setShowAllFilters] = useState(Boolean(initialFrom || initialTo))
   const [expandedRows, setExpandedRows] = useState({})
+  const autoExportDoneRef = useRef(false)
   
   // Filter States
   const [salesPersonFilter, setSalesPersonFilter] = useState([])
@@ -418,6 +420,35 @@ export default function MeetingsReport() {
       console.error("Export PDF Error:", error)
     }
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.get('export') !== '1') {
+      autoExportDoneRef.current = false
+      return
+    }
+
+    if (!canExport || loading || autoExportDoneRef.current) return
+
+    autoExportDoneRef.current = true
+
+    const run = async () => {
+      const format = String(params.get('format') || 'xlsx').toLowerCase()
+      if (format === 'pdf') {
+        await exportToPdf()
+      } else {
+        await handleExport()
+      }
+
+      params.delete('export')
+      params.delete('format')
+      params.delete('file_name')
+      const nextSearch = params.toString()
+      navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+    }
+
+    run()
+  }, [canExport, loading, location.pathname, location.search, meetings, navigate])
 
   const handleDelete = (id) => {
     if (window.confirm(isRTL ? 'هل أنت متأكد من حذف هذا السجل من العرض؟' : 'Are you sure you want to remove this record from view?')) {
