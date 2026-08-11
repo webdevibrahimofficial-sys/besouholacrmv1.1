@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Traits\BelongsToTenant;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
 
 class CrmSetting extends Model
@@ -99,9 +100,40 @@ class CrmSetting extends Model
         return $default;
     }
 
-    public static function isDuplicationEnabled(): bool
+    private static function resolveTenantId(?int $tenantId = null): ?int
     {
-        return (bool) static::flag('duplicationSystem', true);
+        if ($tenantId) {
+            return $tenantId;
+        }
+
+        if (app()->bound('current_tenant_id') && app('current_tenant_id')) {
+            return (int) app('current_tenant_id');
+        }
+
+        try {
+            if (Auth::check() && Auth::user()?->tenant_id) {
+                return (int) Auth::user()->tenant_id;
+            }
+        } catch (\Throwable) {
+        }
+
+        return null;
+    }
+
+    public static function isDuplicationEnabled(?int $tenantId = null): bool
+    {
+        $tenantId = static::resolveTenantId($tenantId);
+
+        try {
+            if (Schema::hasTable((new static)->getTable())) {
+                $record = static::ensureInitialized($tenantId);
+
+                return (bool) (static::resolved($record)['duplicationSystem'] ?? true);
+            }
+        } catch (\Throwable) {
+        }
+
+        return (bool) static::defaults()['duplicationSystem'];
     }
 
     /**

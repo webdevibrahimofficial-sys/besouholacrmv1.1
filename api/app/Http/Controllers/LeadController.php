@@ -112,7 +112,15 @@ class LeadController extends Controller
             return;
         }
 
-        $query->where('workflow_key', $normalizedWorkflow);
+        if ($normalizedWorkflow === TelesalesService::WORKFLOW_SALES) {
+            $query->where(function ($workflowQuery) {
+                $workflowQuery->where('workflow_key', TelesalesService::WORKFLOW_SALES)
+                    ->orWhereNull('workflow_key')
+                    ->orWhere('workflow_key', '');
+            });
+        } else {
+            $query->where('workflow_key', $normalizedWorkflow);
+        }
 
         if ($normalizedWorkflow === TelesalesService::WORKFLOW_TELESALES
             && \Illuminate\Support\Facades\Schema::hasColumn('leads', 'transferred_to_sales_at')) {
@@ -1862,7 +1870,7 @@ class LeadController extends Controller
         }
 
         // 2. Duplicate Filtering
-        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
+        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled($user?->tenant_id ? (int) $user->tenant_id : null);
 
         // Duplicates should be excluded from normal views/reports for everyone.
         // They should only show up when explicitly requested by privileged users (Duplicate stage view),
@@ -3439,7 +3447,7 @@ class LeadController extends Controller
             }
 
             // 3. Create Lead
-            $enableDup = CrmSetting::isDuplicationEnabled();
+            $enableDup = CrmSetting::isDuplicationEnabled($tenantId ? (int) $tenantId : null);
             $variantsForSearch = null;
             
             if ($enableDup) {
@@ -3790,7 +3798,7 @@ class LeadController extends Controller
         \Illuminate\Support\Facades\Log::info("Lead loaded. Actions count: " . $lead->actions->count());
         
         // Guard duplicate visibility if duplication system enabled
-        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
+        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled($user?->tenant_id ? (int) $user->tenant_id : null);
         if ($enableDup && (strtolower($lead->status ?? '') === 'duplicate' || strtolower($lead->stage ?? '') === 'duplicate')) {
             if (!$this->canViewDuplicates($user)) {
                 abort(403, 'Unauthorized to view duplicate leads');
@@ -3837,7 +3845,7 @@ class LeadController extends Controller
 
             // Hide duplicates from non-privileged users when duplication system enabled
             // EXCEPT if the lead is assigned to them directly
-            $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
+            $enableDup = \App\Models\CrmSetting::isDuplicationEnabled($user?->tenant_id ? (int) $user->tenant_id : null);
             
             if ($enableDup && !$this->canViewDuplicates($user)) {
                 $query->where(function($q) use ($user) {
@@ -4036,7 +4044,7 @@ class LeadController extends Controller
             }
             
             // Check for duplicate leads on update
-            $enableDup = CrmSetting::isDuplicationEnabled();
+            $enableDup = CrmSetting::isDuplicationEnabled($request->user()?->tenant_id ? (int) $request->user()->tenant_id : null);
             $duplicateOfId = null;
 
             if ($enableDup && !((bool) ($lead->is_duplicate_exception ?? false))) {
@@ -4506,7 +4514,6 @@ class LeadController extends Controller
         $duplicateExistingCount = 0;
         $duplicateInFileCount = 0;
 
-        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
         $tenant = app()->bound('tenant') ? app('tenant') : null;
         $companyType = strtolower((string)($tenant?->company_type ?? ''));
         $currentUserId = \Illuminate\Support\Facades\Auth::id();
@@ -4519,6 +4526,8 @@ class LeadController extends Controller
         if (!$currentTenantId) {
             return response()->json(['message' => 'Tenant context not found.', 'count' => 0], 403);
         }
+
+        $enableDup = \App\Models\CrmSetting::isDuplicationEnabled((int) $currentTenantId);
 
         $phonesInBatch = [];
 
@@ -5475,7 +5484,7 @@ class LeadController extends Controller
             $duplicateLead = Lead::findOrFail($id);
 
             // Only privileged users can work with duplicates.
-            $enableDup = \App\Models\CrmSetting::isDuplicationEnabled();
+            $enableDup = \App\Models\CrmSetting::isDuplicationEnabled($request->user()?->tenant_id ? (int) $request->user()->tenant_id : null);
             if ($enableDup && (strtolower((string)($duplicateLead->status ?? '')) === 'duplicate' || strtolower((string)($duplicateLead->stage ?? '')) === 'duplicate')) {
                 if (!$this->canViewDuplicates($request->user())) {
                     abort(403, 'Unauthorized to resolve duplicate leads');

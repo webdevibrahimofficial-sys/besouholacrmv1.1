@@ -295,7 +295,15 @@ class TelesalesService
             return;
         }
 
-        $query->where('workflow_key', $normalizedWorkflow);
+        if ($normalizedWorkflow === self::WORKFLOW_SALES) {
+            $query->where(function ($workflowQuery) {
+                $workflowQuery->where('workflow_key', self::WORKFLOW_SALES)
+                    ->orWhereNull('workflow_key')
+                    ->orWhere('workflow_key', '');
+            });
+        } else {
+            $query->where('workflow_key', $normalizedWorkflow);
+        }
 
         if ($normalizedWorkflow === self::WORKFLOW_TELESALES
             && Schema::hasColumn('leads', 'transferred_to_sales_at')) {

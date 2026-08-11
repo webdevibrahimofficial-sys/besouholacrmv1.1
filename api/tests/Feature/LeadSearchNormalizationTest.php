@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\Lead;
 use App\Models\LeadAction;
 use App\Models\CrmSetting;
+use App\Models\Source;
+use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -97,11 +99,27 @@ class LeadSearchNormalizationTest extends TestCase
             'settings' => ['duplicationSystem' => true],
         ]);
 
+        Source::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'web',
+            'is_active' => true,
+        ]);
+
+        Stage::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'New Lead',
+            'type' => 'lead',
+            'workflow_key' => 'sales',
+            'is_active' => true,
+            'order' => 1,
+        ]);
+
         $original = Lead::factory()->create([
             'tenant_id' => $tenant->id,
             'name' => 'Original',
             'phone' => '01555143944',
             'status' => 'new',
+            'workflow_key' => '',
         ]);
 
         $res = $this->postJson('/api/leads', [

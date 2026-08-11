@@ -38,7 +38,15 @@ class LeadsImportHandler implements ImportHandler
             return;
         }
 
-        $query->where('workflow_key', $normalizedWorkflow);
+        if ($normalizedWorkflow === TelesalesService::WORKFLOW_SALES) {
+            $query->where(function ($workflowQuery) {
+                $workflowQuery->where('workflow_key', TelesalesService::WORKFLOW_SALES)
+                    ->orWhereNull('workflow_key')
+                    ->orWhere('workflow_key', '');
+            });
+        } else {
+            $query->where('workflow_key', $normalizedWorkflow);
+        }
 
         if ($normalizedWorkflow === TelesalesService::WORKFLOW_TELESALES
             && Schema::hasColumn('leads', 'transferred_to_sales_at')) {
@@ -69,7 +77,7 @@ class LeadsImportHandler implements ImportHandler
             : null;
         $teamScopeManagerId = $isTeamScopedImporter && $uploader ? (int) $uploader->id : null;
 
-        $enableDup = CrmSetting::isDuplicationEnabled();
+        $enableDup = CrmSetting::isDuplicationEnabled($tenantId);
 
         $companyType = '';
         try {
