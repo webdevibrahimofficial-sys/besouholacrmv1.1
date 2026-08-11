@@ -250,6 +250,40 @@ export const getWhatsappMirrorGroups = async () => {
   return res?.data
 }
 
+export const getWhatsappMirrorConversations = async ({ search = '', page = 1, per_page = 20 } = {}) => {
+  const res = await api.get('/api/whatsapp-mirror/conversations', {
+    params: { search, page, per_page },
+  })
+  return res?.data
+}
+
+export const getWhatsappMirrorConversationMessages = async ({ phone, page = 1, per_page = 50 } = {}) => {
+  const res = await api.get('/api/whatsapp-mirror/conversation-messages', {
+    params: { phone, page, per_page },
+  })
+  return res?.data
+}
+
+export const resolveWhatsappMirrorConversationPhones = async ({ lids } = {}) => {
+  const payload = Array.isArray(lids) && lids.length ? { lids } : {}
+  const res = await api.post('/api/whatsapp-mirror/conversations/resolve-phones', payload)
+  return res?.data
+}
+
+export const markWhatsappMirrorConversationRead = async ({ phone, lid, display_phone } = {}) => {
+  const res = await api.post('/api/whatsapp-mirror/conversations/mark-read', {
+    phone,
+    ...(lid ? { lid } : {}),
+    ...(display_phone ? { display_phone } : {}),
+  })
+  return res?.data
+}
+
+export const createWhatsappMirrorConversationLead = async (payload) => {
+  const res = await api.post('/api/whatsapp-mirror/conversations/create-lead', payload)
+  return res?.data
+}
+
 export const convertWhatsappMirrorGroupContactToLead = async (contactId, payload) => {
   const res = await api.post(`/api/whatsapp-mirror/group-contacts/${contactId}/convert-to-lead`, payload)
   return res?.data
@@ -271,4 +305,9 @@ export const whatsappMirrorService = {
   addContactToGroup: addWhatsappMirrorContactToGroup,
   sendContactInviteToGroup: sendWhatsappMirrorContactInviteToGroup,
   bulkAddContactsToGroup: bulkAddWhatsappMirrorContactsToGroup,
+  getConversations: getWhatsappMirrorConversations,
+  getConversationMessages: getWhatsappMirrorConversationMessages,
+  resolveConversationPhones: resolveWhatsappMirrorConversationPhones,
+  markConversationRead: markWhatsappMirrorConversationRead,
+  createConversationLead: createWhatsappMirrorConversationLead,
 }
