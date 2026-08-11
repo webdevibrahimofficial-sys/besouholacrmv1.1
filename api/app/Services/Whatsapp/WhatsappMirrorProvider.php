@@ -6,6 +6,7 @@ use App\Contracts\WhatsappProviderInterface;
 use App\Events\InboundWhatsappMessage;
 use App\Models\WhatsappMessage;
 use App\Support\LeadPhoneMatcher;
+use App\Support\PhoneNormalizer;
 use Exception;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
@@ -49,8 +50,16 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
                 'direction' => 'outbound',
                 'to' => $to,
                 'body' => $body,
+                'type' => 'text',
                 'message_id' => null,
                 'status' => 'sent_to_session',
+                'raw' => [
+                    'response' => $data,
+                    'request' => [
+                        'body' => $body,
+                        'to' => $to,
+                    ],
+                ],
                 ],
                 'crm_send',
                 $lead?->id
@@ -69,8 +78,16 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
                         'direction' => 'outbound',
                         'to' => $to,
                         'body' => $body,
+                        'type' => 'text',
                         'message_id' => $messageId,
                         'status' => 'sent_to_session',
+                        'raw' => [
+                            'response' => $data,
+                            'request' => [
+                                'body' => $body,
+                                'to' => $to,
+                            ],
+                        ],
                     ], 'crm_send', $lead?->id)
                 );
             } catch (QueryException $e) {
@@ -85,6 +102,37 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
                     ->firstOrFail();
             }
         }
+
+        $backfill = [];
+        if (trim((string) ($message->body ?? '')) === '' && trim((string) $body) !== '') {
+            $backfill['body'] = $body;
+        }
+        if (trim((string) ($message->type ?? '')) === '') {
+            $backfill['type'] = 'text';
+        }
+        if ($message->direction !== 'outbound') {
+            $backfill['direction'] = 'outbound';
+        }
+        if ($to !== '' && trim((string) ($message->to ?? '')) !== $to) {
+            $existingTo = PhoneNormalizer::digits((string) ($message->to ?? ''));
+            $intendedTo = PhoneNormalizer::digits($to);
+            $existingLooksLikeLid = strlen($existingTo) >= 14;
+            $phonesDiffer = $existingTo === ''
+                || $existingLooksLikeLid
+                || ($intendedTo !== '' && $existingTo !== $intendedTo && !str_ends_with($existingTo, $intendedTo) && !str_ends_with($intendedTo, $existingTo));
+            if ($phonesDiffer) {
+                $backfill['to'] = $to;
+            }
+        }
+        $raw = is_array($message->raw) ? $message->raw : [];
+        $raw['request'] = array_merge(
+            is_array($raw['request'] ?? null) ? $raw['request'] : [],
+            ['body' => $body, 'to' => $to]
+        );
+        $raw['response'] = $data;
+        $backfill['raw'] = $raw;
+        $message->forceFill($backfill)->save();
+        $message->refresh();
 
         if (
             $lead?->id

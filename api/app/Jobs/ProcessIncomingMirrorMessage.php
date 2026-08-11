@@ -54,7 +54,7 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         $fromMe = $msgData['from_me'] ?? false;
         $direction = $fromMe ? 'outbound' : 'inbound';
         $pushName = $msgData['pushName'] ?? $msgData['push_name'] ?? null;
-        $messageBody = $msgData['body'] ?? '';
+        $messageBody = $this->resolveIncomingBody($msgData);
         $messageType = $this->resolveMessageType($msgData);
         $isUnresolvedLid = (bool) ($msgData['is_unresolved_lid'] ?? false);
         $rawIdentifiers = [
@@ -122,7 +122,7 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
                 'type' => $messageType,
                 'status' => $direction === 'outbound' ? 'sent_to_session' : 'received',
                 'message_id' => $msgData['message_id'] ?? null,
-                'body' => $msgData['body'] ?? '',
+                'body' => $messageBody,
                 'raw' => $enrichedPayload,
             ];
 
@@ -154,10 +154,27 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
                 $attributes['type'] = $message->type;
             }
 
-            foreach (['from', 'to', 'body', 'direction', 'status', 'type'] as $field) {
-                if (($message->{$field} ?? null) !== ($attributes[$field] ?? null)) {
-                    $updates[$field] = $attributes[$field] ?? null;
+            // Never clobber a non-empty CRM/history body with an empty mirror echo.
+            foreach (['from', 'to', 'direction', 'status', 'type'] as $field) {
+                if (($message->{$field} ?? null) === ($attributes[$field] ?? null)) {
+                    continue;
                 }
+
+                // Do not move a CRM-sent outbound message onto a different
+                // phone just because the WhatsApp echo resolved a LID wrongly.
+                if (in_array($field, ['from', 'to'], true)
+                    && $this->shouldKeepExistingPhone((string) ($message->{$field} ?? ''), (string) ($attributes[$field] ?? ''))
+                ) {
+                    continue;
+                }
+
+                $updates[$field] = $attributes[$field] ?? null;
+            }
+
+            $incomingBody = trim((string) ($attributes['body'] ?? ''));
+            $existingBody = trim((string) ($message->body ?? ''));
+            if ($incomingBody !== '' && $incomingBody !== $existingBody) {
+                $updates['body'] = $attributes['body'];
             }
 
             if (
@@ -236,6 +253,36 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         }
     }
 
+    private function shouldKeepExistingPhone(string $existing, string $incoming): bool
+    {
+        $existingDigits = preg_replace('/\D+/', '', $existing) ?: '';
+        $incomingDigits = preg_replace('/\D+/', '', $incoming) ?: '';
+
+        if ($existingDigits === '' || strlen($existingDigits) < 7) {
+            return false;
+        }
+
+        $existingIsLid = strlen($existingDigits) >= 14 || str_contains(strtolower($existing), '@lid');
+        $incomingIsLid = $incomingDigits === ''
+            || strlen($incomingDigits) >= 14
+            || str_contains(strtolower($incoming), '@lid');
+
+        if ($existingIsLid) {
+            return false;
+        }
+
+        if ($incomingIsLid) {
+            return true;
+        }
+
+        if ($existingDigits === $incomingDigits) {
+            return false;
+        }
+
+        return !str_ends_with($existingDigits, $incomingDigits)
+            && !str_ends_with($incomingDigits, $existingDigits);
+    }
+
     private function extractCounterpartLid(array $identifiers): ?string
     {
         foreach (['participant', 'remote_jid', 'sender', 'author', 'phone'] as $key) {
@@ -276,6 +323,26 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         }
 
         return 'text';
+    }
+
+    private function resolveIncomingBody(array $msgData): string
+    {
+        $candidates = [
+            $msgData['body'] ?? null,
+            $msgData['caption'] ?? null,
+            data_get($msgData, 'media.caption'),
+            data_get($msgData, 'text.body'),
+            data_get($msgData, 'conversation'),
+            data_get($msgData, 'extendedTextMessage.text'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return '';
     }
 
     private function persistIncomingMedia(int $tenantId, array $msgData): ?array

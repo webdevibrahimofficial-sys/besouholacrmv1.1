@@ -134,6 +134,11 @@ Route::middleware([
     Route::post('/pair', [WhatsappMirrorController::class, 'pair']);
     Route::get('/status', [WhatsappMirrorController::class, 'status']);
     Route::post('/disconnect', [WhatsappMirrorController::class, 'disconnect']);
+    Route::get('/conversations', [\App\Http\Controllers\WhatsappMessageController::class, 'mirrorConversations']);
+    Route::post('/conversations/resolve-phones', [\App\Http\Controllers\WhatsappMessageController::class, 'mirrorResolveConversationPhones']);
+    Route::post('/conversations/mark-read', [\App\Http\Controllers\WhatsappMessageController::class, 'mirrorMarkConversationRead']);
+    Route::post('/conversations/create-lead', [\App\Http\Controllers\WhatsappMessageController::class, 'mirrorCreateLeadFromConversation']);
+    Route::get('/conversation-messages', [\App\Http\Controllers\WhatsappMessageController::class, 'mirrorConversationMessages']);
     Route::get('/unassigned-contacts', [WhatsappMirrorUnassignedContactController::class, 'index']);
     Route::post('/unassigned-contacts/{contact}/convert-to-lead', [WhatsappMirrorUnassignedContactController::class, 'convertToLead']);
     Route::get('/group-contacts', [WhatsappMirrorGroupContactController::class, 'index']);

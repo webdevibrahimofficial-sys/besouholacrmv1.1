@@ -3,11 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\WhatsappMirrorSession;
-use App\Models\WhatsappUnassignedContact;
-use App\Services\Whatsapp\WhatsappMirrorClient;
+use App\Services\Whatsapp\WhatsappLidResolutionService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
-use Throwable;
 
 class BackfillWhatsappMirrorLids extends Command
 {
@@ -15,11 +12,10 @@ class BackfillWhatsappMirrorLids extends Command
         {tenant? : Limit to a single tenant id}
         {--dry-run : Preview without writing any changes}';
 
-    protected $description = 'Attempt to resolve previously-stored WhatsApp LIDs (e.g. "120569026592815") on '
-        . 'pending unassigned contacts into real phone numbers, using each tenant\'s connected WhatsApp Mirror '
-        . 'session. Requires the tenant\'s mirror session to be connected (or persisted) for resolution to work.';
+    protected $description = 'Resolve WhatsApp LIDs into real phone numbers across conversations, '
+        . 'contacts, unassigned contacts, and group contacts using each tenant\'s connected Mirror session.';
 
-    public function __construct(private readonly WhatsappMirrorClient $mirrorClient)
+    public function __construct(private readonly WhatsappLidResolutionService $lidResolutionService)
     {
         parent::__construct();
     }
@@ -29,128 +25,74 @@ class BackfillWhatsappMirrorLids extends Command
         $isDryRun = (bool) $this->option('dry-run');
         $tenantArg = $this->argument('tenant');
 
-        $query = WhatsappUnassignedContact::query()
-            ->where('is_unresolved_lid', true)
-            ->where('status', 'pending');
-
+        $tenantQuery = WhatsappMirrorSession::query()->select(['tenant_id', 'status']);
         if ($tenantArg) {
-            $query->where('tenant_id', (int) $tenantArg);
+            $tenantQuery->where('tenant_id', (int) $tenantArg);
         }
 
-        $contactsByTenant = $query->get()->groupBy('tenant_id');
-
-        if ($contactsByTenant->isEmpty()) {
-            $this->info('No unresolved-LID contacts found. Nothing to do.');
+        $sessions = $tenantQuery->get();
+        if ($sessions->isEmpty()) {
+            $this->info('No WhatsApp Mirror sessions found. Nothing to do.');
             return self::SUCCESS;
         }
 
         if ($isDryRun) {
-            $this->comment('Running in --dry-run mode: no changes will be saved.');
+            $this->comment('Running in --dry-run mode: resolution will be attempted but writes still go through contact cache; prefer connected tenants for accurate preview counts.');
         }
 
         $totalResolved = 0;
-        $totalSkippedTenants = 0;
+        $totalSkipped = 0;
 
-        foreach ($contactsByTenant as $currentTenantId => $contacts) {
-            $session = WhatsappMirrorSession::where('tenant_id', $currentTenantId)->first();
+        foreach ($sessions as $session) {
+            $tenantId = (int) $session->tenant_id;
+            $lids = $this->lidResolutionService->collectUnresolvedLids($tenantId);
 
-            if (!$session || $session->status !== 'connected') {
-                $totalSkippedTenants++;
-                $this->warn(
-                    "Tenant #{$currentTenantId}: mirror session is not connected, skipping "
-                    . "({$contacts->count()} pending LID contact(s))."
-                );
+            if (empty($lids)) {
+                $this->line("Tenant #{$tenantId}: no unresolved LIDs.");
                 continue;
             }
 
-            $lids = $contacts->pluck('phone')->unique()->values()->all();
-            $this->line("Tenant #{$currentTenantId}: attempting to resolve " . count($lids) . ' LID(s)...');
-
-            try {
-                $response = $this->mirrorClient->resolveLids((int) $currentTenantId, $lids);
-            } catch (Throwable $e) {
-                $this->error("Tenant #{$currentTenantId}: request to mirror service failed: {$e->getMessage()}");
-                Log::error('[Backfill LIDs] mirror service request failed', [
-                    'tenant_id' => $currentTenantId,
-                    'error' => $e->getMessage(),
-                ]);
+            if ($session->status !== 'connected') {
+                $totalSkipped++;
+                $this->warn("Tenant #{$tenantId}: mirror not connected, skipping " . count($lids) . ' LID(s).');
                 continue;
             }
 
-            if (!$response->successful()) {
-                $this->error("Tenant #{$currentTenantId}: mirror service responded with {$response->status()}: {$response->body()}");
-                continue;
-            }
+            $this->line("Tenant #{$tenantId}: resolving " . count($lids) . ' LID(s)...');
 
-            $resolved = (array) ($response->json('resolved') ?? []);
-
-            if (empty($resolved)) {
-                $this->line(
-                    "Tenant #{$currentTenantId}: none of the LIDs could be resolved right now "
-                    . '(WhatsApp still hides the real number for these contacts — try again later).'
-                );
-                continue;
-            }
-
-            foreach ($contacts as $contact) {
-                $realPhone = $resolved[$contact->phone] ?? null;
-                if (!$realPhone) {
-                    continue;
+            if ($isDryRun) {
+                foreach (array_slice($lids, 0, 20) as $lid) {
+                    $this->line("  - would resolve: {$lid}");
                 }
-
-                $normalizedPhone = preg_replace('/\D+/', '', (string) $realPhone) ?: (string) $realPhone;
-
-                $this->line(sprintf(
-                    '  - Tenant #%s: %s -> %s (%s)',
-                    $currentTenantId,
-                    $contact->phone,
-                    $normalizedPhone,
-                    $contact->push_name ?: 'no name'
-                ));
-
-                if ($isDryRun) {
-                    $totalResolved++;
-                    continue;
+                if (count($lids) > 20) {
+                    $this->line('  - ... and ' . (count($lids) - 20) . ' more');
                 }
-
-                // If a contact with the real phone already exists for this tenant
-                // (e.g. it arrived via a different message path), merge into it
-                // instead of violating the (tenant_id, phone) unique constraint.
-                $existing = WhatsappUnassignedContact::query()
-                    ->where('tenant_id', $currentTenantId)
-                    ->where('phone', $normalizedPhone)
-                    ->first();
-
-                if ($existing && $existing->id !== $contact->id) {
-                    $existing->messages_count = (int) $existing->messages_count + (int) $contact->messages_count;
-
-                    if ($contact->last_message_at && (!$existing->last_message_at || $contact->last_message_at->gt($existing->last_message_at))) {
-                        $existing->last_message_at = $contact->last_message_at;
-                        $existing->last_message_body = $contact->last_message_body ?: $existing->last_message_body;
-                    }
-
-                    $existing->push_name = $existing->push_name ?: $contact->push_name;
-                    $existing->is_unresolved_lid = false;
-                    $existing->save();
-
-                    $contact->delete();
-                } else {
-                    $contact->phone = $normalizedPhone;
-                    $contact->is_unresolved_lid = false;
-                    $contact->save();
-                }
-
-                $totalResolved++;
+                continue;
             }
+
+            $result = $this->lidResolutionService->resolveForTenant($tenantId, $lids);
+
+            $this->info(sprintf(
+                '  Tenant #%d: resolved %d/%d (contacts=%d, unassigned=%d, groups=%d, messages=%d)%s',
+                $tenantId,
+                (int) ($result['resolved'] ?? 0),
+                (int) ($result['attempted'] ?? 0),
+                (int) ($result['contacts_updated'] ?? 0),
+                (int) ($result['unassigned_updated'] ?? 0),
+                (int) ($result['group_contacts_updated'] ?? 0),
+                (int) ($result['messages_updated'] ?? 0),
+                ($result['skipped_reason'] ?? null) ? ' [' . $result['skipped_reason'] . ']' : ''
+            ));
+
+            foreach ($result['resolved_map'] ?? [] as $lid => $phone) {
+                $this->line("  - {$lid} -> {$phone}");
+            }
+
+            $totalResolved += (int) ($result['resolved'] ?? 0);
         }
 
         $this->newLine();
-        $this->info(sprintf(
-            'Done. Resolved %d contact(s)%s. Skipped %d tenant(s) with no connected mirror session.',
-            $totalResolved,
-            $isDryRun ? ' (dry run, no changes saved)' : '',
-            $totalSkippedTenants
-        ));
+        $this->info("Done. Resolved {$totalResolved} LID(s). Skipped {$totalSkipped} tenant(s).");
 
         return self::SUCCESS;
     }

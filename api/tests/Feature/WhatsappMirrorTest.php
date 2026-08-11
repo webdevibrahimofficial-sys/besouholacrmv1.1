@@ -30,6 +30,8 @@ class WhatsappMirrorTest extends TestCase
 
     public function test_send_text_reuses_existing_echo_message_by_message_id(): void
     {
+        Event::fake([InboundWhatsappMessage::class]);
+
         $tenant = Tenant::factory()->create();
         $lead = Lead::factory()->create([
             'tenant_id' => $tenant->id,
@@ -223,5 +225,84 @@ class WhatsappMirrorTest extends TestCase
 
         $this->assertNotNull($contact);
         $this->assertNull($contact->phone);
+    }
+
+    public function test_empty_mirror_echo_does_not_overwrite_crm_send_body(): void
+    {
+        $tenant = Tenant::factory()->create();
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+        ]);
+
+        WhatsappMessage::create([
+            'tenant_id' => $tenant->id,
+            'provider' => 'mirror',
+            'source' => 'crm_send',
+            'direction' => 'outbound',
+            'to' => '201001234567',
+            'type' => 'text',
+            'status' => 'sent_to_session',
+            'message_id' => 'wamid.mirror.echo-empty',
+            'body' => 'hello from crm',
+        ]);
+
+        (new \App\Jobs\ProcessIncomingMirrorMessage([
+            'tenant_id' => $tenant->id,
+            'message' => [
+                'message_id' => 'wamid.mirror.echo-empty',
+                'from_me' => true,
+                'from' => '201001234567',
+                'counterpart_phone' => '201001234567',
+                'body' => '',
+                'type' => 'text',
+            ],
+        ]))->handle();
+
+        $this->assertDatabaseHas('whatsapp_messages', [
+            'tenant_id' => $tenant->id,
+            'message_id' => 'wamid.mirror.echo-empty',
+            'body' => 'hello from crm',
+        ]);
+    }
+
+    public function test_send_text_backfills_empty_body_on_existing_echo(): void
+    {
+        Event::fake([InboundWhatsappMessage::class]);
+
+        $tenant = Tenant::factory()->create();
+        Lead::factory()->create([
+            'tenant_id' => $tenant->id,
+            'phone' => '01001234567',
+        ]);
+
+        $existingMessage = WhatsappMessage::create([
+            'tenant_id' => $tenant->id,
+            'provider' => 'mirror',
+            'source' => 'live',
+            'direction' => 'outbound',
+            'to' => '201001234567',
+            'type' => 'text',
+            'status' => 'sent',
+            'message_id' => 'wamid.mirror.empty-body',
+            'body' => '',
+        ]);
+
+        Http::fake([
+            'http://wa-mirror.test/sessions/*/send' => Http::response([
+                'messageId' => 'wamid.mirror.empty-body',
+            ], 200),
+        ]);
+
+        $provider = app(WhatsappMirrorProvider::class);
+        $result = $provider->sendText($tenant->id, '201001234567', 'filled from crm');
+
+        $this->assertTrue($result['success']);
+        $this->assertSame($existingMessage->id, $result['db_id']);
+        $this->assertDatabaseHas('whatsapp_messages', [
+            'id' => $existingMessage->id,
+            'body' => 'filled from crm',
+        ]);
     }
 }

@@ -4,6 +4,8 @@ namespace App\Services\Whatsapp;
 
 use App\Models\WhatsappContact;
 use App\Models\WhatsappMessage;
+use App\Models\WhatsappMirrorSession;
+use App\Support\PhoneNormalizer;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -53,6 +55,13 @@ class WhatsappContactStoreService
         // to stop, since a poisoned row here gets treated as resolved everywhere
         // this store is consulted (future syncs, other groups, message events).
         if ($phone !== '' && ($this->looksLikeLid($phone) || ($lid !== null && $phone === $lid))) {
+            $phone = '';
+        }
+
+        // Never store the linked WhatsApp account's own number as the phone for
+        // another contact/LID. That is what made outbound LID chats appear
+        // under the business number / matched lead (e.g. "hima").
+        if ($phone !== '' && $this->isOwnConnectedNumber($tenantId, $phone)) {
             $phone = '';
         }
 
@@ -235,7 +244,7 @@ class WhatsappContactStoreService
         // Self-heal: an older bug could have poisoned this row with the LID
         // itself stored as "phone". Never hand that back out as if resolved --
         // and clear it here so it stops being returned on every future call.
-        if ($this->looksLikeLid($contact->phone) || $contact->phone === $normalizedLid) {
+        if ($this->looksLikeLid($contact->phone) || $contact->phone === $normalizedLid || $this->isOwnConnectedNumber($tenantId, $contact->phone)) {
             $contact->forceFill(['phone' => null])->save();
             return null;
         }
@@ -512,5 +521,39 @@ class WhatsappContactStoreService
     {
         $digits = preg_replace('/\D+/', '', (string) ($value ?? '')) ?: '';
         return $digits !== '' && strlen($digits) >= 14;
+    }
+
+    private function isOwnConnectedNumber(int $tenantId, string $phone): bool
+    {
+        $digits = PhoneNormalizer::digits($phone);
+        if ($digits === '' || $this->looksLikeLid($digits)) {
+            return false;
+        }
+
+        static $ownNumbersByTenant = [];
+        if (!array_key_exists($tenantId, $ownNumbersByTenant)) {
+            $own = [];
+            $sessionPhone = WhatsappMirrorSession::query()
+                ->where('tenant_id', $tenantId)
+                ->value('connected_phone_number');
+            foreach (array_filter([(string) $sessionPhone]) as $candidate) {
+                $normalized = PhoneNormalizer::digits($candidate);
+                if ($normalized !== '') {
+                    $own[$normalized] = true;
+                    $own[ltrim($normalized, '0')] = true;
+                    if (str_starts_with($normalized, '20') && strlen($normalized) > 2) {
+                        $own['0' . substr($normalized, 2)] = true;
+                        $own[substr($normalized, 2)] = true;
+                    }
+                }
+            }
+            $ownNumbersByTenant[$tenantId] = $own;
+        }
+
+        $own = $ownNumbersByTenant[$tenantId];
+
+        return isset($own[$digits])
+            || isset($own[ltrim($digits, '0')])
+            || (str_starts_with($digits, '20') && isset($own[substr($digits, 2)]));
     }
 }
