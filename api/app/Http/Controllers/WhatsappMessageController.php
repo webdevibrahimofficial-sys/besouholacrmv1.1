@@ -63,6 +63,7 @@ class WhatsappMessageController extends Controller
         $messages = WhatsappMessage::query()
             ->where('tenant_id', $tenantId)
             ->where('provider', 'mirror')
+            ->select($this->conversationListColumns())
             ->with(['lead' => fn ($query) => $query->select($this->leadPreviewColumns())])
             ->latest()
             ->limit(2000)
@@ -70,7 +71,7 @@ class WhatsappMessageController extends Controller
 
         $conversations = [];
 
-        $contactStore = app(WhatsappContactStoreService::class);
+        $contactIndex = $this->loadMirrorContactIndex($tenantId);
         $ownNumberDigits = $this->mirrorOwnNumberDigits($tenantId);
         $readMap = [];
         if (Schema::hasTable('whatsapp_conversation_reads')) {
@@ -86,11 +87,11 @@ class WhatsappMessageController extends Controller
 
         foreach ($messages as $message) {
             $rawCounterpart = $this->resolveMessageCounterpart($message);
-            $contact = $this->findMirrorContactForCounterpart($tenantId, $rawCounterpart, $message);
+            $contact = $this->findMirrorContactForCounterpart($tenantId, $rawCounterpart, $message, $contactIndex);
             $rawPhone = $this->extractMirrorPhoneFromMessage($message);
 
-            // Heal missing phones from the persistent LID->phone cache / history
-            // before we fall back to showing the raw WhatsApp LID identifier.
+            // Heal missing phones from the in-memory LID->phone index only.
+            // Never scan message history / raw JSON on the list endpoint.
             if (
                 (!$rawPhone || $this->looksLikeWhatsappLid((string) $rawPhone))
                 && ($contact?->lid || $this->looksLikeWhatsappLid($rawCounterpart) || filled($message->counterpart_lid))
@@ -98,18 +99,13 @@ class WhatsappMessageController extends Controller
                 $lidCandidate = (string) ($contact?->lid
                     ?: $message->counterpart_lid
                     ?: ($this->looksLikeWhatsappLid($rawCounterpart) ? $rawCounterpart : ''));
-                $storedPhone = $contactStore->resolvePhoneForLid($tenantId, $lidCandidate)
-                    ?: $contactStore->resolveFromMessageHistory($tenantId, $lidCandidate);
-                if ($storedPhone && !$this->looksLikeWhatsappLid($storedPhone) && !$this->isOwnMirrorNumber($storedPhone, $ownNumberDigits)) {
+                $indexedContact = $this->contactFromIndexByLid($contactIndex, $lidCandidate) ?: $contact;
+                $storedPhone = filled($indexedContact?->phone) && !$this->looksLikeWhatsappLid((string) $indexedContact->phone)
+                    ? trim((string) $indexedContact->phone)
+                    : null;
+                if ($storedPhone && !$this->isOwnMirrorNumber($storedPhone, $ownNumberDigits)) {
                     $rawPhone = $storedPhone;
-                    if ($contact && !filled($contact->phone)) {
-                        $contactStore->upsertContact($tenantId, [
-                            'lid' => $lidCandidate,
-                            'phone' => $storedPhone,
-                            'source' => 'conversation_list_heal',
-                        ]);
-                        $contact->phone = $storedPhone;
-                    }
+                    $contact = $indexedContact ?: $contact;
                 }
             }
 
@@ -742,16 +738,18 @@ class WhatsappMessageController extends Controller
 
         $tenantId = (int) $user->tenant_id;
         $phone = trim((string) $validated['phone']);
-        $contactStore = app(WhatsappContactStoreService::class);
+        $contactIndex = $this->loadMirrorContactIndex($tenantId);
         $ownNumberDigits = $this->mirrorOwnNumberDigits($tenantId);
-        $selectedContact = $this->findMirrorContactForCounterpart($tenantId, $phone);
+        $selectedContact = $this->findMirrorContactForCounterpart($tenantId, $phone, null, $contactIndex);
         $resolvedFromStore = null;
         $lidCandidate = (string) ($selectedContact?->lid
             ?: ($this->looksLikeWhatsappLid($phone) ? $phone : '')
             ?: ($this->looksLikeWhatsappLid((string) ($selectedContact?->phone ?? '')) ? $selectedContact->phone : ''));
         if ($lidCandidate !== '') {
-            $resolvedFromStore = $contactStore->resolvePhoneForLid($tenantId, $lidCandidate)
-                ?: $contactStore->resolveFromMessageHistory($tenantId, $lidCandidate);
+            $indexedContact = $this->contactFromIndexByLid($contactIndex, $lidCandidate) ?: $selectedContact;
+            $resolvedFromStore = filled($indexedContact?->phone) && !$this->looksLikeWhatsappLid((string) $indexedContact->phone)
+                ? trim((string) $indexedContact->phone)
+                : null;
         }
         $selectedCounterpart = trim((string) (
             ($selectedContact?->phone && !$this->looksLikeWhatsappLid((string) $selectedContact->phone) ? $selectedContact->phone : null)
@@ -777,20 +775,23 @@ class WhatsappMessageController extends Controller
         $messages = WhatsappMessage::query()
             ->where('tenant_id', $tenantId)
             ->where('provider', 'mirror')
+            ->select($this->conversationListColumns())
             ->orderBy('created_at', 'desc')
             ->limit(3000)
             ->get()
-            ->filter(function (WhatsappMessage $message) use ($tenantId, $phoneVariants, $selectedLid, $contactStore, $ownNumberDigits) {
+            ->filter(function (WhatsappMessage $message) use ($tenantId, $phoneVariants, $selectedLid, $contactIndex, $ownNumberDigits) {
                 $rawCounterpart = $this->resolveMessageCounterpart($message);
-                $contact = $this->findMirrorContactForCounterpart($tenantId, $rawCounterpart, $message);
+                $contact = $this->findMirrorContactForCounterpart($tenantId, $rawCounterpart, $message, $contactIndex);
                 $rawPhone = $this->extractMirrorPhoneFromMessage($message);
                 if ((!$rawPhone || $this->looksLikeWhatsappLid((string) $rawPhone)) && ($contact?->lid || $this->looksLikeWhatsappLid($rawCounterpart) || filled($message->counterpart_lid))) {
                     $lidCandidate = (string) ($contact?->lid
                         ?: $message->counterpart_lid
                         ?: ($this->looksLikeWhatsappLid($rawCounterpart) ? $rawCounterpart : ''));
-                    $storedPhone = $contactStore->resolvePhoneForLid($tenantId, $lidCandidate)
-                        ?: $contactStore->resolveFromMessageHistory($tenantId, $lidCandidate);
-                    if ($storedPhone && !$this->looksLikeWhatsappLid($storedPhone) && !$this->isOwnMirrorNumber($storedPhone, $ownNumberDigits)) {
+                    $indexedContact = $this->contactFromIndexByLid($contactIndex, $lidCandidate) ?: $contact;
+                    $storedPhone = filled($indexedContact?->phone) && !$this->looksLikeWhatsappLid((string) $indexedContact->phone)
+                        ? trim((string) $indexedContact->phone)
+                        : null;
+                    if ($storedPhone && !$this->isOwnMirrorNumber($storedPhone, $ownNumberDigits)) {
                         $rawPhone = $storedPhone;
                     }
                 }
@@ -1198,6 +1199,68 @@ class WhatsappMessageController extends Controller
         ));
     }
 
+    private function conversationListColumns(): array
+    {
+        $columns = [
+            'id',
+            'tenant_id',
+            'provider',
+            'direction',
+            'from',
+            'to',
+            'type',
+            'status',
+            'message_id',
+            'body',
+            'lead_id',
+            'created_at',
+        ];
+
+        if (Schema::hasColumn('whatsapp_messages', 'counterpart_lid')) {
+            $columns[] = 'counterpart_lid';
+        }
+
+        return $columns;
+    }
+
+    private function loadMirrorContactIndex(int $tenantId): array
+    {
+        $byLid = [];
+        $byPhone = [];
+
+        if (!Schema::hasTable('whatsapp_contacts')) {
+            return ['lid' => $byLid, 'phone' => $byPhone];
+        }
+
+        $rows = WhatsappContact::query()
+            ->where('tenant_id', $tenantId)
+            ->get(['id', 'tenant_id', 'lid', 'phone', 'name', 'push_name', 'verified_name']);
+
+        foreach ($rows as $contact) {
+            $lid = trim((string) ($contact->lid ?? ''));
+            if ($lid !== '') {
+                $byLid[$lid] = $contact;
+            }
+
+            $phone = trim((string) ($contact->phone ?? ''));
+            if ($phone !== '' && !$this->looksLikeWhatsappLid($phone)) {
+                $digits = PhoneNormalizer::digits($phone);
+                if ($digits !== '') {
+                    $byPhone[$digits] = $contact;
+                }
+            }
+        }
+
+        return ['lid' => $byLid, 'phone' => $byPhone];
+    }
+
+    private function contactFromIndexByLid(array $index, string $lid): ?WhatsappContact
+    {
+        $normalized = $this->normalizeLidDigits($lid) ?: trim($lid);
+
+        return $normalized !== '' ? ($index['lid'][$normalized] ?? null) : null;
+    }
+
     private function resolveMessageCounterpart(WhatsappMessage $message): string
     {
         $direction = strtolower((string) $message->direction);
@@ -1211,8 +1274,12 @@ class WhatsappMessageController extends Controller
         return trim((string) ($message->from ?: $message->to));
     }
 
-    private function findMirrorContactForCounterpart(int $tenantId, string $counterpart, ?WhatsappMessage $message = null): ?WhatsappContact
-    {
+    private function findMirrorContactForCounterpart(
+        int $tenantId,
+        string $counterpart,
+        ?WhatsappMessage $message = null,
+        ?array $index = null
+    ): ?WhatsappContact {
         if (!Schema::hasTable('whatsapp_contacts')) {
             return null;
         }
@@ -1220,6 +1287,22 @@ class WhatsappMessageController extends Controller
         $lid = trim((string) ($message?->counterpart_lid ?: ''));
         if ($lid === '' && $this->looksLikeWhatsappLid($counterpart)) {
             $lid = preg_replace('/\D+/', '', $counterpart) ?: '';
+        }
+
+        if ($index !== null) {
+            if ($lid !== '') {
+                $fromLid = $this->contactFromIndexByLid($index, $lid);
+                if ($fromLid) {
+                    return $fromLid;
+                }
+            }
+
+            $digits = PhoneNormalizer::digits($counterpart);
+            if ($digits !== '' && !$this->looksLikeWhatsappLid($digits)) {
+                return $index['phone'][$digits] ?? null;
+            }
+
+            return null;
         }
 
         if ($lid !== '') {
@@ -1629,7 +1712,11 @@ class WhatsappMessageController extends Controller
             $url = is_string($absolute) && $absolute !== '' ? $storage->toRelativeUrl($absolute) : null;
         }
 
-        if (!$url && $message->provider === 'meta' && $this->extractMetaMediaId($raw, $type)) {
+        if (!$url && $message->id && (
+            $storedPath
+            || ($message->provider === 'meta' && $this->extractMetaMediaId($raw, $type))
+            || $raw === []
+        )) {
             $url = $storage->toRelativeUrl(
                 URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(120))
             );

@@ -532,4 +532,45 @@ class WhatsappMirrorTest extends TestCase
         $this->assertSame('image', $item['media']['type'] ?? null);
         $this->assertStringStartsWith('/', $item['media']['url'] ?? '');
     }
+
+    public function test_conversations_list_ignores_huge_raw_payloads(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Admin',
+        ]);
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+        ]);
+
+        WhatsappMessage::create([
+            'tenant_id' => $tenant->id,
+            'provider' => 'mirror',
+            'source' => 'live',
+            'direction' => 'inbound',
+            'from' => '201001234567',
+            'to' => '201099999999',
+            'type' => 'image',
+            'status' => 'received',
+            'message_id' => 'wamid.mirror.huge-raw',
+            'body' => 'photo',
+            'raw' => [
+                'message' => [
+                    'media' => [
+                        'base64' => str_repeat('A', 250000),
+                    ],
+                ],
+            ],
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/whatsapp-mirror/conversations?page=1&per_page=20')
+            ->assertOk()
+            ->assertJsonPath('data.0.phone', '201001234567');
+    }
 }
