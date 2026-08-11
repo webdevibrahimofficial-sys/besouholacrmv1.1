@@ -68,9 +68,40 @@ function getMessagePreview(message, isArabic) {
 function getMessageBubbleContent(message, isArabic) {
   const body = getMessageText(message)
   if (body) return body
-  const type = String(message?.type || '').trim().toLowerCase()
+  if (resolveBrowserMediaUrl(message)) return ''
+  const type = String(message?.media?.type || message?.type || '').trim().toLowerCase()
   if (type && type !== 'text') return getMessageTypeLabel(type, isArabic)
   return isArabic ? 'رسالة فارغة' : 'Empty message'
+}
+
+function resolveBrowserMediaUrl(message) {
+  const url = String(message?.media?.url || '').trim()
+  if (!url) return ''
+  if (url.startsWith('blob:') || url.startsWith('data:')) return url
+  if (url.startsWith('/') && !url.startsWith('//')) return url
+  try {
+    const parsed = new URL(url)
+    if (
+      parsed.pathname.includes('/api/files/')
+      || parsed.pathname.includes('/api/whatsapp/media/')
+    ) {
+      return `${parsed.pathname}${parsed.search}`
+    }
+  } catch {
+    return url
+  }
+  return url
+}
+
+function resolveMessageMediaType(message) {
+  return String(message?.media?.type || message?.type || message?.media?.mime_type || '')
+    .trim()
+    .toLowerCase()
+}
+
+function isImageMedia(message) {
+  const type = resolveMessageMediaType(message)
+  return type.startsWith('image') || type === 'sticker'
 }
 
 function looksLikeWhatsappLid(value) {
@@ -578,6 +609,7 @@ export default function WhatsAppMirrorInbox() {
     const attachment = pendingAttachment
     const mediaType = attachment ? resolveMediaTypeFromFile(attachment) : 'text'
     const optimisticId = `local-${Date.now()}`
+    const localPreviewUrl = attachment ? URL.createObjectURL(attachment) : ''
     const optimisticMessage = {
       id: optimisticId,
       body,
@@ -589,7 +621,7 @@ export default function WhatsAppMirrorInbox() {
       timestamp: new Date().toISOString(),
       media: attachment
         ? {
-            url: attachmentPreviewUrl || undefined,
+            url: localPreviewUrl || undefined,
             filename: attachment.name,
             type: mediaType,
             mime_type: attachment.type,
@@ -632,6 +664,7 @@ export default function WhatsAppMirrorInbox() {
         || (isArabic ? 'تعذر إرسال الرسالة أو المرفق' : 'Unable to send message or attachment')
       )
     } finally {
+      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl)
       setSendingMessage(false)
     }
   }
@@ -917,6 +950,9 @@ export default function WhatsAppMirrorInbox() {
                   <div className="space-y-3">
                     {orderedMessages.map((message) => {
                       const isOutbound = message.direction === 'outbound'
+                      const mediaUrl = resolveBrowserMediaUrl(message)
+                      const mediaType = resolveMessageMediaType(message)
+                      const bubbleText = getMessageBubbleContent(message, isArabic)
                       return (
                         <div key={message.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
                           <div className={`max-w-[78%] rounded-2xl px-4 py-2 text-sm shadow-sm ${
@@ -924,22 +960,36 @@ export default function WhatsAppMirrorInbox() {
                               ? 'bg-emerald-600 text-white'
                               : isLight ? 'bg-white text-gray-900' : 'bg-slate-800 text-white'
                           }`}>
-                            {message.media?.url && String(message.media.type || message.type || '').startsWith('image') ? (
-                              <a href={message.media.url} target="_blank" rel="noreferrer" className="mb-2 block">
+                            {mediaUrl && isImageMedia(message) ? (
+                              <a href={mediaUrl} target="_blank" rel="noreferrer" className="mb-2 block">
                                 <img
-                                  src={message.media.url}
-                                  alt={message.media.filename || (isArabic ? 'صورة' : 'Image')}
+                                  src={mediaUrl}
+                                  alt={message.media?.filename || (isArabic ? 'صورة' : 'Image')}
                                   className="max-h-52 max-w-full rounded-xl object-cover"
                                 />
                               </a>
-                            ) : message.media?.url ? (
-                              <a href={message.media.url} target="_blank" rel="noreferrer" className="mb-1 block underline">
-                                {message.media.filename || message.media.type || (isArabic ? 'ملف مرفق' : 'Attachment')}
+                            ) : mediaUrl && mediaType.startsWith('video') ? (
+                              <video controls className="mb-2 max-h-52 w-full rounded-xl bg-black">
+                                <source src={mediaUrl} type={message.media?.mime_type || 'video/mp4'} />
+                              </video>
+                            ) : mediaUrl && mediaType.startsWith('audio') ? (
+                              <audio controls className="mb-2 w-full">
+                                <source src={mediaUrl} type={message.media?.mime_type || 'audio/mpeg'} />
+                              </audio>
+                            ) : mediaUrl ? (
+                              <a href={mediaUrl} target="_blank" rel="noreferrer" className="mb-1 block underline">
+                                {message.media?.filename || message.media?.type || (isArabic ? 'ملف مرفق' : 'Attachment')}
                               </a>
+                            ) : isImageMedia(message) ? (
+                              <div className="mb-1 italic opacity-80">
+                                {isArabic ? 'صورة (تعذر التحميل)' : 'Photo (unavailable)'}
+                              </div>
                             ) : null}
+                            {bubbleText ? (
                             <div className={`whitespace-pre-wrap break-words ${!getMessageText(message) ? 'italic opacity-70' : ''}`}>
-                              {getMessageBubbleContent(message, isArabic)}
+                              {bubbleText}
                             </div>
+                            ) : null}
                             <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${isOutbound ? 'text-emerald-50' : subtleClass}`}>
                               <span>{formatTime(message.timestamp, isArabic)}</span>
                               {isOutbound ? <MessageReceiptTicks status={message.status} isArabic={isArabic} /> : null}

@@ -2,7 +2,7 @@ import React from 'react';
 import { Helmet } from 'react-helmet';
 import Hero from '@/components/Hero';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
-import TrustedClients from '@/components/TrustedClients';
+import TrustedClients, { TrustedClientsFallback } from '@/components/TrustedClients';
 import LeadLeakDetector from '@/components/LeadLeakDetector.jsx';
 import Services from '@/components/Services';
 import About from '@/components/About';
@@ -81,7 +81,7 @@ const Home = () => {
         </SectionAnimator>
       </SectionErrorBoundary>
 
-      <SectionErrorBoundary>
+      <SectionErrorBoundary fallback={<TrustedClientsFallback />}>
         <SectionAnimator>
           <TrustedClients />
         </SectionAnimator>

@@ -94,13 +94,14 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         $resolvedLeadId = $lead?->id;
 
         try {
-            $enrichedPayload = $this->payload;
+            $enrichedPayload = $this->stripMediaBase64($this->payload);
             $storedMedia = $this->persistIncomingMedia($tenantId, $msgData);
             if ($storedMedia) {
                 $enrichedPayload['message']['media'] = array_merge(
                     is_array($enrichedPayload['message']['media'] ?? null) ? $enrichedPayload['message']['media'] : [],
                     $storedMedia
                 );
+                unset($enrichedPayload['message']['media']['base64']);
                 $enrichedPayload['request'] = array_merge(
                     is_array($enrichedPayload['request'] ?? null) ? $enrichedPayload['request'] : [],
                     [
@@ -175,6 +176,14 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
             $existingBody = trim((string) ($message->body ?? ''));
             if ($incomingBody !== '' && $incomingBody !== $existingBody) {
                 $updates['body'] = $attributes['body'];
+            }
+
+            $mergedRaw = $this->mergeIncomingMediaRaw(
+                is_array($message->raw) ? $message->raw : [],
+                $enrichedPayload
+            );
+            if ($mergedRaw !== (is_array($message->raw) ? $message->raw : [])) {
+                $updates['raw'] = $mergedRaw;
             }
 
             if (
@@ -343,6 +352,46 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
         }
 
         return '';
+    }
+
+    private function stripMediaBase64(array $payload): array
+    {
+        if (isset($payload['message']['media']) && is_array($payload['message']['media'])) {
+            unset($payload['message']['media']['base64']);
+        }
+
+        return $payload;
+    }
+
+    private function mergeIncomingMediaRaw(array $existing, array $incoming): array
+    {
+        $incoming = $this->stripMediaBase64($incoming);
+        $existingRequest = is_array($existing['request'] ?? null) ? $existing['request'] : [];
+        $incomingRequest = is_array($incoming['request'] ?? null) ? $incoming['request'] : [];
+        $existingHasPath = trim((string) ($existingRequest['attachment_path'] ?? '')) !== '';
+        $incomingHasPath = trim((string) ($incomingRequest['attachment_path'] ?? '')) !== '';
+
+        if (!$incomingHasPath && !$existingHasPath) {
+            $merged = $existing;
+            if (!isset($merged['message']) && isset($incoming['message'])) {
+                $merged['message'] = $incoming['message'];
+            }
+            return $this->stripMediaBase64($merged);
+        }
+
+        if ($existingHasPath && !$incomingHasPath) {
+            return $this->stripMediaBase64($existing);
+        }
+
+        $merged = array_replace_recursive($existing, $incoming);
+        if ($existingHasPath) {
+            $merged['request']['attachment_path'] = $existingRequest['attachment_path'];
+            if (!empty($existingRequest['attachment_url'])) {
+                $merged['request']['attachment_url'] = $existingRequest['attachment_url'];
+            }
+        }
+
+        return $this->stripMediaBase64($merged);
     }
 
     private function persistIncomingMedia(int $tenantId, array $msgData): ?array

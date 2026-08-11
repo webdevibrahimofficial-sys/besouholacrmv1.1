@@ -250,6 +250,43 @@ class WhatsappMirrorProvider implements WhatsappProviderInterface
             }
         }
 
+        $backfill = [];
+        if (trim((string) ($message->type ?? '')) === '' || (string) $message->type === 'text') {
+            $backfill['type'] = $mediaType;
+        }
+        if (trim((string) ($message->body ?? '')) === '' && trim((string) ($caption ?? '')) !== '') {
+            $backfill['body'] = $caption;
+        }
+        if ($message->direction !== 'outbound') {
+            $backfill['direction'] = 'outbound';
+        }
+        if ($to !== '' && trim((string) ($message->to ?? '')) !== $to) {
+            $existingTo = PhoneNormalizer::digits((string) ($message->to ?? ''));
+            $intendedTo = PhoneNormalizer::digits($to);
+            $existingLooksLikeLid = strlen($existingTo) >= 14;
+            $phonesDiffer = $existingTo === ''
+                || $existingLooksLikeLid
+                || ($intendedTo !== '' && $existingTo !== $intendedTo && !str_ends_with($existingTo, $intendedTo) && !str_ends_with($intendedTo, $existingTo));
+            if ($phonesDiffer) {
+                $backfill['to'] = $to;
+            }
+        }
+
+        $raw = is_array($message->raw) ? $message->raw : [];
+        $raw['response'] = $data;
+        $raw['mirror'] = array_merge(
+            is_array($raw['mirror'] ?? null) ? $raw['mirror'] : [],
+            [
+                'media_type' => $mediaType,
+                'media_url' => $mediaUrl,
+                'filename' => $filename,
+                'caption' => $caption,
+            ]
+        );
+        $backfill['raw'] = $raw;
+        $message->forceFill($backfill)->save();
+        $message->refresh();
+
         if (
             $lead?->id
             && Schema::hasColumn('whatsapp_messages', 'lead_id')

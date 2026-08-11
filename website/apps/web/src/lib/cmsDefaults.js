@@ -609,5 +609,18 @@ export const defaultWebsiteContent = {
 
 export const getSectionContent = (sections, type, fallback = {}) => {
   const fromApi = sections?.find((section) => section.type === type)?.content;
-  return { ...fallback, ...(fromApi || {}) };
+  if (!fromApi || typeof fromApi !== 'object' || Array.isArray(fromApi)) {
+    return { ...fallback };
+  }
+
+  const merged = { ...fallback, ...fromApi };
+
+  Object.entries(fallback).forEach(([key, value]) => {
+    if (!Array.isArray(value)) return;
+    if (!Array.isArray(merged[key]) || merged[key].length === 0) {
+      merged[key] = value;
+    }
+  });
+
+  return merged;
 };

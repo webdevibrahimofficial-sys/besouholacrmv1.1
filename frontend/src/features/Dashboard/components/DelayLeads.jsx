@@ -107,19 +107,6 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
   const [selectedLead, setSelectedLead] = useState(null);
 
   const leadPermissionFlags = getLeadPermissionFlags(user);
-  const roleLower = String(user?.role || '').toLowerCase();
-  const isTenantAdmin =
-    roleLower === 'admin' ||
-    roleLower === 'tenant admin' ||
-    roleLower === 'tenant-admin';
-  const isSalesPerson = roleLower.includes('sales person') || roleLower.includes('salesperson');
-  const isAdminOrManager = user?.is_super_admin || 
-                           isTenantAdmin || 
-                           roleLower.includes('admin') || 
-                           roleLower.includes('manager') || 
-                           roleLower.includes('director') || 
-                           roleLower.includes('leader');
-  
   const canAddAction = leadPermissionFlags.canAddAction;
   const canShowCreator = leadPermissionFlags.canShowCreator;
 
@@ -148,69 +135,9 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
     return Boolean(byId || byName)
   }
 
-  // Logic for showing "Add Action" button:
-  // 1. User must have general permission (canAddAction)
-  // 2. Managers/Admins can add actions (comments) to any lead.
-  // 3. Sales Person can only add actions to their own leads.
   const shouldShowAddAction = (lead) => {
     if (!canAddAction) return false;
-
-    const normalizeName = (value) =>
-      String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-    const pickNumericId = (...values) => {
-      for (const value of values) {
-        if (value === undefined || value === null) continue;
-        if (typeof value === 'object') {
-          const nestedId = value.id ?? value.user_id ?? value.userId;
-          if (nestedId !== undefined && nestedId !== null && String(nestedId).match(/^\d+$/)) {
-            return String(nestedId);
-          }
-          continue;
-        }
-
-        const normalized = String(value).trim();
-        if (normalized.match(/^\d+$/)) {
-          return normalized;
-        }
-      }
-
-      return null;
-    };
-
-    const leadAssignedToId = pickNumericId(
-      lead?.employeeId,
-      lead?.employee_id,
-      lead?.assigneeId,
-      lead?.assignee_id,
-      lead?.assignedUserId,
-      lead?.assigned_user_id,
-      lead?.assigned_to,
-      lead?.assignedTo,
-      lead?.assignedAgent?.id,
-      lead?.assigned_agent?.id,
-      lead?.assigned_sales
-    );
-
-    const leadAssignedToName =
-      (typeof lead?.assigned_to === 'object' ? lead.assigned_to?.name : '') ||
-      (typeof lead?.assignedTo === 'object' ? lead.assignedTo?.name : '') ||
-      lead?.sales_person_name ||
-      lead?.salesPersonName ||
-      lead?.employee_name ||
-      lead?.assigned_to_name ||
-      lead?.assignedToName ||
-      (typeof lead?.sales_person === 'string' && isNaN(Number(lead.sales_person)) ? lead.sales_person : '') ||
-      '';
-
-    const canPerformActions =
-      user?.is_super_admin ||
-      (leadAssignedToId && String(leadAssignedToId) === String(user?.id)) ||
-      (!leadAssignedToId && leadAssignedToName && user?.name && normalizeName(leadAssignedToName) === normalizeName(user?.name));
-
-    return typeof lead?.permissions?.can_add_action === 'boolean'
-      ? lead.permissions.can_add_action
-      : canPerformActions;
+    return lead?.permissions?.can_add_action === true;
   };
 
   // Tooltip state (click-based)
@@ -471,6 +398,9 @@ export const DelayLeads = ({ dateFrom, dateTo, selectedEmployee, selectedEmploye
           status: l.status,
           priority: l.priority,
           source: l.source,
+          permissions: l.permissions,
+          manager_id: l.manager_id,
+          managerId: l.managerId,
           assigned_to: l.assigned_to,
           assigned_to_id: l.assigned_to_id,
           assignedTo: l.assignedTo,

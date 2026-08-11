@@ -522,6 +522,10 @@ class TelesalesLeadViewService
             return (int) ($lead->tenant_id ?? 0) === (int) ($user->tenant_id ?? 0);
         }
 
+        if ((string) ($lead->manager_id ?? '') === (string) ($user->id ?? '')) {
+            return true;
+        }
+
         $assignedTo = (int) ($lead->assigned_to ?? 0);
         if ($assignedTo <= 0) {
             return false;

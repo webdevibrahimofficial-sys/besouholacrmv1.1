@@ -2509,6 +2509,41 @@ body {
   from { opacity: 0; transform: translateY(-6px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
+@keyframes copilot-tab-shine {
+  0% { transform: translateX(-140%) skewX(-22deg); opacity: 0; }
+  18% { opacity: 0.95; }
+  100% { transform: translateX(240%) skewX(-22deg); opacity: 0; }
+}
+@keyframes copilot-tab-glow {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.5), 0 0 14px rgba(34, 211, 238, 0.28);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(125, 211, 252, 0.95), 0 0 24px rgba(34, 211, 238, 0.5);
+  }
+}
+.copilot-launcher {
+  overflow: hidden;
+  isolation: isolate;
+  animation: copilot-tab-glow 2.4s ease-in-out infinite;
+}
+.copilot-launcher::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.08) 42%, transparent 70%);
+  pointer-events: none;
+}
+.copilot-launcher::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  width: 46%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.78), transparent);
+  pointer-events: none;
+  animation: copilot-tab-shine 2.6s ease-in-out infinite;
+}
 .page-title {
   position: relative;
   display: inline-block;

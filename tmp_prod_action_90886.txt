@@ -1,0 +1,24 @@
+==== 90886
+id	lead_id	created_at	updated_at	action_type	next_action_type
+90886	19106	2026-08-09 15:55:20	2026-08-09 16:00:04	call	call
+
+date= 2026-08-09 time= 15:55 qo= None
+notes= test
+{
+  "date": "2026-08-09",
+  "nextAction": "call",
+  "selectedQuickOption": null,
+  "time": "15:55"
+}
+==== 90873
+id	lead_id	created_at	updated_at	action_type	next_action_type
+90873	19181	2026-08-09 15:43:56	2026-08-09 15:45:03	call	call
+
+date= 2026-08-09 time= 15:43 qo= None
+notes= hi
+{
+  "date": "2026-08-09",
+  "nextAction": "call",
+  "selectedQuickOption": null,
+  "time": "15:43"
+}

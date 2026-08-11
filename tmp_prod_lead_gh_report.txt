@@ -1,0 +1,266 @@
+=== SERVER TIME ===
+Sun Aug  9 12:54:51 UTC 2026
+
+               Local time: Sun 2026-08-09 12:54:52 UTC
+           Universal time: Sun 2026-08-09 12:54:52 UTC
+                 RTC time: Sun 2026-08-09 12:54:52
+                Time zone: Etc/UTC (UTC, +0000)
+System clock synchronized: yes
+              NTP service: active
+          RTC in local TZ: no
+
+=== LEAD 19181 ===
+id	tenant_id	name	phone	stage	stage_id	status	priority	assigned_to	created_by	last_action_at	last_contact	created_at	updated_at
+19181	41	gh	01555245876	follow up	180	new	medium	173	173	2026-08-09 15:43:56	2026-08-09 15:43:56	2026-07-23 13:24:44	2026-08-09 15:43:56
+
+=== ALL ACTIONS SUMMARY ===
+id	lead_id	tenant_id	user_id	action_type	next_action_type	created_at	updated_at
+90873	19181	41	173	call	call	2026-08-09 15:43:56	2026-08-09 15:45:03
+89178	19181	41	173	meeting	meeting	2026-08-06 18:20:19	2026-08-09 15:43:56
+88309	19181	41	173	meeting	meeting	2026-07-26 16:31:09	2026-08-06 18:20:19
+
+=== PARSED DATE FIELDS FROM DETAILS ===
+id	user_id	action_type	next_action_type	created_at	updated_at
+90873	173	call	call	2026-08-09 15:43:56	2026-08-09 15:45:03
+
+--- action 90873 interesting ---
+{
+  "answerStatus": "answered",
+  "call_status": "incoming",
+  "date": "2026-08-09",
+  "nextAction": "call",
+  "status": "pending",
+  "time": "15:43"
+}
+--- action 90873 FULL details ---
+{
+  "notes": "hi",
+  "date": "2026-08-09",
+  "status": "pending",
+  "time": "15:43",
+  "actionType": "call",
+  "nextAction": "call",
+  "priority": "medium",
+  "assignedTo": null,
+  "selectedQuickOption": null,
+  "proposalAmount": null,
+  "proposalDiscount": null,
+  "proposalValidityDays": null,
+  "proposalAttachmentUrl": null,
+  "proposalAttachment": null,
+  "reservationType": "general",
+  "reservationCategory": null,
+  "reservationItem": null,
+  "reservationGeneralItems": [
+    {
+      "category": null,
+      "item": null,
+      "quantity": 1,
+      "price": 0,
+      "discount_type": "value",
+      "discount_value": null
+    }
+  ],
+  "reservationNotes": null,
+  "reservationProject": null,
+  "reservationUnit": null,
+  "reservationAmount": null,
+  "rentUnit": null,
+  "rentStart": null,
+  "rentEnd": null,
+  "rentAmount": null,
+  "rentAttachment": null,
+  "closingRevenue": null,
+  "cancelReason": null,
+  "stage_at_creation_name": "follow up",
+  "call_status": "incoming",
+  "answerStatus": "answered",
+  "delayed_notified": true
+}
+id	user_id	action_type	next_action_type	created_at	updated_at
+89178	173	meeting	meeting	2026-08-06 18:20:19	2026-08-09 15:43:56
+
+--- action 89178 interesting ---
+{
+  "answerStatus": "answer",
+  "date": "2026-08-06",
+  "meeting_status": "scheduled",
+  "meeting_status_changed_at": "2026-08-06T15:20:19.127902Z",
+  "nextAction": "meeting",
+  "sourceReservationActionId": null,
+  "sourceReservationLoadedAt": null,
+  "status": "superseded",
+  "superseded_previous_status": "pending",
+  "time": "18:19"
+}
+--- action 89178 FULL details ---
+{
+  "status": "superseded",
+  "date": "2026-08-06",
+  "time": "18:19",
+  "outcome": "answer",
+  "actionType": "meeting",
+  "nextAction": "meeting",
+  "title": null,
+  "priority": "medium",
+  "assignedTo": null,
+  "notes": "اتن",
+  "meetingType": "introduction",
+  "meetingLocation": "indoor",
+  "meeting_status": "scheduled",
+  "answerStatus": "answer",
+  "selectedQuickOption": null,
+  "proposalAmount": null,
+  "proposalDiscount": null,
+  "proposalValidityDays": null,
+  "proposalAttachmentUrl": null,
+  "proposalAttachment": null,
+  "reservationType": "project",
+  "reservationCategory": null,
+  "reservationItem": null,
+  "reservationGeneralItems": [
+    {
+      "category": null,
+      "item": null,
+      "quantity": 1,
+      "price": 0,
+      "discount_type": "value",
+      "discount_value": null
+    }
+  ],
+  "reservationNotes": null,
+  "reservationProject": null,
+  "reservationUnit": null,
+  "reservationAmount": null,
+  "sourceReservationActionId": null,
+  "sourceReservationLoadedAt": null,
+  "rentUnit": null,
+  "rentStart": null,
+  "rentEnd": null,
+  "rentAmount": null,
+  "rentAttachment": null,
+  "closingRevenue": null,
+  "cancelReason": null,
+  "cancelReasonId": null,
+  "cancelReasonTitleAr": null,
+  "notInterestReason": null,
+  "notInterestReasonId": null,
+  "notInterestReasonTitleAr": null,
+  "doneMeeting": false,
+  "stage_at_creation_name": "meeting",
+  "arranged_at": "2026-08-06T15:20:19.127762Z",
+  "scheduled_at": "2026-08-06T15:20:19.127762Z",
+  "meeting_status_changed_at": "2026-08-06T15:20:19.127902Z",
+  "type": "meeting",
+  "action_state": "superseded",
+  "completion_note": "Superseded by new action #90873",
+  "superseded_at": "2026-08-09 15:43:56",
+  "superseded_by_action_id": 90873,
+  "superseded_previous_status": "pending"
+}
+id	user_id	action_type	next_action_type	created_at	updated_at
+88309	173	meeting	meeting	2026-07-26 16:31:09	2026-08-06 18:20:19
+
+--- action 88309 interesting ---
+{
+  "answerStatus": "answer",
+  "date": "2026-07-26",
+  "meeting_status": "done",
+  "meeting_status_changed_at": "2026-07-26T13:32:45.860549Z",
+  "nextAction": "meeting",
+  "nextActionDate": "2026-07-26",
+  "nextActionTime": "16:35",
+  "nextActionType": "meeting",
+  "next_action_date": "2026-07-26",
+  "next_action_time": "16:35",
+  "next_action_type": "meeting",
+  "sourceReservationActionId": null,
+  "sourceReservationLoadedAt": null,
+  "status": "superseded",
+  "superseded_previous_status": "pending",
+  "time": "16:31"
+}
+--- action 88309 FULL details ---
+{
+  "status": "superseded",
+  "date": "2026-07-26",
+  "time": "16:31",
+  "outcome": "answer",
+  "actionType": "meeting",
+  "nextAction": "meeting",
+  "title": null,
+  "priority": "medium",
+  "assignedTo": null,
+  "notes": "Meeting Done",
+  "meetingType": "introduction",
+  "meetingLocation": "indoor",
+  "meeting_status": "done",
+  "answerStatus": "answer",
+  "selectedQuickOption": null,
+  "proposalAmount": null,
+  "proposalDiscount": null,
+  "proposalValidityDays": null,
+  "proposalAttachmentUrl": null,
+  "proposalAttachment": null,
+  "reservationType": "project",
+  "reservationCategory": null,
+  "reservationItem": null,
+  "reservationGeneralItems": [
+    {
+      "category": null,
+      "item": null,
+      "quantity": 1,
+      "price": 0,
+      "discount_type": "value",
+      "discount_value": null
+    }
+  ],
+  "reservationNotes": null,
+  "reservationProject": null,
+  "reservationUnit": null,
+  "reservationAmount": null,
+  "sourceReservationActionId": null,
+  "sourceReservationLoadedAt": null,
+  "rentUnit": null,
+  "rentStart": null,
+  "rentEnd": null,
+  "rentAmount": null,
+  "rentAttachment": null,
+  "closingRevenue": null,
+  "cancelReason": null,
+  "cancelReasonId": null,
+  "cancelReasonTitleAr": null,
+  "notInterestReason": null,
+  "notInterestReasonId": null,
+  "notInterestReasonTitleAr": null,
+  "doneMeeting": "true",
+  "stage_at_creation_name": "meeting",
+  "arranged_at": "2026-07-26T13:31:09.224650Z",
+  "scheduled_at": "2026-07-26T13:31:09.224650Z",
+  "meeting_status_changed_at": "2026-07-26T13:32:45.860549Z",
+  "next_action_type": "meeting",
+  "next_action_date": "2026-07-26",
+  "next_action_time": "16:35",
+  "done_at": "2026-07-26T13:32:45.860549Z",
+  "nextActionType": "meeting",
+  "nextActionDate": "2026-07-26",
+  "nextActionTime": "16:35",
+  "action_state": "superseded",
+  "completion_note": "Superseded by new action #89178",
+  "superseded_at": "2026-08-06 18:20:19",
+  "superseded_by_action_id": 89178,
+  "superseded_previous_status": "pending"
+}
+=== USER who created recent actions ===
+id	name	email
+173	admin	testibrahim@gmail.com
+
+=== Recent actions on tenant 41 today ===
+id	lead_id	lead_name	user_id	action_type	next_action_type	details_date	details_time	next_action_date	nextActionDate	status	created_at
+90876	19360	Ibrahim tramsy	173	call	follow_up	2026-08-10	09:00	NULL	NULL	pending	2026-08-09 15:47:56
+90873	19181	gh	173	call	call	2026-08-09	15:43	NULL	NULL	pending	2026-08-09 15:43:56
+
+=== ALL KEYS containing date/time for today tenant actions ===
+id	lead_id	name	detail_keys	d_date	d_time	nad	nat	nAD	nAT	sched_date	schedDate	created_at
+90876	19360	Ibrahim tramsy	["date", "time", "notes", "title", "status", "outcome", "rentEnd", "subType", "priority", "rentUnit", "rentStart", "actionType", "assignedTo", "nextAction", "rentAmount", "doneMeeting", "meetingType", "answerStatus", "cancelReason", "cancelReasonId", "closingRevenue", "meeting_status", "proposalAmount", "rentAttachment", "meetingLocation", "reservationItem", "reservationType", "reservationUnit", "proposalDiscount", "reservationNotes", "notInterestReason", "reservationAmount", "proposalAttachment", "reservationProject", "cancelReasonTitleAr", "notInterestReasonId", "reservationCategory", "selectedQuickOption", "proposalValidityDays", "proposalAttachmentUrl", "stage_at_creation_name", "reservationGeneralItems", "notInterestReasonTitleAr", "sourceReservationActionId", "sourceReservationLoadedAt"]	2026-08-10	09:00	NULL	NULL	NULL	NULL	NULL	NULL	2026-08-09 15:47:56
+90873	19181	gh	["date", "time", "notes", "status", "rentEnd", "priority", "rentUnit", "rentStart", "actionType", "assignedTo", "nextAction", "rentAmount", "call_status", "answerStatus", "cancelReason", "closingRevenue", "proposalAmount", "rentAttachment", "reservationItem", "reservationType", "reservationUnit", "delayed_notified", "proposalDiscount", "reservationNotes", "reservationAmount", "proposalAttachment", "reservationProject", "reservationCategory", "selectedQuickOption", "proposalValidityDays", "proposalAttachmentUrl", "stage_at_creation_name", "reservationGeneralItems"]	2026-08-09	15:43	NULL	NULL	NULL	NULL	NULL	NULL	2026-08-09 15:43:56

@@ -28,12 +28,18 @@ export default function Layout({ children }) {
   const [isWebsiteIntegrationOpen, setIsWebsiteIntegrationOpen] = useState(() => document.body.classList.contains('website-integration-open'))
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false)
   const copilotDraggedRef = useRef(false)
-  const [copilotButtonPosition, setCopilotButtonPosition] = useState(() => {
+  const [copilotButtonY, setCopilotButtonY] = useState(() => {
     try {
-      const saved = window.localStorage.getItem('besouholaCopilotButtonPosition')
-      if (saved) return JSON.parse(saved)
+      const savedY = window.localStorage.getItem('besouholaCopilotButtonY')
+      if (savedY) return Number(savedY)
+
+      const savedPosition = window.localStorage.getItem('besouholaCopilotButtonPosition')
+      if (savedPosition) {
+        const parsed = JSON.parse(savedPosition)
+        if (Number.isFinite(parsed?.y)) return parsed.y
+      }
     } catch {}
-    return null
+    return Math.max(window.innerHeight - 136, 96)
   })
   const [copilotDrag, setCopilotDrag] = useState(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -123,20 +129,17 @@ useEffect(() => {
   useEffect(() => {
     if (!copilotDrag) return undefined
 
-    const buttonSize = 56
+    const buttonSize = 34
     const margin = 12
     const move = (event) => {
+      if (event.cancelable) event.preventDefault()
       const point = event.touches?.[0] || event
-      const x = Math.min(
-        Math.max(point.clientX - copilotDrag.offsetX, margin),
-        window.innerWidth - buttonSize - margin,
-      )
       const y = Math.min(
         Math.max(point.clientY - copilotDrag.offsetY, margin),
         window.innerHeight - buttonSize - margin,
       )
 
-      setCopilotButtonPosition({ x, y })
+      setCopilotButtonY(y)
       const moved = Math.abs(point.clientX - copilotDrag.startX) > 4 || Math.abs(point.clientY - copilotDrag.startY) > 4
       if (moved) copilotDraggedRef.current = true
       setCopilotDrag((current) => current ? { ...current, moved: current.moved || moved } : current)
@@ -144,9 +147,10 @@ useEffect(() => {
 
     const end = () => {
       setCopilotDrag((current) => {
-        if ((current?.moved || copilotDraggedRef.current) && copilotButtonPosition) {
+        if (current?.moved || copilotDraggedRef.current) {
           try {
-            window.localStorage.setItem('besouholaCopilotButtonPosition', JSON.stringify(copilotButtonPosition))
+            window.localStorage.setItem('besouholaCopilotButtonY', String(copilotButtonY))
+            window.localStorage.removeItem('besouholaCopilotButtonPosition')
           } catch {}
         }
         return null
@@ -164,7 +168,22 @@ useEffect(() => {
       window.removeEventListener('touchmove', move)
       window.removeEventListener('touchend', end)
     }
-  }, [copilotDrag, copilotButtonPosition])
+  }, [copilotDrag, copilotButtonY])
+
+  useEffect(() => {
+    const clampCopilotButtonY = () => {
+      const buttonSize = 34
+      const margin = 12
+      setCopilotButtonY((current) => Math.min(
+        Math.max(Number.isFinite(current) ? current : window.innerHeight - 136, margin),
+        window.innerHeight - buttonSize - margin,
+      ))
+    }
+
+    window.addEventListener('resize', clampCopilotButtonY)
+    clampCopilotButtonY()
+    return () => window.removeEventListener('resize', clampCopilotButtonY)
+  }, [])
 
   const startCopilotDrag = (event) => {
     const point = event.touches?.[0] || event
@@ -233,17 +252,17 @@ useEffect(() => {
             type="button"
             aria-label={isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'}
             title={isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'}
-            className={`fixed z-[140] rounded-full shadow-xl bg-gradient-to-br from-sky-600 to-cyan-500 hover:from-sky-700 hover:to-cyan-600 text-white flex items-center justify-center transition hover:scale-[1.03] cursor-grab active:cursor-grabbing touch-none select-none ${copilotButtonPosition ? '' : `bottom-6 ${isRtl ? 'left-6' : 'right-6'}`}`}
+            className={`copilot-launcher fixed right-0 z-[181] ${isAiPanelOpen ? 'pointer-events-none translate-x-full opacity-0' : 'translate-x-0 opacity-100'} flex items-center justify-center rounded-l-md border border-r-0 border-cyan-100/70 bg-gradient-to-b from-sky-400 via-cyan-500 to-sky-700 text-white transition-[transform,opacity] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] hover:brightness-110 cursor-grab active:cursor-grabbing touch-none select-none`}
             style={{
-              width: 56,
-              height: 56,
-              ...(copilotButtonPosition ? { left: copilotButtonPosition.x, top: copilotButtonPosition.y } : {}),
+              width: 20,
+              height: 34,
+              top: copilotButtonY,
             }}
             onMouseDown={startCopilotDrag}
             onTouchStart={startCopilotDrag}
             onClick={toggleCopilotPanel}
           >
-            <Bot className="w-6 h-6" />
+            <Bot className="relative z-[1] h-3 w-3 drop-shadow-[0_0_6px_rgba(255,255,255,0.85)]" />
           </button>
 
           <BesouholaCopilotPanel

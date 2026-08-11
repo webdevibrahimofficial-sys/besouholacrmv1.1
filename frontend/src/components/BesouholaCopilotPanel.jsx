@@ -464,9 +464,6 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
   useEffect(() => {
     if (!open) return
 
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
     const handleEscape = (event) => {
       if (event.key === 'Escape') onClose()
     }
@@ -474,7 +471,6 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     window.addEventListener('keydown', handleEscape)
 
     return () => {
-      document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleEscape)
     }
   }, [open, onClose])
@@ -704,26 +700,27 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     })
   })()
 
-  if (!open) return null
-
   const panelSizeClasses = expanded
-    ? 'h-[min(82vh,820px)] w-[min(760px,calc(100vw-24px))]'
-    : 'h-[min(620px,calc(100vh-128px))] w-[min(420px,calc(100vw-24px))]'
+    ? 'h-full w-[min(760px,100vw)]'
+    : 'h-full w-[min(430px,100vw)]'
 
   return (
-    <div className="fixed inset-0 z-[180]">
+    <div className={`fixed inset-0 z-[180] ${open ? 'pointer-events-auto' : 'pointer-events-none'}`}>
       <button
         type="button"
+        tabIndex={open ? 0 : -1}
+        aria-hidden={!open}
         aria-label={tUi(isRtl, 'Close Besouhola Copilot', 'إغلاق Besouhola Copilot — المساعد')}
-        className="absolute inset-0 bg-slate-950/30 backdrop-blur-[2px]"
+        className={`absolute inset-0 bg-slate-950/25 backdrop-blur-[1px] transition-opacity duration-1000 ${open ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
 
       <div
-        className={`absolute bottom-24 ${isRtl ? 'left-6' : 'right-6'} ${panelSizeClasses} overflow-hidden rounded-[28px] border ${isLight ? 'border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(240,249,255,0.96))] text-slate-900 shadow-[0_30px_90px_-40px_rgba(14,116,144,0.65)] ring-1 ring-slate-900/5' : 'border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(15,23,42,0.96))] text-slate-100 shadow-[0_30px_90px_-40px_rgba(15,23,42,0.65)] ring-1 ring-slate-950/20'} transition-[width,height] duration-200`}
+        className={`${open ? 'pointer-events-auto' : 'pointer-events-none'} absolute inset-y-0 right-0 ${panelSizeClasses} overflow-hidden rounded-l-[24px] border border-r-0 ${isLight ? 'border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(240,249,255,0.96))] text-slate-900 shadow-[0_30px_90px_-40px_rgba(14,116,144,0.65)] ring-1 ring-slate-900/5' : 'border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(15,23,42,0.96))] text-slate-100 shadow-[0_30px_90px_-40px_rgba(15,23,42,0.65)] ring-1 ring-slate-950/20'} transform-gpu transition-[transform,width] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${open ? 'translate-x-0' : 'translate-x-full'}`}
         dir={isRtl ? 'rtl' : 'ltr'}
         role="dialog"
-        aria-modal="true"
+        aria-modal={open}
+        aria-hidden={!open}
       >
         <div className="flex h-full flex-col">
           <div className={`relative overflow-hidden border-b px-4 pb-3 pt-3.5 ${isLight ? 'border-slate-200/80 bg-white/80 text-slate-900' : 'border-slate-700 bg-slate-950/70 text-slate-100'}`}>

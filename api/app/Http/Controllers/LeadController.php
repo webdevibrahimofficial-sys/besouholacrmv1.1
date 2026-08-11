@@ -968,6 +968,10 @@ class LeadController extends Controller
             return (int) ($lead->tenant_id ?? 0) === (int) ($user->tenant_id ?? 0);
         }
 
+        if ((string) ($lead->manager_id ?? '') === (string) ($user->id ?? '')) {
+            return true;
+        }
+
         $assignedTo = (int) ($lead->assigned_to ?? 0);
         if ($assignedTo <= 0) return false;
 
@@ -3961,13 +3965,15 @@ class LeadController extends Controller
                 $this->appendLeadStagePresentation(collect($slice), $user);
             }
 
-            return new \Illuminate\Pagination\LengthAwarePaginator(
+            $paginator = new \Illuminate\Pagination\LengthAwarePaginator(
                 $slice,
                 $total,
                 $perPage,
                 $page,
                 ['path' => $request->url(), 'query' => $request->query()]
             );
+
+            return $this->appendLeadPermissionsForList($paginator, $user);
 
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Leads Delayed Error: ' . $e->getMessage());

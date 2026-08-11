@@ -1,0 +1,202 @@
+{
+    "page_token_len": 221,
+    "user_token_len": 214,
+    "app_id": "978194091944673",
+    "secret_len": 32,
+    "settings_keys": [
+        "autoSync",
+        "events",
+        "enableCapi",
+        "fieldMap",
+        "sync_warnings",
+        "subscribe_summary",
+        "last_sync_at",
+        "formMap"
+    ],
+    "settings_snippet": {
+        "auto_sync": null,
+        "lead_auto_sync": null,
+        "enable_auto_sync": null,
+        "autoSync": true
+    },
+    "with_page_token": [
+        {
+            "label": "page_info",
+            "http": 200,
+            "body": {
+                "id": "608128752383598",
+                "name": "طاجن حكاية - Tagen Hekaya",
+                "is_published": true,
+                "leadgen_tos_accepted": true
+            }
+        },
+        {
+            "label": "subscribed_apps",
+            "http": 200,
+            "body": {
+                "data": [
+                    {
+                        "link": "https://www.facebook.com/games/?app_id=978194091944673",
+                        "name": "besouholatest",
+                        "id": "978194091944673",
+                        "subscribed_fields": [
+                            "leadgen"
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "label": "forms",
+            "http": 200,
+            "body": {
+                "data": [
+                    {
+                        "id": "2738330576499508",
+                        "name": "lead1",
+                        "status": "ACTIVE",
+                        "leads_count": 1
+                    },
+                    {
+                        "id": "2280225572526883",
+                        "name": "Lead Test 01",
+                        "status": "ACTIVE",
+                        "leads_count": 0
+                    }
+                ],
+                "paging": {
+                    "cursors": {
+                        "before": "QVFIU2R0aEVvWUdZAY05scUVlX1JTeEQ0UnV3QUlJOHFNSXpoc0FwZAVBNc0ZAEM1U3VWVlM3V4OG84ZAUR6SWZARNng1SmlmbTZAsRTNFMWtMWGlpbmpjMlRlZA2Jn",
+                        "after": "QVFIU2xZAbHF1enVzLUU3ODhEbzk2eEs4S0t2elZAhQzk1MEdpdmpZAbGNkZAUlJckhfVHRTQVFBOHYxME9BWDFLbklJMXl6eUFfMjZAPY0FOSmNiSnVaeVU0WTZAB"
+                    }
+                }
+            }
+        },
+        {
+            "label": "debug",
+            "http": 200,
+            "body": {
+                "data": {
+                    "app_id": "978194091944673",
+                    "type": "PAGE",
+                    "application": "besouholatest",
+                    "data_access_expires_at": 1794006964,
+                    "expires_at": 0,
+                    "is_valid": true,
+                    "issued_at": 1786230968,
+                    "profile_id": "608128752383598",
+                    "scopes": [
+                        "email",
+                        "pages_show_list",
+                        "ads_read",
+                        "business_management",
+                        "leads_retrieval",
+                        "pages_read_engagement",
+                        "pages_manage_metadata",
+                        "pages_manage_ads",
+                        "public_profile"
+                    ],
+                    "granular_scopes": [
+                        {
+                            "scope": "pages_show_list"
+                        },
+                        {
+                            "scope": "ads_read"
+                        },
+                        {
+                            "scope": "business_management"
+                        },
+                        {
+                            "scope": "leads_retrieval"
+                        },
+                        {
+                            "scope": "pages_read_engagement"
+                        },
+                        {
+                            "scope": "pages_manage_metadata"
+                        },
+                        {
+                            "scope": "pages_manage_ads"
+                        }
+                    ],
+                    "user_id": "1749140696118699"
+                }
+            }
+        }
+    ],
+    "with_user_token": [
+        {
+            "label": "me_accounts",
+            "http": 200,
+            "body": {
+                "data": [
+                    {
+                        "id": "608128752383598",
+                        "name": "طاجن حكاية - Tagen Hekaya",
+                        "access_token": "EAAN5qY9fKuEBSKhOIuRgXW3dXhre0ZBIvaAAhOvnOh7fHsB1uf22xsnB4BZAZAf9p1G1dfjblhBVpZCQP2EyCpHyfqWJZCRsrzZAye4PVYWSVANrpSws7qxTgDrAVT2Wr0wLhJgZAPjT7GlaXRwZA7J6kJPvfI9S8tEOcDLTwM9WfsagMu8j2bDQ1dq4Vhr9lNFXt7X8wXvpEVKbx6j4OQrt"
+                    }
+                ],
+                "paging": {
+                    "cursors": {
+                        "before": "QVFIUzVpaFlGd2I3ejZAtN2dOYkVnNHhIXzV0ZA0xBNlZAubklUR19rSEVlUk9BbTZAPbUVna01vZATViMEUxaW1yNDJET3pfb2tZAeXdvTXE0T3FDWmg2NXpSWDdn",
+                        "after": "QVFIUzVpaFlGd2I3ejZAtN2dOYkVnNHhIXzV0ZA0xBNlZAubklUR19rSEVlUk9BbTZAPbUVna01vZATViMEUxaW1yNDJET3pfb2tZAeXdvTXE0T3FDWmg2NXpSWDdn"
+                    }
+                }
+            }
+        },
+        {
+            "label": "debug_user",
+            "http": 200,
+            "body": {
+                "data": {
+                    "app_id": "978194091944673",
+                    "type": "USER",
+                    "application": "besouholatest",
+                    "data_access_expires_at": 1794006964,
+                    "expires_at": 0,
+                    "is_valid": true,
+                    "issued_at": 1786230965,
+                    "scopes": [
+                        "email",
+                        "pages_show_list",
+                        "ads_read",
+                        "business_management",
+                        "leads_retrieval",
+                        "pages_read_engagement",
+                        "pages_manage_metadata",
+                        "pages_manage_ads",
+                        "public_profile"
+                    ],
+                    "granular_scopes": [
+                        {
+                            "scope": "pages_show_list"
+                        },
+                        {
+                            "scope": "ads_read"
+                        },
+                        {
+                            "scope": "business_management"
+                        },
+                        {
+                            "scope": "leads_retrieval"
+                        },
+                        {
+                            "scope": "pages_read_engagement"
+                        },
+                        {
+                            "scope": "pages_manage_metadata"
+                        },
+                        {
+                            "scope": "pages_manage_ads"
+                        }
+                    ],
+                    "user_id": "1749140696118699"
+                }
+            }
+        }
+    ],
+    "resubscribe": {
+        "success": true
+    }
+}
+ERR:

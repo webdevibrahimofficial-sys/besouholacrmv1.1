@@ -69,6 +69,47 @@ class TenantStorageService
     }
 
     /**
+     * Browser-loadable signed URL. Absolute APP_URL hosts (e.g. Docker "http://web")
+     * are not reachable from the SPA, so strip the host and keep path + signature.
+     * Leave S3 / external URLs absolute.
+     */
+    public function getBrowserUrl(string $path): string
+    {
+        return $this->toRelativeUrl($this->getUrl($path)) ?: $this->getUrl($path);
+    }
+
+    public function toRelativeUrl(?string $url): ?string
+    {
+        if (!is_string($url)) {
+            return null;
+        }
+
+        $url = trim($url);
+        if ($url === '') {
+            return null;
+        }
+
+        if (str_starts_with($url, '/') && !str_starts_with($url, '//')) {
+            return $url;
+        }
+
+        $parts = parse_url($url);
+        if (!is_array($parts) || empty($parts['path'])) {
+            return $url;
+        }
+
+        $path = (string) $parts['path'];
+        $isLocalMediaPath = str_contains($path, '/api/files/')
+            || str_contains($path, '/api/whatsapp/media/');
+
+        if (!$isLocalMediaPath) {
+            return $url;
+        }
+
+        return $path . (isset($parts['query']) ? '?' . $parts['query'] : '');
+    }
+
+    /**
      * Delete a file.
      */
     public function delete(string $path)

@@ -1,7 +1,13 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { useWebsiteContent } from '@/context/WebsiteContentContext';
+import { defaultWebsiteContent } from '@/lib/cmsDefaults';
 import { normalizeWebsiteAssetUrl } from '@/lib/websiteAssets';
+
+const DEFAULT_TRUSTED_CLIENTS = defaultWebsiteContent.sections.trusted_clients;
+
+const asCopy = (value, fallback = '') =>
+  typeof value === 'string' && value.trim() ? value : fallback;
 
 const getClientMark = (name) => {
   const normalized = String(name || '').trim();
@@ -47,21 +53,48 @@ const ClientLogo = ({ client }) => {
   );
 };
 
-const normalizeTrustedClientsCopy = (content = {}) => ({
-  ...content,
-  highlight_text:
-    content.highlight_text === '8+ trusted partners'
-      ? '8+ brands'
-      : content.highlight_text,
-  headline_suffix:
-    content.headline_suffix === 'build with Be Souhola'
+const normalizeClient = (client) => {
+  if (typeof client === 'string') {
+    const name = client.trim();
+    return name ? { name, logo_url: '' } : null;
+  }
+
+  if (!client || typeof client !== 'object') {
+    return null;
+  }
+
+  const name = asCopy(client.name);
+  const logoUrl = asCopy(client.logo_url || client.logo);
+  if (!name && !logoUrl) {
+    return null;
+  }
+
+  return { name, logo_url: logoUrl };
+};
+
+const normalizeTrustedClientsCopy = (content = {}) => {
+  const source = content && typeof content === 'object' ? content : {};
+  const highlightText =
+    source.highlight_text === '8+ trusted partners' ? '8+ brands' : source.highlight_text;
+  const headlineSuffix =
+    source.headline_suffix === 'build with Be Souhola'
       ? 'trust Be Souhola'
-      : content.headline_suffix,
-});
+      : source.headline_suffix;
+  const clients = Array.isArray(source.clients)
+    ? source.clients.map(normalizeClient).filter(Boolean)
+    : [];
+
+  return {
+    eyebrow: asCopy(source.eyebrow, DEFAULT_TRUSTED_CLIENTS.eyebrow),
+    highlight_text: asCopy(highlightText, DEFAULT_TRUSTED_CLIENTS.highlight_text),
+    headline_suffix: asCopy(headlineSuffix, DEFAULT_TRUSTED_CLIENTS.headline_suffix),
+    clients: clients.length > 0 ? clients : DEFAULT_TRUSTED_CLIENTS.clients,
+  };
+};
 
 const TrustedClientsHeadline = ({ trustedClients }) => {
-  const highlightText = trustedClients?.highlight_text || '8+ brands';
-  const suffix = trustedClients?.headline_suffix || 'trust Be Souhola';
+  const highlightText = String(trustedClients?.highlight_text || '8+ brands');
+  const suffix = String(trustedClients?.headline_suffix || 'trust Be Souhola');
   const brand = 'Be Souhola';
   const [beforeBrand, afterBrand = ''] = suffix.includes(brand)
     ? suffix.split(brand)
@@ -81,23 +114,8 @@ const TrustedClientsHeadline = ({ trustedClients }) => {
   );
 };
 
-const TrustedClients = () => {
-  const { trustedClients: rawTrustedClients } = useWebsiteContent();
-  const trustedClients = normalizeTrustedClientsCopy(rawTrustedClients);
-  const clients = Array.isArray(trustedClients.clients)
-    ? trustedClients.clients
-        .map((client) => {
-          if (typeof client === 'string') {
-            return { name: client, logo_url: '' };
-          }
-
-          return {
-            name: client?.name || '',
-            logo_url: client?.logo_url || client?.logo || '',
-          };
-        })
-        .filter((client) => client.name || client.logo_url)
-    : [];
+const TrustedClientsView = ({ trustedClients }) => {
+  const clients = Array.isArray(trustedClients.clients) ? trustedClients.clients : [];
   const carouselClients = clients.length > 0 ? [...clients, ...clients] : [];
 
   return (
@@ -147,6 +165,17 @@ const TrustedClients = () => {
       </div>
     </section>
   );
+};
+
+export const TrustedClientsFallback = () => (
+  <TrustedClientsView trustedClients={normalizeTrustedClientsCopy(DEFAULT_TRUSTED_CLIENTS)} />
+);
+
+const TrustedClients = () => {
+  const { trustedClients: rawTrustedClients } = useWebsiteContent();
+  const trustedClients = normalizeTrustedClientsCopy(rawTrustedClients);
+
+  return <TrustedClientsView trustedClients={trustedClients} />;
 };
 
 export default TrustedClients;

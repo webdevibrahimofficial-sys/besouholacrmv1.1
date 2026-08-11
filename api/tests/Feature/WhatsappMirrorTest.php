@@ -6,14 +6,18 @@ use App\Events\InboundWhatsappMessage;
 use App\Jobs\ProcessHistorySyncBatch;
 use App\Models\Lead;
 use App\Models\Tenant;
+use App\Models\User;
 use App\Models\WhatsappContact;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMirrorSession;
 use App\Services\Whatsapp\WhatsappGroupContactService;
 use App\Services\Whatsapp\WhatsappMirrorProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class WhatsappMirrorTest extends TestCase
@@ -304,5 +308,228 @@ class WhatsappMirrorTest extends TestCase
             'id' => $existingMessage->id,
             'body' => 'filled from crm',
         ]);
+    }
+
+    public function test_incoming_image_is_persisted_and_returned_as_browser_media_url(): void
+    {
+        Storage::fake('tenants');
+
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Admin',
+        ]);
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+        ]);
+
+        $png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+        (new \App\Jobs\ProcessIncomingMirrorMessage([
+            'tenant_id' => $tenant->id,
+            'message' => [
+                'message_id' => 'wamid.mirror.image-in',
+                'from_me' => false,
+                'from' => '201001234567',
+                'counterpart_phone' => '201001234567',
+                'body' => '',
+                'type' => 'image',
+                'media' => [
+                    'type' => 'image',
+                    'mime_type' => 'image/png',
+                    'file_name' => 'photo.png',
+                    'base64' => $png,
+                ],
+            ],
+        ]))->handle();
+
+        $stored = WhatsappMessage::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('message_id', 'wamid.mirror.image-in')
+            ->first();
+
+        $this->assertNotNull($stored);
+        $this->assertSame('image', $stored->type);
+        $this->assertNotEmpty(data_get($stored->raw, 'request.attachment_path'));
+        $this->assertNull(data_get($stored->raw, 'message.media.base64'));
+        Storage::disk('tenants')->assertExists(data_get($stored->raw, 'request.attachment_path'));
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/whatsapp-mirror/conversation-messages?phone=201001234567');
+        $response->assertOk();
+        $item = collect($response->json('data'))->firstWhere('message_id', 'wamid.mirror.image-in');
+        $this->assertNotNull($item);
+        $this->assertSame('image', $item['media']['type'] ?? null);
+        $this->assertNotEmpty($item['media']['url'] ?? null);
+        $this->assertStringStartsWith('/', $item['media']['url']);
+        $this->assertStringContainsString('/api/whatsapp/media/', $item['media']['url']);
+    }
+
+    public function test_send_media_does_not_lose_attachment_when_echo_arrives_first(): void
+    {
+        Event::fake([InboundWhatsappMessage::class]);
+        Storage::fake('tenants');
+
+        $tenant = Tenant::factory()->create();
+        Lead::factory()->create([
+            'tenant_id' => $tenant->id,
+            'phone' => '01001234567',
+        ]);
+
+        WhatsappMessage::create([
+            'tenant_id' => $tenant->id,
+            'provider' => 'mirror',
+            'source' => 'live',
+            'direction' => 'outbound',
+            'to' => '201001234567',
+            'type' => 'image',
+            'status' => 'sent',
+            'message_id' => 'wamid.mirror.image-echo',
+            'body' => '',
+            'raw' => [
+                'message' => [
+                    'type' => 'image',
+                    'media' => ['type' => 'image', 'base64' => null],
+                ],
+            ],
+        ]);
+
+        Http::fake([
+            'http://wa-mirror.test/sessions/*/send-media' => Http::response([
+                'messageId' => 'wamid.mirror.image-echo',
+            ], 200),
+        ]);
+
+        $provider = app(WhatsappMirrorProvider::class);
+        $result = $provider->sendMedia(
+            $tenant->id,
+            '201001234567',
+            'image',
+            'http://web/api/files/1/whatsapp/attachments/photo.jpg?signature=abc',
+            'caption',
+            'photo.jpg'
+        );
+
+        $this->assertTrue($result['success']);
+        $stored = WhatsappMessage::query()->find($result['db_id']);
+        $this->assertSame('image', $stored->type);
+        $this->assertSame('caption', $stored->body);
+        $this->assertSame(
+            'http://web/api/files/1/whatsapp/attachments/photo.jpg?signature=abc',
+            data_get($stored->raw, 'mirror.media_url')
+        );
+    }
+
+    public function test_incoming_echo_does_not_drop_crm_attachment_path(): void
+    {
+        $tenant = Tenant::factory()->create();
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+        ]);
+
+        WhatsappMessage::create([
+            'tenant_id' => $tenant->id,
+            'provider' => 'mirror',
+            'source' => 'crm_send',
+            'direction' => 'outbound',
+            'to' => '201001234567',
+            'type' => 'image',
+            'status' => 'sent_to_session',
+            'message_id' => 'wamid.mirror.keep-media',
+            'body' => '',
+            'raw' => [
+                'request' => [
+                    'attachment_path' => $tenant->id . '/whatsapp/attachments/kept.jpg',
+                    'mime_type' => 'image/jpeg',
+                    'original_name' => 'kept.jpg',
+                ],
+            ],
+        ]);
+
+        (new \App\Jobs\ProcessIncomingMirrorMessage([
+            'tenant_id' => $tenant->id,
+            'message' => [
+                'message_id' => 'wamid.mirror.keep-media',
+                'from_me' => true,
+                'from' => '201001234567',
+                'counterpart_phone' => '201001234567',
+                'body' => '',
+                'type' => 'image',
+                'media' => [
+                    'type' => 'image',
+                    'base64' => null,
+                ],
+            ],
+        ]))->handle();
+
+        $stored = WhatsappMessage::query()
+            ->where('message_id', 'wamid.mirror.keep-media')
+            ->first();
+
+        $this->assertSame(
+            $tenant->id . '/whatsapp/attachments/kept.jpg',
+            data_get($stored->raw, 'request.attachment_path')
+        );
+        $this->assertNull(data_get($stored->raw, 'message.media.base64'));
+    }
+
+    public function test_send_media_endpoint_stores_attachment_and_lists_image_url(): void
+    {
+        Event::fake([InboundWhatsappMessage::class]);
+        Storage::fake('tenants');
+
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Admin',
+        ]);
+
+        \App\Models\WhatsappSetting::create([
+            'tenant_id' => $tenant->id,
+            'provider' => 'mirror',
+            'status' => true,
+        ]);
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+        ]);
+
+        Http::fake([
+            'http://wa-mirror.test/sessions/*/send-media' => Http::response([
+                'messageId' => 'wamid.mirror.crm-photo',
+            ], 200),
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->post('/api/v1/whatsapp/send-media', [
+            'recipient_number' => '201001234567',
+            'caption' => 'from crm',
+            'attachment' => UploadedFile::fake()->create('hello.jpg', 20, 'image/jpeg'),
+        ], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('success', true);
+
+        $stored = WhatsappMessage::query()
+            ->where('message_id', 'wamid.mirror.crm-photo')
+            ->first();
+        $this->assertNotNull($stored);
+        $this->assertSame('image', $stored->type);
+        $this->assertNotEmpty(data_get($stored->raw, 'request.attachment_path'));
+
+        $list = $this->getJson('/api/whatsapp-mirror/conversation-messages?phone=201001234567');
+        $list->assertOk();
+        $item = collect($list->json('data'))->firstWhere('message_id', 'wamid.mirror.crm-photo');
+        $this->assertNotNull($item);
+        $this->assertSame('image', $item['media']['type'] ?? null);
+        $this->assertStringStartsWith('/', $item['media']['url'] ?? '');
     }
 }

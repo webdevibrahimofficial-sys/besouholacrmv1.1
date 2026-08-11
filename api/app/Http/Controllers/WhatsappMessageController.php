@@ -27,6 +27,7 @@ use App\Support\PhoneNormalizer;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -1041,7 +1042,16 @@ class WhatsappMessageController extends Controller
                 'original_name' => $file->getClientOriginalName(),
                 'caption' => $validated['caption'] ?? null,
             ]);
-            $message->forceFill(['raw' => $raw])->save();
+            $fill = [
+                'raw' => $raw,
+                'type' => in_array((string) ($message->type ?? ''), ['image', 'video', 'audio', 'document', 'sticker'], true)
+                    ? $message->type
+                    : $mediaType,
+            ];
+            if (trim((string) ($message->body ?? '')) === '' && trim((string) ($validated['caption'] ?? '')) !== '') {
+                $fill['body'] = $validated['caption'];
+            }
+            $message->forceFill($fill)->save();
         }
 
         return response()->json(array_merge([
@@ -1057,12 +1067,23 @@ class WhatsappMessageController extends Controller
         MetaCloudApiProvider $metaCloudApiProvider
     ) {
         $user = Auth::user();
-        $hasAccess = $request->hasValidSignature()
+        $hasAccess = $request->hasValidSignature(false)
             || ($user && (int) $message->tenant_id === (int) $user->tenant_id);
 
         abort_unless($hasAccess, 404);
 
-        $providerKey = $providerResolver->activeProviderKey((int) $message->tenant_id);
+        $storedPath = $this->resolveStoredMediaPath($message);
+        if ($storedPath && Storage::disk('tenants')->exists($storedPath)) {
+            $mime = Storage::disk('tenants')->mimeType($storedPath) ?: 'application/octet-stream';
+            $filename = basename($storedPath);
+
+            return Storage::disk('tenants')->response($storedPath, $filename, [
+                'Content-Type' => $mime,
+                'Content-Disposition' => 'inline; filename="' . addslashes($filename) . '"',
+            ]);
+        }
+
+        $providerKey = strtolower((string) ($message->provider ?: $providerResolver->activeProviderKey((int) $message->tenant_id)));
         if ($providerKey !== 'meta') {
             abort(404);
         }
@@ -1564,9 +1585,10 @@ class WhatsappMessageController extends Controller
         $mirrorConfig = is_array($raw['mirror'] ?? null) ? $raw['mirror'] : [];
         $mirrorMessage = is_array($raw['message'] ?? null) ? $raw['message'] : [];
         $mirrorMedia = is_array($mirrorMessage['media'] ?? null) ? $mirrorMessage['media'] : [];
+        $storage = app(TenantStorageService::class);
 
-        $type = (string) ($message->type ?? '');
-        $requestMimeType = trim((string) ($requestPayload['mime_type'] ?? ''));
+        $type = strtolower(trim((string) ($message->type ?? '')));
+        $requestMimeType = trim((string) ($requestPayload['mime_type'] ?? $mirrorMedia['mime_type'] ?? ''));
         $inferredTypeFromMime = $requestMimeType !== '' ? $this->resolveMediaTypeFromMime($requestMimeType) : '';
 
         if (!in_array($type, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
@@ -1582,22 +1604,35 @@ class WhatsappMessageController extends Controller
         }
 
         $typePayload = is_array($raw[$type] ?? null) ? $raw[$type] : [];
+        $storedPath = $this->resolveStoredMediaPath($message);
 
-        $url = $requestPayload['attachment_path'] ?? null
-            ? app(TenantStorageService::class)->getUrl($requestPayload['attachment_path'])
-            : (
-                $requestPayload['attachment_url']
+        $url = null;
+        if ($storedPath && $message->id) {
+            $url = $storage->toRelativeUrl(
+                URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(120))
+            );
+        }
+        if (!$url && $storedPath) {
+            $url = $storage->getBrowserUrl($storedPath);
+        }
+
+        if (!$url) {
+            $absolute = $requestPayload['attachment_url']
+                ?? $mirrorConfig['media_url']
                 ?? $typePayload['link']
                 ?? $typePayload['url']
                 ?? $mirrorMedia['media_url']
                 ?? $mirrorMessage['media_url']
                 ?? $mirrorMedia['url']
                 ?? $mirrorMessage['url']
-                ?? null
-            );
+                ?? null;
+            $url = is_string($absolute) && $absolute !== '' ? $storage->toRelativeUrl($absolute) : null;
+        }
 
         if (!$url && $message->provider === 'meta' && $this->extractMetaMediaId($raw, $type)) {
-            $url = URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(60));
+            $url = $storage->toRelativeUrl(
+                URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(120))
+            );
         }
 
         if (!$url) {
@@ -1607,10 +1642,31 @@ class WhatsappMessageController extends Controller
         return [
             'url' => $url,
             'mime_type' => $requestPayload['mime_type'] ?? $typePayload['mime_type'] ?? $mirrorMedia['mime_type'] ?? $mirrorMessage['mime_type'] ?? null,
-            'filename' => $requestPayload['original_name'] ?? $typePayload['filename'] ?? $mirrorMedia['original_name'] ?? $mirrorMedia['file_name'] ?? $mirrorMessage['file_name'] ?? null,
-            'caption' => $requestPayload['caption'] ?? $typePayload['caption'] ?? $mirrorMedia['caption'] ?? $mirrorMessage['caption'] ?? $message->body,
+            'filename' => $requestPayload['original_name'] ?? $typePayload['filename'] ?? $mirrorConfig['filename'] ?? $mirrorMedia['original_name'] ?? $mirrorMedia['file_name'] ?? $mirrorMessage['file_name'] ?? null,
+            'caption' => $requestPayload['caption'] ?? $typePayload['caption'] ?? $mirrorConfig['caption'] ?? $mirrorMedia['caption'] ?? $mirrorMessage['caption'] ?? $message->body,
             'type' => $type,
         ];
+    }
+
+    private function resolveStoredMediaPath(WhatsappMessage $message): ?string
+    {
+        $raw = is_array($message->raw) ? $message->raw : [];
+        $requestPayload = is_array($raw['request'] ?? null) ? $raw['request'] : [];
+        $mirrorMessage = is_array($raw['message'] ?? null) ? $raw['message'] : [];
+        $mirrorMedia = is_array($mirrorMessage['media'] ?? null) ? $mirrorMessage['media'] : [];
+
+        foreach ([
+            $requestPayload['attachment_path'] ?? null,
+            $mirrorMedia['attachment_path'] ?? null,
+            $mirrorMessage['attachment_path'] ?? null,
+        ] as $candidate) {
+            $path = trim((string) $candidate);
+            if ($path !== '') {
+                return $path;
+            }
+        }
+
+        return null;
     }
 
     private function extractMetaMediaId(array $raw, string $type): ?string

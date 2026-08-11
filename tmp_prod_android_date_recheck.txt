@@ -1,0 +1,69 @@
+Sun Aug  9 13:00:31 UTC 2026
+
+=== LEAD 19181 actions ===
+id	action_type	next_action_type	d	t	qo	created_at	updated_at
+90873	call	call	2026-08-09	15:43	null	2026-08-09 15:43:56	2026-08-09 15:45:03
+89178	meeting	meeting	2026-08-06	18:19	null	2026-08-06 18:20:19	2026-08-09 15:43:56
+88309	meeting	meeting	2026-07-26	16:31	null	2026-07-26 16:31:09	2026-08-06 18:20:19
+
+=== tenant 41 recent 3h ===
+id	lead_id	name	action_type	next_action_type	d	t	qo	created_at
+90886	19106	adam Adam Ibrahim	call	call	2026-08-09	15:55	null	2026-08-09 15:55:20
+90876	19360	Ibrahim tramsy	call	follow_up	2026-08-10	09:00	tomorrow	2026-08-09 15:47:56
+90873	19181	gh	call	call	2026-08-09	15:43	null	2026-08-09 15:43:56
+
+newest=90873
+{
+  "notes": "hi",
+  "date": "2026-08-09",
+  "status": "pending",
+  "time": "15:43",
+  "actionType": "call",
+  "nextAction": "call",
+  "priority": "medium",
+  "assignedTo": null,
+  "selectedQuickOption": null,
+  "proposalAmount": null,
+  "proposalDiscount": null,
+  "proposalValidityDays": null,
+  "proposalAttachmentUrl": null,
+  "proposalAttachment": null,
+  "reservationType": "general",
+  "reservationCategory": null,
+  "reservationItem": null,
+  "reservationGeneralItems": [
+    {
+      "category": null,
+      "item": null,
+      "quantity": 1,
+      "price": 0,
+      "discount_type": "value",
+      "discount_value": null
+    }
+  ],
+  "reservationNotes": null,
+  "reservationProject": null,
+  "reservationUnit": null,
+  "reservationAmount": null,
+  "rentUnit": null,
+  "rentStart": null,
+  "rentEnd": null,
+  "rentAmount": null,
+  "rentAttachment": null,
+  "closingRevenue": null,
+  "cancelReason": null,
+  "stage_at_creation_name": "follow up",
+  "call_status": "incoming",
+  "answerStatus": "answered",
+  "delayed_notified": true
+}
+
+=== DART POSTS ===
+197.58.158.14 - - [09/Aug/2026:11:58:14 +0000] "POST /api/lead-actions HTTP/1.1" 201 3100 "-" "Dart/3.12 (dart:io)"
+197.58.158.14 - - [09/Aug/2026:12:01:07 +0000] "POST /api/lead-actions HTTP/1.1" 201 3074 "-" "Dart/3.12 (dart:io)"
+196.156.77.6 - - [09/Aug/2026:12:01:54 +0000] "POST /api/lead-actions HTTP/1.1" 201 2570 "-" "Dart/3.12 (dart:io)"
+197.58.158.14 - - [09/Aug/2026:12:12:37 +0000] "POST /api/lead-actions HTTP/1.1" 201 2836 "-" "Dart/3.12 (dart:io)"
+197.58.158.14 - - [09/Aug/2026:12:24:05 +0000] "POST /api/lead-actions HTTP/1.1" 201 2834 "-" "Dart/3.12 (dart:io)"
+197.58.158.14 - - [09/Aug/2026:12:30:26 +0000] "POST /api/lead-actions HTTP/1.1" 201 3483 "-" "Dart/3.12 (dart:io)"
+197.56.11.148 - - [09/Aug/2026:12:43:56 +0000] "POST /api/lead-actions HTTP/1.1" 201 3829 "-" "Dart/3.12 (dart:io)"
+197.56.11.148 - - [09/Aug/2026:12:55:20 +0000] "POST /api/lead-actions HTTP/1.1" 201 3827 "-" "Dart/3.12 (dart:io)"

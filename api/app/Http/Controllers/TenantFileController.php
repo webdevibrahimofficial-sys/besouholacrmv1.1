@@ -12,7 +12,9 @@ class TenantFileController extends Controller
     {
         // 1. Validate Signature
         // This is the primary security mechanism for "Private" files accessed via URL (e.g. <img> tags).
-        if (!$request->hasValidSignature()) {
+        // Validate without the host so Vite/nginx same-origin /api proxies work
+        // even when APP_URL is an internal hostname like http://web.
+        if (!$request->hasValidSignature(false)) {
             abort(403, 'Invalid or expired signature.');
         }
 
