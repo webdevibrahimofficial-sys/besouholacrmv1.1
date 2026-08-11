@@ -28,7 +28,15 @@ class WebsiteLeadIntakeService
             return;
         }
 
-        $query->where('workflow_key', $normalizedWorkflow);
+        if ($normalizedWorkflow === TelesalesService::WORKFLOW_SALES) {
+            $query->where(function ($workflowQuery) {
+                $workflowQuery->where('workflow_key', TelesalesService::WORKFLOW_SALES)
+                    ->orWhereNull('workflow_key')
+                    ->orWhere('workflow_key', '');
+            });
+        } else {
+            $query->where('workflow_key', $normalizedWorkflow);
+        }
 
         if ($normalizedWorkflow === TelesalesService::WORKFLOW_TELESALES
             && \Illuminate\Support\Facades\Schema::hasColumn('leads', 'transferred_to_sales_at')) {
@@ -92,7 +100,7 @@ class WebsiteLeadIntakeService
 
     private function createOrUpdateLead(int $tenantId, array $data, string $rawPhone): array
     {
-        $enableDup = CrmSetting::isDuplicationEnabled();
+        $enableDup = CrmSetting::isDuplicationEnabled($tenantId);
         $workflowKey = strtolower(trim((string) ($data['workflow_key'] ?? '')));
 
         $duplicateOfId = null;

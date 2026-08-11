@@ -1,9 +1,10 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BarChart3, Briefcase, Globe, LayoutTemplate, Plus, Settings2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, Briefcase, Globe, ImagePlus, LayoutTemplate, Plus, Settings2, X } from 'lucide-react'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { systemCompanyWebsiteService } from '../services/systemCompanyWebsiteService'
+import { getApiUrl } from '../utils/api'
 import WebsiteAnalyticsPanel from '../components/website/WebsiteAnalyticsPanel'
 import WebsiteCareersPanel, { emptyRole as emptyCareerRole } from '../components/website/WebsiteCareersPanel'
 
@@ -48,18 +49,65 @@ const defaultHeroSectionContent = {
 }
 
 const defaultTrustedClientsSectionContent = {
-  eyebrow: 'Trusted by industry leaders',
-  highlight_text: '50+ industries/businesses',
+  eyebrow: 'Trusted by growing brands',
+  highlight_text: '8+ brands',
   headline_suffix: 'trust Be Souhola',
   clients: [
-    'Meridian Properties',
-    'Skyline Realty Group',
-    'Urban Development Partners',
-    'Coastal Estates',
-    'PropTech Innovations',
-    'Thompson & Associates',
+    { name: 'More Invest', logo_url: '' },
+    { name: 'Al Etihad Interiors', logo_url: '' },
+    { name: 'Shawer', logo_url: '' },
+    { name: 'Dr. Glass', logo_url: '' },
+    { name: 'العربي للتطوير العقاري', logo_url: '' },
+    { name: 'Beyout', logo_url: '' },
+    { name: 'The Gate INS Developments', logo_url: '' },
+    { name: 'Strategic Partner', logo_url: '' },
   ],
 }
+
+const normalizeTrustedClientsCopy = (content = {}) => ({
+  ...content,
+  highlight_text:
+    content.highlight_text === '8+ trusted partners'
+      ? '8+ brands'
+      : content.highlight_text,
+  headline_suffix:
+    content.headline_suffix === 'build with Be Souhola'
+      ? 'trust Be Souhola'
+      : content.headline_suffix,
+})
+const trustedClientsLogoLimit = 24
+
+const normalizeCmsAssetUrl = (url) => {
+  if (!url || typeof url !== 'string') return ''
+
+  const trimmed = url.trim()
+  if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+    return trimmed
+  }
+
+  const apiAssetPath = '/api/public-website-assets/'
+  const apiBase = String(getApiUrl() || '').replace(/\/+$/, '')
+  const apiOrigin = apiBase.replace(/\/api$/, '')
+
+  try {
+    const parsed = new URL(trimmed, window.location.origin)
+    if (parsed.pathname.startsWith(apiAssetPath)) {
+      return apiBase.endsWith('/api')
+        ? `${apiOrigin}${parsed.pathname}${parsed.search}${parsed.hash}`
+        : `${apiBase}${parsed.pathname}${parsed.search}${parsed.hash}`
+    }
+  } catch {
+  }
+
+  if (trimmed.startsWith(apiAssetPath)) {
+    return apiBase.endsWith('/api')
+      ? `${apiOrigin}${trimmed}`
+      : `${apiBase}${trimmed}`
+  }
+
+  return trimmed
+}
+
 const defaultAboutSectionContent = {
   primary_enabled: true,
   primary_image_url:
@@ -421,6 +469,14 @@ export default function WebsiteCms() {
     1: null,
     2: null,
   })
+  const [clientLogoFiles, setClientLogoFiles] = useState({
+    0: null,
+    1: null,
+    2: null,
+    3: null,
+    4: null,
+    5: null,
+  })
   const [testimonialImageFiles, setTestimonialImageFiles] = useState({
     0: null,
     1: null,
@@ -528,12 +584,21 @@ export default function WebsiteCms() {
   }, [heroSection])
   const trustedClientsContent = useMemo(() => {
     if (!trustedClientsSection) return defaultTrustedClientsSectionContent
+    const clients = Array.isArray(trustedClientsSection.content?.clients)
+      ? trustedClientsSection.content.clients.map((client) =>
+          typeof client === 'string'
+            ? { name: client, logo_url: '' }
+            : {
+                name: client?.name || '',
+                logo_url: client?.logo_url || client?.logo || '',
+              }
+        )
+      : defaultTrustedClientsSectionContent.clients
+
     return {
       ...defaultTrustedClientsSectionContent,
-      ...(trustedClientsSection.content || {}),
-      clients: Array.isArray(trustedClientsSection.content?.clients)
-        ? trustedClientsSection.content.clients
-        : defaultTrustedClientsSectionContent.clients,
+      ...normalizeTrustedClientsCopy(trustedClientsSection.content || {}),
+      clients,
     }
   }, [trustedClientsSection])
   const contactPageContent = useMemo(
@@ -671,14 +736,99 @@ export default function WebsiteCms() {
     })
   }
 
-  const updateTrustedClientsList = (text) => {
+  const updateTrustedClient = (index, key, value) => {
+    const clients = Array.isArray(trustedClientsContent.clients)
+      ? [...trustedClientsContent.clients]
+      : []
+    clients[index] = {
+      ...(clients[index] || { name: '', logo_url: '' }),
+      [key]: value,
+    }
+    updateTrustedClientsField('clients', clients)
+  }
+
+  const addTrustedClient = () => {
+    if ((trustedClientsContent.clients || []).length >= trustedClientsLogoLimit) return
+
+    updateTrustedClientsField('clients', [
+      ...(trustedClientsContent.clients || []),
+      { name: '', logo_url: '' },
+    ])
+  }
+
+  const removeTrustedClient = (index) => {
     updateTrustedClientsField(
       'clients',
-      text
-        .split('\n')
-        .map((item) => item.trim())
-        .filter(Boolean)
+      (trustedClientsContent.clients || []).filter((_, itemIndex) => itemIndex !== index)
     )
+    setClientLogoFiles((prev) => {
+      const next = {}
+      Object.keys(prev).forEach((key) => {
+        const numericKey = Number(key)
+        if (numericKey < index) next[numericKey] = prev[key]
+        if (numericKey > index) next[numericKey - 1] = prev[key]
+      })
+      return next
+    })
+  }
+
+  const moveTrustedClient = (index, direction) => {
+    const clients = Array.isArray(trustedClientsContent.clients)
+      ? [...trustedClientsContent.clients]
+      : []
+    const targetIndex = index + direction
+
+    if (targetIndex < 0 || targetIndex >= clients.length) return
+
+    ;[clients[index], clients[targetIndex]] = [clients[targetIndex], clients[index]]
+    updateTrustedClientsField('clients', clients)
+
+    setClientLogoFiles((prev) => {
+      const next = { ...prev }
+      const currentFile = next[index]
+      const targetFile = next[targetIndex]
+
+      if (targetFile) {
+        next[index] = targetFile
+      } else {
+        delete next[index]
+      }
+
+      if (currentFile) {
+        next[targetIndex] = currentFile
+      } else {
+        delete next[targetIndex]
+      }
+
+      return next
+    })
+  }
+
+  const saveTrustedClientsSection = async () => {
+    if (!trustedClientsSection) return
+
+    setSaving(true)
+    setMessage('')
+    setError('')
+
+    try {
+      const formData = new FormData()
+      formData.append('content', JSON.stringify(trustedClientsContent))
+      for (let i = 0; i < trustedClientsLogoLimit; i += 1) {
+        if (clientLogoFiles[i]) {
+          formData.append(`client_${i + 1}_logo`, clientLogoFiles[i])
+        }
+      }
+
+      const updated = await systemCompanyWebsiteService.updateHomepageSection(trustedClientsSection.id, formData)
+      setSections((prev) => prev.map((item) => (item.id === trustedClientsSection.id ? updated : item)))
+      setClientLogoFiles({})
+      setMessage('Trusted Clients section updated successfully.')
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save Trusted Clients section.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const updateAboutField = (key, value) => {
@@ -1579,16 +1729,101 @@ export default function WebsiteCms() {
                   />
                 </label>
 
-                <label className="block text-sm md:col-span-2">
-                  <span className="mb-1 block text-[var(--muted-text)]">Client Names</span>
-                  <textarea
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                    rows={8}
-                    value={(trustedClientsContent.clients || []).join('\n')}
-                    onChange={(e) => updateTrustedClientsList(e.target.value)}
-                  />
-                  <span className="mt-1 block text-xs text-[var(--muted-text)]">One client per line.</span>
-                </label>
+                <div className="space-y-3 md:col-span-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-[var(--muted-text)]">Client Logos</span>
+                    <button
+                      type="button"
+                      onClick={addTrustedClient}
+                      disabled={(trustedClientsContent.clients || []).length >= trustedClientsLogoLimit}
+                      className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--content-text)] transition hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus size={16} />
+                      Add Client
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {(trustedClientsContent.clients || []).map((client, index) => (
+                      <div
+                        key={`client-${index}`}
+                        className="grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 md:grid-cols-[auto_1fr_220px_auto]"
+                      >
+                        <div className="flex items-center gap-2 md:flex-col md:items-stretch md:justify-end">
+                          <button
+                            type="button"
+                            title="Move up"
+                            aria-label={`Move ${client?.name || 'client'} up`}
+                            disabled={index === 0}
+                            onClick={() => moveTrustedClient(index, -1)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-text)] transition hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            <ArrowUp size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Move down"
+                            aria-label={`Move ${client?.name || 'client'} down`}
+                            disabled={index === (trustedClientsContent.clients || []).length - 1}
+                            onClick={() => moveTrustedClient(index, 1)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-text)] transition hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            <ArrowDown size={16} />
+                          </button>
+                        </div>
+
+                        <label className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">Client Name</span>
+                          <input
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                            value={client?.name || ''}
+                            onChange={(e) => updateTrustedClient(index, 'name', e.target.value)}
+                          />
+                        </label>
+
+                        <label className="block text-sm">
+                          <span className="mb-1 block text-[var(--muted-text)]">Logo Image</span>
+                          <span className="flex min-h-[42px] cursor-pointer items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--muted-text)] transition hover:border-blue-400 hover:text-blue-600">
+                            <ImagePlus size={16} />
+                            {clientLogoFiles[index]?.name || 'Upload logo'}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) =>
+                              setClientLogoFiles((prev) => ({
+                                ...prev,
+                                [index]: e.target.files?.[0] || null,
+                              }))
+                            }
+                          />
+                        </label>
+
+                        <div className="flex items-end gap-3">
+                          {client?.logo_url ? (
+                            <img
+                              src={normalizeCmsAssetUrl(client.logo_url)}
+                              alt={`${client?.name || 'Client'} logo`}
+                              className="h-11 w-24 rounded-lg border border-[var(--border)] bg-white object-contain p-2"
+                            />
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => removeTrustedClient(index)}
+                            className="inline-flex h-11 items-center justify-center rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <span className="block text-xs text-[var(--muted-text)]">
+                    Upload clear client logos. This section currently supports up to {trustedClientsLogoLimit} clients.
+                  </span>
+                </div>
               </div>
 
               <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
@@ -1598,7 +1833,7 @@ export default function WebsiteCms() {
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => saveSection(trustedClientsSection, trustedClientsContent)}
+                  onClick={saveTrustedClientsSection}
                   className="inline-flex min-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
                 >
                   {saving ? 'Saving...' : 'Save Trusted Clients'}

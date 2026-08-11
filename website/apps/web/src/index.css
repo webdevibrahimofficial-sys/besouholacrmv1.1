@@ -83,6 +83,36 @@
   -webkit-text-fill-color: transparent;
 }
 
+.trusted-clients-carousel {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+.client-logo-carousel-track {
+  animation: trusted-clients-scroll 42s linear infinite;
+  will-change: transform;
+}
+
+.trusted-clients-carousel:hover .client-logo-carousel-track {
+  animation-play-state: paused;
+}
+
+@keyframes trusted-clients-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .client-logo-carousel-track {
+    animation: none;
+    transform: translateX(0);
+  }
+}
+
 .hero-form-shell {
   position: relative;
 }

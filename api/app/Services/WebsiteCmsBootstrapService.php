@@ -113,16 +113,18 @@ class WebsiteCmsBootstrapService
                 'title' => 'Trusted Clients',
                 'sort_order' => 15,
                 'content' => [
-                    'eyebrow' => 'Trusted by industry leaders',
-                    'highlight_text' => '50+ industries/businesses',
+                    'eyebrow' => 'Trusted by growing brands',
+                    'highlight_text' => '8+ brands',
                     'headline_suffix' => 'trust Be Souhola',
                     'clients' => [
-                        'Meridian Properties',
-                        'Skyline Realty Group',
-                        'Urban Development Partners',
-                        'Coastal Estates',
-                        'PropTech Innovations',
-                        'Thompson & Associates',
+                        ['name' => 'More Invest', 'logo_url' => ''],
+                        ['name' => 'Al Etihad Interiors', 'logo_url' => ''],
+                        ['name' => 'Shawer', 'logo_url' => ''],
+                        ['name' => 'Dr. Glass', 'logo_url' => ''],
+                        ['name' => 'العربي للتطوير العقاري', 'logo_url' => ''],
+                        ['name' => 'Beyout', 'logo_url' => ''],
+                        ['name' => 'The Gate INS Developments', 'logo_url' => ''],
+                        ['name' => 'Strategic Partner', 'logo_url' => ''],
                     ],
                 ],
             ],
@@ -483,6 +485,8 @@ class WebsiteCmsBootstrapService
             }
         }
 
+        $this->refreshLegacyTrustedClientsDefaults($tenantId);
+
         if (!WebsiteService::withoutGlobalScopes()->where('tenant_id', $tenantId)->exists()) {
             $services = [
                 [
@@ -723,6 +727,57 @@ class WebsiteCmsBootstrapService
                 ]);
             }
         }
+    }
+
+    private function refreshLegacyTrustedClientsDefaults(int $tenantId): void
+    {
+        $section = WebsiteHomepageSection::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->where('type', 'trusted_clients')
+            ->first();
+
+        if (!$section || !$this->usesLegacyTrustedClients($section->content ?? [])) {
+            return;
+        }
+
+        $trustedClientsDefaults = collect($this->homepageSections())
+            ->firstWhere('type', 'trusted_clients');
+
+        if (!is_array($trustedClientsDefaults)) {
+            return;
+        }
+
+        $section->update([
+            'title' => $trustedClientsDefaults['title'],
+            'content' => $trustedClientsDefaults['content'],
+        ]);
+    }
+
+    private function usesLegacyTrustedClients(array $content): bool
+    {
+        $legacyNames = [
+            'Meridian Properties',
+            'Skyline Realty Group',
+            'Urban Development Partners',
+            'Coastal Estates',
+            'PropTech Innovations',
+            'Thompson & Associates',
+        ];
+
+        $clients = is_array($content['clients'] ?? null) ? array_values($content['clients']) : [];
+        $names = array_values(array_filter(array_map(function ($client) {
+            if (is_string($client)) {
+                return $client;
+            }
+
+            if (is_array($client)) {
+                return $client['name'] ?? null;
+            }
+
+            return null;
+        }, $clients)));
+
+        return $names === $legacyNames;
     }
 
     private function ensureWebsiteSettingRow(int $tenantId): void

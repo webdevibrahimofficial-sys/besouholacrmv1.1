@@ -168,7 +168,7 @@ export default function WebsiteConnectionForm({
           <button
             type="submit"
             disabled={saving || !originValidation.isValid}
-            className="px-4 py-2 rounded-lg bg-[var(--primary-color)] text-white font-medium hover:bg-[var(--primary-hover)] disabled:opacity-60"
+            className="px-4 py-2 rounded-lg border border-blue-700 bg-blue-600 text-white font-medium shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-600 disabled:shadow-none dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500 dark:disabled:border-gray-700 dark:disabled:bg-gray-800 dark:disabled:text-gray-400"
           >
             {saving ? t('Saving...') : (mode === 'edit' ? t('Save Changes') : t('Create Connection'))}
           </button>

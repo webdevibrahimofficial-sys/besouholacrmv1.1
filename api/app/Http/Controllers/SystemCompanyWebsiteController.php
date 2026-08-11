@@ -143,6 +143,11 @@ class SystemCompanyWebsiteController extends Controller
             }
         }
 
+        $clientLogoRules = [];
+        foreach (range(1, 24) as $index) {
+            $clientLogoRules['client_' . $index . '_logo'] = ['nullable', 'image', 'max:5120'];
+        }
+
         $validated = $request->validate([
             'title' => ['nullable', 'string', 'max:255'],
             'content' => ['nullable', 'array'],
@@ -160,7 +165,7 @@ class SystemCompanyWebsiteController extends Controller
             'testimonial_5_avatar' => ['nullable', 'image', 'max:5120'],
             'testimonial_6_avatar' => ['nullable', 'image', 'max:5120'],
             'app_slide_image' => ['nullable', 'image', 'max:10240'],
-        ]);
+        ] + $clientLogoRules);
 
         $content = is_array($validated['content'] ?? null)
             ? $validated['content']
@@ -216,6 +221,32 @@ class SystemCompanyWebsiteController extends Controller
             $content['testimonials'] = $testimonials;
         }
 
+        if ($section->type === 'trusted_clients') {
+            $clients = is_array($content['clients'] ?? null) ? array_values($content['clients']) : [];
+
+            foreach ($clients as $index => $client) {
+                if (is_string($client)) {
+                    $clients[$index] = [
+                        'name' => $client,
+                        'logo_url' => '',
+                    ];
+                }
+            }
+
+            foreach (range(1, 24) as $index) {
+                $field = 'client_' . $index . '_logo';
+                if ($request->hasFile($field) && isset($clients[$index - 1])) {
+                    $upload = $this->tenantStorageService->upload(
+                        $request->file($field),
+                        'website/trusted-clients'
+                    );
+                    $clients[$index - 1]['logo_url'] = $this->publicWebsiteAssetUrl($upload['path']);
+                }
+            }
+
+            $content['clients'] = $clients;
+        }
+
         if ($section->type === 'lead_leak_detector' && $request->hasFile('app_slide_image')) {
             $upload = $this->tenantStorageService->upload(
                 $request->file('app_slide_image'),
@@ -237,6 +268,7 @@ class SystemCompanyWebsiteController extends Controller
             || $request->hasFile('testimonial_4_avatar')
             || $request->hasFile('testimonial_5_avatar')
             || $request->hasFile('testimonial_6_avatar')
+            || collect(range(1, 24))->contains(fn ($index) => $request->hasFile('client_' . $index . '_logo'))
             || $request->hasFile('app_slide_image')
         ) {
             $validated['content'] = $content;
