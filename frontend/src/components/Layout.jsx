@@ -1,10 +1,15 @@
-import { useState, useEffect, useRef, createContext } from 'react'
+import { useState, useEffect, useRef, useCallback, createContext } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Bot } from 'lucide-react'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { useTenantFeature } from '@features/tenant-features/hooks/useTenantFeature'
 import { TENANT_FEATURE_KEYS } from '@features/tenant-features/utils/featureKeys'
+import { useCopilotNotifications } from '@features/ai-copilot/hooks/useCopilotNotifications'
+import { useCopilotLeadOpenedListener } from '@features/ai-copilot/hooks/useCopilotLeadOpenedListener'
+import { useCopilotRescueScan } from '@features/ai-copilot/hooks/useCopilotRescueScan'
+import { useCopilotEscalationScan } from '@features/ai-copilot/hooks/useCopilotEscalationScan'
+import { useCopilotLostDetectiveScan } from '@features/ai-copilot/hooks/useCopilotLostDetectiveScan'
 import { useNotifications } from '../hooks/useNotifications'
 import Topbar from '../shared/components/Topbar'
 import AppSidebar from '../shared/components/AppSidebar'
@@ -17,11 +22,11 @@ export default function Layout({ children }) {
   const { i18n } = useTranslation()
   const { user, crmSettings } = useAppState()
   const isBesouholaCopilotEnabled = useTenantFeature(TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT)
+  const isRtl = String(i18n.language || '').startsWith('ar')
   
   // Initialize Notifications
   const { notifications, unreadCount, registerWebPush, fetchNotifications } = useNotifications(user);
 
-  const isRtl = String(i18n.language || '').startsWith('ar')
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isMobileView, setIsMobileView] = useState(() => window.matchMedia('(max-width: 768px)').matches)
   const [isModalOpen, setIsModalOpen] = useState(() => document.body.classList.contains('app-modal-open'))
@@ -50,6 +55,68 @@ export default function Layout({ children }) {
       return false
     }
   })
+
+  const {
+    notifications: copilotNotifications,
+    unreadCount: copilotUnreadCount,
+    loading: copilotNotificationsLoading,
+    refresh: refreshCopilotNotifications,
+    openNotification: openCopilotNotification,
+    dismissNotification: dismissCopilotNotification,
+    syncEnqueueResult: syncCopilotEnqueueResult,
+  } = useCopilotNotifications()
+
+  const handleCopilotLeadEnqueued = useCallback((result) => {
+    syncCopilotEnqueueResult(result)
+  }, [syncCopilotEnqueueResult])
+
+  const handleCopilotRescueScanned = useCallback((result) => {
+    if ((result?.created ?? 0) > 0) {
+      refreshCopilotNotifications()
+    }
+  }, [refreshCopilotNotifications])
+
+  const handleCopilotEscalationScanned = useCallback((result) => {
+    if ((result?.created ?? 0) > 0) {
+      refreshCopilotNotifications()
+    }
+  }, [refreshCopilotNotifications])
+
+  const handleCopilotLostDetectiveScanned = useCallback((result) => {
+    if ((result?.created ?? 0) > 0) {
+      refreshCopilotNotifications()
+    }
+  }, [refreshCopilotNotifications])
+
+  useCopilotLeadOpenedListener({
+    enabled: Boolean(isBesouholaCopilotEnabled && user?.id),
+    locale: isRtl ? 'ar' : 'en',
+    onEnqueued: handleCopilotLeadEnqueued,
+  })
+
+  useCopilotRescueScan({
+    enabled: Boolean(isBesouholaCopilotEnabled && user?.id),
+    locale: isRtl ? 'ar' : 'en',
+    onScanned: handleCopilotRescueScanned,
+  })
+
+  useCopilotEscalationScan({
+    enabled: Boolean(isBesouholaCopilotEnabled && user?.id),
+    locale: isRtl ? 'ar' : 'en',
+    userRole: user?.role || user?.job_title || '',
+    onScanned: handleCopilotEscalationScanned,
+  })
+
+  useCopilotLostDetectiveScan({
+    enabled: Boolean(isBesouholaCopilotEnabled && user?.id),
+    locale: isRtl ? 'ar' : 'en',
+    onScanned: handleCopilotLostDetectiveScanned,
+  })
+
+  useEffect(() => {
+    if (!isBesouholaCopilotEnabled || !user?.id) return
+    refreshCopilotNotifications()
+  }, [isBesouholaCopilotEnabled, user?.id, refreshCopilotNotifications])
 
   // Lock scroll only when mobile sidebar is open
   useEffect(() => {
@@ -206,6 +273,13 @@ useEffect(() => {
     setIsAiPanelOpen((value) => !value)
   }
 
+  const copilotLauncherLabel = isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'
+  const copilotLauncherTitle = copilotUnreadCount > 0
+    ? (isRtl
+      ? `${copilotLauncherLabel} (${copilotUnreadCount} غير مقروء)`
+      : `${copilotLauncherLabel} (${copilotUnreadCount} unread)`)
+    : copilotLauncherLabel
+
   return (
     <div className="relative min-h-screen bg-[var(--app-bg)] text-[var(--app-text)] app-glass-neon">
       <ImpersonationBanner />
@@ -248,27 +322,40 @@ useEffect(() => {
       
       {isBesouholaCopilotEnabled ? (
         <>
-          <button
-            type="button"
-            aria-label={isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'}
-            title={isRtl ? 'Besouhola Copilot — المساعد' : 'Besouhola Copilot'}
-            className={`copilot-launcher fixed right-0 z-[181] ${isAiPanelOpen ? 'pointer-events-none translate-x-full opacity-0' : 'translate-x-0 opacity-100'} flex items-center justify-center rounded-l-md border border-r-0 border-cyan-100/70 bg-gradient-to-b from-sky-400 via-cyan-500 to-sky-700 text-white transition-[transform,opacity] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] hover:brightness-110 cursor-grab active:cursor-grabbing touch-none select-none`}
-            style={{
-              width: 20,
-              height: 34,
-              top: copilotButtonY,
-            }}
-            onMouseDown={startCopilotDrag}
-            onTouchStart={startCopilotDrag}
-            onClick={toggleCopilotPanel}
+          <div
+            className={`fixed right-0 z-[181] ${isAiPanelOpen ? 'pointer-events-none translate-x-full opacity-0' : 'translate-x-0 opacity-100'} transition-[transform,opacity] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)]`}
+            style={{ top: copilotButtonY }}
           >
-            <Bot className="relative z-[1] h-3 w-3 drop-shadow-[0_0_6px_rgba(255,255,255,0.85)]" />
-          </button>
+            <div className="relative overflow-visible">
+              {copilotUnreadCount > 0 ? (
+                <span className="pointer-events-none absolute left-1/2 bottom-full z-[30] mb-0.5 flex min-h-[15px] min-w-[15px] -translate-x-1/2 items-center justify-center rounded-full border-2 border-white bg-rose-500 px-0.5 text-[9px] font-bold leading-none text-white shadow-md">
+                  {copilotUnreadCount > 9 ? '9+' : copilotUnreadCount}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                aria-label={copilotLauncherTitle}
+                title={copilotLauncherTitle}
+                className="copilot-launcher relative flex h-[34px] w-[20px] items-center justify-center rounded-l-md border border-r-0 border-cyan-100/70 bg-gradient-to-b from-sky-400 via-cyan-500 to-sky-700 text-white hover:brightness-110 cursor-grab active:cursor-grabbing touch-none select-none"
+                onMouseDown={startCopilotDrag}
+                onTouchStart={startCopilotDrag}
+                onClick={toggleCopilotPanel}
+              >
+                <Bot className="relative z-[1] h-3 w-3 drop-shadow-[0_0_6px_rgba(255,255,255,0.85)]" />
+              </button>
+            </div>
+          </div>
 
           <BesouholaCopilotPanel
             open={isAiPanelOpen}
             onClose={() => setIsAiPanelOpen(false)}
             isRtl={isRtl}
+            notifications={copilotNotifications}
+            unreadCount={copilotUnreadCount}
+            notificationsLoading={copilotNotificationsLoading}
+            onRefreshNotifications={refreshCopilotNotifications}
+            onOpenNotification={openCopilotNotification}
+            onDismissNotification={dismissCopilotNotification}
           />
         </>
       ) : null}

@@ -1364,8 +1364,18 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       }
     }
 
-    if (merged.answerStatus) {
-      addField('answerStatus', 'حالة الرد', 'Answer Status', v => v === 'answer' ? (isArabic ? 'إجابة' : 'Answered') : (isArabic ? 'لا يوجد رد' : 'No Answer'));
+    if (merged.answerStatus || merged.answer_status || ['answer', 'no_answer', 'answered'].includes(String(merged.outcome || '').toLowerCase().replace(/\s+/g, '_'))) {
+      const answerStatusRaw = merged.answerStatus
+        || merged.answer_status
+        || merged.outcome;
+      const normalizedAnswer = String(answerStatusRaw).toLowerCase().replace(/[\s-]+/g, '_');
+      fields.push({
+        key: 'answerStatus',
+        label: isArabic ? 'حالة الرد' : 'Answer Status',
+        value: (normalizedAnswer === 'answer' || normalizedAnswer === 'answered')
+          ? (isArabic ? 'إجابة' : 'Answered')
+          : (isArabic ? 'لا يوجد رد' : 'No Answer'),
+      });
     }
 
     return { fields, generalItems };

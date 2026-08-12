@@ -48,9 +48,9 @@ class CopilotLeadActionCreationAdapter
                 'payload' => $payload,
                 'ui_actions' => $leadId > 0 ? [[
                     'type' => 'navigate',
-                    'path' => '/leads?lead_id='.$leadId,
+                    'path' => '/leads?lead_id='.$leadId.'&tab=all-actions',
                     'pathname' => '/leads',
-                    'search' => '?lead_id='.$leadId,
+                    'search' => '?lead_id='.$leadId.'&tab=all-actions',
                     'label' => ['en' => 'Open lead', 'ar' => 'افتح الليد'],
                 ]] : [],
             ];

@@ -21,8 +21,8 @@ class CopilotLeadActionDraftService
         $leadId = (int) ($args['lead_id'] ?? 0);
         $detailsText = trim((string) ($args['details_text'] ?? ''));
         $rawDetails = trim((string) ($args['raw_details'] ?? ''));
-        if ($detailsText === '') {
-            // Legacy callers may send description as the free-text details.
+        if ($detailsText === '' && $this->isSufficientActionDetails($rawDetails)) {
+            // Legacy callers may send the free-text story as raw_details.
             $detailsText = $rawDetails;
         }
 
@@ -43,7 +43,7 @@ class CopilotLeadActionDraftService
                 'locale' => $locale,
                 'payload' => [
                     'lead_id' => null,
-                    'details_text' => $detailsText !== '' ? $detailsText : null,
+                    'details_text' => $this->isSufficientActionDetails($detailsText) ? $detailsText : null,
                     'stage_id' => $stageId > 0 ? $stageId : null,
                 ],
                 'message' => $locale === 'ar'
@@ -69,39 +69,13 @@ class CopilotLeadActionDraftService
             ];
         }
 
-        $leadName = $lead->name ?: ('#'.$lead->id);
-
         if ($explicitType === '') {
             return $this->buildAwaitingActionTypeResult($lead, $detailsText, $locale);
         }
 
-        // Step 1: gather what happened on the call/meeting before choosing stage.
+        // Step 1: gather what happened on the call/meeting/WhatsApp before choosing stage.
         if (! $this->isSufficientActionDetails($detailsText)) {
-            $hint = $detailsText !== ''
-                ? ($locale === 'ar'
-                    ? "محتاج تفاصيل أوضح عن المكالمة/الاجتماع مع العميل (مش اسم المرحلة بس).\n"
-                    : "I need clearer details about the call/meeting with the client (not just a stage name).\n")
-                : '';
-
-            return [
-                'ok' => true,
-                'state' => 'awaiting_details',
-                'resource' => 'lead_action',
-                'requires_confirmation' => false,
-                'missing_fields' => ['details_text'],
-                'wizard_step' => 'details',
-                'locale' => $locale,
-                'payload' => [
-                    'lead_id' => $lead->id,
-                    'details_text' => null,
-                    'stage_id' => null,
-                    'type' => $explicitType !== '' ? $explicitType : null,
-                ],
-                'message' => $locale === 'ar'
-                    ? "{$hint}تمام — هنعمل أكشن على {$leadName}.\nاكتب بكلامك إيه اللي حصل بينك وبين العميل: ردّ ولا لأ، مهتم بإيه، في موعد؟ أي اعتراضات؟"
-                    : "{$hint}Okay — let's log an action for {$leadName}.\nIn your own words, what happened with the client: did they answer, what are they interested in, any next meeting, any objections?",
-                'ui_actions' => [],
-            ];
+            return $this->buildAwaitingDetailsResult($lead, $explicitType, $detailsText, $locale);
         }
 
         $stages = $this->selectableStagesForLead($lead);
@@ -271,16 +245,26 @@ class CopilotLeadActionDraftService
                     : "Got it — stage: {$this->stageLabel($stage, $locale)}.\nWhen is the next action? Include date and time (e.g. tomorrow at 4:00 pm).",
                 'ui_actions' => [
                     [
-                        'type' => 'prompt_message',
-                        'message' => $locale === 'ar' ? 'بكرة الساعة 4 مساءً' : 'tomorrow at 4:00 pm',
-                        'display_text' => $locale === 'ar' ? 'بكرة 4 م' : 'Tomorrow 4pm',
-                        'label' => $locale === 'ar' ? 'بكرة 4 م' : 'Tomorrow 4pm',
-                    ],
-                    [
-                        'type' => 'prompt_message',
-                        'message' => $locale === 'ar' ? 'اليوم الساعة 5 مساءً' : 'today at 5:00 pm',
-                        'display_text' => $locale === 'ar' ? 'اليوم 5 م' : 'Today 5pm',
-                        'label' => $locale === 'ar' ? 'اليوم 5 م' : 'Today 5pm',
+                        'type' => 'form',
+                        'label' => $locale === 'ar' ? 'حدد موعد المتابعة' : 'Set next action time',
+                        'message_prefix' => $locale === 'ar' ? 'موعد المتابعة' : 'Next action schedule',
+                        'submit_label' => $locale === 'ar' ? 'استخدم الموعد' : 'Use this time',
+                        'fields' => [
+                            [
+                                'name' => 'date',
+                                'label' => $locale === 'ar' ? 'التاريخ' : 'Date',
+                                'type' => 'date',
+                                'required' => true,
+                                'value' => now()->addDay()->toDateString(),
+                            ],
+                            [
+                                'name' => 'time',
+                                'label' => $locale === 'ar' ? 'الوقت' : 'Time',
+                                'type' => 'time',
+                                'required' => true,
+                                'value' => '16:00',
+                            ],
+                        ],
                     ],
                 ],
             ];
@@ -315,6 +299,8 @@ class CopilotLeadActionDraftService
             'time' => $time,
             'description' => $description !== '' ? $description : null,
             'outcome' => $outcome !== '' ? $outcome : null,
+            // Lead cards read details.answerStatus (same field Add Action persists).
+            'answerStatus' => $outcome !== '' ? $outcome : null,
             'meeting_status' => $meetingStatus !== '' ? $meetingStatus : null,
             'stage_id' => (int) $stage->id,
             'next_action_type' => $nextActionType !== '' ? $nextActionType : null,
@@ -399,7 +385,7 @@ class CopilotLeadActionDraftService
             'locale' => $locale,
             'payload' => [
                 'lead_id' => $lead->id,
-                'details_text' => $detailsText !== '' ? $detailsText : null,
+                'details_text' => $this->isSufficientActionDetails($detailsText) ? $detailsText : null,
                 'stage_id' => null,
                 'type' => null,
             ],
@@ -428,6 +414,63 @@ class CopilotLeadActionDraftService
             'display_text' => $label,
             'label' => $label,
         ];
+    }
+
+    protected function buildAwaitingDetailsResult(Lead $lead, string $explicitType, string $detailsText, string $locale): array
+    {
+        $leadName = $lead->name ?: ('#'.$lead->id);
+        $hint = $detailsText !== ''
+            ? ($locale === 'ar'
+                ? "محتاج تفاصيل أوضح عن ".($this->actionTypeDetailsLabel($explicitType, 'ar'))." مع العميل (مش اسم المرحلة بس).\n"
+                : "I need clearer details about the ".$this->actionTypeDetailsLabel($explicitType, 'en')." with the client (not just a stage name).\n")
+            : '';
+
+        return [
+            'ok' => true,
+            'state' => 'awaiting_details',
+            'resource' => 'lead_action',
+            'requires_confirmation' => false,
+            'missing_fields' => ['details_text'],
+            'wizard_step' => 'details',
+            'locale' => $locale,
+            'payload' => [
+                'lead_id' => $lead->id,
+                'details_text' => null,
+                'stage_id' => null,
+                'type' => $explicitType !== '' ? $explicitType : null,
+            ],
+            'message' => $hint.$this->detailsPromptForType($explicitType, $leadName, $locale),
+            'ui_actions' => [],
+        ];
+    }
+
+    protected function actionTypeDetailsLabel(string $type, string $locale): string
+    {
+        return match ($type) {
+            'whatsapp' => $locale === 'ar' ? 'الواتساب' : 'WhatsApp',
+            'meeting' => $locale === 'ar' ? 'الاجتماع' : 'meeting',
+            'comment' => $locale === 'ar' ? 'التعليق' : 'comment',
+            default => $locale === 'ar' ? 'المكالمة' : 'call',
+        };
+    }
+
+    protected function detailsPromptForType(string $type, string $leadName, string $locale): string
+    {
+        if ($locale === 'ar') {
+            return match ($type) {
+                'whatsapp' => "تمام — هنسجل واتساب مع {$leadName}.\nاكتب إيه اللي حصل في المحادثة: رد ولا لأ، مهتم بإيه، في موعد؟ أي اعتراضات؟",
+                'meeting' => "تمام — هنسجل اجتماع مع {$leadName}.\nاكتب إيه اللي حصل في الميتنج: حضر ولا لأ، اتنفق على إيه، الخطوة الجاية؟",
+                'comment' => "تمام — هنضيف تعليق على {$leadName}.\nاكتب نص التعليق.",
+                default => "تمام — هنسجل مكالمة مع {$leadName}.\nاكتب إيه اللي حصل في المكالمة: رد ولا لأ، مهتم بإيه، في موعد؟ أي اعتراضات؟",
+            };
+        }
+
+        return match ($type) {
+            'whatsapp' => "Okay — let's log a WhatsApp with {$leadName}.\nIn your own words, what happened in the chat: did they reply, what are they interested in, any next meeting, any objections?",
+            'meeting' => "Okay — let's log a meeting with {$leadName}.\nIn your own words, what happened: did they show up, what was agreed, any next step?",
+            'comment' => "Okay — let's add a comment on {$leadName}.\nType the comment text.",
+            default => "Okay — let's log a call with {$leadName}.\nIn your own words, what happened on the call: did they answer, what are they interested in, any next meeting, any objections?",
+        };
     }
 
     protected function buildDirectActionDraftWithoutStages(Lead $lead, array $args, string $detailsText, string $explicitType, string $locale): ?array
@@ -665,6 +708,15 @@ class CopilotLeadActionDraftService
             return false;
         }
 
+        if (str_starts_with($text, '__copilot_')) {
+            return false;
+        }
+
+        // Wizard start commands ("start an action on lead 12") are not call/meeting details.
+        if ($this->looksLikeActionWizardCommand($text)) {
+            return false;
+        }
+
         // Stage tokens / short labels are not call details.
         if (mb_strlen($text) < 12) {
             return false;
@@ -695,6 +747,19 @@ class CopilotLeadActionDraftService
         }
 
         return true;
+    }
+
+    protected function looksLikeActionWizardCommand(string $text): bool
+    {
+        $normalized = mb_strtolower(trim($text));
+        if ($normalized === '') {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/(?:start|create|add|log)\s+(?:an?\s+)?(?:follow[ -_]?up\s+)?action\b|(?:اعمل|أنشئ|انشئ|ابدأ|ابدا)\s*(?:أكشن|اكشن)|(?:أكشن|اكشن)\s*متابعة/iu',
+            $normalized
+        );
     }
 
     protected function guessMeetingStatus(string $detailsText): ?string

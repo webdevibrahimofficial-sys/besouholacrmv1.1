@@ -21,7 +21,8 @@ class AiCopilotToolExecutor
         private readonly CopilotLeadDraftService $leadDrafts,
         private readonly CopilotLeadCreationAdapter $leadCreation,
         private readonly CopilotLeadActionDraftService $leadActionDrafts,
-        private readonly CopilotLeadActionCreationAdapter $leadActionCreation
+        private readonly CopilotLeadActionCreationAdapter $leadActionCreation,
+        private readonly CopilotLeadAssignmentAdapter $leadAssignment,
     ) {
     }
 
@@ -31,6 +32,14 @@ class AiCopilotToolExecutor
             [
                 'name' => 'list_capabilities',
                 'description' => 'List Besouhola Copilot capabilities, CRM modules, and reports available to the current user.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => (object) [],
+                ],
+            ],
+            [
+                'name' => 'list_reports',
+                'description' => 'List only the reports available to the current user, with open-report actions.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => (object) [],
@@ -172,6 +181,7 @@ class AiCopilotToolExecutor
 
         $result = match ($name) {
             'list_capabilities' => $this->listCapabilities($user, $locale),
+            'list_reports' => $this->listReports($user, $locale),
             'explain_feature' => $this->explainFeature($user, (string) ($args['topic'] ?? ''), $locale),
             'build_report_filters' => $this->buildReportFilters($args),
             'navigate_report' => $this->navigateReport($user, $args, $locale),
@@ -191,12 +201,46 @@ class AiCopilotToolExecutor
         return $result;
     }
 
+    protected function listReports(User $user, string $locale = 'en'): array
+    {
+        $catalog = $this->catalog->forUser($user);
+        $reports = array_values($catalog['reports'] ?? []);
+        $reportNames = collect($reports)->pluck('name')->filter()->values()->all();
+        $reportCount = count($reportNames);
+
+        if ($locale === 'ar') {
+            $lines = $reportCount > 0
+                ? [
+                    "عندك {$reportCount} تقرير متاح.",
+                    'اختار تقرير من الأزرار تحت عشان تفتحه، أو اطلب تصديره بالاسم.',
+                ]
+                : ['مفيش تقارير متاحة حسب صلاحياتك.'];
+        } else {
+            $lines = $reportCount > 0
+                ? [
+                    "You have {$reportCount} reports available.",
+                    'Choose a report below to open it, or ask me to export one by name.',
+                ]
+                : ['No reports are available for your permissions.'];
+        }
+
+        return [
+            'ok' => true,
+            'catalog' => $catalog,
+            'reports' => $reportNames,
+            'locale' => $locale,
+            'summary' => implode("\n", $lines),
+            'ui_actions' => $this->reportNavigateActions($reports, $locale),
+        ];
+    }
+
     public function confirm(User $user, string $action, array $payload): array
     {
         $result = match ($action) {
             'create_lead' => $this->leadCreation->execute($user, $payload),
             'create_lead_action' => $this->leadActionCreation->execute($user, $payload),
             'create_task_for_lead' => $this->createTaskForLead($user, $payload),
+            'assign_lead' => $this->leadAssignment->execute($user, $payload),
             default => ['ok' => false, 'message' => 'Unsupported confirmation action.'],
         };
 
@@ -392,6 +436,28 @@ class AiCopilotToolExecutor
                 'pathname' => $path,
                 'label' => $name,
                 'group' => 'modules',
+            ];
+        }
+
+        return $actions;
+    }
+
+    protected function reportNavigateActions(array $reports, string $locale = 'en'): array
+    {
+        $actions = [];
+        foreach ($reports as $report) {
+            $path = (string) ($report['path'] ?? '');
+            $name = (string) ($report['name'] ?? '');
+            if ($path === '' || $name === '') {
+                continue;
+            }
+
+            $actions[] = [
+                'type' => 'navigate',
+                'path' => $path,
+                'pathname' => $path,
+                'label' => $locale === 'ar' ? 'افتح '.$name : 'Open '.$name,
+                'group' => 'reports',
             ];
         }
 
@@ -780,7 +846,9 @@ class AiCopilotToolExecutor
             'ui_actions' => [
                 [
                     'type' => 'navigate',
-                    'path' => '/leads/'.$lead->id,
+                    'path' => '/leads?lead_id='.$lead->id.'&tab=overview',
+                    'pathname' => '/leads',
+                    'search' => '?lead_id='.$lead->id.'&tab=overview',
                     'label' => 'Open lead',
                 ],
                 [

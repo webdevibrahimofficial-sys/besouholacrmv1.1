@@ -342,6 +342,18 @@ Route::middleware([
         Route::get('/ai/copilot/status', [AiCopilotController::class, 'status']);
         Route::post('/ai/copilot/chat', [AiCopilotController::class, 'chat']);
         Route::post('/ai/copilot/actions/confirm', [AiCopilotController::class, 'confirmAction']);
+        Route::get('/ai/copilot/notifications', [AiCopilotController::class, 'listNotifications']);
+        Route::get('/ai/copilot/notifications/unread-count', [AiCopilotController::class, 'unreadNotificationCount']);
+        Route::post('/ai/copilot/notifications/enqueue-lead-intelligence', [AiCopilotController::class, 'enqueueLeadIntelligence']);
+        Route::post('/ai/copilot/notifications/enqueue-lead-rescue', [AiCopilotController::class, 'enqueueLeadRescue']);
+        Route::post('/ai/copilot/notifications/scan-lead-rescue', [AiCopilotController::class, 'scanLeadRescue']);
+        Route::post('/ai/copilot/notifications/enqueue-lead-escalation', [AiCopilotController::class, 'enqueueLeadEscalation']);
+        Route::post('/ai/copilot/notifications/scan-lead-escalation', [AiCopilotController::class, 'scanLeadEscalation']);
+        Route::post('/ai/copilot/notifications/enqueue-lead-lost-detective', [AiCopilotController::class, 'enqueueLeadLostDetective']);
+        Route::post('/ai/copilot/notifications/scan-lead-lost-detective', [AiCopilotController::class, 'scanLeadLostDetective']);
+        Route::post('/ai/copilot/notifications/{notification}/open', [AiCopilotController::class, 'openNotification']);
+        Route::patch('/ai/copilot/notifications/{notification}/read', [AiCopilotController::class, 'markNotificationRead']);
+        Route::patch('/ai/copilot/notifications/{notification}/dismiss', [AiCopilotController::class, 'dismissNotification']);
     });
 
     Route::get('/website-connections', [\App\Http\Controllers\WebsiteConnectionController::class, 'index']);

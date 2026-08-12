@@ -160,6 +160,8 @@ export default function CancellationReport() {
   const { i18n } = useTranslation()
   const { theme } = useTheme()
   const { user, company } = useAppState()
+  const location = useLocation()
+  const navigate = useNavigate()
   const isLight = theme === 'light'
   const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
   const canExport = canExportReport(user, 'Cancellation Report')

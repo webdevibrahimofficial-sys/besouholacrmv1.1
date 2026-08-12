@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\AiCopilot\AiCopilotChatService;
 use App\Services\AiCopilot\AiCopilotToolExecutor;
 use App\Services\AiCopilot\AiSystemCatalog;
+use App\Services\AiCopilot\CopilotNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,6 +16,7 @@ class AiCopilotController extends Controller
         private readonly AiCopilotChatService $chatService,
         private readonly AiCopilotToolExecutor $toolExecutor,
         private readonly AiSystemCatalog $catalog,
+        private readonly CopilotNotificationService $notifications,
     ) {
     }
 
@@ -67,7 +69,7 @@ class AiCopilotController extends Controller
     public function confirmAction(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'action' => 'required|string|in:create_task_for_lead,create_lead_action,create_lead',
+            'action' => 'required|string|in:create_task_for_lead,create_lead_action,create_lead,assign_lead',
             'payload' => 'required|array',
         ]);
 
@@ -78,6 +80,213 @@ class AiCopilotController extends Controller
         );
 
         return response()->json(['data' => $result], ($result['ok'] ?? false) ? 200 : 403);
+    }
+
+    public function listNotifications(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:50',
+        ]);
+
+        $locale = $this->resolveLocale($request);
+
+        return response()->json([
+            'data' => $this->notifications->listForUser(
+                $request->user(),
+                (int) ($validated['limit'] ?? 20)
+            ),
+        ]);
+    }
+
+    public function unreadNotificationCount(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'ok' => true,
+                'unread_count' => $this->notifications->unreadCount($request->user()),
+            ],
+        ]);
+    }
+
+    public function enqueueLeadIntelligence(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_id' => 'required|integer|min:1',
+            'source' => 'nullable|string|max:64',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+
+        $result = $this->notifications->enqueueLeadIntelligence(
+            $request->user(),
+            (int) $validated['lead_id'],
+            (string) ($validated['source'] ?? 'copilot'),
+            $locale
+        );
+
+        $status = ($result['ok'] ?? false) ? 200 : 403;
+
+        return response()->json(['data' => $result], $status);
+    }
+
+    public function enqueueLeadRescue(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_id' => 'required|integer|min:1',
+            'source' => 'nullable|string|max:64',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+
+        $result = $this->notifications->enqueueLeadRescue(
+            $request->user(),
+            (int) $validated['lead_id'],
+            (string) ($validated['source'] ?? 'copilot:rescue'),
+            $locale
+        );
+
+        $status = ($result['ok'] ?? false) ? 200 : 403;
+
+        return response()->json(['data' => $result], $status);
+    }
+
+    public function scanLeadRescue(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:25',
+            'workflow' => 'nullable|string|in:sales,telesales',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+
+        $result = $this->notifications->scanLeadRescue(
+            $request->user(),
+            $locale,
+            (int) ($validated['limit'] ?? 5),
+            (string) ($validated['workflow'] ?? 'sales')
+        );
+
+        return response()->json(['data' => $result]);
+    }
+
+    public function enqueueLeadEscalation(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_id' => 'required|integer|min:1',
+            'source' => 'nullable|string|max:64',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+
+        $result = $this->notifications->enqueueLeadEscalation(
+            $request->user(),
+            (int) $validated['lead_id'],
+            (string) ($validated['source'] ?? 'copilot:escalation'),
+            $locale
+        );
+
+        $status = ($result['ok'] ?? false) ? 200 : 403;
+
+        return response()->json(['data' => $result], $status);
+    }
+
+    public function scanLeadEscalation(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:25',
+            'workflow' => 'nullable|string|in:sales,telesales',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+
+        $result = $this->notifications->scanLeadEscalation(
+            $request->user(),
+            $locale,
+            (int) ($validated['limit'] ?? 5),
+            (string) ($validated['workflow'] ?? 'sales')
+        );
+
+        return response()->json(['data' => $result]);
+    }
+
+    public function enqueueLeadLostDetective(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_id' => 'required|integer|min:1',
+            'source' => 'nullable|string|max:64',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+
+        $result = $this->notifications->enqueueLeadLostDetective(
+            $request->user(),
+            (int) $validated['lead_id'],
+            (string) ($validated['source'] ?? 'copilot:lost-detective'),
+            $locale
+        );
+
+        $status = ($result['ok'] ?? false) ? 200 : 403;
+
+        return response()->json(['data' => $result], $status);
+    }
+
+    public function scanLeadLostDetective(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:25',
+            'workflow' => 'nullable|string|in:sales,telesales',
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+
+        $result = $this->notifications->scanLeadLostDetective(
+            $request->user(),
+            $locale,
+            (int) ($validated['limit'] ?? 5),
+            (string) ($validated['workflow'] ?? 'sales')
+        );
+
+        return response()->json(['data' => $result]);
+    }
+
+    public function openNotification(Request $request, int $notification): JsonResponse
+    {
+        $validated = $request->validate([
+            'locale' => 'nullable|string|in:ar,en,ar-EG,en-US',
+        ]);
+
+        $locale = $this->resolveLocale($request, $validated['locale'] ?? null);
+        $result = $this->notifications->open($request->user(), $notification, $locale);
+
+        return response()->json(['data' => $result], ($result['ok'] ?? false) ? 200 : 404);
+    }
+
+    public function markNotificationRead(Request $request, int $notification): JsonResponse
+    {
+        $result = $this->notifications->markRead($request->user(), $notification);
+
+        return response()->json(['data' => $result], ($result['ok'] ?? false) ? 200 : 404);
+    }
+
+    public function dismissNotification(Request $request, int $notification): JsonResponse
+    {
+        $result = $this->notifications->dismiss($request->user(), $notification);
+
+        return response()->json(['data' => $result], ($result['ok'] ?? false) ? 200 : 404);
+    }
+
+    protected function resolveLocale(Request $request, ?string $override = null): string
+    {
+        $locale = strtolower((string) ($override ?? $request->input('locale', 'en')));
+
+        return str_starts_with($locale, 'ar') ? 'ar' : 'en';
     }
 
     private function resolveQuickActions(User $user): array

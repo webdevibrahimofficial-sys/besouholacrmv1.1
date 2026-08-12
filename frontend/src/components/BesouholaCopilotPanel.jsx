@@ -4,6 +4,8 @@ import { Bot, Download, ExternalLink, Maximize2, Minimize2, Send, Sparkles, X, P
 import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '@utils/api'
 import { COPILOT_REPORT_CATALOG } from '@features/ai-copilot/utils/reportCatalog'
+import CopilotNotificationBell from '@features/ai-copilot/components/CopilotNotificationBell'
+import CopilotAssignLeadModal from '@features/ai-copilot/components/CopilotAssignLeadModal'
 import { useTheme } from '@shared/context/ThemeProvider.jsx'
 import { useAppState } from '@shared/context/AppStateProvider'
 
@@ -223,6 +225,7 @@ function FormAction({ action, onSubmit, sending, isRtl = false }) {
               <select
                 className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-300/30 ${isLight ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-700 bg-slate-800 text-slate-100'}`}
                 value={values[field.name] ?? ''}
+                required={Boolean(field.required)}
                 onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
               >
                 <option value="">{tUi(isRtl, 'Select', 'اختر')}</option>
@@ -234,7 +237,8 @@ function FormAction({ action, onSubmit, sending, isRtl = false }) {
               </select>
             ) : (
               <input
-                type={field.type === 'email' ? 'email' : 'text'}
+                type={['date', 'time', 'email'].includes(field.type) ? field.type : 'text'}
+                required={Boolean(field.required)}
                 className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-300/30 ${isLight ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-700 bg-slate-800 text-slate-100'}`}
                 value={values[field.name] ?? ''}
                 onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
@@ -265,6 +269,7 @@ function ActionButtons({
   downloadingKey,
   onPrompt,
   onSubmitForm,
+  onOpenAssign,
   sending,
   isRtl = false,
 }) {
@@ -279,6 +284,26 @@ function ActionButtons({
 
   const renderAction = (action, index) => {
     const key = `${action.type}-${index}`
+
+    if (action.type === 'open_assign_modal' || (action.type === 'confirm_action' && action.action === 'assign_lead')) {
+      const isClone = action.action === 'clone_lead' || Boolean(action?.payload?.duplicate)
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onOpenAssign?.(action)}
+          className={`inline-flex w-fit max-w-full items-center justify-center rounded-full px-4 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60 transition focus-visible:outline-none shadow-sm ${
+            isClone
+              ? 'bg-violet-600 hover:bg-violet-700 focus-visible:ring-2 focus-visible:ring-violet-400/30'
+              : 'bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-400/30'
+          }`}
+        >
+          {action.label || (isClone
+            ? (isRtl ? '🧬 نسخ وإسناد كجديد' : '🧬 Clone & assign as fresh')
+            : (isRtl ? '👤 إسناد الليد' : '👤 Assign lead'))}
+        </button>
+      )
+    }
 
     if (action.type === 'confirm_action') {
       return (
@@ -401,7 +426,17 @@ function ActionButtons({
   )
 }
 
-export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) {
+export default function BesouholaCopilotPanel({
+  open,
+  onClose,
+  isRtl = false,
+  notifications = [],
+  unreadCount = 0,
+  notificationsLoading = false,
+  onRefreshNotifications,
+  onOpenNotification,
+  onDismissNotification,
+}) {
   const { resolvedTheme } = useTheme()
   const isLight = resolvedTheme === 'light'
   const { user, activeModules } = useAppState()
@@ -415,6 +450,60 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
   const [downloadingKey, setDownloadingKey] = useState('')
   const [messages, setMessages] = useState([])
   const [expanded, setExpanded] = useState(false)
+  const [assignModal, setAssignModal] = useState({
+    open: false,
+    leadId: null,
+    leadName: '',
+    suggestedUserId: null,
+    initialDuplicate: false,
+    mode: 'assign',
+  })
+
+  useEffect(() => {
+    if (!open) return
+    onRefreshNotifications?.()
+  }, [open, onRefreshNotifications])
+
+  const handleOpenNotification = async (notification) => {
+    if (!notification?.id || !onOpenNotification) return
+
+    try {
+      const data = await onOpenNotification(notification.id, isRtl ? 'ar' : 'en')
+      if (!data?.ok) return
+
+      if (data.conversation_id) {
+        setConversationId(data.conversation_id)
+      }
+
+      const card = data.card || {}
+      setMessages([{
+        id: `intel-${notification.id}`,
+        role: 'assistant',
+        content: card.content || notification.preview || '',
+        ui_actions: card.ui_actions || [],
+      }])
+      setDraft('')
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `n-err-${Date.now()}`,
+          role: 'assistant',
+          content: error?.response?.data?.message || tUi(isRtl, 'Could not open the intelligence card.', 'تعذر فتح بطاقة الذكاء.'),
+          ui_actions: [],
+        },
+      ])
+    }
+  }
+
+  const handleDismissNotification = async (notification) => {
+    if (!notification?.id || !onDismissNotification) return
+    try {
+      await onDismissNotification(notification.id)
+    } catch {
+      // ignore dismiss errors
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -493,6 +582,14 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     if (leadPathMatch) {
       pathname = '/leads'
       search = `?lead_id=${leadPathMatch[1]}`
+    }
+
+    // Force a unique search when reopening the same lead so React Router
+    // always updates location (Open lead works more than once).
+    const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+    if (params.get('lead_id')) {
+      params.set('_open', String(Date.now()))
+      search = `?${params.toString()}`
     }
 
     navigate({ pathname, search })
@@ -631,6 +728,58 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
     await sendMessage(outgoing, action?.label || tUi(isRtl, 'Continue', 'متابعة'))
   }
 
+  const handleOpenAssign = (action) => {
+    const payload = action?.payload || {}
+    const leadId = Number(payload.lead_id || 0)
+    if (!leadId) return
+
+    const isClone = action?.action === 'clone_lead' || Boolean(payload.duplicate)
+
+    setAssignModal({
+      open: true,
+      leadId,
+      leadName: String(payload.lead_name || payload.leadName || ''),
+      suggestedUserId: Number(payload.suggested_user_id || payload.assigned_to || 0) || null,
+      initialDuplicate: isClone,
+      mode: isClone ? 'clone' : 'assign',
+    })
+  }
+
+  const handleAssignCompleted = ({ leadId, assigneeName, cloned = false }) => {
+    setAssignModal({
+      open: false,
+      leadId: null,
+      leadName: '',
+      suggestedUserId: null,
+      initialDuplicate: false,
+      mode: 'assign',
+    })
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: `assign-${Date.now()}`,
+        role: 'assistant',
+        content: cloned
+          ? (assigneeName
+            ? tUi(isRtl, `Fresh lead cloned and assigned to ${assigneeName}.`, `تم نسخ الليد وتعيينه إلى ${assigneeName} كفرصة جديدة.`)
+            : tUi(isRtl, 'Lead cloned and assigned as fresh.', 'تم نسخ الليد وتعيينه كفرصة جديدة.'))
+          : (assigneeName
+            ? tUi(isRtl, `Lead assigned to ${assigneeName}.`, `تم إسناد الليد إلى ${assigneeName}.`)
+            : tUi(isRtl, 'Lead assigned successfully.', 'تم إسناد الليد بنجاح.')),
+        ui_actions: [
+          {
+            type: 'navigate',
+            path: `/leads?lead_id=${leadId}&tab=overview`,
+            pathname: '/leads',
+            search: `?lead_id=${leadId}&tab=overview`,
+            label: tUi(isRtl, '📋 Open lead', '📋 فتح الليد'),
+          },
+        ],
+      },
+    ])
+  }
+
   const handleConfirm = async (action, key) => {
     setConfirmingKey(key)
     try {
@@ -722,8 +871,8 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
         aria-modal={open}
         aria-hidden={!open}
       >
-        <div className="flex h-full flex-col">
-          <div className={`relative overflow-hidden border-b px-4 pb-3 pt-3.5 ${isLight ? 'border-slate-200/80 bg-white/80 text-slate-900' : 'border-slate-700 bg-slate-950/70 text-slate-100'}`}>
+        <div className="flex h-full min-h-0 flex-col">
+          <div className={`relative shrink-0 overflow-visible border-b px-4 pb-3 pt-4 ${isLight ? 'border-slate-200/80 bg-white/80 text-slate-900' : 'border-slate-700 bg-slate-950/70 text-slate-100'}`}>
             <div className={`absolute inset-x-0 top-0 h-20 ${isLight ? 'bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.18),transparent_65%)]' : 'bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.12),transparent_65%)]'}`} />
             <div className="relative flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-start gap-3">
@@ -744,6 +893,16 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
               </div>
 
               <div className="flex items-center gap-2">
+                <CopilotNotificationBell
+                  notifications={notifications}
+                  unreadCount={unreadCount}
+                  loading={notificationsLoading}
+                  isRtl={isRtl}
+                  isLight={isLight}
+                  onRefresh={onRefreshNotifications}
+                  onOpen={handleOpenNotification}
+                  onDismiss={handleDismissNotification}
+                />
                 <button
                   type="button"
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${isLight ? 'border-slate-200 bg-white text-slate-500 hover:border-sky-200 hover:text-sky-600' : 'border-slate-700 bg-slate-900 text-slate-200 hover:border-sky-500 hover:text-sky-300'}`}
@@ -789,7 +948,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
             </div>
           </div>
 
-          <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3">
             {boot.loading ? (
               <div className={`rounded-2xl border p-4 text-sm ${isLight ? 'border-slate-200 bg-white/90 text-slate-500' : 'border-slate-700 bg-slate-900/90 text-slate-300'}`}>
                 {tUi(isRtl, 'Loading Copilot...', 'جاري تحميل الكوبايلوت...')}
@@ -837,6 +996,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
                       downloadingKey={downloadingKey}
                       onPrompt={handlePrompt}
                       onSubmitForm={handleSubmitForm}
+                      onOpenAssign={handleOpenAssign}
                       sending={sending}
                       isRtl={isRtl}
                     />
@@ -853,7 +1013,7 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
           </div>
 
           {!boot.loading && !boot.error ? (
-            <div className={`border-t p-3 ${isLight ? 'border-slate-200 bg-white/90' : 'border-slate-700 bg-slate-950/90'}`}>
+            <div className={`shrink-0 border-t p-3 ${isLight ? 'border-slate-200 bg-white/90' : 'border-slate-700 bg-slate-950/90'}`}>
               <div className={`rounded-[20px] border p-2 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-900/80'}`}>
                 <textarea
                   className={`min-h-[72px] w-full resize-none bg-transparent px-2 pt-2 text-sm outline-none ${isLight ? 'text-slate-700 placeholder:text-slate-400' : 'text-slate-100 placeholder:text-slate-500'}`}
@@ -883,9 +1043,29 @@ export default function BesouholaCopilotPanel({ open, onClose, isRtl = false }) 
           ) : null}
         </div>
       </div>
+
+      <CopilotAssignLeadModal
+        isOpen={Boolean(assignModal.open)}
+        onClose={() => {
+          setAssignModal({
+            open: false,
+            leadId: null,
+            leadName: '',
+            suggestedUserId: null,
+            initialDuplicate: false,
+            mode: 'assign',
+          })
+        }}
+        leadId={assignModal.leadId}
+        leadName={assignModal.leadName}
+        suggestedUserId={assignModal.suggestedUserId}
+        initialDuplicate={assignModal.initialDuplicate}
+        mode={assignModal.mode}
+        isArabic={isRtl}
+        currentUser={user}
+        onAssigned={handleAssignCompleted}
+      />
     </div>
   )
 }
-
-
 

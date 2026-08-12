@@ -28,6 +28,7 @@ import LeadHoverTooltip from '../components/LeadHoverTooltip'
 import { useDynamicFields } from '../hooks/useDynamicFields'
 import { getLeadModulePermissions, getLeadPermissionFlags, isSuperAdminUser, isTenantAdminUser } from '../services/leadPermissions'
 import { normalizeColumnOrder, getFavoriteColumnOrder } from '../utils/columnPreferences'
+import { emitCopilotLeadOpened } from '@features/ai-copilot/utils/copilotLeadOpened'
 import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/utils/phoneDisplay'
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 import { formatCrmCalendarDateTime, formatCrmDateTime } from '@shared/utils/crmDateTime'
@@ -445,6 +446,15 @@ export const Leads = () => {
   const [isMobile, setIsMobile] = useState(false)
   const [isDataLoaded, setIsDataLoaded] = useState(false)
   const [initialActionId, setInitialActionId] = useState(null)
+  const [initialLeadTab, setInitialLeadTab] = useState('overview')
+
+  const openLeadPreview = useCallback((lead, tab = 'overview') => {
+    if (!lead) return
+    setSelectedLead(lead)
+    setInitialLeadTab(tab)
+    setShowLeadModal(true)
+    emitCopilotLeadOpened(lead)
+  }, [])
   const importMenuRef = useRef(null)
 
   useEffect(() => {
@@ -464,11 +474,13 @@ export const Leads = () => {
     }
   }, [canShowCreator, createdByFilter.length])
 
-  // Handle lead_id and action_id from URL (Deep Linking from Notifications)
+  // Handle lead_id and action_id from URL (Deep Linking from Notifications / Copilot)
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const leadId = searchParams.get('lead_id');
     const actionId = searchParams.get('action_id');
+    const tabParam = String(searchParams.get('tab') || '').trim();
+    const allowedTabs = new Set(['overview', 'all-actions', 'communication', 'attachments']);
 
     if (leadId) {
       const fetchLead = async () => {
@@ -480,11 +492,19 @@ export const Leads = () => {
             if (actionId) {
               setInitialActionId(actionId);
             }
+            if (actionId) {
+              setInitialLeadTab('all-actions');
+            } else if (allowedTabs.has(tabParam)) {
+              setInitialLeadTab(tabParam);
+            } else {
+              setInitialLeadTab('overview');
+            }
             setShowLeadModal(true);
-            
-            // Clear URL params without reloading to avoid re-triggering
-            const newUrl = window.location.pathname;
-            window.history.replaceState({}, '', newUrl);
+            emitCopilotLeadOpened(lead);
+
+            // Clear via React Router (not history.replaceState) so a second
+            // Open lead navigation still changes location.search and re-opens.
+            navigate({ pathname: location.pathname, search: '' }, { replace: true });
           }
         } catch (error) {
           console.error('Failed to fetch lead from URL:', error);
@@ -493,7 +513,7 @@ export const Leads = () => {
       };
       fetchLead();
     }
-  }, [location.search]);
+  }, [location.pathname, location.search, navigate]);
 
   // Handle search query from URL
   useEffect(() => {
@@ -4686,7 +4706,7 @@ if (!s) {
                             <div className="flex items-center gap-2 flex-nowrap">
                               <button
                                 title={t('Preview')}
-                                onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); setShowLeadModal(true); }}
+                                onClick={(e) => { e.stopPropagation(); openLeadPreview(lead, 'overview'); }}
                                 className={`inline-flex items-center justify-center ${theme === 'light' ? 'text-indigo-300 hover:text-blue-500' : 'text-indigo-300 hover:text-indigo-400'}`}
                               >
                                 <FaEye size={16} className={`${theme === 'light' ? 'text-indigo-300' : 'text-indigo-300'}`} />
@@ -5184,8 +5204,7 @@ if (!s) {
             setShowTooltip(false)
             switch (action) {
               case 'preview':
-                setSelectedLead(hoveredLead)
-                setShowLeadModal(true)
+                openLeadPreview(hoveredLead, 'overview')
                 break
               case 'edit':
                 setEditingLead(hoveredLead)
@@ -5861,10 +5880,11 @@ if (!s) {
             setShowLeadModal(false)
             setSelectedLead(null)
             setInitialActionId(null)
+            setInitialLeadTab('overview')
           }}
           lead={selectedLead}
           initialActionId={initialActionId}
-          initialTab="overview"
+          initialTab={initialLeadTab}
           isArabic={i18n.language === 'ar'}
           theme={theme}
           assignees={uniqueAssignees}

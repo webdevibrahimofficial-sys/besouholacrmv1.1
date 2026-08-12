@@ -87,6 +87,11 @@ class AiCopilotChatService
                 $forcedDelayed = $this->forceDelayedLeadsPlan($message);
                 if ($forcedDelayed) {
                     $planned = $forcedDelayed;
+                } elseif ($this->looksLikeAvailableReportsRequest($message)) {
+                    $planned = [
+                        'tool' => 'list_reports',
+                        'args' => [],
+                    ];
                 } elseif ($this->looksLikeCreateLeadActionRequest($message)) {
                     $planned = [
                         'tool' => 'create_lead_action_draft',
@@ -235,7 +240,7 @@ Language rule: any "reply" text MUST be written in {$replyLanguage}, matching th
 When the user asks what they can do, what you can help with, or available capabilities, prefer tool "list_capabilities".
 When the user asks to explain the system/CRM/overview, prefer tool "explain_feature" with args.topic="system".
 When the user asks about a module (Leads, Reports, Tasks, Telesales, Marketing/Meta, Settings), prefer tool "explain_feature" with that module key.
-When the user asks what reports they can open or which reports are available, prefer tool "list_capabilities".
+When the user asks what reports they can open or which reports are available, prefer tool "list_reports".
 When the user asks which leads to invest in, delayed leads, or overdue follow-ups, prefer tool "list_delayed_leads".
 When the user is choosing/starting one lead after a delayed-leads list (e.g. "اختار واحد", "ابدأ بيها", "start with one"), do NOT open reports. Prefer tool "none" with a short reply asking them to click a lead card or name the lead id.
 When the user wants to create/log a lead action (أكشن / follow-up / meeting outcome), prefer tool "create_lead_action_draft" with lead_id only when known. Do NOT invent stage_id, type, outcome, or description — the wizard asks what happened, then recommends a stage, then confirms.
@@ -327,9 +332,9 @@ PROMPT;
             ];
         }
 
-        if (preg_match('/(what (reports|can)|which reports|available reports|ايه التقارير|ما هي التقارير|التقارير المتاحة)/u', $text)) {
+        if ($this->looksLikeAvailableReportsRequest($text)) {
             return [
-                'tool' => 'list_capabilities',
+                'tool' => 'list_reports',
                 'args' => [],
             ];
         }
@@ -389,6 +394,16 @@ PROMPT;
     protected function guessReport(string $text): ?string
     {
         return $this->catalog->guessReportKey($text);
+    }
+
+    protected function looksLikeAvailableReportsRequest(string $text): bool
+    {
+        $normalized = mb_strtolower(trim($text));
+
+        return (bool) preg_match(
+            '/(what reports can i open|what reports|which reports|available reports|reports available|list reports|show reports|ايه التقارير|إيه التقارير|ما هي التقارير|التقارير المتاحة|اعرض التقارير|قائمة التقارير)/u',
+            $normalized
+        );
     }
 
     protected function enrichPlanWithHeuristicDates(array $planned, string $message): array
@@ -659,6 +674,9 @@ PROMPT;
         return match ($tool) {
             'list_capabilities' => (string) ($result['summary'] ?? (
                 $locale === 'ar' ? 'دي الإمكانيات المتاحة.' : 'Here are the available capabilities.'
+            )),
+            'list_reports' => (string) ($result['summary'] ?? (
+                $locale === 'ar' ? 'دي التقارير المتاحة.' : 'Here are the available reports.'
             )),
             'explain_feature' => $this->composeExplainFeatureReply($result, $locale),
             'navigate_report' => $this->composeNavigateReply($result, $locale),
@@ -1668,9 +1686,9 @@ PROMPT;
             'ui_actions' => [
                 [
                     'type' => 'navigate',
-                    'path' => '/leads?lead_id='.$lead->id,
+                    'path' => '/leads?lead_id='.$lead->id.'&tab=overview',
                     'pathname' => '/leads',
-                    'search' => '?lead_id='.$lead->id,
+                    'search' => '?lead_id='.$lead->id.'&tab=overview',
                     'label' => $locale === 'ar' ? 'افتح الليد' : 'Open lead',
                 ],
                 [

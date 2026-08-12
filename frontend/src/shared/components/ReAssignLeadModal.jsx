@@ -62,6 +62,8 @@ const ReAssignLeadModal = ({
   salesRoleLabel = '',
   managerRoleLabel = '',
   duplicateLabel = '',
+  initialUserId = null,
+  initialDuplicate = false,
 }) => {
   const { theme } = useTheme();
   const isLight = theme === 'light';
@@ -120,12 +122,20 @@ const ReAssignLeadModal = ({
       setAssignRole('sales');
       setAssignMethod('fresh');
       setOptions({
-        duplicate: false,
+        duplicate: Boolean(initialDuplicate),
         sameStage: false,
         clearHistory: false
       });
     }
-  }, [isOpen, currentUser, onClearError, rolesOverride, usersOverride]);
+  }, [isOpen, currentUser, onClearError, rolesOverride, usersOverride, initialDuplicate]);
+
+  useEffect(() => {
+    if (!isOpen || !initialUserId || users.length === 0) return;
+    const match = users.find((user) => String(user.id) === String(initialUserId));
+    if (match) {
+      setSelectedUser(match);
+    }
+  }, [isOpen, initialUserId, users]);
 
   useEffect(() => {
     if (!isOpen || !errorMessage) return;

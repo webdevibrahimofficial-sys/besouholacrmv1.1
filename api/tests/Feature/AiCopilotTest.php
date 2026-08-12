@@ -102,6 +102,25 @@ class AiCopilotTest extends TestCase
         $this->assertNotEmpty($response->json('data.message'));
     }
 
+    public function test_chat_lists_reports_without_module_overview(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'What reports can I open?',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'list_reports');
+
+        $message = (string) $response->json('data.message');
+        $this->assertStringContainsString('reports available', $message);
+        $this->assertStringNotContainsString('• Leads Pipeline', $message);
+        $this->assertStringNotContainsString('Modules:', $message);
+        $this->assertSame('Open Leads Pipeline', $response->json('data.ui_actions.0.label'));
+        $this->assertSame('reports', $response->json('data.ui_actions.0.group'));
+    }
+
     public function test_navigate_report_denied_without_permission(): void
     {
         $this->user->forceFill([
