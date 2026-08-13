@@ -150,6 +150,7 @@ export default function Categories() {
   const [isFiltering, setIsFiltering] = useState(false)
   const [filters, setFilters] = useState({ 
     search: '', 
+    name: '',
     appliesTo: '',
     status: ''
   })
@@ -235,11 +236,17 @@ export default function Categories() {
     }
     if (!window.confirm(isArabic ? 'هل أنت متأكد؟' : 'Are you sure?')) return
     try {
-      await api.delete(`/api/item-categories/${id}`)
+      await api.delete(`/api/item-categories/${id}`, { suppressErrorStatuses: [409] })
       await fetchCategories()
     } catch (error) {
-      console.error('Error deleting category:', error)
-      alert(isArabic ? 'فشل الحذف' : 'Failed to delete')
+      const data = error?.response?.data || {}
+      if (error?.response?.status === 409 && data.code === 'category_has_items') {
+        alert(isArabic
+          ? `لا يمكن حذف التصنيف لأنه مرتبط بـ ${data.items_count || 0} صنف. امسح أو انقل الأصناف أولاً.`
+          : `This category is linked to ${data.items_count || 0} items. Delete or move the items first.`)
+        return
+      }
+      alert(data.message || (isArabic ? 'فشل الحذف' : 'Failed to delete'))
     }
   }
 
@@ -270,6 +277,10 @@ export default function Categories() {
     { value: 'Active', label: labels.active },
     { value: 'Inactive', label: labels.inactive },
   ]), [labels.active, labels.inactive])
+  const categoryNameFilterOptions = useMemo(() => {
+    return Array.from(new Set(categories.map(c => String(c.name || '').trim()).filter(Boolean)))
+      .map(name => ({ value: name, label: name }))
+  }, [categories])
 
   const getAppliesToLabel = (value) => {
     switch (value) {
@@ -297,6 +308,7 @@ export default function Categories() {
         const q = filters.search.toLowerCase()
         if (!c.name.toLowerCase().includes(q) && !(c.description || '').toLowerCase().includes(q) && !(c.code || '').toLowerCase().includes(q)) return false
       }
+      if (filters.name && c.name !== filters.name) return false
       if (filters.appliesTo && c.appliesTo !== filters.appliesTo) return false
       if (filters.status && c.status !== filters.status) return false
       
@@ -308,6 +320,7 @@ export default function Categories() {
     setIsFiltering(true)
     setFilters({ 
       search: '', 
+      name: '',
       appliesTo: '',
       status: ''
     })
@@ -463,6 +476,16 @@ export default function Categories() {
                 <input className="input w-full" value={filters.search} onChange={e=>setFilters(prev=>({...prev, search: e.target.value}))} placeholder={isArabic ? 'بحث...' : 'Search...'} />
               </div>
               <div className="space-y-1">
+                <label className="text-xs font-medium text-[var(--muted-text)]">{labels.name}</label>
+                <SearchableSelect
+                  options={categoryNameFilterOptions}
+                  value={filters.name}
+                  onChange={val => setFilters(prev => ({ ...prev, name: val }))}
+                  placeholder={`${labels.name} ${labels.all}`}
+                  isRTL={isArabic}
+                />
+              </div>
+              <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--muted-text)]">{labels.appliesTo}</label>
                 <SearchableSelect
                   options={appliesToFilterOptions}
@@ -537,9 +560,9 @@ export default function Categories() {
 
             {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="nova-table w-full">
+              <table className="nova-table categories-table w-full">
                 <thead className="thead-soft">
-                  <tr className=" hover:bg-gray-700/50 transition-colors group">
+                  <tr>
                     <th className="text-start px-3 min-w-[120px]">{labels.code || 'Code'}</th>
                     <th className="text-start px-3 min-w-[200px]">{labels.name}</th>
                     <th className="text-start px-3 min-w-[160px]">{labels.appliesTo}</th>
@@ -551,7 +574,7 @@ export default function Categories() {
                 </thead>
                 <tbody>
                   {paginatedCategories.map(c => (
-                    <tr key={c.id} className=" hover:bg-gray-700/50 transition-colors group">
+                    <tr key={c.id} className="group cursor-pointer transition-colors duration-150 hover:bg-blue-50/80 dark:hover:bg-blue-900/20">
                       <td className="px-3 text-xs font-mono text-[var(--muted-text)]">{c.code || '-'}</td>
                       <td className="px-3"><span className="font-medium">{c.name}</span></td>
                       <td className="px-3">{getAppliesToLabel(c.appliesTo)}</td>

@@ -59,6 +59,7 @@ class User extends Authenticatable
         'monthly_target',
         'quarterly_target',
         'yearly_target',
+        'commission_percentage',
     ];
 
     /**
@@ -193,5 +194,15 @@ class User extends Authenticatable
     public function deviceTokens(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(DeviceToken::class);
+    }
+
+    public function yearlyTargets()
+    {
+        return $this->hasMany(UserYearlyTarget::class);
+    }
+
+    public function commissionTiers()
+    {
+        return $this->hasMany(UserCommissionTier::class);
     }
 }

@@ -358,6 +358,10 @@ class LeadActionController extends Controller
                 }
 
                 $meta = is_array($requestModel->meta_data) ? $requestModel->meta_data : [];
+                $metaSourceActionId = isset($meta['source_action_id']) ? (int) $meta['source_action_id'] : null;
+                if ($metaSourceActionId !== null && $metaSourceActionId !== $reservationActionId) {
+                    return false;
+                }
                 $metaLeadId = isset($meta['lead_id']) ? (int) $meta['lead_id'] : null;
                 $sameLead = $metaLeadId === (int) $lead->id;
                 $sameProject = trim((string) ($requestModel->project ?? '')) === $projectName;
@@ -382,6 +386,10 @@ class LeadActionController extends Controller
                 }
 
                 $meta = is_array($requestModel->meta_data) ? $requestModel->meta_data : [];
+                $metaSourceActionId = isset($meta['source_action_id']) ? (int) $meta['source_action_id'] : null;
+                if ($metaSourceActionId !== null && $metaSourceActionId !== $reservationActionId) {
+                    return false;
+                }
                 $metaLeadId = isset($meta['lead_id']) ? (int) $meta['lead_id'] : null;
                 $sameLead = $metaLeadId === (int) $lead->id;
                 $sameProduct = trim((string) ($requestModel->product ?? '')) === $productName;
@@ -1403,6 +1411,11 @@ class LeadActionController extends Controller
 
                         $qty = intval($itemData['quantity'] ?? 1);
                         $price = floatval($itemData['price'] ?? 0);
+                        $addonsTotal = floatval($itemData['addons_total'] ?? 0);
+                        $discountAmount = floatval($itemData['discount_amount'] ?? 0);
+                        $lineTotal = isset($itemData['line_total']) && $itemData['line_total'] !== ''
+                            ? floatval($itemData['line_total'])
+                            : max(0, ($qty * $price) + $addonsTotal - $discountAmount);
                         $productName = $itemModel ? $itemModel->name : (string) ($itemData['item'] ?? '');
 
                         if ($productName === '') {
@@ -1425,7 +1438,12 @@ class LeadActionController extends Controller
                             'meta_data' => [
                                 'lead_id' => $reservationLead->id,
                                 'price' => $price,
-                                'total' => $price * $qty,
+                                'total' => $lineTotal,
+                                'line_total' => $lineTotal,
+                                'addons_total' => $addonsTotal,
+                                'discount_amount' => $discountAmount,
+                                'reservationAmount' => $lineTotal,
+                                'reservationGeneralItems' => [$itemData],
                                 'source_action_id' => $reservationActionId,
                                 'source_action_line' => (int) $index,
                                 'source_action_type' => 'reservation',
@@ -1838,5 +1856,3 @@ class LeadActionController extends Controller
         return response()->json($leadAction->load(['user', 'lead']));
     }
 }
-
-

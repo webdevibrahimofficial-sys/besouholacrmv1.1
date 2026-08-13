@@ -71,7 +71,19 @@ class ItemCategoryController extends Controller
         if ($resp = $this->authorizeInventoryDelete($request, 'general')) {
             return $resp;
         }
-        ItemCategory::findOrFail($id)->delete();
+        $category = ItemCategory::withCount('items')->findOrFail($id);
+
+        if ($category->items_count > 0) {
+            return response()->json([
+                'message' => 'This category is linked to items. Delete or move the linked items first.',
+                'code' => 'category_has_items',
+                'category_id' => $category->id,
+                'category_name' => $category->name,
+                'items_count' => $category->items_count,
+            ], 409);
+        }
+
+        $category->delete();
         return response()->noContent();
     }
 }

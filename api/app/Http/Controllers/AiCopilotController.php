@@ -17,8 +17,7 @@ class AiCopilotController extends Controller
         private readonly AiCopilotToolExecutor $toolExecutor,
         private readonly AiSystemCatalog $catalog,
         private readonly CopilotNotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     public function status(Request $request): JsonResponse
     {
@@ -297,7 +296,7 @@ class AiCopilotController extends Controller
         $controlPerms = is_array($modulePermissions['Control'] ?? null) ? $modulePermissions['Control'] : [];
 
         $quickActions = [];
-        $canShowAnyReport = !empty($this->catalog->forUser($user)['reports']);
+        $canShowAnyReport = ! empty($this->catalog->forUser($user)['reports']);
         $canOpenPipeline = $this->catalog->canShowReport($user, 'Leads Pipeline');
         $canCreateLead = $this->userHasLeadCreatePermission($user, $leadPerms);
         $canAddAction = $this->userHasAddActionPermission($user, $leadPerms);
@@ -349,6 +348,13 @@ class AiCopilotController extends Controller
         }
 
         $quickActions[] = [
+            'id' => 'integration-guide',
+            'label' => ['ar' => 'شرح الربط', 'en' => 'Integration guide'],
+            'message' => 'Explain integrations setup',
+            'displayText' => ['ar' => 'اشرحلي ربط الانتجريشن', 'en' => 'Explain integrations setup'],
+        ];
+
+        $quickActions[] = [
             'id' => 'explain-system',
             'label' => ['ar' => 'اشرح السيستم', 'en' => 'Explain system'],
             'message' => 'Explain the system',
@@ -396,5 +402,3 @@ class AiCopilotController extends Controller
         return in_array('showReports', $controlPerms, true);
     }
 }
-
-

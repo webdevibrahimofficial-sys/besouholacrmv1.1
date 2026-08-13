@@ -19,6 +19,18 @@ import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
+const normalizeCompanyType = (...values) => {
+  const normalized = values
+    .map(value => String(value || '').trim().toLowerCase())
+    .find(Boolean)
+
+  if (!normalized) return ''
+  if (normalized.includes('general')) return 'general'
+  if (normalized.includes('real')) return 'realestate'
+
+  return normalized.replace(/[\s_]+/g, '')
+}
+
 export default function ClosedDealsReport() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
@@ -28,9 +40,15 @@ export default function ClosedDealsReport() {
   const isRTL = (i18n?.language || '').toLowerCase().startsWith('ar')
   const { user, company } = useAppState()
   const canExport = canExportReport(user, 'Closed Deals')
-  const companyType = String(company?.company_type || '').toLowerCase()
-  const isRealEstate = companyType === 'real estate'
-  const projectLabel = isRTL ? (isRealEstate ? '\u0627\u0644\u0645\u0634\u0631\u0648\u0639' : '\u0627\u0644\u0645\u0646\u062a\u062c') : (isRealEstate ? 'Project' : 'Item')
+  const companyType = normalizeCompanyType(
+    company?.company_type,
+    company?.type,
+    company?.companyType,
+    company?.tenant_type
+  )
+  const isRealEstate = companyType === 'realestate'
+  const showProjectColumn = isRealEstate
+  const projectLabel = isRTL ? '\u0627\u0644\u0645\u0634\u0631\u0648\u0639' : 'Project'
   const dealTypeValue = isRealEstate ? 'unit' : 'item'
   const unitOrItemLabel = isRTL ? (isRealEstate ? '\u0631\u0642\u0645 \u0627\u0644\u0648\u062d\u062f\u0629' : '\u0627\u0644\u0645\u0646\u062a\u062c') : (isRealEstate ? 'Unit Number' : 'Item')
   const closedByProjectTitle = isRTL
@@ -169,6 +187,91 @@ export default function ClosedDealsReport() {
     )
   }
 
+  const parseMoney = (value) => parseFloat(String(value ?? '').replace(/,/g, '')) || 0
+
+  const buildGeneralItemDetails = (rows = [], fallback = {}) => {
+    const sourceRows = Array.isArray(rows) && rows.length > 0 ? rows : []
+    if (sourceRows.length === 0) {
+      const name = String(fallback.name || '').trim()
+      if (!name) return []
+      const quantity = parseMoney(fallback.quantity || 1) || 1
+      const amount = parseMoney(fallback.price || 0)
+      return [{
+        name,
+        category: fallback.category || '-',
+        quantity,
+        amount,
+        addons: [],
+        addonsTotal: 0,
+        discount: 0,
+        subTotal: parseMoney(fallback.total) || (quantity * amount),
+      }]
+    }
+
+    return sourceRows.map((row) => {
+      const quantity = parseMoney(row?.quantity || 1) || 1
+      const amount = parseMoney(row?.price || row?.amount || 0)
+      const addons = Array.isArray(row?.addons) ? row.addons : []
+      const addonsTotal = parseMoney(row?.addons_total || addons.reduce((sum, addon) => {
+        const addonQty = parseMoney(addon?.quantity || 0)
+        const addonPrice = parseMoney(addon?.price || addon?.amount || 0)
+        return sum + (parseMoney(addon?.total) || (addonQty * addonPrice))
+      }, 0))
+      const discount = parseMoney(row?.discount_amount || 0)
+      const subTotal = parseMoney(row?.line_total ?? row?.total ?? row?.sub_total ?? row?.subtotal) ||
+        Math.max(0, (quantity * amount) + addonsTotal - discount)
+
+      return {
+        name: row?.item_name || row?.name || row?.item || '-',
+        category: row?.category_name || row?.category || '-',
+        quantity,
+        amount,
+        addons,
+        addonsTotal,
+        discount,
+        subTotal,
+      }
+    })
+  }
+
+  const getItemsSummary = (detailRows = [], fallback = '-') => {
+    if (!Array.isArray(detailRows) || detailRows.length === 0) return fallback || '-'
+    const first = detailRows[0]?.name || fallback || '-'
+    return detailRows.length === 1 ? first : `${first} + ${detailRows.length - 1} more`
+  }
+
+  const renderItemDetailsTooltip = (detailRows = [], totalValue = 0) => {
+    if (!Array.isArray(detailRows) || detailRows.length === 0) return null
+
+    return (
+      <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden w-[360px] max-w-[80vw] rounded-lg border border-gray-200 bg-white p-3 text-xs text-slate-900 shadow-xl group-hover:block dark:border-gray-700 dark:bg-gray-900 dark:text-white">
+        <div className="max-h-80 overflow-y-auto pr-1">
+          {detailRows.map((row, index) => (
+            <div key={`${row.name}-${index}`} className={`${index > 0 ? 'mt-2 border-t border-gray-200 pt-2 dark:border-gray-700' : ''}`}>
+              <div className="font-semibold">{row.name}</div>
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                <span>Category: {row.category}</span>
+                <span>Qty: {row.quantity}</span>
+                <span>Amount: {row.amount.toLocaleString()} EGP</span>
+                <span>Discount: {row.discount.toLocaleString()} EGP</span>
+                <span className="col-span-2">
+                  Add-ons: {row.addons.length > 0
+                    ? row.addons.map(addon => `${addon?.name || '-'} x${addon?.quantity || 0} (${parseMoney(addon?.total || (parseMoney(addon?.quantity) * parseMoney(addon?.price))).toLocaleString()} EGP)`).join(', ')
+                    : '-'}
+                </span>
+                <span>Add-ons Amount: {row.addonsTotal.toLocaleString()} EGP</span>
+                <span className="font-semibold">Sub Total: {row.subTotal.toLocaleString()} EGP</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 border-t border-gray-200 pt-2 font-semibold dark:border-gray-700">
+          Total: {Number(totalValue || 0).toLocaleString()} EGP
+        </div>
+      </div>
+    )
+  }
+
   const openPropertyByUnit = (deal) => {
     const unitValue = String(deal?.unitOrItemName || '').trim()
     if (!isRealEstate || !unitValue) return
@@ -191,7 +294,13 @@ export default function ClosedDealsReport() {
       )
     }
 
-    return value
+    const detailRows = Array.isArray(deal?.itemDetails) ? deal.itemDetails : []
+    return (
+      <div className="group relative inline-flex max-w-[220px]">
+        <span className="truncate" title={getItemsSummary(detailRows, value)}>{getItemsSummary(detailRows, value)}</span>
+        {renderItemDetailsTooltip(detailRows, deal?.value)}
+      </div>
+    )
   }
 
   useEffect(() => {
@@ -219,6 +328,10 @@ export default function ClosedDealsReport() {
         const raw = Array.isArray(res.data) ? res.data : (res.data?.data || [])
         const mapped = raw.map(a => {
           const details = a.details || {}
+          const itemDetails = buildGeneralItemDetails(details.reservationGeneralItems, {
+            name: resolveUnitOrItemName(a.lead || {}, details),
+            total: details.closingRevenue ?? details.revenue ?? a.revenue ?? 0,
+          })
 
           const valueRaw =
             details.closingRevenue ??
@@ -227,10 +340,12 @@ export default function ClosedDealsReport() {
             (a.lead && a.lead.estimated_value) ??
             0
 
-          const value =
+          const valueFromRows = itemDetails.reduce((sum, row) => sum + Number(row.subTotal || 0), 0)
+          const value = valueFromRows || (
             typeof valueRaw === 'number'
               ? valueRaw
               : parseFloat(valueRaw || '0') || 0
+          )
 
           const closedDateRaw = a.created_at || details.date || ''
 
@@ -263,7 +378,8 @@ export default function ClosedDealsReport() {
             value,
             dealType: dealTypeValue,
             project: resolveProjectOrItem(lead),
-            unitOrItemName: resolveUnitOrItemName(lead, details),
+            unitOrItemName: getItemsSummary(itemDetails, resolveUnitOrItemName(lead, details)),
+            itemDetails,
             source: lead.source || '',
             closedDateTime: closedDateRaw,
             closedDate: normalizeDate(closedDateRaw),
@@ -322,19 +438,14 @@ export default function ClosedDealsReport() {
     const fetchProjectsOrItems = async () => {
       try {
         let names = []
-        if (companyType === 'real estate') {
+        if (isRealEstate) {
           const res = await api.get('/api/projects')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
           setProjectsList(data)
           names = data.map(p => p.name || p.name_ar || p.title).filter(Boolean)
-        } else if (companyType === 'general') {
-          const res = await api.get('/api/items?all=1')
-          const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
-          setProjectsList([])
-          names = data.map(it => it.name || it.product || it.title).filter(Boolean)
         } else {
           setProjectsList([])
-          const set = new Set(deals.map(d => d.project).filter(Boolean))
+          const set = new Set(showProjectColumn ? deals.map(d => d.project).filter(Boolean) : [])
           names = Array.from(set)
         }
         const unique = Array.from(new Set(names))
@@ -347,7 +458,7 @@ export default function ClosedDealsReport() {
       }
     }
     fetchProjectsOrItems()
-  }, [companyType, deals])
+  }, [deals, isRealEstate, showProjectColumn])
 
   const salesPersonOptions = useMemo(() => {
     if (!usersList || usersList.length === 0) {
@@ -454,7 +565,7 @@ export default function ClosedDealsReport() {
         return !d.salespersonId || salesIds.has(String(d.salespersonId))
       })()
       const bySource = sourceFilter === 'all' ? true : d.source === sourceFilter
-      const byProject = projectFilter === 'all' ? true : d.project === projectFilter
+      const byProject = !showProjectColumn || projectFilter === 'all' ? true : d.project === projectFilter
       const byLastAction = (() => {
         if (!lastActionDateFrom && !lastActionDateTo) return true
         const d0 = d.lastActionDate || ''
@@ -473,7 +584,7 @@ export default function ClosedDealsReport() {
       })()
       return bySales && byManager && bySource && byProject && byLastAction && byClosedDate
     })
-  }, [deals, salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFrom, lastActionDateTo, closedDealDateFrom, closedDealDateTo, usersList])
+  }, [deals, salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFrom, lastActionDateTo, closedDealDateFrom, closedDealDateTo, usersList, showProjectColumn])
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
@@ -586,18 +697,23 @@ export default function ClosedDealsReport() {
   }
 
   const handleExportExcel = () => {
-    const rows = filtered.map(d => ({
-      [isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person']: d.salesperson,
-      [isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064a\u0644' : 'Lead Name']: d.leadName,
-      [isRTL ? '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062a\u0648\u0627\u0635\u0644' : 'Contact']: d.contact,
-      [isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source']: d.source,
-      [projectLabel]: d.project,
-      [isRTL ? '\u0646\u0648\u0639 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Type']: d.dealType,
-      [unitOrItemLabel]: d.unitOrItemName,
-      [isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value']: d.value,
-      [isRTL ? '\u062a\u0627\u0631\u064a\u062e \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Closed Deal Date']: formatDateTime(d.closedDateTime),
-      [isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status']: d.status
-    }))
+    const rows = filtered.map(d => {
+      const row = {
+        [isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person']: d.salesperson,
+        [isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064a\u0644' : 'Lead Name']: d.leadName,
+        [isRTL ? '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062a\u0648\u0627\u0635\u0644' : 'Contact']: d.contact,
+        [isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source']: d.source,
+      }
+      if (showProjectColumn) row[projectLabel] = d.project
+      return {
+        ...row,
+        [isRTL ? '\u0646\u0648\u0639 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Type']: d.dealType,
+        [unitOrItemLabel]: d.unitOrItemName,
+        [isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value']: d.value,
+        [isRTL ? '\u062a\u0627\u0631\u064a\u062e \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Closed Deal Date']: formatDateTime(d.closedDateTime),
+        [isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status']: d.status
+      }
+    })
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'ClosedDeals')
@@ -784,20 +900,22 @@ export default function ClosedDealsReport() {
                 icon={<Tag size={16} />}
               />
             </div>
-            <div className="space-y-1">
-              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                {projectLabel}
-              </label>
-              <SearchableSelect
-                options={projectSelectOptions}
-                value={projectFilter}
-                onChange={v => setProjectFilter(v)}
-                placeholder={projectLabel}
-                isRTL={isRTL}
-                icon={<Briefcase size={16} />}
-              />
-            </div>
+            {showProjectColumn && (
+              <div className="space-y-1">
+                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                  <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
+                  {projectLabel}
+                </label>
+                <SearchableSelect
+                  options={projectSelectOptions}
+                  value={projectFilter}
+                  onChange={v => setProjectFilter(v)}
+                  placeholder={projectLabel}
+                  isRTL={isRTL}
+                  icon={<Briefcase size={16} />}
+                />
+              </div>
+            )}
           </div>
 
           <div
@@ -931,10 +1049,12 @@ export default function ClosedDealsReport() {
               </div>
               
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="space-y-1">
-                  <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{projectLabel}</p>
-                  <p className="font-medium dark:text-gray-200">{deal.project}</p>
-                </div>
+                {showProjectColumn && (
+                  <div className="space-y-1">
+                    <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{projectLabel}</p>
+                    <p className="font-medium dark:text-gray-200">{deal.project}</p>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <p className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{unitOrItemLabel}</p>
                   <div className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(deal)}</div>
@@ -987,7 +1107,7 @@ export default function ClosedDealsReport() {
                 <th className="px-4 py-3">{isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064a\u0644' : 'Lead Name'}</th>
                 <th className="px-4 py-3">{isRTL ? '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062a\u0648\u0627\u0635\u0644' : 'Contact'}</th>
                 <th className="px-4 py-3">{isRTL ? '\u0627\u0644\u0645\u0635\u062f\u0631' : 'Source'}</th>
-                <th className="px-4 py-3">{projectLabel}</th>
+                {showProjectColumn && <th className="px-4 py-3">{projectLabel}</th>}
                 <th className="px-4 py-3">{isRTL ? '\u0646\u0648\u0639 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Type'}</th>
                 <th className="px-4 py-3">{unitOrItemLabel}</th>
                 <th className="px-4 py-3 text-center">{isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value'}</th>
@@ -1003,7 +1123,9 @@ export default function ClosedDealsReport() {
                   <td className={`px-4 py-3 font-medium ${isLight ? 'text-black' : 'text-white'}`}>{deal.leadName}</td>
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.contact}</td>
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{localizeSourceLabel(deal.source)}</td>
-                  <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.project}</td>
+                  {showProjectColumn && (
+                    <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.project}</td>
+                  )}
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{deal.dealType}</td>
                   <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(deal)}</td>
                   <td className={`px-4 py-3 text-center font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{deal.value.toLocaleString()} EGP</td>

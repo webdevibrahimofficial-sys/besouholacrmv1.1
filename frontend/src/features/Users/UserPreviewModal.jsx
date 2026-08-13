@@ -1,13 +1,78 @@
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { PERM_LABELS_AR, getPermissionDisplayLabel } from './constants'
+import { api } from '@utils/api'
 import { FaTimes, FaIdCard, FaUser, FaTag, FaPhone, FaEnvelope, FaBuilding, FaLayerGroup, FaMapMarkerAlt, FaChartLine, FaBell, FaShieldAlt } from 'react-icons/fa';
 
 const UserPreviewModal = ({ isOpen, onClose, user }) => {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const isRTL = i18n.language === 'ar'
+  const [targetHistory, setTargetHistory] = useState([])
+  const [targetsLoading, setTargetsLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchTargets = async () => {
+      if (!isOpen || !user?.id) {
+        setTargetHistory([])
+        return
+      }
+
+      setTargetsLoading(true)
+      try {
+        const res = await api.get(`/api/user-targets?user_id=${user.id}`)
+        if (cancelled) return
+        const rows = Array.isArray(res?.data?.data) ? res.data.data : []
+        setTargetHistory(rows)
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to fetch user target preview', error)
+          setTargetHistory([])
+        }
+      } finally {
+        if (!cancelled) setTargetsLoading(false)
+      }
+    }
+
+    fetchTargets()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, user?.id])
+
+  const currentYear = new Date().getFullYear()
+  const currentTarget = useMemo(() => {
+    const current = targetHistory.find(row => Number(row.year) === currentYear)
+    if (current) return current
+
+    return {
+      year: currentYear,
+      monthly_target: user?.monthly_target || 0,
+      quarterly_target: user?.quarterly_target || 0,
+      semi_annual_target: user?.semi_annual_target || 0,
+      yearly_target: user?.yearly_target || 0,
+      commission_tiers: user?.commission_tiers || [],
+      commissionTiers: user?.commissionTiers || [],
+    }
+  }, [currentYear, targetHistory, user])
+
+  const currentCommissionTiers = useMemo(() => {
+    const tiers = currentTarget?.commission_tiers || currentTarget?.commissionTiers || []
+    if (Array.isArray(tiers) && tiers.length) return tiers
+    if (user?.commission_percentage) {
+      return [{
+        from_percentage: 0,
+        to_percentage: null,
+        commission_percentage: user.commission_percentage,
+      }]
+    }
+    return []
+  }, [currentTarget, user?.commission_percentage])
 
   if (!isOpen || !user) return null
 
@@ -63,6 +128,24 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
     if (parts.length === 1) return parts[0].charAt(0)
     return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`
   }
+
+  const formatAmount = (value) => {
+    const numeric = Number(value || 0)
+    return numeric.toLocaleString(isRTL ? 'ar-EG' : 'en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })
+  }
+
+  const formatPercent = (value) => {
+    const numeric = Number(value || 0)
+    return numeric.toLocaleString(isRTL ? 'ar-EG' : 'en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })
+  }
+
+  const targetMetricClass = `rounded-lg md:rounded-xl border p-3 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`
 
   return (
     <div className="fixed inset-0 z-[2050] flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -239,53 +322,142 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
               <span className="text-red-500"><FaChartLine /></span>
               {isRTL ? 'أهداف المستخدم' : 'User Targets'}
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
-              {/* Inherited Target */}
-              <div>
-                <label className={labelClass}>{isRTL ? 'التارجت الموروث (الفريق)' : 'Inherited Target (Team)'}</label>
-                <div className={`w-full px-3 py-2 rounded-lg border flex flex-col gap-1 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'شهري' : 'Monthly'}</span>
-                    <span className="font-bold text-xs md:text-sm">{Number(user.inherited_monthly_target || 0).toLocaleString()}</span>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs md:text-sm text-theme-text opacity-70">
+                  {isRTL ? `تارجت السنة الحالية ${currentYear}` : `Current year target ${currentYear}`}
+                </span>
+                {targetsLoading && (
+                  <span className="text-[10px] md:text-xs text-blue-500">
+                    {isRTL ? 'جاري التحميل...' : 'Loading...'}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className={targetMetricClass}>
+                  <span className="text-[10px] md:text-xs opacity-60">{isRTL ? 'شهري' : 'Monthly'}</span>
+                  <div className="mt-1 text-base md:text-lg font-bold text-theme-text" dir="ltr">
+                    {formatAmount(currentTarget.monthly_target)} EGP
                   </div>
-                  <div className="w-full h-[1px] bg-gray-200 dark:bg-gray-700 opacity-50 my-0.5"></div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'سنوي' : 'Yearly'}</span>
-                    <span className="font-bold text-xs md:text-sm">{Number(user.inherited_yearly_target || 0).toLocaleString()}</span>
+                </div>
+                <div className={targetMetricClass}>
+                  <span className="text-[10px] md:text-xs opacity-60">{isRTL ? 'ربع سنوي' : 'Quarterly'}</span>
+                  <div className="mt-1 text-base md:text-lg font-bold text-theme-text" dir="ltr">
+                    {formatAmount(currentTarget.quarterly_target)} EGP
+                  </div>
+                </div>
+                <div className={targetMetricClass}>
+                  <span className="text-[10px] md:text-xs opacity-60">{isRTL ? 'نصف سنوي' : 'Semi Annual'}</span>
+                  <div className="mt-1 text-base md:text-lg font-bold text-theme-text" dir="ltr">
+                    {formatAmount(currentTarget.semi_annual_target)} EGP
+                  </div>
+                </div>
+                <div className={targetMetricClass}>
+                  <span className="text-[10px] md:text-xs opacity-60">{isRTL ? 'سنوي' : 'Yearly'}</span>
+                  <div className={`mt-1 text-base md:text-lg font-bold ${isDark ? 'text-green-400' : 'text-green-600'}`} dir="ltr">
+                    {formatAmount(currentTarget.yearly_target)} EGP
                   </div>
                 </div>
               </div>
 
-              {/* Personal Target */}
-              <div>
-                <label className={labelClass}>{isRTL ? 'التارجت الشخصي' : 'Personal Target'}</label>
-                <div className={`w-full px-3 py-2 rounded-lg border flex flex-col gap-1 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'شهري' : 'Monthly'}</span>
-                    <span className="font-bold text-xs md:text-sm">{Number(user.monthly_target || 0).toLocaleString()}</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
+                <div>
+                  <label className={labelClass}>{isRTL ? 'التارجت الموروث (الفريق)' : 'Inherited Target (Team)'}</label>
+                  <div className={`w-full px-3 py-2 rounded-lg border flex flex-col gap-1 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'شهري' : 'Monthly'}</span>
+                      <span className="font-bold text-xs md:text-sm" dir="ltr">{formatAmount(user.inherited_monthly_target)} EGP</span>
+                    </div>
+                    <div className="w-full h-[1px] bg-gray-200 dark:bg-gray-700 opacity-50 my-0.5"></div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'سنوي' : 'Yearly'}</span>
+                      <span className="font-bold text-xs md:text-sm" dir="ltr">{formatAmount(user.inherited_yearly_target)} EGP</span>
+                    </div>
                   </div>
-                  <div className="w-full h-[1px] bg-gray-200 dark:bg-gray-700 opacity-50 my-0.5"></div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'سنوي' : 'Yearly'}</span>
-                    <span className="font-bold text-xs md:text-sm">{Number(user.yearly_target || 0).toLocaleString()}</span>
+                </div>
+
+                <div>
+                  <label className={labelClass}>{isRTL ? 'التارجت الكلي' : 'Total Target'}</label>
+                  <div className={`w-full px-3 py-2 rounded-lg border flex flex-col gap-1 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'شهري' : 'Monthly'}</span>
+                      <span className={`font-bold text-xs md:text-sm ${isDark ? 'text-green-400' : 'text-green-600'}`} dir="ltr">{formatAmount(user.total_monthly_target)} EGP</span>
+                    </div>
+                    <div className="w-full h-[1px] bg-gray-200 dark:bg-gray-700 opacity-50 my-0.5"></div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'سنوي' : 'Yearly'}</span>
+                      <span className={`font-bold text-xs md:text-sm ${isDark ? 'text-green-400' : 'text-green-600'}`} dir="ltr">{formatAmount(user.total_yearly_target)} EGP</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Total Target */}
               <div>
-                <label className={labelClass}>{isRTL ? 'التارجت الكلي' : 'Total Target'}</label>
-                <div className={`w-full px-3 py-2 rounded-lg border flex flex-col gap-1 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'شهري' : 'Monthly'}</span>
-                    <span className={`font-bold text-xs md:text-sm ${isDark ? 'text-green-400' : 'text-green-600'}`}>{Number(user.total_monthly_target || 0).toLocaleString()}</span>
+                <label className={labelClass}>{isRTL ? 'شرائح العمولة حسب تحقيق التارجت' : 'Commission tiers by achievement'}</label>
+                {currentCommissionTiers.length > 0 ? (
+                  <div className="space-y-2">
+                    {currentCommissionTiers.map((tier, index) => (
+                      <div
+                        key={`${tier.id || index}-${tier.from_percentage}-${tier.to_percentage}`}
+                        className={`grid grid-cols-3 gap-2 rounded-lg border px-3 py-2 text-xs md:text-sm ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}
+                      >
+                        <div>
+                          <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'من' : 'From'}</span>
+                          <strong dir="ltr">{formatPercent(tier.from_percentage)}%</strong>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'إلى' : 'To'}</span>
+                          <strong dir="ltr">{tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === '' ? (isRTL ? 'بدون حد' : 'No cap') : `${formatPercent(tier.to_percentage)}%`}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'العمولة' : 'Commission'}</span>
+                          <strong className={isDark ? 'text-green-400' : 'text-green-600'} dir="ltr">{formatPercent(tier.commission_percentage)}%</strong>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="w-full h-[1px] bg-gray-200 dark:bg-gray-700 opacity-50 my-0.5"></div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'سنوي' : 'Yearly'}</span>
-                    <span className={`font-bold text-xs md:text-sm ${isDark ? 'text-green-400' : 'text-green-600'}`}>{Number(user.total_yearly_target || 0).toLocaleString()}</span>
+                ) : (
+                  <div className={`px-3 py-2.5 rounded-lg border border-dashed text-xs md:text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                    {isRTL ? 'لا توجد شرائح عمولة للسنة الحالية.' : 'No commission tiers for the current year.'}
                   </div>
-                </div>
+                )}
+              </div>
+
+              <div>
+                <label className={labelClass}>{isRTL ? 'تاريخ التارجت' : 'Target history'}</label>
+                {targetHistory.length > 0 ? (
+                  <div className={`overflow-x-auto rounded-lg border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <table className="w-full text-xs md:text-sm">
+                      <thead className={isDark ? 'bg-gray-800/70' : 'bg-gray-50'}>
+                        <tr>
+                          <th className="px-3 py-2 text-start">{isRTL ? 'السنة' : 'Year'}</th>
+                          <th className="px-3 py-2 text-start">{isRTL ? 'شهري' : 'Monthly'}</th>
+                          <th className="px-3 py-2 text-start">{isRTL ? 'ربع سنوي' : 'Quarterly'}</th>
+                          <th className="px-3 py-2 text-start">{isRTL ? 'نصف سنوي' : 'Semi Annual'}</th>
+                          <th className="px-3 py-2 text-start">{isRTL ? 'سنوي' : 'Yearly'}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {targetHistory.map((row) => (
+                          <tr key={`${row.user_id}-${row.year}`} className={isDark ? 'border-t border-gray-700' : 'border-t border-gray-100'}>
+                            <td className="px-3 py-2">{row.year}</td>
+                            <td className="px-3 py-2" dir="ltr">{formatAmount(row.monthly_target)}</td>
+                            <td className="px-3 py-2" dir="ltr">{formatAmount(row.quarterly_target)}</td>
+                            <td className="px-3 py-2" dir="ltr">{formatAmount(row.semi_annual_target)}</td>
+                            <td className="px-3 py-2 font-semibold" dir="ltr">{formatAmount(row.yearly_target)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className={`px-3 py-2.5 rounded-lg border border-dashed text-xs md:text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                    {targetsLoading
+                      ? (isRTL ? 'جاري تحميل تاريخ التارجت...' : 'Loading target history...')
+                      : (isRTL ? 'لا يوجد تاريخ تارجت محفوظ.' : 'No saved target history.')}
+                  </div>
+                )}
               </div>
             </div>
           </section>

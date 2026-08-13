@@ -46,6 +46,8 @@ use App\Http\Controllers\SuperAdminNotificationController;
 use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\ShareLinkController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\CompanyTargetController;
+use App\Http\Controllers\UserTargetController;
 use App\Http\Controllers\AiCopilotController;
 use App\Http\Controllers\TelesalesController;
 use App\Http\Controllers\ContractCollections\CcCustomersController;
@@ -571,6 +573,11 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('tasks', \App\Http\Controllers\TaskController::class);
     Route::get('users/{user}/dependency-summary', [\App\Http\Controllers\UserController::class, 'dependencySummary']);
     Route::post('users/{user}/reassign-dependencies', [\App\Http\Controllers\UserController::class, 'reassignDependencies']);
+    Route::get('user-targets', [UserTargetController::class, 'index']);
+    Route::post('user-targets', [UserTargetController::class, 'store']);
+    Route::get('company-targets', [CompanyTargetController::class, 'index']);
+    Route::post('company-targets', [CompanyTargetController::class, 'store']);
+    Route::delete('company-targets/{companyTarget}', [CompanyTargetController::class, 'destroy']);
     Route::apiResource('users', \App\Http\Controllers\UserController::class);
     Route::get('/users/{user}/avatar', [\App\Http\Controllers\UserController::class, 'avatar']); // New Avatar Endpoint
     Route::apiResource('developers', \App\Http\Controllers\DeveloperController::class);
@@ -584,6 +591,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('stages', \App\Http\Controllers\StageController::class);
     Route::apiResource('agencies', \App\Http\Controllers\AgencyController::class);
     Route::apiResource('sources', \App\Http\Controllers\SourceController::class);
+    Route::post('items/bulk-delete', [ItemController::class, 'bulkDestroy']);
     Route::apiResource('items', ItemController::class);
     Route::apiResource('real-estate-requests', \App\Http\Controllers\RealEstateRequestController::class);
     Route::post('real-estate-requests/{realEstateRequest}/convert-to-deal', [\App\Http\Controllers\RealEstateRequestController::class, 'convertToDeal']);

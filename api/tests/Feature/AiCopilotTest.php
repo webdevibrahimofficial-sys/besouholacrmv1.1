@@ -24,7 +24,9 @@ class AiCopilotTest extends TestCase
     use RefreshDatabase;
 
     protected Tenant $tenant;
+
     protected User $user;
+
     protected Feature $feature;
 
     protected function setUp(): void
@@ -258,6 +260,80 @@ class AiCopilotTest extends TestCase
         $this->assertStringContainsString('access', (string) $response->json('data.message'));
     }
 
+    public function test_chat_explains_arabic_whatsapp_integration_from_backend(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'ازاي اربط واتساب في السيستم؟',
+            'locale' => 'ar',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'integration_guide')
+            ->assertJsonPath('data.integration_guide.type', 'whatsapp')
+            ->assertJsonPath('data.locale', 'ar')
+            ->assertJsonPath('data.ui_actions.0.path', '/settings/integrations/whatsapp');
+
+        $message = (string) $response->json('data.message');
+        $this->assertStringContainsString('شرح ربط WhatsApp Business', $message);
+        $this->assertStringContainsString('Webhook URL', $message);
+    }
+
+    public function test_chat_explains_website_integration_from_backend(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'Explain website integration setup',
+            'locale' => 'en',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'integration_guide')
+            ->assertJsonPath('data.integration_guide.type', 'website')
+            ->assertJsonPath('data.locale', 'en');
+
+        $this->assertStringContainsString('Allowed Origins', (string) $response->json('data.message'));
+    }
+
+    public function test_chat_asks_which_integration_when_type_is_missing(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'اشرحلي ربط الانتجريشن',
+            'locale' => 'ar',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'integration_guide')
+            ->assertJsonPath('data.integration_guide.type', 'chooser');
+
+        $this->assertCount(3, $response->json('data.ui_actions'));
+    }
+
+    public function test_chat_explains_tenant_custom_meta_app_setup(): void
+    {
+        $this->actingAsTenantUser();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'اشرح ربط Meta بالتطبيق الخاص بالتينانت',
+            'locale' => 'ar',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'integration_guide')
+            ->assertJsonPath('data.integration_guide.type', 'meta')
+            ->assertJsonPath('data.ui_actions.0.path', '/marketing/meta-integration');
+
+        $message = (string) $response->json('data.message');
+        $this->assertStringContainsString('Custom App', $message);
+        $this->assertStringContainsString('/api/meta/webhook/{webhook_key}', $message);
+        $this->assertStringContainsString('/api/auth/meta/callback', $message);
+        $this->assertStringContainsString('Shared App', $message);
+    }
+
     public function test_confirm_create_task_success_returns_open_lead_and_open_task_actions(): void
     {
         $lead = Lead::factory()->create([
@@ -454,4 +530,3 @@ class AiCopilotTest extends TestCase
         }
     }
 }
-

@@ -1,46 +1,34 @@
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReactToPrint } from 'react-to-print'
 import { FaPrint, FaTimes } from 'react-icons/fa'
 
 import { useAppState } from '../shared/context/AppStateProvider'
+import { extractTenantCompanyProfile } from '../shared/utils/tenantCompanyProfile'
 
 const RequestPreviewModal = ({ isOpen, onClose, request }) => {
-  const { t, i18n } = useTranslation()
-  const { company: tenant, user } = useAppState()
+  const { i18n } = useTranslation()
+  const { company: tenant } = useAppState()
   const isRTL = i18n.dir() === 'rtl'
   const printRef = useRef()
+  const companyInfo = useMemo(() => extractTenantCompanyProfile(tenant), [tenant])
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
     documentTitle: `Request-${request?.id || 'New'}`,
-    onAfterPrint: () => console.log('Printed successfully'),
     onPrintError: (error) => console.error('Print failed:', error),
   })
 
   // Extract company details safely
-  const companyName = tenant?.name || ''
-  const companyDescription = tenant?.profile?.description || ''
-  const logoUrl = (() => {
-    const raw = tenant?.profile?.logo_url
-    const url = String(raw || '').trim()
-    if (!url) return null
-    if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) {
-      return url.replace(/\/api\/storage\//i, '/storage/')
-    }
-    const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://api.besouholacrm.net/api'
-    const root = String(apiUrl || '').replace(/\/api\/?$/, '')
-    let path = url
-    if (!path.startsWith('/')) path = `/${path}`
-    if (!path.startsWith('/storage/')) path = `/storage${path}`
-    return `${root}${path}`.replace(/\/api\/storage\//i, '/storage/')
-  })()
-  const addressLine1 = tenant?.address_line_1 || ''
-  const addressLine2 = tenant?.address_line_2 || ''
-  const location = [tenant?.city, tenant?.state, tenant?.country].filter(Boolean).join(', ')
-  const phone = tenant?.profile?.phone || ''
-  const email = tenant?.meta_data?.email || ''
-  const taxId = tenant?.profile?.tax_id || ''
+  const companyName = companyInfo.name
+  const companyDescription = companyInfo.description
+  const logoUrl = companyInfo.logoUrl
+  const addressLine1 = companyInfo.addressLine1
+  const addressLine2 = companyInfo.addressLine2
+  const location = companyInfo.cityLine
+  const phone = companyInfo.phone
+  const email = companyInfo.email
+  const taxId = companyInfo.taxId
 
   // Calculations
   const calculatedSubtotal = (request?.items || []).reduce((acc, item) => {

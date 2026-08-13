@@ -240,7 +240,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     reservationType: defaultReservationType,
     reservationCategory: '',
     reservationItem: '',
-    reservationGeneralItems: [{ category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }],
+    reservationGeneralItems: [{ category: '', item: '', quantity: 1, price: 0, addon_ids: [], discount_type: 'value', discount_value: '' }],
     reservationNotes: '',
     reservationProject: '',
     reservationUnit: '',
@@ -890,13 +890,35 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     fetchNotInterestReasons();
   }, []);
 
-  // Auto-calculate Total Price for General Reservation
+  const getItemAddons = (itemId) => {
+    const selectedItem = items.find(opt => String(opt.id) === String(itemId));
+    return Array.isArray(selectedItem?.addons) ? selectedItem.addons : [];
+  };
+
+  const getRowAddonIds = (row) => Array.isArray(row?.addon_ids)
+    ? row.addon_ids
+    : (Array.isArray(row?.addons) ? row.addons.map(addon => addon?.id ?? addon?.addon_id).filter(Boolean) : []);
+
+  const getRowSelectedAddons = (row) => {
+    const selectedIds = new Set(getRowAddonIds(row).map((id) => String(id)));
+    return getItemAddons(row?.item).filter((addon) => selectedIds.has(String(addon.id)));
+  };
+
+  const getAddonAmount = (addon) => {
+    const quantity = Number(addon?.quantity || 0);
+    const price = Number(addon?.price || 0);
+    return (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(price) ? price : 0);
+  };
+
+  // Auto-calculate Total Amount for General Reservation
   useEffect(() => {
     if (['reservation', 'closing_deals'].includes(actionData.nextAction) && actionData.reservationType === 'general') {
       const total = actionData.reservationGeneralItems.reduce((sum, item) => {
         const quantity = Number(item.quantity || 0);
         const price = Number(item.price || 0);
-        const subTotal = quantity * price;
+        const baseAmount = quantity * price;
+        const addonsAmount = getRowSelectedAddons(item).reduce((addonSum, addon) => addonSum + getAddonAmount(addon), 0);
+        const subTotal = baseAmount + addonsAmount;
 
         const discountType = (item.discount_type || 'value');
         const rawDiscount = Number(item.discount_value || 0);
@@ -925,9 +947,9 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         };
       });
     }
-  }, [actionData.reservationGeneralItems, actionData.nextAction, actionData.reservationType]);
+  }, [actionData.reservationGeneralItems, actionData.nextAction, actionData.reservationType, items]);
 
-  // Keep Revenue in sync with Total Price / Reservation Amount for closing deals
+  // Keep Revenue in sync with Total Amount / Reservation Amount for closing deals
   useEffect(() => {
     if (actionData.nextAction !== 'closing_deals') return;
     if (actionData.reservationType === 'general') return; // handled above with line-item totals
@@ -947,7 +969,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     { value: 'google_meet', label: 'Google Meet', icon: FaCalendarAlt, color: 'bg-purple-500' },
     { value: 'sms', label: isArabic ? 'رسالة' : 'Sms', icon: FaFileAlt, color: 'bg-teal-500' },
     { value: 'comment', label: isArabic ? 'تعليق' : 'Comment', icon: FaComments, color: 'bg-gray-500' },
-    { value: 'note', label: isArabic ? 'ملاحظة' : 'Note', icon: FaFileAlt, color: 'bg-amber-500' }
+    { value: 'note', label: isArabic ? 'ملاحظة' : 'Note', icon: FaFileAlt, color: 'bg-amber-500' },
+    { value: 'closing_deals', label: isArabic ? 'إغلاق صفقة' : 'Closing Deal', icon: FaHandshake, color: 'bg-emerald-500' }
   ];
 
   const leadPermissions = lead?.permissions || {};
@@ -1098,7 +1121,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const handleAddGeneralRow = () => {
     setActionData(prev => ({
       ...prev,
-      reservationGeneralItems: [...prev.reservationGeneralItems, { category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }]
+      reservationGeneralItems: [...prev.reservationGeneralItems, { category: '', item: '', quantity: 1, price: 0, addon_ids: [], discount_type: 'value', discount_value: '' }]
     }));
   };
 
@@ -1122,6 +1145,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         if (selectedItem) {
           newItems[index].price = selectedItem.price;
         }
+        newItems[index].addon_ids = [];
       }
 
       return { ...prev, reservationGeneralItems: newItems };
@@ -1131,7 +1155,9 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const getGeneralRowTotals = (row) => {
     const quantity = Number(row?.quantity || 0);
     const price = Number(row?.price || 0);
-    const subTotal = (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(price) ? price : 0);
+    const baseAmount = (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(price) ? price : 0);
+    const addonsAmount = getRowSelectedAddons(row).reduce((sum, addon) => sum + getAddonAmount(addon), 0);
+    const subTotal = baseAmount + addonsAmount;
 
     const discountType = row?.discount_type || 'value';
     const rawDiscount = Number(row?.discount_value || 0);
@@ -1142,7 +1168,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       : clamp(discountValue, 0, subTotal);
 
     const total = Math.max(0, subTotal - discountAmount);
-    return { subTotal, discountAmount, total };
+    return { baseAmount, addonsAmount, subTotal, discountAmount, total };
   };
 
   const handleUnitChange = (e) => {
@@ -1162,7 +1188,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       reservationType: defaultReservationType,
       reservationCategory: '',
       reservationItem: '',
-      reservationGeneralItems: [{ category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }],
+      reservationGeneralItems: [{ category: '', item: '', quantity: 1, price: 0, addon_ids: [], discount_type: 'value', discount_value: '' }],
       reservationNotes: '',
       reservationProject: '',
       reservationUnit: '',
@@ -1181,10 +1207,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         item: row?.item ?? row?.item_id ?? '',
         quantity: row?.quantity ?? 1,
         price: row?.price ?? 0,
+        addon_ids: getRowAddonIds(row),
         discount_type: row?.discount_type || 'value',
         discount_value: row?.discount_value ?? '',
       }))
-      : [{ category: '', item: '', quantity: 1, price: 0, discount_type: 'value', discount_value: '' }];
+      : [{ category: '', item: '', quantity: 1, price: 0, addon_ids: [], discount_type: 'value', discount_value: '' }];
 
     setActionData(prev => ({
       ...prev,
@@ -1483,13 +1510,25 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             row?.item_name ||
             items.find((i) => String(i.id) === String(itemId))?.name ||
             '';
-          const { total } = getGeneralRowTotals(row);
+          const selectedAddons = getRowSelectedAddons(row).map((addon) => ({
+            id: addon.id,
+            name: addon.name || '',
+            quantity: Number(addon.quantity || 0),
+            price: Number(addon.price || 0),
+            total: getAddonAmount(addon),
+          }));
+          const { addonsAmount, subTotal, discountAmount, total } = getGeneralRowTotals(row);
           return {
             ...row,
             category: categoryId,
             item: itemId,
             category_name: categoryName,
             item_name: itemName,
+            addon_ids: getRowAddonIds(row),
+            addons: selectedAddons,
+            addons_total: addonsAmount,
+            sub_total: subTotal,
+            discount_amount: discountAmount,
             line_total: total,
           };
         });
@@ -2244,9 +2283,12 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                   </div>
 
                   {/* Dynamic Rows */}
-                  <div className="space-y-3">
+                  <div>
                     {actionData.reservationGeneralItems.map((row, index) => (
-                      <div key={index} className="flex flex-wrap md:flex-row gap-3 items-end">
+                      <div
+                        key={index}
+                        className={`flex flex-wrap md:flex-row gap-3 items-end py-3 ${index < actionData.reservationGeneralItems.length - 1 ? (isLight ? 'border-b border-gray-200' : 'border-b border-gray-700') : ''}`}
+                      >
                         <div className="flex-1 min-w-[150px]">
                           <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الفئة' : 'Category'}</label>
                           <div className="relative">
@@ -2298,13 +2340,29 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                           />
                         </div>
                         <div className="w-32">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'السعر' : 'Price'}</label>
+                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'المبلغ' : 'Amount'}</label>
                           <input
                             type="text"
                             value={formatDisplayNumber(row.price)}
                             onChange={(e) => handleGeneralRowChange(index, 'price', parseDisplayNumber(e.target.value))}
                             {...numericFieldProps}
                             className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[180px]">
+                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإضافات' : 'Add-ons'}</label>
+                          <SearchableSelect
+                            options={getItemAddons(row.item).map((addon) => ({
+                              value: addon.id,
+                              label: `${addon.name || ''}${Number(addon.price || 0) ? ` (${formatDisplayNumber(getAddonAmount(addon))})` : ''}`,
+                            }))}
+                            value={getRowAddonIds(row)}
+                            onChange={(value) => handleGeneralRowChange(index, 'addon_ids', value)}
+                            placeholder={row.item ? (isArabic ? 'اختر الإضافات' : 'Select add-ons') : (isArabic ? 'اختر العنصر أولاً' : 'Select item first')}
+                            isRTL={isRTL}
+                            multiple
+                            showAllOption={false}
+                            className={`${isLight ? 'bg-white border-gray-300 text-slate-900' : 'bg-gray-700 border-gray-600 text-white'} min-h-[42px] rounded-md`}
                           />
                         </div>
                         <div className="w-52">
@@ -2331,7 +2389,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                           </div>
                         </div>
                         <div className="w-32">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإجمالي' : 'Total'}</label>
+                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإجمالي الفرعي' : 'Sub Total'}</label>
                           <input
                             type="text"
                             value={formatDisplayNumber(getGeneralRowTotals(row).total)}
@@ -2363,7 +2421,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
                   <div className="grid grid-cols-1 gap-4 mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
                     <div>
-                      <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'إجمالي السعر' : 'Total Price'}</label>
+                      <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'إجمالي المبلغ' : 'Total Amount'}</label>
                       <input
                         name="reservationAmount"
                         type="text"
@@ -2387,8 +2445,18 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           {actionData.nextAction === 'closing_deals' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'الإيرادات' : 'Revenue'}</label>
-                <input name="closingRevenue" type="number" value={actionData.closingRevenue} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإيرادات' : 'Revenue'}</label>
+                <input
+                  name="closingRevenue"
+                  type="text"
+                  value={formatDisplayNumber(actionData.closingRevenue)}
+                  onChange={(e) => {
+                    const rawValue = parseDisplayNumber(e.target.value);
+                    setActionData(prev => ({ ...prev, closingRevenue: rawValue }));
+                  }}
+                  {...numericFieldProps}
+                  className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                />
               </div>
             </div>
           )}

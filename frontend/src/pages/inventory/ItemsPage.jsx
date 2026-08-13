@@ -66,20 +66,20 @@ export default function ItemsPage() {
     reset: isArabic ? 'إعادة تعيين' : 'Reset',
     name: isArabic ? 'اسم الصنف' : 'Item Name',
     family: isArabic ? 'العائلة' : 'Family',
-    category: isArabic ? 'التصنيف' : 'Category',
+    category: isArabic ? 'اسم التصنيف' : 'Category Name',
     group: isArabic ? 'المجموعة' : 'Group',
     brand: isArabic ? 'العلامة التجارية' : 'Brand',
     supplier: isArabic ? 'المورد' : 'Supplier',
     type: isArabic ? 'النوع' : 'Type',
     categoryType: isArabic ? 'نوع التصنيف' : 'Category Type',
     itemType: isArabic ? 'نوع الصنف' : 'Item Type',
-    price: isArabic ? 'السعر' : 'Price',
+    price: isArabic ? 'المبلغ' : 'Amount',
     quantity: isArabic ? 'الكمية' : 'Quantity',
     status: isArabic ? 'الحالة' : 'Status',
     stock: isArabic ? 'المخزون' : 'Stock',
-    minStock: isArabic ? 'الحد الأدنى' : 'Min Stock',
-    unit: isArabic ? 'الوحدة' : 'Unit',
-    sku: isArabic ? 'رمز الصنف' : 'SKU',
+    minStock: isArabic ? 'الحد الأدنى للكمية' : 'Minimum Quantity',
+    unit: isArabic ? 'نوع الكمية' : 'Quantity Type',
+    sku: isArabic ? 'كود الصنف' : 'Item Code',
     description: isArabic ? 'الوصف' : 'Description',
     save: isArabic ? 'حفظ' : 'Save',
     listTitle: isArabic ? 'قائمة الأصناف' : 'Items List',
@@ -89,27 +89,41 @@ export default function ItemsPage() {
     inactive: isArabic ? 'غير نشط' : 'Inactive',
     delete: isArabic ? 'حذف' : 'Delete',
     edit: isArabic ? 'تعديل' : 'Edit',
+    bulkActions: isArabic ? 'إجراءات جماعية' : 'Bulk actions',
+    selectedItems: isArabic ? 'أصناف محددة' : 'selected items',
+    deleteSelected: isArabic ? 'حذف المحدد' : 'Delete selected',
+    clearSelection: isArabic ? 'إلغاء التحديد' : 'Clear selection',
+    transferLinkedLeads: isArabic ? 'تحويل الليدز المرتبطة' : 'Transfer linked leads',
+    replacementItem: isArabic ? 'الصنف البديل' : 'Replacement item',
+    chooseReplacementItem: isArabic ? 'اختر صنف بديل' : 'Choose replacement item',
+    confirmDelete: isArabic ? 'تأكيد الحذف' : 'Confirm delete',
+    cancel: isArabic ? 'إلغاء' : 'Cancel',
     basicInfo: isArabic ? 'البيانات الأساسية' : 'Basic Info',
     pricing: isArabic ? 'التسعير' : 'Pricing',
     salesOptions: isArabic ? 'خيارات البيع' : 'Sales Options',
     fixed: isArabic ? 'ثابت' : 'Fixed',
     perUnit: isArabic ? 'لكل وحدة' : 'Per Unit',
     monthly: isArabic ? 'شهري' : 'Monthly',
-    yearly: isArabic ? 'سنوي' : 'Yearly',
+    semiAnnually: isArabic ? 'نصف سنوي' : 'Semi Annually',
+    annually: isArabic ? 'سنوي' : 'Annually',
     billingCycle: isArabic ? 'دورة الفوترة' : 'Billing Cycle',
     isActive: isArabic ? 'نشط' : 'Is Active',
+    on: isArabic ? 'On' : 'On',
+    off: isArabic ? 'Off' : 'Off',
     import: isArabic ? 'استيراد' : 'Import',
     export: isArabic ? 'تصدير' : 'Export',
     exportCsv: isArabic ? 'تصدير CSV' : 'Export CSV',
     exportPdf: isArabic ? 'تصدير PDF' : 'Export PDF',
-    code: isArabic ? 'الكود' : 'Code',
-    openAddons: isArabic ? 'فتح الإضافات +' : 'Open Add-ons +',
+    code: isArabic ? 'كود الصنف' : 'Item Code',
+    openAddons: isArabic ? 'الإضافات +' : 'Add-ons +',
+    addonsSection: isArabic ? 'الإضافات' : 'Add-ons',
     addonName: isArabic ? 'اسم الإضافة' : 'Add-on Name',
+    addonsName: isArabic ? 'أسماء الإضافات' : 'Add-ons Name',
     addAddon: isArabic ? 'إضافة إضافة' : 'Add Add-on',
     removeAddon: isArabic ? 'حذف' : 'Remove',
     addonsQty: isArabic ? 'كمية الإضافات' : 'Add-ons Qty',
-    addonsPrice: isArabic ? 'سعر الإضافات' : 'Add-ons Price',
-    totalPrice: isArabic ? 'الإجمالي' : 'Total Price',
+    addonsPrice: isArabic ? 'مبلغ الإضافات' : 'Add-ons Amount',
+    totalPrice: isArabic ? 'الإجمالي' : 'Total Amount',
     addonsDetails: isArabic ? 'تفاصيل الإضافات' : 'Add-ons Details',
     noAddons: isArabic ? 'لا توجد إضافات' : 'No add-ons',
   }), [isArabic])
@@ -127,7 +141,7 @@ export default function ItemsPage() {
     billingCycle: 'Monthly',
     stock: 0,
     minStock: 0,
-    unit: 'pcs',
+    unit: 'Piece',
     status: 'Active',
     allowDiscount: false,
     maxDiscount: '',
@@ -146,6 +160,10 @@ export default function ItemsPage() {
   const [showAddons, setShowAddons] = useState(false)
   const [activeAddonsTooltip, setActiveAddonsTooltip] = useState(null)
   const [showAllFilters, setShowAllFilters] = useState(false)
+  const [selectedItemIds, setSelectedItemIds] = useState([])
+  const [selectedAddonByItemId, setSelectedAddonByItemId] = useState({})
+  const [deleteDialog, setDeleteDialog] = useState(null)
+  const [replacementItemId, setReplacementItemId] = useState('')
 
   const [filters, setFilters] = useState({
     search: '',
@@ -162,6 +180,24 @@ export default function ItemsPage() {
 
   const formatAmount = (value) => `${moneyFormatter.format(Number(value || 0))} ${currencySymbol}`
   const formatNumber = (value) => numberFormatter.format(Number(value || 0))
+  const normalizeQuantityType = (value) => {
+    const normalized = String(value || '').trim().toLowerCase()
+    if (normalized === 'piece' || normalized === 'pcs' || normalized === 'pc' || normalized === 'per unit' || normalized === 'per-unit') return 'Piece'
+    if (normalized === 'box') return 'Box'
+    if (normalized === 'kg' || normalized === 'kilogram' || normalized === 'kilograms') return 'Kg'
+    if (normalized === 'liter' || normalized === 'litre' || normalized === 'l') return 'Liter'
+    if (normalized === 'meter' || normalized === 'metre' || normalized === 'm') return 'Meter'
+    if (normalized === 'hour' || normalized === 'hr' || normalized === 'h') return 'Hour'
+    return 'Piece'
+  }
+  const normalizeItemType = (value) => {
+    const normalized = String(value || '').trim().toLowerCase()
+    if (normalized === 'semi annually' || normalized === 'semi-annually' || normalized === 'semiannual') return 'Semi Annually'
+    if (normalized === 'annually' || normalized === 'annual' || normalized === 'yearly') return 'Annually'
+    if (normalized === 'monthly') return 'Monthly'
+    if (normalized === 'per unit' || normalized === 'per-unit') return 'Per Unit'
+    return 'Fixed'
+  }
   const getAddonTooltipData = (item) => Array.isArray(item.addons) ? item.addons.filter(addon => String(addon.name || '').trim() !== '') : []
   const showAddonsTooltip = (event, item) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -172,6 +208,22 @@ export default function ItemsPage() {
     })
   }
   const hideAddonsTooltip = () => setActiveAddonsTooltip(null)
+  const getAddonNames = (item) => getAddonTooltipData(item).map(addon => addon.name).filter(Boolean)
+  const formatAddonNames = (item) => {
+    const names = getAddonNames(item)
+    return names.length > 0 ? names.join(', ') : '-'
+  }
+  const getSelectedAddon = (item) => {
+    const addons = getAddonTooltipData(item)
+    if (addons.length === 0) return null
+    const selectedId = selectedAddonByItemId[item.id]
+    return addons.find(addon => String(addon.id) === String(selectedId)) || addons[0]
+  }
+  const getSelectedAddonAmount = (item) => {
+    const addon = getSelectedAddon(item)
+    if (!addon) return 0
+    return Number(addon.quantity || 0) * Number(addon.price || 0)
+  }
 
   const fetchItems = async () => {
     setLoading(true)
@@ -190,9 +242,10 @@ export default function ItemsPage() {
         category_id: item.category_id || '',
         stock: item.quantity !== undefined ? item.quantity : (item.stock || 0),
         minStock: item.min_alert !== undefined ? item.min_alert : (item.minStock || 0),
-        itemType: item.item_type || item.itemType || '',
+        itemType: normalizeItemType(item.item_type || item.itemType || ''),
         pricingType: item.pricing_type || item.pricingType || 'Fixed',
         billingCycle: item.billing_cycle || item.billingCycle || 'Monthly',
+        unit: normalizeQuantityType(item.unit),
         allowDiscount: item.allow_discount !== undefined ? Boolean(item.allow_discount) : (item.allowDiscount || false),
         maxDiscount: item.max_discount || item.maxDiscount || '',
         addons: Array.isArray(item.addons) ? item.addons.map(addon => ({
@@ -295,7 +348,7 @@ export default function ItemsPage() {
       return
     }
     if (!form.price) {
-      alert(isArabic ? 'السعر مطلوب' : 'Price is required')
+      alert(isArabic ? 'المبلغ مطلوب' : 'Amount is required')
       return
     }
     // Pricing Type is now optional
@@ -309,6 +362,7 @@ export default function ItemsPage() {
       quantity: Number(form.stock),
       min_alert: Number(form.minStock),
       item_type: form.itemType || '',
+      unit: form.itemType === 'Per Unit' ? normalizeQuantityType(form.unit) : 'Piece',
       addons: (form.addons || [])
         .filter(addon => String(addon.name || '').trim() !== '')
         .map(addon => ({
@@ -328,7 +382,7 @@ export default function ItemsPage() {
       }
       await fetchItems()
       setForm({
-        id: null, name: '', category: '', category_id: '', type: 'Product', itemType: 'Fixed', sku: '', price: '', pricingType: 'Fixed', billingCycle: 'Monthly', stock: 0, minStock: 0, unit: 'pcs', status: 'Active', allowDiscount: false, maxDiscount: '', description: '', addons: [], custom_fields: {}
+        id: null, name: '', category: '', category_id: '', type: 'Product', itemType: 'Fixed', sku: '', price: '', pricingType: 'Fixed', billingCycle: 'Monthly', stock: 0, minStock: 0, unit: 'Piece', status: 'Active', allowDiscount: false, maxDiscount: '', description: '', addons: [], custom_fields: {}
       })
       setDynamicValues({})
       setShowAddons(false)
@@ -357,12 +411,91 @@ export default function ItemsPage() {
     }
     if (window.confirm(isArabic ? 'هل أنت متأكد من الحذف؟' : 'Are you sure you want to delete this item?')) {
       try {
-        await api.delete(`/api/items/${id}`)
+        await api.delete(`/api/items/${id}`, { suppressErrorStatuses: [409] })
         await fetchItems()
       } catch (error) {
-        console.error('Error deleting item:', error)
-        alert(isArabic ? 'فشل الحذف' : 'Failed to delete')
+        handleDeleteError(error, { mode: 'single', itemIds: [id] })
       }
+    }
+  }
+
+  const handleDeleteError = (error, context) => {
+    const data = error?.response?.data || {}
+    const status = error?.response?.status
+
+    if (status === 409 && ['item_has_leads', 'items_have_leads'].includes(data.code)) {
+      setReplacementItemId('')
+      setDeleteDialog({
+        mode: context.mode,
+        itemIds: context.itemIds,
+        message: data.message,
+        blockers: Array.isArray(data.blockers) ? data.blockers : [data],
+      })
+      return
+    }
+
+    alert(data.message || (isArabic ? 'فشل الحذف' : 'Failed to delete'))
+  }
+
+  const toggleItemSelection = (itemId) => {
+    setSelectedItemIds(prev => (
+      prev.includes(itemId)
+        ? prev.filter(id => id !== itemId)
+        : [...prev, itemId]
+    ))
+  }
+
+  const togglePageSelection = () => {
+    setSelectedItemIds(prev => {
+      if (isAllPageSelected) {
+        return prev.filter(id => !allPageItemIds.includes(id))
+      }
+
+      return Array.from(new Set([...prev, ...allPageItemIds]))
+    })
+  }
+
+  const clearSelection = () => setSelectedItemIds([])
+
+  const deleteSelectedItems = async () => {
+    if (!canManageItems) {
+      alert(isArabic ? 'لا تملك صلاحية حذف الأصناف' : 'You do not have permission to delete items')
+      return
+    }
+    if (selectedItemIds.length === 0) return
+    if (!window.confirm(isArabic ? `هل تريد حذف ${selectedItemIds.length} صنف؟` : `Delete ${selectedItemIds.length} selected items?`)) return
+
+    try {
+      await api.post('/api/items/bulk-delete', { item_ids: selectedItemIds }, { suppressErrorStatuses: [409] })
+      clearSelection()
+      await fetchItems()
+    } catch (error) {
+      handleDeleteError(error, { mode: 'bulk', itemIds: selectedItemIds })
+    }
+  }
+
+  const confirmDeleteWithReplacement = async () => {
+    if (!deleteDialog || !replacementItemId) return
+
+    try {
+      if (deleteDialog.mode === 'bulk') {
+        await api.post('/api/items/bulk-delete', {
+          item_ids: deleteDialog.itemIds,
+          replacement_item_id: Number(replacementItemId),
+        })
+      } else {
+        await api.delete(`/api/items/${deleteDialog.itemIds[0]}`, {
+          data: { replacement_item_id: Number(replacementItemId) },
+        })
+      }
+
+      setDeleteDialog(null)
+      setReplacementItemId('')
+      clearSelection()
+      await fetchItems()
+    } catch (error) {
+      console.error('Error deleting with replacement:', error)
+      alert(error?.response?.data?.message || (isArabic ? 'فشل الحذف' : 'Failed to delete'))
     }
   }
 
@@ -370,7 +503,8 @@ export default function ItemsPage() {
     setForm({
       ...item,
       category_id: item.category_id || '',
-      itemType: item.itemType || item.item_type || '',
+      itemType: normalizeItemType(item.itemType || item.item_type || ''),
+      unit: normalizeQuantityType(item.unit),
       addons: Array.isArray(item.addons) ? item.addons : [],
     })
     setShowAddons(Array.isArray(item.addons) && item.addons.length > 0)
@@ -430,9 +564,19 @@ export default function ItemsPage() {
     const start = (currentPage - 1) * itemsPerPage
     return filtered.slice(start, start + itemsPerPage)
   }, [filtered, currentPage, itemsPerPage])
+  const allPageItemIds = paginatedItems.map(item => item.id)
+  const isAllPageSelected = allPageItemIds.length > 0 && allPageItemIds.every(id => selectedItemIds.includes(id))
+  const replacementOptions = useMemo(() => {
+    const excluded = new Set((deleteDialog?.itemIds || []).map(id => String(id)))
+    return items
+      .filter(item => !excluded.has(String(item.id)))
+      .map(item => ({ value: item.id, label: `${item.name}${item.sku ? ` (${item.sku})` : ''}` }))
+  }, [items, deleteDialog])
 
   const TYPE_OPTIONS = ['Product', 'Service', 'Subscription', 'Package']
-  const ITEM_TYPE_OPTIONS = ['Fixed', 'Per Unit', 'Monthly', 'Yearly']
+  const ITEM_TYPE_OPTIONS = ['Fixed', 'Per Unit', 'Monthly', 'Semi Annually', 'Annually']
+  const QUANTITY_TYPE_OPTIONS = ['Piece', 'Box', 'Kg', 'Liter', 'Meter', 'Hour']
+  const showQuantityType = form.itemType === 'Per Unit'
   const getCategoryTypeOptionLabel = (option) => {
     if (!isArabic) return option
     if (option === 'Product') return 'منتج'
@@ -446,7 +590,18 @@ export default function ItemsPage() {
     if (option === 'Fixed') return 'ثابت'
     if (option === 'Per Unit') return 'لكل وحدة'
     if (option === 'Monthly') return 'شهري'
-    if (option === 'Yearly') return 'سنوي'
+    if (option === 'Semi Annually') return 'نصف سنوي'
+    if (option === 'Annually') return 'سنوي'
+    return option
+  }
+  const getQuantityTypeOptionLabel = (option) => {
+    if (!isArabic) return option
+    if (option === 'Piece') return 'قطعة'
+    if (option === 'Box') return 'بوكس'
+    if (option === 'Kg') return 'كيلو'
+    if (option === 'Liter') return 'لتر'
+    if (option === 'Meter') return 'متر'
+    if (option === 'Hour') return 'ساعة'
     return option
   }
 
@@ -464,8 +619,21 @@ export default function ItemsPage() {
       .map(c => ({ label: c.name, value: c.name }))
   }, [categories, filters.type])
 
+  const categoryTypeOptionsForFilter = TYPE_OPTIONS.map(type => ({
+    label: getCategoryTypeOptionLabel(type),
+    value: type,
+  }))
+  const itemTypeOptionsForFilter = ITEM_TYPE_OPTIONS.map(type => ({
+    label: getItemTypeOptionLabel(type),
+    value: type,
+  }))
+  const statusOptionsForFilter = [
+    { label: labels.active, value: 'Active' },
+    { label: labels.inactive, value: 'Inactive' },
+  ]
+
   const exportItemsCsv = () => {
-    const headers = ['SKU', 'Item Name', 'Category Name', 'Category Type', 'Item Type', 'Price', 'Quantity', 'Add-ons Qty', 'Add-ons Price', 'Total Price', 'Status']
+    const headers = ['Item Code', 'Item Name', 'Category Name', 'Category Type', 'Item Type', 'Amount', 'Quantity', 'Add-ons Name', 'Add-ons Qty', 'Add-ons Amount', 'Total Amount', 'Status']
     const csvContent = [
       headers.join(','),
       ...filtered.map(item => [
@@ -476,6 +644,7 @@ export default function ItemsPage() {
         `"${item.itemType || ''}"`,
         `"${item.price || 0}"`,
         `"${item.stock || 0}"`,
+        `"${formatAddonNames(item)}"`,
         `"${item.addonsTotalQuantity || 0}"`,
         `"${item.addonsTotalPrice || 0}"`,
         `"${item.totalPrice || 0}"`,
@@ -498,7 +667,7 @@ export default function ItemsPage() {
       const autoTable = await import('jspdf-autotable')
       const doc = new jsPDF()
 
-      const tableColumn = ["SKU", "Name", "Category", "Category Type", "Item Type", "Price", "Qty", "Add-ons Qty", "Add-ons Price", "Total", "Status"]
+      const tableColumn = ["Item Code", "Name", "Category Name", "Category Type", "Item Type", "Amount", "Qty", "Add-ons Name", "Add-ons Qty", "Add-ons Amount", "Total Amount", "Status"]
       const tableRows = []
 
       items.forEach(item => {
@@ -511,6 +680,7 @@ export default function ItemsPage() {
           item.price || 0,
           item.stock || 0
           ,
+          formatAddonNames(item),
           item.addonsTotalQuantity || 0,
           item.addonsTotalPrice || 0,
           item.totalPrice || 0,
@@ -603,7 +773,7 @@ export default function ItemsPage() {
                 billingCycle: 'Monthly',
                 stock: 0,
                 minStock: 0,
-                unit: 'pcs',
+                unit: 'Piece',
                 status: 'Active',
                 allowDiscount: false,
                 maxDiscount: '',
@@ -663,43 +833,6 @@ export default function ItemsPage() {
                   </div>
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                   <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.name} <span className="text-red-500">*</span></label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={form.name}
-                      onChange={onChange}
-                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 placeholder-gray-600 h-10 rounded-md"
-                      placeholder="Item Name"
-                      required
-                    />
-                  </div>
-
-                  <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity}</label>
-                    <input
-                      type="number"
-                      name="stock"
-                      value={form.stock}
-                      onChange={onChange}
-                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.price} <span className="text-red-500">*</span></label>
-                    <input
-                      type="number"
-                      name="price"
-                      value={form.price}
-                      onChange={onChange}
-                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                      placeholder="0.00"
-                    />
-                  </div>
-
-                  <div className="form-control">
                     <label className="label text-xs font-semibold text-theme mb-1.5">{labels.categoryType}</label>
                     <select
                       name="type"
@@ -740,13 +873,156 @@ export default function ItemsPage() {
                     <select
                       name="itemType"
                       value={form.itemType}
-                      onChange={onChange}
+                      onChange={(e) => {
+                        const nextItemType = e.target.value
+                        setForm(prev => ({
+                          ...prev,
+                          itemType: nextItemType,
+                          unit: nextItemType === 'Per Unit' ? normalizeQuantityType(prev.unit) : 'Piece',
+                        }))
+                      }}
                       className="select w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 min-h-0 rounded-md"
                     >
                       {ITEM_TYPE_OPTIONS.map(option => (
                         <option key={option} value={option}>{getItemTypeOptionLabel(option)}</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="form-control">
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.name} <span className="text-red-500">*</span></label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={form.name}
+                      onChange={onChange}
+                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 placeholder-gray-600 h-10 rounded-md"
+                      placeholder={labels.name}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-control">
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity}</label>
+                    <input
+                      type="number"
+                      name="stock"
+                      value={form.stock}
+                      onChange={onChange}
+                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
+                      placeholder="0"
+                    />
+                  </div>
+
+                  {showQuantityType && (
+                    <div className="form-control">
+                      <label className="label text-xs font-semibold text-theme mb-1.5">{labels.unit}</label>
+                      <select
+                        name="unit"
+                        value={form.unit}
+                        onChange={onChange}
+                        className="select w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 min-h-0 rounded-md"
+                      >
+                        {QUANTITY_TYPE_OPTIONS.map(option => (
+                          <option key={option} value={option}>{getQuantityTypeOptionLabel(option)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="form-control">
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.price} <span className="text-red-500">*</span></label>
+                    <input
+                      type="number"
+                      name="price"
+                      value={form.price}
+                      onChange={onChange}
+                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  <div className="form-control xl:col-span-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-white/10 p-4">
+                      <span className="text-xs font-bold uppercase tracking-wider text-blue-400">{labels.addonsSection}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!showAddons && (!form.addons || form.addons.length === 0)) {
+                              setForm(prev => ({ ...prev, addons: [createEmptyAddon()] }))
+                            }
+                            setShowAddons(prev => !prev)
+                          }}
+                          className="btn btn-sm bg-blue-600 hover:bg-blue-700 !text-white border-none"
+                        >
+                          <span className="text-white">{labels.openAddons}</span>
+                        </button>
+
+                        {showAddons && (
+                          <button
+                            type="button"
+                            onClick={addAddonRow}
+                            className="btn btn-sm bg-green-600 hover:bg-green-700 text-white border-none"
+                          >
+                            <FaPlus className="text-white" /> {labels.addAddon}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {showAddons && (
+                      <div className="mt-3 space-y-3">
+                        {(form.addons || []).map((addon, index) => (
+                          <div key={`addon-${index}`} className="rounded-lg border border-white/10 p-4 grid grid-cols-1 xl:grid-cols-4 gap-3 items-end">
+                            <div className="form-control xl:col-span-2">
+                              <label className="label text-xs font-semibold text-theme mb-1.5">{labels.addonName}</label>
+                              <input
+                                type="text"
+                                value={addon.name || ''}
+                                onChange={(e) => updateAddonRow(index, 'name', e.target.value)}
+                                className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
+                                placeholder={labels.addonName}
+                              />
+                            </div>
+
+                            <div className="form-control">
+                              <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity}</label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={addon.quantity ?? 1}
+                                onChange={(e) => updateAddonRow(index, 'quantity', e.target.value)}
+                                className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
+                                placeholder="1"
+                              />
+                            </div>
+
+                            <div className="flex items-end gap-2">
+                              <div className="form-control flex-1">
+                                <label className="label text-xs font-semibold text-theme mb-1.5">{labels.price}</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={addon.price ?? ''}
+                                  onChange={(e) => updateAddonRow(index, 'price', e.target.value)}
+                                  className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
+                                  placeholder="0.00"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => removeAddonRow(index)}
+                                className="btn btn-sm btn-ghost text-red-500 hover:bg-red-50"
+                              >
+                                {labels.removeAddon}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-control">
@@ -773,18 +1049,6 @@ export default function ItemsPage() {
                     />
                   </div>
 
-                  <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.unit}</label>
-                    <input
-                      type="text"
-                      name="unit"
-                      value={form.unit}
-                      onChange={onChange}
-                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                      placeholder="pcs"
-                    />
-                  </div>
-
                   <div className="form-control xl:col-span-3">
                     <label className="label text-xs font-semibold text-theme mb-1.5">{labels.description}</label>
                     <textarea
@@ -798,100 +1062,30 @@ export default function ItemsPage() {
                 </div>
                 </div>
 
-                <div className="border border-white/10 rounded-xl p-5 space-y-4">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-400">
-                    <span className="inline-block h-2 w-2 rounded-full bg-blue-500"></span>
-                    {labels.addonsSection}
-                  </div>
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!showAddons && (!form.addons || form.addons.length === 0)) {
-                          setForm(prev => ({ ...prev, addons: [createEmptyAddon()] }))
-                        }
-                        setShowAddons(prev => !prev)
-                      }}
-                      className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none"
-                    >
-                      {labels.openAddons}
-                    </button>
-
-                    {showAddons && (
-                      <button
-                        type="button"
-                        onClick={addAddonRow}
-                        className="btn btn-sm bg-green-600 hover:bg-green-700 text-white border-none"
-                      >
-                        <FaPlus className="text-white" /> {labels.addAddon}
-                      </button>
-                    )}
-                  </div>
-
-                  {showAddons && (
-                    <div className="space-y-3">
-                      {(form.addons || []).map((addon, index) => (
-                        <div key={`addon-${index}`} className="rounded-lg border border-white/10 p-4 grid grid-cols-1 xl:grid-cols-4 gap-3 items-end">
-                          <div className="form-control xl:col-span-2">
-                            <label className="label text-xs font-semibold text-theme mb-1.5">{labels.addonName}</label>
-                            <input
-                              type="text"
-                              value={addon.name || ''}
-                              onChange={(e) => updateAddonRow(index, 'name', e.target.value)}
-                              className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                              placeholder={labels.addonName}
-                            />
-                          </div>
-
-                          <div className="form-control">
-                            <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity}</label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={addon.quantity ?? 1}
-                              onChange={(e) => updateAddonRow(index, 'quantity', e.target.value)}
-                              className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                              placeholder="1"
-                            />
-                          </div>
-
-                          <div className="flex items-end gap-2">
-                            <div className="form-control flex-1">
-                              <label className="label text-xs font-semibold text-theme mb-1.5">{labels.price}</label>
-                              <input
-                                type="number"
-                                min="0"
-                                value={addon.price ?? ''}
-                                onChange={(e) => updateAddonRow(index, 'price', e.target.value)}
-                                className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                                placeholder="0.00"
-                              />
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => removeAddonRow(index)}
-                              className="btn btn-sm btn-ghost text-red-500 hover:bg-red-50"
-                            >
-                              {labels.removeAddon}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 <div className="border border-white/10 rounded-xl p-5">
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    <div className="form-control flex flex-row items-center gap-4">
-                      <input
-                        type="checkbox"
-                        className="toggle toggle-success toggle-sm"
-                        checked={form.status === 'Active'}
-                        onChange={e => setForm({ ...form, status: e.target.checked ? 'Active' : 'Inactive' })}
-                      />
+                    <div className="form-control flex flex-row items-center gap-3">
                       <label className="label-text font-medium text-theme">{labels.isActive}</label>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={form.status === 'Active'}
+                        onClick={() => setForm({ ...form, status: form.status === 'Active' ? 'Inactive' : 'Active' })}
+                        className={`relative h-6 w-11 overflow-hidden rounded-full border transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent ${
+                          form.status === 'Active'
+                            ? 'border-green-500 bg-green-500 focus:ring-green-300'
+                            : 'border-gray-300 bg-gray-300 focus:ring-gray-300'
+                        }`}
+                      >
+                        <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${form.status === 'Active' ? 'translate-x-5' : 'translate-x-0'}`}></span>
+                      </button>
+                      <span className={`min-w-12 rounded-full px-2.5 py-1 text-center text-xs font-semibold ${
+                        form.status === 'Active'
+                          ? 'bg-green-50 text-green-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {form.status === 'Active' ? labels.on : labels.off}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -925,6 +1119,67 @@ export default function ItemsPage() {
           onClose={() => setShowImportModal(false)}
           onImport={handleImport}
         />
+      )}
+
+      {deleteDialog && (
+        <div className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-theme">{labels.transferLinkedLeads}</h3>
+                <p className="mt-1 text-sm text-theme">
+                  {isArabic
+                    ? 'قرار الحذف من السيرفر: يوجد ليدز مرتبطة. اختر صنف بديل لتحويلها ثم الحذف.'
+                    : 'Backend decision: linked leads exist. Choose a replacement item to transfer them, then delete.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteDialog(null)}
+                className="rounded-full p-2 text-theme hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <div className="mb-4 max-h-40 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm text-theme dark:border-gray-700">
+              {(deleteDialog.blockers || []).map((blocker) => (
+                <div key={blocker.item_id} className="flex items-center justify-between gap-3 py-1">
+                  <span>{blocker.item_name || `#${blocker.item_id}`}</span>
+                  <span className="font-semibold">{formatNumber(blocker.leads_count || 0)}</span>
+                </div>
+              ))}
+            </div>
+
+            <label className="mb-2 block text-sm font-medium text-theme">{labels.replacementItem}</label>
+            <SearchableSelect
+              options={replacementOptions}
+              value={replacementItemId}
+              onChange={setReplacementItemId}
+              placeholder={labels.chooseReplacementItem}
+              isRTL={isArabic}
+              showAllOption={false}
+            />
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteDialog(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-theme hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+              >
+                {labels.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteWithReplacement}
+                disabled={!replacementItemId}
+                className={`rounded-lg px-4 py-2 text-sm font-medium text-white ${replacementItemId ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-400 cursor-not-allowed'}`}
+              >
+                {labels.confirmDelete}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="card rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden mb-6">
@@ -983,12 +1238,14 @@ export default function ItemsPage() {
               <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
                 <FaCube className="text-blue-500" /> {labels.categoryType}
               </label>
-              <select className="select select-sm h-8 text-xs w-full min-h-0" value={filters.type} onChange={e => setFilters({ ...filters, type: e.target.value, category: '' })}>
-                <option value="">{`${labels.categoryType} ${getAllSuffix()}`}</option>
-                {TYPE_OPTIONS.map(t => (
-                  <option key={t} value={t}>{getCategoryTypeOptionLabel(t)}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                options={categoryTypeOptionsForFilter}
+                value={filters.type}
+                onChange={val => setFilters({ ...filters, type: val, category: '' })}
+                placeholder={`${labels.categoryType} ${getAllSuffix()}`}
+                className="input-sm h-8 text-xs min-h-0"
+                isRTL={isArabic}
+              />
             </div>
 
             <div>
@@ -1011,27 +1268,28 @@ export default function ItemsPage() {
                 <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
                   <FaCube className="text-blue-500" /> {labels.itemType}
                 </label>
-                <select
-                  className="select select-sm h-8 text-xs w-full min-h-0"
+                <SearchableSelect
+                  options={itemTypeOptionsForFilter}
                   value={filters.itemType}
-                  onChange={e => setFilters({ ...filters, itemType: e.target.value })}
-                >
-                  <option value="">{`${labels.itemType} ${getAllSuffix()}`}</option>
-                  {ITEM_TYPE_OPTIONS.map(option => (
-                    <option key={option} value={option}>{getItemTypeOptionLabel(option)}</option>
-                  ))}
-                </select>
+                  onChange={val => setFilters({ ...filters, itemType: val })}
+                  placeholder={`${labels.itemType} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
+                />
               </div>
 
               <div>
                 <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
                   <FaCheckCircle className="text-blue-500" /> {labels.status}
                 </label>
-                <select className="select select-sm h-8 text-xs w-full min-h-0" value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
-                  <option value="">{`${labels.status} ${getAllSuffix()}`}</option>
-                  <option value="Active">{labels.active}</option>
-                  <option value="Inactive">{labels.inactive}</option>
-                </select>
+                <SearchableSelect
+                  options={statusOptionsForFilter}
+                  value={filters.status}
+                  onChange={val => setFilters({ ...filters, status: val })}
+                  placeholder={`${labels.status} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
+                />
               </div>
             </div>
           )}
@@ -1042,7 +1300,30 @@ export default function ItemsPage() {
 
         {/* Table Title */}
         <div className="p-4 border-b border-gray-100 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-theme">{labels.listTitle}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-theme">{labels.listTitle}</h2>
+            {canManageItems && selectedItemIds.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-theme">
+                  {formatNumber(selectedItemIds.length)} {labels.selectedItems}
+                </span>
+                <button
+                  type="button"
+                  onClick={deleteSelectedItems}
+                  className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
+                >
+                  <FaTrash /> {labels.deleteSelected}
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-theme hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                >
+                  <FaTimes /> {labels.clearSelection}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Table & Cards */}
@@ -1060,9 +1341,19 @@ export default function ItemsPage() {
             <>
               {/* Desktop Table */}
               <div className="hidden md:block overflow-x-auto overflow-y-visible relative z-0">
-                <table className="table w-full">
-                  <thead className=" bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 relative z-10">
+                <table className="nova-table categories-table w-full">
+                  <thead className="thead-soft relative z-10">
                     <tr>
+                      {canManageItems && (
+                        <th className="px-4 py-3 text-start">
+                          <input
+                            type="checkbox"
+                            checked={isAllPageSelected}
+                            onChange={togglePageSelection}
+                            aria-label={labels.bulkActions}
+                          />
+                        </th>
+                      )}
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.code}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.name}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.category}</th>
@@ -1070,6 +1361,7 @@ export default function ItemsPage() {
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.itemType}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.price}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.quantity}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsName}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsQty}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsPrice}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.totalPrice}</th>
@@ -1077,9 +1369,19 @@ export default function ItemsPage() {
                       <th className="text-end px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider pr-6">{labels.actions}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                  <tbody>
                     {paginatedItems.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-700/50 transition-colors group">
+                      <tr key={item.id} className="group cursor-pointer transition-colors duration-150 hover:bg-blue-50/80 dark:hover:bg-blue-900/20">
+                        {canManageItems && (
+                          <td className="px-4 py-3 text-start">
+                            <input
+                              type="checkbox"
+                              checked={selectedItemIds.includes(item.id)}
+                              onChange={() => toggleItemSelection(item.id)}
+                              aria-label={`${labels.bulkActions}: ${item.name}`}
+                            />
+                          </td>
+                        )}
                         <td className="px-4 py-3 text-start text-theme font-mono text-xs text-nowrap">
                           {item.sku || '-'}
                         </td>
@@ -1093,18 +1395,34 @@ export default function ItemsPage() {
                         <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{getItemTypeOptionLabel(item.itemType || '-')}</td>
                         <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(item.price)}</td>
                         <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.stock ?? 0)}</td>
-                        <td className="px-4 py-3 text-start">
-                          <div className="inline-flex items-center">
-                            <span
-                              className="badge badge-sm border-0 bg-blue-100 text-blue-700 cursor-default"
+                        <td className="px-4 py-3 text-start text-theme">
+                          {getAddonNames(item).length > 0 ? (
+                            <select
+                              className="select select-xs h-8 min-h-0 w-40 max-w-full rounded-md border border-gray-300 bg-transparent text-xs text-theme"
+                              value={String(getSelectedAddon(item)?.id || '')}
+                              onChange={(e) => setSelectedAddonByItemId(prev => ({ ...prev, [item.id]: e.target.value }))}
+                              title={formatAddonNames(item)}
                               onMouseEnter={(event) => showAddonsTooltip(event, item)}
                               onMouseLeave={hideAddonsTooltip}
                             >
-                              {formatNumber(item.addonsTotalQuantity || 0)}
-                            </span>
-                          </div>
+                              {getAddonTooltipData(item).map((addon, index) => (
+                                <option key={`${item.id}-addon-name-${index}`} value={addon.id}>{addon.name}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-xs">-</span>
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(item.addonsTotalPrice)}</td>
+                        <td className="px-4 py-3 text-start">
+                          <span
+                            className="badge badge-sm border-0 bg-blue-100 text-blue-700 cursor-default"
+                            onMouseEnter={(event) => showAddonsTooltip(event, item)}
+                            onMouseLeave={hideAddonsTooltip}
+                          >
+                            {formatNumber(getSelectedAddon(item)?.quantity || 0)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(getSelectedAddonAmount(item))}</td>
                         <td className="px-4 py-3 text-start font-semibold text-theme">{formatAmount(item.totalPrice)}</td>
                         <td className="px-4 py-3 text-start">
                           <span className={`badge badge-sm border-0 ${item.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-theme'}`}>
@@ -1144,9 +1462,20 @@ export default function ItemsPage() {
                 {paginatedItems.map((item) => (
                   <div key={item.id} className="card p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 relative">
                     <div className="flex justify-between items-start mb-2">
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-theme text-base">{item.name}</span>
-                        <span className="text-xs text-theme">{item.sku || '-'}</span>
+                      <div className="flex items-start gap-2">
+                        {canManageItems && (
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={selectedItemIds.includes(item.id)}
+                            onChange={() => toggleItemSelection(item.id)}
+                            aria-label={`${labels.bulkActions}: ${item.name}`}
+                          />
+                        )}
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-theme text-base">{item.name}</span>
+                          <span className="text-xs text-theme">{item.sku || '-'}</span>
+                        </div>
                       </div>
                       <span className={`badge badge-sm border-0 ${item.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-theme'}`}>
                         {item.status === 'Active' ? labels.active : labels.inactive}
@@ -1171,12 +1500,33 @@ export default function ItemsPage() {
                         <span>{formatNumber(item.stock ?? 0)}</span>
                       </div>
                       <div className="flex flex-col">
+                        <span className="text-xs text-theme">{labels.addonsName}</span>
+                        {getAddonNames(item).length > 0 ? (
+                          <select
+                            className="select select-xs h-8 min-h-0 rounded-md border border-gray-300 bg-transparent text-xs text-theme"
+                            value={String(getSelectedAddon(item)?.id || '')}
+                            onChange={(e) => setSelectedAddonByItemId(prev => ({ ...prev, [item.id]: e.target.value }))}
+                            title={formatAddonNames(item)}
+                          >
+                            {getAddonTooltipData(item).map((addon, index) => (
+                              <option key={`${item.id}-mobile-addon-name-${index}`} value={addon.id}>{addon.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span>-</span>
+                        )}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-theme">{labels.addonsQty}</span>
+                        <span>{formatNumber(getSelectedAddon(item)?.quantity || 0)}</span>
+                      </div>
+                      <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.itemType}</span>
                       <span>{getItemTypeOptionLabel(item.itemType || '-')}</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.addonsPrice}</span>
-                        <span>{formatAmount(item.addonsTotalPrice)}</span>
+                        <span>{formatAmount(getSelectedAddonAmount(item))}</span>
                       </div>
                       <div className="flex flex-col col-span-2">
                         <span className="text-xs text-theme">{labels.totalPrice}</span>

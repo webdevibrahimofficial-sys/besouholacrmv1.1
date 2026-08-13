@@ -2343,6 +2343,14 @@ body {
 .nova-table thead th {
   background: #f9fafb;
 }
+.categories-table tbody tr:hover,
+.categories-table tbody tr:hover td {
+  background-color: #eff6ff !important;
+}
+.dark .categories-table tbody tr:hover,
+.dark .categories-table tbody tr:hover td {
+  background-color: rgba(30, 64, 175, 0.24) !important;
+}
 /* Dark mode adjustments */
 .dark .nova-table th,
 .dark .nova-table td {

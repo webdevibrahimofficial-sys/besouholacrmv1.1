@@ -1691,8 +1691,13 @@ class WhatsappMessageController extends Controller
 
         $url = null;
         if ($storedPath && $message->id) {
-            $url = $storage->toRelativeUrl(
-                URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(120))
+            // Sign as a relative URL so <img>/<video> can load it from any tenant host
+            // without Bearer auth. Absolute signatures break after toRelativeUrl().
+            $url = URL::temporarySignedRoute(
+                'whatsapp.messages.media',
+                now()->addMinutes(120),
+                ['message' => $message->id],
+                absolute: false
             );
         }
         if (!$url && $storedPath) {
@@ -1717,8 +1722,11 @@ class WhatsappMessageController extends Controller
             || ($message->provider === 'meta' && $this->extractMetaMediaId($raw, $type))
             || $raw === []
         )) {
-            $url = $storage->toRelativeUrl(
-                URL::signedRoute('whatsapp.messages.media', ['message' => $message->id], now()->addMinutes(120))
+            $url = URL::temporarySignedRoute(
+                'whatsapp.messages.media',
+                now()->addMinutes(120),
+                ['message' => $message->id],
+                absolute: false
             );
         }
 

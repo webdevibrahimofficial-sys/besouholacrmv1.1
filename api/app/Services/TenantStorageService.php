@@ -70,12 +70,22 @@ class TenantStorageService
 
     /**
      * Browser-loadable signed URL. Absolute APP_URL hosts (e.g. Docker "http://web")
-     * are not reachable from the SPA, so strip the host and keep path + signature.
+     * are not reachable from the SPA. For local disks, sign as a relative URL so the
+     * signature stays valid when loaded from tenant subdomains via <img>/<video>.
      * Leave S3 / external URLs absolute.
      */
     public function getBrowserUrl(string $path): string
     {
-        return $this->toRelativeUrl($this->getUrl($path)) ?: $this->getUrl($path);
+        if (config('filesystems.disks.tenants.driver') === 's3') {
+            return $this->getUrl($path);
+        }
+
+        return URL::temporarySignedRoute(
+            'tenant.files.show',
+            now()->addMinutes(60),
+            ['path' => $path],
+            absolute: false
+        );
     }
 
     public function toRelativeUrl(?string $url): ?string

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppState } from '@shared/context/AppStateProvider'
 import { api } from '@utils/api';
 import { useTranslation } from 'react-i18next'
-import { User, Info, Lock, Bell, Check, X, Settings, Target, AlertCircle, Eye, EyeOff, Upload, ChevronDown, Clock, Calendar, TrendingUp, Percent, ChevronUp, Loader2 } from 'lucide-react';
+import { User, Info, Bell, X, Settings, Target, AlertCircle, Eye, EyeOff, Upload, ChevronDown, Clock, Calendar, TrendingUp, Percent, ChevronUp, Loader2, Plus, Trash2 } from 'lucide-react';
 import SearchableSelect from '@components/SearchableSelect';
 import { mapSourceToOption } from '@shared/utils/sourceDisplay';
 import { 
@@ -243,6 +243,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const allowAllTenantTypes = !tenantTypeNorm
   const numericLocale = isArabic ? 'ar-EG' : 'en-US'
   const telesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
+  const currentYear = new Date().getFullYear()
 
   const filterInventoryPermsByTenantType = useCallback((list) => {
     const perms = Array.isArray(list) ? list : []
@@ -300,12 +301,21 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       true,
     monthlyTarget: user?.monthly_target || '',
     quarterlyTarget: user?.quarterly_target || '',
+    semiAnnualTarget: user?.semi_annual_target || (user?.yearly_target ? String(Number(user.yearly_target || 0) / 2) : ''),
     yearlyTarget: user?.yearly_target || '',
     commissionPercentage: user?.commission_percentage || '',
   });
   const [customPerms, setCustomPerms] = useState({});
   const [errors, setErrors] = useState({});
   const [activeTab, setActiveTab] = useState('info'); // 'info' | 'account' | 'notifications'
+  const [commissionTiers, setCommissionTiers] = useState([
+    {
+      from_percentage: '0',
+      to_percentage: '',
+      commission_percentage: user?.commission_percentage || '',
+    },
+  ]);
+  const [targetHistory, setTargetHistory] = useState([]);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialForm, setInitialForm] = useState({ ...form });
@@ -380,6 +390,55 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (!isEdit || !user?.id) return;
+
+    let cancelled = false;
+    const fetchTargetHistory = async () => {
+      try {
+        const res = await api.get(`/api/user-targets?user_id=${user.id}`);
+        if (cancelled) return;
+
+        const rows = Array.isArray(res.data?.data) ? res.data.data : [];
+        setTargetHistory(rows);
+
+        const current = rows.find(row => Number(row.year) === currentYear);
+        if (!current) return;
+
+        setForm(prev => ({
+          ...prev,
+          yearlyTarget: String(current.yearly_target ?? prev.yearlyTarget ?? ''),
+          semiAnnualTarget: String(current.semi_annual_target ?? prev.semiAnnualTarget ?? ''),
+          quarterlyTarget: String(current.quarterly_target ?? prev.quarterlyTarget ?? ''),
+          monthlyTarget: String(current.monthly_target ?? prev.monthlyTarget ?? ''),
+        }));
+
+        const tiers = Array.isArray(current.commission_tiers)
+          ? current.commission_tiers
+          : [];
+        if (tiers.length > 0) {
+          const mappedTiers = tiers.map(tier => ({
+            from_percentage: String(tier.from_percentage ?? 0),
+            to_percentage: tier.to_percentage === null || tier.to_percentage === undefined ? '' : String(tier.to_percentage),
+            commission_percentage: String(tier.commission_percentage ?? ''),
+          }));
+          setCommissionTiers(mappedTiers);
+          setForm(prev => ({
+            ...prev,
+            commissionPercentage: mappedTiers[0]?.commission_percentage || prev.commissionPercentage,
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch user target history', err);
+      }
+    };
+
+    fetchTargetHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, user?.id, currentYear]);
+
   const isCustomRole = useMemo(() => form.role === 'Custom', [form.role]);
   const isPrimaryAdmin = useMemo(
     () => !!(user?.is_primary_admin || user?.is_super_admin),
@@ -423,6 +482,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
     return !hiddenRoles.has(normalizeRoleValue(form.role));
   }, [form.role])
+  const showProjectScopeFilters = false
   const countryOptions = useMemo(() => {
     const seen = new Set();
     return (countries || []).map(country => {
@@ -724,33 +784,52 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     const num = parseFloat(normalizedValue);
     
     if (isNaN(num)) {
-       setForm(prev => ({ ...prev, monthlyTarget: normalizedValue, quarterlyTarget: '', yearlyTarget: '' })); // allow clearing
-       if (normalizedValue === '') setForm(prev => ({ ...prev, monthlyTarget: '', quarterlyTarget: '', yearlyTarget: '' }));
+       setForm(prev => ({
+         ...prev,
+         monthlyTarget: type === 'monthly' ? normalizedValue : '',
+         quarterlyTarget: type === 'quarterly' ? normalizedValue : '',
+         semiAnnualTarget: type === 'semi_annual' ? normalizedValue : '',
+         yearlyTarget: type === 'yearly' ? normalizedValue : '',
+       }));
+       if (normalizedValue === '') setForm(prev => ({ ...prev, monthlyTarget: '', quarterlyTarget: '', semiAnnualTarget: '', yearlyTarget: '' }));
        return;
     }
 
-    if (type === 'monthly') {
-      setForm(prev => ({ 
-        ...prev,
-        monthlyTarget: normalizedValue, 
-        quarterlyTarget: String(num * 3), 
-        yearlyTarget: String(num * 12) 
-      }));
-    } else if (type === 'quarterly') {
-      setForm(prev => ({ 
-        ...prev,
-        monthlyTarget: String(num / 3), 
-        quarterlyTarget: normalizedValue, 
-        yearlyTarget: String(num * 4) 
-      }));
-    } else if (type === 'yearly') {
-      setForm(prev => ({ 
-        ...prev,
-        monthlyTarget: String(num / 12), 
-        quarterlyTarget: String(num / 4), 
-        yearlyTarget: normalizedValue 
-      }));
-    }
+    const yearly =
+      type === 'monthly' ? num * 12 :
+      type === 'quarterly' ? num * 4 :
+      type === 'semi_annual' ? num * 2 :
+      num;
+
+    setForm(prev => ({
+      ...prev,
+      monthlyTarget: type === 'monthly' ? normalizedValue : String(yearly / 12),
+      quarterlyTarget: type === 'quarterly' ? normalizedValue : String(yearly / 4),
+      semiAnnualTarget: type === 'semi_annual' ? normalizedValue : String(yearly / 2),
+      yearlyTarget: type === 'yearly' ? normalizedValue : String(yearly),
+    }));
+  };
+
+  const updateCommissionTier = (index, field, value) => {
+    const normalizedValue = normalizeNumericInput(value);
+    setCommissionTiers(prev => prev.map((tier, tierIndex) => (
+      tierIndex === index ? { ...tier, [field]: normalizedValue } : tier
+    )));
+  };
+
+  const addCommissionTier = () => {
+    setCommissionTiers(prev => [
+      ...prev,
+      { from_percentage: '', to_percentage: '', commission_percentage: '' },
+    ]);
+  };
+
+  const removeCommissionTier = (index) => {
+    setCommissionTiers(prev => (
+      prev.length === 1
+        ? [{ from_percentage: '0', to_percentage: '', commission_percentage: '' }]
+        : prev.filter((_, tierIndex) => tierIndex !== index)
+    ));
   };
 
   const togglePerm = (group, perm) => {
@@ -962,6 +1041,21 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         response = await api.post(`/api/users/${user.id}`, formData);
       } else {
         response = await api.post('/api/users', formData);
+      }
+
+      const savedUser = response.data?.data || response.data;
+      const savedUserId = savedUser?.id || user?.id;
+      if (savedUserId) {
+        await api.post('/api/user-targets', {
+          user_id: savedUserId,
+          year: currentYear,
+          yearly_target: normalizeNumericInput(form.yearlyTarget) || 0,
+          commission_tiers: commissionTiers.map(tier => ({
+            from_percentage: normalizeNumericInput(tier.from_percentage) || 0,
+            to_percentage: normalizeNumericInput(tier.to_percentage) || '',
+            commission_percentage: normalizeNumericInput(tier.commission_percentage) || 0,
+          })),
+        });
       }
 
       if (onSuccess) {
@@ -1409,7 +1503,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     placeholder={isArabic ? 'الكل' : 'All'}
                   />
                 </div>
-                {false && showAssignmentScopeFilters && (
+                {showProjectScopeFilters && showAssignmentScopeFilters && (
                 <div>
                   <label className="label pt-0">
                     <span className="label-text font-medium text-base-content/80">
@@ -1792,7 +1886,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         dir="ltr"
                         style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
                         value={formatNumericDisplay(form.monthlyTarget, numericLocale)} 
-                        onChange={(e) => calculateTargets(e.target.value, 'monthly')} 
+                        onChange={(e) => calculateTargets(e.target.value, 'monthly')}
                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
                         placeholder="0.00" 
                       />
@@ -1831,7 +1925,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         dir="ltr"
                         style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
                         value={formatNumericDisplay(form.quarterlyTarget, numericLocale)} 
-                        onChange={(e) => calculateTargets(e.target.value, 'quarterly')} 
+                        onChange={(e) => calculateTargets(e.target.value, 'quarterly')}
                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
                         placeholder="0.00" 
                       />
@@ -1840,9 +1934,44 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                       </div>
                     </div>
 
+                     <div className="mt-3 text-xs text-base-content/40 flex justify-between pt-3 border-t border-base-content/5">
+                       <span>Accumulated</span>
+                       <span className="font-mono">3 Months</span>
+                     </div>
+                   </div>
+                 </div>
+
+                 <div className="group">
+                   <div className="glass-panel p-5 rounded-xl border border-base-content/5 bg-base-200/20 hover:bg-base-200/40 transition-all duration-300 relative overflow-hidden h-full flex flex-col justify-between">
+                     <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                       <Calendar size={40} className="text-info" />
+                     </div>
+                     <label className="label pt-0 justify-start gap-2 mb-2">
+                       <div className="p-1.5 bg-info/10 rounded-lg text-info">
+                         <Calendar size={16} />
+                       </div>
+                       <span className="label-text font-medium text-base-content/80">
+                         {isArabic ? 'تارجت نصف سنوي' : 'Semi Annual Target'}
+                       </span>
+                     </label>
+                     <div className="relative mt-2">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
+                        value={formatNumericDisplay(form.semiAnnualTarget, numericLocale)}
+                        onChange={(e) => calculateTargets(e.target.value, 'semi_annual')}
+                        className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12"
+                        placeholder="0.00"
+                      />
+                      <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-base-content/30 text-xs font-mono">
+                        {currencySymbol}
+                      </div>
+                    </div>
                     <div className="mt-3 text-xs text-base-content/40 flex justify-between pt-3 border-t border-base-content/5">
                       <span>Accumulated</span>
-                      <span className="font-mono">3 Months</span>
+                      <span className="font-mono">6 Months</span>
                     </div>
                   </div>
                 </div>
@@ -1886,49 +2015,111 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                    </div>
                  </div>
 
-                 {/* Commission Percentage */}
-                 <div className="group">
-                   <div className="glass-panel p-5 rounded-xl border border-base-content/5 bg-base-200/20 hover:bg-base-200/40 transition-all duration-300 relative overflow-hidden h-full flex flex-col justify-between">
-                     <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                       <Percent size={40} className="text-warning" />
-                     </div>
-                     
-                     <label className="label pt-0 justify-start gap-2 mb-2">
-                       <div className="p-1.5 bg-warning/10 rounded-lg text-warning">
-                         <Percent size={16} />
-                       </div>
-                       <span className="label-text font-medium text-base-content/80">
-                         {isArabic ? 'نسبة العمولة' : 'Commission %'}
-                       </span>
-                     </label>
-                     
-                     <div className="relative mt-2">
-                      <input 
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
-                        value={formatNumericDisplay(form.commissionPercentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} 
-                        onChange={(e) => updateField('commissionPercentage', normalizeNumericInput(e.target.value))} 
-                        className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
-                        placeholder="0.00"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                      />
-                        <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-base-content/30 text-xs font-mono">
-                         %
-                       </div>
-                      </div>
-
-                      <div className="mt-3 text-xs text-base-content/40 flex justify-between pt-3 border-t border-base-content/5">
-                        <span>Per Deal</span>
-                        <span className="font-mono">Rate</span>
-                      </div>
-                    </div>
-                  </div>
-
               </div>
+
+              <div className="mt-8 glass-panel rounded-xl border border-base-content/10 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-base-content/10">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <Percent size={18} className="text-warning" />
+                    <span>{isArabic ? 'شرائح العمولة حسب تحقيق التارجت' : 'Commission tiers by achievement'}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-content shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/35"
+                    onClick={addCommissionTier}
+                    title={isArabic ? 'إضافة شريحة' : 'Add tier'}
+                    aria-label={isArabic ? 'إضافة شريحة' : 'Add tier'}
+                  >
+                    <Plus size={20} strokeWidth={2.5} />
+                  </button>
+                </div>
+                <div className="divide-y divide-base-content/10">
+                  {commissionTiers.map((tier, index) => (
+                    <div key={index} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-3 p-4 items-end">
+                      <div>
+                        <label className="label-text text-xs">{isArabic ? 'من تحقيق %' : 'From achievement %'}</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={formatNumericDisplay(tier.from_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          onChange={(e) => updateCommissionTier(index, 'from_percentage', e.target.value)}
+                          className={inputStyle}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="label-text text-xs">{isArabic ? 'إلى تحقيق %' : 'To achievement %'}</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={formatNumericDisplay(tier.to_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          onChange={(e) => updateCommissionTier(index, 'to_percentage', e.target.value)}
+                          className={inputStyle}
+                          placeholder={isArabic ? 'بدون حد' : 'No cap'}
+                        />
+                      </div>
+                      <div>
+                        <label className="label-text text-xs">{isArabic ? 'نسبة العمولة %' : 'Commission %'}</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={formatNumericDisplay(tier.commission_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          onChange={(e) => {
+                            updateCommissionTier(index, 'commission_percentage', e.target.value)
+                            if (index === 0) updateField('commissionPercentage', normalizeNumericInput(e.target.value))
+                          }}
+                          className={inputStyle}
+                          placeholder="0"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-error transition-all duration-200 hover:-translate-y-0.5 hover:bg-error/10 hover:text-error hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-error/25"
+                        onClick={() => removeCommissionTier(index)}
+                        title={isArabic ? 'حذف الشريحة' : 'Remove tier'}
+                        aria-label={isArabic ? 'حذف الشريحة' : 'Remove tier'}
+                      >
+                        <Trash2 size={18} strokeWidth={2.25} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {targetHistory.length > 0 && (
+                <div className="mt-8 glass-panel rounded-xl border border-base-content/10 overflow-hidden">
+                  <div className="px-4 py-3 font-semibold border-b border-base-content/10">
+                    {isArabic ? 'تاريخ التارجت' : 'Target history'}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>{isArabic ? 'السنة' : 'Year'}</th>
+                          <th>{isArabic ? 'سنوي' : 'Yearly'}</th>
+                          <th>{isArabic ? 'شهري' : 'Monthly'}</th>
+                          <th>{isArabic ? 'ربع سنوي' : 'Quarterly'}</th>
+                          <th>{isArabic ? 'نصف سنوي' : 'Semi Annual'}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {targetHistory.map(row => (
+                          <tr key={`${row.user_id}-${row.year}`}>
+                            <td>{row.year}</td>
+                            <td>{formatNumericDisplay(row.yearly_target, numericLocale)} {currencySymbol}</td>
+                            <td>{formatNumericDisplay(row.monthly_target, numericLocale)} {currencySymbol}</td>
+                            <td>{formatNumericDisplay(row.quarterly_target, numericLocale)} {currencySymbol}</td>
+                            <td>{formatNumericDisplay(row.semi_annual_target, numericLocale)} {currencySymbol}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1936,7 +2127,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
             <button type="button" className="btn btn-ghost hover:bg-base-content/10" onClick={() => onClose ? onClose() : navigate('/user-management/users')}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
             <button 
               type="submit" 
-              className="btn btn-primary px-8"
+              className="btn btn-primary px-8 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/35 disabled:translate-y-0 disabled:border-base-content/10 disabled:bg-base-200 disabled:text-base-content/45 disabled:shadow-none disabled:hover:bg-base-200"
               disabled={loading}
             >
               {loading ? <Loader2 className="animate-spin" size={20} /> : (isArabic ? 'حفظ التغييرات' : 'Save Changes')}

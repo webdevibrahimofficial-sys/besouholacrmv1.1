@@ -1,10 +1,10 @@
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { useAppState } from '../../shared/context/AppStateProvider'
 import { api } from '@utils/api'
 import { normalizeTenantAssetUrl } from '@shared/utils/tenantCompanyProfile'
-import { Calendar, TrendingUp, Info, MapPin, Target, Upload, Building, Activity, Globe, FileText, CreditCard, Clock, Lock, Phone, Hash } from 'lucide-react'
+import { Calendar, TrendingUp, Info, MapPin, Target, Upload, Building, Activity, Globe, FileText, CreditCard, Clock, Lock, Phone, Hash, Plus, Pencil, Save, Trash2, X } from 'lucide-react'
 
 const normalizeCompanyType = (...values) => {
   for (const value of values) {
@@ -22,8 +22,8 @@ const formatCompanyTarget = (value, locale = 'en-US') => {
   const normalized = Number(value || 0)
   if (!Number.isFinite(normalized)) return '0'
   return new Intl.NumberFormat(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   }).format(normalized)
 }
 
@@ -34,6 +34,22 @@ const normalizeWebsiteUrl = (value) => {
   return `https://${trimmed}`
 }
 
+const normalizeRole = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/[_-]+/g, ' ')
+
+const isAdminUser = (user) => {
+  if (!user) return false
+  if (user.is_super_admin || user.is_primary_admin || user.is_tenant_admin) return true
+  const roles = [
+    user.role,
+    user.job_title,
+    ...(Array.isArray(user.roles) ? user.roles.map(role => role?.name || role) : []),
+  ].map(normalizeRole)
+  return roles.some(role => ['admin', 'tenant admin', 'super admin', 'administrator'].includes(role) || role.includes('admin'))
+}
+
 export default function CompanySettings() {
   const { t, i18n } = useTranslation()
   const isArabic = i18n.language === 'ar'
@@ -42,47 +58,53 @@ export default function CompanySettings() {
   const initializedCompanyKeyRef = useRef(null)
   const isDirtyRef = useRef(false)
   useTheme()
-  const { fetchCompanyInfo, crmSettings, company } = useAppState()
+  const { fetchCompanyInfo, crmSettings, company, user: currentUser } = useAppState()
+  const canManageTargets = isAdminUser(currentUser)
   const [activeTab, setActiveTab] = useState('general')
   const [companyTargets, setCompanyTargets] = useState({
     monthly: 0,
     quarterly: 0,
+    semiAnnual: 0,
     yearly: 0
   })
+  const [companyTargetHistory, setCompanyTargetHistory] = useState([])
+  const [targetEditorOpen, setTargetEditorOpen] = useState(false)
+  const [targetSaving, setTargetSaving] = useState(false)
+  const [targetForm, setTargetForm] = useState(() => ({
+    year: new Date().getFullYear() + 1,
+    yearly_target: '',
+  }))
 
   const currencySymbol = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'SAR'
   const targetLocale = isArabic ? 'ar-EG' : 'en-US'
 
+  const applyCurrentCompanyTarget = useCallback((targetRows) => {
+    const currentYear = new Date().getFullYear()
+    const currentTarget = targetRows.find(row => Number(row.year) === currentYear)
+    setCompanyTargets({
+      monthly: Number(currentTarget?.monthly_target || 0).toFixed(2),
+      quarterly: Number(currentTarget?.quarterly_target || 0).toFixed(2),
+      semiAnnual: Number(currentTarget?.semi_annual_target || 0).toFixed(2),
+      yearly: Number(currentTarget?.yearly_target || 0).toFixed(2),
+    })
+  }, [])
+
+  const fetchCompanyTargets = useCallback(async () => {
+    try {
+      const targetRes = await api.get('/api/company-targets?year=all')
+      const targetRows = Array.isArray(targetRes.data?.data) ? targetRes.data.data : []
+      setCompanyTargetHistory(targetRows)
+      applyCurrentCompanyTarget(targetRows)
+    } catch (err) {
+      console.error('Failed to fetch company targets', err)
+    }
+  }, [applyCurrentCompanyTarget])
+
   useEffect(() => {
-    const fetchUsersAndCalculateTargets = async () => {
-      try {
-        const res = await api.get('/api/users')
-        const users = Array.isArray(res.data) ? res.data : (res.data?.data || [])
-        
-        let monthly = 0
-        let quarterly = 0
-        let yearly = 0
-        
-        users.forEach(user => {
-            monthly += parseFloat(user.monthly_target || 0)
-            quarterly += parseFloat(user.quarterly_target || 0)
-            yearly += parseFloat(user.yearly_target || 0)
-        })
-        
-        setCompanyTargets({
-            monthly: monthly.toFixed(2),
-            quarterly: quarterly.toFixed(2),
-            yearly: yearly.toFixed(2)
-        })
-      } catch (err) {
-        console.error('Failed to fetch users for targets', err)
-      }
-    }
-    
     if (activeTab === 'targets') {
-        fetchUsersAndCalculateTargets()
+        fetchCompanyTargets()
     }
-  }, [activeTab])
+  }, [activeTab, fetchCompanyTargets])
 
   // Root domain for subdomain display
   const rootDomain = useMemo(() => {
@@ -348,6 +370,66 @@ export default function CompanySettings() {
     setTaxId(savedValues.taxId)
     setWebsiteUrl(savedValues.websiteUrl)
     isDirtyRef.current = false
+  }
+
+  const openAddTargetEditor = () => {
+    const nextYear = new Date().getFullYear() + 1
+    setTargetForm({
+      year: nextYear,
+      yearly_target: '',
+    })
+    setTargetEditorOpen(true)
+  }
+
+  const openEditTargetEditor = (row) => {
+    setTargetForm({
+      year: Number(row.year || new Date().getFullYear()),
+      yearly_target: String(row.yearly_target ?? ''),
+    })
+    setTargetEditorOpen(true)
+  }
+
+  const saveTarget = async () => {
+    if (!canManageTargets) return
+    if (!targetForm.year) {
+      alert(isArabic ? 'اكتب السنة الأول' : 'Enter the year first')
+      return
+    }
+
+    setTargetSaving(true)
+    try {
+      await api.post('/api/company-targets', {
+        year: Number(targetForm.year),
+        yearly_target: Number(targetForm.yearly_target || 0),
+      })
+      setTargetEditorOpen(false)
+      await fetchCompanyTargets()
+      alert(isArabic ? 'تم حفظ التارجت بنجاح' : 'Target saved successfully')
+    } catch (err) {
+      console.error('Failed to save target', err)
+      alert(err?.response?.data?.message || (isArabic ? 'فشل حفظ التارجت' : 'Failed to save target'))
+    } finally {
+      setTargetSaving(false)
+    }
+  }
+
+  const deleteTarget = async (row) => {
+    if (!canManageTargets || !row?.id) return
+    const confirmed = window.confirm(
+      isArabic
+        ? `هل أنت متأكد من حذف تارجت سنة ${row.year}؟`
+        : `Are you sure you want to delete the ${row.year} company target?`
+    )
+    if (!confirmed) return
+
+    try {
+      await api.delete(`/api/company-targets/${row.id}`)
+      await fetchCompanyTargets()
+      alert(isArabic ? 'تم حذف التارجت بنجاح' : 'Target deleted successfully')
+    } catch (err) {
+      console.error('Failed to delete target', err)
+      alert(err?.response?.data?.message || (isArabic ? 'فشل حذف التارجت' : 'Failed to delete target'))
+    }
   }
 
   const formatDate = (dateString) => {
@@ -785,7 +867,96 @@ export default function CompanySettings() {
       )}
 
       {activeTab === 'targets' && (
-        <div className="flex flex-col items-center justify-center max-w-5xl mx-auto animate-in fade-in duration-300 p-4 sm:p-6 space-y-6 sm:space-y-8">
+        <div className="flex  flex-col items-center justify-center max-w-5xl mx-auto animate-in fade-in duration-300 p-4 sm:p-6 space-y-6 sm:space-y-8">
+          <div className="w-full flex  sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-bold text-theme-text">
+                {isArabic ? 'إدارة تارجت الشركة' : 'Company Target Management'}
+              </h3>
+              <p className="text-sm text-theme-text/60">
+                {isArabic
+                  ? 'تارجت الشركة رقم مستقل عن تارجتات المستخدمين، والإضافة والتعديل للأدمن فقط.'
+                  : 'Company target is independent from user targets; only admins can add or edit it.'}
+              </p>
+            </div>
+            {canManageTargets && (
+              <button
+                type="button"
+                onClick={openAddTargetEditor}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-blue-500/30"
+              >
+                <Plus size={18} />
+                {isArabic ? 'إضافة تارجت سنة' : 'Add Year Target'}
+              </button>
+            )}
+          </div>
+
+          {canManageTargets && targetEditorOpen && (
+            <div className="w-full glass-panel rounded-xl border border-gray-200/10 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/10">
+                <div className="font-semibold text-theme-text">
+                  {isArabic ? 'إضافة / تعديل تارجت' : 'Add / Edit Target'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTargetEditorOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-theme-text/60 transition hover:bg-white/10 hover:text-theme-text"
+                  aria-label={isArabic ? 'إغلاق' : 'Close'}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold text-theme-text/70">{isArabic ? 'السنة' : 'Year'}</span>
+                    <input
+                      type="number"
+                      min="2000"
+                      max="2100"
+                      value={targetForm.year}
+                      onChange={(e) => setTargetForm(prev => ({ ...prev, year: e.target.value }))}
+                      className="input input-bordered w-full bg-transparent"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold text-theme-text/70">{isArabic ? 'التارجت السنوي' : 'Yearly Target'}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={targetForm.yearly_target}
+                      onChange={(e) => setTargetForm(prev => ({ ...prev, yearly_target: e.target.value }))}
+                      className="input input-bordered w-full bg-transparent"
+                      placeholder="0.00"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTargetEditorOpen(false)}
+                    className="rounded-xl px-4 py-2 text-sm font-semibold text-theme-text/70 transition hover:bg-white/10"
+                  >
+                    {isArabic ? 'إلغاء' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveTarget}
+                    disabled={targetSaving}
+                    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+                  >
+                    <Save size={17} />
+                    {targetSaving ? (isArabic ? 'جاري الحفظ...' : 'Saving...') : (isArabic ? 'حفظ التارجت' : 'Save Target')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
            <div className="bg-blue-500/10 border-l-4 border-blue-500 p-4 rounded-r-xl w-full">
             <div className="flex items-start gap-3">
               <Info className="text-blue-400 mt-0.5" size={20} />
@@ -794,13 +965,13 @@ export default function CompanySettings() {
                    {isArabic ? 'معلومة:' : 'Info:'}
                  </p>
                  <p className="text-sm text-blue-400/90">
-                   {isArabic ? 'هذه الأرقام تمثل مجموع التارجت الشخصي لجميع المستخدمين في الشركة.' : 'These figures represent the sum of personal targets for all users in the company.'}
+                   {isArabic ? 'هذه الأرقام تمثل تارجت الشركة المستقل للسنة الحالية، ولا تتأثر بحذف أو تعديل المستخدمين.' : 'These figures represent the independent company target for the current year and are not affected by user changes.'}
                  </p>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full relative">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full relative">
              <div className="absolute top-1/2 left-0 w-full h-0.5 bg-gray-200/10 -z-10 hidden md:block"></div>
              
              {/* Monthly Target */}
@@ -815,15 +986,15 @@ export default function CompanySettings() {
                      <Clock size={16} />
                    </div>
                    <span className="label-text font-medium text-theme-text/80 ml-2 rtl:mr-2">
-                     {isArabic ? 'تارجت شهري (الكلي)' : 'Monthly Target (Total)'}
+                     {isArabic ? 'تارجت شهري' : 'Monthly Target'}
                    </span>
                  </label>
                  
-                 <div className="relative mt-2">
-                   <div className="w-full bg-transparent font-mono text-2xl font-bold text-theme-text pr-12 rtl:pl-12 rtl:pr-0">
+                 <div className="mt-2 min-w-0">
+                   <div className="w-full min-w-0 bg-transparent font-mono text-[clamp(1.05rem,1.7vw,1.45rem)] leading-tight font-bold text-theme-text break-words">
                     {formatCompanyTarget(companyTargets.monthly, targetLocale)}
                    </div>
-                   <div className="absolute inset-y-0 right-3 rtl:right-auto rtl:left-3 flex items-center pointer-events-none text-theme-text/30 text-xs font-mono">
+                   <div className="mt-1 inline-flex items-center rounded-md bg-theme-text/5 px-2 py-0.5 text-theme-text/60 text-xs font-mono">
                     {currencySymbol}
                   </div>
                 </div>
@@ -847,15 +1018,15 @@ export default function CompanySettings() {
                     <Calendar size={16} />
                   </div>
                   <span className="label-text font-medium text-theme-text/80 ml-2 rtl:mr-2">
-                    {isArabic ? 'تارجت ربع سنوي (الكلي)' : 'Quarterly Target (Total)'}
+                    {isArabic ? 'تارجت ربع سنوي' : 'Quarterly Target'}
                   </span>
                 </label>
                 
-                <div className="relative mt-2">
-                   <div className="w-full bg-transparent font-mono text-2xl font-bold text-theme-text pr-12 rtl:pl-12 rtl:pr-0">
+                <div className="mt-2 min-w-0">
+                   <div className="w-full min-w-0 bg-transparent font-mono text-[clamp(1.05rem,1.7vw,1.45rem)] leading-tight font-bold text-theme-text break-words">
                     {formatCompanyTarget(companyTargets.quarterly, targetLocale)}
                    </div>
-                   <div className="absolute inset-y-0 right-3 rtl:right-auto rtl:left-3 flex items-center pointer-events-none text-theme-text/30 text-xs font-mono">
+                   <div className="mt-1 inline-flex items-center rounded-md bg-theme-text/5 px-2 py-0.5 text-theme-text/60 text-xs font-mono">
                     {currencySymbol}
                   </div>
                 </div>
@@ -863,6 +1034,34 @@ export default function CompanySettings() {
                 <div className="mt-3 text-xs text-theme-text/40 flex justify-between pt-3 border-t border-theme-text/5">
                   <span>{isArabic ? 'تراكمي' : 'Accumulated'}</span>
                   <span className="font-mono">3 Months</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="group">
+              <div className="glass-panel p-5 rounded-xl border border-gray-200/5 bg-gray-100/20 dark:bg-gray-800/20 hover:bg-gray-100/40 dark:hover:bg-gray-800/40 transition-all duration-300 relative overflow-hidden h-full flex flex-col justify-between">
+                <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                  <Calendar size={40} className="text-cyan-500" />
+                </div>
+                <label className="label pt-0 justify-start gap-2 mb-2 flex items-center">
+                  <div className="p-1.5 bg-cyan-500/10 rounded-lg text-cyan-500">
+                    <Calendar size={16} />
+                  </div>
+                  <span className="label-text font-medium text-theme-text/80 ml-2 rtl:mr-2">
+                    {isArabic ? 'تارجت نصف سنوي' : 'Semi Annual Target'}
+                  </span>
+                </label>
+                <div className="mt-2 min-w-0">
+                   <div className="w-full min-w-0 bg-transparent font-mono text-[clamp(1.05rem,1.7vw,1.45rem)] leading-tight font-bold text-theme-text break-words">
+                    {formatCompanyTarget(companyTargets.semiAnnual, targetLocale)}
+                   </div>
+                   <div className="mt-1 inline-flex items-center rounded-md bg-theme-text/5 px-2 py-0.5 text-theme-text/60 text-xs font-mono">
+                    {currencySymbol}
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-theme-text/40 flex justify-between pt-3 border-t border-theme-text/5">
+                  <span>{isArabic ? 'تراكمي' : 'Accumulated'}</span>
+                  <span className="font-mono">6 Months</span>
                 </div>
               </div>
             </div>
@@ -879,15 +1078,15 @@ export default function CompanySettings() {
                     <TrendingUp size={16} />
                   </div>
                   <span className="label-text font-medium text-theme-text/80 ml-2 rtl:mr-2">
-                    {isArabic ? 'تارجت سنوي (الكلي)' : 'Yearly Target (Total)'}
+                    {isArabic ? 'تارجت سنوي' : 'Yearly Target'}
                   </span>
                 </label>
                 
-                <div className="relative mt-2">
-                   <div className="w-full bg-transparent font-mono text-2xl font-bold text-theme-text pr-12 rtl:pl-12 rtl:pr-0">
+                <div className="mt-2 min-w-0">
+                   <div className="w-full min-w-0 bg-transparent font-mono text-[clamp(1.05rem,1.7vw,1.45rem)] leading-tight font-bold text-theme-text break-words">
                     {formatCompanyTarget(companyTargets.yearly, targetLocale)}
                    </div>
-                   <div className="absolute inset-y-0 right-3 rtl:right-auto rtl:left-3 flex items-center pointer-events-none text-theme-text/30 text-xs font-mono">
+                   <div className="mt-1 inline-flex items-center rounded-md bg-theme-text/5 px-2 py-0.5 text-theme-text/60 text-xs font-mono">
                     {currencySymbol}
                   </div>
                  </div>
@@ -899,6 +1098,70 @@ export default function CompanySettings() {
                </div>
              </div>
 
+          </div>
+
+          <div className="w-full glass-panel rounded-xl border border-gray-200/10 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200/10 font-semibold text-theme-text">
+              {isArabic ? 'تاريخ تارجت الشركة حسب السنة' : 'Company Target History by Year'}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left rtl:text-right">
+                <thead className="bg-white/5 text-theme-text/70 uppercase">
+                  <tr>
+                    <th className="px-4 py-3">{isArabic ? 'السنة' : 'Year'}</th>
+                    <th className="px-4 py-3 text-right rtl:text-left">{isArabic ? 'شهري' : 'Monthly'}</th>
+                    <th className="px-4 py-3 text-right rtl:text-left">{isArabic ? 'ربع سنوي' : 'Quarterly'}</th>
+                    <th className="px-4 py-3 text-right rtl:text-left">{isArabic ? 'نصف سنوي' : 'Semi Annual'}</th>
+                    <th className="px-4 py-3 text-right rtl:text-left">{isArabic ? 'سنوي' : 'Yearly'}</th>
+                    {canManageTargets && (
+                      <th className="px-4 py-3 text-center">{isArabic ? 'إجراءات' : 'Actions'}</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200/10">
+                  {companyTargetHistory.map(row => (
+                    <tr key={row.year} className="hover:bg-white/10 transition-colors">
+                      <td className="px-4 py-3 font-semibold">{row.year}</td>
+                      <td className="px-4 py-3 text-right rtl:text-left">{formatCompanyTarget(row.monthly_target, targetLocale)} {currencySymbol}</td>
+                      <td className="px-4 py-3 text-right rtl:text-left">{formatCompanyTarget(row.quarterly_target, targetLocale)} {currencySymbol}</td>
+                      <td className="px-4 py-3 text-right rtl:text-left">{formatCompanyTarget(row.semi_annual_target, targetLocale)} {currencySymbol}</td>
+                      <td className="px-4 py-3 text-right rtl:text-left font-semibold">{formatCompanyTarget(row.yearly_target, targetLocale)} {currencySymbol}</td>
+                      {canManageTargets && (
+                        <td className="px-4 py-3">
+                          <div className="flex justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openEditTargetEditor(row)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-blue-500 transition hover:bg-blue-500/10 hover:text-blue-600"
+                              title={isArabic ? 'تعديل التارجت' : 'Edit target'}
+                              aria-label={isArabic ? 'تعديل التارجت' : 'Edit target'}
+                            >
+                              <Pencil size={17} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteTarget(row)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 transition hover:bg-red-500/10 hover:text-red-600"
+                              title={isArabic ? 'حذف التارجت' : 'Delete target'}
+                              aria-label={isArabic ? 'حذف التارجت' : 'Delete target'}
+                            >
+                              <Trash2 size={17} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {companyTargetHistory.length === 0 && (
+                    <tr>
+                      <td colSpan={canManageTargets ? 6 : 5} className="px-4 py-6 text-center text-theme-text/50">
+                        {isArabic ? 'لا يوجد تاريخ تارجت محفوظ بعد' : 'No saved target history yet'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

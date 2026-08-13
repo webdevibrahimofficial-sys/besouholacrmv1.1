@@ -1259,7 +1259,10 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       }
       const quantity = Number(row?.quantity || 0);
       const price = Number(row?.price || 0);
-      const subTotal = quantity * price;
+      const addonsTotal = Number(row?.addons_total || 0) || (Array.isArray(row?.addons)
+        ? row.addons.reduce((sum, addon) => sum + (Number(addon?.total || 0) || (Number(addon?.quantity || 0) * Number(addon?.price || 0))), 0)
+        : 0);
+      const subTotal = (quantity * price) + addonsTotal;
       const discountType = row?.discount_type || 'value';
       const discountValue = Number(row?.discount_value || 0);
       const discountAmount = discountType === 'percent'
@@ -1287,18 +1290,23 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
             const discountLabel = discountType === 'percent'
               ? `${discountValue}%`
               : formatMoney(discountValue);
+            const addons = Array.isArray(row.addons) ? row.addons : [];
+            const addonsLabel = addons.length > 0
+              ? addons.map((addon) => addon?.name || '').filter(Boolean).join(', ')
+              : '-';
             return {
               key: `general-item-${index}`,
               category: resolveCategoryName(row),
               item: resolveItemName(row),
               quantity: qty,
               price: formatMoney(price),
+              addons: addonsLabel,
               discount: discountLabel,
               total: formatMoney(calcLineTotal(row)),
             };
           });
 
-        addField('reservationAmount', 'إجمالي السعر', 'Total Price', formatMoney);
+        addField('reservationAmount', 'إجمالي المبلغ', 'Total Amount', formatMoney);
         if (isClosing) {
           addField('closingRevenue', 'الإيرادات', 'Revenue', formatMoney);
         }
@@ -3748,23 +3756,25 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                               <div className="mt-3 space-y-3">
                                 {generalItems.length > 0 && (
                                   <div className={`rounded-lg border overflow-hidden ${isLight ? 'border-gray-200' : 'border-slate-600'}`}>
-                                    <div className={`grid grid-cols-6 gap-2 px-3 py-2 text-[11px] font-semibold ${isLight ? 'bg-gray-50 text-slate-600' : 'bg-slate-700/60 text-slate-300'}`}>
+                                    <div className={`grid grid-cols-7 gap-2 px-3 py-2 text-[11px] font-semibold ${isLight ? 'bg-gray-50 text-slate-600' : 'bg-slate-700/60 text-slate-300'}`}>
                                       <span>{isArabic ? 'الفئة' : 'Category'}</span>
                                       <span>{isArabic ? 'العنصر' : 'Item'}</span>
                                       <span>{isArabic ? 'الكمية' : 'Qty'}</span>
-                                      <span>{isArabic ? 'السعر' : 'Price'}</span>
+                                      <span>{isArabic ? 'المبلغ' : 'Amount'}</span>
+                                      <span>{isArabic ? 'الإضافات' : 'Add-ons'}</span>
                                       <span>{isArabic ? 'الخصم' : 'Discount'}</span>
-                                      <span>{isArabic ? 'الإجمالي' : 'Total'}</span>
+                                      <span>{isArabic ? 'الإجمالي الفرعي' : 'Sub Total'}</span>
                                     </div>
                                     {generalItems.map((row) => (
                                       <div
                                         key={row.key}
-                                        className={`grid grid-cols-6 gap-2 px-3 py-2 text-xs border-t ${isLight ? 'border-gray-100 text-slate-800' : 'border-slate-600 text-slate-100'}`}
+                                        className={`grid grid-cols-7 gap-2 px-3 py-2 text-xs border-t ${isLight ? 'border-gray-100 text-slate-800' : 'border-slate-600 text-slate-100'}`}
                                       >
                                         <span>{row.category || '-'}</span>
                                         <span>{row.item || '-'}</span>
                                         <span>{row.quantity || 0}</span>
                                         <span>{row.price}</span>
+                                        <span className="truncate" title={row.addons}>{row.addons}</span>
                                         <span>{row.discount}</span>
                                         <span className="font-medium">{row.total}</span>
                                       </div>

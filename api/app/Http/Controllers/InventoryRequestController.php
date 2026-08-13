@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\InventoryRequest;
 use App\Models\Lead;
+use App\Models\LeadAction;
 use App\Models\CrmSetting;
 use App\Models\User;
 use App\Notifications\RequestCreated;
@@ -40,6 +41,7 @@ class InventoryRequestController extends Controller
 
         $paginated = $query->paginate($request->input('per_page', 10));
         $this->appendLeadSourceToRequests($paginated, $user->tenant_id);
+        $this->appendReservationActionTotalsToRequests($paginated, $user->tenant_id);
 
         return $paginated;
     }
@@ -115,6 +117,92 @@ class InventoryRequestController extends Controller
                 $item->source = $lead->source;
             }
         }
+    }
+
+    private function appendReservationActionTotalsToRequests($paginated, ?int $tenantId): void
+    {
+        if (!$paginated || !method_exists($paginated, 'items')) {
+            return;
+        }
+
+        $items = $paginated->items();
+        if (!is_array($items) || empty($items)) {
+            return;
+        }
+
+        $actionIds = [];
+        foreach ($items as $item) {
+            $meta = $item->meta_data ?? $item->metaData ?? null;
+            if (is_string($meta) && $meta !== '') {
+                $meta = json_decode($meta, true) ?: [];
+            }
+            if (!is_array($meta)) {
+                continue;
+            }
+            if (!empty($meta['source_action_id'])) {
+                $actionIds[] = (int) $meta['source_action_id'];
+            }
+        }
+
+        $actionIds = array_values(array_unique(array_filter($actionIds)));
+        if (empty($actionIds)) {
+            return;
+        }
+
+        $actions = LeadAction::query()
+            ->whereIn('id', $actionIds)
+            ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->get()
+            ->keyBy('id');
+
+        foreach ($items as $item) {
+            $meta = $item->meta_data ?? $item->metaData ?? null;
+            if (is_string($meta) && $meta !== '') {
+                $meta = json_decode($meta, true) ?: [];
+            }
+            if (!is_array($meta) || empty($meta['source_action_id'])) {
+                continue;
+            }
+
+            $action = $actions[(int) $meta['source_action_id']] ?? null;
+            $details = is_array($action?->details ?? null) ? $action->details : [];
+            $rows = is_array($details['reservationGeneralItems'] ?? null) ? $details['reservationGeneralItems'] : [];
+            if (empty($rows)) {
+                continue;
+            }
+
+            $lineIndex = isset($meta['source_action_line']) ? (int) $meta['source_action_line'] : null;
+            $row = $lineIndex !== null && array_key_exists($lineIndex, $rows) ? $rows[$lineIndex] : null;
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $lineTotal = $this->resolveReservationLineTotal($row);
+            $meta['reservationGeneralItems'] = [$row];
+            $meta['reservationAmount'] = $lineTotal;
+            $meta['line_total'] = $lineTotal;
+            $meta['total'] = $lineTotal;
+            $meta['addons_total'] = (float) ($row['addons_total'] ?? 0);
+            $meta['discount_amount'] = (float) ($row['discount_amount'] ?? 0);
+
+            $item->meta_data = $meta;
+        }
+    }
+
+    private function resolveReservationLineTotal(array $row): float
+    {
+        foreach (['line_total', 'total', 'sub_total', 'subtotal'] as $key) {
+            if (array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== '') {
+                return (float) $row[$key];
+            }
+        }
+
+        $quantity = (float) ($row['quantity'] ?? 1);
+        $price = (float) ($row['price'] ?? 0);
+        $addonsTotal = (float) ($row['addons_total'] ?? 0);
+        $discountAmount = (float) ($row['discount_amount'] ?? 0);
+
+        return max(0, ($quantity * $price) + $addonsTotal - $discountAmount);
     }
 
     public function store(Request $request)

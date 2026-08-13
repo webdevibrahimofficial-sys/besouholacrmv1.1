@@ -14,8 +14,8 @@ import { PieChart } from '../shared/components/PieChart'
 import SearchableSelect from '../components/SearchableSelect'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
-import { Filter, User, Users, Target, FileText, DollarSign, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, Search, Eye, ChevronDown } from 'lucide-react'
-import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
+import { Filter, User, Users, Target, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
 
@@ -37,6 +37,8 @@ export default function RevenueReport() {
   const [projectFilter, setProjectFilter] = useState('all')
   const [dealTypeFilter, setDealTypeFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [yearFilter, setYearFilter] = useState(String(new Date().getFullYear()))
+  const [targetTypeFilter, setTargetTypeFilter] = useState('monthly')
   const [dateFromFilter, setDateFromFilter] = useState('')
   const [dateToFilter, setDateToFilter] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
@@ -48,11 +50,64 @@ export default function RevenueReport() {
   const timeMenuRef = useRef(null)
   const autoExportDoneRef = useRef(false)
   const [usersList, setUsersList] = useState([])
+  const [targetHistory, setTargetHistory] = useState([])
+  const [targetYears, setTargetYears] = useState([new Date().getFullYear()])
   const [sourcesCatalog, setSourcesCatalog] = useState([])
   const [projectOptions, setProjectOptions] = useState(['all'])
   const [records, setRecords] = useState([])
   const projectLabel = companyType === 'general' ? t('Item') : t('Project')
   const revenueByProjectLabel = companyType === 'general' ? t('Revenue by Item') : t('Revenue by Project')
+
+  const targetHistoryByUser = useMemo(() => {
+    const map = new Map()
+    ;(targetHistory || []).forEach(row => {
+      const uid = String(row.user_id || row.user?.id || '')
+      if (!uid) return
+      if (!map.has(uid)) map.set(uid, [])
+      map.get(uid).push(row)
+    })
+    return map
+  }, [targetHistory])
+
+  const resolveTargetValue = (user, type = targetTypeFilter) => {
+    const uid = String(user?.id || user?.salespersonId || '')
+    const rows = uid ? (targetHistoryByUser.get(uid) || []) : []
+    const key = type === 'semi_annual' ? 'semi_annual_target' : `${type}_target`
+
+    if (yearFilter === 'all') {
+      const sum = rows.reduce((total, row) => total + (Number(row[key] || 0) || 0), 0)
+      if (sum > 0) return sum
+    } else {
+      const row = rows.find(item => String(item.year) === String(yearFilter))
+      if (row) return Number(row[key] || 0) || 0
+    }
+
+    if (type === 'yearly') return Number(user?.yearly_target || 0) || 0
+    if (type === 'quarterly') return Number(user?.quarterly_target || 0) || 0
+    if (type === 'semi_annual') return (Number(user?.yearly_target || 0) || 0) / 2
+    return Number(user?.monthly_target || 0) || 0
+  }
+
+  const resolveCommissionRate = (user, achievementPercent) => {
+    const uid = String(user?.id || user?.salespersonId || '')
+    const rows = uid ? (targetHistoryByUser.get(uid) || []) : []
+    const selectedRows = yearFilter === 'all'
+      ? rows
+      : rows.filter(row => String(row.year) === String(yearFilter))
+    const tiers = selectedRows
+      .flatMap(row => Array.isArray(row.commission_tiers) ? row.commission_tiers : [])
+      .sort((a, b) => Number(a.from_percentage || 0) - Number(b.from_percentage || 0))
+
+    const matched = tiers.find(tier => {
+      const from = Number(tier.from_percentage || 0)
+      const to = tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === ''
+        ? Infinity
+        : Number(tier.to_percentage)
+      return achievementPercent >= from && achievementPercent <= to
+    })
+
+    return Number(matched?.commission_percentage ?? user?.commission_percentage ?? 0) || 0
+  }
 
   const sourceLabelMap = useMemo(() => {
     const map = new Map()
@@ -90,7 +145,8 @@ export default function RevenueReport() {
         // Check if this is a sales/manager/relevant user
         const role = String(u.role || '').toLowerCase()
         const isSales = role.includes('sales') || role.includes('agent') || role.includes('broker')
-        const hasTarget = parseFloat(u.monthly_target || 0) > 0
+        const resolvedTarget = resolveTargetValue(u)
+        const hasTarget = resolvedTarget > 0
         const hasRevenue = revenueMap.has(uid)
 
         // Include user if they are Sales/Agent OR have a Target OR have Revenue
@@ -102,9 +158,11 @@ export default function RevenueReport() {
                          ...r,
                          salesperson: u.name,
                          manager: u.manager ? u.manager.name : (r.manager || ''),
-                         target: parseFloat(u.monthly_target || 0),
-                        monthlyTarget: parseFloat(u.monthly_target || 0),
-                        yearlyTarget: parseFloat(u.yearly_target || 0)
+                         target: resolvedTarget,
+                        monthlyTarget: resolveTargetValue(u, 'monthly'),
+                        quarterlyTarget: resolveTargetValue(u, 'quarterly'),
+                        semiAnnualTarget: resolveTargetValue(u, 'semi_annual'),
+                        yearlyTarget: resolveTargetValue(u, 'yearly')
                      })
                  })
              } else {
@@ -119,9 +177,11 @@ export default function RevenueReport() {
                     dealType: '-',
                     status: 'No Sales',
                     date: '', // Empty date
-                    target: parseFloat(u.monthly_target || 0),
-                    monthlyTarget: parseFloat(u.monthly_target || 0),
-                    yearlyTarget: parseFloat(u.yearly_target || 0),
+                    target: resolvedTarget,
+                    monthlyTarget: resolveTargetValue(u, 'monthly'),
+                    quarterlyTarget: resolveTargetValue(u, 'quarterly'),
+                    semiAnnualTarget: resolveTargetValue(u, 'semi_annual'),
+                    yearlyTarget: resolveTargetValue(u, 'yearly'),
                     revenue: 0
                  })
              }
@@ -136,13 +196,14 @@ export default function RevenueReport() {
                 ...r,
                 target: 0, // No user info = no target known
                 monthlyTarget: 0,
-                yearlyTarget: 0
+                yearlyTarget: 0,
+                commissionPercentage: 0
             })
         }
     })
 
     return allRows
-  }, [records, usersList])
+  }, [records, usersList, targetHistoryByUser, targetTypeFilter, yearFilter])
 
   useEffect(() => {
     const fetchRevenueRecords = async () => {
@@ -225,6 +286,27 @@ export default function RevenueReport() {
       }
     }
     fetchUsers()
+  }, [])
+
+  useEffect(() => {
+    const fetchTargets = async () => {
+      try {
+        const res = await api.get('/api/user-targets?year=all')
+        const rows = Array.isArray(res.data?.data) ? res.data.data : []
+        setTargetHistory(rows)
+        const years = Array.isArray(res.data?.years) && res.data.years.length
+          ? res.data.years
+          : [new Date().getFullYear()]
+        setTargetYears(years)
+        if (!yearFilter && res.data?.current_year) {
+          setYearFilter(String(res.data.current_year))
+        }
+      } catch (e) {
+        console.error('Failed to fetch target history for revenue report', e)
+        setTargetHistory([])
+      }
+    }
+    fetchTargets()
   }, [])
 
   useEffect(() => {
@@ -355,13 +437,14 @@ export default function RevenueReport() {
   ]), [t])
 
   const filtered = useMemo(() => {
-    return enrichedRecords.filter(r => {
+    const rows = enrichedRecords.filter(r => {
       const bySales = salesPersonFilter === 'all' || r.salesperson === salesPersonFilter
       const byManager = managerFilter === 'all' || r.manager === managerFilter || r.salesperson === managerFilter
       const bySource = sourceFilter === 'all' || r.source === sourceFilter
       const byProject = projectFilter === 'all' || r.project === projectFilter
       const byDealType = dealTypeFilter === 'all' || r.dealType === dealTypeFilter
       const byStatus = statusFilter === 'all' || r.status === statusFilter
+      const byYear = yearFilter === 'all' || !r.date || String(r.date).slice(0, 4) === String(yearFilter)
 
       const fromDate = dateFromFilter ? new Date(dateFromFilter) : null
       const toDate = dateToFilter ? new Date(dateToFilter) : null
@@ -381,16 +464,44 @@ export default function RevenueReport() {
           byTo = true
       }
 
-      return bySales && byManager && bySource && byProject && byDealType && byStatus && byFrom && byTo
+      return bySales && byManager && bySource && byProject && byDealType && byStatus && byYear && byFrom && byTo
+    })
+
+    const aggregateByUser = new Map()
+    rows.forEach(row => {
+      const key = row.salespersonId ? String(row.salespersonId) : (row.salesperson || 'unknown')
+      if (!aggregateByUser.has(key)) {
+        aggregateByUser.set(key, { revenue: 0, target: row.target || 0 })
+      }
+      const current = aggregateByUser.get(key)
+      current.revenue += row.revenue || 0
+      if (!current.target && row.target) current.target = row.target
+    })
+
+    return rows.map(row => {
+      const key = row.salespersonId ? String(row.salespersonId) : (row.salesperson || 'unknown')
+      const aggregate = aggregateByUser.get(key) || { revenue: row.revenue || 0, target: row.target || 0 }
+      const aggregateAchievement = aggregate.target ? Math.round((aggregate.revenue / aggregate.target) * 100) : 0
+      const user = usersList.find(u => String(u.id) === String(row.salespersonId)) || row
+      const commissionRate = resolveCommissionRate(user, aggregateAchievement)
+      return {
+        ...row,
+        aggregateAchievement,
+        commissionRate,
+        commission: ((row.revenue || 0) * commissionRate) / 100,
+      }
     })
   }, [
     enrichedRecords,
+    usersList,
     salesPersonFilter,
     managerFilter,
     sourceFilter,
     projectFilter,
     dealTypeFilter,
     statusFilter,
+    yearFilter,
+    targetHistoryByUser,
     dateFromFilter,
     dateToFilter
   ])
@@ -400,7 +511,7 @@ export default function RevenueReport() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, dealTypeFilter, statusFilter, dateFromFilter, dateToFilter])
+  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, dealTypeFilter, statusFilter, yearFilter, targetTypeFilter, dateFromFilter, dateToFilter])
 
   const totalRecords = filtered.length
   const pageCount = Math.ceil(totalRecords / entriesPerPage)
@@ -416,28 +527,16 @@ export default function RevenueReport() {
       if (r.salespersonId && !uniqueUserIds.has(r.salespersonId)) {
         uniqueUserIds.add(r.salespersonId)
         
-        // Determine effective target based on filters
-        let effectiveTarget = r.monthlyTarget || 0
-        if (!dateFromFilter && !dateToFilter) {
-            effectiveTarget = r.yearlyTarget || (r.monthlyTarget * 12) || 0
-        } else if (dateFromFilter && dateToFilter) {
-            const d1 = new Date(dateFromFilter)
-            const d2 = new Date(dateToFilter)
-            const diffTime = Math.abs(d2 - d1)
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) 
-            if (diffDays > 40) { 
-                 effectiveTarget = r.yearlyTarget || (r.monthlyTarget * 12) || 0
-            }
-        }
-        return sum + effectiveTarget
+        return sum + (r.target || 0)
       }
       // If it's an unknown user (no ID) but has target (unlikely as per logic), handle it?
       // Our logic sets target=0 for unknown users, so safe to ignore.
       return sum
     }, 0)
-  }, [filtered, dateFromFilter, dateToFilter])
+  }, [filtered])
 
   const totalRevenue = filtered.reduce((sum, r) => sum + (r.revenue || 0), 0)
+  const totalCommission = filtered.reduce((sum, r) => sum + (r.commission || 0), 0)
   const achievementPercent = totalTarget ? Math.round((totalRevenue / totalTarget) * 100) : 0
 
   const [chartMode, setChartMode] = useState('salesperson')
@@ -461,11 +560,12 @@ export default function RevenueReport() {
               const role = String(roleName).toLowerCase()
               const isSales = role.includes('sales person') || role.includes('salesperson') || role.includes('agent')
               
-              if (isSales || parseFloat(u.monthly_target || 0) > 0) {
+              const userTarget = resolveTargetValue(u)
+              if (isSales || userTarget > 0) {
                   const key = String(u.id)
                   map.set(key, {
                       label: u.name,
-                      target: parseFloat(u.monthly_target || 0),
+                      target: userTarget,
                       revenue: 0
                   })
               }
@@ -483,7 +583,7 @@ export default function RevenueReport() {
                   if (!map.has(key)) {
                       map.set(key, {
                           label: key,
-                          target: parseFloat(u.total_monthly_target || 0), 
+                          target: resolveTargetValue(u),
                           revenue: 0
                       })
                   }
@@ -508,7 +608,7 @@ export default function RevenueReport() {
                   // Instruction says "display total aggregate targets for managers". 
                   // If we don't have the manager object, we can only sum children.
                   const current = map.get(key)
-                  current.target += parseFloat(u.monthly_target || 0)
+                  current.target += resolveTargetValue(u)
               }
           })
       }
@@ -689,7 +789,7 @@ export default function RevenueReport() {
         }
       ]
     }
-  }, [filtered, isRTL, chartMode, salesGrouping, timeGrouping])
+  }, [filtered, isRTL, chartMode, salesGrouping, timeGrouping, usersList, managerFilter, targetHistoryByUser, targetTypeFilter, yearFilter])
 
   const barOptions = useMemo(() => {
     const xTitle =
@@ -810,6 +910,7 @@ export default function RevenueReport() {
       }
       
       if (!byDate) return
+      if (yearFilter !== 'all' && r.date && String(r.date).slice(0, 4) !== String(yearFilter)) return
 
       const key = r.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
       const uid = r.salespersonId ? String(r.salespersonId) : key
@@ -828,20 +929,7 @@ export default function RevenueReport() {
       if (!processedUsers.has(uid)) {
           processedUsers.add(uid)
           
-          // Determine effective target
-          let effectiveTarget = r.monthlyTarget || 0
-          if (!dateFromFilter && !dateToFilter) {
-              effectiveTarget = r.yearlyTarget || (r.monthlyTarget * 12) || 0
-          } else if (dateFromFilter && dateToFilter) {
-              const d1 = new Date(dateFromFilter)
-              const d2 = new Date(dateToFilter)
-              const diffTime = Math.abs(d2 - d1)
-              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) 
-              if (diffDays > 40) { 
-                   effectiveTarget = r.yearlyTarget || (r.monthlyTarget * 12) || 0
-              }
-          }
-          item.target = effectiveTarget
+          item.target = r.target || 0
       }
     })
     
@@ -853,7 +941,7 @@ export default function RevenueReport() {
       if (b.achievement !== a.achievement) return b.achievement - a.achievement
       return b.revenue - a.revenue
     }).slice(0, 5)
-  }, [enrichedRecords, isRTL, dateFromFilter, dateToFilter])
+  }, [enrichedRecords, isRTL, dateFromFilter, dateToFilter, yearFilter])
 
   const handleExportExcel = () => {
     if (!canExport) return
@@ -866,7 +954,8 @@ export default function RevenueReport() {
       [isRTL ? 'الحالة' : 'Status']: r.status,
       [isRTL ? 'التاريخ' : 'Date']: r.date,
       [isRTL ? 'الهدف' : 'Target']: r.target,
-      [isRTL ? 'الإيرادات' : 'Revenue']: r.revenue
+      [isRTL ? 'الإيرادات' : 'Revenue']: r.revenue,
+      [isRTL ? 'العمولة' : 'Commission']: r.commission
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -893,7 +982,8 @@ export default function RevenueReport() {
       isRTL ? 'الحالة' : 'Status',
       isRTL ? 'التاريخ' : 'Date',
       isRTL ? 'الهدف' : 'Target',
-      isRTL ? 'الإيرادات' : 'Revenue'
+      isRTL ? 'الإيرادات' : 'Revenue',
+      isRTL ? 'العمولة' : 'Commission'
     ]
     const tableRows = []
 
@@ -907,7 +997,8 @@ export default function RevenueReport() {
         r.status,
         r.date,
         r.target,
-        r.revenue
+        r.revenue,
+        r.commission
       ]
       tableRows.push(rowData)
     })
@@ -970,6 +1061,8 @@ export default function RevenueReport() {
     setProjectFilter('all')
     setDealTypeFilter('all')
     setStatusFilter('all')
+    setYearFilter(String(new Date().getFullYear()))
+    setTargetTypeFilter('monthly')
     setDateFromFilter('')
     setDateToFilter('')
   }
@@ -1154,15 +1247,52 @@ export default function RevenueReport() {
                 showAllOption={false}
               />
             </div>
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+                {isRTL ? 'السنة' : 'Year'}
+              </label>
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: isRTL ? 'الكل' : 'All' },
+                  ...targetYears.map(year => ({ value: String(year), label: String(year) })),
+                ]}
+                value={yearFilter}
+                onChange={v => setYearFilter(v)}
+                placeholder={isRTL ? 'اختر' : 'Select'}
+                isRTL={isRTL}
+                showAllOption={false}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Trophy size={12} className="text-blue-500 dark:text-blue-400" />
+                {isRTL ? 'نوع التارجت' : 'Target Type'}
+              </label>
+              <SearchableSelect
+                options={[
+                  { value: 'monthly', label: isRTL ? 'شهري' : 'Monthly' },
+                  { value: 'quarterly', label: isRTL ? 'ربع سنوي' : 'Quarterly' },
+                  { value: 'semi_annual', label: isRTL ? 'نصف سنوي' : 'Semi Annual' },
+                  { value: 'yearly', label: isRTL ? 'سنوي' : 'Yearly' },
+                ]}
+                value={targetTypeFilter}
+                onChange={v => setTargetTypeFilter(v)}
+                placeholder={isRTL ? 'اختر' : 'Select'}
+                isRTL={isRTL}
+                showAllOption={false}
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: isRTL ? 'إجمالي الهدف' : 'Total Target', value: `${totalTarget.toLocaleString()} EGP`, accent: 'bg-slate-500' },
           { label: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue', value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-emerald-500' },
           { label: isRTL ? 'نسبة الإنجاز' : 'Achievement %', value: `${achievementPercent}%`, accent: 'bg-indigo-500' },
+          { label: isRTL ? 'إجمالي العمولة' : 'Total Commission', value: `${totalCommission.toLocaleString()} EGP`, accent: 'bg-fuchsia-500' },
           { label: isRTL ? 'عدد الصفقات' : 'Deals Count', value: filtered.length, accent: 'bg-amber-500' }
         ].map(card => (
           <div
@@ -1488,21 +1618,10 @@ export default function RevenueReport() {
         {/* Mobile View - Cards */}
         <div className="md:hidden space-y-4 p-4">
           {paginatedData.map(row => {
-              // Determine effective target
-              let effectiveTarget = row.monthlyTarget || 0
-              if (!dateFromFilter && !dateToFilter) {
-                  effectiveTarget = row.yearlyTarget || (row.monthlyTarget * 12) || 0
-              } else if (dateFromFilter && dateToFilter) {
-                  const d1 = new Date(dateFromFilter)
-                  const d2 = new Date(dateToFilter)
-                  const diffTime = Math.abs(d2 - d1)
-                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) 
-                  if (diffDays > 40) {
-                       effectiveTarget = row.yearlyTarget || (row.monthlyTarget * 12) || 0
-                  }
-              }
-
-              const achievement = effectiveTarget ? Math.round((row.revenue / effectiveTarget) * 100) : 0
+              const effectiveTarget = row.target || 0
+              const achievement = Number.isFinite(row.aggregateAchievement)
+                ? row.aggregateAchievement
+                : (effectiveTarget ? Math.round((row.revenue / effectiveTarget) * 100) : 0)
               
               const dealTypeLabel = {
                 'Reservation': isRTL ? 'حجز' : 'Reservation',
@@ -1565,6 +1684,10 @@ export default function RevenueReport() {
                       <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الإيرادات' : 'Revenue'}</span>
                       <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{row.revenue.toLocaleString()} EGP</span>
                   </div>
+                  <div className="flex justify-between items-center">
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'العمولة' : 'Commission'}</span>
+                      <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{(row.commission || 0).toLocaleString()} EGP</span>
+                  </div>
                   
                   {/* Progress Bar */}
                   <div className="space-y-1 pt-1">
@@ -1604,12 +1727,15 @@ export default function RevenueReport() {
                 <th className="px-4 py-3 font-medium">{isRTL ? 'التاريخ' : 'Date'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الهدف' : 'Target'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الإيرادات' : 'Revenue'}</th>
+                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'العمولة' : 'Commission'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة الإنجاز' : 'Achievement %'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/30 dark:divide-gray-800">
               {paginatedData.map(row => {
-                const achievement = row.target ? Math.round((row.revenue / row.target) * 100) : 0
+                const achievement = Number.isFinite(row.aggregateAchievement)
+                  ? row.aggregateAchievement
+                  : (row.target ? Math.round((row.revenue / row.target) * 100) : 0)
                 
                 const dealTypeLabel = {
                   'Reservation': isRTL ? 'حجز' : 'Reservation',
@@ -1639,6 +1765,9 @@ export default function RevenueReport() {
                         {row.revenue.toLocaleString()} EGP
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
+                        {(row.commission || 0).toLocaleString()} EGP
+                      </td>
+                      <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
                         {achievement}%
                       </td>
                     </tr>
@@ -1647,7 +1776,7 @@ export default function RevenueReport() {
               {filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-4 py-6 text-center text-xs text-[var(--muted-text)]"
                   >
                     {isRTL ? 'لا توجد سجلات تطابق الفلاتر الحالية' : 'No records match current filters'}
@@ -1720,4 +1849,3 @@ export default function RevenueReport() {
     </div>
   )
 }
-

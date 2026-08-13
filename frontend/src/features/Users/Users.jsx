@@ -31,6 +31,50 @@ import UserDeleteReassignModal from '@features/Users/UserDeleteReassignModal.jsx
 // User Management Component
 const statuses = ['Active', 'Inactive', 'Suspended'];
 
+const normalizeUserForList = (u) => {
+  const departmentName =
+    (u.department && u.department.name) ||
+    (u.team && u.team.department && u.team.department.name) ||
+    '';
+
+  const departmentId =
+    (u.department && u.department.id) ||
+    (u.team && u.team.department && u.team.department.id) ||
+    u.department_id ||
+    '';
+
+  const createdAtIso = typeof u.created_at === 'string' ? u.created_at : '';
+  const createdAtTs = createdAtIso ? (Date.parse(createdAtIso) || 0) : 0;
+  const createdDateOnly = createdAtIso ? createdAtIso.split('T')[0] : '';
+  const createdAtDisplay = createdAtTs
+    ? new Date(createdAtTs).toLocaleString('sv-SE', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+    : '';
+
+  let userRole = u.job_title || u.role || '';
+  if (userRole.toLowerCase() === 'tenant admin' || userRole.toLowerCase() === 'tenant-admin') {
+    userRole = 'admin';
+  }
+
+  return {
+    ...u,
+    fullName: u.name,
+    department: departmentName,
+    departmentId,
+    role: userRole,
+    createdAt: createdAtDisplay,
+    createdDateOnly,
+    createdAtIso,
+    createdAtTs,
+  };
+};
+
 const ROLE_LABELS_AR = {
   Admin: 'أدمن',
   Director: 'دايركتور',
@@ -448,49 +492,7 @@ export default function UserManagementUsers() {
         ? usersRes.data
         : (usersRes.data?.data || []);
 
-      const normalizedUsers = rawUsers.map((u) => {
-        const departmentName =
-          (u.department && u.department.name) ||
-          (u.team && u.team.department && u.team.department.name) ||
-          '';
-
-        const departmentId =
-          (u.department && u.department.id) ||
-          (u.team && u.team.department && u.team.department.id) ||
-          u.department_id ||
-          '';
-
-        const createdAtIso = typeof u.created_at === 'string' ? u.created_at : '';
-        const createdAtTs = createdAtIso ? (Date.parse(createdAtIso) || 0) : 0;
-        const createdDateOnly = createdAtIso ? createdAtIso.split('T')[0] : '';
-        const createdAtDisplay = createdAtTs
-          ? new Date(createdAtTs).toLocaleString('sv-SE', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false,
-            })
-          : '';
-
-        let userRole = u.job_title || u.role || '';
-        if (userRole.toLowerCase() === 'tenant admin' || userRole.toLowerCase() === 'tenant-admin') {
-          userRole = 'admin';
-        }
-
-        return {
-          ...u,
-          fullName: u.name,
-          department: departmentName,
-          departmentId,
-          role: userRole,
-          createdAt: createdAtDisplay,
-          createdDateOnly,
-          createdAtIso,
-          createdAtTs,
-        };
-      });
+      const normalizedUsers = rawUsers.map(normalizeUserForList);
 
       setUsers(normalizedUsers);
       setDepartments(deptsRes.data);
@@ -1227,9 +1229,10 @@ export default function UserManagementUsers() {
             asModal={true}
             onClose={() => setShowUserProfileModal(false)}
             onUpdate={(updatedUser) => {
-              setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+              const normalizedUser = normalizeUserForList(updatedUser);
+              setUsers(prev => prev.map(u => u.id === updatedUser.id ? normalizedUser : u));
               if (selectedUser && selectedUser.id === updatedUser.id) {
-                setSelectedUser(updatedUser);
+                setSelectedUser(normalizedUser);
               }
             }}
           />
@@ -1809,7 +1812,7 @@ export default function UserManagementUsers() {
                <UserManagementUserCreate 
                  onClose={() => setShowCreateModal(false)} 
                  onSuccess={(newUser) => {
-                   setUsers(prev => [newUser, ...prev]);
+                   setUsers(prev => [normalizeUserForList(newUser), ...prev]);
                    setShowCreateModal(false);
                  }}
                />
@@ -1823,7 +1826,8 @@ export default function UserManagementUsers() {
             isOpen={isImportModalOpen}
             onClose={() => setImportModalOpen(false)}
             onImportSuccess={(data) => {
-              setUsers(prev => [...prev, ...data]);
+              const importedUsers = Array.isArray(data) ? data.map(normalizeUserForList) : [];
+              setUsers(prev => [...prev, ...importedUsers]);
               setImportModalOpen(false);
               alert(isArabic ? `تم استيراد ${data.length} مستخدم` : `Imported ${data.length} users`);
             }}

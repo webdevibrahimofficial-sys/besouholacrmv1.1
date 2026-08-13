@@ -16,12 +16,23 @@ import SearchableSelect from '../shared/components/SearchableSelect'
 import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { Filter, User, Tag, Briefcase, Trophy, ChevronDown, ChevronLeft, ChevronRight, Eye, Phone, Calendar, Trash } from 'lucide-react'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
-import LeadDetailsModal from '../components/LeadDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
+const normalizeCompanyType = (...values) => {
+  const normalized = values
+    .map(value => String(value || '').trim().toLowerCase())
+    .find(Boolean)
+
+  if (!normalized) return ''
+  if (normalized.includes('general')) return 'general'
+  if (normalized.includes('real')) return 'realestate'
+
+  return normalized.replace(/[\s_]+/g, '')
+}
+
 export default function ReservationsReport() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
   const { theme } = useTheme()
@@ -30,8 +41,15 @@ export default function ReservationsReport() {
   const canExport = canExportReport(user, 'Reservations Report')
   const isRTL = i18n.language === 'ar'
 
-  const companyType = String(company?.company_type || '').toLowerCase()
-  const isRealEstate = companyType === 'real estate'
+  const companyType = normalizeCompanyType(
+    company?.company_type,
+    company?.type,
+    company?.companyType,
+    company?.tenant_type
+  )
+  const isRealEstate = companyType === 'realestate'
+  const isGeneral = companyType === 'general'
+  const showProjectColumn = isRealEstate
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showLeadModal, setShowLeadModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState(null)
@@ -84,11 +102,11 @@ export default function ReservationsReport() {
     const fetchProjectsOrItems = async () => {
       try {
         let names = []
-        if (companyType === 'real estate') {
+        if (isRealEstate) {
           const res = await api.get('/api/projects')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
           names = data.map(p => p.name || p.name_ar || p.title).filter(Boolean)
-        } else if (companyType === 'general') {
+        } else if (isGeneral) {
           const res = await api.get('/api/items?all=1')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
           names = data.map(it => it.name || it.product || it.title).filter(Boolean)
@@ -105,20 +123,20 @@ export default function ReservationsReport() {
       }
     }
     fetchProjectsOrItems()
-  }, [companyType, raw])
+  }, [isGeneral, isRealEstate, raw])
 
   useEffect(() => {
     const fetchUnitsOrItems = async () => {
       try {
         let names = []
 
-        if (companyType === 'real estate') {
+        if (isRealEstate) {
           const res = await api.get('/api/properties?all=1')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
           names = data.map((p) => String(
             p.unit_number || p.unitNumber || p.unit_code || p.unitCode || p.name || p.title || ''
           ).trim()).filter(Boolean)
-        } else if (companyType === 'general') {
+        } else if (isGeneral) {
           const res = await api.get('/api/items?all=1')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
           names = data.map((it) => String(it.name || it.product || it.title || '').trim()).filter(Boolean)
@@ -145,7 +163,7 @@ export default function ReservationsReport() {
       }
     }
     fetchUnitsOrItems()
-  }, [companyType, raw])
+  }, [isGeneral, isRealEstate, raw])
 
   useEffect(() => {
     const fetchSources = async () => {
@@ -167,16 +185,124 @@ export default function ReservationsReport() {
     const rowId = String(row?.id || '')
     if (rowId.startsWith('RE-')) return isRTL ? 'وحدة' : 'unit'
     if (rowId.startsWith('INV-')) return isRTL ? 'صنف' : 'item'
-    if (companyType === 'real estate') return isRTL ? 'وحدة' : 'unit'
-    if (companyType === 'general') return isRTL ? 'صنف' : 'item'
+    if (isRealEstate) return isRTL ? 'وحدة' : 'unit'
+    if (isGeneral) return isRTL ? 'صنف' : 'item'
     return ''
   }
 
   const isRealEstateReservationRow = (row) => String(row?.id || '').startsWith('RE-')
 
+  const parseMoney = (value) => parseFloat(String(value ?? '').replace(/,/g, '')) || 0
+
+  const buildGeneralItemDetails = (rows = [], fallback = {}) => {
+    const sourceRows = Array.isArray(rows) && rows.length > 0 ? rows : []
+    if (sourceRows.length === 0) {
+      const name = String(fallback.name || '').trim()
+      if (!name) return []
+      const quantity = parseMoney(fallback.quantity || 1) || 1
+      const amount = parseMoney(fallback.price || 0)
+      return [{
+        name,
+        category: fallback.category || '-',
+        quantity,
+        amount,
+        addons: [],
+        addonsTotal: 0,
+        discount: 0,
+        subTotal: parseMoney(fallback.total) || (quantity * amount),
+      }]
+    }
+
+    return sourceRows.map((row) => {
+      const quantity = parseMoney(row?.quantity || 1) || 1
+      const amount = parseMoney(row?.price || row?.amount || 0)
+      const addons = Array.isArray(row?.addons) ? row.addons : []
+      const addonsTotal = parseMoney(row?.addons_total || addons.reduce((sum, addon) => {
+        const addonQty = parseMoney(addon?.quantity || 0)
+        const addonPrice = parseMoney(addon?.price || addon?.amount || 0)
+        return sum + (parseMoney(addon?.total) || (addonQty * addonPrice))
+      }, 0))
+      const discount = parseMoney(row?.discount_amount || 0)
+      const subTotal = parseMoney(row?.line_total ?? row?.total ?? row?.sub_total ?? row?.subtotal) ||
+        Math.max(0, (quantity * amount) + addonsTotal - discount)
+
+      return {
+        name: row?.item_name || row?.name || row?.item || '-',
+        category: row?.category_name || row?.category || '-',
+        quantity,
+        amount,
+        addons,
+        addonsTotal,
+        discount,
+        subTotal,
+      }
+    })
+  }
+
+  const getItemsSummary = (detailRows = [], fallback = '-') => {
+    if (!Array.isArray(detailRows) || detailRows.length === 0) return fallback || '-'
+    const first = detailRows[0]?.name || fallback || '-'
+    return detailRows.length === 1 ? first : `${first} + ${detailRows.length - 1} more`
+  }
+
+  const renderItemDetailsTooltip = (detailRows = [], totalValue = 0) => {
+    if (!Array.isArray(detailRows) || detailRows.length === 0) return null
+
+    return (
+      <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden w-[360px] max-w-[80vw] rounded-lg border border-gray-200 bg-white p-3 text-xs text-slate-900 shadow-xl group-hover:block dark:border-gray-700 dark:bg-gray-900 dark:text-white">
+        <div className="max-h-80 overflow-y-auto pr-1">
+          {detailRows.map((row, index) => (
+            <div key={`${row.name}-${index}`} className={`${index > 0 ? 'mt-2 border-t border-gray-200 pt-2 dark:border-gray-700' : ''}`}>
+              <div className="font-semibold">{row.name}</div>
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                <span>Category: {row.category}</span>
+                <span>Qty: {row.quantity}</span>
+                <span>Amount: {row.amount.toLocaleString()} EGP</span>
+                <span>Discount: {row.discount.toLocaleString()} EGP</span>
+                <span className="col-span-2">
+                  Add-ons: {row.addons.length > 0
+                    ? row.addons.map(addon => `${addon?.name || '-'} x${addon?.quantity || 0} (${parseMoney(addon?.total || (parseMoney(addon?.quantity) * parseMoney(addon?.price))).toLocaleString()} EGP)`).join(', ')
+                    : '-'}
+                </span>
+                <span>Add-ons Amount: {row.addonsTotal.toLocaleString()} EGP</span>
+                <span className="font-semibold">Sub Total: {row.subTotal.toLocaleString()} EGP</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 border-t border-gray-200 pt-2 font-semibold dark:border-gray-700">
+          Total: {Number(totalValue || 0).toLocaleString()} EGP
+        </div>
+      </div>
+    )
+  }
+
   const resolveReservationValue = (item) => {
     const meta = item?.meta_data || item?.metaData || {}
-    const total = meta?.total ?? meta?.reservation_amount ?? meta?.amount ?? item?.amount
+    const rows = Array.isArray(meta?.reservationGeneralItems) ? meta.reservationGeneralItems : []
+    if (rows.length > 0) {
+      return rows.reduce((sum, row) => {
+        const explicitTotal = row?.line_total ?? row?.total ?? row?.sub_total ?? row?.subtotal
+        if (explicitTotal !== null && explicitTotal !== undefined && explicitTotal !== '') {
+          return sum + (parseFloat(explicitTotal) || 0)
+        }
+
+        const qty = parseFloat(row?.quantity ?? 1) || 1
+        const price = parseFloat(row?.price ?? 0) || 0
+        const addonsTotal = parseFloat(row?.addons_total ?? 0) || 0
+        const discountAmount = parseFloat(row?.discount_amount ?? 0) || 0
+        return sum + Math.max(0, (qty * price) + addonsTotal - discountAmount)
+      }, 0)
+    }
+
+    const total =
+      meta?.line_total ??
+      meta?.reservationAmount ??
+      meta?.reservation_amount ??
+      meta?.total_amount ??
+      meta?.total ??
+      meta?.amount ??
+      item?.amount
     if (total !== null && total !== undefined && total !== '') {
       return typeof total === 'number' ? total : parseFloat(total) || 0
     }
@@ -250,7 +376,13 @@ export default function ReservationsReport() {
         </button>
       )
     }
-    return value
+    const detailRows = Array.isArray(row?.itemDetails) ? row.itemDetails : []
+    return (
+      <div className="group relative inline-flex max-w-[220px]">
+        <span className="truncate" title={getItemsSummary(detailRows, value)}>{getItemsSummary(detailRows, value)}</span>
+        {renderItemDetailsTooltip(detailRows, row?.value)}
+      </div>
+    )
   }
 
   const resolveHandledBy = (item) => {
@@ -298,14 +430,14 @@ export default function ReservationsReport() {
       let inventory = []
       let properties = []
 
-      if (companyType === 'real estate') {
+      if (isRealEstate) {
          const [re, propsRes] = await Promise.all([
            getRealEstateRequests(1, LIMIT),
            api.get('/api/properties?all=1').catch(() => ({ data: [] })),
          ])
          realEstate = re
          properties = Array.isArray(propsRes.data) ? propsRes.data : (propsRes.data?.data || [])
-      } else if (companyType === 'general') {
+      } else if (isGeneral) {
          inventory = await getInventoryRequests(1, LIMIT)
       } else {
          const [re, inv, propsRes] = await Promise.all([
@@ -339,24 +471,36 @@ export default function ReservationsReport() {
         meta_data: item.meta_data || null
       })) : []
 
-      const inventoryRows = Array.isArray(inventory) ? inventory.map(item => ({
-        id: `INV-${item.id}`,
-        leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
-        customer: item.customer_name || '',
-        contact: item.phone || item.customer_phone || item.meta_data?.customer_phone || item.metaData?.customer_phone || '',
-        reservationDateTime: item.created_at || '',
-        type: 'item',
-        status: resolveReservationReportStatus(item),
-        value: resolveReservationValue(item),
-        handledBy: resolveHandledBy(item),
-        manager: '',
-        createdOn: item.created_at || '',
-        lastAction: item.updated_at || '',
-        source: item.source || item.meta_data?.source || item.metaData?.source || '',
-        project: item.project || item.meta_data?.project || item.metaData?.project || '',
-        unitOrItemName: item.product || item.property_unit || item.meta_data?.product || item.metaData?.product || '',
-        meta_data: item.meta_data || null
-      })) : []
+      const inventoryRows = Array.isArray(inventory) ? inventory.map(item => {
+        const meta = item.meta_data || item.metaData || {}
+        const value = resolveReservationValue(item)
+        const itemDetails = buildGeneralItemDetails(meta.reservationGeneralItems, {
+          name: item.product || item.property_unit || meta.product || '',
+          quantity: item.quantity || meta.quantity || 1,
+          price: meta.price || item.price || 0,
+          total: value,
+        })
+
+        return {
+          id: `INV-${item.id}`,
+          leadId: item.lead_id || item.leadId || meta.lead_id || null,
+          customer: item.customer_name || '',
+          contact: item.phone || item.customer_phone || meta.customer_phone || '',
+          reservationDateTime: item.created_at || '',
+          type: 'item',
+          status: resolveReservationReportStatus(item),
+          value,
+          handledBy: resolveHandledBy(item),
+          manager: '',
+          createdOn: item.created_at || '',
+          lastAction: item.updated_at || '',
+          source: item.source || meta.source || '',
+          project: item.project || meta.project || '',
+          unitOrItemName: getItemsSummary(itemDetails, item.product || item.property_unit || meta.product || ''),
+          itemDetails,
+          meta_data: item.meta_data || null
+        }
+      }) : []
 
       setRaw([...realEstateRows, ...inventoryRows])
     } catch (e) {
@@ -382,7 +526,7 @@ export default function ReservationsReport() {
       window.removeEventListener('real-estate-requests-updated', handleRealEstateUpdate)
       window.removeEventListener('inventory-requests-updated', handleInventoryUpdate)
     }
-  }, [companyType, usersList])
+  }, [isGeneral, isRealEstate, usersList])
 
   const getReservationApiTarget = (reservation) => {
     const rawId = String(reservation?.id || '')
@@ -575,18 +719,23 @@ export default function ReservationsReport() {
   };
 
   const exportToExcel = () => {
-    const dataToExport = filtered.map(r => ({
-      [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: resolveSalesPersonDisplay(r),
-      [isRTL ? 'العميل' : 'Lead Name']: r.customer,
-      [isRTL ? 'رقم الهاتف' : 'Contact']: r.contact,
-      [isRTL ? 'المصدر' : 'Source']: r.source,
-      [projectColumnLabel]: r.project,
-      [isRTL ? 'نوع الحجز' : 'Reservation Type']: formatReservationType(r),
-      [unitNumberColumnLabel]: r.unitOrItemName,
-      [isRTL ? 'إجمالي المبلغ' : 'Total Amount']: r.value,
-      [isRTL ? 'تاريخ الحجز' : 'Reservation Date']: new Date(r.reservationDateTime).toLocaleString(),
-      [isRTL ? 'الحالة' : 'Status']: r.status
-    }))
+    const dataToExport = filtered.map(r => {
+      const row = {
+        [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: resolveSalesPersonDisplay(r),
+        [isRTL ? 'العميل' : 'Lead Name']: r.customer,
+        [isRTL ? 'رقم الهاتف' : 'Contact']: r.contact,
+        [isRTL ? 'المصدر' : 'Source']: r.source,
+      }
+      if (showProjectColumn) row[projectColumnLabel] = r.project
+      return {
+        ...row,
+        [isRTL ? 'نوع الحجز' : 'Reservation Type']: formatReservationType(r),
+        [unitNumberColumnLabel]: r.unitOrItemName,
+        [isRTL ? 'إجمالي المبلغ' : 'Total Amount']: r.value,
+        [isRTL ? 'تاريخ الحجز' : 'Reservation Date']: new Date(r.reservationDateTime).toLocaleString(),
+        [isRTL ? 'الحالة' : 'Status']: r.status
+      }
+    })
 
     const ws = XLSX.utils.json_to_sheet(dataToExport)
     const wb = XLSX.utils.book_new()
@@ -612,7 +761,7 @@ export default function ReservationsReport() {
         isRTL ? 'العميل' : 'Lead Name',
         isRTL ? 'رقم الهاتف' : 'Contact',
         isRTL ? 'المصدر' : 'Source',
-        projectColumnLabel,
+        ...(showProjectColumn ? [projectColumnLabel] : []),
         isRTL ? 'نوع الحجز' : 'Reservation Type',
         unitNumberColumnLabel,
         isRTL ? 'إجمالي المبلغ' : 'Total Amount',
@@ -628,7 +777,7 @@ export default function ReservationsReport() {
           r.customer,
           r.contact,
           r.source,
-          r.project,
+          ...(showProjectColumn ? [r.project] : []),
           formatReservationType(r),
           r.unitOrItemName,
           r.value,
@@ -786,7 +935,7 @@ export default function ReservationsReport() {
         return !r.handledBy || salesNames.has(r.handledBy)
       })()
       const bySource = source === 'all' ? true : r.source === source
-      const byProject = project === 'all' ? true : r.project === project
+      const byProject = !showProjectColumn || project === 'all' ? true : r.project === project
       const byUnit = unitFilter === 'all'
         ? true
         : String(r.unitOrItemName || '').trim() === String(unitFilter).trim()
@@ -801,7 +950,7 @@ export default function ReservationsReport() {
       })()
       return byStaff && byStatus && byManager && bySource && byProject && byUnit && byLastAction && byReservationDate
     })
-  }, [raw, staff, statusFilter, manager, source, project, unitFilter, lastActionDate, reservationDateFrom, reservationDateTo])
+  }, [raw, staff, statusFilter, manager, source, project, unitFilter, lastActionDate, reservationDateFrom, reservationDateTo, showProjectColumn])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search || '')
@@ -932,17 +1081,21 @@ export default function ReservationsReport() {
     }))
   }, [sourceCounts])
 
-  const projectLabels = useMemo(() => Array.from(new Set(filtered.map(r => r.project))), [filtered])
+  const projectLabels = useMemo(() => {
+    const field = showProjectColumn ? 'project' : 'unitOrItemName'
+    return Array.from(new Set(filtered.map(r => r[field]).filter(Boolean)))
+  }, [filtered, showProjectColumn])
   const reservationsByProjectData = useMemo(() => {
+    const field = showProjectColumn ? 'project' : 'unitOrItemName'
     return {
       labels: projectLabels,
       datasets: [{
         label: isRTL ? 'الحجوزات' : 'Reservations',
-        data: projectLabels.map(p => filtered.filter(r => r.project === p).length),
+        data: projectLabels.map(p => filtered.filter(r => r[field] === p).length),
         backgroundColor: '#3b82f6'
       }]
     }
-  }, [filtered, projectLabels, isRTL])
+  }, [filtered, projectLabels, isRTL, showProjectColumn])
 
   const projectColumnLabel = isRTL ? 'المشروع' : 'Project'
   const unitNumberColumnLabel = isRealEstate
@@ -1119,21 +1272,23 @@ export default function ReservationsReport() {
                   {sourceList.map(s => <option key={s} value={s}>{s === 'all' ? (isRTL ? 'الكل' : 'All') : s}</option>)}
                 </SearchableSelect>
               </div>
-              <div className="space-y-1">
-                <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                  <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
-                  {isRTL ? (isRealEstate ? 'المشروع' : 'المنتج') : (isRealEstate ? 'Project' : 'Item')}
-                </label>
-                <SearchableSelect
-                  value={project}
-                  onChange={(v) => {
-                    setProject(v)
-                    setCurrentPage(1)
-                  }}
-                >
-                  {projectList.map(p => <option key={p} value={p}>{p === 'all' ? (isRTL ? 'الكل' : 'All') : p}</option>)}
-                </SearchableSelect>
-              </div>
+              {showProjectColumn && (
+                <div className="space-y-1">
+                  <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                    <Briefcase size={12} className="text-blue-500 dark:text-blue-400" />
+                    {isRTL ? 'المشروع' : 'Project'}
+                  </label>
+                  <SearchableSelect
+                    value={project}
+                    onChange={(v) => {
+                      setProject(v)
+                      setCurrentPage(1)
+                    }}
+                  >
+                    {projectList.map(p => <option key={p} value={p}>{p === 'all' ? (isRTL ? 'الكل' : 'All') : p}</option>)}
+                  </SearchableSelect>
+                </div>
+              )}
 
               {showAllFilters && (
                 <>
@@ -1334,7 +1489,9 @@ export default function ReservationsReport() {
                   <th className="py-2 px-3">{isRTL ? 'اسم العميل' : 'Lead Name'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'رقم الهاتف' : 'Contact'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'المصدر' : 'Source'}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{projectColumnLabel}</th>
+                  {showProjectColumn && (
+                    <th className="py-2 px-3 hidden md:table-cell">{projectColumnLabel}</th>
+                  )}
                   <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'نوع الحجز' : 'Reservation Type'}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{unitNumberColumnLabel}</th>
                   <th className="py-2 px-3 hidden md:table-cell">{totalAmountColumnLabel}</th>
@@ -1346,14 +1503,14 @@ export default function ReservationsReport() {
               <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={12} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                    <td colSpan={showProjectColumn ? 12 : 11} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                       {isRTL ? 'لا توجد حجوزات تطابق الفلاتر المحددة' : 'No reservations found for selected filters'}
                     </td>
                   </tr>
                 )}
                 {filtered.length > 0 && paginatedRows.length === 0 && (
                   <tr>
-                    <td colSpan={12} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                    <td colSpan={showProjectColumn ? 12 : 11} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                       {isRTL ? 'لا توجد نتائج' : 'No results'}
                     </td>
                   </tr>
@@ -1383,7 +1540,9 @@ export default function ReservationsReport() {
                         <div className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{r.contact}</div>
                       </td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.source}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</td>
+                      {showProjectColumn && (
+                        <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</td>
+                      )}
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{formatReservationType(r)}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(r)}</td>
                       <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</td>
@@ -1425,16 +1584,18 @@ export default function ReservationsReport() {
                     </tr>
                     {expandedRows[r.id] && (
                       <tr className="md:hidden bg-white/5 dark:bg-white/5">
-                        <td colSpan={12} className="px-4 py-3">
+                        <td colSpan={showProjectColumn ? 12 : 11} className="px-4 py-3">
                           <div className="grid grid-cols-2 gap-3 text-xs">
                              <div className="flex flex-col gap-1">
                                 <span className="text-[var(--muted-text)]">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</span>
                                 <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</span>
                              </div>
-                             <div className="flex flex-col gap-1">
-                                <span className="text-[var(--muted-text)]">{projectColumnLabel}</span>
-                                <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</span>
-                             </div>
+                             {showProjectColumn && (
+                               <div className="flex flex-col gap-1">
+                                  <span className="text-[var(--muted-text)]">{projectColumnLabel}</span>
+                                  <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</span>
+                               </div>
+                             )}
                              <div className="flex flex-col gap-1">
                                 <span className="text-[var(--muted-text)]">{isRTL ? 'نوع الحجز' : 'Reservation Type'}</span>
                                 <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{formatReservationType(r)}</span>

@@ -10,19 +10,20 @@ use App\Models\Project;
 use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
-use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Str;
 
 class AiCopilotChatService
 {
     use UserHierarchyTrait;
+
     public function __construct(
         private readonly AiSystemCatalog $catalog,
-        private readonly AiCopilotToolExecutor $tools
-    ) {
-    }
+        private readonly AiCopilotToolExecutor $tools,
+        private readonly IntegrationGuideService $integrationGuides
+    ) {}
 
     public function chat(User $user, string $message, ?int $conversationId = null, ?string $preferredLocale = null): array
     {
@@ -34,6 +35,38 @@ class AiCopilotChatService
         $uiActions = [];
         $assistantText = '';
         $planned = ['tool' => null, 'args' => []];
+        $integrationGuide = $this->integrationGuides->resolve($message, $locale);
+
+        if ($integrationGuide) {
+            $assistantText = (string) ($integrationGuide['message'] ?? '');
+            $uiActions = $integrationGuide['ui_actions'] ?? [];
+            $toolResult = $integrationGuide;
+            $planned = [
+                'tool' => 'integration_guide',
+                'args' => ['type' => $integrationGuide['type'] ?? null],
+            ];
+
+            $this->storeMessage($conversation, 'tool', $assistantText, 'integration_guide', $toolResult, $uiActions);
+            $this->storeMessage($conversation, 'assistant', $assistantText, null, null, $uiActions);
+
+            if ($conversation) {
+                $conversation->update([
+                    'title' => $conversation->title ?: Str::limit($message, 60),
+                    'last_message_at' => now(),
+                ]);
+            }
+
+            return [
+                'conversation_id' => $conversation?->id,
+                'message' => $assistantText,
+                'tool' => $planned['tool'],
+                'tool_result' => $toolResult,
+                'integration_guide' => $integrationGuide,
+                'ui_actions' => $uiActions,
+                'locale' => $locale,
+            ];
+        }
+
         $pendingLeadDraft = $this->resolvePendingLeadDraft($conversation);
         $pendingOptionalLeadDraft = $this->resolvePendingOptionalLeadDraft($conversation);
         $pendingActionDraft = $this->resolvePendingLeadActionDraft($conversation);
@@ -111,8 +144,8 @@ class AiCopilotChatService
                         $planned = $this->planWithHeuristics($message, $user);
                     } else {
                         $planned = $this->enrichPlanWithHeuristicDates($planned, $message);
-                $planned = $this->enrichPlanWithHeuristicFilters($planned, $message, $user);
-                    $planned = $this->enrichPlanWithHeuristicFilters($planned, $message, $user);
+                        $planned = $this->enrichPlanWithHeuristicFilters($planned, $message, $user);
+                        $planned = $this->enrichPlanWithHeuristicFilters($planned, $message, $user);
                         $planned = $this->sanitizeLeadActionPlan($planned, $message, $user, $locale, $conversation);
                     }
                 }
@@ -932,6 +965,7 @@ PROMPT;
 
         return $args;
     }
+
     protected function resolvePendingLeadDraft(?AiCopilotConversation $conversation): ?array
     {
         $payload = $this->resolveLatestLeadDraftPayload($conversation);
@@ -1016,7 +1050,7 @@ PROMPT;
     protected function normalizeLeadMessageNewlines(string $message): string
     {
         // Older clients accidentally joined form fields with the literal characters "\n".
-        return str_replace(["\\r\\n", "\\n", "\\r"], ["\n", "\n", "\n"], $message);
+        return str_replace(['\\r\\n', '\\n', '\\r'], ["\n", "\n", "\n"], $message);
     }
 
     protected function mergePendingLeadDraftArgs(array $pendingDraft, string $message): array
@@ -1829,17 +1863,3 @@ PROMPT;
         return is_array($decoded) ? $decoded : null;
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

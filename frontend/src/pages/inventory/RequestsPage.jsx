@@ -80,6 +80,7 @@ export default function RequestsPage() {
   const [successMessage, setSuccessMessage] = useState('')
   const [openMenuId, setOpenMenuId] = useState(null)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+  const [selectedAddonByRequestId, setSelectedAddonByRequestId] = useState({})
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -114,6 +115,17 @@ export default function RequestsPage() {
 
   const formatAmount = (value) =>
     `${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencySymbol}`
+  const getRequestAddons = (item) => Array.isArray(item?.expandedAddons) ? item.expandedAddons : []
+  const getSelectedRequestAddon = (item) => {
+    const addons = getRequestAddons(item)
+    if (addons.length === 0) return null
+    const selectedId = selectedAddonByRequestId[item.id]
+    return addons.find(addon => String(addon.id) === String(selectedId)) || addons[0]
+  }
+  const getSelectedRequestAddonAmount = (item) => {
+    const addon = getSelectedRequestAddon(item)
+    return addon ? Number(addon.totalPrice || 0) : 0
+  }
 
   const showSuccess = (msg) => {
     setSuccessMessage(msg)
@@ -144,27 +156,50 @@ export default function RequestsPage() {
         itemsDbData.filter(item => String(item?.name || '').trim() !== '')
           .map(item => [String(item.name).trim().toLowerCase(), item])
       )
+      const itemById = new Map(
+        itemsDbData.filter(item => item?.id !== undefined && item?.id !== null)
+          .map(item => [String(item.id), item])
+      )
       const userNameById = new Map(
         usersData.map(u => [String(u?.id), u?.name || u?.full_name || u?.email || `User #${u?.id}`])
       )
 
       const mappedItems = (requestsData.data || []).map(item => {
         let requestItems = []
-        if (item.meta_data?.items && Array.isArray(item.meta_data.items)) {
-          requestItems = item.meta_data.items.map(reqItem => {
-            const matched = itemByName.get(String(reqItem?.name || '').trim().toLowerCase())
+        const meta = item.meta_data || {}
+        const actionRows = Array.isArray(meta.reservationGeneralItems) ? meta.reservationGeneralItems : null
+        const rawRows = actionRows || (Array.isArray(meta.items) ? meta.items : null)
+        if (rawRows) {
+          requestItems = rawRows.map(reqItem => {
+            const matched =
+              itemById.get(String(reqItem?.item ?? reqItem?.item_id ?? '')) ||
+              itemByName.get(String(reqItem?.name || reqItem?.item_name || '').trim().toLowerCase())
             const finalCategory = matched?.category || reqItem.category || '-'
             const quantity = Number(reqItem?.quantity || 1)
             const price = Number(reqItem?.price ?? matched?.price ?? 0)
+            const matchedAddons = Array.isArray(matched?.addons) ? matched.addons : []
+            const selectedAddonIds = Array.isArray(reqItem?.addon_ids)
+              ? reqItem.addon_ids.map(id => String(id))
+              : []
             const addonSource = Array.isArray(reqItem?.addons) && reqItem.addons.length > 0
-              ? reqItem.addons : (Array.isArray(matched?.addons) ? matched.addons : [])
+              ? reqItem.addons
+              : selectedAddonIds.length > 0
+                ? matchedAddons.filter(addon => selectedAddonIds.includes(String(addon?.id ?? addon?.addon_id)))
+                : []
             return {
-              ...reqItem, quantity, price,
+              ...reqItem,
+              name: reqItem?.name || reqItem?.item_name || matched?.name || item.product || '',
+              quantity,
+              price,
               type: matched?.type || reqItem.type || '-',
               itemType: matched?.item_type || matched?.itemType || reqItem.itemType || '-',
-              category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
+              category: reqItem?.category_name || (typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory),
               addons: addonSource.map(a => ({
-                name: a?.name || '', quantity: Number(a?.quantity || 0), price: Number(a?.price || 0),
+                id: a?.id ?? a?.addon_id,
+                addon_id: a?.addon_id ?? a?.id,
+                name: a?.name || '',
+                quantity: Number(a?.quantity || 0),
+                price: Number(a?.price || 0),
               }))
             }
           })
@@ -177,9 +212,7 @@ export default function RequestsPage() {
             itemType: matchedItem?.item_type || matchedItem?.itemType || '-',
             category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
             quantity: item.quantity || 0, price: item.meta_data?.price || 0,
-            addons: Array.isArray(matchedItem?.addons)
-              ? matchedItem.addons.map(a => ({ name: a?.name || '', quantity: Number(a?.quantity || 0), price: Number(a?.price || 0) }))
-              : [],
+            addons: [],
           }]
         }
 
@@ -190,12 +223,18 @@ export default function RequestsPage() {
         const totalQuantity = requestItems.reduce((s, r) => s + Number(r.quantity || 0), 0)
         const baseItemsPrice = requestItems.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.price || 0), 0)
 
-        const expandedAddons = requestItems.flatMap(r =>
+        const expandedAddons = requestItems.flatMap((r, rowIndex) =>
           (Array.isArray(r.addons) ? r.addons : [])
             .filter(a => String(a?.name || '').trim() !== '')
-            .map(a => {
+            .map((a, addonIndex) => {
               const qty = Number(a.quantity || 0) * Number(r.quantity || 0)
-              return { name: String(a.name).trim(), quantity: qty, price: Number(a.price || 0), totalPrice: qty * Number(a.price || 0) }
+              return {
+                id: a.id ?? a.addon_id ?? `${rowIndex}-${addonIndex}-${String(a.name || '').trim()}`,
+                name: String(a.name).trim(),
+                quantity: qty,
+                price: Number(a.price || 0),
+                totalPrice: qty * Number(a.price || 0),
+              }
             })
         )
 
@@ -204,6 +243,15 @@ export default function RequestsPage() {
         const addonsTotalPrice = expandedAddons.reduce((s, a) => s + Number(a.totalPrice || 0), 0)
         const resolvedSalesPerson = userNameById.get(String(item.assigned_to)) || item.assigned_to_name || item.meta_data?.assigned_to_name || item.assigned_to || '-'
         const resolvedCreatedBy = item.meta_data?.created_by_name || item.created_by_name || userNameById.get(String(item.meta_data?.created_by_id)) || '-'
+        const explicitTotal = Number(
+          meta.line_total ??
+          meta.reservationAmount ??
+          meta.reservation_amount ??
+          meta.total_amount ??
+          meta.total ??
+          item.amount ??
+          0
+        )
 
         return {
           ...item,
@@ -216,8 +264,9 @@ export default function RequestsPage() {
           itemTypes, itemTypesDisplay: itemTypes.join(', ') || '-',
           quantityTotal: totalQuantity, itemsPriceTotal: baseItemsPrice,
           addonsNames: addonNames, addonsNamesDisplay: addonNames.join(', ') || '-',
+          expandedAddons,
           addonsTotalQuantity: addonsTotalQty, addonsTotalPrice,
-          total: baseItemsPrice + addonsTotalPrice || Number(item.meta_data?.total || 0),
+          total: explicitTotal || baseItemsPrice + addonsTotalPrice,
           notes: item.description, salesPerson: resolvedSalesPerson,
           createdBy: resolvedCreatedBy, orderBy: resolvedCreatedBy,
           createdAt: item.created_at || new Date().toISOString()
@@ -425,7 +474,7 @@ export default function RequestsPage() {
     let successCount = 0
     for (const row of rows) {
       try {
-        const price = Number(row['Price'] || row['السعر']) || 0
+        const price = Number(row['Amount'] || row['Price'] || row['المبلغ'] || row['السعر']) || 0
         const quantity = Number(row['Quantity'] || row['الكمية']) || 1
         const payload = {
           customer_name: row['Customer Name'] || row['اسم العميل'],
@@ -454,7 +503,7 @@ export default function RequestsPage() {
     const selected = items.filter(i => selectedItems.includes(i.id))
     if (!selected.length) { alert(isRTL ? 'اختر طلبًا واحدًا على الأقل' : 'Select at least one request'); return }
     const L = isRTL
-    const header = [L?'رقم الطلب':'Order ID',L?'اسم العميل':'Customer Name',L?'العناصر':'Items',L?'الكمية':'Quantity',L?'اسم الفئة':'Category Name',L?'نوع الفئة':'Category Type',L?'السعر':'Price',L?'أسماء الإضافات':'Add-ons Name',L?'كمية الإضافات':'Add-ons Quantity',L?'سعر الإضافات':'Add-ons Price',L?'الإجمالي':'Total Price',L?'مندوب المبيعات':'Sales Person',L?'بواسطة':'Order By',L?'التاريخ':'Order Date',L?'الحالة':'Status',L?'ملاحظات':'Notes']
+    const header = [L?'رقم الطلب':'Order ID',L?'اسم العميل':'Customer Name',L?'العناصر':'Items',L?'الكمية':'Quantity',L?'اسم الفئة':'Category Name',L?'نوع الفئة':'Category Type',L?'المبلغ':'Amount',L?'أسماء الإضافات':'Add-ons Name',L?'كمية الإضافات':'Add-ons Quantity',L?'مبلغ الإضافات':'Add-ons Amount',L?'إجمالي المبلغ':'Total Amount',L?'مندوب المبيعات':'Sales Person',L?'بواسطة':'Order By',L?'التاريخ':'Order Date',L?'الحالة':'Status',L?'ملاحظات':'Notes']
     const rows = selected.map(i => [i.id,i.customerName||'',i.itemNamesDisplay||'',i.quantityTotal||0,i.categoryNamesDisplay||'',i.categoryTypesDisplay||'',Number(i.itemsPriceTotal||0).toFixed(2),i.addonsNamesDisplay||'',i.addonsTotalQuantity||0,Number(i.addonsTotalPrice||0).toFixed(2),Number(i.total||0).toFixed(2),i.salesPerson||'',i.orderBy||'',new Date(i.createdAt).toLocaleDateString(),i.status||'',i.notes||''])
     const csv = [header,...rows].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n')
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
@@ -726,8 +775,8 @@ export default function RequestsPage() {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className={`${th.tableHeader} font-medium`}>
+          <table className="nova-table categories-table w-full text-sm text-left">
+            <thead className="thead-soft">
               <tr>
                 <th className="p-4 w-10">
                   <input
@@ -743,11 +792,11 @@ export default function RequestsPage() {
                 <th className="p-4 text-center">{isRTL ? 'الكمية' : 'Quantity'}</th>
                 <th className="p-4 min-w-[160px]">{isRTL ? 'اسم الفئة' : 'Category Name'}</th>
                 <th className="p-4 min-w-[140px]">{isRTL ? 'نوع الفئة' : 'Category Type'}</th>
-                <th className="p-4 text-end">{isRTL ? 'السعر' : 'Price'}</th>
+                <th className="p-4 text-end">{isRTL ? 'المبلغ' : 'Amount'}</th>
                 <th className="p-4 min-w-[160px]">{isRTL ? 'أسماء الإضافات' : 'Add-ons Name'}</th>
                 <th className="p-4 text-center">{isRTL ? 'كمية الإضافات' : 'Add-ons Qty'}</th>
-                <th className="p-4 text-end">{isRTL ? 'سعر الإضافات' : 'Add-ons Price'}</th>
-                <th className="p-4 text-end cursor-pointer hover:text-blue-600" onClick={() => handleSort('total')}>{isRTL ? 'إجمالي السعر' : 'Total Price'}</th>
+                <th className="p-4 text-end">{isRTL ? 'مبلغ الإضافات' : 'Add-ons Amount'}</th>
+                <th className="p-4 text-end cursor-pointer hover:text-blue-600" onClick={() => handleSort('total')}>{isRTL ? 'إجمالي المبلغ' : 'Total Amount'}</th>
                 <th className="p-4 min-w-[140px]">{isRTL ? 'مندوب المبيعات' : 'Sales Person'}</th>
                 <th className="p-4 min-w-[140px]">{isRTL ? 'تم بواسطة' : 'Order By'}</th>
                 <th className="p-4 whitespace-nowrap">{isRTL ? 'تاريخ الطلب' : 'Order Date'}</th>
@@ -755,7 +804,7 @@ export default function RequestsPage() {
                 <th className="p-4 whitespace-nowrap min-w-[280px]">{isRTL ? 'الإجراءات' : 'Actions'}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--card-border)]">
+            <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={17} className="p-8 text-center text-[var(--muted-text)]">
@@ -770,7 +819,7 @@ export default function RequestsPage() {
                 </tr>
               ) : (
                 paginatedItems.map((item) => (
-                  <tr key={item.id} className={`${th.tableRow} transition-colors group`}>
+                  <tr key={item.id} className="group cursor-pointer transition-colors duration-150 hover:bg-blue-50/80 dark:hover:bg-blue-900/20">
                     <td className="p-4">
                       <input
                         type="checkbox"
@@ -801,15 +850,28 @@ export default function RequestsPage() {
                       {formatAmount(item.itemsPriceTotal)}
                     </td>
                     <td className="p-4">
-                      <div className="max-w-[160px] truncate" title={item.addonsNamesDisplay}>{item.addonsNamesDisplay}</div>
+                      {getRequestAddons(item).length > 0 ? (
+                        <select
+                          className="select select-xs h-8 min-h-0 w-40 max-w-full rounded-md border border-gray-300 bg-transparent text-xs text-theme"
+                          value={String(getSelectedRequestAddon(item)?.id || '')}
+                          onChange={(e) => setSelectedAddonByRequestId(prev => ({ ...prev, [item.id]: e.target.value }))}
+                          title={item.addonsNamesDisplay}
+                        >
+                          {getRequestAddons(item).map((addon, index) => (
+                            <option key={`${item.id}-request-addon-${index}`} value={addon.id}>{addon.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs">-</span>
+                      )}
                     </td>
                     <td className="p-4 text-center">
                       <span className={`${th.badgeNeutral} px-2 py-1 rounded text-xs`}>
-                        {item.addonsTotalQuantity || 0}
+                        {getSelectedRequestAddon(item)?.quantity || 0}
                       </span>
                     </td>
                     <td className="p-4 text-end font-mono font-medium">
-                      {formatAmount(item.addonsTotalPrice)}
+                      {formatAmount(getSelectedRequestAddonAmount(item))}
                     </td>
                     <td className="p-4 text-end font-mono font-semibold">
                       {formatAmount(item.total)}
@@ -993,15 +1055,19 @@ export default function RequestsPage() {
                   <span className="font-medium truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'إجمالي السعر' : 'Total Price'}</span>
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'إجمالي المبلغ' : 'Total Amount'}</span>
                   <span className="font-mono font-medium">{formatAmount(item.total)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'المبلغ' : 'Amount'}</span>
+                  <span className="font-mono">{formatAmount(item.itemsPriceTotal)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'الكمية' : 'Quantity'}</span>
                   <span>{item.quantityTotal || 0}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'الفئة' : 'Category'}</span>
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'اسم الفئة' : 'Category Name'}</span>
                   <span className="truncate" title={item.categoryNamesDisplay}>{item.categoryNamesDisplay}</span>
                 </div>
                 <div className="flex flex-col">
@@ -1009,8 +1075,29 @@ export default function RequestsPage() {
                   <span className="truncate" title={item.categoryTypesDisplay}>{item.categoryTypesDisplay}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'سعر الإضافات' : 'Add-ons Price'}</span>
-                  <span className="font-mono">{formatAmount(item.addonsTotalPrice)}</span>
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'أسماء الإضافات' : 'Add-ons Name'}</span>
+                  {getRequestAddons(item).length > 0 ? (
+                    <select
+                      className="select select-xs h-8 min-h-0 rounded-md border border-gray-300 bg-transparent text-xs text-theme"
+                      value={String(getSelectedRequestAddon(item)?.id || '')}
+                      onChange={(e) => setSelectedAddonByRequestId(prev => ({ ...prev, [item.id]: e.target.value }))}
+                      title={item.addonsNamesDisplay}
+                    >
+                      {getRequestAddons(item).map((addon, index) => (
+                        <option key={`${item.id}-mobile-request-addon-${index}`} value={addon.id}>{addon.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span>-</span>
+                  )}
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'كمية الإضافات' : 'Add-ons Qty'}</span>
+                  <span>{getSelectedRequestAddon(item)?.quantity || 0}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'مبلغ الإضافات' : 'Add-ons Amount'}</span>
+                  <span className="font-mono">{formatAmount(getSelectedRequestAddonAmount(item))}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'التاريخ' : 'Date'}</span>
@@ -1143,8 +1230,8 @@ export default function RequestsPage() {
                 <div className={`rounded-xl p-4 ${th.infoPanel}`}>
                   <p className={`text-sm ${th.muted}`}>
                     {isRTL
-                      ? 'املأ الحقول التالية لإضافة طلب جديد. الحقول الأساسية مثل اسم العميل أو المنتج والكمية والسعر مطلوبة.'
-                      : 'Fill in the form below to add a new request. Required fields include customer name or product, quantity, and price.'
+                      ? 'املأ الحقول التالية لإضافة طلب جديد. الحقول الأساسية مثل اسم العميل أو المنتج والكمية والمبلغ مطلوبة.'
+                      : 'Fill in the form below to add a new request. Required fields include customer name or product, quantity, and amount.'
                     }
                   </p>
                 </div>
@@ -1201,7 +1288,7 @@ export default function RequestsPage() {
                   </div>
                   <div className="space-y-1">
                     <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'السعر' : 'Price'}
+                      {isRTL ? 'المبلغ' : 'Amount'}
                     </label>
                     <input
                       type="number"
