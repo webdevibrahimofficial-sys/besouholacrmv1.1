@@ -3,6 +3,11 @@
 # Temp working files
 .tmp/
 .codex/
+temp_*.php
+tmp_*.php
+*.bak
+*.sql
+*.zip
 *.tgz
 *.tar.gz
 frontend-dist-*.zip
