@@ -221,7 +221,9 @@ class MetaAuthController extends Controller
             'go_live' => $goLive,
             'meta_agency' => [
                 'filter' => $agencyFilter,
+                'default_agency_id' => $this->resolveSoleTenantAgencyId($tenantId),
                 'can_select_agency' => $this->isMetaTenantAdmin($user),
+                'can_manage_assets' => $agencyFilter !== null,
                 'locked_agency_id' => (!$this->isMetaTenantAdmin($user) && filled($user->agency_id))
                     ? $this->normalizeMetaAgencyKey($user->agency_id)
                     : null,

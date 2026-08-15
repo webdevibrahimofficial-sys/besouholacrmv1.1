@@ -191,6 +191,7 @@ export default function MetaSettings({ onClose }) {
   const [tenantHealth, setTenantHealth] = useState(null)
   const [agencies, setAgencies] = useState([])
   const [selectedAgencyId, setSelectedAgencyId] = useState(lockedAgencyId || '')
+  const [backendCanManageAssets, setBackendCanManageAssets] = useState(false)
   const [webhookTestResult, setWebhookTestResult] = useState(null)
   const [pixelTestResult, setPixelTestResult] = useState(null)
   
@@ -203,6 +204,7 @@ export default function MetaSettings({ onClose }) {
   // Refs
   const isLoaded = useRef(false)
   const initialTabResolved = useRef(false)
+  const agencyAutoSelectedRef = useRef(false)
 
   function showToast(type, message) {
     setToast({ type, message })
@@ -266,6 +268,13 @@ export default function MetaSettings({ onClose }) {
       setAppFormVerifyToken(data.tenant_app?.verify_token || '')
       setSyncWarnings(data.sync_warnings || [])
       setTenantHealth(data.tenant_health || null)
+
+      const defaultAgencyId = normalizeAgencyKey(data.meta_agency?.default_agency_id)
+      if (!lockedAgencyId && defaultAgencyId && !agencyAutoSelectedRef.current) {
+        agencyAutoSelectedRef.current = true
+        setSelectedAgencyId((current) => current || defaultAgencyId)
+      }
+      setBackendCanManageAssets(!!data.meta_agency?.can_manage_assets)
 
       const saved = data.settings || {}
       setEnableCapi(!!saved.enableCapi)
@@ -714,7 +723,7 @@ export default function MetaSettings({ onClose }) {
     const canConnect = metaReady && !hasConnectionForActiveAgency && (!isTenantAdmin || !!activeAgencyId)
     // Admins must pick a specific agency before they can toggle/delete/link assets,
     // otherwise a click would act across agencies without an agency filter.
-    const canManageAssets = !isTenantAdmin || !!activeAgencyId
+    const canManageAssets = !isTenantAdmin || !!activeAgencyId || backendCanManageAssets
     const connectDisabledReason = !metaReady
       ? (isArabic
         ? 'فعّل التطبيق المشترك أو احفظ تطبيق ميتا الخاص بك أولاً'
@@ -805,7 +814,9 @@ export default function MetaSettings({ onClose }) {
             onChange={(e) => setSelectedAgencyId(e.target.value)}
             className="block w-full rounded-xl border border-gray-300 bg-white/85 text-theme sm:text-sm py-2 px-3 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
           >
-            <option value="">{isArabic ? 'كل الأجينسيات' : 'All agencies'}</option>
+            {agencies.length > 1 && (
+              <option value="">{isArabic ? 'كل الأجينسيات' : 'All agencies'}</option>
+            )}
             {agencies.map((agency) => (
               <option key={agency.id} value={agency.key}>
                 {agency.name}
@@ -813,9 +824,13 @@ export default function MetaSettings({ onClose }) {
             ))}
           </select>
           <p className="mt-2 text-xs text-theme/70">
-            {isArabic
-              ? 'اختر أجينسي محددة لربط حساب ميتا أو إدارة اتصالها. عرض "كل الأجينسيات" للمراجعة فقط.'
-              : 'Select a specific agency to connect or manage its Meta account. Use "All agencies" for read-only overview.'}
+            {agencies.length <= 1
+              ? (isArabic
+                ? 'الأجينسي الوحيدة في التينانت متحددة تلقائيًا لتقدر تدير الصفحات والاتصال.'
+                : 'The tenant’s only agency is selected automatically so you can manage pages and the connection.')
+              : (isArabic
+                ? 'اختر أجينسي محددة لربط حساب ميتا أو إدارة اتصالها. عرض "كل الأجينسيات" للمراجعة فقط.'
+                : 'Select a specific agency to connect or manage its Meta account. Use "All agencies" for read-only overview.')}
           </p>
         </div>
       )}

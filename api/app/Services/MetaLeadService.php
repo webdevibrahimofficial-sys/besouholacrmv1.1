@@ -19,7 +19,8 @@ class MetaLeadService
     public function __construct(
         MetaApiClientInterface $apiClient,
         MetaAccessTokenService $accessTokenService,
-        protected TenantAdminResolver $tenantAdmins
+        protected TenantAdminResolver $tenantAdmins,
+        protected DuplicateLeadService $duplicateLeads
     ) {
         $this->apiClient = $apiClient;
         $this->accessTokenService = $accessTokenService;
@@ -32,6 +33,10 @@ class MetaLeadService
 
     public function processLead($tenantId, $leadId, $pageId = null, $accessToken = null)
     {
+        if ($tenantId !== null && $tenantId !== '') {
+            app()->instance('current_tenant_id', $tenantId);
+        }
+
         $integration = Integration::where('tenant_id', $tenantId)->where('provider', 'meta')->first();
         $tokenSource = $accessToken ? 'explicit' : null;
 
@@ -92,11 +97,28 @@ class MetaLeadService
 
             $data = $this->apiClient->get("/{$leadId}", [
                 'access_token' => $accessToken,
-                'fields' => 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,form_name,field_data',
+                'fields' => 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data',
             ]);
 
             if ($pageId && empty($data['page_id'])) {
                 $data['page_id'] = (string) $pageId;
+            }
+
+            $formId = $data['form_id'] ?? null;
+            if ($formId && empty($data['form_name'])) {
+                try {
+                    $form = $this->apiClient->get("/{$formId}", [
+                        'access_token' => $accessToken,
+                        'fields' => 'id,name',
+                    ]);
+                    $data['form_name'] = $form['name'] ?? null;
+                } catch (\Exception $formEx) {
+                    Log::warning('Meta form name fetch skipped', [
+                        'tenant_id' => $tenantId,
+                        'form_id' => $formId,
+                        'message' => $formEx->getMessage(),
+                    ]);
+                }
             }
 
             $this->storeLead($tenantId, $data, $integration);
@@ -283,7 +305,24 @@ class MetaLeadService
                 'raw_payload' => $data
             ],
             'created_at' => isset($data['created_time']) ? \Carbon\Carbon::parse($data['created_time']) : now(),
+            'tenant_id' => $tenantId,
+            'meta_id' => $data['id'] ?? null,
         ], $additionalAttributes, $inventory);
+
+        $duplicate = $this->duplicateLeads->apply($tenantId, $leadData, 'meta');
+        $leadData = $duplicate['data'];
+
+        if ($duplicate['existing_duplicate'] instanceof Lead) {
+            $existing = $duplicate['existing_duplicate'];
+            $existing->fill($leadData);
+            $existing->save();
+            return;
+        }
+
+        $wasExisting = Lead::query()
+            ->where('tenant_id', $tenantId)
+            ->where('meta_id', $data['id'])
+            ->exists();
 
         $lead = Lead::updateOrCreate(
             [
@@ -292,6 +331,10 @@ class MetaLeadService
             ],
             $leadData
         );
+
+        if ($duplicate['is_duplicate'] && !$wasExisting) {
+            $this->duplicateLeads->notifyIfNewDuplicate($lead, $duplicate['duplicate_of_id']);
+        }
 
         // CAPI Lead events are dispatched once via LeadObserver::created.
     }

@@ -44,6 +44,47 @@ trait AppliesMetaAgencyScope
     }
 
     /**
+     * When a tenant has only one active agency, or only one Meta-connected agency,
+     * treat that agency as the default instead of an unscoped "all agencies" view.
+     */
+    protected function resolveSoleTenantAgencyId(int|string|null $tenantId): ?string
+    {
+        if ($tenantId === null || $tenantId === '') {
+            return null;
+        }
+
+        $activeKeys = Agency::query()
+            ->where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->pluck('key')
+            ->map(fn ($key) => $this->normalizeMetaAgencyKey($key))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($activeKeys->count() === 1) {
+            return $activeKeys->first();
+        }
+
+        $connectedKeys = \App\Models\MetaConnection::query()
+            ->where('tenant_id', $tenantId)
+            ->pluck('agency_id')
+            ->map(fn ($key) => $this->normalizeMetaAgencyKey($key))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($connectedKeys->count() !== 1) {
+            return null;
+        }
+
+        $connectedKey = $connectedKeys->first();
+
+        return $activeKeys->contains($connectedKey) ? $connectedKey : null;
+    }
+
+    /**
      * @return array{agency_id: ?string, error: ?string}
      */
     protected function resolveTargetAgencyId(Request $request, User $user): array
@@ -57,7 +98,12 @@ trait AppliesMetaAgencyScope
             return ['agency_id' => null, 'error' => null];
         }
 
-        $requested = $this->normalizeMetaAgencyKey($request->input('agency_id'));
+        $requested = $this->normalizeMetaAgencyKey($request->input('agency_id'))
+            ?: $this->normalizeMetaAgencyKey($request->query('agency_id'));
+        if (!$requested) {
+            $requested = $this->resolveSoleTenantAgencyId($user->tenant_id);
+        }
+
         if (!$requested) {
             return [
                 'agency_id' => null,
@@ -84,7 +130,12 @@ trait AppliesMetaAgencyScope
         }
 
         if ($this->isMetaTenantAdmin($user)) {
-            return $this->normalizeMetaAgencyKey($request->query('agency_id'));
+            $requested = $this->normalizeMetaAgencyKey($request->query('agency_id'));
+            if ($requested) {
+                return $requested;
+            }
+
+            return $this->resolveSoleTenantAgencyId($user->tenant_id);
         }
 
         return null;

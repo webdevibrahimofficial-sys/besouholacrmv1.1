@@ -346,7 +346,9 @@ export default function MetaSetupGuide({
                 value={selectedAgencyId}
                 onChange={(e) => onSelectAgency(e.target.value)}
               >
-                <option value="">{t('Choose an agency')}</option>
+                {agencies.length > 1 && (
+                  <option value="">{t('Choose an agency')}</option>
+                )}
                 {agencies.map((agency) => (
                   <option key={agency.id} value={agency.key}>
                     {agency.name}

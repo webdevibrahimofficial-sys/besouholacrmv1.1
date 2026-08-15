@@ -171,12 +171,83 @@ class MetaAgencyScopeTest extends TestCase
         ]);
 
         $all = $this->actingAs($admin)->getJson('/api/auth/meta/status');
-        $all->assertOk()->assertJsonCount(2, 'connections');
+        $all->assertOk()
+            ->assertJsonCount(2, 'connections')
+            ->assertJsonPath('meta_agency.default_agency_id', null)
+            ->assertJsonPath('meta_agency.filter', null);
 
         $filtered = $this->actingAs($admin)->getJson('/api/auth/meta/status?agency_id=' . $agencyB->key);
         $filtered->assertOk()
             ->assertJsonPath('meta_agency.filter', $agencyB->key)
             ->assertJsonCount(1, 'connections')
             ->assertJsonPath('connections.0.agency_id', $agencyB->key);
+    }
+
+    public function test_admin_status_auto_selects_sole_tenant_agency(): void
+    {
+        $this->seedSharedMetaApp();
+        $tenant = Tenant::create([
+            'id' => 'tenant_meta_sole_agency',
+            'name' => 'Tenant Meta Sole Agency',
+            'slug' => 'tenant-meta-sole-agency',
+            'status' => 'active',
+        ]);
+
+        $agency = Agency::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Cashflow',
+            'key' => 'cashflow',
+            'is_active' => true,
+        ]);
+
+        $admin = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Tenant Admin',
+        ]);
+
+        MetaConnection::create([
+            'tenant_id' => $tenant->id,
+            'agency_id' => $agency->key,
+            'fb_user_id' => 'fb-user-cashflow',
+            'user_access_token' => 'token-cashflow',
+            'name' => 'Cashflow Connection',
+        ]);
+
+        $response = $this->actingAs($admin)->getJson('/api/auth/meta/status');
+
+        $response->assertOk()
+            ->assertJsonPath('meta_agency.default_agency_id', 'cashflow')
+            ->assertJsonPath('meta_agency.filter', 'cashflow')
+            ->assertJsonPath('meta_agency.can_manage_assets', true)
+            ->assertJsonCount(1, 'connections');
+    }
+
+    public function test_admin_redirect_uses_sole_tenant_agency_without_request_param(): void
+    {
+        $this->seedSharedMetaApp();
+        $tenant = Tenant::create([
+            'id' => 'tenant_meta_sole_redirect',
+            'name' => 'Tenant Meta Sole Redirect',
+            'slug' => 'tenant-meta-sole-redirect',
+            'status' => 'active',
+        ]);
+
+        Agency::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Cashflow',
+            'key' => 'cashflow',
+            'is_active' => true,
+        ]);
+
+        $admin = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'job_title' => 'Tenant Admin',
+        ]);
+
+        config(['services.meta.mock_mode' => true]);
+
+        $response = $this->actingAs($admin)->getJson('/api/auth/meta/redirect');
+
+        $response->assertOk()->assertJsonStructure(['url']);
     }
 }
