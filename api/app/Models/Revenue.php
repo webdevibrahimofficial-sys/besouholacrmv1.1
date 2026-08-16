@@ -35,5 +35,10 @@ class Revenue extends Model
     {
         return $this->belongsTo(Lead::class);
     }
+
+    public function action()
+    {
+        return $this->belongsTo(LeadAction::class, 'action_id');
+    }
 }
 

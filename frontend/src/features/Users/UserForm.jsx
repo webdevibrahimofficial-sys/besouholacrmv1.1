@@ -5,6 +5,7 @@ import { api } from '@utils/api';
 import { useTranslation } from 'react-i18next'
 import { User, Info, Bell, X, Settings, Target, AlertCircle, Eye, EyeOff, Upload, ChevronDown, Clock, Calendar, TrendingUp, Percent, ChevronUp, Loader2, Plus, Trash2 } from 'lucide-react';
 import SearchableSelect from '@components/SearchableSelect';
+import ListHoverPopover from '@components/ListHoverPopover';
 import { mapSourceToOption } from '@shared/utils/sourceDisplay';
 import { 
   ROLES, 
@@ -141,6 +142,13 @@ const getRoleFilteredPermissions = (group, perms, role, options = {}) => {
   if (group === 'Leads' && normalizedRole === 'marketing moderator') {
     const hiddenLeadPerms = new Set(['exportLeads', 'receiveLeads', 'addAction']);
     return list.filter(perm => !hiddenLeadPerms.has(perm));
+  }
+
+  if (group === 'Customers') {
+    const canToggleDeleteCustomer = ['director', 'operation manager', 'operations manager'].includes(normalizedRole);
+    if (!canToggleDeleteCustomer) {
+      return list.filter(perm => perm !== 'deleteCustomer');
+    }
   }
 
   if (!isSalesPersonRole(role)) {
@@ -696,7 +704,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       })
     } else if (form.role === 'Customer Manager') {
       setCustomPerms({
-        Customers: ['convertFromLead','addCustomer','editInfo','deleteCustomer','showModule'],
+        Customers: ['convertFromLead','addCustomer','editInfo','showModule'],
         Control: ['showReports']
       })
     } else if (form.role === 'Customer Team Leader') {
@@ -1707,6 +1715,13 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                                 : 'If "View All Properties" is not enabled, the sales person will only see their own units on the Properties page.'}
                             </div>
                           )}
+                          {group === 'Customers' && ['Director', 'Operation Manager'].includes(form.role) && (
+                            <div className="mt-3 text-xs text-base-content/60">
+                              {isArabic
+                                ? 'صلاحية حذف العميل تنقل العميل إلى سلة المهملات. الحذف النهائي يبقى للأدمن فقط.'
+                                : 'Delete Customer moves the record to the recycle bin. Permanent delete stays admin-only.'}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2090,31 +2105,88 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
               </div>
 
               {targetHistory.length > 0 && (
-                <div className="mt-8 glass-panel rounded-xl border border-base-content/10 overflow-hidden">
-                  <div className="px-4 py-3 font-semibold border-b border-base-content/10">
-                    {isArabic ? 'تاريخ التارجت' : 'Target history'}
+                <div className="mt-8 rounded-2xl border border-base-content/10 bg-base-100/40 overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-base-content/10">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <Calendar size={16} className="text-primary" />
+                      <span>{isArabic ? 'تاريخ التارجت' : 'Target history'}</span>
+                    </div>
+                    <span className="text-xs text-base-content/50">
+                      {isArabic ? `${targetHistory.length} سنة` : `${targetHistory.length} years`}
+                    </span>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="table table-sm">
-                      <thead>
+                    <table className="w-full min-w-[760px] text-xs">
+                      <thead className="bg-base-content/5 text-base-content/60 uppercase tracking-wide">
                         <tr>
-                          <th>{isArabic ? 'السنة' : 'Year'}</th>
-                          <th>{isArabic ? 'سنوي' : 'Yearly'}</th>
-                          <th>{isArabic ? 'شهري' : 'Monthly'}</th>
-                          <th>{isArabic ? 'ربع سنوي' : 'Quarterly'}</th>
-                          <th>{isArabic ? 'نصف سنوي' : 'Semi Annual'}</th>
+                          <th className="px-4 py-3 text-start whitespace-nowrap">{isArabic ? 'السنة' : 'Year'}</th>
+                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'شهري' : 'Monthly'}</th>
+                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'ربع سنوي' : 'Quarterly'}</th>
+                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'نصف سنوي' : 'Semi Annual'}</th>
+                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'سنوي' : 'Yearly'}</th>
+                          <th className="px-4 py-3 text-center whitespace-nowrap">{isArabic ? 'العمولة' : 'Commission'}</th>
                         </tr>
                       </thead>
-                      <tbody>
-                        {targetHistory.map(row => (
-                          <tr key={`${row.user_id}-${row.year}`}>
-                            <td>{row.year}</td>
-                            <td>{formatNumericDisplay(row.yearly_target, numericLocale)} {currencySymbol}</td>
-                            <td>{formatNumericDisplay(row.monthly_target, numericLocale)} {currencySymbol}</td>
-                            <td>{formatNumericDisplay(row.quarterly_target, numericLocale)} {currencySymbol}</td>
-                            <td>{formatNumericDisplay(row.semi_annual_target, numericLocale)} {currencySymbol}</td>
-                          </tr>
-                        ))}
+                      <tbody className="divide-y divide-base-content/10">
+                        {[...targetHistory]
+                          .sort((a, b) => Number(b.year) - Number(a.year))
+                          .map(row => {
+                            const isCurrent = Number(row.year) === currentYear
+                            const tiers = Array.isArray(row.commission_tiers)
+                              ? row.commission_tiers
+                              : (Array.isArray(row.commissionTiers) ? row.commissionTiers : [])
+                            const tierItems = tiers.map(tier => {
+                              const from = Number(tier.from_percentage ?? 0)
+                              const to = tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === ''
+                                ? (isArabic ? 'بدون حد' : 'No cap')
+                                : `${Number(tier.to_percentage)}%`
+                              return {
+                                label: `${from}% → ${to}`,
+                                value: Number(tier.commission_percentage ?? 0) || 0,
+                              }
+                            })
+                            return (
+                              <tr
+                                key={`${row.user_id}-${row.year}`}
+                                className={isCurrent ? 'bg-primary/5' : 'hover:bg-base-content/5'}
+                              >
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold">{row.year}</span>
+                                    {isCurrent && (
+                                      <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                        {isArabic ? 'الحالية' : 'Current'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-end font-mono whitespace-nowrap" dir="ltr">
+                                  {formatNumericDisplay(row.monthly_target, numericLocale)} {currencySymbol}
+                                </td>
+                                <td className="px-4 py-3 text-end font-mono whitespace-nowrap" dir="ltr">
+                                  {formatNumericDisplay(row.quarterly_target, numericLocale)} {currencySymbol}
+                                </td>
+                                <td className="px-4 py-3 text-end font-mono whitespace-nowrap" dir="ltr">
+                                  {formatNumericDisplay(row.semi_annual_target, numericLocale)} {currencySymbol}
+                                </td>
+                                <td className="px-4 py-3 text-end font-mono font-semibold whitespace-nowrap" dir="ltr">
+                                  {formatNumericDisplay(row.yearly_target, numericLocale)} {currencySymbol}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex justify-center">
+                                    <ListHoverPopover
+                                      icon={Percent}
+                                      items={tierItems}
+                                      title={isArabic ? 'شرائح العمولة' : 'Commission tiers'}
+                                      isRTL={isArabic}
+                                      formatValue={(value) => `${value}%`}
+                                      emptyTitle={isArabic ? 'لا توجد شرائح' : 'No tiers'}
+                                    />
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
                       </tbody>
                     </table>
                   </div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\Item;
 use App\Models\Revenue;
 use App\Models\User;
 use App\Traits\UserHierarchyTrait;
@@ -19,7 +20,7 @@ class RevenueController extends Controller
         }
 
         $query = Revenue::query()
-            ->with(['user.manager', 'lead'])
+            ->with(['user.manager', 'lead', 'action'])
             ->where('tenant_id', $user->tenant_id);
 
         $roleLower = strtolower($user->role ?? '');
@@ -48,6 +49,7 @@ class RevenueController extends Controller
         }
 
         $revenues = $query->latest()->get();
+        $this->appendLeadItemNames($revenues);
 
         return response()->json($revenues);
     }
@@ -103,6 +105,170 @@ class RevenueController extends Controller
             ];
         });
         return response()->json(['data' => $data]);
+    }
+
+    private function appendLeadItemNames($revenues): void
+    {
+        $itemIds = collect($revenues)
+            ->flatMap(function ($revenue) {
+                $ids = [];
+                $leadId = $revenue->lead?->item_id;
+                if (!empty($leadId)) {
+                    $ids[] = (int) $leadId;
+                }
+                $details = is_array($revenue->action?->details) ? $revenue->action->details : [];
+                $ids = array_merge($ids, $this->collectDetailsItemIds($details));
+                $meta = is_array($revenue->meta_data) ? $revenue->meta_data : [];
+                foreach ($meta['deal_items'] ?? [] as $row) {
+                    $id = $row['item_id'] ?? $row['item'] ?? null;
+                    if (is_numeric($id) && (int) $id > 0) {
+                        $ids[] = (int) $id;
+                    }
+                }
+                return $ids;
+            })
+            ->filter()
+            ->unique()
+            ->values();
+
+        $itemsById = collect();
+        if ($itemIds->isNotEmpty()) {
+            $itemSelect = ['id'];
+            foreach (['name', 'product', 'title'] as $column) {
+                if (\Illuminate\Support\Facades\Schema::hasColumn('items', $column)) {
+                    $itemSelect[] = $column;
+                }
+            }
+
+            $itemsById = Item::query()
+                ->whereIn('id', $itemIds)
+                ->get($itemSelect)
+                ->keyBy('id');
+        }
+
+        foreach ($revenues as $revenue) {
+            $dealItems = $this->resolveDealItems($revenue, $itemsById);
+            $itemName = collect($dealItems)
+                ->pluck('name')
+                ->filter()
+                ->unique()
+                ->implode(', ');
+
+            if ($itemName !== '') {
+                $revenue->setAttribute('item_name', $itemName);
+            }
+            $revenue->setAttribute('deal_items', $dealItems);
+        }
+    }
+
+    private function collectDetailsItemIds(array $details): array
+    {
+        $ids = [];
+        foreach (['reservationItem', 'item_id', 'item'] as $key) {
+            $value = $details[$key] ?? null;
+            if (is_numeric($value) && (int) $value > 0) {
+                $ids[] = (int) $value;
+            }
+        }
+        foreach ($details['reservationGeneralItems'] ?? [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $id = $row['item'] ?? $row['item_id'] ?? null;
+            if (is_numeric($id) && (int) $id > 0) {
+                $ids[] = (int) $id;
+            }
+        }
+        return $ids;
+    }
+
+    private function resolveDealItems($revenue, $itemsById): array
+    {
+        $meta = is_array($revenue->meta_data) ? $revenue->meta_data : [];
+        $fromMeta = $this->normalizeDealItems($meta['deal_items'] ?? [], $itemsById);
+        if (!empty($fromMeta)) {
+            return $fromMeta;
+        }
+
+        $details = is_array($revenue->action?->details) ? $revenue->action->details : [];
+        $fromAction = $this->normalizeDealItems($details['reservationGeneralItems'] ?? [], $itemsById);
+        if (!empty($fromAction)) {
+            return $fromAction;
+        }
+
+        $singleName = $this->itemNameFromId($details['reservationItem'] ?? $details['item_id'] ?? null, $itemsById)
+            ?: trim((string) ($details['item_name'] ?? $details['product'] ?? ''));
+        if ($singleName !== '') {
+            return [[
+                'name' => $singleName,
+                'amount' => (float) ($revenue->amount ?? 0),
+            ]];
+        }
+
+        $lead = $revenue->lead;
+        if (!$lead) {
+            return [];
+        }
+
+        $leadName = trim((string) ($lead->item_name ?? ''));
+        if ($leadName === '') {
+            $leadMeta = is_array($lead->meta_data) ? $lead->meta_data : [];
+            $leadName = trim((string) ($leadMeta['lead_item_name'] ?? $leadMeta['item_name'] ?? ''));
+        }
+        if ($leadName === '') {
+            $rawItem = $lead->getAttributes()['item'] ?? null;
+            if (is_string($rawItem) && $rawItem !== '' && !ctype_digit($rawItem)) {
+                $leadName = trim($rawItem);
+            }
+        }
+        if ($leadName === '' && !empty($lead->item_id)) {
+            $leadName = $this->itemNameFromId($lead->item_id, $itemsById);
+        }
+        if ($leadName === '') {
+            return [];
+        }
+
+        return [[
+            'name' => $leadName,
+            'amount' => (float) ($revenue->amount ?? 0),
+        ]];
+    }
+
+    private function normalizeDealItems($rows, $itemsById): array
+    {
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $id = $row['item'] ?? $row['item_id'] ?? null;
+            $name = trim((string) ($row['item_name'] ?? $row['name'] ?? $row['label'] ?? ''));
+            if ($name === '') {
+                $name = $this->itemNameFromId($id, $itemsById);
+            }
+            if ($name === '') {
+                continue;
+            }
+            $items[] = [
+                'name' => $name,
+                'amount' => (float) ($row['line_total'] ?? $row['total'] ?? $row['sub_total'] ?? $row['amount'] ?? $row['revenue'] ?? 0),
+            ];
+        }
+
+        return $items;
+    }
+
+    private function itemNameFromId($id, $itemsById): string
+    {
+        if (!is_numeric($id) || (int) $id <= 0) {
+            return '';
+        }
+        $item = $itemsById->get((int) $id);
+        return trim((string) ($item?->name ?? $item?->product ?? $item?->title ?? ''));
     }
 }
 

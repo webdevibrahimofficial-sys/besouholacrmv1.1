@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -12,12 +12,28 @@ import { api } from '../utils/api'
 import BackButton from '../components/BackButton'
 import { PieChart } from '../shared/components/PieChart'
 import SearchableSelect from '../components/SearchableSelect'
+import ListHoverPopover from '../components/ListHoverPopover'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
-import { Filter, User, Users, Target, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import { Filter, User, Users, Target, Tag, Briefcase, Package, Calendar, Trophy, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
+import {
+  bucketDateRange,
+  effectiveDateRange,
+  getPeriodBounds,
+  isDateInRange,
+  matchCommissionRate,
+  periodsCoveredInYear,
+  rangesOverlap,
+  resolvePeriodTarget,
+  resolveRevenueProjectOrItem,
+  extractRevenueDealItems,
+  resolveTargetForYear,
+  resolveTiersForYear,
+  timeBucketIndex,
+} from '../utils/targetRevenueReport'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
@@ -52,11 +68,18 @@ export default function RevenueReport() {
   const [usersList, setUsersList] = useState([])
   const [targetHistory, setTargetHistory] = useState([])
   const [targetYears, setTargetYears] = useState([new Date().getFullYear()])
+  const [tenantCreatedYear, setTenantCreatedYear] = useState(new Date().getFullYear())
+  const [reportCurrentYear, setReportCurrentYear] = useState(new Date().getFullYear())
   const [sourcesCatalog, setSourcesCatalog] = useState([])
   const [projectOptions, setProjectOptions] = useState(['all'])
   const [records, setRecords] = useState([])
+  const [itemsCatalog, setItemsCatalog] = useState([])
   const projectLabel = companyType === 'general' ? t('Item') : t('Project')
   const revenueByProjectLabel = companyType === 'general' ? t('Revenue by Item') : t('Revenue by Project')
+  const ProjectIcon = companyType === 'general' ? Package : Briefcase
+  const formatMoney = (value) => `${Number(value || 0).toLocaleString()} EGP`
+  const reportNow = useMemo(() => new Date(), [])
+  const currentYear = Number(reportCurrentYear || reportNow.getFullYear())
 
   const targetHistoryByUser = useMemo(() => {
     const map = new Map()
@@ -69,45 +92,42 @@ export default function RevenueReport() {
     return map
   }, [targetHistory])
 
-  const resolveTargetValue = (user, type = targetTypeFilter) => {
-    const uid = String(user?.id || user?.salespersonId || '')
-    const rows = uid ? (targetHistoryByUser.get(uid) || []) : []
-    const key = type === 'semi_annual' ? 'semi_annual_target' : `${type}_target`
-
-    if (yearFilter === 'all') {
-      const sum = rows.reduce((total, row) => total + (Number(row[key] || 0) || 0), 0)
-      if (sum > 0) return sum
-    } else {
-      const row = rows.find(item => String(item.year) === String(yearFilter))
-      if (row) return Number(row[key] || 0) || 0
-    }
-
-    if (type === 'yearly') return Number(user?.yearly_target || 0) || 0
-    if (type === 'quarterly') return Number(user?.quarterly_target || 0) || 0
-    if (type === 'semi_annual') return (Number(user?.yearly_target || 0) || 0) / 2
-    return Number(user?.monthly_target || 0) || 0
-  }
-
-  const resolveCommissionRate = (user, achievementPercent) => {
-    const uid = String(user?.id || user?.salespersonId || '')
-    const rows = uid ? (targetHistoryByUser.get(uid) || []) : []
-    const selectedRows = yearFilter === 'all'
-      ? rows
-      : rows.filter(row => String(row.year) === String(yearFilter))
-    const tiers = selectedRows
-      .flatMap(row => Array.isArray(row.commission_tiers) ? row.commission_tiers : [])
-      .sort((a, b) => Number(a.from_percentage || 0) - Number(b.from_percentage || 0))
-
-    const matched = tiers.find(tier => {
-      const from = Number(tier.from_percentage || 0)
-      const to = tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === ''
-        ? Infinity
-        : Number(tier.to_percentage)
-      return achievementPercent >= from && achievementPercent <= to
+  const periodRange = useMemo(() => {
+    const period = getPeriodBounds({
+      yearFilter,
+      targetType: targetTypeFilter,
+      now: reportNow,
+      tenantCreatedYear,
     })
+    return effectiveDateRange({
+      period,
+      dateFrom: dateFromFilter,
+      dateTo: dateToFilter,
+    })
+  }, [yearFilter, targetTypeFilter, reportNow, tenantCreatedYear, dateFromFilter, dateToFilter])
 
-    return Number(matched?.commission_percentage ?? user?.commission_percentage ?? 0) || 0
-  }
+  const getUserRows = useCallback((user) => {
+    const uid = String(user?.id || user?.salespersonId || '')
+    return uid ? (targetHistoryByUser.get(uid) || []) : []
+  }, [targetHistoryByUser])
+
+  const getUserTarget = useCallback((user, type = targetTypeFilter, selectedYear = yearFilter) => (
+    resolvePeriodTarget({
+      user,
+      rows: getUserRows(user),
+      yearFilter: selectedYear,
+      type,
+      currentYear,
+      tenantCreatedYear,
+      now: reportNow,
+    })
+  ), [getUserRows, targetTypeFilter, yearFilter, currentYear, tenantCreatedYear, reportNow])
+
+  const getUserYearScopedTarget = useCallback((user, year, type = targetTypeFilter) => {
+    const unit = resolveTargetForYear(user, getUserRows(user), year, type, currentYear)
+    if (yearFilter !== 'all') return unit
+    return unit * periodsCoveredInYear(year, type, { now: reportNow, tenantCreatedYear })
+  }, [getUserRows, targetTypeFilter, yearFilter, currentYear, reportNow, tenantCreatedYear])
 
   const sourceLabelMap = useMemo(() => {
     const map = new Map()
@@ -125,10 +145,37 @@ export default function RevenueReport() {
     return sourceLabelMap.get(key) || key
   }
 
+  const itemNameById = useMemo(() => {
+    const map = new Map()
+    ;(itemsCatalog || []).forEach((item) => {
+      const name = String(item?.name || item?.product || item?.title || '').trim()
+      if (item?.id == null || !name) return
+      map.set(String(item.id), name)
+    })
+    return map
+  }, [itemsCatalog])
+
+  const resolvedRecords = useMemo(() => (
+    records.map((row) => {
+      const dealItems = extractRevenueDealItems(row, { itemsById: itemNameById })
+      return {
+        ...row,
+        dealItems,
+        project: resolveRevenueProjectOrItem(row.lead, {
+          companyType,
+          itemsById: itemNameById,
+          dealItems,
+          action: row.action,
+          revenueItemName: row.item_name,
+        }) || row.project || '',
+      }
+    })
+  ), [records, companyType, itemNameById])
+
   const enrichedRecords = useMemo(() => {
     // Map to store records by user ID
     const revenueMap = new Map()
-    records.forEach(r => {
+    resolvedRecords.forEach(r => {
         const uid = r.salespersonId ? String(r.salespersonId) : 'unknown'
         if (!revenueMap.has(uid)) revenueMap.set(uid, [])
         revenueMap.get(uid).push(r)
@@ -145,7 +192,7 @@ export default function RevenueReport() {
         // Check if this is a sales/manager/relevant user
         const role = String(u.role || '').toLowerCase()
         const isSales = role.includes('sales') || role.includes('agent') || role.includes('broker')
-        const resolvedTarget = resolveTargetValue(u)
+        const resolvedTarget = getUserTarget(u)
         const hasTarget = resolvedTarget > 0
         const hasRevenue = revenueMap.has(uid)
 
@@ -154,15 +201,19 @@ export default function RevenueReport() {
              const userRevenues = revenueMap.get(uid) || []
              if (userRevenues.length > 0) {
                  userRevenues.forEach(r => {
+                     const rowYear = r.date ? r.date.slice(0, 4) : String(currentYear)
+                     const rowTarget = yearFilter === 'all' && r.date
+                       ? getUserYearScopedTarget(u, rowYear)
+                       : resolvedTarget
                      allRows.push({
                          ...r,
                          salesperson: u.name,
                          manager: u.manager ? u.manager.name : (r.manager || ''),
-                         target: resolvedTarget,
-                        monthlyTarget: resolveTargetValue(u, 'monthly'),
-                        quarterlyTarget: resolveTargetValue(u, 'quarterly'),
-                        semiAnnualTarget: resolveTargetValue(u, 'semi_annual'),
-                        yearlyTarget: resolveTargetValue(u, 'yearly')
+                         target: rowTarget,
+                        monthlyTarget: getUserTarget(u, 'monthly'),
+                        quarterlyTarget: getUserTarget(u, 'quarterly'),
+                        semiAnnualTarget: getUserTarget(u, 'semi_annual'),
+                        yearlyTarget: getUserTarget(u, 'yearly')
                      })
                  })
              } else {
@@ -178,10 +229,10 @@ export default function RevenueReport() {
                     status: 'No Sales',
                     date: '', // Empty date
                     target: resolvedTarget,
-                    monthlyTarget: resolveTargetValue(u, 'monthly'),
-                    quarterlyTarget: resolveTargetValue(u, 'quarterly'),
-                    semiAnnualTarget: resolveTargetValue(u, 'semi_annual'),
-                    yearlyTarget: resolveTargetValue(u, 'yearly'),
+                    monthlyTarget: getUserTarget(u, 'monthly'),
+                    quarterlyTarget: getUserTarget(u, 'quarterly'),
+                    semiAnnualTarget: getUserTarget(u, 'semi_annual'),
+                    yearlyTarget: getUserTarget(u, 'yearly'),
                     revenue: 0
                  })
              }
@@ -189,7 +240,7 @@ export default function RevenueReport() {
     })
 
     // 2. Process orphaned records (users not in usersList)
-    records.forEach(r => {
+    resolvedRecords.forEach(r => {
         const uid = r.salespersonId ? String(r.salespersonId) : 'unknown'
         if (!processedUserIds.has(uid) && uid !== 'unknown') {
             allRows.push({
@@ -203,7 +254,7 @@ export default function RevenueReport() {
     })
 
     return allRows
-  }, [records, usersList, targetHistoryByUser, targetTypeFilter, yearFilter])
+  }, [resolvedRecords, usersList, getUserTarget, getUserYearScopedTarget, yearFilter, currentYear])
 
   useEffect(() => {
     const fetchRevenueRecords = async () => {
@@ -217,7 +268,12 @@ export default function RevenueReport() {
           const salesperson = user.name || lead.sales_person || lead.salesperson || ''
           const manager = user.manager ? user.manager.name : '' // Ideally we need manager info. User object might have it if eager loaded or we map from usersList
           const source = r.source || lead.source || ''
-          const project = lead.project || ''
+          const project = resolveRevenueProjectOrItem(lead, {
+            companyType,
+            action: r.action,
+            dealItems: r.deal_items,
+            revenueItemName: r.item_name,
+          })
           const dealType = 'Closed Won' // Revenue implies it's closed/won
           const status = 'Closed Won'
 
@@ -239,6 +295,10 @@ export default function RevenueReport() {
             manager,
             source,
             project,
+            lead,
+            action: r.action || null,
+            item_name: r.item_name || '',
+            deal_items: Array.isArray(r.deal_items) ? r.deal_items : [],
             dealType,
             status,
             date,
@@ -256,7 +316,7 @@ export default function RevenueReport() {
     }
 
     fetchRevenueRecords()
-  }, [])
+  }, [companyType])
 
   useEffect(() => {
     const handleClickOutside = event => {
@@ -298,6 +358,12 @@ export default function RevenueReport() {
           ? res.data.years
           : [new Date().getFullYear()]
         setTargetYears(years)
+        if (res.data?.tenant_created_year) {
+          setTenantCreatedYear(Number(res.data.tenant_created_year))
+        }
+        if (res.data?.current_year) {
+          setReportCurrentYear(Number(res.data.current_year))
+        }
         if (!yearFilter && res.data?.current_year) {
           setYearFilter(String(res.data.current_year))
         }
@@ -330,12 +396,15 @@ export default function RevenueReport() {
         if (companyType === 'real estate') {
           const res = await api.get('/api/projects')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          setItemsCatalog([])
           names = data.map(p => p.name || p.name_ar || p.title).filter(Boolean)
         } else if (companyType === 'general') {
           const res = await api.get('/api/items?all=1')
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+          setItemsCatalog(data)
           names = data.map(it => it.name || it.product || it.title).filter(Boolean)
         } else {
+          setItemsCatalog([])
           const set = new Set(records.map(r => r.project).filter(Boolean))
           names = Array.from(set)
         }
@@ -343,6 +412,7 @@ export default function RevenueReport() {
         setProjectOptions(['all', ...unique])
       } catch (e) {
         console.error('Failed to fetch projects/items for revenue report', e)
+        setItemsCatalog([])
         const set = new Set(records.map(r => r.project).filter(Boolean))
         setProjectOptions(['all', ...Array.from(set)])
       }
@@ -444,48 +514,45 @@ export default function RevenueReport() {
       const byProject = projectFilter === 'all' || r.project === projectFilter
       const byDealType = dealTypeFilter === 'all' || r.dealType === dealTypeFilter
       const byStatus = statusFilter === 'all' || r.status === statusFilter
-      const byYear = yearFilter === 'all' || !r.date || String(r.date).slice(0, 4) === String(yearFilter)
+      const byPeriod = !r.date || isDateInRange(r.date, periodRange)
 
-      const fromDate = dateFromFilter ? new Date(dateFromFilter) : null
-      const toDate = dateToFilter ? new Date(dateToFilter) : null
-      
-      let byFrom = true
-      let byTo = true
-
-      if (r.date) {
-          const currentDate = new Date(r.date)
-          byFrom = !fromDate || currentDate >= fromDate
-          byTo = !toDate || currentDate <= toDate
-      } else {
-          // If date is missing (dummy row), we generally include it unless logic dictates otherwise.
-          // For "Targets & Revenue", we want to see the user even if they have no sales in this period.
-          // So we consider it a pass for date filters.
-          byFrom = true
-          byTo = true
-      }
-
-      return bySales && byManager && bySource && byProject && byDealType && byStatus && byYear && byFrom && byTo
+      return bySales && byManager && bySource && byProject && byDealType && byStatus && byPeriod
     })
 
-    const aggregateByUser = new Map()
+    const userKeyOf = (row) => (row.salespersonId ? String(row.salespersonId) : (row.salesperson || 'unknown'))
+    const yearKeyOf = (row) => {
+      if (row.date) return row.date.slice(0, 4)
+      return yearFilter === 'all' ? String(currentYear) : String(yearFilter)
+    }
+
+    const aggregateByUserYear = new Map()
     rows.forEach(row => {
-      const key = row.salespersonId ? String(row.salespersonId) : (row.salesperson || 'unknown')
-      if (!aggregateByUser.has(key)) {
-        aggregateByUser.set(key, { revenue: 0, target: row.target || 0 })
+      const key = `${userKeyOf(row)}:${yearKeyOf(row)}`
+      if (!aggregateByUserYear.has(key)) {
+        const user = usersList.find(u => String(u.id) === String(row.salespersonId))
+        const target = user
+          ? (yearFilter === 'all' && row.date
+              ? getUserYearScopedTarget(user, yearKeyOf(row))
+              : getUserTarget(user))
+          : (row.target || 0)
+        aggregateByUserYear.set(key, { revenue: 0, target })
       }
-      const current = aggregateByUser.get(key)
+      const current = aggregateByUserYear.get(key)
       current.revenue += row.revenue || 0
-      if (!current.target && row.target) current.target = row.target
     })
 
     return rows.map(row => {
-      const key = row.salespersonId ? String(row.salespersonId) : (row.salesperson || 'unknown')
-      const aggregate = aggregateByUser.get(key) || { revenue: row.revenue || 0, target: row.target || 0 }
+      const yearKey = yearKeyOf(row)
+      const aggregate = aggregateByUserYear.get(`${userKeyOf(row)}:${yearKey}`) || { revenue: row.revenue || 0, target: row.target || 0 }
       const aggregateAchievement = aggregate.target ? Math.round((aggregate.revenue / aggregate.target) * 100) : 0
       const user = usersList.find(u => String(u.id) === String(row.salespersonId)) || row
-      const commissionRate = resolveCommissionRate(user, aggregateAchievement)
+      const commissionRate = matchCommissionRate(
+        resolveTiersForYear(user, getUserRows(user), yearKey, currentYear),
+        aggregateAchievement
+      )
       return {
         ...row,
+        target: aggregate.target || row.target || 0,
         aggregateAchievement,
         commissionRate,
         commission: ((row.revenue || 0) * commissionRate) / 100,
@@ -501,10 +568,126 @@ export default function RevenueReport() {
     dealTypeFilter,
     statusFilter,
     yearFilter,
-    targetHistoryByUser,
-    dateFromFilter,
-    dateToFilter
+    currentYear,
+    periodRange,
+    getUserTarget,
+    getUserYearScopedTarget,
+    getUserRows,
   ])
+
+  const uniqueDisplay = (values) => {
+    const unique = [...new Set((values || [])
+      .map(value => String(value || '').trim())
+      .filter(value => value && value !== '-'))]
+    if (!unique.length) return '-'
+    if (unique.length === 1) return unique[0]
+    return unique.join(', ')
+  }
+
+  const dateDisplay = (dates) => {
+    const valid = (dates || []).filter(Boolean).sort()
+    if (!valid.length) return ''
+    if (valid[0] === valid[valid.length - 1]) return valid[0]
+    return `${valid[0]} → ${valid[valid.length - 1]}`
+  }
+
+  const overviewRows = useMemo(() => {
+    const map = new Map()
+    filtered.forEach(row => {
+      const key = row.salespersonId ? String(row.salespersonId) : (row.salesperson || 'unknown')
+      if (!map.has(key)) {
+        map.set(key, {
+          id: `user-${key}`,
+          salespersonId: row.salespersonId,
+          salesperson: row.salesperson,
+          manager: row.manager || '',
+          projects: new Map(),
+          sources: new Map(),
+          dealTypes: [],
+          dates: [],
+          target: row.target || 0,
+          revenue: 0,
+          commission: 0,
+        })
+      }
+      const item = map.get(key)
+      item.revenue += row.revenue || 0
+      item.commission += row.commission || 0
+      const bumpNamed = (collection, name, amount) => {
+        const named = String(name || '').trim()
+        if (!named || named === '-' || !(Number(amount) > 0)) return
+        const current = collection.get(named) || { label: named, revenue: 0 }
+        current.revenue += Number(amount || 0) || 0
+        collection.set(named, current)
+      }
+      if (row.date && Number(row.revenue) > 0) {
+        const namedItems = (Array.isArray(row.dealItems) ? row.dealItems : [])
+          .map((entry) => ({
+            label: String(entry?.label || entry?.name || '').trim(),
+            revenue: Number(entry?.revenue ?? entry?.amount ?? 0) || 0,
+          }))
+          .filter((entry) => entry.label && entry.label !== '-')
+        if (namedItems.length) {
+          const hasAmounts = namedItems.some((entry) => entry.revenue > 0)
+          namedItems.forEach((entry) => {
+            bumpNamed(
+              item.projects,
+              entry.label,
+              hasAmounts ? entry.revenue : (namedItems.length === 1 ? row.revenue : 0)
+            )
+          })
+        } else {
+          bumpNamed(item.projects, row.project, row.revenue)
+        }
+        bumpNamed(item.sources, row.source, row.revenue)
+      }
+      if (row.dealType) item.dealTypes.push(row.dealType)
+      if (row.date) item.dates.push(row.date)
+      if (!item.manager && row.manager) item.manager = row.manager
+    })
+
+    return Array.from(map.values()).map(item => {
+      const user = usersList.find(u => String(u.id) === String(item.salespersonId))
+      const target = user ? getUserTarget(user) : (item.target || 0)
+      const aggregateAchievement = target ? Math.round((item.revenue / target) * 100) : 0
+      const yearKey = yearFilter === 'all' ? String(currentYear) : String(yearFilter)
+      const matchedRate = matchCommissionRate(
+        resolveTiersForYear(user || item, getUserRows(user || item), yearKey, currentYear),
+        aggregateAchievement
+      )
+      const commission = yearFilter === 'all'
+        ? (item.commission || 0)
+        : ((item.revenue || 0) * matchedRate) / 100
+      const commissionRate = yearFilter === 'all' && item.revenue
+        ? Number((((item.commission || 0) / item.revenue) * 100).toFixed(2))
+        : matchedRate
+      const hasRevenue = (item.revenue || 0) > 0
+      const projectItems = Array.from(item.projects.values())
+        .sort((a, b) => (b.revenue - a.revenue) || String(a.label).localeCompare(String(b.label)))
+      const sourceItems = Array.from(item.sources.values())
+        .map(entry => ({ ...entry, label: localizeSourceLabel(entry.label) }))
+        .sort((a, b) => (b.revenue - a.revenue) || String(a.label).localeCompare(String(b.label)))
+
+      return {
+        id: item.id,
+        salespersonId: item.salespersonId,
+        salesperson: item.salesperson,
+        manager: item.manager,
+        project: uniqueDisplay(projectItems.map(entry => entry.label)),
+        source: uniqueDisplay(sourceItems.map(entry => entry.label)),
+        projectItems,
+        sourceItems,
+        dealType: hasRevenue ? uniqueDisplay(item.dealTypes) : '-',
+        status: hasRevenue ? 'Closed Won' : 'No Sales',
+        date: dateDisplay(item.dates),
+        target,
+        revenue: item.revenue || 0,
+        commissionRate,
+        commission,
+        aggregateAchievement,
+      }
+    }).sort((a, b) => String(a.salesperson || '').localeCompare(String(b.salesperson || '')))
+  }, [filtered, usersList, getUserTarget, getUserRows, yearFilter, currentYear, localizeSourceLabel])
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
@@ -513,35 +696,29 @@ export default function RevenueReport() {
     setCurrentPage(1)
   }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, dealTypeFilter, statusFilter, yearFilter, targetTypeFilter, dateFromFilter, dateToFilter])
 
-  const totalRecords = filtered.length
+  const totalRecords = overviewRows.length
   const pageCount = Math.ceil(totalRecords / entriesPerPage)
-  const paginatedData = filtered.slice(
+  const paginatedData = overviewRows.slice(
     (currentPage - 1) * entriesPerPage,
     currentPage * entriesPerPage
   )
 
-  const totalTarget = useMemo(() => {
-    const uniqueUserIds = new Set()
-    return filtered.reduce((sum, r) => {
-      // Only add target once per user
-      if (r.salespersonId && !uniqueUserIds.has(r.salespersonId)) {
-        uniqueUserIds.add(r.salespersonId)
-        
-        return sum + (r.target || 0)
-      }
-      // If it's an unknown user (no ID) but has target (unlikely as per logic), handle it?
-      // Our logic sets target=0 for unknown users, so safe to ignore.
-      return sum
-    }, 0)
-  }, [filtered])
+  const totalTarget = useMemo(
+    () => overviewRows.reduce((sum, r) => sum + (r.target || 0), 0),
+    [overviewRows]
+  )
 
-  const totalRevenue = filtered.reduce((sum, r) => sum + (r.revenue || 0), 0)
-  const totalCommission = filtered.reduce((sum, r) => sum + (r.commission || 0), 0)
+  const totalRevenue = overviewRows.reduce((sum, r) => sum + (r.revenue || 0), 0)
+  const totalCommission = overviewRows.reduce((sum, r) => sum + (r.commission || 0), 0)
   const achievementPercent = totalTarget ? Math.round((totalRevenue / totalTarget) * 100) : 0
 
   const [chartMode, setChartMode] = useState('salesperson')
   const [salesGrouping, setSalesGrouping] = useState('salesperson')
   const [timeGrouping, setTimeGrouping] = useState('monthly')
+
+  useEffect(() => {
+    setTimeGrouping(targetTypeFilter)
+  }, [targetTypeFilter])
 
   const barData = useMemo(() => {
     if (chartMode === 'salesperson') {
@@ -560,7 +737,7 @@ export default function RevenueReport() {
               const role = String(roleName).toLowerCase()
               const isSales = role.includes('sales person') || role.includes('salesperson') || role.includes('agent')
               
-              const userTarget = resolveTargetValue(u)
+              const userTarget = getUserTarget(u)
               if (isSales || userTarget > 0) {
                   const key = String(u.id)
                   map.set(key, {
@@ -583,7 +760,7 @@ export default function RevenueReport() {
                   if (!map.has(key)) {
                       map.set(key, {
                           label: key,
-                          target: resolveTargetValue(u),
+                          target: getUserTarget(u),
                           revenue: 0
                       })
                   }
@@ -608,7 +785,7 @@ export default function RevenueReport() {
                   // Instruction says "display total aggregate targets for managers". 
                   // If we don't have the manager object, we can only sum children.
                   const current = map.get(key)
-                  current.target += resolveTargetValue(u)
+                  current.target += getUserTarget(u)
               }
           })
       }
@@ -661,21 +838,47 @@ export default function RevenueReport() {
       }
     }
 
+    const chartYears = yearFilter === 'all'
+      ? (targetYears.length ? [...targetYears].map(Number).sort((a, b) => a - b) : [currentYear])
+      : [Number(yearFilter)]
+
+    const addUniqueBucketTarget = (targets, seen, bucket, userId, year, amount) => {
+      if (!amount) return
+      const key = `${bucket}:${userId}:${year}`
+      if (seen.has(key)) return
+      seen.add(key)
+      targets[bucket] += amount
+    }
+
+    const fillFixedBuckets = (bucketCount) => {
+      const targets = new Array(bucketCount).fill(0)
+      const revenues = new Array(bucketCount).fill(0)
+      const seen = new Set()
+
+      usersList.forEach(u => {
+        chartYears.forEach(year => {
+          const unit = resolveTargetForYear(u, getUserRows(u), year, timeGrouping, currentYear)
+          if (!unit) return
+          for (let index = 0; index < bucketCount; index += 1) {
+            if (!rangesOverlap(bucketDateRange(year, timeGrouping, index), periodRange)) continue
+            addUniqueBucketTarget(targets, seen, index, u.id, year, unit)
+          }
+        })
+      })
+
+      filtered.forEach(r => {
+        const index = timeBucketIndex(r.date, timeGrouping)
+        if (index >= 0 && index < bucketCount) revenues[index] += r.revenue || 0
+      })
+
+      return { targets, revenues }
+    }
+
     if (timeGrouping === 'monthly') {
       const monthLabels = isRTL 
         ? ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
         : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-      const targets = new Array(12).fill(0)
-      const revenues = new Array(12).fill(0)
-
-      filtered.forEach(r => {
-        if (!r.date) return
-        const monthIndex = Number.parseInt(r.date.substring(5, 7), 10) - 1
-        if (monthIndex >= 0 && monthIndex < 12) {
-          targets[monthIndex] += r.target || 0
-          revenues[monthIndex] += r.revenue || 0
-        }
-      })
+      const { targets, revenues } = fillFixedBuckets(12)
 
       return {
         labels: monthLabels,
@@ -698,17 +901,7 @@ export default function RevenueReport() {
       const labels = isRTL 
         ? ['الربع الأول', 'الربع الثاني', 'الربع الثالث', 'الربع الرابع']
         : ['Q1', 'Q2', 'Q3', 'Q4']
-      const targets = new Array(4).fill(0)
-      const revenues = new Array(4).fill(0)
-
-      filtered.forEach(r => {
-        if (!r.date) return
-        const monthIndex = Number.parseInt(r.date.substring(5, 7), 10) - 1
-        if (monthIndex < 0 || monthIndex > 11) return
-        const quarterIndex = Math.floor(monthIndex / 3)
-        targets[quarterIndex] += r.target || 0
-        revenues[quarterIndex] += r.revenue || 0
-      })
+      const { targets, revenues } = fillFixedBuckets(4)
 
       return {
         labels,
@@ -731,17 +924,7 @@ export default function RevenueReport() {
       const labels = isRTL 
         ? ['النصف الأول', 'النصف الثاني']
         : ['H1', 'H2']
-      const targets = new Array(2).fill(0)
-      const revenues = new Array(2).fill(0)
-
-      filtered.forEach(r => {
-        if (!r.date) return
-        const monthIndex = Number.parseInt(r.date.substring(5, 7), 10) - 1
-        if (monthIndex < 0 || monthIndex > 11) return
-        const halfIndex = monthIndex < 6 ? 0 : 1
-        targets[halfIndex] += r.target || 0
-        revenues[halfIndex] += r.revenue || 0
-      })
+      const { targets, revenues } = fillFixedBuckets(2)
 
       return {
         labels,
@@ -761,15 +944,27 @@ export default function RevenueReport() {
     }
 
     const map = new Map()
+    const seenYears = new Set()
+    chartYears.forEach(year => {
+      const yearKey = String(year)
+      map.set(yearKey, { target: 0, revenue: 0 })
+      usersList.forEach(u => {
+        const unit = resolveTargetForYear(u, getUserRows(u), year, 'yearly', currentYear)
+        if (!unit) return
+        if (!rangesOverlap(bucketDateRange(year, 'yearly', 0), periodRange)) return
+        const seenKey = `${yearKey}:${u.id}`
+        if (seenYears.has(seenKey)) return
+        seenYears.add(seenKey)
+        map.get(yearKey).target += unit
+      })
+    })
     filtered.forEach(r => {
       if (!r.date) return
       const yearKey = r.date.substring(0, 4)
       if (!map.has(yearKey)) {
         map.set(yearKey, { target: 0, revenue: 0 })
       }
-      const current = map.get(yearKey)
-      current.target += r.target || 0
-      current.revenue += r.revenue || 0
+      map.get(yearKey).revenue += r.revenue || 0
     })
     const labels = Array.from(map.keys()).sort()
     const targets = labels.map(key => map.get(key).target)
@@ -789,7 +984,7 @@ export default function RevenueReport() {
         }
       ]
     }
-  }, [filtered, isRTL, chartMode, salesGrouping, timeGrouping, usersList, managerFilter, targetHistoryByUser, targetTypeFilter, yearFilter])
+  }, [filtered, isRTL, chartMode, salesGrouping, timeGrouping, usersList, managerFilter, getUserTarget, getUserRows, currentYear, targetYears, yearFilter, periodRange])
 
   const barOptions = useMemo(() => {
     const xTitle =
@@ -893,30 +1088,13 @@ export default function RevenueReport() {
     const map = new Map()
     const processedUsers = new Set()
 
-    // Use enrichedRecords (all records) instead of filtered to show best in tenant
     enrichedRecords.forEach(r => {
-      // Apply ONLY date filter
-      let byDate = true
-      if (r.date) {
-          const currentDate = new Date(r.date)
-          const fromDate = dateFromFilter ? new Date(dateFromFilter) : null
-          const toDate = dateToFilter ? new Date(dateToFilter) : null
-          
-          if (fromDate && currentDate < fromDate) byDate = false
-          if (toDate && currentDate > toDate) byDate = false
-      } else {
-          // If no date (dummy row), usually we include it or not. 
-          // For best achiever, dummy rows have 0 revenue anyway.
-      }
-      
-      if (!byDate) return
-      if (yearFilter !== 'all' && r.date && String(r.date).slice(0, 4) !== String(yearFilter)) return
+      if (r.date && !isDateInRange(r.date, periodRange)) return
 
       const key = r.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
       const uid = r.salespersonId ? String(r.salespersonId) : key
 
       if (!map.has(key)) {
-        // Find user to get role
         const user = usersList.find(u => String(u.id) === uid) || usersList.find(u => u.name === key)
         const role = user ? (Array.isArray(user.roles) ? user.roles[0]?.name : user.role) : ''
         
@@ -925,11 +1103,10 @@ export default function RevenueReport() {
       const item = map.get(key)
       item.revenue += r.revenue || 0
 
-      // Only add target once per user
       if (!processedUsers.has(uid)) {
           processedUsers.add(uid)
-          
-          item.target = r.target || 0
+          const user = usersList.find(u => String(u.id) === uid)
+          item.target = user ? getUserTarget(user) : (r.target || 0)
       }
     })
     
@@ -941,11 +1118,11 @@ export default function RevenueReport() {
       if (b.achievement !== a.achievement) return b.achievement - a.achievement
       return b.revenue - a.revenue
     }).slice(0, 5)
-  }, [enrichedRecords, isRTL, dateFromFilter, dateToFilter, yearFilter])
+  }, [enrichedRecords, isRTL, periodRange, usersList, getUserTarget])
 
   const handleExportExcel = () => {
     if (!canExport) return
-    const rows = filtered.map(r => ({
+    const rows = overviewRows.map(r => ({
       [isRTL ? 'موظف المبيعات' : 'Sales Person']: r.salesperson,
       [isRTL ? 'المدير' : 'Manager']: r.manager,
       [isRTL ? 'المصدر' : 'Source']: localizeSourceLabel(r.source),
@@ -955,6 +1132,7 @@ export default function RevenueReport() {
       [isRTL ? 'التاريخ' : 'Date']: r.date,
       [isRTL ? 'الهدف' : 'Target']: r.target,
       [isRTL ? 'الإيرادات' : 'Revenue']: r.revenue,
+      [isRTL ? 'نسبة العمولة' : 'Commission %']: r.commissionRate,
       [isRTL ? 'العمولة' : 'Commission']: r.commission
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -983,11 +1161,12 @@ export default function RevenueReport() {
       isRTL ? 'التاريخ' : 'Date',
       isRTL ? 'الهدف' : 'Target',
       isRTL ? 'الإيرادات' : 'Revenue',
+      isRTL ? 'نسبة العمولة' : 'Commission %',
       isRTL ? 'العمولة' : 'Commission'
     ]
     const tableRows = []
 
-    filtered.forEach(r => {
+    overviewRows.forEach(r => {
       const rowData = [
         r.salesperson,
         r.manager,
@@ -998,6 +1177,7 @@ export default function RevenueReport() {
         r.date,
         r.target,
         r.revenue,
+        r.commissionRate,
         r.commission
       ]
       tableRows.push(rowData)
@@ -1036,7 +1216,7 @@ export default function RevenueReport() {
       return
     }
 
-    if (!canExport || !filtered.length || autoExportDoneRef.current) return
+    if (!canExport || !overviewRows.length || autoExportDoneRef.current) return
 
     autoExportDoneRef.current = true
 
@@ -1052,7 +1232,7 @@ export default function RevenueReport() {
     params.delete('file_name')
     const nextSearch = params.toString()
     navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
-  }, [canExport, filtered, location.pathname, location.search, navigate])
+  }, [canExport, overviewRows, location.pathname, location.search, navigate])
 
   const clearFilters = () => {
     setSalesPersonFilter('all')
@@ -1658,11 +1838,27 @@ export default function RevenueReport() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex flex-col gap-1">
                     <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'المشروع' : projectLabel}</span>
-                    <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{row.project}</span>
+                    <ListHoverPopover
+                      id={`${row.id}-item-mobile`}
+                      icon={ProjectIcon}
+                      items={row.projectItems}
+                      title={projectLabel}
+                      isRTL={isRTL}
+                      formatValue={formatMoney}
+                      emptyTitle={isRTL ? 'لا توجد بيانات' : 'No data'}
+                    />
                   </div>
                   <div className="flex flex-col gap-1">
                     <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'المصدر' : 'Source'}</span>
-                    <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{localizeSourceLabel(row.source)}</span>
+                    <ListHoverPopover
+                      id={`${row.id}-source-mobile`}
+                      icon={Tag}
+                      items={row.sourceItems}
+                      title={isRTL ? 'المصدر' : 'Source'}
+                      isRTL={isRTL}
+                      formatValue={formatMoney}
+                      emptyTitle={isRTL ? 'لا توجد بيانات' : 'No data'}
+                    />
                   </div>
                   <div className="flex flex-col gap-1">
                     <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نوع الصفقة' : 'Deal Type'}</span>
@@ -1686,7 +1882,7 @@ export default function RevenueReport() {
                   </div>
                   <div className="flex justify-between items-center">
                       <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'العمولة' : 'Commission'}</span>
-                      <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{(row.commission || 0).toLocaleString()} EGP</span>
+                      <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{(row.commission || 0).toLocaleString()} EGP {(row.commissionRate || 0) ? `(${row.commissionRate}%)` : ''}</span>
                   </div>
                   
                   {/* Progress Bar */}
@@ -1727,6 +1923,7 @@ export default function RevenueReport() {
                 <th className="px-4 py-3 font-medium">{isRTL ? 'التاريخ' : 'Date'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الهدف' : 'Target'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الإيرادات' : 'Revenue'}</th>
+                <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة العمولة' : 'Commission %'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'العمولة' : 'Commission'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة الإنجاز' : 'Achievement %'}</th>
               </tr>
@@ -1753,8 +1950,28 @@ export default function RevenueReport() {
                     <tr key={row.id} className="hover:bg-white/30 dark:hover:bg-gray-900/40 transition-colors">
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.salesperson}</td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.manager}</td>
-                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.project}</td>
-                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{localizeSourceLabel(row.source)}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
+                        <ListHoverPopover
+                          id={`${row.id}-item`}
+                          icon={ProjectIcon}
+                          items={row.projectItems}
+                          title={projectLabel}
+                          isRTL={isRTL}
+                          formatValue={formatMoney}
+                          emptyTitle={isRTL ? 'لا توجد بيانات' : 'No data'}
+                        />
+                      </td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
+                        <ListHoverPopover
+                          id={`${row.id}-source`}
+                          icon={Tag}
+                          items={row.sourceItems}
+                          title={isRTL ? 'المصدر' : 'Source'}
+                          isRTL={isRTL}
+                          formatValue={formatMoney}
+                          emptyTitle={isRTL ? 'لا توجد بيانات' : 'No data'}
+                        />
+                      </td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{dealTypeLabel}</td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{statusLabel}</td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.date}</td>
@@ -1765,6 +1982,9 @@ export default function RevenueReport() {
                         {row.revenue.toLocaleString()} EGP
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
+                        {(row.commissionRate || 0)}%
+                      </td>
+                      <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
                         {(row.commission || 0).toLocaleString()} EGP
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
@@ -1773,10 +1993,10 @@ export default function RevenueReport() {
                     </tr>
                 )
               })}
-              {filtered.length === 0 && (
+              {overviewRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="px-4 py-6 text-center text-xs text-[var(--muted-text)]"
                   >
                     {isRTL ? 'لا توجد سجلات تطابق الفلاتر الحالية' : 'No records match current filters'}

@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { PERM_LABELS_AR, getPermissionDisplayLabel } from './constants'
 import { api } from '@utils/api'
+import ListHoverPopover from '@components/ListHoverPopover'
+import { Percent } from 'lucide-react'
 import { FaTimes, FaIdCard, FaUser, FaTag, FaPhone, FaEnvelope, FaBuilding, FaLayerGroup, FaMapMarkerAlt, FaChartLine, FaBell, FaShieldAlt } from 'react-icons/fa';
 
 const UserPreviewModal = ({ isOpen, onClose, user }) => {
@@ -427,27 +429,70 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
               <div>
                 <label className={labelClass}>{isRTL ? 'تاريخ التارجت' : 'Target history'}</label>
                 {targetHistory.length > 0 ? (
-                  <div className={`overflow-x-auto rounded-lg border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                    <table className="w-full text-xs md:text-sm">
-                      <thead className={isDark ? 'bg-gray-800/70' : 'bg-gray-50'}>
+                  <div className={`overflow-x-auto rounded-xl border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <table className="w-full min-w-[720px] text-xs md:text-sm">
+                      <thead className={isDark ? 'bg-gray-800/70 text-gray-400' : 'bg-gray-50 text-gray-500'}>
                         <tr>
-                          <th className="px-3 py-2 text-start">{isRTL ? 'السنة' : 'Year'}</th>
-                          <th className="px-3 py-2 text-start">{isRTL ? 'شهري' : 'Monthly'}</th>
-                          <th className="px-3 py-2 text-start">{isRTL ? 'ربع سنوي' : 'Quarterly'}</th>
-                          <th className="px-3 py-2 text-start">{isRTL ? 'نصف سنوي' : 'Semi Annual'}</th>
-                          <th className="px-3 py-2 text-start">{isRTL ? 'سنوي' : 'Yearly'}</th>
+                          <th className="px-3 py-2.5 text-start whitespace-nowrap">{isRTL ? 'السنة' : 'Year'}</th>
+                          <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'شهري' : 'Monthly'}</th>
+                          <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'ربع سنوي' : 'Quarterly'}</th>
+                          <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'نصف سنوي' : 'Semi Annual'}</th>
+                          <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'سنوي' : 'Yearly'}</th>
+                          <th className="px-3 py-2.5 text-center whitespace-nowrap">{isRTL ? 'العمولة' : 'Commission'}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {targetHistory.map((row) => (
-                          <tr key={`${row.user_id}-${row.year}`} className={isDark ? 'border-t border-gray-700' : 'border-t border-gray-100'}>
-                            <td className="px-3 py-2">{row.year}</td>
-                            <td className="px-3 py-2" dir="ltr">{formatAmount(row.monthly_target)}</td>
-                            <td className="px-3 py-2" dir="ltr">{formatAmount(row.quarterly_target)}</td>
-                            <td className="px-3 py-2" dir="ltr">{formatAmount(row.semi_annual_target)}</td>
-                            <td className="px-3 py-2 font-semibold" dir="ltr">{formatAmount(row.yearly_target)}</td>
-                          </tr>
-                        ))}
+                        {[...targetHistory]
+                          .sort((a, b) => Number(b.year) - Number(a.year))
+                          .map((row) => {
+                            const isCurrent = Number(row.year) === currentYear
+                            const tiers = Array.isArray(row.commission_tiers)
+                              ? row.commission_tiers
+                              : (Array.isArray(row.commissionTiers) ? row.commissionTiers : [])
+                            const tierItems = tiers.map((tier) => {
+                              const from = Number(tier.from_percentage ?? 0)
+                              const to = tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === ''
+                                ? (isRTL ? 'بدون حد' : 'No cap')
+                                : `${Number(tier.to_percentage)}%`
+                              return {
+                                label: `${from}% → ${to}`,
+                                value: Number(tier.commission_percentage ?? 0) || 0,
+                              }
+                            })
+                            return (
+                              <tr
+                                key={`${row.user_id}-${row.year}`}
+                                className={`${isDark ? 'border-t border-gray-700' : 'border-t border-gray-100'} ${isCurrent ? (isDark ? 'bg-blue-500/10' : 'bg-blue-50') : ''}`}
+                              >
+                                <td className="px-3 py-2.5 whitespace-nowrap">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold">{row.year}</span>
+                                    {isCurrent && (
+                                      <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-300">
+                                        {isRTL ? 'الحالية' : 'Current'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(row.monthly_target)}</td>
+                                <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(row.quarterly_target)}</td>
+                                <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(row.semi_annual_target)}</td>
+                                <td className="px-3 py-2.5 text-end font-mono font-semibold whitespace-nowrap" dir="ltr">{formatAmount(row.yearly_target)}</td>
+                                <td className="px-3 py-2.5">
+                                  <div className="flex justify-center">
+                                    <ListHoverPopover
+                                      icon={Percent}
+                                      items={tierItems}
+                                      title={isRTL ? 'شرائح العمولة' : 'Commission tiers'}
+                                      isRTL={isRTL}
+                                      formatValue={(value) => `${value}%`}
+                                      emptyTitle={isRTL ? 'لا توجد شرائح' : 'No tiers'}
+                                    />
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
                       </tbody>
                     </table>
                   </div>
