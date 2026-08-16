@@ -242,6 +242,23 @@ export default function CRMSettings() {
           <Toggle label={t('Enable Animations')} value={settings.animations} onChange={(v) => setField('animations', v)} />
           <Toggle label={t('Sidebar Collapsed')} value={settings.sidebarCollapsible} onChange={(v) => setField('sidebarCollapsible', v)} />
           <Toggle label={t('Enable Two-Factor Authentications')} value={settings.enableTwoFactorAuth} onChange={(v) => setField('enableTwoFactorAuth', v)} />
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-theme-text">{t('Reservation Hold Hours')}</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={settings.reservationHoldHours ?? ''}
+              onChange={(e) => setField('reservationHoldHours', e.target.value === '' ? '' : Number(e.target.value))}
+              className="w-full px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-theme-text"
+              placeholder={isRTL ? 'فارغ = بدون انتهاء' : 'Empty = no expiry'}
+            />
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {isRTL
+                ? 'مدة الاحتفاظ بالحجز بالساعات. فارغ يعني الحجز لا ينتهي تلقائياً. لا ينطبق بعد تحويل طلب الشراء إلى عرض سعر.'
+                : 'How long a reservation holds stock. Empty means it never auto-expires. Hold is frozen after converting a purchase request to a quotation.'}
+            </p>
+          </div>
         </div>
       </Section>
 

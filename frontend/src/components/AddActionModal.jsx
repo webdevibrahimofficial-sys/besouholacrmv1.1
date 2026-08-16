@@ -1134,18 +1134,57 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     }
   };
 
+  const getItemAvailableQty = (item) => Math.max(0, Number(item?.available_quantity ?? item?.quantity ?? 0) || 0);
+
+  const remainingAvailableForRow = (row, index, rows = actionData.reservationGeneralItems) => {
+    const selected = items.find(opt => String(opt.id) === String(row?.item));
+    if (!selected) return 0;
+    const usedElsewhere = (rows || []).reduce((sum, r, i) => {
+      if (i === index) return sum;
+      if (String(r.item) !== String(row.item)) return sum;
+      return sum + Math.max(0, Number(r.quantity || 0) || 0);
+    }, 0);
+    return Math.max(0, getItemAvailableQty(selected) - usedElsewhere);
+  };
+
   const handleGeneralRowChange = (index, field, value) => {
     setActionData(prev => {
       const newItems = [...prev.reservationGeneralItems];
       newItems[index] = { ...newItems[index], [field]: value };
 
-      // Auto-update price if item changes
+      if (field === 'category') {
+        const selectedItem = items.find(opt => String(opt.id) === String(newItems[index].item));
+        if (selectedItem && value) {
+          const catName = categories.find(c => String(c.id) === String(value))?.name;
+          const matches = String(selectedItem.category_id) === String(value) || (catName && selectedItem.category === catName);
+          if (!matches) {
+            newItems[index].item = '';
+            newItems[index].addon_ids = [];
+          }
+        }
+      }
+
       if (field === 'item') {
+        if (value) {
+          const remaining = remainingAvailableForRow({ ...newItems[index], item: value }, index, prev.reservationGeneralItems);
+          if (remaining < 1) {
+            return prev;
+          }
+        }
         const selectedItem = items.find(opt => opt.id == value);
         if (selectedItem) {
           newItems[index].price = selectedItem.price;
         }
         newItems[index].addon_ids = [];
+        const remaining = remainingAvailableForRow(newItems[index], index, newItems);
+        const currentQty = Math.max(1, Number(newItems[index].quantity || 1) || 1);
+        newItems[index].quantity = remaining > 0 ? Math.min(currentQty, remaining) : 0;
+      }
+
+      if (field === 'quantity') {
+        const remaining = remainingAvailableForRow(newItems[index], index, newItems);
+        const nextQty = Math.max(0, Number(value || 0) || 0);
+        newItems[index].quantity = remaining > 0 ? Math.min(nextQty, remaining) : 0;
       }
 
       return { ...prev, reservationGeneralItems: newItems };
@@ -1499,6 +1538,34 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         // If General, remove Project/Unit fields
         cleanedData.reservationProject = '';
         cleanedData.reservationUnit = '';
+        const needed = {};
+        for (const row of cleanedData.reservationGeneralItems || []) {
+          const itemId = String(row?.item ?? row?.item_id ?? '');
+          const qty = Math.max(0, Number(row?.quantity || 0) || 0);
+          if (!itemId) continue;
+          if (qty < 1) {
+            const selected = items.find((i) => String(i.id) === String(itemId));
+            alert(
+              isArabic
+                ? `لا يمكن حجز ${selected?.name || itemId} لأن الكمية المتاحة صفر`
+                : `${selected?.name || itemId} cannot be reserved because available quantity is 0`
+            );
+            return;
+          }
+          needed[itemId] = (needed[itemId] || 0) + qty;
+        }
+        for (const [itemId, qty] of Object.entries(needed)) {
+          const selected = items.find((i) => String(i.id) === String(itemId));
+          const available = getItemAvailableQty(selected);
+          if (qty > available) {
+            alert(
+              isArabic
+                ? `الكمية المتاحة للصنف ${selected?.name || itemId} هي ${available} فقط`
+                : `${selected?.name || itemId} has only ${available} available`
+            );
+            return;
+          }
+        }
         cleanedData.reservationGeneralItems = (cleanedData.reservationGeneralItems || []).map((row) => {
           const categoryId = row?.category ?? row?.category_id ?? '';
           const itemId = row?.item ?? row?.item_id ?? '';
@@ -2284,73 +2351,82 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
                   {/* Dynamic Rows */}
                   <div>
-                    {actionData.reservationGeneralItems.map((row, index) => (
+                    {actionData.reservationGeneralItems.map((row, index) => {
+                      const availableQty = remainingAvailableForRow(row, index);
+                      const rowControlClass = isLight
+                        ? 'h-10 w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900'
+                        : 'h-10 w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white';
+                      return (
                       <div
                         key={index}
-                        className={`flex flex-wrap md:flex-row gap-3 items-end py-3 ${index < actionData.reservationGeneralItems.length - 1 ? (isLight ? 'border-b border-gray-200' : 'border-b border-gray-700') : ''}`}
+                        className={`flex flex-nowrap items-end gap-2 overflow-x-auto py-3 ${index < actionData.reservationGeneralItems.length - 1 ? (isLight ? 'border-b border-gray-200' : 'border-b border-gray-700') : ''}`}
                       >
-                        <div className="flex-1 min-w-[150px]">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الفئة' : 'Category'}</label>
-                          <div className="relative">
-                            <select
-                              value={row.category}
-                              onChange={(e) => handleGeneralRowChange(index, 'category', e.target.value)}
-                              className={`${isLight ? 'w-full appearance-none px-3 py-2 pr-10 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900' : 'w-full appearance-none px-3 py-2 pr-10 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white'}`}
-                            >
-                              <option value="">{isArabic ? 'اختر' : 'Select'}</option>
-                              {categories.map((opt) => (
-                                <option key={opt.id} value={opt.id}>{opt.name}</option>
-                              ))}
-                            </select>
-                            <FaChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 ${isLight ? 'text-slate-500' : 'text-gray-300'} pointer-events-none`} />
-                          </div>
+                        <div className="min-w-[140px] flex-1">
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الفئة' : 'Category'}</label>
+                          <SearchableSelect
+                            options={categories.map((opt) => ({ value: String(opt.id), label: opt.name }))}
+                            value={row.category ? String(row.category) : ''}
+                            onChange={(value) => handleGeneralRowChange(index, 'category', value || '')}
+                            placeholder={isArabic ? 'اختر' : 'Select'}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                            className={`${isLight ? 'bg-white border-gray-300 text-slate-900' : 'bg-gray-700 border-gray-600 text-white'} h-10 min-h-10 rounded-md`}
+                          />
                         </div>
-                        <div className="flex-1 min-w-[150px]">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'العنصر' : 'Item'}</label>
-                          <div className="relative">
-                            <select
-                              value={row.item}
-                              onChange={(e) => handleGeneralRowChange(index, 'item', e.target.value)}
-                              className={`${isLight ? 'w-full appearance-none px-3 py-2 pr-10 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900' : 'w-full appearance-none px-3 py-2 pr-10 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white'}`}
-                            >
-                              <option value="">{isArabic ? 'اختر' : 'Select'}</option>
-                              {items
-                                .filter(item => {
-                                  if (!row.category) return true;
-                                  const catName = categories.find(c => c.id == row.category)?.name;
-                                  return item.category_id == row.category || (catName && item.category === catName);
-                                })
-                                .map((opt) => (
-                                  <option key={opt.id} value={opt.id}>{opt.name}</option>
-                                ))}
-                            </select>
-                            <FaChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 ${isLight ? 'text-slate-500' : 'text-gray-300'} pointer-events-none`} />
-                          </div>
+                        <div className="min-w-[160px] flex-1">
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'العنصر' : 'Item'}</label>
+                          <SearchableSelect
+                            options={items
+                              .filter(item => {
+                                if (!row.category) return true;
+                                const catName = categories.find(c => String(c.id) === String(row.category))?.name;
+                                return String(item.category_id) === String(row.category) || (catName && item.category === catName);
+                              })
+                              .map((opt) => {
+                                const available = remainingAvailableForRow({ ...row, item: opt.id }, index);
+                                return {
+                                  value: String(opt.id),
+                                  label: `${opt.name} (${available} ${isArabic ? 'متاح' : 'avail.'})`,
+                                  disabled: available < 1,
+                                };
+                              })}
+                            value={row.item ? String(row.item) : ''}
+                            onChange={(value) => handleGeneralRowChange(index, 'item', value || '')}
+                            placeholder={isArabic ? 'اختر' : 'Select'}
+                            isRTL={isRTL}
+                            showAllOption={false}
+                            className={`${isLight ? 'bg-white border-gray-300 text-slate-900' : 'bg-gray-700 border-gray-600 text-white'} h-10 min-h-10 rounded-md`}
+                          />
                         </div>
-                        <div className="w-24">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الكمية' : 'Qty'}</label>
+                        <div className="w-[88px] shrink-0">
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                            {isArabic ? 'الكمية' : 'Qty'}
+                            {row.item ? ` (${availableQty})` : ''}
+                          </label>
                           <input
                             type="text"
                             min="1"
+                            max={availableQty}
                             value={row.quantity}
                             onChange={(e) => handleGeneralRowChange(index, 'quantity', parseDisplayNumber(e.target.value))}
                             {...numericFieldProps}
                             inputMode="numeric"
-                            className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                            title={row.item ? `${isArabic ? 'المتاح' : 'Available'}: ${availableQty}` : undefined}
+                            className={rowControlClass}
                           />
                         </div>
-                        <div className="w-32">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'المبلغ' : 'Amount'}</label>
+                        <div className="w-[110px] shrink-0">
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'المبلغ' : 'Amount'}</label>
                           <input
                             type="text"
                             value={formatDisplayNumber(row.price)}
                             onChange={(e) => handleGeneralRowChange(index, 'price', parseDisplayNumber(e.target.value))}
                             {...numericFieldProps}
-                            className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                            className={rowControlClass}
                           />
                         </div>
-                        <div className="flex-1 min-w-[180px]">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإضافات' : 'Add-ons'}</label>
+                        <div className="min-w-[170px] flex-1">
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإضافات' : 'Add-ons'}</label>
                           <SearchableSelect
                             options={getItemAddons(row.item).map((addon) => ({
                               value: addon.id,
@@ -2362,16 +2438,16 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                             isRTL={isRTL}
                             multiple
                             showAllOption={false}
-                            className={`${isLight ? 'bg-white border-gray-300 text-slate-900' : 'bg-gray-700 border-gray-600 text-white'} min-h-[42px] rounded-md`}
+                            className={`${isLight ? 'bg-white border-gray-300 text-slate-900' : 'bg-gray-700 border-gray-600 text-white'} h-10 min-h-10 rounded-md`}
                           />
                         </div>
-                        <div className="w-52">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'خصم' : 'Discount'}</label>
+                        <div className="w-[168px] shrink-0">
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'خصم' : 'Discount'}</label>
                           <div className="flex gap-2">
                             <select
                               value={row.discount_type || 'value'}
                               onChange={(e) => handleGeneralRowChange(index, 'discount_type', e.target.value)}
-                              className={`${isLight ? 'w-28 appearance-none px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-28 appearance-none px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                              className={`${isLight ? 'h-10 w-[84px] appearance-none px-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'h-10 w-[84px] appearance-none px-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
                               aria-label={isArabic ? 'النوع' : 'Discount type'}
                             >
                               <option value="value">{isArabic ? 'قيمة' : 'Value'}</option>
@@ -2383,32 +2459,33 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                               value={formatDisplayNumber(row.discount_value ?? '')}
                               onChange={(e) => handleGeneralRowChange(index, 'discount_value', parseDisplayNumber(e.target.value))}
                               {...numericFieldProps}
-                              className={`${isLight ? 'flex-1 px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                              className={`${isLight ? 'h-10 flex-1 px-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'h-10 flex-1 px-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
                               placeholder={row.discount_type === 'percent' ? '0-100' : '0'}
                             />
                           </div>
                         </div>
-                        <div className="w-32">
-                          <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإجمالي الفرعي' : 'Sub Total'}</label>
+                        <div className="w-[110px] shrink-0">
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإجمالي' : 'Sub Total'}</label>
                           <input
                             type="text"
                             value={formatDisplayNumber(getGeneralRowTotals(row).total)}
                             readOnly
                             {...numericFieldProps}
-                            className={`${isLight ? 'w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
+                            className={`${isLight ? 'h-10 w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'h-10 w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
                           />
                         </div>
                         {actionData.reservationGeneralItems.length > 1 && (
                           <button
                             onClick={() => handleRemoveGeneralRow(index)}
-                            className="p-2.5 mb-[1px] text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                            className="h-10 w-10 shrink-0 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-md transition-colors"
                             title={isArabic ? 'حذف' : 'Remove'}
                           >
                             <FaTrash />
                           </button>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
 
                     <button
                       type="button"

@@ -75,6 +75,10 @@ export default function ItemsPage() {
     itemType: isArabic ? 'نوع الصنف' : 'Item Type',
     price: isArabic ? 'المبلغ' : 'Amount',
     quantity: isArabic ? 'الكمية' : 'Quantity',
+    qtyAvailable: isArabic ? 'متاح' : 'Available',
+    qtyReserved: isArabic ? 'محجوز' : 'Reserved',
+    qtySold: isArabic ? 'مباع' : 'Sold',
+    qtyTotal: isArabic ? 'الإجمالي' : 'Total',
     status: isArabic ? 'الحالة' : 'Status',
     stock: isArabic ? 'المخزون' : 'Stock',
     minStock: isArabic ? 'الحد الأدنى للكمية' : 'Minimum Quantity',
@@ -241,6 +245,11 @@ export default function ItemsPage() {
         category: typeof item.category === 'object' ? item.category?.name || '' : item.category || '',
         category_id: item.category_id || '',
         stock: item.quantity !== undefined ? item.quantity : (item.stock || 0),
+        reservedQuantity: item.reserved_quantity ?? item.reservedQuantity ?? 0,
+        soldQuantity: item.sold_quantity ?? item.soldQuantity ?? 0,
+        totalQuantity: item.total_quantity ?? (
+          (item.quantity || 0) + (item.reserved_quantity || 0) + (item.sold_quantity || 0)
+        ),
         minStock: item.min_alert !== undefined ? item.min_alert : (item.minStock || 0),
         itemType: normalizeItemType(item.item_type || item.itemType || ''),
         pricingType: item.pricing_type || item.pricingType || 'Fixed',
@@ -372,6 +381,11 @@ export default function ItemsPage() {
         })),
       custom_fields: dynamicValues
     }
+    delete dataToSave.reserved_quantity
+    delete dataToSave.sold_quantity
+    delete dataToSave.reservedQuantity
+    delete dataToSave.soldQuantity
+    delete dataToSave.totalQuantity
 
     setLoading(true)
     try {
@@ -903,7 +917,7 @@ export default function ItemsPage() {
                   </div>
 
                   <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity}</label>
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.qtyAvailable}</label>
                     <input
                       type="number"
                       name="stock"
@@ -913,6 +927,29 @@ export default function ItemsPage() {
                       placeholder="0"
                     />
                   </div>
+
+                  {form.id ? (
+                    <>
+                      <div className="form-control">
+                        <label className="label text-xs font-semibold text-theme mb-1.5">{labels.qtyReserved}</label>
+                        <input
+                          type="number"
+                          value={form.reservedQuantity ?? form.reserved_quantity ?? 0}
+                          readOnly
+                          className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md opacity-70 cursor-not-allowed"
+                        />
+                      </div>
+                      <div className="form-control">
+                        <label className="label text-xs font-semibold text-theme mb-1.5">{labels.qtySold}</label>
+                        <input
+                          type="number"
+                          value={form.soldQuantity ?? form.sold_quantity ?? 0}
+                          readOnly
+                          className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md opacity-70 cursor-not-allowed"
+                        />
+                      </div>
+                    </>
+                  ) : null}
 
                   {showQuantityType && (
                     <div className="form-control">
@@ -1360,7 +1397,10 @@ export default function ItemsPage() {
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.categoryType}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.itemType}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.price}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.quantity}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyAvailable}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyReserved}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtySold}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyTotal}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsName}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsQty}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsPrice}</th>
@@ -1395,6 +1435,9 @@ export default function ItemsPage() {
                         <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{getItemTypeOptionLabel(item.itemType || '-')}</td>
                         <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(item.price)}</td>
                         <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.stock ?? 0)}</td>
+                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.reservedQuantity ?? 0)}</td>
+                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.soldQuantity ?? 0)}</td>
+                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.totalQuantity ?? ((item.stock || 0) + (item.reservedQuantity || 0) + (item.soldQuantity || 0)))}</td>
                         <td className="px-4 py-3 text-start text-theme">
                           {getAddonNames(item).length > 0 ? (
                             <select
@@ -1496,8 +1539,20 @@ export default function ItemsPage() {
                         <span className="font-medium">{formatAmount(item.price)}</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.quantity}</span>
+                        <span className="text-xs text-theme">{labels.qtyAvailable}</span>
                         <span>{formatNumber(item.stock ?? 0)}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-theme">{labels.qtyReserved}</span>
+                        <span>{formatNumber(item.reservedQuantity ?? 0)}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-theme">{labels.qtySold}</span>
+                        <span>{formatNumber(item.soldQuantity ?? 0)}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-theme">{labels.qtyTotal}</span>
+                        <span>{formatNumber(item.totalQuantity ?? ((item.stock || 0) + (item.reservedQuantity || 0) + (item.soldQuantity || 0)))}</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.addonsName}</span>

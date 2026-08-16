@@ -1156,7 +1156,7 @@ export default function SalesQuotations() {
                     items: Array.isArray(data.items) ? data.items : [],
                     total: Number(data.total ?? 0),
                     amount: Number(data.subtotal ?? data.total ?? 0),
-                    status: data.status || 'Draft',
+                    status: 'Draft',
                     payment_terms: data.paymentTerms || null,
                     delivery_date: data.deliveryDate || null,
                     quotation_id: data.quotationId !== null && data.quotationId !== undefined && String(data.quotationId).trim() ? String(data.quotationId).trim() : null,

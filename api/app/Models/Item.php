@@ -14,12 +14,18 @@ class Item extends Model
     protected $casts = [
         'meta_data' => 'array',
         'price' => 'decimal:2',
+        'quantity' => 'integer',
+        'reserved_quantity' => 'integer',
+        'sold_quantity' => 'integer',
+        'min_alert' => 'integer',
     ];
 
     protected $appends = [
         'addons_total_quantity',
         'addons_total_price',
         'total_price',
+        'available_quantity',
+        'total_quantity',
     ];
 
     public function category()
@@ -52,5 +58,17 @@ class Item extends Model
     public function getTotalPriceAttribute(): float
     {
         return (float) ($this->price ?? 0) + $this->addons_total_price;
+    }
+
+    public function getAvailableQuantityAttribute(): int
+    {
+        return max(0, (int) ($this->quantity ?? 0));
+    }
+
+    public function getTotalQuantityAttribute(): int
+    {
+        return max(0, (int) ($this->quantity ?? 0))
+            + max(0, (int) ($this->reserved_quantity ?? 0))
+            + max(0, (int) ($this->sold_quantity ?? 0));
     }
 }

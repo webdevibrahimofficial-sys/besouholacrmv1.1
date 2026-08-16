@@ -7,6 +7,7 @@ use App\Models\CrmSetting;
 use App\Models\SalesInvoice;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -81,7 +82,7 @@ class OrderController extends Controller
             'items' => 'required|array',
             'total' => 'required|numeric',
             'amount' => 'nullable|numeric', // Accept amount (subtotal)
-            'status' => 'nullable|string',
+            'status' => 'nullable|string', // ignored; new orders always start as Draft
             'payment_terms' => 'nullable|string',
             'delivery_date' => 'nullable|date',
             'quotation_id' => 'nullable|string',
@@ -94,6 +95,7 @@ class OrderController extends Controller
             $validated['amount'] = $validated['total']; // Default amount to total if missing
         }
 
+        $validated['status'] = 'Draft';
         $validated['created_by'] = Auth::user()->name ?? 'System';
         
         // Auto-generate UUID or ID if needed, but ID is auto-increment.
@@ -140,8 +142,8 @@ class OrderController extends Controller
             'status' => 'sometimes|string',
             'payment_terms' => 'nullable|string',
             'delivery_date' => 'nullable|date',
-            'confirmed_at' => 'nullable|date',
-            'shipped_at' => 'nullable|date',
+            'confirmed_at' => 'nullable',
+            'shipped_at' => 'nullable',
             'cancel_reason' => 'nullable|string',
             'hold_reason' => 'nullable|string',
         ]);
@@ -154,9 +156,27 @@ class OrderController extends Controller
             unset($validated['payment_terms']);
         }
 
-        $order->update($validated);
+        if (! $order->exists) {
+            abort(404);
+        }
 
-        return response()->json($order);
+        if (array_key_exists('confirmed_at', $validated)) {
+            $validated['confirmed_at'] = $this->parseOptionalDate($validated['confirmed_at']);
+        }
+        if (array_key_exists('shipped_at', $validated)) {
+            $validated['shipped_at'] = $this->parseOptionalDate($validated['shipped_at']);
+        }
+
+        $nextStatus = $validated['status'] ?? null;
+        $order->fill($validated);
+
+        if (is_string($nextStatus) && strcasecmp($nextStatus, 'Confirmed') === 0 && empty($order->confirmed_at)) {
+            $order->confirmed_at = now();
+        }
+
+        $order->save();
+
+        return response()->json($order->fresh());
     }
 
     /**
@@ -268,5 +288,18 @@ class OrderController extends Controller
             'used_advance' => $usedAdvance,
             'remaining_advance' => $remaining,
         ]);
+    }
+
+    private function parseOptionalDate(mixed $value): ?Carbon
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable $e) {
+            return now();
+        }
     }
 }

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\Property;
 use App\Models\Unit;
+use App\Services\ItemStockService;
 use Carbon\Carbon;
 
 class ExpireReservedUnits extends Command
@@ -48,7 +49,9 @@ class ExpireReservedUnits extends Command
             $unitsCount++;
         }
 
-        $this->info("Expired reservations: properties={$propsCount}, units={$unitsCount}");
+        $itemsCount = app(ItemStockService::class)->expireDueRequests();
+
+        $this->info("Expired reservations: properties={$propsCount}, units={$unitsCount}, items={$itemsCount}");
         return 0;
     }
 }

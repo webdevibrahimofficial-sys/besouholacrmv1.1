@@ -6,7 +6,10 @@ use App\Models\LeadAction;
 use App\Models\Lead;
 use App\Models\User;
 use App\Models\Property;
+use App\Models\Item;
+use App\Models\InventoryRequest;
 use App\Services\MeetingActionService;
+use App\Services\ItemStockService;
 use App\Notifications\LeadActionCreated;
 use App\Notifications\LeadActionCommentNotification;
 use Illuminate\Support\Facades\Notification;
@@ -17,6 +20,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -373,23 +377,24 @@ class LeadActionController extends Controller
 
     private function hasMatchingInventoryRequest(Lead $lead, int $reservationActionId, int $lineIndex, string $productName, int $quantity): bool
     {
+        return $this->findMatchingInventoryRequest($lead, $reservationActionId, $lineIndex, $productName, $quantity) !== null;
+    }
+
+    private function findMatchingInventoryRequest(Lead $lead, int $reservationActionId, int $lineIndex, string $productName, int $quantity): ?InventoryRequest
+    {
         $productName = trim($productName);
 
-        return \App\Models\InventoryRequest::query()
+        return InventoryRequest::query()
             ->where('tenant_id', $lead->tenant_id ?? Auth::user()?->tenant_id)
             ->where('type', 'Booking')
             ->orderByDesc('id')
             ->get()
-            ->contains(function ($requestModel) use ($lead, $reservationActionId, $lineIndex, $productName, $quantity) {
+            ->first(function ($requestModel) use ($lead, $reservationActionId, $lineIndex, $productName, $quantity) {
                 if ($this->requestMetaMatchesReservationAction($requestModel, $reservationActionId, (int) $lead->id, $lineIndex)) {
                     return true;
                 }
 
                 $meta = is_array($requestModel->meta_data) ? $requestModel->meta_data : [];
-                $metaSourceActionId = isset($meta['source_action_id']) ? (int) $meta['source_action_id'] : null;
-                if ($metaSourceActionId !== null && $metaSourceActionId !== $reservationActionId) {
-                    return false;
-                }
                 $metaLeadId = isset($meta['lead_id']) ? (int) $meta['lead_id'] : null;
                 $sameLead = $metaLeadId === (int) $lead->id;
                 $sameProduct = trim((string) ($requestModel->product ?? '')) === $productName;
@@ -397,6 +402,36 @@ class LeadActionController extends Controller
 
                 return $sameLead && $sameProduct && $sameQuantity;
             });
+    }
+
+    private function assertGeneralItemStock(Lead $lead, array $details, Request $request, bool $isClosing): void
+    {
+        $rows = is_array($details['reservationGeneralItems'] ?? null)
+            ? $details['reservationGeneralItems']
+            : (is_array($request->reservationGeneralItems) ? $request->reservationGeneralItems : []);
+
+        $needed = [];
+        foreach ($rows as $index => $row) {
+            $itemId = (int) ($row['item'] ?? $row['item_id'] ?? 0);
+            $qty = max(0, (int) ($row['quantity'] ?? 1));
+            if ($itemId < 1 || $qty < 1) {
+                continue;
+            }
+
+            if ($isClosing) {
+                $itemModel = Item::query()->find($itemId);
+                $productName = $itemModel?->name ?? '';
+                $existing = $this->findMatchingInventoryRequest($lead, (int) ($details['reservation_source_action_id'] ?? 0), (int) $index, $productName, $qty);
+                $state = $existing?->meta_data['stock']['state'] ?? null;
+                if ($existing && $state === ItemStockService::STATE_RESERVED) {
+                    continue;
+                }
+            }
+
+            $needed[] = ['item' => $itemId, 'quantity' => $qty];
+        }
+
+        app(ItemStockService::class)->assertCanReserve($needed);
     }
 
     private function isTenantAdminLike($user): bool
@@ -951,6 +986,19 @@ class LeadActionController extends Controller
             $reservationSourceAction = $this->findLatestReservationAction((int) $lead->id);
             $details = $this->mergeReservationSnapshotIntoDetails($details, $reservationSourceAction);
         }
+
+        $reservationTypeEarly = (string) ($details['reservationType'] ?? $request->reservationType ?? '');
+        $isReservationAction = ($request->type === 'reservation' || $request->next_action_type === 'reservation');
+        if (($isReservationAction || $isClosing) && $reservationTypeEarly === 'general') {
+            try {
+                $this->assertGeneralItemStock($lead, $details, $request, $isClosing);
+            } catch (ValidationException $e) {
+                return response()->json([
+                    'message' => collect($e->errors())->flatten()->first() ?: 'Insufficient available quantity.',
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+        }
         
         // Ensure action priority matches lead priority
         $details['priority'] = $lead->priority ?? ($details['priority'] ?? 'medium');
@@ -1228,6 +1276,25 @@ class LeadActionController extends Controller
         // Revenue Creation Logic: Attribute to Salesperson (Lead Assignee)
         $revenueAmount = $details['closingRevenue'] ?? $details['revenue'] ?? 0;
         if ($isClosing && $revenueAmount > 0) {
+            $dealItems = [];
+            foreach (($details['reservationGeneralItems'] ?? []) as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $name = trim((string) ($row['item_name'] ?? $row['name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+                $dealItems[] = [
+                    'name' => $name,
+                    'item_id' => is_numeric($row['item'] ?? $row['item_id'] ?? null)
+                        ? (int) ($row['item'] ?? $row['item_id'])
+                        : null,
+                    'amount' => floatval($row['line_total'] ?? $row['total'] ?? $row['sub_total'] ?? 0),
+                ];
+            }
+            $itemNames = collect($dealItems)->pluck('name')->filter()->unique()->implode(', ');
+
             \App\Models\Revenue::create([
                 'tenant_id' => $lead->tenant_id ?? Auth::user()->tenant_id,
                 'user_id' => $lead->assigned_to ?? Auth::id(), // The Owner (Salesperson)
@@ -1239,7 +1306,9 @@ class LeadActionController extends Controller
                 'meta_data' => [
                     'created_by_id' => Auth::id(),
                     'created_by_name' => Auth::user()->name ?? 'Unknown',
-                    'notes' => 'Generated automatically from Lead Action'
+                    'notes' => 'Generated automatically from Lead Action',
+                    'item_name' => $itemNames,
+                    'deal_items' => $dealItems,
                 ]
             ]);
         }
@@ -1401,13 +1470,15 @@ class LeadActionController extends Controller
                     }
                 }
                 elseif ($reservationType === 'general') {
+                    $stockService = app(ItemStockService::class);
                     $items = is_array($details['reservationGeneralItems'] ?? null)
                         ? ($details['reservationGeneralItems'] ?? [])
                         : (is_array($request->reservationGeneralItems) ? $request->reservationGeneralItems : []);
                     $reservationNotes = $details['reservationNotes'] ?? $request->reservationNotes;
+                    $isReservationNow = ($request->next_action_type === 'reservation' || $request->type === 'reservation');
 
                     foreach ($items as $index => $itemData) {
-                        $itemModel = \App\Models\Item::find($itemData['item'] ?? null);
+                        $itemModel = Item::find($itemData['item'] ?? $itemData['item_id'] ?? null);
 
                         $qty = intval($itemData['quantity'] ?? 1);
                         $price = floatval($itemData['price'] ?? 0);
@@ -1422,11 +1493,24 @@ class LeadActionController extends Controller
                             continue;
                         }
 
+                        $existingRequest = $this->findMatchingInventoryRequest(
+                            $reservationLead,
+                            $reservationActionId,
+                            (int) $index,
+                            $productName,
+                            $qty
+                        );
+
+                        if ($isClosing && $existingRequest) {
+                            $stockService->sellRequest($existingRequest, 'lead_action', (int) $leadAction->id);
+                            continue;
+                        }
+
                         if ($this->hasMatchingInventoryRequest($reservationLead, $reservationActionId, (int) $index, $productName, $qty)) {
                             continue;
                         }
 
-                        \App\Models\InventoryRequest::create([
+                        $inventoryRequest = InventoryRequest::create([
                             'tenant_id' => $reservationLead->tenant_id ?? Auth::user()->tenant_id,
                             'customer_name' => $reservationLead->name,
                             'product' => $productName,
@@ -1446,12 +1530,27 @@ class LeadActionController extends Controller
                                 'reservationGeneralItems' => [$itemData],
                                 'source_action_id' => $reservationActionId,
                                 'source_action_line' => (int) $index,
-                                'source_action_type' => 'reservation',
+                                'source_action_type' => $isClosing ? 'closing_deals' : 'reservation',
                                 'customer_phone' => $reservationLead->phone,
                                 'created_by_name' => Auth::user()->name ?? '',
                                 'created_by_id' => Auth::id()
                             ]
                         ]);
+
+                        if ($itemModel && $isReservationNow && !$isClosing) {
+                            $stockService->reserveForRequest($inventoryRequest, $itemModel, $qty, $reservationExpiresAt);
+                        } elseif ($itemModel && $isClosing) {
+                            $stockService->sellFromAvailable($itemModel, $qty, 'lead_action', (int) $leadAction->id);
+                            $meta = is_array($inventoryRequest->meta_data) ? $inventoryRequest->meta_data : [];
+                            $meta['stock'] = [
+                                'item_id' => (int) $itemModel->id,
+                                'quantity' => $qty,
+                                'state' => ItemStockService::STATE_SOLD,
+                                'frozen' => true,
+                            ];
+                            $inventoryRequest->meta_data = $meta;
+                            $inventoryRequest->save();
+                        }
                     }
                 }
             }

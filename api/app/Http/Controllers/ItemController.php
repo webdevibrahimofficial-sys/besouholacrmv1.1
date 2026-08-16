@@ -294,6 +294,7 @@ class ItemController extends Controller
             ],
             'quantity' => 'nullable|integer',
             'reserved_quantity' => 'nullable|integer',
+            'sold_quantity' => 'nullable|integer',
             'min_alert' => 'nullable|integer',
             'warehouse' => 'nullable|string',
             'category' => 'nullable|string',
@@ -345,7 +346,7 @@ class ItemController extends Controller
 
             // Handle mapping sku to code if needed
             $data = $request->only([
-                'name', 'quantity', 'reserved_quantity', 'min_alert', 
+                'name', 'quantity', 'reserved_quantity', 'sold_quantity', 'min_alert', 
                 'warehouse', 'family', 'category', 'category_id', 'group', 'brand', 'supplier', 'price', 'cost',
                 'type', 'item_type', 'status', 'unit', 'description'
             ]);
@@ -438,6 +439,7 @@ class ItemController extends Controller
                 ],
                 'quantity' => 'nullable|integer',
                 'reserved_quantity' => 'nullable|integer',
+                'sold_quantity' => 'nullable|integer',
                 'min_alert' => 'nullable|integer',
                 'warehouse' => 'nullable|string',
                 'category' => 'nullable|string',
@@ -469,7 +471,7 @@ class ItemController extends Controller
             DB::beginTransaction();
 
             $data = $request->only([
-                'name', 'quantity', 'reserved_quantity', 'min_alert', 
+                'name', 'quantity', 'reserved_quantity', 'sold_quantity', 'min_alert', 
                 'warehouse', 'family', 'category', 'category_id', 'group', 'brand', 'supplier', 'price', 'cost',
                 'type', 'item_type', 'status', 'unit', 'description'
             ]);

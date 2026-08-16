@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
+import { useAppState } from '../shared/context/AppStateProvider'
 import { api } from '../utils/api'
 import { FaMoneyBillWave, FaTimes, FaCalendarAlt, FaSave } from 'react-icons/fa'
 
@@ -9,6 +10,12 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
   const isRTL = i18n.dir() === 'rtl'
   const { theme } = useTheme()
   const isDark = theme === 'dark'
+  const { crmSettings } = useAppState()
+  const currencyCode = String(
+    crmSettings?.defaultCurrency ||
+    crmSettings?.default_currency ||
+    'EGP'
+  ).toUpperCase()
 
   const [paymentData, setPaymentData] = useState({
     amount: 0,
@@ -82,7 +89,7 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
         <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
           <h2 className={`text-xl font-bold flex items-center gap-2 text-theme-text`}>
             <FaMoneyBillWave className="text-green-600" />
-            {isRTL ? 'تسجيل دفعة' : 'Register Payment'}
+            {isRTL ? 'تأكيد الدفع' : 'Confirm Payment'}
           </h2>
           <button 
             onClick={onClose}
@@ -107,7 +114,7 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
             </div>
             <div className="flex justify-between items-center text-lg pt-2 border-t border-gray-200 dark:border-gray-700">
               <span className="font-bold text-theme-text">{isRTL ? 'المبلغ المستحق' : 'Balance Due'}</span>
-              <span className="font-bold text-red-500">{balanceDue.toLocaleString()}</span>
+              <span className="font-bold text-red-500">{balanceDue.toLocaleString()} {currencyCode}</span>
             </div>
           </div>
 
@@ -116,7 +123,9 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
             <div>
               <label className={labelClass}>{isRTL ? 'مبلغ الدفع' : 'Payment Amount'}</label>
               <div className="relative">
-                <span className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-2.5 text-gray-500`}>$</span>
+                <span className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-2.5 text-gray-500 text-xs font-semibold`}>
+                  {currencyCode}
+                </span>
                 <input
                   type="number"
                   min="0"
@@ -125,7 +134,7 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
                   required
                   value={paymentData.amount}
                   onChange={(e) => setPaymentData({ ...paymentData, amount: e.target.value })}
-                  className={`${inputClass} ${isRTL ? 'pr-8' : 'pl-8'} font-bold text-green-600`}
+                  className={`${inputClass} ${isRTL ? 'pr-12' : 'pl-12'} font-bold text-green-600`}
                 />
               </div>
             </div>
@@ -209,7 +218,7 @@ const SalesInvoicesPaymentModal = ({ isOpen, onClose, onSave, invoice }) => {
                     {paymentHistory.map((p) => (
                       <tr key={p.id}>
                         <td>{p.payment_date ? new Date(p.payment_date).toLocaleDateString() : '-'}</td>
-                        <td>{Number(p.amount || 0).toLocaleString()}</td>
+                        <td>{Number(p.amount || 0).toLocaleString()} {currencyCode}</td>
                         <td>{p.payment_method || '-'}</td>
                         <td>{p.reference || '-'}</td>
                       </tr>

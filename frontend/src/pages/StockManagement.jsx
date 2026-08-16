@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { FaChevronDown, FaChevronLeft, FaChevronRight, FaTimes, FaTrash } from 'react-icons/fa'
+import SearchableSelect from '../components/SearchableSelect'
 import { api } from '../utils/api'
 
 export default function StockManagement() {
@@ -17,6 +19,8 @@ export default function StockManagement() {
     manualSku: isArabic ? 'أدخل SKU يدويًا' : 'Enter SKU manually',
     qtyAvailable: isArabic ? 'الكمية المتاحة' : 'Quantity Available',
     qtyReserved: isArabic ? 'الكمية المحجوزة' : 'Reserved Quantity',
+    qtySold: isArabic ? 'الكمية المباعة' : 'Sold Quantity',
+    qtyTotal: isArabic ? 'الإجمالي' : 'Total',
     minAlert: isArabic ? 'حدّ التنبيه الأدنى' : 'Minimum Quantity Alert',
     warehouse: isArabic ? 'المستودع' : 'Warehouse location',
     save: isArabic ? 'حفظ السجل' : 'Save Entry',
@@ -24,7 +28,6 @@ export default function StockManagement() {
     empty: isArabic ? 'لا توجد سجلات بعد' : 'No records yet',
     actions: isArabic ? 'الإجراءات' : 'Actions',
     delete: isArabic ? 'حذف' : 'Delete',
-    effective: isArabic ? 'الصافي المتاح' : 'Effective Available',
     status: isArabic ? 'الحالة' : 'Status',
     country: isArabic ? 'الدولة' : 'Country',
     city: isArabic ? 'المدينة' : 'City',
@@ -67,6 +70,7 @@ export default function StockManagement() {
     manualSku: '',
     qtyAvailable: '',
     qtyReserved: '',
+    qtySold: '',
     minAlert: '',
     warehouse: ''
   })
@@ -110,6 +114,8 @@ export default function StockManagement() {
                sku: item.code || item.sku,
                qtyAvailable: item.quantity || 0,
                qtyReserved: item.reserved_quantity || 0,
+               qtySold: item.sold_quantity || 0,
+               qtyTotal: item.total_quantity ?? ((item.quantity || 0) + (item.reserved_quantity || 0) + (item.sold_quantity || 0)),
                minAlert: item.min_alert || 0,
                warehouse: item.warehouse || '',
                // Additional fields mapped from item if needed for filters
@@ -311,27 +317,24 @@ export default function StockManagement() {
     
     const payload = {
       quantity: Number(form.qtyAvailable) || 0,
-      reserved_quantity: Number(form.qtyReserved) || 0,
       min_alert: Number(form.minAlert) || 0,
       warehouse: form.warehouse
     }
 
     try {
       if (form.itemId) {
-        // Update existing item
         await api.put(`/api/items/${form.itemId}`, payload)
         
         setRecords(prev => prev.map(rec => 
           rec.id === Number(form.itemId) ? { 
             ...rec, 
-            qtyAvailable: payload.quantity, 
-            qtyReserved: payload.reserved_quantity, 
+            qtyAvailable: payload.quantity,
+            qtyTotal: payload.quantity + (rec.qtyReserved || 0) + (rec.qtySold || 0),
             minAlert: payload.min_alert,
             warehouse: payload.warehouse
           } : rec
         ))
       } else if (form.manualSku) {
-        // Create new item
         payload.name = 'Manual Item ' + Date.now()
         payload.sku = form.manualSku
         const { data } = await api.post('/api/items', payload)
@@ -343,6 +346,8 @@ export default function StockManagement() {
              sku: data.code || data.sku,
              qtyAvailable: data.quantity || 0,
              qtyReserved: data.reserved_quantity || 0,
+             qtySold: data.sold_quantity || 0,
+             qtyTotal: data.total_quantity ?? ((data.quantity || 0) + (data.reserved_quantity || 0) + (data.sold_quantity || 0)),
              minAlert: data.min_alert || 0,
              warehouse: data.warehouse || '',
              category: data.category,
@@ -354,7 +359,7 @@ export default function StockManagement() {
       }
       
       setShowForm(false)
-      setForm({ itemId: '', manualSku: '', qtyAvailable: '', qtyReserved: '', minAlert: '', warehouse: '' })
+      setForm({ itemId: '', manualSku: '', qtyAvailable: '', qtyReserved: '', qtySold: '', minAlert: '', warehouse: '' })
     } catch (err) {
       console.error('Failed to save stock record', err)
     }
@@ -371,8 +376,8 @@ export default function StockManagement() {
   }
 
   const renderStatus = (rec) => {
-    const effective = (rec.qtyAvailable || 0) - (rec.qtyReserved || 0)
-    const low = effective <= (rec.minAlert || 0)
+    const available = rec.qtyAvailable || 0
+    const low = available <= (rec.minAlert || 0)
     const tone = low ? 'text-red-600 bg-red-100 dark:text-red-300 dark:bg-red-900/40' : 'text-green-600 bg-green-100 dark:text-green-300 dark:bg-green-900/40'
     return (
       <span className={`px-2 py-1 rounded-full text-xs ${tone}`}>{low ? labels.lowStock : labels.okStock}</span>
@@ -499,7 +504,8 @@ export default function StockManagement() {
                     <th className="text-start px-3 min-w-[180px]">{labels.itemOrSku}</th>
                     <th className="text-center px-3 min-w-[110px]">{labels.qtyAvailable}</th>
                     <th className="text-center px-3 min-w-[110px]">{labels.qtyReserved}</th>
-                    <th className="text-center px-3 min-w-[110px]">{labels.effective}</th>
+                    <th className="text-center px-3 min-w-[110px]">{labels.qtySold}</th>
+                    <th className="text-center px-3 min-w-[110px]">{labels.qtyTotal}</th>
                     <th className="text-center px-3 min-w-[110px]">{labels.minAlert}</th>
                     <th className="text-start px-3 min-w-[160px]">{labels.warehouse}</th>
                     <th className="text-center px-3 min-w-[110px]">{labels.status}</th>
@@ -508,8 +514,8 @@ export default function StockManagement() {
                 </thead>
                 <tbody>
                   {paginated.map((rec) => {
-                    const effective = (rec.qtyAvailable || 0) - (rec.qtyReserved || 0)
-                    const low = effective <= (rec.minAlert || 0)
+                    const available = rec.qtyAvailable || 0
+                    const low = available <= (rec.minAlert || 0)
                     return (
                       <tr key={rec.id} className={low ? 'bg-red-50 dark:bg-red-900/10' : ''}>
                         <td className="px-3">
@@ -520,7 +526,8 @@ export default function StockManagement() {
                         </td>
                         <td className="px-3 text-center">{rec.qtyAvailable ?? 0}</td>
                         <td className="px-3 text-center">{rec.qtyReserved ?? 0}</td>
-                        <td className="px-3 text-center">{effective}</td>
+                        <td className="px-3 text-center">{rec.qtySold ?? 0}</td>
+                        <td className="px-3 text-center">{rec.qtyTotal ?? ((rec.qtyAvailable || 0) + (rec.qtyReserved || 0) + (rec.qtySold || 0))}</td>
                         <td className="px-3 text-center">{rec.minAlert ?? 0}</td>
                         <td className="px-3">{rec.warehouse || '-'}</td>
                         <td className="px-3 text-center">{renderStatus(rec)}</td>
@@ -606,7 +613,15 @@ export default function StockManagement() {
                   value={items.find(i => i.id === form.itemId)?.itemName || ''} 
                   onChange={(val) => {
                      const item = items.find(i => i.itemName === val)
-                     setForm(prev => ({ ...prev, itemId: item ? item.id : '' }))
+                     setForm(prev => ({
+                       ...prev,
+                       itemId: item ? item.id : '',
+                       qtyAvailable: item ? item.qtyAvailable : prev.qtyAvailable,
+                       qtyReserved: item ? item.qtyReserved : '',
+                       qtySold: item ? item.qtySold : '',
+                       minAlert: item ? item.minAlert : prev.minAlert,
+                       warehouse: item ? (item.warehouse || '') : prev.warehouse,
+                     }))
                   }} 
                   isRTL={isArabic} 
                 />
@@ -624,10 +639,16 @@ export default function StockManagement() {
                 <input type="number" name="qtyAvailable" value={form.qtyAvailable} onChange={onChange} min="0" step="1" placeholder={labels.qtyAvailable} className="input w-full" />
               </div>
 
-              {/* Reserved Qty */}
+              {/* Reserved Qty (system-managed) */}
               <div className="space-y-1">
                 <label className="text-sm font-medium text-[var(--muted-text)]">{labels.qtyReserved}</label>
-                <input type="number" name="qtyReserved" value={form.qtyReserved} onChange={onChange} min="0" step="1" placeholder={labels.qtyReserved} className="input w-full" />
+                <input type="number" name="qtyReserved" value={form.qtyReserved} readOnly className="input w-full opacity-70 cursor-not-allowed" />
+              </div>
+
+              {/* Sold Qty (system-managed) */}
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-[var(--muted-text)]">{labels.qtySold}</label>
+                <input type="number" name="qtySold" value={form.qtySold} readOnly className="input w-full opacity-70 cursor-not-allowed" />
               </div>
 
               {/* Min Alert */}

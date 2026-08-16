@@ -7,10 +7,12 @@ use App\Models\SalesInvoicePayment;
 use App\Models\Order;
 use App\Models\User;
 use App\Notifications\InvoiceCreated;
+use App\Services\ItemStockService;
 use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class SalesInvoiceController extends Controller
 {
@@ -52,6 +54,73 @@ class SalesInvoiceController extends Controller
         $invoice->save();
         return $invoice;
     }
+
+    private function isPostedLike(?string $status): bool
+    {
+        $status = strtolower(trim((string) $status));
+        return in_array($status, ['posted', 'paid', 'partial', 'partially paid', 'unpaid', 'overdue'], true);
+    }
+
+    private function isCancelledLike(?string $status): bool
+    {
+        return in_array(strtolower(trim((string) $status)), ['cancelled', 'canceled'], true);
+    }
+
+    private function orderLineItemsTotal(Order $order): float
+    {
+        $orderItemsTotal = 0.0;
+        $orderItems = is_array($order->items) ? $order->items : [];
+        foreach ($orderItems as $line) {
+            $line = is_array($line) ? $line : (array) $line;
+            $qty = (float) ($line['quantity'] ?? $line['qty'] ?? 0);
+            $price = (float) ($line['price'] ?? $line['unit_price'] ?? 0);
+            $discount = (float) ($line['discount'] ?? 0);
+            $orderItemsTotal += ($qty * $price) - $discount;
+        }
+
+        return $orderItemsTotal;
+    }
+
+    private function invoiceNetAmount(float $total, float $tax = 0, float $subtotal = 0): float
+    {
+        if ($subtotal > 0.0001) {
+            return $subtotal;
+        }
+
+        return max(0, $total - $tax);
+    }
+
+    private function orderNetCap(Order $order): float
+    {
+        $orderItemsTotal = $this->orderLineItemsTotal($order);
+        $orderTotal = (float) ($order->total ?? 0);
+        $orderTax = (float) ($order->tax ?? 0);
+        $orderNet = $orderTax > 0 && $orderTotal > $orderTax
+            ? $orderTotal - $orderTax
+            : $orderTotal;
+
+        return max($orderItemsTotal, $orderNet);
+    }
+
+    private function existingInvoicedNet(int $orderId, ?int $exceptInvoiceId = null): float
+    {
+        $query = SalesInvoice::query()
+            ->where('order_id', $orderId)
+            ->where('status', '!=', 'Cancelled')
+            ->whereRaw("LOWER(COALESCE(invoice_type,'')) != 'advance'");
+
+        if ($exceptInvoiceId) {
+            $query->where('id', '!=', $exceptInvoiceId);
+        }
+
+        return (float) $query->get(['subtotal', 'total', 'tax'])->sum(function (SalesInvoice $invoice) {
+            return $this->invoiceNetAmount(
+                (float) ($invoice->total ?? 0),
+                (float) ($invoice->tax ?? 0),
+                (float) ($invoice->subtotal ?? 0)
+            );
+        });
+    }
     /**
      * Display a listing of the resource.
      */
@@ -59,6 +128,7 @@ class SalesInvoiceController extends Controller
     {
         $query = SalesInvoice::query()->with([
             'order:id,uuid',
+            'customer:id,name,email',
         ]);
 
         if ($request->filled('search')) {
@@ -113,18 +183,23 @@ class SalesInvoiceController extends Controller
                 return response()->json(['message' => 'Invalid order_id.'], 422);
             }
 
-            // Prevent over-invoicing (full+partial cannot exceed order.total)
+            // Prevent over-invoicing (full+partial cannot exceed the order cap)
             if ($invoiceTypeLower !== 'advance') {
-                $existingInvoiced = (float) SalesInvoice::where('order_id', $orderId)
-                    ->where('status', '!=', 'Cancelled')
-                    ->whereRaw("LOWER(COALESCE(invoice_type,'')) != 'advance'")
-                    ->sum('total');
-
-                $newTotal = (float) ($validated['total'] ?? 0);
-                $orderTotal = (float) ($order->total ?? 0);
-                if (($existingInvoiced + $newTotal) > ($orderTotal + 0.0001)) {
+                $existingInvoiced = $this->existingInvoicedNet((int) $orderId);
+                $newNet = $this->invoiceNetAmount(
+                    (float) ($validated['total'] ?? 0),
+                    (float) ($validated['tax'] ?? 0),
+                    (float) ($validated['subtotal'] ?? 0)
+                );
+                $orderCap = $this->orderNetCap($order);
+                if ($orderCap > 0 && ($existingInvoiced + $newNet) > ($orderCap + 0.0001)) {
+                    $remaining = max(0, $orderCap - $existingInvoiced);
                     return response()->json([
-                        'message' => 'Invoice total exceeds Sales Order total.',
+                        'message' => $existingInvoiced > 0
+                            ? 'This sales order already has an invoice. Remaining amount: ' . number_format($remaining, 2) . '.'
+                            : 'Invoice total exceeds Sales Order total.',
+                        'already_invoiced' => $existingInvoiced,
+                        'remaining' => $remaining,
                     ], 422);
                 }
 
@@ -199,7 +274,19 @@ class SalesInvoiceController extends Controller
             }
         }
 
-        return response()->json($invoice, 201);
+        if ($this->isPostedLike($invoice->status)) {
+            try {
+                app(ItemStockService::class)->applyInvoiceSold($invoice);
+            } catch (ValidationException $e) {
+                $invoice->delete();
+                return response()->json([
+                    'message' => collect($e->errors())->flatten()->first() ?: 'Insufficient stock for this invoice.',
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+        }
+
+        return response()->json($invoice->fresh(), 201);
     }
 
     /**
@@ -209,6 +296,7 @@ class SalesInvoiceController extends Controller
     {
         return $salesInvoice->load([
             'order:id,uuid',
+            'customer:id,name,email',
         ]);
     }
 
@@ -250,15 +338,14 @@ class SalesInvoiceController extends Controller
             }
 
             if ($invoiceTypeLower !== 'advance') {
-                $existingInvoiced = (float) SalesInvoice::where('order_id', $orderId)
-                    ->where('id', '!=', $salesInvoice->id)
-                    ->where('status', '!=', 'Cancelled')
-                    ->whereRaw("LOWER(COALESCE(invoice_type,'')) != 'advance'")
-                    ->sum('total');
-
-                $newTotal = (float) ($validated['total'] ?? $salesInvoice->total ?? 0);
-                $orderTotal = (float) ($order->total ?? 0);
-                if (($existingInvoiced + $newTotal) > ($orderTotal + 0.0001)) {
+                $existingInvoiced = $this->existingInvoicedNet((int) $orderId, (int) $salesInvoice->id);
+                $newNet = $this->invoiceNetAmount(
+                    (float) ($validated['total'] ?? $salesInvoice->total ?? 0),
+                    (float) ($validated['tax'] ?? $salesInvoice->tax ?? 0),
+                    (float) ($validated['subtotal'] ?? $salesInvoice->subtotal ?? 0)
+                );
+                $orderCap = $this->orderNetCap($order);
+                if ($orderCap > 0 && ($existingInvoiced + $newNet) > ($orderCap + 0.0001)) {
                     return response()->json([
                         'message' => 'Invoice total exceeds Sales Order total.',
                     ], 422);
@@ -286,10 +373,27 @@ class SalesInvoiceController extends Controller
             }
         }
 
+        $previousStatus = (string) $salesInvoice->status;
         $salesInvoice->update($validated);
         $this->recalculateInvoiceFinancials($salesInvoice);
+        $salesInvoice = $salesInvoice->fresh();
 
-        return response()->json($salesInvoice);
+        $stock = app(ItemStockService::class);
+        if (!$this->isPostedLike($previousStatus) && $this->isPostedLike($salesInvoice->status)) {
+            try {
+                $stock->applyInvoiceSold($salesInvoice);
+            } catch (ValidationException $e) {
+                return response()->json([
+                    'message' => collect($e->errors())->flatten()->first() ?: 'Insufficient stock for this invoice.',
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+        }
+        if (!$this->isCancelledLike($previousStatus) && $this->isCancelledLike($salesInvoice->status) && $this->isPostedLike($previousStatus)) {
+            $stock->reverseInvoiceSold($salesInvoice, 'invoice_cancelled');
+        }
+
+        return response()->json($salesInvoice->fresh());
     }
 
     public function payments(SalesInvoice $salesInvoice)
@@ -338,11 +442,39 @@ class SalesInvoiceController extends Controller
         });
     }
 
+    public function storeReturn(Request $request, SalesInvoice $salesInvoice)
+    {
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.item_id' => 'nullable',
+            'items.*.name' => 'nullable|string',
+            'items.*.quantity' => 'required|integer|min:1',
+        ]);
+
+        try {
+            $applied = app(ItemStockService::class)->returnInvoiceItems($salesInvoice, $validated['items']);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => collect($e->errors())->flatten()->first(),
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Return recorded successfully',
+            'returned' => $applied,
+            'invoice' => $salesInvoice->fresh(),
+        ]);
+    }
+
     /**
      * Remove the specified resource from storage.
      */
     public function destroy(SalesInvoice $salesInvoice)
     {
+        if ($this->isPostedLike($salesInvoice->status)) {
+            app(ItemStockService::class)->reverseInvoiceSold($salesInvoice, 'invoice_deleted');
+        }
         $salesInvoice->delete();
         return response()->noContent();
     }

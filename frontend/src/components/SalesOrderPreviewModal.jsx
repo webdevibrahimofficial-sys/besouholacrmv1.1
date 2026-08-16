@@ -13,6 +13,7 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
   const { company, crmSettings } = useAppState()
   const { resolvedTheme } = useTheme()
   const printRef = useRef()
+  const invoiceDropdownRef = useRef(null)
   const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false)
   const [showAttachments, setShowAttachments] = useState(false)
   const [attachments, setAttachments] = useState([])
@@ -94,6 +95,23 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
     loadAttachments()
   }, [isRTL, order?.id, showAttachments])
 
+  useEffect(() => {
+    if (!isOpen) setShowInvoiceDropdown(false)
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!showInvoiceDropdown) return
+
+    const handleClickOutside = (event) => {
+      if (invoiceDropdownRef.current && !invoiceDropdownRef.current.contains(event.target)) {
+        setShowInvoiceDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showInvoiceDropdown])
+
   const handlePrint = useReactToPrint({
     contentRef: printRef,
     documentTitle: `SalesOrder-${normalizedOrder?.orderNumber || 'New'}`,
@@ -150,8 +168,8 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
     ? 'relative z-[110] flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-700 bg-slate-950 shadow-2xl print:h-auto print:max-w-none print:rounded-none print:border-0 print:shadow-none'
     : 'relative z-[110] flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl print:h-auto print:max-w-none print:rounded-none print:border-0 print:shadow-none'
   const modalHeaderClass = isDark
-    ? 'modal-chrome no-print flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-6 py-4 backdrop-blur'
-    : 'modal-chrome no-print flex items-center justify-between border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur'
+    ? 'modal-chrome no-print relative z-40 flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-6 py-4 backdrop-blur'
+    : 'modal-chrome no-print relative z-40 flex items-center justify-between border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur'
   const previewBackgroundClass = isDark
     ? 'print-scroll-reset flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#1e293b,_#0f172a_42%,_#020617_100%)] p-4 sm:p-6'
     : 'print-scroll-reset flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#fff7ed,_#f8fafc_38%,_#e2e8f0_100%)] p-4 sm:p-6'
@@ -330,8 +348,9 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
 
           <div className="flex items-center gap-3">
             {canCreateInvoice ? (
-              <div className="relative">
+              <div className="relative" ref={invoiceDropdownRef}>
                 <button
+                  type="button"
                   onClick={() => setShowInvoiceDropdown((prev) => !prev)}
                   className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
                 >
@@ -340,7 +359,7 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
                   <FaChevronDown className="text-[10px]" />
                 </button>
                 {showInvoiceDropdown ? (
-                  <div className={`absolute top-full z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl ${isRTL ? 'left-0' : 'right-0'}`}>
+                  <div className={`absolute top-full z-[80] mt-2 w-64 overflow-hidden rounded-2xl border shadow-xl ${isRTL ? 'left-0' : 'right-0'} ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
                     {[
                       { key: 'Full', label: isRTL ? 'فاتورة كاملة' : 'Full Invoice' },
                       { key: 'Partial', label: isRTL ? 'فاتورة جزئية' : 'Partial Invoice' },
@@ -353,7 +372,7 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
                           onCreateInvoice(option.key)
                           setShowInvoiceDropdown(false)
                         }}
-                        className={`block w-full border-b px-4 py-3 text-left text-sm font-medium transition last:border-b-0 ${isDark ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-100 text-slate-700 hover:bg-slate-50'}`}
+                        className={`block w-full border-b px-4 py-3 text-start text-sm font-medium transition last:border-b-0 ${isDark ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-100 text-slate-700 hover:bg-slate-50'}`}
                       >
                         {option.label}
                       </button>

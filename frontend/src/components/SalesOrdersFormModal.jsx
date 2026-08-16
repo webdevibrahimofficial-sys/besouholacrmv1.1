@@ -132,7 +132,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
         customerId: initialData.customerId || initialData.customer_id || '',
         customerCode: initialData.customerCode || '',
         customerName: initialData.customerName || '',
-        status: initialData.status || 'Draft',
+        status: Number.isFinite(Number(initialData.id)) ? (initialData.status || 'Draft') : 'Draft',
         date: initialData.createdAt ? new Date(initialData.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         deliveryDate: initialData.deliveryDate ? new Date(initialData.deliveryDate).toISOString().split('T')[0] : '',
         items: initialData.items || [],
@@ -460,8 +460,8 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
               </div>
             </div>
             
-            {/* Row 3: Dates & Status */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Row 3: Dates */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className={labelClass}>{isRTL ? 'تاريخ الطلب' : 'Order Date'}</label>
                 <div className="relative">
@@ -476,7 +476,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
               </div>
               
               <div>
-                <label className={labelClass}>{isRTL ? 'تاريخ التسليمب' : ' Delivery Date'}</label>
+                <label className={labelClass}>{isRTL ? 'تاريخ التسليم' : 'Delivery Date'}</label>
                 <div className="relative">
                   <FaCalendarAlt className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                   <input
@@ -487,23 +487,6 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                   />
                 </div>
                 {errors.deliveryDate && <p className={errorClass}>{errors.deliveryDate}</p>}
-              </div>
-
-              <div>
-                <label className={labelClass}>{isRTL ? 'الحالة' : 'Status'}</label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  className={inputClass}
-                >
-                  <option value="Draft">{isRTL ? 'مسودة' : 'Draft'}</option>
-                  <option value="Confirmed">{isRTL ? 'مؤكد' : 'Confirmed'}</option>
-                  <option value="In Progress">{isRTL ? 'قيد التنفيذ' : 'In Progress'}</option>
-                  <option value="Completed">{isRTL ? 'مكتمل' : 'Completed'}</option>
-                  <option value="Cancelled">{isRTL ? 'ملغي' : 'Cancelled'}</option>
-                  <option value="Partially Invoiced">{isRTL ? 'مفوتر جزئياً' : 'Partially Invoiced'}</option>
-                  <option value="Fully Invoiced">{isRTL ? 'مفوتر بالكامل' : 'Fully Invoiced'}</option>
-                </select>
               </div>
             </div>
             

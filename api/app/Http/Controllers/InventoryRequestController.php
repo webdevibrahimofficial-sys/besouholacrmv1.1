@@ -8,6 +8,7 @@ use App\Models\LeadAction;
 use App\Models\CrmSetting;
 use App\Models\User;
 use App\Notifications\RequestCreated;
+use App\Services\ItemStockService;
 use App\Traits\InventoryDeleteAuthorization;
 use App\Traits\ResolvesNotificationRecipients;
 use App\Traits\UserHierarchyTrait;
@@ -299,7 +300,17 @@ class InventoryRequestController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $previousStatus = (string) $inventoryRequest->status;
         $inventoryRequest->update($request->all());
+
+        $nextStatus = (string) $inventoryRequest->status;
+        $stock = app(ItemStockService::class);
+        if (strcasecmp($nextStatus, 'Rejected') === 0 && strcasecmp($previousStatus, 'Rejected') !== 0) {
+            $stock->releaseRequest($inventoryRequest, 'rejected');
+        }
+        if (strcasecmp($nextStatus, 'Converted') === 0 && strcasecmp($previousStatus, 'Converted') !== 0) {
+            $stock->freezeRequest($inventoryRequest);
+        }
 
         return response()->json($inventoryRequest);
     }
@@ -312,6 +323,7 @@ class InventoryRequestController extends Controller
         if ($resp = $this->authorizeInventoryDelete($request, 'general')) {
             return $resp;
         }
+        app(ItemStockService::class)->releaseRequest($inventoryRequest, 'deleted');
         $inventoryRequest->delete();
 
         return response()->noContent();

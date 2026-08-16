@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { api } from '../utils/api'
@@ -50,6 +50,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
     if (isOpen) {
       const fetchData = async () => {
         try {
+          setLookupsReady(false)
           setLoadingData(true)
           const [cRes, catRes, itemsRes, oRes, iRes, usersRes] = await Promise.all([
             api.get('/api/customers'),
@@ -131,6 +132,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
           console.error('Error loading form data:', err)
         } finally {
           setLoadingData(false)
+          setLookupsReady(true)
         }
       }
       fetchData()
@@ -173,8 +175,22 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
   const [advanceClampHint, setAdvanceClampHint] = useState('')
   const [lastNonAdvanceTax, setLastNonAdvanceTax] = useState(null)
   const [lastNonAdvanceDiscountRate, setLastNonAdvanceDiscountRate] = useState(null)
-  
+  const [itemsLoading, setItemsLoading] = useState(false)
+  const [lookupsReady, setLookupsReady] = useState(false)
+  const [linkedOrder, setLinkedOrder] = useState(null)
+  const hydratedOpenRef = useRef(false)
+
   useEffect(() => {
+    if (!isOpen) {
+      hydratedOpenRef.current = false
+      setLinkedOrder(null)
+      setLookupsReady(false)
+      return
+    }
+
+    if (hydratedOpenRef.current) return
+    hydratedOpenRef.current = true
+
     if (initialData) {
       setFormData({
         ...initialData,
@@ -182,7 +198,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
         orderId: initialData.orderId || '',
         date: initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         dueDate: initialData.dueDate ? new Date(initialData.dueDate).toISOString().split('T')[0] : '',
-        items: initialData.__prefill ? [] : (initialData.items || []),
+        items: Array.isArray(initialData.items) ? initialData.items : [],
         tax: initialData.tax || 0,
         paidAmount: initialData.paidAmount || 0,
         advanceAppliedAmount: initialData.advanceAppliedAmount || initialData.advance_applied_amount || 0,
@@ -232,6 +248,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
     setAdvanceClampHint('')
     setLastNonAdvanceTax(null)
     setLastNonAdvanceDiscountRate(null)
+    setLinkedOrder(null)
   }, [initialData, isOpen])
 
   useEffect(() => {
@@ -274,39 +291,6 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
     loadAdvanceSummary()
   }, [isOpen, isManual, formData.orderId])
 
-  useEffect(() => {
-    if (!isOpen || isManual) return
-    if (!formData.orderId) return
-
-    const exists = availableOrders.some(o => String(o.id) === String(formData.orderId))
-    if (exists) return
-
-    const load = async () => {
-      try {
-        const res = await api.get(`/api/sales-orders/${formData.orderId}`)
-        const o = res?.data
-        if (!o) return
-
-        const mapped = {
-          ...o,
-          label: o.uuid || o.id,
-          customerCode: o.customer_code || o.customerCode,
-          customerName: o.customer_name || o.customerName,
-          customerAddress: o.customer_address || o.customerAddress || '',
-          salesPerson: o.sales_person || o.salesPerson,
-        }
-
-        setAvailableOrders(prev => {
-          if (prev.some(x => String(x.id) === String(mapped.id))) return prev
-          return [mapped, ...prev]
-        })
-      } catch {
-      }
-    }
-
-    load()
-  }, [isOpen, isManual, formData.orderId, availableOrders])
-
   const [paymentTermsOptions, setPaymentTermsOptions] = useState([
     { value: 'Immediate', label: isRTL ? 'فوري' : 'Immediate' },
     { value: 'Net 15', label: isRTL ? '15 يوم' : 'Net 15' },
@@ -330,10 +314,53 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
   const isEditMode = !!initialData && !isPrefill
 
   const getItemKey = (item) => {
-    const id = item?.item_id ?? item?.itemId ?? item?.id
-    if (id !== undefined && id !== null && String(id).trim() !== '') return `id:${String(id)}`
-    const name = String(item?.name ?? '').trim()
-    return name ? `name:${name}` : null
+    const name = String(item?.name ?? item?.item_name ?? item?.product_name ?? '').trim().toLowerCase()
+    if (name) {
+      const category = String(item?.category ?? item?.product_category ?? '').trim().toLowerCase()
+      return `name:${category}|${name}`
+    }
+
+    const stableId = item?.item_id ?? item?.itemId ?? item?.product_id
+    if (stableId !== undefined && stableId !== null && String(stableId).trim() !== '') {
+      return `id:${String(stableId)}`
+    }
+
+    return null
+  }
+
+  const getItemQty = (item) => parseFloat(item?.quantity ?? item?.qty ?? 0) || 0
+
+  const normalizeOrderItems = (orderOrItems) => {
+    let items = Array.isArray(orderOrItems) ? orderOrItems : orderOrItems?.items
+    if (typeof items === 'string') {
+      try { items = JSON.parse(items) } catch { items = [] }
+    }
+    if (!Array.isArray(items)) return []
+
+    return items.map((item, idx) => ({
+      ...item,
+      id: item?.id ?? item?.item_id ?? `line-${idx}`,
+      name: item?.name || item?.item_name || item?.product_name || '',
+      quantity: getItemQty(item),
+      price: parseFloat(item?.price ?? item?.unit_price ?? 0) || 0,
+      discount: parseFloat(item?.discount ?? 0) || 0,
+      type: item?.type || 'Product',
+      category: item?.category || item?.product_category || '',
+    }))
+  }
+
+  const mapSalesOrder = (o) => {
+    if (!o) return null
+    return {
+      ...o,
+      id: o.id,
+      label: o.uuid || o.id,
+      customerCode: o.customer_code || o.customerCode,
+      customerName: o.customer_name || o.customerName,
+      customerAddress: o.customer_address || o.customerAddress || '',
+      salesPerson: o.sales_person || o.salesPerson,
+      items: normalizeOrderItems(o),
+    }
   }
 
   const getInvoicedQtyByKey = (orderId) => {
@@ -345,11 +372,10 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
       .filter(inv => String(inv?.status ?? '').toLowerCase() !== 'cancelled')
       .filter(inv => String(inv?.invoiceType ?? inv?.invoice_type ?? '').toLowerCase() !== 'advance')
       .forEach(inv => {
-        const invItems = Array.isArray(inv?.items) ? inv.items : []
-        invItems.forEach(it => {
+        normalizeOrderItems(inv).forEach(it => {
           const key = getItemKey(it)
           if (!key) return
-          const qty = parseFloat(it?.quantity) || 0
+          const qty = getItemQty(it)
           if (qty <= 0) return
           map.set(key, (map.get(key) || 0) + qty)
         })
@@ -388,9 +414,11 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
 
     // NOTE: Advance is not a discount line; it's applied as a separate settlement field (advanceAppliedAmount)
 
+    const orderItems = normalizeOrderItems(order)
+
     if (type === 'Advance') {
       // Advance: Create a single item for advance payment (e.g., 30% of remaining value)
-      const totalOrderValue = order.items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
+      const totalOrderValue = orderItems.reduce((sum, i) => sum + (i.price * i.quantity), 0)
       const advanceValue = totalOrderValue * 0.30
       
       newItems = [{
@@ -404,48 +432,98 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
       }]
       newPaidAmount = 0
     } else if (type === 'Full' || type === 'Partial') {
-      // Load items
       const invoicedQtyByKey = getInvoicedQtyByKey(order.id)
-      newItems = (Array.isArray(order.items) ? order.items : [])
-        .map(item => {
-          const key = getItemKey(item)
-          const alreadyInvoiced = key ? (invoicedQtyByKey.get(key) || 0) : (item.invoicedQuantity || 0)
-          const remaining = (parseFloat(item.quantity) || 0) - alreadyInvoiced
-          return {
-            ...item,
-            invoicedQuantity: alreadyInvoiced,
-            quantity: remaining,
-            discount: item.discount || 0
-          }
-        })
-        .filter(item => item.quantity > 0)
-      
-      // Advance application is handled via advanceAppliedAmount (does not change invoice total/tax)
+      newItems = orderItems.map(item => {
+        const key = getItemKey(item)
+        const originalQty = getItemQty(item)
+        const alreadyInvoiced = key ? (invoicedQtyByKey.get(key) || 0) : (item.invoicedQuantity || 0)
+        const remaining = Math.max(0, originalQty - alreadyInvoiced)
+        return {
+          ...item,
+          invoicedQuantity: alreadyInvoiced,
+          quantity: type === 'Partial' ? (remaining || originalQty) : (remaining > 0 ? remaining : originalQty),
+          discount: item.discount || 0
+        }
+      })
     }
     
     return { items: newItems, paidAmount: newPaidAmount }
   }
 
-  // When opening from Sales Orders (prefill), auto-populate items from the linked order
-  // using remaining quantities (prevents server-side 422 for over-invoicing).
+  // Fetch the linked sales order once; do not refetch when invoice lookups arrive.
   useEffect(() => {
-    if (!isOpen) return
-    if (!isPrefill) return
-    if (readOnly) return
-    if (isManual) return
-    if (!formData.orderId) return
-    if (formData.items?.length) return
+    if (!isOpen || isManual || readOnly || !formData.orderId || isEditMode) {
+      setLinkedOrder(null)
+      setItemsLoading(false)
+      return
+    }
 
-    const order = availableOrders.find(o => String(o.id) === String(formData.orderId))
-    if (!order) return
+    let cancelled = false
+    setItemsLoading(true)
 
-    const { items: newItems, paidAmount: newPaidAmount } = calculateInvoiceItems(order, formData.invoiceType || 'Partial')
-    setFormData(prev => ({
-      ...prev,
-      items: newItems,
-      paidAmount: newPaidAmount
-    }))
-  }, [isOpen, isPrefill, readOnly, isManual, formData.orderId, formData.invoiceType, availableOrders, invoices])
+    const loadOrder = async () => {
+      try {
+        const res = await api.get(`/api/sales-orders/${formData.orderId}`)
+        const order = mapSalesOrder(res?.data?.data || res?.data)
+        if (cancelled) return
+        setLinkedOrder(order)
+        if (order) {
+          setAvailableOrders(prev => {
+            const idx = prev.findIndex(x => String(x.id) === String(order.id))
+            if (idx >= 0) {
+              const next = [...prev]
+              next[idx] = { ...prev[idx], ...order }
+              return next
+            }
+            return [order, ...prev]
+          })
+        }
+      } catch (err) {
+        console.error('Failed to load sales order items:', err)
+        if (!cancelled) setLinkedOrder(null)
+      } finally {
+        if (!cancelled) setItemsLoading(false)
+      }
+    }
+
+    loadOrder()
+    return () => { cancelled = true }
+  }, [isOpen, isManual, readOnly, isEditMode, formData.orderId])
+
+  // Keep order products on screen. Remaining-qty may adjust quantities, but must not hide the rows.
+  useEffect(() => {
+    if (!isOpen || isManual || readOnly || isEditMode || !formData.orderId || !linkedOrder) return
+
+    const orderItems = normalizeOrderItems(linkedOrder)
+    if (!orderItems.length) return
+
+    if (!lookupsReady) {
+      setFormData(prev => {
+        if (String(prev.orderId) !== String(formData.orderId)) return prev
+        if (prev.items?.length) return prev
+        return { ...prev, items: orderItems }
+      })
+      return
+    }
+
+    const { items: newItems, paidAmount: newPaidAmount } = calculateInvoiceItems(linkedOrder, formData.invoiceType || 'Full')
+    setFormData(prev => {
+      if (String(prev.orderId) !== String(formData.orderId)) return prev
+      const nextItems = newItems.length > 0 ? newItems : orderItems
+      const sameCount = (prev.items?.length || 0) === nextItems.length
+      const samePaid = Number(prev.paidAmount || 0) === Number(newPaidAmount || 0)
+      const sameNames = sameCount && prev.items.every((item, idx) => (
+        String(item?.name || '') === String(nextItems[idx]?.name || '')
+        && Number(item?.quantity || 0) === Number(nextItems[idx]?.quantity || 0)
+      ))
+      if (sameNames && samePaid) return prev
+      return {
+        ...prev,
+        items: nextItems,
+        paidAmount: newPaidAmount,
+      }
+    })
+  }, [isOpen, isManual, readOnly, isEditMode, formData.orderId, formData.invoiceType, linkedOrder, lookupsReady, invoices])
 
   // Stage 1.5: semi-auto suggest/apply advance for create; clamp for edit.
   useEffect(() => {
@@ -524,16 +602,6 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
 
   // Handle Invoice Type Change Logic
   const handleInvoiceTypeChange = (type) => {
-    if (isManual || !formData.orderId) {
-      setFormData(prev => ({ ...prev, invoiceType: type }))
-      return
-    }
-
-    const order = availableOrders.find(o => String(o.id) === String(formData.orderId))
-    if (!order) return
-
-    const { items: newItems, paidAmount: newPaidAmount } = calculateInvoiceItems(order, type)
-
     if (type === 'Advance') {
       setLastNonAdvanceTax(formData.tax)
       setLastNonAdvanceDiscountRate(formData.discountRate)
@@ -543,8 +611,6 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
       const next = {
         ...prev,
         invoiceType: type,
-        items: newItems,
-        paidAmount: newPaidAmount,
         advanceAppliedAmount: type === 'Advance' ? 0 : prev.advanceAppliedAmount,
         markAsReceived: type === 'Advance' ? prev.markAsReceived : false
       }
@@ -553,7 +619,6 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
         next.tax = 0
         next.discountRate = 0
       } else if (prev.invoiceType === 'Advance') {
-        // Restore last known non-advance values when leaving Advance
         if (lastNonAdvanceTax !== null) next.tax = lastNonAdvanceTax
         if (lastNonAdvanceDiscountRate !== null) next.discountRate = lastNonAdvanceDiscountRate
       }
@@ -637,6 +702,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
         discountAmount: globalDiscountAmount,
         total,
         balanceDue,
+        advanceAppliedAmount: Math.min(parseFloat(formData.advanceAppliedAmount) || 0, maxAdvanceToApply),
         createdAt: new Date().toISOString()
       })
     }
@@ -861,24 +927,21 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                         setAdvanceHint('')
                         setAdvanceAutoHint('')
                         setAdvanceClampHint('')
-                        
-                        if (order) {
-                          const { items: newItems, paidAmount: newPaidAmount } = calculateInvoiceItems(order, 'Partial')
 
-                          setFormData(prev => ({
-                            ...prev,
-                            orderId: selectedOId,
-                            customerCode: order.customerCode || prev.customerCode,
-                            customerName: order.customerName || prev.customerName,
-                            customerAddress: order.customerAddress || prev.customerAddress,
-                            salesPerson: order.salesPerson || prev.salesPerson,
-                            invoiceType: 'Partial',
-                            items: newItems,
-                            paidAmount: newPaidAmount
-                          }));
-                        } else {
-                          setFormData(prev => ({ ...prev, orderId: selectedOId }));
+                        if (!selectedOId) {
+                          setFormData(prev => ({ ...prev, orderId: '', items: [] }))
+                          return
                         }
+
+                        setFormData(prev => ({
+                          ...prev,
+                          orderId: selectedOId,
+                          customerCode: order?.customerCode || prev.customerCode,
+                          customerName: order?.customerName || prev.customerName,
+                          customerAddress: order?.customerAddress || prev.customerAddress,
+                          salesPerson: order?.salesPerson || prev.salesPerson,
+                          items: [],
+                        }))
                       }}
                       className={`${inputClass} ${isRTL ? 'pr-10' : 'pl-10'}`}
                       disabled={!formData.customerCode} // Disable if no customer selected
@@ -985,7 +1048,7 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-theme-text">{isRTL ? 'المنتجات / البنود' : 'Products / Items'}</h3>
-              {!readOnly && (isManual || formData.invoiceType !== 'Full') && (
+              {!readOnly && (isManual || formData.invoiceType !== 'Full' || formData.items.length === 0) && (
                 <button
                   type="button"
                   onClick={addItem}
@@ -1128,7 +1191,11 @@ const SalesInvoicesFormModal = ({ isOpen, onClose, onSave, initialData = null, i
                   {formData.items.length === 0 && (
                     <tr>
                       <td colSpan="8" className="px-4 py-8 text-center text-theme-text ">
-                        {isRTL ? 'لا توجد عناصر. أضف بند جديد.' : 'No items. Add a new item.'}
+                        {itemsLoading
+                          ? (isRTL ? 'جاري تحميل البنود من أمر البيع...' : 'Loading items from sales order...')
+                          : !isManual && formData.orderId
+                            ? (isRTL ? 'لا توجد بنود متبقية على أمر البيع هذا.' : 'No remaining items on this sales order.')
+                            : (isRTL ? 'لا توجد عناصر. أضف بند جديد.' : 'No items. Add a new item.')}
                       </td>
                     </tr>
                   )}

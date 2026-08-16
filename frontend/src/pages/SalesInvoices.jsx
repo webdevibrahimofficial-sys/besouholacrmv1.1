@@ -1,12 +1,14 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router-dom'
 import DatePicker from 'react-datepicker'
 import "react-datepicker/dist/react-datepicker.css"
 import { api, logExportEvent } from '../utils/api'
+import { sendEmailText } from '../services/emailService'
 import { useTheme } from '../shared/context/ThemeProvider'
-import { FaEdit, FaCheck, FaBan, FaMoneyBillWave, FaPaperPlane, FaPrint, FaDownload, FaPlus, FaFileImport, FaEye, FaTrash, FaStickyNote, FaShoppingCart, FaUndo, FaTimes, FaCheckCircle } from 'react-icons/fa'
+import { useAppState } from '../shared/context/AppStateProvider'
+import { FaEdit, FaCheck, FaPlay, FaBan, FaPaperPlane, FaDownload, FaPlus, FaFileImport, FaEye, FaTrash, FaStickyNote, FaShoppingCart, FaUndo, FaTimes, FaCheckCircle, FaEllipsisV } from 'react-icons/fa'
 import { Filter, ChevronDown, Search, User, DollarSign, Calendar } from 'lucide-react'
 import SearchableSelect from '../components/SearchableSelect'
 import SalesInvoicesFormModal from '../components/SalesInvoicesFormModal'
@@ -19,8 +21,28 @@ export default function SalesInvoices() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
   const { theme } = useTheme()
+  const { crmSettings } = useAppState()
   const isLight = theme === 'light'
   const isRTL = String(i18n.language || '').startsWith('ar')
+  const crmCurrency = String(crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP').toUpperCase()
+
+  const formatInvoiceStatus = (status) => {
+    const map = {
+      Draft: isRTL ? 'مسودة' : 'Draft',
+      Posted: isRTL ? 'مرحلة' : 'Posted',
+      Cancelled: isRTL ? 'ملغاة' : 'Cancelled',
+    }
+    return map[status] || status || '-'
+  }
+
+  const formatPaymentStatus = (status) => {
+    const map = {
+      Unpaid: isRTL ? 'غير مدفوعة' : 'Unpaid',
+      Partial: isRTL ? 'جزئية' : 'Partial',
+      Paid: isRTL ? 'مدفوعة' : 'Paid',
+    }
+    return map[status] || status || (isRTL ? 'غير مدفوعة' : 'Unpaid')
+  }
   const surfaceClass = isLight
     ? 'bg-[var(--panel-bg)] border border-[var(--panel-border)]'
     : 'bg-[var(--panel-bg)]/95 border border-[var(--panel-border)]'
@@ -52,6 +74,11 @@ export default function SalesInvoices() {
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [statusAction, setStatusAction] = useState(null)
   const [statusReason, setStatusReason] = useState('')
+  const [sendingEmailId, setSendingEmailId] = useState(null)
+  const [showReturnModal, setShowReturnModal] = useState(false)
+  const [returnInvoice, setReturnInvoice] = useState(null)
+  const [returnLines, setReturnLines] = useState([])
+  const [returning, setReturning] = useState(false)
 
   // Filters
   const [q, setQ] = useState('')
@@ -172,6 +199,7 @@ export default function SalesInvoices() {
         customerName: item.customer_name || item.customerName,
         customerCode: item.customer_code || item.customerCode,
         customerAddress: item.customer_address || item.customerAddress || '',
+        customerEmail: item.customer?.email || item.customer_email || item.customerEmail || '',
         dueDate: item.due_date || item.dueDate,
         createdAt: item.created_at || item.createdAt,
         issueDate: item.issue_date || item.issueDate,
@@ -235,6 +263,7 @@ export default function SalesInvoices() {
           customerName: raw.customer_name || raw.customerName,
           customerCode: raw.customer_code || raw.customerCode,
           customerAddress: raw.customer_address || raw.customerAddress || '',
+          customerEmail: raw.customer?.email || raw.customer_email || raw.customerEmail || '',
           dueDate: raw.due_date || raw.dueDate,
           createdAt: raw.created_at || raw.createdAt,
           issueDate: raw.issue_date || raw.issueDate,
@@ -334,7 +363,7 @@ export default function SalesInvoices() {
         status: data.status || 'Draft',
         payment_method: data.paymentMethod || null,
         payment_terms: data.paymentTerms || null,
-        currency: data.currency || null,
+        currency: data.currency || crmCurrency,
         notes: data.notes || null,
       }
 
@@ -382,7 +411,7 @@ export default function SalesInvoices() {
       await fetchInvoices()
       setShowPaymentModal(false)
       setPaymentItem(null)
-      showSuccess(isRTL ? 'تم تسجيل الدفعة بنجاح' : 'Payment registered successfully')
+      showSuccess(isRTL ? 'تم تأكيد الدفعة بنجاح' : 'Payment confirmed successfully')
     } catch (err) {
       console.error('Failed to save payment:', err)
       const msg = err?.response?.data?.message
@@ -409,39 +438,33 @@ export default function SalesInvoices() {
     return { totalInvoiced, totalPaid, totalOverdue, openInvoicesCount }
   }, [items])
 
-  // State Machine Logic
-  const getAvailableActions = (status, balanceDue) => {
-    switch (status) {
-      case 'Draft':
-        return [
-          { type: 'confirm', label: isRTL ? 'تأكيد وترحيل' : 'Confirm & Post', icon: FaCheck, color: 'text-green-600' },
-          { type: 'edit', label: isRTL ? 'تعديل' : 'Edit Invoice', icon: FaEdit, color: 'text-blue-600' },
-          { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Invoice', icon: FaBan, color: 'text-red-600' }
-        ]
-      case 'Posted':
-      case 'Overdue':
-      case 'Partial':
-        const actions = [
-          { type: 'payment', label: isRTL ? 'تسجيل دفعة' : 'Register Payment', icon: FaMoneyBillWave, color: 'text-blue-600' },
-          { type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' },
-          { type: 'print', label: isRTL ? 'طباعة' : 'Print / PDF', icon: FaPrint, color: 'text-gray-600' }
-        ]
-        if (balanceDue === Number(items.find(i => i.status === status)?.total)) { // If no payment made yet
-           actions.push({ type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Invoice', icon: FaBan, color: 'text-red-600' })
-        }
-        return actions
-      case 'Paid':
-        return [
-          { type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' },
-          { type: 'print', label: isRTL ? 'طباعة' : 'Print / PDF', icon: FaPrint, color: 'text-gray-600' }
-        ]
-      case 'Cancelled':
-      default:
-        return []
-    }
+  const editAction = () => ({ type: 'edit', label: isRTL ? 'تعديل' : 'Edit', icon: FaEdit, color: 'text-blue-600' })
+  const emailAction = () => ({ type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' })
+  const cancelAction = () => ({ type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel', icon: FaBan, color: 'text-red-600' })
+  const paymentAction = () => ({ type: 'payment', label: isRTL ? 'تأكيد الدفع' : 'Confirm Payment', icon: FaPlay, color: 'text-blue-600' })
+  const returnAction = () => ({ type: 'return', label: isRTL ? 'مرتجع' : 'Return', icon: FaUndo, color: 'text-orange-600' })
+
+  const getInvoiceReturnableLines = (invoice) => {
+    const lines = Array.isArray(invoice?.items) ? invoice.items : []
+    const returned = invoice?.meta_data?.returned_quantities || invoice?.metaData?.returned_quantities || {}
+    return lines.map((row, idx) => {
+      const itemId = row?.item_id ?? row?.itemId ?? row?.item ?? null
+      const name = row?.name || row?.item_name || row?.product_name || ''
+      const qty = Number(row?.quantity ?? row?.qty ?? 0) || 0
+      const already = Number(returned[String(itemId)] ?? returned[itemId] ?? 0) || 0
+      const max = Math.max(0, qty - already)
+      return {
+        key: `${itemId || name || 'line'}-${idx}`,
+        item_id: itemId,
+        name,
+        invoiced: qty,
+        already,
+        max,
+        quantity: max,
+      }
+    }).filter((line) => line.max > 0 && (line.item_id || line.name))
   }
 
-  // New action resolver (works with backend statuses like Unpaid / Partially Paid)
   const getAvailableActionsForInvoice = (invoice, balanceDue) => {
     const workflow = normalizeWorkflowStatus(invoice?.status)
     const status = String(workflow || '').toLowerCase()
@@ -454,30 +477,57 @@ export default function SalesInvoices() {
     if (status === 'draft') {
       return [
         { type: 'confirm', label: isRTL ? 'تأكيد وترحيل' : 'Confirm & Post', icon: FaCheck, color: 'text-green-600' },
-        { type: 'edit', label: isRTL ? 'تعديل' : 'Edit Invoice', icon: FaEdit, color: 'text-blue-600' },
-        { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Invoice', icon: FaBan, color: 'text-red-600' }
-      ]
-    }
-
-    if (paymentStatusLower === 'paid') {
-      return [
-        { type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' },
-        { type: 'print', label: isRTL ? 'طباعة' : 'Print / PDF', icon: FaPrint, color: 'text-gray-600' }
+        editAction(),
+        emailAction(),
+        cancelAction(),
       ]
     }
 
     const actions = []
-    if ((Number(balanceDue) || 0) > 0) {
-      actions.push({ type: 'payment', label: isRTL ? 'تسجيل دفعة' : 'Register Payment', icon: FaMoneyBillWave, color: 'text-blue-600' })
+    if (paymentStatusLower !== 'paid' && (Number(balanceDue) || 0) > 0) {
+      actions.push(paymentAction())
     }
-    actions.push(
-      { type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' },
-      { type: 'print', label: isRTL ? 'طباعة' : 'Print / PDF', icon: FaPrint, color: 'text-gray-600' }
-    )
+    actions.push(editAction(), emailAction())
+    if (status === 'posted' && getInvoiceReturnableLines(invoice).length > 0) {
+      actions.push(returnAction())
+    }
     if (!settled && status === 'posted') {
-      actions.push({ type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Invoice', icon: FaBan, color: 'text-red-600' })
+      actions.push(cancelAction())
     }
     return actions
+  }
+
+  const handleView = (item) => {
+    setPreviewItem(item)
+    setShowPreview(true)
+  }
+
+  const handleSendInvoiceEmail = async (invoice) => {
+    const to = String(invoice?.customerEmail || '').trim()
+    if (!to) {
+      alert(isRTL ? 'لا يوجد إيميل لهذا العميل' : 'This customer has no email address')
+      return
+    }
+
+    const invNo = invoice.invoiceNumber || invoice.id
+    const subject = `${isRTL ? 'فاتورة' : 'Invoice'} ${invNo}`
+    const body = `
+      <p>${isRTL ? 'فاتورة رقم' : 'Invoice #'}: <strong>${invNo}</strong></p>
+      <p>${isRTL ? 'العميل' : 'Customer'}: ${invoice.customerName || '-'}</p>
+      <p>${isRTL ? 'الإجمالي' : 'Total'}: ${Number(invoice.total || 0).toLocaleString()}</p>
+      <p>${isRTL ? 'المتبقي' : 'Balance'}: ${Number(invoice.balanceDue || 0).toLocaleString()}</p>
+    `
+
+    try {
+      setSendingEmailId(invoice.id)
+      await sendEmailText({ recipient_email: to, subject, body })
+      showSuccess(isRTL ? 'تم إرسال الفاتورة من إيميل الشركة' : 'Invoice sent from the company email')
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.response?.data?.message
+      alert(msg || (isRTL ? 'فشل إرسال الإيميل. تأكد من إعدادات إيميل الشركة.' : 'Failed to send email. Check company email settings.'))
+    } finally {
+      setSendingEmailId(null)
+    }
   }
 
   const handleStatusAction = (invoice, actionType) => {
@@ -492,19 +542,18 @@ export default function SalesInvoices() {
       return
     }
     if (actionType === 'email') {
-      const invNo = invoice.invoiceNumber || invoice.id
-      const subject = encodeURIComponent(`${isRTL ? 'فاتورة' : 'Invoice'} ${invNo}`)
-      const body = encodeURIComponent(
-        `${isRTL ? 'فاتورة رقم' : 'Invoice #'}: ${invNo}\n` +
-        `${isRTL ? 'العميل' : 'Customer'}: ${invoice.customerName || '-'}\n` +
-        `${isRTL ? 'الإجمالي' : 'Total'}: ${Number(invoice.total || 0).toLocaleString()}\n`
-      )
-      window.location.href = `mailto:?subject=${subject}&body=${body}`
+      handleSendInvoiceEmail(invoice)
       return
     }
-    if (actionType === 'print') {
-      setPreviewItem(invoice)
-      setShowPreview(true)
+    if (actionType === 'return') {
+      const lines = getInvoiceReturnableLines(invoice)
+      if (!lines.length) {
+        alert(isRTL ? 'لا توجد كميات قابلة للإرجاع على هذه الفاتورة' : 'This invoice has no returnable quantities')
+        return
+      }
+      setReturnInvoice(invoice)
+      setReturnLines(lines)
+      setShowReturnModal(true)
       return
     }
 
@@ -528,9 +577,140 @@ export default function SalesInvoices() {
       setStatusReason('')
       setShowStatusModal(true)
     } else {
-      if (window.confirm(isRTL ? 'هل أنت متأكد من هذا الإجراء؟' : 'Are you sure you want to proceed?')) {
-        executeStatusChange(actionData)
-      }
+      executeStatusChange(actionData)
+    }
+  }
+
+  const renderInvoiceActions = (item, balanceDue) => {
+    const actions = getAvailableActionsForInvoice(item, balanceDue)
+    const primary = actions[0]
+    const extraActions = actions.slice(1)
+    const sending = sendingEmailId === item.id
+    const sendingLabel = isRTL ? 'جاري الإرسال...' : 'Sending...'
+
+    return (
+      <div className="flex items-center justify-end gap-2">
+        {primary && (
+          <button
+            type="button"
+            disabled={sending && primary.type === 'email'}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleStatusAction(item, primary.type)
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${primary.color.replace('text-', 'bg-').replace('600', '100')} ${primary.color} dark:bg-opacity-20`}
+            title={primary.label}
+          >
+            {React.createElement(primary.icon, { size: 12 })}
+            <span className="hidden xl:inline">{sending && primary.type === 'email' ? sendingLabel : primary.label}</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleView(item)
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors shadow-sm"
+          title={isRTL ? 'عرض' : 'View'}
+        >
+          <FaEye size={12} />
+          <span className="hidden xl:inline">{isRTL ? 'عرض' : 'View'}</span>
+        </button>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setActiveActionDropdown(activeActionDropdown === item.id ? null : item.id)
+            }}
+            className={`flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isLight ? 'text-black' : 'text-white'} dark:text-gray-400`}
+          >
+            <FaEllipsisV size={12} />
+          </button>
+
+          {activeActionDropdown === item.id && (
+            <div className={`absolute ${isRTL ? 'left-0' : 'right-0'} top-full mt-1 w-48 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden`}>
+              <div className="py-1 bg-white">
+                {extraActions.map((action, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    disabled={sending && action.type === 'email'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleStatusAction(item, action.type)
+                      setActiveActionDropdown(null)
+                    }}
+                    className={`w-full text-start px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700 ${action.color}`}
+                  >
+                    <action.icon size={14} />
+                    {sending && action.type === 'email' ? sendingLabel : action.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDelete(item)
+                    setActiveActionDropdown(null)
+                  }}
+                  className="w-full text-start px-4 py-2 text-sm flex items-center gap-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600"
+                >
+                  <FaTrash size={14} />
+                  {isRTL ? 'حذف' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const handleSubmitReturn = async () => {
+    if (!returnInvoice) return
+    const payloadItems = returnLines
+      .filter((line) => Number(line.quantity) > 0)
+      .map((line) => ({
+        item_id: line.item_id || undefined,
+        name: line.name || undefined,
+        quantity: Number(line.quantity),
+      }))
+    if (!payloadItems.length) {
+      alert(isRTL ? 'حدد كمية للإرجاع' : 'Enter a return quantity')
+      return
+    }
+    setReturning(true)
+    try {
+      await api.post(`/api/sales-invoices/${returnInvoice.id}/returns`, { items: payloadItems })
+      setShowReturnModal(false)
+      setReturnInvoice(null)
+      setReturnLines([])
+      await fetchInvoices()
+      showSuccess(isRTL ? 'تم تسجيل المرتجع وإعادة الكمية للمخزون المتاح' : 'Return recorded and stock restored to available')
+    } catch (e) {
+      alert(e?.response?.data?.message || (isRTL ? 'فشل تسجيل المرتجع' : 'Return failed'))
+    } finally {
+      setReturning(false)
+    }
+  }
+
+  const handleDelete = async (invoice) => {
+    const status = String(invoice?.status || '').toLowerCase()
+    if (status === 'posted' || status === 'paid') {
+      alert(isRTL ? 'لا يمكن حذف فاتورة مرحلة. يرجى إلغاؤها أولاً.' : 'Cannot delete a posted invoice. Please cancel it first.')
+      return
+    }
+    if (!window.confirm(isRTL ? 'هل أنت متأكد من حذف هذه الفاتورة؟' : 'Are you sure you want to delete this invoice?')) return
+    try {
+      await api.delete(`/api/sales-invoices/${invoice.id}`)
+      await fetchInvoices()
+      showSuccess(isRTL ? 'تم حذف الفاتورة بنجاح' : 'Invoice deleted successfully')
+    } catch (e) {
+      alert(e?.response?.data?.message || (isRTL ? 'فشل الحذف' : 'Delete failed'))
     }
   }
 
@@ -878,9 +1058,9 @@ export default function SalesInvoices() {
               value={filters.status}
               onChange={(val) => setFilters(prev => ({ ...prev, status: val }))}
               options={[
-                { value: 'Draft', label: 'Draft' },
-                { value: 'Posted', label: 'Posted' },
-                { value: 'Cancelled', label: 'Cancelled' }
+                { value: 'Draft', label: isRTL ? 'مسودة' : 'Draft' },
+                { value: 'Posted', label: isRTL ? 'مرحلة' : 'Posted' },
+                { value: 'Cancelled', label: isRTL ? 'ملغاة' : 'Cancelled' }
               ]}
               placeholder={isRTL ? 'كل الحالات' : 'All Statuses'}
               isRTL={isRTL}
@@ -944,9 +1124,9 @@ export default function SalesInvoices() {
               value={filters.paymentStatus}
               onChange={(val) => setFilters(prev => ({ ...prev, paymentStatus: val }))}
               options={[
-                { value: 'Unpaid', label: 'Unpaid' },
-                { value: 'Partial', label: 'Partial' },
-                { value: 'Paid', label: 'Paid' }
+                { value: 'Unpaid', label: isRTL ? 'غير مدفوعة' : 'Unpaid' },
+                { value: 'Partial', label: isRTL ? 'جزئية' : 'Partial' },
+                { value: 'Paid', label: isRTL ? 'مدفوعة' : 'Paid' }
               ]}
               placeholder={isRTL ? 'حالة الدفع' : 'Payment Status'}
               isRTL={isRTL}
@@ -1080,7 +1260,7 @@ export default function SalesInvoices() {
                   <th className="p-4 whitespace-nowrap min-w-[120px]">
                     {isRTL ? 'المتبقي' : 'Balance'}
                   </th>
-                  <th className="p-4 text-end min-w-[140px]">
+                  <th className="p-4 text-end min-w-[220px]">
                     {isRTL ? 'إجراءات' : 'Actions'}
                   </th>
                 </tr>
@@ -1127,7 +1307,18 @@ export default function SalesInvoices() {
                             onClick={(e) => e.stopPropagation()}
                           />
                         </td>
-                        <td className={`p-4 font-medium ${isLight ? 'text-black' : 'text-white'}`}>{item.invoiceNumber || item.id}</td>
+                        <td className={`p-4 font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleView(item)
+                            }}
+                            className="hover:text-blue-600 hover:underline text-left"
+                          >
+                            {item.invoiceNumber || item.id}
+                          </button>
+                        </td>
                         <td className="p-4">
                           <div className="flex flex-wrap items-center gap-1">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
@@ -1136,14 +1327,14 @@ export default function SalesInvoices() {
                               item.status === 'Cancelled' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800' :
                               'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
                             }`}>
-                              {item.status}
+                              {formatInvoiceStatus(item.status)}
                             </span>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
                               item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
                               item.paymentStatus === 'Partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-800' :
                               'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
                             }`}>
-                              {item.paymentStatus || 'Unpaid'}
+                              {formatPaymentStatus(item.paymentStatus)}
                             </span>
                             {overdue && (
                               <span className="px-2 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800">
@@ -1172,22 +1363,8 @@ export default function SalesInvoices() {
                         </td>
                         <td className="p-4 text-green-600">{Number(item.paidAmount || 0).toLocaleString()}</td>
                         <td className="p-4 text-red-500">{balanceDue.toLocaleString()}</td>
-                        <td className="p-4 text-end min-w-[148px]">
-                          <div className={`inline-flex items-center justify-end gap-1 transition-all duration-200 ${activeRowId === item.id ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none'} shadow-sm rounded-full px-2 py-1 border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
-                            {getAvailableActionsForInvoice(item, balanceDue).map((action, idx) => (
-                              <button
-                                key={`action-${idx}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleStatusAction(item, action.type)
-                                }}
-                                className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors ${action.color}`}
-                                title={action.label}
-                              >
-                                <action.icon size={16} />
-                              </button>
-                            ))}
-                          </div>
+                        <td className={`p-4 whitespace-nowrap ${activeRowId === item.id ? 'sticky ltr:right-0 rtl:left-0 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)] dark:shadow-none z-10' : ''}`}>
+                          {renderInvoiceActions(item, balanceDue)}
                         </td>
                       </tr>
                     )
@@ -1227,14 +1404,14 @@ export default function SalesInvoices() {
                           item.status === 'Cancelled' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800' :
                           'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
                         }`}>
-                          {item.status}
+                          {formatInvoiceStatus(item.status)}
                         </span>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
                           item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
                           item.paymentStatus === 'Partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-800' :
                           'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800'
                         }`}>
-                          {item.paymentStatus || 'Unpaid'}
+                          {formatPaymentStatus(item.paymentStatus)}
                         </span>
                         {overdue && (
                           <span className="px-2 py-1 rounded-full text-xs font-medium border bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800">
@@ -1273,19 +1450,7 @@ export default function SalesInvoices() {
                           />
                       </div>
                       <div className="flex items-center gap-2">
-                        {getAvailableActionsForInvoice(item, balanceDue).map((action, idx) => (
-                          <button
-                            key={`action-mobile-${idx}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleStatusAction(item, action.type)
-                            }}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${action.color.replace('text-', 'bg-').replace('600', '100')} ${action.color} dark:bg-opacity-20`}
-                          >
-                            <action.icon size={12} />
-                            <span>{action.label}</span>
-                          </button>
-                        ))}
+                        {renderInvoiceActions(item, balanceDue)}
                       </div>
                     </div>
                   </div>
@@ -1440,6 +1605,64 @@ export default function SalesInvoices() {
                   className="btn btn-primary btn-sm"
                 >
                   {isRTL ? 'تأكيد' : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      )}
+
+      {showReturnModal && returnInvoice && (
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+              <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                <h3 className="text-lg font-bold">{isRTL ? 'مرتجع فاتورة' : 'Invoice Return'}</h3>
+                <button onClick={() => { setShowReturnModal(false); setReturnInvoice(null) }} className="text-gray-400 hover:text-gray-600">
+                  <FaTimes />
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  {isRTL
+                    ? 'أدخل الكمية المراد إرجاعها. تُعاد من المباعة إلى المتاحة.'
+                    : 'Enter quantities to return. Sold stock is moved back to available.'}
+                </p>
+                {returnLines.map((line) => (
+                  <div key={line.key} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center">
+                    <div>
+                      <div className="text-sm font-medium">{line.name || `#${line.item_id}`}</div>
+                      <div className="text-xs text-gray-500">
+                        {isRTL ? 'مرحّل' : 'Invoiced'}: {line.invoiced}
+                        {line.already > 0 ? ` · ${isRTL ? 'مرتجع سابقاً' : 'Already returned'}: ${line.already}` : ''}
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-500">{isRTL ? 'الحد' : 'Max'} {line.max}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max={line.max}
+                      value={line.quantity}
+                      onChange={(e) => {
+                        const next = Math.min(line.max, Math.max(0, Number(e.target.value) || 0))
+                        setReturnLines((prev) => prev.map((row) => row.key === line.key ? { ...row, quantity: next } : row))
+                      }}
+                      className="input input-sm w-20"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-900/50 flex justify-end gap-2">
+                <button onClick={() => { setShowReturnModal(false); setReturnInvoice(null) }} className="btn btn-ghost btn-sm">
+                  {isRTL ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  onClick={handleSubmitReturn}
+                  disabled={returning}
+                  className="btn btn-primary btn-sm"
+                >
+                  {returning ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : (isRTL ? 'تأكيد المرتجع' : 'Confirm Return')}
                 </button>
               </div>
             </div>

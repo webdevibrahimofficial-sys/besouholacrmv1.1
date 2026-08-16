@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Quotation;
+use App\Services\ItemStockService;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -110,6 +111,7 @@ class QuotationController extends Controller
         }
 
         $data = $request->except('attachment');
+        $incomingMeta = is_array($data['meta_data'] ?? null) ? $data['meta_data'] : [];
 
         $subtotal = isset($data['subtotal']) ? (float) $data['subtotal'] : 0.0;
         $total = isset($data['total']) ? (float) $data['total'] : 0.0;
@@ -119,7 +121,7 @@ class QuotationController extends Controller
         }
 
         // Handle File Upload
-        $meta = [];
+        $meta = $incomingMeta;
         if ($request->hasFile('attachment')) {
             $path = $request->file('attachment')->store('quotations', 'public');
             $meta['attachment'] = $path;
@@ -157,6 +159,18 @@ class QuotationController extends Controller
             $quotation->meta_data = $meta;
             $quotation->save();
         }
+
+        $requestId = (int) ($meta['converted_from_request_id'] ?? 0);
+        if ($requestId > 0) {
+            $inventoryRequest = \App\Models\InventoryRequest::query()->find($requestId);
+            if ($inventoryRequest) {
+                app(ItemStockService::class)->freezeRequest($inventoryRequest);
+                if (strcasecmp((string) $inventoryRequest->status, 'Converted') !== 0) {
+                    $inventoryRequest->status = 'Converted';
+                    $inventoryRequest->save();
+                }
+            }
+        }
         
         return response()->json($quotation, 201);
     }
@@ -182,7 +196,13 @@ class QuotationController extends Controller
             $data['tax'] = max(0, $total - $subtotal);
         }
 
+        $previousStatus = strtolower((string) $quotation->status);
         $quotation->update($data);
+        $nextStatus = strtolower((string) $quotation->status);
+        if (in_array($nextStatus, ['cancelled', 'canceled', 'lost', 'rejected'], true)
+            && !in_array($previousStatus, ['cancelled', 'canceled', 'lost', 'rejected'], true)) {
+            app(ItemStockService::class)->releaseQuotation($quotation->fresh());
+        }
         return response()->json($quotation);
     }
 
@@ -191,6 +211,7 @@ class QuotationController extends Controller
      */
     public function destroy(Quotation $quotation)
     {
+        app(ItemStockService::class)->releaseQuotation($quotation);
         $quotation->delete();
         return response()->json(null, 204);
     }

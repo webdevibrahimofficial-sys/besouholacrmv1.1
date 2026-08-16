@@ -5,6 +5,7 @@ import DatePicker from 'react-datepicker'
 import "react-datepicker/dist/react-datepicker.css"
 import { api, logExportEvent } from '../utils/api'
 import { useTheme } from '../shared/context/ThemeProvider'
+import { useAppState } from '../shared/context/AppStateProvider' // crm currency
 import { FaEdit, FaCheck, FaPlay, FaPause, FaBan, FaCheckDouble, FaDownload, FaPlus, FaFileImport, FaEye, FaTrash, FaStickyNote, FaShoppingCart, FaFileInvoiceDollar, FaUndo, FaEllipsisV } from 'react-icons/fa'
 import { Filter, ChevronDown, Search, User, DollarSign, Calendar } from 'lucide-react'
 import SearchableSelect from '../components/SearchableSelect'
@@ -17,8 +18,10 @@ import * as XLSX from 'xlsx'
 export default function SalesOrders() {
   const { t, i18n } = useTranslation()
   const { theme } = useTheme()
+  const { crmSettings } = useAppState()
   const isLight = theme === 'light'
   const isRTL = String(i18n.language || '').startsWith('ar')
+  const crmCurrency = String(crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP').toUpperCase()
 
   // State
   const [items, setItems] = useState([])
@@ -26,6 +29,8 @@ export default function SalesOrders() {
   const [error, setError] = useState('')
   const [showImportModal, setShowImportModal] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
+  const [statusUpdatingId, setStatusUpdatingId] = useState(null)
   const [activeRowId, setActiveRowId] = useState(null)
   const [showForm, setShowForm] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
@@ -83,8 +88,15 @@ export default function SalesOrders() {
 
   // Helper for success messages
   const showSuccess = (msg) => {
+    setErrorMessage('')
     setSuccessMessage(msg)
     setTimeout(() => setSuccessMessage(''), 3000)
+  }
+
+  const showErrorToast = (msg) => {
+    setSuccessMessage('')
+    setErrorMessage(msg)
+    setTimeout(() => setErrorMessage(''), 4000)
   }
 
   const getAvailableActions = (status) => {
@@ -132,7 +144,7 @@ export default function SalesOrders() {
       customerName: order.customerName,
       customerAddress: order.customerAddress || order.customer_address || '',
       salesPerson: order.salesPerson,
-      currency: 'USD', // Default or from order
+      currency: crmCurrency,
       date: new Date().toISOString().split('T')[0],
       dueDate: new Date(Date.now() + 30*24*3600*1000).toISOString().split('T')[0], // Default Net 30
       discountRate: order.discountRate || 0,
@@ -164,7 +176,7 @@ export default function SalesOrders() {
       
     } else {
       // Full or Partial: Copy items
-      items = order.items.map(item => ({
+      items = (Array.isArray(order.items) ? order.items : []).map(item => ({
         ...item,
         // Ensure quantity is copied; for Partial, user edits it in modal
         quantity: item.quantity || item.qty || 0,
@@ -175,7 +187,7 @@ export default function SalesOrders() {
 
     setInvoiceData({
       ...baseInvoice,
-      items: [],
+      items,
       invoiceType: type
     })
     setInvoiceType(type)
@@ -242,7 +254,7 @@ export default function SalesOrders() {
         status: data?.status || 'Draft',
         payment_method: data?.paymentMethod || null,
         payment_terms: data?.paymentTerms || null,
-        currency: data?.currency || null,
+        currency: data?.currency || crmCurrency,
         notes: data?.notes || null,
       }
 
@@ -262,15 +274,20 @@ export default function SalesOrders() {
         status: err?.response?.status,
         data: err?.response?.data,
       })
-      const msg = err?.response?.data?.message || (isRTL ? 'فشل إنشاء الفاتورة' : 'Failed to create invoice')
+      const remaining = err?.response?.data?.remaining
+      const alreadyInvoiced = err?.response?.data?.already_invoiced
       const errors = err?.response?.data?.errors
-      if (errors && typeof errors === 'object') {
+      let msg = err?.response?.data?.message || (isRTL ? 'فشل إنشاء الفاتورة' : 'Failed to create invoice')
+      if (alreadyInvoiced > 0) {
+        msg = isRTL
+          ? `أمر البيع عليه فاتورة محفوظة بالفعل. المتبقي: ${Number(remaining || 0).toLocaleString()}`
+          : (msg || `This sales order already has an invoice. Remaining: ${Number(remaining || 0).toLocaleString()}`)
+      } else if (errors && typeof errors === 'object') {
         const firstKey = Object.keys(errors)[0]
         const firstMsg = firstKey ? (Array.isArray(errors[firstKey]) ? errors[firstKey][0] : errors[firstKey]) : null
-        alert(firstMsg || msg)
-      } else {
-        alert(msg)
+        msg = firstMsg || msg
       }
+      alert(msg)
     }
   }
 
@@ -294,6 +311,8 @@ export default function SalesOrders() {
       return
     }
 
+    if (statusUpdatingId) return
+
     const actionConfig = actionMap[actionType]
     if (!actionConfig) return
 
@@ -315,60 +334,80 @@ export default function SalesOrders() {
       setStatusReason('')
       setShowStatusModal(true)
     } else {
-      if (window.confirm(isRTL ? 'هل أنت متأكد من هذا الإجراء؟' : 'Are you sure you want to proceed?')) {
-        executeStatusChange(actionData)
-      }
+      executeStatusChange(actionData)
     }
   }
 
   const executeStatusChange = async (actionData) => {
-    setLoading(true)
+    setError('')
+    setStatusUpdatingId(actionData.orderId)
+    const previousItems = items
     try {
       let updates = { status: actionData.nextStatus }
-        
-      if (actionData.type === 'confirm') updates.confirmed_at = new Date().toISOString()
-      if (actionData.type === 'ship') updates.shipped_at = new Date().toISOString()
+
       if (actionData.type === 'cancel') updates.cancel_reason = statusReason
       if (actionData.type === 'hold') updates.hold_reason = statusReason
       if (actionData.type === 'resume') {
-          updates.status = 'Confirmed' 
+          updates.status = 'Confirmed'
       }
+
+      setItems(prev => prev.map(order => (
+        String(order.id) === String(actionData.orderId)
+          ? { ...order, status: updates.status }
+          : order
+      )))
 
       const res = await api.put(`/api/sales-orders/${actionData.orderId}`, updates)
-      const returnedStatus = res?.data?.status
-      const expected = String(actionData.nextStatus || '').toLowerCase().trim()
+      const returned = res?.data || {}
+      const returnedStatus = returned.status
+      const returnedId = returned.id
+      const expected = String(updates.status || '').toLowerCase().trim()
       const actual = String(returnedStatus || '').toLowerCase().trim()
 
-      if (returnedStatus && expected && actual && actual !== expected) {
-        alert(isRTL ? 'تم تنفيذ الطلب لكن لم يتم تغيير الحالة من السيرفر.' : 'Order updated but status did not change on the server.')
+      if (!returnedId || String(returnedId) !== String(actionData.orderId)) {
+        throw new Error(isRTL ? 'فشل حفظ الحالة على السيرفر.' : 'Failed to persist status on the server.')
       }
 
-      await fetchOrders()
+      await fetchOrders({ silent: true })
 
-      if (actionData.type === 'confirm') {
-        const orderForInvoice = actionData.orderSnapshot || res?.data || null
-        if (orderForInvoice) {
-          handleCreateInvoice(orderForInvoice, 'Full')
-        }
+      if (actual !== expected) {
+        const mismatch = isRTL ? 'تم تنفيذ الطلب لكن لم يتم تغيير الحالة من السيرفر.' : 'Order updated but status did not change on the server.'
+        setError(mismatch)
+        showErrorToast(mismatch)
+        return
       }
 
       showSuccess(isRTL ? 'تم تحديث الحالة بنجاح' : 'Status updated successfully')
+
+      if (actionData.type === 'confirm') {
+        const orderForInvoice = {
+          ...(actionData.orderSnapshot || {}),
+          ...returned,
+          status: updates.status,
+        }
+        handleCreateInvoice(orderForInvoice, 'Full')
+      }
+
       setShowStatusModal(false)
       setStatusAction(null)
       setStatusReason('')
     } catch (e) {
       console.error(e)
-      alert(isRTL ? 'فشل التحديث' : 'Update failed')
+      setItems(previousItems)
+      const msg = e?.response?.data?.message || e?.message || (isRTL ? 'فشل التحديث' : 'Update failed')
+      setError(msg)
+      showErrorToast(msg)
+      await fetchOrders({ silent: true })
     } finally {
-      setLoading(false)
+      setStatusUpdatingId(null)
     }
   }
 
   const [pageCount, setPageCount] = useState(1) // Server-side total pages
 
   // Load Data
-  const fetchOrders = async () => {
-    setLoading(true)
+  const fetchOrders = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     try {
       const params = {
         page: currentPage,
@@ -422,7 +461,7 @@ export default function SalesOrders() {
       console.error('Failed to fetch orders:', err)
       setError(isRTL ? 'فشل تحميل البيانات' : 'Failed to load data')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -620,7 +659,6 @@ export default function SalesOrders() {
         items: orderData.items,
         total: orderData.total,
         amount: orderData.subtotal || orderData.total, // Send amount (subtotal) or total if missing
-        status: orderData.status || 'Draft',
         delivery_date: orderData.deliveryDate,
         quotation_id: orderData.quotationId,
         tax: orderData.tax,
@@ -642,6 +680,7 @@ export default function SalesOrders() {
         savedOrder = res?.data || null
         showSuccess(isRTL ? 'تم تحديث الطلب بنجاح' : 'Order updated successfully')
       } else {
+        payload.status = 'Draft'
         const res = await api.post('/api/sales-orders', payload)
         savedOrder = res?.data || null
         showSuccess(isRTL ? 'تم إنشاء الطلب بنجاح' : 'Order created successfully')
@@ -806,9 +845,15 @@ export default function SalesOrders() {
     { value: 'In Progress', label: isRTL ? 'قيد التنفيذ' : 'In Progress' },
     { value: 'Completed', label: isRTL ? 'مكتمل' : 'Completed' },
     { value: 'Cancelled', label: isRTL ? 'ملغي' : 'Cancelled' },
+    { value: 'On Hold', label: isRTL ? 'معلق' : 'On Hold' },
     { value: 'Partially Invoiced', label: isRTL ? 'مفوتر جزئياً' : 'Partially Invoiced' },
     { value: 'Fully Invoiced', label: isRTL ? 'مفوتر بالكامل' : 'Fully Invoiced' }
   ], [isRTL])
+
+  const formatOrderStatus = (status) => {
+    const match = statusOptions.find(opt => String(opt.value).toLowerCase() === String(status || '').toLowerCase())
+    return match?.label || status || '-'
+  }
   const customerOptions = useMemo(() => {
     // Prefer tenant customers list; fallback to values present in orders
     if (customersList && customersList.length > 0) {
@@ -1167,7 +1212,7 @@ export default function SalesOrders() {
                           item.status === 'Delivered' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
                           'bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800'
                         }`}>
-                          {item.status}
+                          {formatOrderStatus(item.status)}
                         </span>
                       </td>
                       <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.customerCode || '-'}</td>
@@ -1207,11 +1252,12 @@ export default function SalesOrders() {
                           {getAvailableActions(item.status)[0] && (
                             <button 
                               type="button"
+                              disabled={statusUpdatingId === item.id}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleStatusAction(item, getAvailableActions(item.status)[0].type)
                               }}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${getAvailableActions(item.status)[0].color.replace('text-', 'bg-').replace('600', '100')} ${getAvailableActions(item.status)[0].color} dark:bg-opacity-20`}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${getAvailableActions(item.status)[0].color.replace('text-', 'bg-').replace('600', '100')} ${getAvailableActions(item.status)[0].color} dark:bg-opacity-20 disabled:opacity-60 disabled:cursor-wait`}
                               title={getAvailableActions(item.status)[0].label}
                             >
                               {React.createElement(getAvailableActions(item.status)[0].icon, { size: 12 })}
@@ -1322,7 +1368,7 @@ export default function SalesOrders() {
                           item.status === 'Delivered' ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' :
                           'bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800'
                         }`}>
-                      {item.status}
+                      {formatOrderStatus(item.status)}
                     </span>
                   </div>
 
@@ -1346,11 +1392,12 @@ export default function SalesOrders() {
                        {/* Primary Action */}
                           {getAvailableActions(item.status)[0] && (
                             <button 
+                              disabled={statusUpdatingId === item.id}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleStatusAction(item, getAvailableActions(item.status)[0].type)
                               }}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${getAvailableActions(item.status)[0].color.replace('text-', 'bg-').replace('600', '100')} ${getAvailableActions(item.status)[0].color} dark:bg-opacity-20`}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${getAvailableActions(item.status)[0].color.replace('text-', 'bg-').replace('600', '100')} ${getAvailableActions(item.status)[0].color} dark:bg-opacity-20 disabled:opacity-60 disabled:cursor-wait`}
                               title={getAvailableActions(item.status)[0].label}
                             >
                               {React.createElement(getAvailableActions(item.status)[0].icon, { size: 12 })}
@@ -1499,6 +1546,12 @@ export default function SalesOrders() {
         <div className="fixed bottom-4 right-4 z-50 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg animate-fade-in-up flex items-center gap-2">
           <span className="text-xl">✓</span>
           {successMessage}
+        </div>
+      )}
+      {errorMessage && (
+        <div className="fixed bottom-4 right-4 z-50 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg animate-fade-in-up flex items-center gap-2">
+          <span className="text-xl">!</span>
+          {errorMessage}
         </div>
       )}
 

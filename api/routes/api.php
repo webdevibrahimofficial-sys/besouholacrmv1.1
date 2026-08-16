@@ -552,6 +552,12 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('landing-pages', \App\Http\Controllers\LandingPageController::class);
 
     Route::apiResource('opportunities', OpportunityController::class);
+    Route::get('customers/recycle', [CustomerController::class, 'recycleBin']);
+    Route::post('customers/recycle/{id}/restore', [CustomerController::class, 'restoreFromRecycle']);
+    Route::delete('customers/recycle/{id}', [CustomerController::class, 'forceDelete']);
+    Route::post('customers/bulk-delete', [CustomerController::class, 'bulkDelete']);
+    Route::post('customers/bulk-restore', [CustomerController::class, 'bulkRestore']);
+    Route::post('customers/bulk-force-delete', [CustomerController::class, 'bulkForceDelete']);
     Route::get('customers/{id}/attachments', [CustomerController::class, 'attachmentsIndex']);
     Route::post('customers/{id}/attachments', [CustomerController::class, 'attachmentsStore']);
     Route::delete('customers/{id}/attachments/{attachmentId}', [CustomerController::class, 'attachmentsDestroy']);
@@ -559,15 +565,16 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::post('customers/{id}/comments', [CustomerController::class, 'commentsStore']);
     Route::apiResource('customers', CustomerController::class);
     Route::apiResource('inventory-requests', InventoryRequestController::class);
-    Route::apiResource('sales-orders', OrderController::class);
+    Route::apiResource('sales-orders', OrderController::class)->parameters(['sales-orders' => 'order']);
 
     Route::get('sales-orders/{order}/attachments', [OrderController::class, 'attachmentsIndex']);
     Route::post('sales-orders/{order}/attachments', [OrderController::class, 'attachmentsStore']);
     Route::delete('sales-orders/{order}/attachments/{attachmentId}', [OrderController::class, 'attachmentsDestroy']);
     Route::get('sales-orders/{order}/advance-summary', [OrderController::class, 'advanceSummary']);
-    Route::apiResource('sales-invoices', \App\Http\Controllers\SalesInvoiceController::class);
+    Route::apiResource('sales-invoices', \App\Http\Controllers\SalesInvoiceController::class)->parameters(['sales-invoices' => 'salesInvoice']);
     Route::get('sales-invoices/{salesInvoice}/payments', [\App\Http\Controllers\SalesInvoiceController::class, 'payments']);
     Route::post('sales-invoices/{salesInvoice}/payments', [\App\Http\Controllers\SalesInvoiceController::class, 'storePayment']);
+    Route::post('sales-invoices/{salesInvoice}/returns', [\App\Http\Controllers\SalesInvoiceController::class, 'storeReturn']);
     Route::apiResource('departments', \App\Http\Controllers\DepartmentController::class);
     Route::apiResource('teams', \App\Http\Controllers\TeamController::class);
     Route::apiResource('tasks', \App\Http\Controllers\TaskController::class);
