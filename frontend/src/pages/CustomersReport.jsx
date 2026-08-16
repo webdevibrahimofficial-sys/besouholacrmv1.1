@@ -11,10 +11,63 @@ import { PieChart } from '../shared/components/PieChart'
 import { api } from '../utils/api'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
-import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
+import CustomerDetailsModal from '../components/CustomerDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { canExportReport } from '../shared/utils/reportPermissions'
-import { getSourceDisplayName } from '../shared/utils/sourceDisplay'
+import { getSourceDisplayName, mapSourceToOption } from '../shared/utils/sourceDisplay'
+import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '../shared/utils/tenantCompanyType'
+
+function unwrapList(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.data?.data)) return payload.data.data
+  if (Array.isArray(payload?.users)) return payload.users
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.sources)) return payload.sources
+  return []
+}
+
+function formatActivityDate(value) {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleDateString()
+}
+
+function isEmailLike(value) {
+  return String(value || '').includes('@')
+}
+
+function displayUserName(userOrName) {
+  const name = typeof userOrName === 'string'
+    ? userOrName.trim()
+    : String(userOrName?.name || '').trim()
+  if (!name || isEmailLike(name) || name.length < 2) return ''
+  return name
+}
+
+function isManagerUser(user) {
+  const role = String(user?.role || user?.job_title || '').toLowerCase()
+  const roleNames = Array.isArray(user?.roles)
+    ? user.roles.map((roleRow) => String(roleRow?.name || roleRow || '').toLowerCase())
+    : []
+  const haystack = [role, ...roleNames].join(' ')
+  if (!haystack.trim()) return false
+  if (haystack.includes('sales person') || haystack.includes('salesperson')) return false
+  return haystack.includes('manager') || haystack.includes('team leader') || haystack.includes('مدير')
+}
+
+function itemDisplayName(item) {
+  return String(item?.name || item?.name_ar || item?.product || item?.title || '').trim()
+}
+
+function translateClientType(type, isRTL) {
+  const value = String(type || '').trim()
+  const lower = value.toLowerCase()
+  if (lower === 'company' || value === 'شركة') return isRTL ? 'شركة' : 'Company'
+  if (lower === 'individual' || value === 'فرد') return isRTL ? 'فرد' : 'Individual'
+  return value || '—'
+}
 
 export default function CustomersReport() {
   const { i18n } = useTranslation()
@@ -23,14 +76,17 @@ export default function CustomersReport() {
   const navigate = useNavigate()
   const location = useLocation()
   const isRTL = i18n.language === 'ar'
-  const { user } = useAppState()
+  const { user, company, crmSettings } = useAppState()
   const canExport = canExportReport(user, 'Customers Report')
+  const currencyCode = String(crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP').toUpperCase()
+  const formatMoney = (value) => `${Number(value || 0).toLocaleString()} ${currencyCode}`
+  const isRealEstate = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
 
   const [customers, setCustomers] = useState([])
   const [salesperson, setSalesperson] = useState('all')
   const [manager, setManager] = useState('all')
   const [source, setSource] = useState('all')
-  const [project, setProject] = useState('all')
+  const [selectedItem, setSelectedItem] = useState('all')
   const [convertDateFrom, setConvertDateFrom] = useState('')
   const [convertDateTo, setConvertDateTo] = useState('')
   const [clientType, setClientType] = useState('all')
@@ -38,33 +94,50 @@ export default function CustomersReport() {
   const [actionDateTo, setActionDateTo] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(true)
   const [showExportMenu, setShowExportMenu] = useState(false)
-  const [selectedLead, setSelectedLead] = useState(null)
+  const [selectedCustomer, setSelectedCustomer] = useState(null)
+  const [showCustomerDetailsModal, setShowCustomerDetailsModal] = useState(false)
   const exportMenuRef = useRef(null)
   const autoExportDoneRef = useRef(false)
 
-  // Filter options state
   const [usersList, setUsersList] = useState([])
   const [sourcesList, setSourcesList] = useState([])
-  const [projectsList, setProjectsList] = useState([])
+  const [itemsList, setItemsList] = useState([])
 
   useEffect(() => {
-    const fetchFilterOptions = async () => {
+    const loadUsers = async () => {
       try {
-        const [usersRes, sourcesRes, projectsRes] = await Promise.all([
-          api.get('/api/users'),
-          api.get('/api/sources'),
-          api.get('/api/projects?all=1')
-        ])
-        
-        setUsersList(Array.isArray(usersRes.data) ? usersRes.data : [])
-        setSourcesList(Array.isArray(sourcesRes.data) ? sourcesRes.data : [])
-        setProjectsList(Array.isArray(projectsRes.data) ? projectsRes.data : [])
+        const res = await api.get('/api/users', { params: { all: 1, per_page: 1000 } }).catch(() => api.get('/api/users'))
+        setUsersList(unwrapList(res.data))
       } catch (error) {
-        console.error('Failed to fetch filter options', error)
+        console.error('Failed to fetch users for customers report', error)
+        setUsersList([])
       }
     }
-    fetchFilterOptions()
-  }, [])
+    const loadSources = async () => {
+      try {
+        const res = await api.get('/api/sources?active=1').catch(() => api.get('/api/sources'))
+        setSourcesList(unwrapList(res.data))
+      } catch (error) {
+        console.error('Failed to fetch sources for customers report', error)
+        setSourcesList([])
+      }
+    }
+    const loadItems = async () => {
+      try {
+        const res = await api.get('/api/items?all=1')
+        setItemsList(unwrapList(res.data))
+      } catch (error) {
+        console.error('Failed to fetch items for customers report', error)
+        setItemsList([])
+      }
+    }
+
+    loadUsers()
+    loadSources()
+    if (!isRealEstate) {
+      loadItems()
+    }
+  }, [isRealEstate])
 
   useEffect(() => {
     let cancelled = false
@@ -72,7 +145,15 @@ export default function CustomersReport() {
     const fetchCustomers = async () => {
       try {
         const res = await api.get('/api/reports/customers', {
-          params: { per_page: 500 },
+          params: {
+            all: 1,
+            salesperson: salesperson !== 'all' ? salesperson : undefined,
+            manager: manager !== 'all' ? manager : undefined,
+            source: source !== 'all' ? source : undefined,
+            client_type: clientType !== 'all' ? clientType : undefined,
+            date_from: convertDateFrom || undefined,
+            date_to: convertDateTo || undefined,
+          },
         })
         const payload = res?.data
         const rows = Array.isArray(payload)
@@ -81,35 +162,45 @@ export default function CustomersReport() {
             ? payload.data
             : []
 
-        const normalized = rows.map((c) => ({
-          id: c.id,
-          name: c.name || '',
-          type: c.type || '',
-          clientType: c.clientType || (c.company_name ? 'Company' : 'Individual'),
-          manager: c.manager || '',
-          source: c.source || '',
-          project: c.project || '',
-          phone: c.phone || '',
-          email: c.email || '',
-          joinedDate: c.joinedDate || c.created_at || '',
-          totalRevenue: Number(c.totalRevenue ?? c.total_revenue ?? 0),
-          orders: Number(c.orders ?? c.orders_count ?? 0),
-          lastActivity: c.lastActivity || c.last_activity || c.updated_at || c.created_at || new Date().toISOString(),
-          salesperson: c.salesperson || c.sales_person || '',
-          invoicePaidTotal: Number(c.invoicePaidTotal ?? 0),
-          invoicePartialTotal: Number(c.invoicePartialTotal ?? 0),
-          invoiceUnpaidTotal: Number(c.invoiceUnpaidTotal ?? 0),
-          invoicePaidCount: Number(c.invoicePaidCount ?? 0),
-          invoicePartialCount: Number(c.invoicePartialCount ?? 0),
-          invoiceUnpaidCount: Number(c.invoiceUnpaidCount ?? 0),
-          invoicesCount: Number(c.invoicesCount ?? 0),
-          opportunitiesCount: Number(c.opportunitiesCount ?? 0),
-          quotationTotal: Number(c.quotationTotal ?? 0),
-          quotationConverted: Number(c.quotationConverted ?? 0),
-          quotationPending: Number(c.quotationPending ?? 0),
-          quotationLost: Number(c.quotationLost ?? 0),
-          revenueBreakdown: c.revenueBreakdown && typeof c.revenueBreakdown === 'object' ? c.revenueBreakdown : {},
-        }))
+        const normalized = rows.map((c) => {
+          const billedTotal = Number(c.billedTotal ?? c.billed_total ?? 0)
+          const collectedTotal = Number(c.collectedTotal ?? c.collected_total ?? c.totalRevenue ?? c.total_revenue ?? 0)
+          const outstandingTotal = Number(c.outstandingTotal ?? c.outstanding_total ?? Math.max(0, billedTotal - collectedTotal))
+
+          return {
+            id: c.id,
+            name: c.name || '',
+            type: c.type || '',
+            clientType: c.clientType || (c.company_name ? 'Company' : 'Individual'),
+            manager: c.manager || '',
+            source: c.source || '',
+            project: c.project || '',
+            phone: c.phone || '',
+            email: c.email || '',
+            joinedDate: c.joinedDate || c.created_at || '',
+            billedTotal,
+            collectedTotal,
+            outstandingTotal,
+            ordersTotal: Number(c.ordersTotal ?? c.orders_total ?? 0),
+            totalRevenue: collectedTotal,
+            orders: Number(c.orders ?? c.orders_count ?? 0),
+            lastActivity: c.lastActivity || c.last_activity || null,
+            salesperson: c.salesperson || c.sales_person || '',
+            invoicePaidTotal: Number(c.invoicePaidTotal ?? 0),
+            invoicePartialTotal: Number(c.invoicePartialTotal ?? 0),
+            invoiceUnpaidTotal: Number(c.invoiceUnpaidTotal ?? 0),
+            invoicePaidCount: Number(c.invoicePaidCount ?? 0),
+            invoicePartialCount: Number(c.invoicePartialCount ?? 0),
+            invoiceUnpaidCount: Number(c.invoiceUnpaidCount ?? 0),
+            invoicesCount: Number(c.invoicesCount ?? 0),
+            opportunitiesCount: Number(c.opportunitiesCount ?? 0),
+            quotationTotal: Number(c.quotationTotal ?? 0),
+            quotationConverted: Number(c.quotationConverted ?? 0),
+            quotationPending: Number(c.quotationPending ?? 0),
+            quotationLost: Number(c.quotationLost ?? 0),
+            revenueBreakdown: c.revenueBreakdown && typeof c.revenueBreakdown === 'object' ? c.revenueBreakdown : {},
+          }
+        })
 
         if (!cancelled) {
           setCustomers(normalized)
@@ -127,24 +218,56 @@ export default function CustomersReport() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [salesperson, manager, source, clientType, convertDateFrom, convertDateTo])
+
+  const allOption = useMemo(() => ({ value: 'all', label: isRTL ? 'الكل' : 'All' }), [isRTL])
+
+  const salespersonOptions = useMemo(() => {
+    const names = [...new Set([
+      ...usersList.map((u) => displayUserName(u)),
+      ...customers.map((c) => displayUserName(c.salesperson)),
+    ].filter(Boolean))]
+    return [allOption, ...names.map((name) => ({ value: name, label: name }))]
+  }, [usersList, customers, allOption])
+
+  const managerOptions = useMemo(() => {
+    const names = [...new Set([
+      ...usersList.map((u) => displayUserName(u.manager)),
+      ...usersList.filter(isManagerUser).map((u) => displayUserName(u)),
+      ...customers.map((c) => displayUserName(c.manager)),
+    ].filter(Boolean))]
+    return [allOption, ...names.map((name) => ({ value: name, label: name }))]
+  }, [usersList, customers, allOption])
+
+  const sourceOptions = useMemo(() => {
+    const fromCatalog = sourcesList.map((s) => mapSourceToOption(s, isRTL)).filter(Boolean)
+    const extra = customers
+      .map((c) => String(c.source || '').trim())
+      .filter(Boolean)
+      .filter((name) => !fromCatalog.some((opt) => opt.value === name))
+      .map((name) => ({ value: name, label: getSourceDisplayName(name, isRTL) || name }))
+    return [allOption, ...fromCatalog, ...extra]
+  }, [sourcesList, customers, isRTL, allOption])
+
+  const itemOptions = useMemo(() => {
+    const names = [...new Set([
+      ...itemsList.map(itemDisplayName),
+      ...customers.flatMap((c) => Object.keys(c.revenueBreakdown || {})),
+    ].filter(Boolean))]
+    return [allOption, ...names.map((name) => ({ value: name, label: name }))]
+  }, [itemsList, customers, allOption])
+
+  const clientTypeOptions = useMemo(() => [
+    allOption,
+    { value: 'Individual', label: isRTL ? 'فرد' : 'Individual' },
+    { value: 'Company', label: isRTL ? 'شركة' : 'Company' },
+  ], [isRTL, allOption])
 
   const filtered = useMemo(() => {
     return customers.filter(c => {
-      const spOk = salesperson === 'all' || c.salesperson === salesperson
-      const mgrOk = manager === 'all' || c.manager === manager
-      const srcOk = source === 'all' || c.source === source
-      const prjOk = project === 'all' || c.project === project
-      const typeOk = clientType === 'all' || c.clientType === clientType
-      
-      const convOk = (() => {
-        if (!convertDateFrom && !convertDateTo) return true
-        const d = c.joinedDate || ''
-        if (!d) return false
-        if (convertDateFrom && d < convertDateFrom) return false
-        if (convertDateTo && d > convertDateTo) return false
-        return true
-      })()
+      const itemOk = selectedItem === 'all' || selectedItem === '' || Object.keys(c.revenueBreakdown || {}).some(
+        (key) => String(key).trim().toLowerCase() === String(selectedItem).trim().toLowerCase()
+      )
       const actOk = (() => {
         if (!actionDateFrom && !actionDateTo) return true
         const d = c.lastActivity || ''
@@ -154,9 +277,9 @@ export default function CustomersReport() {
         return true
       })()
 
-      return spOk && mgrOk && srcOk && prjOk && typeOk && convOk && actOk
+      return itemOk && actOk
     })
-  }, [customers, salesperson, manager, source, project, clientType, convertDateFrom, convertDateTo, actionDateFrom, actionDateTo])
+  }, [customers, selectedItem, actionDateFrom, actionDateTo])
 
   const [entriesPerPage, setEntriesPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -176,14 +299,11 @@ export default function CustomersReport() {
   }
 
   const totalCustomers = filtered.length
-  const totalRevenue = filtered.reduce((s, c) => s + (c.totalRevenue || 0), 0)
-  const activeCount = filtered.reduce((s, c) => s + (isActive(c) ? 1 : 0), 0)
-  const inactiveCount = Math.max(0, totalCustomers - activeCount)
+  const totalBilled = filtered.reduce((s, c) => s + (c.billedTotal || 0), 0)
+  const totalCollected = filtered.reduce((s, c) => s + (c.collectedTotal || 0), 0)
   const totalSalesOrders = filtered.reduce((s, c) => s + (c.orders || 0), 0)
   const totalQuotations = filtered.reduce((s, c) => s + (c.quotationTotal || 0), 0)
   const totalInvoices = filtered.reduce((s, c) => s + (c.invoicesCount || 0), 0)
-  const totalOpportunities = filtered.reduce((s, c) => s + (c.opportunitiesCount || 0), 0)
-  const top5 = [...filtered].sort((a, b) => (b.totalRevenue || 0) - (a.totalRevenue || 0)).slice(0, 5)
 
   const quotationsSegments = useMemo(() => {
     const converted = filtered.reduce((s, c) => s + (c.quotationConverted || 0), 0)
@@ -207,9 +327,9 @@ export default function CustomersReport() {
   }, [filtered, isRTL])
 
   const invoicesSegments = useMemo(() => {
-    const paid = filtered.reduce((s, c) => s + (c.invoicePaidCount || 0), 0)
-    const partial = filtered.reduce((s, c) => s + (c.invoicePartialCount || 0), 0)
-    const unpaid = filtered.reduce((s, c) => s + (c.invoiceUnpaidCount || 0), 0)
+    const paid = filtered.reduce((s, c) => s + (c.invoicePaidTotal || 0), 0)
+    const partial = filtered.reduce((s, c) => s + (c.invoicePartialTotal || 0), 0)
+    const unpaid = filtered.reduce((s, c) => s + (c.invoiceUnpaidTotal || 0), 0)
     const total = paid + partial + unpaid
 
     if (!total) {
@@ -228,7 +348,7 @@ export default function CustomersReport() {
   }, [filtered, isRTL])
 
   const revenueSegments = useMemo(() => {
-    const total = totalRevenue || 0
+    const total = totalBilled || 0
     const palette = ['#22c55e', '#3b82f6', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6']
     const aggregated = {}
 
@@ -248,7 +368,7 @@ export default function CustomersReport() {
     if (entries.length === 0) {
       return [
         {
-          label: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue',
+          label: isRTL ? 'المفوتر' : 'Billed',
           value: total,
           color: '#22c55e',
           pct: total > 0 ? 100 : 0,
@@ -264,7 +384,7 @@ export default function CustomersReport() {
         pct: total > 0 ? Math.round((value / total) * 100) : 0,
       })),
     ]
-  }, [totalRevenue, isRTL])
+  }, [filtered, totalBilled, isRTL])
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -282,7 +402,7 @@ export default function CustomersReport() {
     setSalesperson('all')
     setManager('all')
     setSource('all')
-    setProject('all')
+    setSelectedItem('all')
     setConvertDateFrom('')
     setConvertDateTo('')
     setClientType('all')
@@ -291,17 +411,36 @@ export default function CustomersReport() {
     setCurrentPage(1)
   }
 
+  const openCustomerDetails = async (customer) => {
+    if (!customer?.id) return
+    try {
+      const res = await api.get(`/api/customers/${encodeURIComponent(customer.id)}`)
+      const payload = res?.data
+      const full = payload?.data && !Array.isArray(payload.data) ? payload.data : payload
+      const row = full && full.id ? full : customer
+      setSelectedCustomer({
+        ...row,
+        companyName: row.companyName || row.company_name || '',
+      })
+    } catch (error) {
+      console.error('Failed to load customer details', error)
+      setSelectedCustomer(customer)
+    }
+    setShowCustomerDetailsModal(true)
+  }
+
   const exportExcel = () => {
     if (!canExport) return
     const rows = filtered.map(c => ({
       [isRTL ? 'الاسم' : 'Name']: c.name,
-      [isRTL ? 'النوع' : 'Type']: c.type,
+      [isRTL ? 'النوع' : 'Type']: translateClientType(c.clientType || c.type, isRTL),
       [isRTL ? 'الهاتف' : 'Phone']: c.phone,
-      [isRTL ? 'البريد الإلكتروني' : 'Email']: c.email,
       [isRTL ? 'تاريخ الانضمام' : 'Joined']: c.joinedDate,
-      [isRTL ? 'إجمالي الإيرادات (ج.م)' : 'TotalRevenueEGP']: c.totalRevenue,
+      [`${isRTL ? 'المفوتر' : 'Billed'} (${currencyCode})`]: c.billedTotal,
+      [`${isRTL ? 'التحصيل' : 'Collected'} (${currencyCode})`]: c.collectedTotal,
+      [`${isRTL ? 'المتبقي' : 'Outstanding'} (${currencyCode})`]: c.outstandingTotal,
       [isRTL ? 'الطلبات' : 'Orders']: c.orders,
-      [isRTL ? 'آخر نشاط' : 'LastActivity']: c.lastActivity,
+      [isRTL ? 'آخر نشاط' : 'LastActivity']: c.lastActivity || '',
       [isRTL ? 'مسؤول المبيعات' : 'Salesperson']: c.salesperson,
       [isRTL ? 'الحالة' : 'Status']: isActive(c) ? (isRTL ? 'نشط' : 'Active') : (isRTL ? 'غير نشط' : 'Inactive')
     }))
@@ -328,8 +467,10 @@ export default function CustomersReport() {
       const tableColumn = [
         isRTL ? 'اسم العميل' : 'Customer Name',
         isRTL ? 'النوع' : 'Type',
-        isRTL ? 'جهة الاتصال' : 'Contact',
-        isRTL ? 'إجمالي الإيرادات' : 'Total Revenue',
+        isRTL ? 'الهاتف' : 'Phone',
+        `${isRTL ? 'المفوتر' : 'Billed'} (${currencyCode})`,
+        `${isRTL ? 'التحصيل' : 'Collected'} (${currencyCode})`,
+        `${isRTL ? 'المتبقي' : 'Outstanding'} (${currencyCode})`,
         isRTL ? 'الطلبات' : 'Orders',
         isRTL ? 'آخر نشاط' : 'Last Activity',
         isRTL ? 'الحالة' : 'Status',
@@ -340,11 +481,13 @@ export default function CustomersReport() {
       filtered.forEach(c => {
         const rowData = [
           c.name,
-          c.type,
-          `${c.phone} / ${c.email}`,
-          c.totalRevenue.toLocaleString(),
+          translateClientType(c.clientType || c.type, isRTL),
+          c.phone || '—',
+          Number(c.billedTotal || 0).toLocaleString(),
+          Number(c.collectedTotal || 0).toLocaleString(),
+          Number(c.outstandingTotal || 0).toLocaleString(),
           c.orders,
-          new Date(c.lastActivity).toLocaleDateString(),
+          formatActivityDate(c.lastActivity),
           isActive(c) ? (isRTL ? 'نشط' : 'Active') : (isRTL ? 'غير نشط' : 'Inactive'),
           c.salesperson
         ]
@@ -401,7 +544,7 @@ export default function CustomersReport() {
   }, [canExport, filtered, location.pathname, location.search, navigate])
 
   const statusBadge = (active) => (
-    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${active ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300'}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap ${active ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300'}`}>
       {active ? (isRTL ? 'نشط' : 'Active') : (isRTL ? 'غير نشط' : 'Inactive')}
     </span>
   )
@@ -413,13 +556,6 @@ export default function CustomersReport() {
       icon: Users,
       color: 'text-blue-600 dark:text-blue-400',
       bgColor: 'bg-blue-50 dark:bg-blue-900/20'
-    },
-    {
-      label: isRTL ? 'إجمالي الفرص' : 'Total Opportunities',
-      value: totalOpportunities.toLocaleString(),
-      icon: Target,
-      color: 'text-purple-600 dark:text-purple-400',
-      bgColor: 'bg-purple-50 dark:bg-purple-900/20'
     },
     {
       label: isRTL ? 'إجمالي عروض الأسعار' : 'Total Quotations',
@@ -443,8 +579,15 @@ export default function CustomersReport() {
       bgColor: 'bg-pink-50 dark:bg-pink-900/20'
     },
     {
-      label: isRTL ? 'إجمالي الإيرادات (ج.م)' : 'Total Revenue (EGP)',
-      value: totalRevenue.toLocaleString(),
+      label: isRTL ? `المفوتر (${currencyCode})` : `Billed (${currencyCode})`,
+      value: Number(totalBilled || 0).toLocaleString(),
+      icon: DollarSign,
+      color: 'text-indigo-600 dark:text-indigo-400',
+      bgColor: 'bg-indigo-50 dark:bg-indigo-900/20'
+    },
+    {
+      label: isRTL ? `التحصيل (${currencyCode})` : `Collected (${currencyCode})`,
+      value: Number(totalCollected || 0).toLocaleString(),
       icon: DollarSign,
       color: 'text-green-600 dark:text-green-400',
       bgColor: 'bg-green-50 dark:bg-green-900/20'
@@ -459,7 +602,7 @@ export default function CustomersReport() {
           {isRTL ? 'تقرير العملاء' : 'Customers Report'}
         </h1>
         <p className={`${isLight ? 'text-black' : 'text-white'} text-sm`}>
-          {isRTL ? 'تحليل العملاء والإيرادات والأنشطة' : 'Analyze your customers, revenue and activities'}
+          {isRTL ? 'تحليل العملاء والمفوتر والتحصيل والأنشطة التجارية' : 'Analyze customers, billed vs collected, and commercial activity'}
         </p>
       </div>
 
@@ -496,16 +639,13 @@ export default function CustomersReport() {
               <SearchableSelect
                 value={salesperson}
                 onChange={(v) => {
-                  setSalesperson(v)
+                  setSalesperson(v || 'all')
                   setCurrentPage(1)
                 }}
+                options={salespersonOptions}
+                isRTL={isRTL}
                 className="min-w-[160px]"
-              >
-                <option value="all">{isRTL ? 'الكل' : 'All'}</option>
-                {usersList.map(u => (
-                  <option key={u.id} value={u.name || u.email}>{u.name || u.email}</option>
-                ))}
-              </SearchableSelect>
+              />
             </div>
             <div className="space-y-1">
               <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
@@ -514,16 +654,13 @@ export default function CustomersReport() {
               <SearchableSelect
                 value={manager}
                 onChange={(v) => {
-                  setManager(v)
+                  setManager(v || 'all')
                   setCurrentPage(1)
                 }}
+                options={managerOptions}
+                isRTL={isRTL}
                 className="min-w-[160px]"
-              >
-                <option value="all">{isRTL ? 'الكل' : 'All'}</option>
-                {usersList.map(u => (
-                  <option key={u.id} value={u.name || u.email}>{u.name || u.email}</option>
-                ))}
-              </SearchableSelect>
+              />
             </div>
             <div className="space-y-1">
               <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
@@ -532,34 +669,28 @@ export default function CustomersReport() {
               <SearchableSelect
                 value={source}
                 onChange={(v) => {
-                  setSource(v)
+                  setSource(v || 'all')
                   setCurrentPage(1)
                 }}
+                options={sourceOptions}
+                isRTL={isRTL}
                 className="min-w-[160px]"
-              >
-                <option value="all">{isRTL ? 'الكل' : 'All'}</option>
-                {sourcesList.map(s => (
-                  <option key={s.id} value={s.name}>{getSourceDisplayName(s, isRTL)}</option>
-                ))}
-              </SearchableSelect>
+              />
             </div>
             <div className="space-y-1">
               <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                {isRTL ? 'المشروع' : 'Project'}
+                {isRTL ? 'الصنف' : 'Item'}
               </label>
               <SearchableSelect
-                value={project}
+                value={selectedItem}
                 onChange={(v) => {
-                  setProject(v)
+                  setSelectedItem(v || 'all')
                   setCurrentPage(1)
                 }}
+                options={itemOptions}
+                isRTL={isRTL}
                 className="min-w-[160px]"
-              >
-                <option value="all">{isRTL ? 'الكل' : 'All'}</option>
-                {projectsList.map(p => (
-                  <option key={p.id} value={p.name}>{p.name}</option>
-                ))}
-              </SearchableSelect>
+              />
             </div>
           </div>
 
@@ -587,15 +718,13 @@ export default function CustomersReport() {
               <SearchableSelect
                 value={clientType}
                 onChange={(v) => {
-                  setClientType(v)
+                  setClientType(v || 'all')
                   setCurrentPage(1)
                 }}
+                options={clientTypeOptions}
+                isRTL={isRTL}
                 className="min-w-[160px]"
-              >
-                <option value="all">{isRTL ? 'الكل' : 'All'}</option>
-                <option value="Individual">{isRTL ? 'فرد' : 'Individual'}</option>
-                <option value="Company">{isRTL ? 'شركة' : 'Company'}</option>
-              </SearchableSelect>
+              />
             </div>
             <div className="space-y-1">
               <label className={`text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
@@ -658,14 +787,14 @@ export default function CustomersReport() {
           },
           {
             title: isRTL ? 'الفواتير' : 'Invoices',
-            totalLabel: isRTL ? 'إجمالي الفواتير' : 'Total Invoices',
-            total: totalInvoices,
+            totalLabel: isRTL ? 'إجمالي المفوتر' : 'Total Billed',
+            total: totalBilled,
             segments: invoicesSegments
           },
           {
-            title: isRTL ? 'الإيرادات' : 'Revenue',
-            totalLabel: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue',
-            total: totalRevenue,
+            title: isRTL ? 'المفوتر' : 'Billed',
+            totalLabel: isRTL ? 'إجمالي المفوتر' : 'Total Billed',
+            total: totalBilled,
             segments: revenueSegments
           }
         ].map(card => (
@@ -692,7 +821,9 @@ export default function CustomersReport() {
                     style={{ backgroundColor: segment.color }}
                   />
                   <span className={`${isLight ? 'text-black' : 'text-white'}`}>
-                    {segment.label}: {segment.value.toLocaleString()}
+                    {segment.label}: {card.title === (isRTL ? 'عروض الأسعار' : 'Quotations')
+                      ? segment.value.toLocaleString()
+                      : formatMoney(segment.value)}
                   </span>
                 </div>
               ))}
@@ -740,46 +871,54 @@ export default function CustomersReport() {
           {/* Mobile View - Cards */}
           <div className="md:hidden space-y-4">
             {paginatedRows.map(c => (
-              <div key={c.id} className=" rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className={`font-semibold ${isLight ? 'text-black' : 'text-white'} text-lg`}>{c.name}</h3>
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{c.type}</span>
+              <div key={c.id} className="rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
+                <div className="flex justify-between items-start gap-3">
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => openCustomerDetails(c)}
+                      className={`text-lg font-semibold text-start text-blue-600 dark:text-blue-400 hover:underline`}
+                    >
+                      {c.name}
+                    </button>
+                    <span className={`block text-xs ${isLight ? 'text-black' : 'text-white'} opacity-70`}>
+                      {translateClientType(c.clientType || c.type, isRTL)}
+                    </span>
                   </div>
                   <div>{statusBadge(isActive(c))}</div>
                 </div>
-                
+
                 <div className="grid grid-cols-1 gap-2 text-sm">
-                  {/* Contact Info */}
-                  <div className="flex flex-col gap-1 p-2  rounded-lg">
-                    <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}>
-                        <span className="text-xs">{isRTL ? 'الهاتف' : 'Phone'}:</span>
-                        <span className="font-medium dir-ltr">{c.phone}</span>
-                    </div>
-                    <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'} `}>
-                        <span className="text-xs">{isRTL ? 'البريد' : 'Email'}:</span>
-                        <span className="font-medium break-all">{c.email}</span>
-                    </div>
+                  <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}>
+                    <span className="text-xs">{isRTL ? 'الهاتف' : 'Phone'}:</span>
+                    <span className="font-medium" dir="ltr">{c.phone || '—'}</span>
                   </div>
 
-                  {/* Stats Grid */}
                   <div className="grid grid-cols-2 gap-3 mt-1">
-                      <div className="flex flex-col">
-                          <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'إجمالي الإيرادات' : 'Total Revenue'}</span>
-                          <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{c.totalRevenue.toLocaleString()} EGP</span>
-                      </div>
-                      <div className="flex flex-col">
-                          <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الطلبات' : 'Orders'}</span>
-                          <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{c.orders}</span>
-                      </div>
-                      <div className="flex flex-col">
-                          <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'آخر نشاط' : 'Last Activity'}</span>
-                          <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{new Date(c.lastActivity).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex flex-col">
-                          <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'مسؤول المبيعات' : 'Salesperson'}</span>
-                          <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{c.salesperson}</span>
-                      </div>
+                    <div className="flex flex-col">
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'المفوتر' : 'Billed'}</span>
+                      <span className={`font-medium tabular-nums ${isLight ? 'text-black' : 'text-white'}`}>{formatMoney(c.billedTotal)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'التحصيل' : 'Collected'}</span>
+                      <span className={`font-medium tabular-nums ${isLight ? 'text-black' : 'text-white'}`}>{formatMoney(c.collectedTotal)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'المتبقي' : 'Outstanding'}</span>
+                      <span className={`font-medium tabular-nums ${isLight ? 'text-black' : 'text-white'}`}>{formatMoney(c.outstandingTotal)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الطلبات' : 'Orders'}</span>
+                      <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{c.orders}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'آخر نشاط' : 'Last Activity'}</span>
+                      <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{formatActivityDate(c.lastActivity)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'مسؤول المبيعات' : 'Salesperson'}</span>
+                      <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{displayUserName(c.salesperson) || '—'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -793,29 +932,31 @@ export default function CustomersReport() {
 
           {/* Desktop View - Table */}
           <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm nova-table nova-table--glass">
-            <thead className={`bg-gray-700/50 ${isLight ? 'text-black' : 'text-white'}`}>
-              <tr className="text-left bg-[var(--table-header-bg)]">
-                <th className="px-3 py-2">{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
-                <th className="px-3 py-2">{isRTL ? 'النوع' : 'Type'}</th>
-                <th className="px-3 py-2">{isRTL ? 'جهة الاتصال' : 'Contact'}</th>
-                <th className="px-3 py-2">{isRTL ? 'إجمالي الإيرادات' : 'Total Revenue'}</th>
-                <th className="px-3 py-2">{isRTL ? 'الطلبات' : 'Orders'}</th>
-                <th className="px-3 py-2">{isRTL ? 'آخر نشاط' : 'Last Activity'}</th>
-                <th className="px-3 py-2">{isRTL ? 'الحالة' : 'Status'}</th>
-                <th className="px-3 py-2">{isRTL ? 'مسؤول المبيعات' : 'Salesperson'}</th>
+          <table className="w-full min-w-[960px] text-sm nova-table nova-table--glass">
+            <thead>
+              <tr className="text-start bg-[var(--table-header-bg)]">
+                <th className="px-3 py-3 text-start whitespace-nowrap min-w-[160px]">{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
+                <th className="px-3 py-3 text-start whitespace-nowrap">{isRTL ? 'النوع' : 'Type'}</th>
+                <th className="px-3 py-3 text-start whitespace-nowrap min-w-[120px]">{isRTL ? 'الهاتف' : 'Phone'}</th>
+                <th className="px-3 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'المفوتر' : 'Billed'}</th>
+                <th className="px-3 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'التحصيل' : 'Collected'}</th>
+                <th className="px-3 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'المتبقي' : 'Outstanding'}</th>
+                <th className="px-3 py-3 text-center whitespace-nowrap">{isRTL ? 'الطلبات' : 'Orders'}</th>
+                <th className="px-3 py-3 text-start whitespace-nowrap">{isRTL ? 'آخر نشاط' : 'Last Activity'}</th>
+                <th className="px-3 py-3 text-start whitespace-nowrap">{isRTL ? 'الحالة' : 'Status'}</th>
+                <th className="px-3 py-3 text-start whitespace-nowrap min-w-[140px]">{isRTL ? 'مسؤول المبيعات' : 'Salesperson'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-[var(--muted-text)]">{isRTL ? 'لا توجد بيانات' : 'No data'}</td>
+                  <td colSpan={10} className="px-3 py-6 text-center text-[var(--muted-text)]">{isRTL ? 'لا توجد بيانات' : 'No data'}</td>
                 </tr>
               )}
               {filtered.length > 0 && paginatedRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={10}
                     className="px-3 py-6 text-center text-[var(--muted-text)]"
                   >
                     {isRTL ? 'لا توجد نتائج' : 'No results'}
@@ -824,21 +965,24 @@ export default function CustomersReport() {
               )}
               {paginatedRows.map(c => (
                 <tr key={c.id} className="border-t border-[var(--table-row-border)] odd:bg-[var(--table-row-bg)] hover:bg-[var(--table-row-hover)] transition-colors">
-                  <td className={`px-3 py-2 font-medium ${isLight ? 'text-black' : 'text-white'}`}>
-                    {c.name}
+                  <td className="px-3 py-3 font-medium">
+                    <button
+                      type="button"
+                      onClick={() => openCustomerDetails(c)}
+                      className="text-start text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                    >
+                      {c.name}
+                    </button>
                   </td>
-                  <td className="px-3 py-2">{c.type}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-col">
-                      <span>{c.phone}</span>
-                      <span className="text-[var(--muted-text)]">{c.email}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">{c.totalRevenue.toLocaleString()} EGP</td>
-                  <td className="px-3 py-2">{c.orders}</td>
-                  <td className="px-3 py-2">{new Date(c.lastActivity).toLocaleDateString()}</td>
-                  <td className="px-3 py-2">{statusBadge(isActive(c))}</td>
-                  <td className="px-3 py-2">{c.salesperson}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{translateClientType(c.clientType || c.type, isRTL)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap" dir="ltr">{c.phone || '—'}</td>
+                  <td className="px-3 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.billedTotal)}</td>
+                  <td className="px-3 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.collectedTotal)}</td>
+                  <td className="px-3 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.outstandingTotal)}</td>
+                  <td className="px-3 py-3 text-center whitespace-nowrap">{c.orders}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{formatActivityDate(c.lastActivity)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{statusBadge(isActive(c))}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{displayUserName(c.salesperson) || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -904,6 +1048,19 @@ export default function CustomersReport() {
           </div>
         </div>
       </div>
+
+      {showCustomerDetailsModal && selectedCustomer && (
+        <CustomerDetailsModal
+          isOpen={showCustomerDetailsModal}
+          onClose={() => {
+            setShowCustomerDetailsModal(false)
+            setSelectedCustomer(null)
+          }}
+          customer={selectedCustomer}
+          initialTab="details"
+          isRTL={isRTL}
+        />
+      )}
     </div>
   )
 }

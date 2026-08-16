@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FaDownload, FaFileImport, FaPlus, FaFileInvoiceDollar, FaComment, FaTrash, FaEdit, FaEye, FaEnvelope, FaSearch, FaPhone, FaEllipsisV, FaShoppingCart } from 'react-icons/fa'
 import { Filter, ChevronDown, Search, Calendar } from 'lucide-react'
 import DatePicker from 'react-datepicker'
 import "react-datepicker/dist/react-datepicker.css"
 import { api, logExportEvent, logImportEvent } from '../utils/api'
+import { canAccessCustomerRecycle } from '../services/customerPermissions'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider'
 import SearchableSelect from '../shared/components/SearchableSelect'
@@ -26,6 +27,7 @@ export const Customers = () => {
   const [searchParams] = useSearchParams()
   const { theme } = useTheme()
   const isLight = theme === 'light'
+  const navigate = useNavigate()
   const { user } = useAppState()
   const isRTL = String(i18n.language || '').startsWith('ar')
   const { fields: dynamicFields } = useDynamicFields('customers')
@@ -42,7 +44,7 @@ export const Customers = () => {
     if (role === 'Sales Manager') return ['convertFromLead', 'addCustomer', 'editInfo', 'showModule']
     if (role === 'Team Leader') return ['editInfo', 'showModule']
     if (role === 'Sales Person') return ['showModule']
-    if (role === 'Customer Manager') return ['convertFromLead', 'addCustomer', 'editInfo', 'deleteCustomer', 'showModule']
+    if (role === 'Customer Manager') return ['convertFromLead', 'addCustomer', 'editInfo', 'showModule']
     if (role === 'Customer Team Leader') return ['editInfo', 'showModule']
     if (role === 'Customer Agent') return ['showModule']
     return []
@@ -72,11 +74,7 @@ export const Customers = () => {
     isTenantAdmin ||
     roleLower.includes('director')
 
-  const canDeleteCustomer =
-    effectiveCustomerPerms.includes('deleteCustomer') ||
-    user?.is_super_admin ||
-    isTenantAdmin ||
-    roleLower.includes('director')
+  const canDeleteCustomer = canAccessCustomerRecycle(user)
 
   const deepLinkCustomerId =
     routeParams?.id ||
@@ -444,17 +442,36 @@ export const Customers = () => {
   }
 
   const handleDelete = async (id) => {
-    if (window.confirm(isRTL ? 'هل أنت متأكد من حذف هذا العميل؟' : 'Are you sure you want to delete this customer?')) {
+    if (window.confirm(isRTL ? 'نقل هذا العميل إلى سلة المهملات؟' : 'Move this customer to the recycle bin?')) {
       setLoading(true)
       try {
         await api.delete(`/api/customers/${id}`)
         setItems(prev => prev.filter(i => i.id !== id))
-        showSuccess(isRTL ? 'تم حذف العميل بنجاح' : 'Customer deleted successfully')
+        setSelectedItems(prev => prev.filter(i => i !== id))
+        showSuccess(isRTL ? 'تم نقل العميل إلى سلة المهملات' : 'Customer moved to recycle bin')
       } catch (e) {
-        alert(isRTL ? 'فشل الحذف' : 'Delete failed')
+        alert(e?.response?.data?.message || (isRTL ? 'فشل الحذف' : 'Delete failed'))
       } finally {
         setLoading(false)
       }
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (!canDeleteCustomer || selectedItems.length === 0) return
+    if (!window.confirm(isRTL ? `نقل ${selectedItems.length} عميل إلى سلة المهملات؟` : `Move ${selectedItems.length} customers to the recycle bin?`)) {
+      return
+    }
+    setLoading(true)
+    try {
+      await api.post('/api/customers/bulk-delete', { ids: selectedItems })
+      setItems(prev => prev.filter(i => !selectedItems.includes(i.id)))
+      setSelectedItems([])
+      showSuccess(isRTL ? 'تم نقل العملاء إلى سلة المهملات' : 'Customers moved to recycle bin')
+    } catch (e) {
+      alert(e?.response?.data?.message || (isRTL ? 'فشل الحذف' : 'Delete failed'))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -649,7 +666,7 @@ export const Customers = () => {
         items: data.items,
         total: data.total,
         amount: data.subtotal || data.total,
-        status: data.status,
+        status: 'Draft',
         payment_terms: data.paymentTerms,
         delivery_date: data.deliveryDate,
         quotation_id: data.quotationId,
@@ -858,6 +875,15 @@ export const Customers = () => {
                 {isRTL ? 'إضافة عميل' : 'Add Customer'}
               </button>
             )}
+            {canDeleteCustomer && (
+              <button
+                onClick={() => navigate('/customers/recycle')}
+                className="btn btn-sm w-full lg:w-auto bg-gray-700 hover:bg-gray-600 !text-white border-none flex items-center justify-center gap-2"
+              >
+                <FaTrash />
+                {t('Customer Recycle')}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1042,10 +1068,38 @@ export const Customers = () => {
       </div>
 
       {/* Table Section */}
-      <div className="glass-panel rounded-xl overflow-visible">
+      <div className="glass-panel rounded-xl overflow-visible relative">
         {loading && (
           <div className="absolute inset-0 bg-white/50 dark:bg-gray-900/50 z-10 flex items-center justify-center">
             <div className="loading loading-spinner loading-lg text-blue-600"></div>
+          </div>
+        )}
+
+        {canDeleteCustomer && (
+          <div className="relative z-[20] flex md:flex-row justify-between items-center p-4 gap-4 border-b border-theme-border dark:border-gray-700 bg-transparent backdrop-blur-md">
+            {selectedItems.length > 0 ? (
+              <div className="flex items-center gap-3 flex-wrap w-full">
+                <div className={`flex items-center px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/20 border border-blue-100 text-sm font-semibold ${isLight ? 'text-blue-700' : 'text-blue-300'}`}>
+                  <span className="w-2 h-2 rounded-full bg-blue-500 mr-2 animate-pulse"></span>
+                  {isRTL ? `المحدد: ${selectedItems.length}` : `Selected: ${selectedItems.length}`}
+                </div>
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-700 mx-1 hidden md:block"></div>
+                <button
+                  type="button"
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-500/20 transition-all duration-200 active:scale-95"
+                >
+                  <FaTrash className="text-xs" />
+                  {isRTL ? 'حذف' : 'Delete'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                <span className="text-sm font-medium">
+                  {isRTL ? 'لم يتم تحديد عملاء لإجراءات جماعية' : 'No customers selected for bulk actions'}
+                </span>
+              </div>
+            )}
           </div>
         )}
         

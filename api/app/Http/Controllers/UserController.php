@@ -1080,6 +1080,20 @@ class UserController extends Controller
             }
             $permissions['ContractCollections'] = array_values(array_unique($ccPerms));
         }
+
+        // Delete Customer is admin-managed: only Director / Operation Manager may keep the toggle.
+        $canHoldDeleteCustomer = in_array($roleNorm, ['director', 'operation manager', 'operations manager'], true);
+        $customerPerms = $permissions['Customers'] ?? [];
+        $customerPerms = is_array($customerPerms) ? $customerPerms : [];
+        if (! $canHoldDeleteCustomer) {
+            $customerPerms = array_values(array_filter($customerPerms, fn ($perm) => $perm !== 'deleteCustomer'));
+            if ($customerPerms !== []) {
+                $permissions['Customers'] = $customerPerms;
+            } else {
+                unset($permissions['Customers']);
+            }
+        }
+
         $meta['module_permissions'] = $permissions;
         $user->meta_data = $meta;
         $user->save();

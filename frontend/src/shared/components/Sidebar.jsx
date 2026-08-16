@@ -9,6 +9,7 @@ import lightLogoCollapse from '../../assets/be-souhola-logo-light-collapse.png'
 import darkLogoCollapse from '../../assets/be-souhola-logo-dark-collapse.png'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { isTenantAdminUser } from '@services/leadPermissions'
+import { canAccessCustomerRecycle } from '@services/customerPermissions'
 import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
 import { isTelesalesOnlyUser, resolveTenantHomePath } from '../../utils/authRouting'
 import { useTranslation } from 'react-i18next';
@@ -578,6 +579,8 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
     isOperationManagerRole ||
     isSalesAdminRole ||
     isBranchManagerRole
+
+  const canSeeCustomerRecycle = canAccessCustomerRecycle(user)
 
   const canViewUserManagementSection =
     user?.is_super_admin ||
@@ -1944,6 +1947,7 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
             >
               <NavLink
                 to="/customers"
+                end
                 title={isCollapsed ? t('Customers') : ''}
                 onClick={onClose}
                 className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
@@ -1975,6 +1979,16 @@ export const Sidebar = ({ isOpen, onClose = () => { }, className, collapsed, set
               >
                 <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>💳</span><span className="text-[15px] link-label">{t('Invoices')}</span></span>
               </NavLink>
+              {canSeeCustomerRecycle && (
+                <NavLink
+                  to="/customers/recycle"
+                  title={isCollapsed ? t('Customer Recycle') : ''}
+                  onClick={onClose}
+                  className={({ isActive }) => `${baseLink} ${isRTL ? '!pr-0' : '!pl-0'} ${isActive ? activeLink : ''}`}
+                >
+                  <span className="nova-icon-label"><span className={`${iconContainer} ${iconTone}`}>{getIcon('Recycle Bin')}</span><span className="text-[15px] link-label">{t('Customer Recycle')}</span></span>
+                </NavLink>
+              )}
               {/* Customer Tickets removed per request */}
             </div>
           </div>

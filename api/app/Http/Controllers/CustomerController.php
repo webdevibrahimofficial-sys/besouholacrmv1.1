@@ -54,18 +54,85 @@ class CustomerController extends Controller
         return null;
     }
 
-    public function index(Request $request)
+    private function isTenantAdminUser($user): bool
     {
-        $perPage = (int) $request->input('per_page', 10);
-        if ($perPage < 1) {
-            $perPage = 10;
+        if (! $user) {
+            return false;
         }
-        $sortBy = $request->input('sort_by', 'created_at');
-        $sortOrder = strtolower($request->input('sort_order', 'desc')) === 'asc' ? 'asc' : 'desc';
 
-        $query = Customer::with(['customFieldValues.field', 'assignee']);
+        if (! empty($user->is_super_admin)) {
+            return true;
+        }
 
-        // Search
+        $role = $this->normalizedUserRole($user);
+
+        return in_array($role, ['admin', 'tenant admin', 'tenant-admin'], true);
+    }
+
+    private function normalizedUserRole($user): string
+    {
+        $role = strtolower(trim((string) ($user?->job_title ?: $user?->role ?: '')));
+        $role = str_replace(['_', '-'], ' ', $role);
+
+        return preg_replace('/\s+/', ' ', $role) ?: '';
+    }
+
+    private function canHoldDeleteCustomerPermission($user): bool
+    {
+        return in_array($this->normalizedUserRole($user), ['director', 'operation manager', 'operations manager'], true);
+    }
+
+    private function customerModulePermissions($user): array
+    {
+        $meta = is_array($user?->meta_data) ? $user->meta_data : [];
+        $perms = $meta['module_permissions']['Customers'] ?? [];
+
+        return is_array($perms) ? $perms : [];
+    }
+
+    private function canDeleteCustomer($user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if ($this->isTenantAdminUser($user)) {
+            return true;
+        }
+
+        if (! $this->canHoldDeleteCustomerPermission($user)) {
+            return false;
+        }
+
+        return in_array('deleteCustomer', $this->customerModulePermissions($user), true);
+    }
+
+    private function canForceDeleteCustomer($user): bool
+    {
+        return $this->isTenantAdminUser($user);
+    }
+
+    private function canAccessCustomerRecycle($user): bool
+    {
+        return $this->canDeleteCustomer($user);
+    }
+
+    private function hasActivePhoneConflict(Customer $customer): bool
+    {
+        $phone = trim((string) $customer->phone);
+        if ($phone === '') {
+            return false;
+        }
+
+        return Customer::query()
+            ->where('phone', $phone)
+            ->where('id', '!=', $customer->id)
+            ->when($customer->tenant_id, fn ($q) => $q->where('tenant_id', $customer->tenant_id))
+            ->exists();
+    }
+
+    private function applyCustomerListFilters($query, Request $request)
+    {
         if ($q = trim((string) $request->input('q'))) {
             $query->where(function ($qbuilder) use ($q) {
                 $qbuilder->where('name', 'like', "%{$q}%")
@@ -76,7 +143,6 @@ class CustomerController extends Controller
             });
         }
 
-        // Filters
         if ($type = $request->input('type')) {
             $query->where('type', $type);
         }
@@ -93,9 +159,14 @@ class CustomerController extends Controller
             $query->where('created_by', $createdBy);
         }
         if ($assignedSalesRep = $request->input('assigned_sales_rep')) {
-            $query->where('assigned_to', $assignedSalesRep);
+            $query->where(function ($inner) use ($assignedSalesRep) {
+                $inner->where('assigned_to', $assignedSalesRep)
+                    ->orWhereHas('assignee', function ($assignee) use ($assignedSalesRep) {
+                        $assignee->where('name', $assignedSalesRep);
+                    });
+            });
         }
-        // Date range
+
         $dateFrom = $request->input('date_from');
         $dateTo = $request->input('date_to');
         if ($dateFrom) {
@@ -104,6 +175,21 @@ class CustomerController extends Controller
         if ($dateTo) {
             $query->whereDate('created_at', '<=', $dateTo);
         }
+
+        return $query;
+    }
+
+    public function index(Request $request)
+    {
+        $perPage = (int) $request->input('per_page', 10);
+        if ($perPage < 1) {
+            $perPage = 10;
+        }
+        $sortBy = $request->input('sort_by', 'created_at');
+        $sortOrder = strtolower($request->input('sort_order', 'desc')) === 'asc' ? 'asc' : 'desc';
+
+        $query = Customer::with(['customFieldValues.field', 'assignee']);
+        $this->applyCustomerListFilters($query, $request);
 
         // Sorting (whitelist)
         $allowedSort = ['created_at', 'name', 'customer_code', 'company_name', 'country', 'city', 'source'];
@@ -142,7 +228,49 @@ class CustomerController extends Controller
             $query->whereIn('assigned_to', $viewableUserIds);
         }
 
-        $paginator = $query->paginate($perPage);
+        $salespersonFilter = trim((string) $request->input('salesperson', ''));
+        if ($salespersonFilter !== '' && strcasecmp($salespersonFilter, 'all') !== 0) {
+            $query->whereHas('assignee', fn ($q) => $q->where('name', $salespersonFilter));
+        }
+
+        $managerFilter = trim((string) $request->input('manager', ''));
+        if ($managerFilter !== '' && strcasecmp($managerFilter, 'all') !== 0) {
+            $query->whereHas('assignee.manager', fn ($q) => $q->where('name', $managerFilter));
+        }
+
+        $sourceFilter = trim((string) $request->input('source', ''));
+        if ($sourceFilter !== '' && strcasecmp($sourceFilter, 'all') !== 0) {
+            $query->where('source', $sourceFilter);
+        }
+
+        $clientTypeFilter = trim((string) $request->input('client_type', ''));
+        if (strcasecmp($clientTypeFilter, 'Company') === 0) {
+            $query->whereNotNull('company_name')->where('company_name', '!=', '');
+        } elseif (strcasecmp($clientTypeFilter, 'Individual') === 0) {
+            $query->where(function ($q) {
+                $q->whereNull('company_name')->orWhere('company_name', '');
+            });
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->input('date_from'));
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->input('date_to'));
+        }
+
+        if ($request->boolean('all')) {
+            $allRows = $query->get();
+            $paginator = new \Illuminate\Pagination\LengthAwarePaginator(
+                $allRows,
+                $allRows->count(),
+                max($allRows->count(), 1),
+                1,
+                ['path' => $request->url(), 'query' => $request->query()]
+            );
+        } else {
+            $paginator = $query->paginate($perPage);
+        }
         $customerIds = $paginator->pluck('id')->all();
 
         if (empty($customerIds)) {
@@ -184,8 +312,8 @@ class CustomerController extends Controller
             $customerName = mb_strtolower(trim((string) ($customer->name ?? '')));
             $rowCustomerName = mb_strtolower(trim((string) ($row->customer_name ?? '')));
 
-            if ($rowCustomerId !== '' && $rowCustomerId === $customerId) {
-                return true;
+            if ($rowCustomerId !== '' && ctype_digit($rowCustomerId)) {
+                return $rowCustomerId === $customerId;
             }
 
             if ($customerCode !== '') {
@@ -197,7 +325,16 @@ class CustomerController extends Controller
                 }
             }
 
+            if ($rowCustomerId !== '') {
+                return false;
+            }
+
             return $customerName !== '' && $rowCustomerName !== '' && $rowCustomerName === $customerName;
+        };
+
+        $isOpenDocument = function ($row): bool {
+            $status = strtolower(trim((string) ($row->status ?? '')));
+            return $status !== '' && !in_array($status, ['draft', 'cancelled', 'canceled', 'void'], true);
         };
 
         $applySalesScope = function ($query, ?string $salesPersonColumn = 'sales_person') use ($user, $visibleSalesNames) {
@@ -298,31 +435,29 @@ class CustomerController extends Controller
             })
             ->get();
 
-        $collection = $paginator->getCollection()->map(function (Customer $customer) use ($ordersRows, $invoicesRows, $quotationRows, $opportunityRows, $matchesCustomer, $extractItemAmount, $extractItemLabel) {
+        $collection = $paginator->getCollection()->map(function (Customer $customer) use ($ordersRows, $invoicesRows, $quotationRows, $opportunityRows, $matchesCustomer, $extractItemAmount, $extractItemLabel, $isOpenDocument) {
             $matchedOrders = $ordersRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
             $matchedInvoices = $invoicesRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
             $matchedQuotations = $quotationRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
             $matchedOpportunities = $opportunityRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
 
-            $ordersCount = $matchedOrders->count();
-            $ordersTotal = (float) $matchedOrders->sum(fn ($row) => (float) ($row->total ?? 0));
-            $invoicesTotal = (float) $matchedInvoices->sum(fn ($row) => (float) ($row->total ?? 0));
+            $openOrders = $matchedOrders->filter($isOpenDocument)->values();
+            $postedInvoices = $matchedInvoices->filter($isOpenDocument)->values();
 
-            $totalRevenue = $invoicesTotal > 0 ? $invoicesTotal : $ordersTotal;
+            $ordersCount = $openOrders->count();
+            $ordersTotal = (float) $openOrders->sum(fn ($row) => (float) ($row->total ?? 0));
+            $billedTotal = (float) $postedInvoices->sum(fn ($row) => (float) ($row->total ?? 0));
+            $collectedTotal = (float) $postedInvoices->sum(fn ($row) => (float) ($row->paid_amount ?? 0));
+            $outstandingTotal = max(0, $billedTotal - $collectedTotal);
 
-            $lastOrderAt = $matchedOrders->max('created_at');
-            $lastInvoiceAt = $matchedInvoices->map(fn ($row) => $row->issue_date ?: $row->created_at)->filter()->max();
+            $lastOrderAt = $openOrders->max('created_at');
+            $lastInvoiceAt = $postedInvoices->map(fn ($row) => $row->issue_date ?: $row->created_at)->filter()->max();
 
-            $lastActivity = collect([
-                $lastOrderAt,
-                $lastInvoiceAt,
-                $customer->updated_at,
-                $customer->created_at,
-            ])
+            $lastActivity = collect([$lastOrderAt, $lastInvoiceAt])
                 ->filter()
                 ->max();
 
-            $lastInvoiceSalesPerson = $matchedInvoices->pluck('sales_person')->filter()->last();
+            $lastInvoiceSalesPerson = $postedInvoices->pluck('sales_person')->filter()->last();
             $salesperson = $customer->assignee ? $customer->assignee->name : $lastInvoiceSalesPerson;
             $manager = $customer->assignee && $customer->assignee->manager ? $customer->assignee->manager->name : null;
 
@@ -341,26 +476,22 @@ class CustomerController extends Controller
 
             $clientType = $customer->company_name ? 'Company' : 'Individual';
 
-            $paidTotal = (float) $matchedInvoices
-                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'paid')
-                ->sum(fn ($row) => (float) ($row->total ?? 0));
-            $partialTotal = (float) $matchedInvoices
-                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'partial')
-                ->sum(fn ($row) => (float) ($row->total ?? 0));
-            $unpaidTotal = (float) $matchedInvoices
-                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'unpaid')
-                ->sum(fn ($row) => (float) ($row->total ?? 0));
-            $paidCount = $matchedInvoices
-                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'paid')
-                ->count();
-            $partialCount = $matchedInvoices
-                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'partial')
-                ->count();
-            $unpaidCount = $matchedInvoices
-                ->filter(fn ($row) => strtolower((string) ($row->payment_status ?? '')) === 'unpaid')
-                ->count();
+            $paymentStatusOf = fn ($row) => strtolower(trim((string) ($row->payment_status ?? '')));
+            $paidInvoices = $postedInvoices->filter(fn ($row) => $paymentStatusOf($row) === 'paid');
+            $partialInvoices = $postedInvoices->filter(fn ($row) => $paymentStatusOf($row) === 'partial');
+            $unpaidInvoices = $postedInvoices->filter(fn ($row) => !in_array($paymentStatusOf($row), ['paid', 'partial'], true));
 
-            $invoicesCount = $matchedInvoices->count();
+            $paidTotal = (float) $paidInvoices->sum(fn ($row) => (float) ($row->total ?? 0));
+            $partialTotal = (float) $partialInvoices->sum(fn ($row) => (float) ($row->total ?? 0));
+            $unpaidTotal = (float) $unpaidInvoices->sum(fn ($row) => (float) ($row->total ?? 0));
+            $paidCollected = (float) $paidInvoices->sum(fn ($row) => (float) ($row->paid_amount ?? 0));
+            $partialCollected = (float) $partialInvoices->sum(fn ($row) => (float) ($row->paid_amount ?? 0));
+            $unpaidCollected = (float) $unpaidInvoices->sum(fn ($row) => (float) ($row->paid_amount ?? 0));
+            $paidCount = $paidInvoices->count();
+            $partialCount = $partialInvoices->count();
+            $unpaidCount = $unpaidInvoices->count();
+
+            $invoicesCount = $postedInvoices->count();
             $quotationTotal = $matchedQuotations->count();
             $quotationConverted = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['converted', 'accepted'], true))->count();
             $quotationPending = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['pending', 'sent', 'draft'], true))->count();
@@ -368,8 +499,7 @@ class CustomerController extends Controller
             $opportunitiesCount = $matchedOpportunities->count();
             $revenueBreakdown = [];
 
-            $rowsForRevenueItems = $matchedInvoices->count() > 0 ? $matchedInvoices : $matchedOrders;
-            foreach ($rowsForRevenueItems as $row) {
+            foreach ($postedInvoices as $row) {
                 $items = is_array($row->items ?? null) ? $row->items : [];
                 foreach ($items as $item) {
                     $label = $extractItemLabel($item);
@@ -397,13 +527,20 @@ class CustomerController extends Controller
                 'phone' => $customer->phone,
                 'email' => $customer->email,
                 'joinedDate' => optional($customer->created_at)->toDateString(),
-                'totalRevenue' => $totalRevenue,
+                'totalRevenue' => $collectedTotal,
+                'billedTotal' => $billedTotal,
+                'collectedTotal' => $collectedTotal,
+                'outstandingTotal' => $outstandingTotal,
+                'ordersTotal' => $ordersTotal,
                 'orders' => $ordersCount,
-                'lastActivity' => $lastActivity ? $lastActivity->toDateString() : optional($customer->created_at)->toDateString(),
+                'lastActivity' => $lastActivity ? (method_exists($lastActivity, 'toDateString') ? $lastActivity->toDateString() : substr((string) $lastActivity, 0, 10)) : null,
                 'salesperson' => $salesperson,
                 'invoicePaidTotal' => $paidTotal,
                 'invoicePartialTotal' => $partialTotal,
                 'invoiceUnpaidTotal' => $unpaidTotal,
+                'invoicePaidCollected' => $paidCollected,
+                'invoicePartialCollected' => $partialCollected,
+                'invoiceUnpaidCollected' => $unpaidCollected,
                 'invoicePaidCount' => $paidCount,
                 'invoicePartialCount' => $partialCount,
                 'invoiceUnpaidCount' => $unpaidCount,
@@ -695,13 +832,167 @@ class CustomerController extends Controller
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Move the customer to the recycle bin.
      */
     public function destroy($id)
     {
+        $user = Auth::user();
+        if (! $this->canDeleteCustomer($user)) {
+            return response()->json(['message' => 'You do not have permission to delete customers.'], 403);
+        }
+
         $customer = Customer::findOrFail($id);
+        $customer->deleted_by = $user?->id;
+        $customer->save();
         $customer->delete();
-        return response()->json(['message' => 'Customer deleted successfully']);
+
+        return response()->json(['message' => 'Customer moved to recycle bin successfully']);
+    }
+
+    public function recycleBin(Request $request)
+    {
+        $user = $request->user();
+        if (! $this->canAccessCustomerRecycle($user)) {
+            return response()->json(['message' => 'You do not have permission to view the customer recycle bin.'], 403);
+        }
+
+        $query = Customer::onlyTrashed()
+            ->with(['deletedByUser:id,name', 'assignee:id,name', 'customFieldValues.field'])
+            ->orderByDesc('deleted_at');
+
+        if ($user?->tenant_id) {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        $this->applyCustomerListFilters($query, $request);
+
+        $perPage = max(1, min(100, (int) $request->input('per_page', 20)));
+
+        return $query->paginate($perPage);
+    }
+
+    public function restoreFromRecycle($id)
+    {
+        $user = Auth::user();
+        if (! $this->canAccessCustomerRecycle($user)) {
+            return response()->json(['message' => 'You do not have permission to restore customers.'], 403);
+        }
+
+        $customer = Customer::onlyTrashed()->findOrFail($id);
+
+        if ($this->hasActivePhoneConflict($customer)) {
+            return response()->json([
+                'message' => 'Cannot restore this customer because another active customer already uses the same phone number.',
+            ], 422);
+        }
+
+        $customer->deleted_by = null;
+        $customer->restore();
+
+        return response()->json(['message' => 'Customer restored successfully', 'customer' => $customer->fresh()]);
+    }
+
+    public function forceDelete($id)
+    {
+        $user = Auth::user();
+        if (! $this->canForceDeleteCustomer($user)) {
+            return response()->json(['message' => 'You do not have permission to permanently delete customers.'], 403);
+        }
+
+        $customer = Customer::withTrashed()->findOrFail($id);
+        $customer->forceDelete();
+
+        return response()->json(['message' => 'Customer permanently deleted']);
+    }
+
+    public function bulkDelete(Request $request)
+    {
+        $user = Auth::user();
+        if (! $this->canDeleteCustomer($user)) {
+            return response()->json(['message' => 'You do not have permission to delete customers.'], 403);
+        }
+
+        $ids = array_values(array_filter(array_map('intval', (array) $request->input('ids', []))));
+        if ($ids === []) {
+            return response()->json(['message' => 'No customers selected.'], 422);
+        }
+
+        $query = Customer::query()->whereIn('id', $ids);
+        if ($user?->tenant_id) {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        $count = 0;
+        $query->get()->each(function (Customer $customer) use ($user, &$count) {
+            $customer->deleted_by = $user?->id;
+            $customer->save();
+            $customer->delete();
+            $count++;
+        });
+
+        return response()->json([
+            'message' => 'Customers moved to recycle bin successfully',
+            'count' => $count,
+        ]);
+    }
+
+    public function bulkRestore(Request $request)
+    {
+        $user = Auth::user();
+        if (! $this->canAccessCustomerRecycle($user)) {
+            return response()->json(['message' => 'You do not have permission to restore customers.'], 403);
+        }
+
+        $ids = array_values(array_filter(array_map('intval', (array) $request->input('ids', []))));
+        if ($ids === []) {
+            return response()->json(['message' => 'No customers selected.'], 422);
+        }
+
+        $query = Customer::onlyTrashed()->whereIn('id', $ids);
+        if ($user?->tenant_id) {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        $count = 0;
+        $query->get()->each(function (Customer $customer) use (&$count) {
+            if ($this->hasActivePhoneConflict($customer)) {
+                return;
+            }
+            $customer->deleted_by = null;
+            $customer->restore();
+            $count++;
+        });
+
+        return response()->json([
+            'message' => 'Customers restored successfully',
+            'count' => $count,
+        ]);
+    }
+
+    public function bulkForceDelete(Request $request)
+    {
+        $user = Auth::user();
+        if (! $this->canForceDeleteCustomer($user)) {
+            return response()->json(['message' => 'You do not have permission to permanently delete customers.'], 403);
+        }
+
+        $ids = array_values(array_filter(array_map('intval', (array) $request->input('ids', []))));
+        if ($ids === []) {
+            return response()->json(['message' => 'No customers selected.'], 422);
+        }
+
+        $query = Customer::withTrashed()->whereIn('id', $ids);
+        if ($user?->tenant_id) {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        $count = $query->count();
+        $query->get()->each(fn (Customer $customer) => $customer->forceDelete());
+
+        return response()->json([
+            'message' => 'Customers permanently deleted',
+            'count' => $count,
+        ]);
     }
 
     public function attachmentsIndex($id)

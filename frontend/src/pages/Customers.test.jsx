@@ -1,6 +1,12 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { Customers } from './Customers'
 
+jest.mock('react-router-dom', () => ({
+  useNavigate: () => jest.fn(),
+  useParams: () => ({}),
+  useSearchParams: () => [new URLSearchParams()],
+}))
+
 // Mock Translations
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({

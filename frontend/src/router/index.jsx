@@ -40,6 +40,7 @@ const Layout = lazyRetry(() => import('../components/Layout'))
 
 // --- Customers ---
 const Customers = lazyRetry(() => import('../pages/Customers'))
+const CustomersRecycle = lazyRetry(() => import('../pages/CustomersRecycle'))
 
 // --- Contract & Collections (Real Estate) ---
 const ContractCollectionsCustomers = lazyRetry(() => import('../pages/contract-collections/Customers'))
@@ -356,6 +357,7 @@ export default function AppRouter() {
             <Route path="/dashboard" element={<DashboardRoute />} />
             <Route element={<ProtectedModuleRoute moduleKey="customers" />}>
               <Route path="/customers" element={<Customers />} />
+              <Route path="/customers/recycle" element={<CustomersRecycle />} />
             </Route>
             <Route element={<ProtectedModuleRoute moduleKey="contract_collections" />}>
               <Route path="/contract-collections/customers" element={<ContractCollectionsCustomers />} />
