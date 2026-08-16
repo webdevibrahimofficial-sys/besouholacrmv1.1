@@ -207,6 +207,8 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
                 $message->created_at
             );
 
+            $customerPushName = $fromMe || !is_string($pushName) ? null : $pushName;
+
             if (!$resolvedLeadId) {
                 // Always upsert the unassigned contact so that contacts whose
                 // first message arrived before the service was running (and thus
@@ -214,21 +216,23 @@ class ProcessIncomingMirrorMessage implements ShouldQueue
                 $unassignedContactService->recordPendingMessage(
                     $tenantId,
                     (string) $counterpartPhone,
-                    is_string($pushName) ? $pushName : null,
+                    $customerPushName,
                     is_string($messageBody) ? $messageBody : null,
                     $message->created_at,
                     $message->wasRecentlyCreated, // only increment count for new messages
-                    $isUnresolvedLid
+                    $isUnresolvedLid,
+                    (bool) $fromMe
                 );
             } elseif ($resolvedLeadId) {
                 $unassignedContactService->markAsConverted(
                     $tenantId,
                     (string) $counterpartPhone,
                     (int) $resolvedLeadId,
-                    is_string($pushName) ? $pushName : null,
+                    $customerPushName,
                     is_string($messageBody) ? $messageBody : null,
                     $message->created_at,
-                    false
+                    false,
+                    (bool) $fromMe
                 );
             }
 

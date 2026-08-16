@@ -259,6 +259,39 @@ class WhatsappLidResolutionService
         ];
     }
 
+    public function mergeKnownUnassignedLidDuplicates(int $tenantId): int
+    {
+        if ($tenantId <= 0 || !Schema::hasTable('whatsapp_unassigned_contacts')) {
+            return 0;
+        }
+
+        $updated = 0;
+
+        $lidContacts = WhatsappUnassignedContact::query()
+            ->where('tenant_id', $tenantId)
+            ->where('is_unresolved_lid', true)
+            ->where('status', 'pending')
+            ->get();
+
+        foreach ($lidContacts as $contact) {
+            $lid = $this->normalizeLidDigits((string) $contact->phone);
+            if (!$lid) {
+                continue;
+            }
+
+            $phone = $this->contactStore->resolvePhoneForLid($tenantId, $lid)
+                ?: $this->contactStore->resolveFromMessageHistory($tenantId, $lid);
+
+            if (!$phone || $this->looksLikeLid($phone) || $phone === $lid) {
+                continue;
+            }
+
+            $updated += $this->applyToUnassignedContacts($tenantId, $lid, PhoneNormalizer::digits($phone));
+        }
+
+        return $updated;
+    }
+
     private function applyToUnassignedContacts(int $tenantId, string $lid, string $phone): int
     {
         if (!Schema::hasTable('whatsapp_unassigned_contacts')) {
@@ -290,6 +323,12 @@ class WhatsappLidResolutionService
                 if ($contact->last_message_at && (!$existing->last_message_at || $contact->last_message_at->gt($existing->last_message_at))) {
                     $existing->last_message_at = $contact->last_message_at;
                     $existing->last_message_body = $contact->last_message_body ?: $existing->last_message_body;
+                }
+                if ($contact->first_message_at && (!$existing->first_message_at || $contact->first_message_at->lt($existing->first_message_at))) {
+                    $existing->first_message_at = $contact->first_message_at;
+                    $existing->first_message_body = $contact->first_message_body ?: $existing->first_message_body;
+                } elseif (empty($existing->first_message_body) && !empty($contact->first_message_body)) {
+                    $existing->first_message_body = $contact->first_message_body;
                 }
                 $existing->push_name = $existing->push_name ?: $contact->push_name;
                 $existing->is_unresolved_lid = false;

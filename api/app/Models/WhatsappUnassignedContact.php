@@ -15,6 +15,7 @@ class WhatsappUnassignedContact extends TenantModel
         'is_unresolved_lid',
         'push_name',
         'first_message_at',
+        'first_message_body',
         'last_message_at',
         'last_message_body',
         'messages_count',

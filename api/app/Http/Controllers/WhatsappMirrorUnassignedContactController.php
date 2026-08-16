@@ -11,6 +11,7 @@ use App\Models\WhatsappChannel;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappMessageAttribution;
 use App\Models\WhatsappUnassignedContact;
+use App\Services\Whatsapp\WhatsappLidResolutionService;
 use App\Services\Whatsapp\WhatsappUnassignedContactService;
 use App\Support\LeadPhoneMatcher;
 use App\Support\PhoneNormalizer;
@@ -67,6 +68,9 @@ class WhatsappMirrorUnassignedContactController extends Controller
         $search = trim((string) $request->query('search', ''));
         $perPage = max(1, min(100, (int) $request->query('per_page', 20)));
 
+        app(WhatsappLidResolutionService::class)
+            ->mergeKnownUnassignedLidDuplicates((int) $user->tenant_id);
+
         $query = WhatsappUnassignedContact::query()
             ->where('tenant_id', $user->tenant_id)
             ->with('convertedLead:id,name,phone');
@@ -79,6 +83,7 @@ class WhatsappMirrorUnassignedContactController extends Controller
             $query->where(function ($subQuery) use ($search) {
                 $subQuery->where('phone', 'like', "%{$search}%")
                     ->orWhere('push_name', 'like', "%{$search}%")
+                    ->orWhere('first_message_body', 'like', "%{$search}%")
                     ->orWhere('last_message_body', 'like', "%{$search}%");
             });
         }
@@ -107,17 +112,22 @@ class WhatsappMirrorUnassignedContactController extends Controller
                 continue;
             }
 
-            $latestMessage = WhatsappMessage::query()
+            $messageQuery = WhatsappMessage::query()
                 ->where('tenant_id', $tenantId)
                 ->where(function ($q) use ($variants) {
                     foreach ($variants as $variant) {
                         $q->orWhere('from', $variant)->orWhere('to', $variant);
                     }
-                })
+                });
+
+            $latestMessage = (clone $messageQuery)
                 ->with(['channel:id,display_name,provider,status', 'attribution'])
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->first();
+
+            $firstMessage = app(WhatsappUnassignedContactService::class)
+                ->findFirstConversationMessage($tenantId, (string) $phone);
 
             $channel = $latestMessage?->channel;
             $attribution = $latestMessage?->attribution
@@ -153,11 +163,16 @@ class WhatsappMirrorUnassignedContactController extends Controller
                 'ctwa_headline' => $attribution?->headline,
                 'ctwa_ad_name' => $attribution?->ad_name,
                 'ctwa_campaign_name' => $attribution?->campaign_name,
+                'first_message_body' => $firstMessage?->body,
+                'first_message_at' => $firstMessage?->created_at,
             ];
         }
 
+        $unassignedService = app(WhatsappUnassignedContactService::class);
+        $ownNames = $unassignedService->ownAccountNames($tenantId);
+
         $paginator->setCollection(
-            $items->map(function (WhatsappUnassignedContact $contact) use ($enrichmentByPhone) {
+            $items->map(function (WhatsappUnassignedContact $contact) use ($enrichmentByPhone, $unassignedService, $ownNames) {
                 $extra = $enrichmentByPhone[$contact->phone] ?? [
                     'provider' => null,
                     'channel_id' => null,
@@ -167,9 +182,35 @@ class WhatsappMirrorUnassignedContactController extends Controller
                     'ctwa_headline' => null,
                     'ctwa_ad_name' => null,
                     'ctwa_campaign_name' => null,
+                    'first_message_body' => null,
+                    'first_message_at' => null,
                 ];
 
-                return array_merge($contact->toArray(), $extra);
+                $payload = array_merge($contact->toArray(), $extra);
+
+                if (empty($contact->first_message_body) && !empty($extra['first_message_body'])) {
+                    $contact->first_message_body = $extra['first_message_body'];
+                    if (!empty($extra['first_message_at']) && (
+                        !$contact->first_message_at
+                        || $extra['first_message_at'] < $contact->first_message_at
+                    )) {
+                        $contact->first_message_at = $extra['first_message_at'];
+                    }
+                    $contact->save();
+                }
+
+                $unassignedService->fillCustomerNameFromHistory($contact, $ownNames);
+
+                if (!empty($contact->first_message_body)) {
+                    $payload['first_message_body'] = $contact->first_message_body;
+                    $payload['first_message_at'] = $contact->first_message_at ?: ($extra['first_message_at'] ?? null);
+                } elseif (empty($payload['first_message_body'])) {
+                    $payload['first_message_body'] = $contact->last_message_body;
+                }
+
+                $payload['push_name'] = $contact->push_name;
+
+                return $payload;
             })
         );
 

@@ -116,6 +116,9 @@ class ProcessHistorySyncBatch implements ShouldQueue
                     $message->created_at
                 );
 
+                $rawPushName = $msg['pushName'] ?? $msg['push_name'] ?? null;
+                $customerPushName = $fromMe || !is_string($rawPushName) ? null : $rawPushName;
+
                 if (!$lead) {
                     // Upsert regardless of wasRecentlyCreated — history re-syncs
                     // after a reconnect must still register contacts whose messages
@@ -126,21 +129,23 @@ class ProcessHistorySyncBatch implements ShouldQueue
                     $unassignedContactService->recordPendingMessage(
                         $tenantId,
                         (string) $phone,
-                        is_string($msg['pushName'] ?? $msg['push_name'] ?? null) ? ($msg['pushName'] ?? $msg['push_name']) : null,
+                        $customerPushName,
                         is_string($msg['body'] ?? null) ? $msg['body'] : null,
                         $message->created_at,
                         $message->wasRecentlyCreated, // only increment count for new messages
-                        (bool) ($msg['is_unresolved_lid'] ?? false)
+                        (bool) ($msg['is_unresolved_lid'] ?? false),
+                        (bool) $fromMe
                     );
                 } elseif ($lead) {
                     $unassignedContactService->markAsConverted(
                         $tenantId,
                         (string) $phone,
                         (int) $lead->id,
-                        is_string($msg['pushName'] ?? $msg['push_name'] ?? null) ? ($msg['pushName'] ?? $msg['push_name']) : null,
+                        $customerPushName,
                         is_string($msg['body'] ?? null) ? $msg['body'] : null,
                         $message->created_at,
-                        false
+                        false,
+                        (bool) $fromMe
                     );
                 }
 

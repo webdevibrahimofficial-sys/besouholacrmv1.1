@@ -573,4 +573,50 @@ class WhatsappMirrorTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.phone', '201001234567');
     }
+
+    public function test_outbound_mirror_message_keeps_customer_name_and_first_message(): void
+    {
+        $tenant = Tenant::factory()->create();
+
+        WhatsappMirrorSession::create([
+            'tenant_id' => $tenant->id,
+            'status' => 'connected',
+            'connected_phone_number' => '201099999999',
+        ]);
+
+        (new \App\Jobs\ProcessIncomingMirrorMessage([
+            'tenant_id' => $tenant->id,
+            'message' => [
+                'message_id' => 'wamid.unassigned-in',
+                'from_me' => false,
+                'from' => '201093211958',
+                'counterpart_phone' => '201093211958',
+                'body' => 'hello from customer',
+                'push_name' => 'lil',
+                'type' => 'text',
+            ],
+        ]))->handle();
+
+        (new \App\Jobs\ProcessIncomingMirrorMessage([
+            'tenant_id' => $tenant->id,
+            'message' => [
+                'message_id' => 'wamid.unassigned-out',
+                'from_me' => true,
+                'from' => '201093211958',
+                'counterpart_phone' => '201093211958',
+                'body' => 'reply from agent',
+                'push_name' => 'Ibrahim',
+                'type' => 'text',
+            ],
+        ]))->handle();
+
+        $this->assertDatabaseHas('whatsapp_unassigned_contacts', [
+            'tenant_id' => $tenant->id,
+            'phone' => '201093211958',
+            'push_name' => 'lil',
+            'first_message_body' => 'hello from customer',
+            'last_message_body' => 'reply from agent',
+            'messages_count' => 2,
+        ]);
+    }
 }

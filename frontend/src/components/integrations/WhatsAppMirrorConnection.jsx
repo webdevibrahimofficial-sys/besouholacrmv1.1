@@ -839,7 +839,7 @@ export default function WhatsAppMirrorConnection({ mode = 'full', embedded = fal
         ? (contact?.group_name
           ? (isArabic ? `تم استيراده من جروب واتساب: ${contact.group_name}` : `Imported from WhatsApp group: ${contact.group_name}`)
           : (isArabic ? 'تم استيراده من أعضاء جروبات واتساب.' : 'Imported from WhatsApp group members.'))
-        : (contact?.last_message_body || ''),
+        : (contact?.first_message_body || contact?.last_message_body || ''),
       country: defaultCountry,
     })
     setShowConvertModal(true)
@@ -1130,7 +1130,7 @@ export default function WhatsAppMirrorConnection({ mode = 'full', embedded = fal
       }`}>
         <div className="col-span-3">{isArabic ? 'الاسم' : 'Name'}</div>
         <div className="col-span-2">{isArabic ? 'الرقم' : 'Phone'}</div>
-        <div className="col-span-4">{isArabic ? 'آخر رسالة' : 'Last message'}</div>
+        <div className="col-span-4">{isArabic ? 'رسالة' : 'Message'}</div>
         <div className="col-span-1">{isArabic ? 'العدد' : 'Count'}</div>
         <div className="col-span-2">{isArabic ? 'إجراء' : 'Action'}</div>
       </div>
@@ -1202,9 +1202,11 @@ export default function WhatsAppMirrorConnection({ mode = 'full', embedded = fal
               )}
             </div>
             <div className="col-span-4 min-w-0">
-              <div className="truncate">{contact.last_message_body || (isArabic ? 'لا توجد معاينة' : 'No preview')}</div>
+              <div className="truncate">{contact.first_message_body || contact.last_message_body || (isArabic ? 'لا توجد معاينة' : 'No preview')}</div>
               <div className={`mt-1 text-xs ${mutedTextClass}`}>
-                {contact.last_message_at ? new Date(contact.last_message_at).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : '-'}
+                {(contact.first_message_at || contact.last_message_at)
+                  ? new Date(contact.first_message_at || contact.last_message_at).toLocaleString(isArabic ? 'ar-EG' : 'en-US')
+                  : '-'}
               </div>
             </div>
             <div className="col-span-1">{contact.messages_count || 0}</div>
