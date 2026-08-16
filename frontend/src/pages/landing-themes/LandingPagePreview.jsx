@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useState } from 'react'
 import Theme1 from './Theme1'
 import Theme2 from './Theme2'
+import ShareLandingPage from './ShareLandingPage'
 import { api } from '../../utils/api'
 
 export default function LandingPagePreview() {
@@ -158,8 +159,13 @@ export default function LandingPagePreview() {
   }
 
   // Theme Selector (Expandable for more themes later)
+  const isShareItem = Boolean(payload?.project || payload?.property || payload?.mode === 'share')
   const theme = payload.theme || 'theme1'
-  
+
+  if (isShareItem) {
+    return <ShareLandingPage data={payload} />
+  }
+
   return (
     <>
       {theme === 'theme1' && <Theme1 data={payload} />}

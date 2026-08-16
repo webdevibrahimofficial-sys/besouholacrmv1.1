@@ -11,6 +11,7 @@ import SearchableSelect from './SearchableSelect'
 import DynamicFieldRenderer from './DynamicFieldRenderer'
 import { PROJECT_PLANS } from '../data/projectPlans'
 import { useAppState } from '../shared/context/AppStateProvider'
+import toast from 'react-hot-toast'
 
 // Fix Leaflet marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -182,7 +183,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
   const [inputLanguage, setInputLanguage] = useState('en')
   const [showEnglish, setShowEnglish] = useState(false)
   const [priceEdited, setPriceEdited] = useState(!!isEdit)
+  const [isSaving, setIsSaving] = useState(false)
   const lastAreaPricingDriverRef = useRef('meterPrice')
+  const areaPricingTouchedRef = useRef(false)
+  const pendingErrorScrollRef = useRef(null)
   const [formData, setFormData] = useState({
     // Step 1
     project: '',
@@ -382,9 +386,32 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
   const [dynamicValues, setDynamicValues] = useState({})
 
   const parseNumeric = (value) => {
-    const normalized = parseFloat(value)
+    const normalized = parseFloat(String(value ?? '').replace(/,/g, ''))
     return Number.isFinite(normalized) ? normalized : 0
   }
+
+  const asMoney = (...vals) => {
+    for (const v of vals) {
+      if (v === undefined || v === null || v === '') continue
+      const n = String(v).replace(/,/g, '').trim()
+      if (n && n !== 'null' && n !== 'undefined') return n
+    }
+    return ''
+  }
+
+  const formatWithCommas = (v) => {
+    const s = String(v ?? '')
+    if (!s) return ''
+    const raw = s.replace(/,/g, '')
+    if (!raw) return ''
+    const parts = raw.split('.')
+    let int = parts[0]
+    let dec = parts[1] ?? ''
+    if (dec && /^0+$/.test(dec)) dec = ''
+    int = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    return dec ? `${int}.${dec}` : int
+  }
+  const unformatNumber = (v) => String(v ?? '').replace(/,/g, '')
 
   useEffect(() => {
     document.body.classList.add('app-modal-open')
@@ -406,6 +433,19 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
       normalized.nearby = ensureArray(normalized.nearby)
       normalized.installmentPlans = ensureArray(normalized.installmentPlans)
       normalized.cilAttachments = ensureArray(normalized.cilAttachments)
+      const resolvedPrice = asMoney(normalized.totalPrice, normalized.total_price, normalized.price)
+      normalized.totalPrice = resolvedPrice
+      normalized.price = asMoney(normalized.price, resolvedPrice)
+      normalized.meterPrice = asMoney(normalized.meterPrice, normalized.meter_price)
+      normalized.internalMeterPrice = asMoney(normalized.internalMeterPrice, normalized.internal_meter_price)
+      normalized.externalMeterPrice = asMoney(normalized.externalMeterPrice, normalized.external_meter_price)
+      normalized.rentCost = asMoney(normalized.rentCost, normalized.rent_cost)
+      normalized.discount = asMoney(normalized.discount)
+      normalized.reservationAmount = asMoney(normalized.reservationAmount, normalized.reservation_amount)
+      normalized.garageAmount = asMoney(normalized.garageAmount, normalized.garage_amount)
+      normalized.maintenanceAmount = asMoney(normalized.maintenanceAmount, normalized.maintenance_amount)
+      normalized.netAmount = asMoney(normalized.netAmount, normalized.net_amount)
+      normalized.totalAfterDiscount = asMoney(normalized.totalAfterDiscount, normalized.total_after_discount)
       setFormData(prev => ({ ...prev, ...normalized, custom_fields: initialData.custom_fields || {} }))
       setDynamicValues(initialData.custom_fields || {})
       setPriceEdited(true)
@@ -417,7 +457,9 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
   }
 
   // Keep area pricing bidirectional: meter price -> total price, and total price -> meter price.
+  // Skip until the user edits an area/price field so edit-mode hydrate does not wipe stored totals.
   useEffect(() => {
+    if (!areaPricingTouchedRef.current) return
     const driver = lastAreaPricingDriverRef.current
 
     if (formData.hasExternalArea) {
@@ -535,60 +577,98 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
     }
   }, [isRTL])
 
-  // Scroll to top on step change
+  // Scroll to top on step change, then to the first invalid field if save failed
   useEffect(() => {
     const content = document.getElementById('wizard-content')
     if (content) content.scrollTop = 0
+    const fieldKey = pendingErrorScrollRef.current
+    if (!fieldKey) return
+    pendingErrorScrollRef.current = null
+    requestAnimationFrame(() => {
+      document.getElementById(`property-field-${fieldKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
   }, [currentStep])
 
-  // Validation Logic
-  const validateStep = (step) => {
+  const isBlank = (value) => {
+    if (value === undefined || value === null) return true
+    const text = String(value).trim()
+    return text === '' || text === '0'
+  }
+
+  const collectErrors = () => {
     const newErrors = {}
-    let isValid = true
-
-    if (step === 1) {
-      if (!formData.project) newErrors.project = 'Project is required'
-      if (!formData.category) newErrors.category = 'Category is required'
-      if (!formData.propertyType) newErrors.propertyType = 'Property Type is required'
-      if (!formData.unitNumber) newErrors.unitNumber = 'Unit Number is required'
-      if (!formData.totalArea || formData.totalArea === '0') newErrors.totalArea = 'Total Area is required'
-      if (!formData.totalPrice || formData.totalPrice === '0') newErrors.totalPrice = 'Total Price is required'
+    const tErr = (en, ar) => (inputLanguage === 'ar' ? ar : en)
+    if (isBlank(formData.project)) newErrors.project = tErr('Project is required', 'المشروع مطلوب')
+    if (isBlank(formData.category)) newErrors.category = tErr('Category is required', 'الفئة مطلوبة')
+    if (isBlank(formData.propertyType)) newErrors.propertyType = tErr('Property Type is required', 'نوع العقار مطلوب')
+    if (isBlank(formData.unitNumber)) newErrors.unitNumber = tErr('Unit Number is required', 'رقم الوحدة مطلوب')
+    if (isBlank(formData.totalArea)) newErrors.totalArea = tErr('Total Area is required', 'المساحة الكلية مطلوبة')
+    if (isBlank(formData.totalPrice)) newErrors.totalPrice = tErr('Total Price is required', 'السعر الإجمالي مطلوب')
+    const plans = Array.isArray(formData.installmentPlans) ? formData.installmentPlans : []
+    if (plans.length > 0 && isBlank(formData.price) && isBlank(formData.totalPrice)) {
+      newErrors.price = tErr('Price is required', 'السعر مطلوب')
     }
-    if (step === 5) {
-      if (formData.installmentPlans.length > 0 && !formData.price) newErrors.price = 'Price is required'
-    }
-    // CIL validation removed per request
+    return newErrors
+  }
 
+  const FIELD_STEPS = {
+    project: 1,
+    category: 1,
+    propertyType: 1,
+    unitNumber: 1,
+    totalArea: 1,
+    totalPrice: 1,
+    price: 5,
+  }
 
+  const handleFinish = async () => {
+    if (isSaving) return
+    const newErrors = collectErrors()
     setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
-
-  const validateAll = () => {
-    const step1Valid = validateStep(1)
-    const step5Valid = validateStep(5)
-    return step1Valid && step5Valid
-  }
-
-
-  const handleFinish = () => {
-    if (validateAll()) {
-      const dataToSave = {
-        ...formData,
-        marketingChannels: channels,
-        custom_fields: dynamicValues
+    const errorKeys = Object.keys(newErrors)
+    if (errorKeys.length > 0) {
+      const firstKey = errorKeys[0]
+      pendingErrorScrollRef.current = firstKey
+      const nextStep = FIELD_STEPS[firstKey] || 1
+      if (nextStep !== currentStep) {
+        setCurrentStep(nextStep)
+      } else {
+        pendingErrorScrollRef.current = null
+        requestAnimationFrame(() => {
+          document.getElementById(`property-field-${firstKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        })
       }
-      onSave && onSave(dataToSave)
+      toast.error(newErrors[firstKey])
       try {
-        const msg = inputLanguage === 'ar' ? 'تم حفظ بيانات العقار' : 'Property data saved'
-        const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: msg } })
-        window.dispatchEvent(evt)
-      } catch (_) { }
-      onClose()
-    } else {
-      // Find first invalid step and jump to it
-      if (!validateStep(1)) setCurrentStep(1)
-      else if (!validateStep(5)) setCurrentStep(5)
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: newErrors[firstKey] } }))
+      } catch (_) {}
+      return
+    }
+
+    const dataToSave = {
+      ...formData,
+      marketingChannels: channels,
+      custom_fields: dynamicValues,
+      price: unformatNumber(formData.price || formData.totalPrice),
+      totalPrice: unformatNumber(formData.totalPrice || formData.price),
+      meterPrice: unformatNumber(formData.meterPrice),
+      internalMeterPrice: unformatNumber(formData.internalMeterPrice),
+      externalMeterPrice: unformatNumber(formData.externalMeterPrice),
+      rentCost: unformatNumber(formData.rentCost),
+    }
+    setIsSaving(true)
+    try {
+      if (typeof onSave === 'function') {
+        await onSave(dataToSave)
+      }
+    } catch (e) {
+      const msg = inputLanguage === 'ar' ? 'فشل حفظ العقار' : 'Failed to save property'
+      toast.error(msg)
+      try {
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: msg } }))
+      } catch (_) {}
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -696,19 +776,6 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
     const rightWidth = Math.max(0, Math.min(cRect.width, cRect.right - center))
     setProgressWidth(inputLanguage === 'ar' ? rightWidth : leftWidth)
   }, [currentStep, inputLanguage])
-
-  const formatWithCommas = (v) => {
-    const s = String(v ?? '')
-    if (!s) return ''
-    const raw = s.replace(/,/g, '')
-    if (!raw) return ''
-    const parts = raw.split('.')
-    let int = parts[0]
-    const dec = parts[1] ?? ''
-    int = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-    return dec ? `${int}.${dec}` : int
-  }
-  const unformatNumber = (v) => String(v ?? '').replace(/,/g, '')
 
   const availablePlans = React.useMemo(() => {
     const projectLabel = String(formData.project || '').trim()
@@ -873,7 +940,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
       {/* Project & Category */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Project */}
-        <div className="space-y-2">
+        <div id="property-field-project" className="space-y-2">
           <label className="label">
             {inputLanguage === 'ar' ? 'المشروع' : 'Project'}
             <span className="text-red-500">*</span>
@@ -881,6 +948,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
           <SearchableSelect
             options={projectOptions}
             value={formData.project}
+            showAllOption={false}
             onChange={v => {
               setSelectedPlanId('')
               if (!isEdit && v !== formData.project) {
@@ -898,7 +966,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
         </div>
 
         {/* Category */}
-        <div className="space-y-2">
+        <div id="property-field-category" className="space-y-2">
           <label className="label">
             {inputLanguage === 'ar' ? 'الفئة' : 'Category'}
             <span className="text-red-500">*</span>
@@ -906,6 +974,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
           <SearchableSelect
             options={categoryOptions}
             value={formData.category}
+            showAllOption={false}
             onChange={v => setFormData({ ...formData, category: v })}
             isRTL={inputLanguage === 'ar'}
             placeholder={inputLanguage === 'ar' ? 'اختر فئة الوحدة' : 'Select Category'}
@@ -916,7 +985,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
       </div>
 
       {/* Property Type */}
-      <div className="space-y-2">
+      <div id="property-field-propertyType" className="space-y-2">
         <label className="label">
           {inputLanguage === 'ar' ? 'نوع العقار' : 'Property Type'}
           <span className="text-red-500">*</span>
@@ -924,6 +993,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
         <SearchableSelect
           options={propertyTypeOptions}
           value={formData.propertyType}
+          showAllOption={false}
           onChange={v => setFormData({ ...formData, propertyType: v })}
           isRTL={inputLanguage === 'ar'}
           placeholder={inputLanguage === 'ar' ? 'اختر نوع العقار' : 'Select Property Type'}
@@ -933,7 +1003,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
 
       {/* Unit Info */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="space-y-2">
+        <div id="property-field-unitNumber" className="space-y-2">
           <label className="label">
             {inputLanguage === 'ar' ? 'رقم الوحدة' : 'Unit Number'}
             <span className="text-red-500">*</span>
@@ -981,7 +1051,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
             <input
               type="checkbox"
               checked={formData.hasExternalArea}
-              onChange={e => setFormData({ ...formData, hasExternalArea: e.target.checked })}
+              onChange={e => {
+                areaPricingTouchedRef.current = true
+                setFormData({ ...formData, hasExternalArea: e.target.checked })
+              }}
               className="rounded text-blue-600"
             />
             {inputLanguage === 'ar' ? 'يوجد مساحة خارجية/حديقة؟' : 'Has External Area/Garden?'}
@@ -998,6 +1071,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
               className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
               value={formData.bua}
               onChange={e => {
+                areaPricingTouchedRef.current = true
                 lastAreaPricingDriverRef.current = formData.totalPrice ? 'totalPrice' : 'meterPrice'
                 setFormData({ ...formData, bua: e.target.value })
               }}
@@ -1016,6 +1090,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
                   className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
                   value={formData.internalArea}
                   onChange={e => {
+                    areaPricingTouchedRef.current = true
                     lastAreaPricingDriverRef.current = formData.totalPrice ? 'totalPrice' : 'meterPrice'
                     setFormData({ ...formData, internalArea: e.target.value })
                   }}
@@ -1031,6 +1106,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
                   className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
                   value={formData.externalArea}
                   onChange={e => {
+                    areaPricingTouchedRef.current = true
                     lastAreaPricingDriverRef.current = formData.totalPrice ? 'totalPrice' : 'meterPrice'
                     setFormData({ ...formData, externalArea: e.target.value })
                   }}
@@ -1041,7 +1117,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
           </div>
         )}
 
-        <div className="space-y-2 pt-2 border-t mt-2">
+        <div id="property-field-totalArea" className="space-y-2 pt-2 border-t mt-2">
           <label className="label">
             {inputLanguage === 'ar' ? 'المساحة الكلية' : 'Total Area'}
             <span className="text-red-500">*</span>
@@ -1069,24 +1145,28 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
             <div className="space-y-2">
               <label className="label">{inputLanguage === 'ar' ? 'سعر المتر الداخلي' : 'Internal Meter Price'}</label>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
-                value={formData.internalMeterPrice}
+                value={formatWithCommas(formData.internalMeterPrice)}
                 onChange={e => {
+                  areaPricingTouchedRef.current = true
                   lastAreaPricingDriverRef.current = 'meterPrice'
-                  setFormData({ ...formData, internalMeterPrice: e.target.value })
+                  setFormData({ ...formData, internalMeterPrice: unformatNumber(e.target.value) })
                 }}
               />
             </div>
             <div className="space-y-2">
               <label className="label">{inputLanguage === 'ar' ? 'سعر المتر الخارجي' : 'External Meter Price'}</label>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
-                value={formData.externalMeterPrice}
+                value={formatWithCommas(formData.externalMeterPrice)}
                 onChange={e => {
+                  areaPricingTouchedRef.current = true
                   lastAreaPricingDriverRef.current = 'meterPrice'
-                  setFormData({ ...formData, externalMeterPrice: e.target.value })
+                  setFormData({ ...formData, externalMeterPrice: unformatNumber(e.target.value) })
                 }}
               />
             </div>
@@ -1095,29 +1175,33 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
           <div className="space-y-2">
             <label className="label">{inputLanguage === 'ar' ? 'سعر المتر' : 'Meter Price'}</label>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
-              value={formData.meterPrice}
+              value={formatWithCommas(formData.meterPrice)}
               onChange={e => {
+                areaPricingTouchedRef.current = true
                 lastAreaPricingDriverRef.current = 'meterPrice'
-                setFormData({ ...formData, meterPrice: e.target.value })
+                setFormData({ ...formData, meterPrice: unformatNumber(e.target.value) })
               }}
             />
           </div>
         )}
 
-        <div className="space-y-2">
+        <div id="property-field-totalPrice" className="space-y-2">
           <label className="label">
             {inputLanguage === 'ar' ? 'السعر الإجمالي' : 'Total Price'}
             <span className="text-red-500">*</span>
           </label>
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700 font-bold"
-            value={formData.totalPrice}
+            value={formatWithCommas(formData.totalPrice)}
             onChange={e => {
+              areaPricingTouchedRef.current = true
               lastAreaPricingDriverRef.current = 'totalPrice'
-              setFormData({ ...formData, totalPrice: e.target.value })
+              setFormData({ ...formData, totalPrice: unformatNumber(e.target.value) })
             }}
           />
           {errors.totalPrice && <p className="text-red-500 text-xs">{errors.totalPrice}</p>}
@@ -1250,9 +1334,10 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
             <div className="space-y-2">
               <label className="label">{inputLanguage === 'ar' ? 'قيمة الإيجار' : 'Rent Cost'}</label>
               <input
-                type="number"
-                value={formData.rentCost}
-                onChange={e => setFormData({ ...formData, rentCost: e.target.value })}
+                type="text"
+                inputMode="decimal"
+                value={formatWithCommas(formData.rentCost)}
+                onChange={e => setFormData({ ...formData, rentCost: unformatNumber(e.target.value) })}
                 className="input dark:bg-gray-800 w-full border border-black dark:border-gray-700"
               />
             </div>
@@ -1359,7 +1444,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
 
       {/* Amenities */}
       <div className="space-y-4">
-        <h3 className="font-semibold text-lg">{inputLanguage === 'ar' ? 'المرافق الداخلية' : 'Indoor Amenities'}</h3>
+        <h3 className="font-semibold text-lg">{inputLanguage === 'ar' ? 'المرافق الداخلية' : 'Indoor Facilities'}</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {AMENITIES_INDOOR.map(item => (
             <label key={item} className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
@@ -1379,7 +1464,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
       </div>
 
       <div className="space-y-4">
-        <h3 className="font-semibold text-lg">{inputLanguage === 'ar' ? 'مرافق المبنى' : 'Building Amenities'}</h3>
+        <h3 className="font-semibold text-lg">{inputLanguage === 'ar' ? 'مرافق المبنى' : 'Building Facilities'}</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {AMENITIES_BUILDING.map(item => (
             <label key={item} className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
@@ -1654,10 +1739,11 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
                         </span>
                       </div>
                     </td>
-                    <td className="py-2">
+                    <td id="property-field-price" className="py-2">
                       <div className="flex gap-2">
                         <input
                           type="text"
+                          inputMode="decimal"
                           className={`input dark:bg-gray-800 w-full border border-black dark:border-gray-700 ${errors.price ? 'border-red-500' : ''}`}
                           value={formatWithCommas(formData.price)}
                           onChange={e => { setPriceEdited(true); setFormData({ ...formData, price: unformatNumber(e.target.value) }) }}
@@ -2529,6 +2615,7 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
           dir={inputLanguage === 'ar' ? 'rtl' : 'ltr'}
         >
           <button
+            type="button"
             onClick={onClose}
             className={`btn btn-sm bg-gray-500 hover:bg-gray-600 text-white border-none px-3 py-1 text-xs flex items-center gap-2`}
           >
@@ -2541,10 +2628,14 @@ export default function CreatePropertyModal({ onClose, isRTL, onSave, isEdit, bu
           </div>
 
           <button
+            type="button"
             onClick={handleFinish}
-            className={`btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none font-medium flex items-center gap-2`}
+            disabled={isSaving}
+            className={`btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none font-medium flex items-center gap-2 ${isSaving ? 'opacity-70 pointer-events-none' : ''}`}
           >
-            <FaCheck /> {inputLanguage === 'ar' ? 'حفظ' : 'Save'}
+            <FaCheck /> {isSaving
+              ? (inputLanguage === 'ar' ? 'جاري الحفظ...' : 'Saving...')
+              : (inputLanguage === 'ar' ? 'حفظ' : 'Save')}
           </button>
         </div>
 

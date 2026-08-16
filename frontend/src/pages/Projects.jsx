@@ -39,14 +39,7 @@ import {
   FaImages,
   FaFileContract,
   FaAddressCard,
-  FaExternalLinkAlt,
   FaUpload,
-  FaCopy,
-  FaWhatsapp,
-  FaTelegramPlane,
-  FaFacebookF,
-  FaEnvelope,
-  FaTwitter
 } from 'react-icons/fa'
 
 // Lucide icons
@@ -83,6 +76,7 @@ import CreateProjectModal from '../components/CreateProjectModal'
 import CreatePropertyModal from '../components/CreatePropertyModal'
 import { buildShareLandingUrl } from '../shared/utils/landingPageUrl'
 import { extractTenantCompanyProfile } from '../shared/utils/tenantCompanyProfile'
+import ShareLinkSheet from '../components/ShareLinkSheet'
 
 // Range Slider Component
 const RangeSlider = ({ min, max, value, onChange, label, isRTL, unit = '' }) => {
@@ -836,19 +830,27 @@ export default function Projects() {
       const galleryImages = Array.isArray(p.galleryImages) ? p.galleryImages.filter(Boolean) : []
       const masterPlanImages = Array.isArray(p.masterPlanImages) ? p.masterPlanImages.filter(Boolean) : []
       const isPdfUrl = (u) => typeof u === 'string' && u.toLowerCase().includes('.pdf')
-      const safeMedia = [...galleryImages, ...masterPlanImages].filter(u => !isPdfUrl(u))
+      const galleryOnly = galleryImages.filter(u => !isPdfUrl(u))
+      const pdfs = [
+        ...masterPlanImages.filter(isPdfUrl),
+        ...(Array.isArray(p.cilAttachments) ? p.cilAttachments.filter(isPdfUrl) : []),
+      ]
       const tenantName = tenantCompanyProfile.name || company?.name || company?.tenant_name || ''
 
       const payload = {
+        mode: 'share',
         theme: 'theme1',
+        lang: isRTL ? 'ar' : 'en',
         title: p.name || '',
         companyName: tenantName,
         description: isRTL ? (p.descriptionAr || p.description || '') : (p.description || p.descriptionAr || ''),
         email: tenantCompanyProfile.email || companyInfo.email || '',
         phone: tenantCompanyProfile.phone || companyInfo.phone || '',
-        logo: tenantCompanyProfile.logoUrl || p.logo || '',
-        cover: p.image || galleryImages[0] || '',
-        media: safeMedia,
+        logo: tenantCompanyProfile.logoUrl || companyInfo.logoUrl || '',
+        companyLogo: tenantCompanyProfile.logoUrl || companyInfo.logoUrl || '',
+        cover: p.image || galleryOnly[0] || '',
+        media: galleryOnly,
+        pdfs,
         facebook: companyInfo.facebook || '',
         instagram: companyInfo.instagram || '',
         twitter: companyInfo.twitter || '',
@@ -879,8 +881,9 @@ export default function Projects() {
           amenities: Array.isArray(p.amenities) ? p.amenities : [],
           logo: p.logo,
           image: p.image,
-          galleryImages,
+          galleryImages: galleryOnly,
           masterPlanImages,
+          pdfs,
           videoUrls: p.videoUrls || '',
           mapUrl: p.mapUrl || '',
           locationUrl: p.locationUrl || '',
@@ -1720,92 +1723,14 @@ export default function Projects() {
       {selectedProject && (
         <ProjectDetailsModal p={selectedProject} isRTL={isRTL} onClose={() => setSelectedProject(null)} />
       )}
-      {shareSheet && (
-        <div className="fixed inset-0 z-[10110] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShareSheet(null)} />
-          <div className={`relative w-full max-w-md rounded-3xl border p-6 shadow-2xl ${
-            isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700 text-white'
-          }`}>
-            <button
-              type="button"
-              className="absolute end-4 top-4 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-              onClick={() => setShareSheet(null)}
-            >
-              <FaTimes />
-            </button>
-            <div className="mb-5">
-              <div className="text-lg font-bold">{isRTL ? 'مشاركة الرابط' : 'Share link'}</div>
-              <div className="mt-2 break-all rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                {shareSheet.url}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(shareSheet.url)
-                    addToast('success', isRTL ? 'تم نسخ رابط المشاركة' : 'Share link copied')
-                    setShareSheet(null)
-                  } catch {
-                    addToast('error', isRTL ? 'تعذر نسخ الرابط' : 'Unable to copy link')
-                  }
-                }}
-              >
-                <FaCopy /> {isRTL ? 'نسخ الرابط' : 'Copy link'}
-              </button>
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white dark:bg-slate-700"
-                href={shareSheet.url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => setShareSheet(null)}
-              >
-                <FaExternalLinkAlt /> {isRTL ? 'فتح الرابط' : 'Open link'}
-              </a>
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-green-600 px-4 py-3 text-sm font-semibold text-white"
-                href={`https://wa.me/?text=${encodeURIComponent(`${shareSheet.title}\n${shareSheet.url}`)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaWhatsapp /> WhatsApp
-              </a>
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white"
-                href={`https://t.me/share/url?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaTelegramPlane /> Telegram
-              </a>
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white"
-                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareSheet.url)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaFacebookF /> Facebook
-              </a>
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 px-4 py-3 text-sm font-semibold text-white"
-                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaTwitter /> X / Twitter
-              </a>
-              <a
-                className="col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white"
-                href={`mailto:?subject=${encodeURIComponent(shareSheet.title)}&body=${encodeURIComponent(shareSheet.url)}`}
-              >
-                <FaEnvelope /> {isRTL ? 'مشاركة بالبريد' : 'Share by email'}
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+      <ShareLinkSheet
+        sheet={shareSheet}
+        isRTL={isRTL}
+        isLight={isLight}
+        onClose={() => setShareSheet(null)}
+        onCopied={() => addToast('success', isRTL ? 'تم نسخ رابط المشاركة' : 'Share link copied')}
+        onCopyError={() => addToast('error', isRTL ? 'تعذر نسخ الرابط' : 'Unable to copy link')}
+      />
       {/* Toasts */}
       <div className="fixed z-50 top-20 end-4 flex flex-col gap-2">
         {toasts.map(t => (
@@ -3051,7 +2976,7 @@ function ProjectDetailsModal({ p, isRTL, onClose }) {
               </div>
 
               <div className="space-y-4">
-                <SectionTitle>{isRTL ? 'مرافق المشروع' : 'Project Amenities'}</SectionTitle>
+                <SectionTitle>{isRTL ? 'مرافق المشروع' : 'Project Facilities'}</SectionTitle>
                 {Array.isArray(p.amenities) && p.amenities.length > 0 ? (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {p.amenities.map((item, idx) => (
@@ -3063,7 +2988,7 @@ function ProjectDetailsModal({ p, isRTL, onClose }) {
                   </div>
                 ) : (
                   <div className="text-center py-8 text-[var(--muted-text)] border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-                    {isRTL ? 'لا توجد مرافق' : 'No amenities'}
+                    {isRTL ? 'لا توجد مرافق' : 'No facilities'}
                   </div>
                 )}
               </div>

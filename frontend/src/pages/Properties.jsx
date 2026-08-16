@@ -9,7 +9,7 @@ import autoTable from 'jspdf-autotable'
 import { api } from '../utils/api'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { useTheme } from '../shared/context/ThemeProvider'
-import { FaFileImport, FaPlus, FaFileExport, FaChevronDown, FaChevronLeft, FaChevronRight, FaTimes, FaFilter, FaSearch, FaBuilding, FaUser, FaMapMarkerAlt, FaImage, FaCloudDownloadAlt, FaPaperclip, FaVideo, FaCopy, FaWhatsapp, FaTelegramPlane, FaFacebookF, FaEnvelope, FaTwitter } from 'react-icons/fa'
+import { FaFileImport, FaPlus, FaFileExport, FaChevronDown, FaChevronLeft, FaChevronRight, FaTimes, FaFilter, FaSearch, FaBuilding, FaUser, FaMapMarkerAlt, FaImage, FaCloudDownloadAlt, FaPaperclip, FaVideo } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import PropertiesSummaryPanel from '../components/PropertiesSummaryPanel'
@@ -19,6 +19,7 @@ import ImportPropertiesModal from '../components/ImportPropertiesModal'
 import toast from 'react-hot-toast'
 import { buildShareLandingUrl, toPublicSlugSegment } from '../shared/utils/landingPageUrl'
 import { extractTenantCompanyProfile } from '../shared/utils/tenantCompanyProfile'
+import ShareLinkSheet from '../components/ShareLinkSheet'
 
 const getApiOrigin = () => {
   const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://api.besouholacrm.net/api'
@@ -491,7 +492,8 @@ export default function Properties() {
           floorPlans: asStringArray(item.floor_plans || item.floorPlans || item.plans),
           documents: asStringArray(item.documents || item.docs || item.attachments),
           areaUnit: item.area_unit,
-          totalPrice: item.total_price,
+          price: item.price || item.total_price || '',
+          totalPrice: item.total_price || item.price || '',
           discount: item.discount,
           discountType: item.discount_type,
           reservationAmount: item.reservation_amount,
@@ -532,7 +534,7 @@ export default function Properties() {
           building: item.building,
           internalMeterPrice: item.internal_meter_price,
           externalMeterPrice: item.external_meter_price,
-          meterPrice: item.meter_price,
+          meterPrice: item.meter_price || item.meterPrice || '',
           area: item.total_area || item.area,
           createdDateIso: item.created_at ? String(item.created_at).split('T')[0] : '',
           lastUpdatedIso: item.updated_at ? String(item.updated_at).split('T')[0] : '',
@@ -904,10 +906,37 @@ export default function Properties() {
   }
 
   const handleSaveProperty = async (rawPayload) => {
+    const editingId = isEdit ? selected?.id : null
+    if (isEdit && !editingId) {
+      toast.error(isRTL ? 'تعذر تحديد العقار المراد تعديله' : 'Unable to determine the property to update')
+      return
+    }
     try {
       setLoading(true)
 
+      const stripMoney = (v) => {
+        if (v === undefined || v === null || v === '') return v
+        return String(v).replace(/,/g, '')
+      }
       const payload = { ...rawPayload }
+      ;[
+        'price',
+        'totalPrice',
+        'meterPrice',
+        'internalMeterPrice',
+        'externalMeterPrice',
+        'rentCost',
+        'discount',
+        'reservationAmount',
+        'garageAmount',
+        'maintenanceAmount',
+        'netAmount',
+        'totalAfterDiscount',
+      ].forEach((key) => {
+        if (payload[key] !== undefined && payload[key] !== null) payload[key] = stripMoney(payload[key])
+      })
+      if (!payload.price && payload.totalPrice) payload.price = payload.totalPrice
+      if (!payload.totalPrice && payload.price) payload.totalPrice = payload.price
       const fd = new FormData()
       const appendKV = (k, v) => {
         if (v !== undefined && v !== '' && v !== null) fd.append(k, v)
@@ -940,9 +969,10 @@ export default function Properties() {
       appendKV('external_area', payload.externalArea)
       appendKV('total_area', payload.totalArea)
       appendKV('area_unit', payload.areaUnit)
-      appendKV('price', payload.price)
+      appendKV('price', payload.price || payload.totalPrice)
       appendKV('currency', payload.currency)
-      appendKV('total_price', payload.totalPrice)
+      appendKV('total_price', payload.totalPrice || payload.price)
+      appendKV('totalPrice', payload.totalPrice || payload.price)
       appendKV('owner_name', payload.ownerName)
       appendKV('owner_mobile', payload.ownerMobile)
       appendKV('rent_cost', payload.rentCost)
@@ -1014,9 +1044,9 @@ export default function Properties() {
         })
       }
 
-      if (isEdit && selected) {
+      if (editingId) {
         fd.append('_method', 'PUT')
-        await api.post(`/api/properties/${selected.id}`, fd)
+        await api.post(`/api/properties/${editingId}`, fd)
         toast.success(isRTL ? 'تم تحديث العقار بنجاح' : 'Property updated successfully')
       } else {
         await api.post('/api/properties', fd)
@@ -1451,18 +1481,23 @@ export default function Properties() {
                       .map(d => getFileUrl(d))
                       .filter(Boolean)
                   : []
-                const safeMedia = [...galleryImages, ...floorPlans].filter(u => !isPdfUrl(u))
+                const pdfs = [...documents, ...floorPlans].filter(isPdfUrl)
+                const galleryOnly = galleryImages.filter(u => !isPdfUrl(u))
                 const tenantName = tenantCompanyProfile.name || company?.name || company?.tenant_name || ''
                 const payload = {
+                  mode: 'share',
                   theme: 'theme1',
+                  lang: isRTL ? 'ar' : 'en',
                   title: p.adTitle || p.name,
                   companyName: tenantName,
                   description: p.description,
                   email: tenantCompanyProfile.email || companyInfo.email || '',
                   phone: tenantCompanyProfile.phone || companyInfo.phone || p.ownerMobile || '',
-                  logo: tenantCompanyProfile.logoUrl || p.logo || '',
-                  cover: (typeof p.mainImage === 'string' ? getFileUrl(p.mainImage) : p.mainImage) || galleryImages[0] || '',
-                  media: safeMedia,
+                  logo: tenantCompanyProfile.logoUrl || companyInfo.logoUrl || '',
+                  companyLogo: tenantCompanyProfile.logoUrl || companyInfo.logoUrl || '',
+                  cover: (typeof p.mainImage === 'string' ? getFileUrl(p.mainImage) : p.mainImage) || galleryOnly[0] || '',
+                  media: galleryOnly,
+                  pdfs,
                   facebook: companyInfo.facebook || '',
                   instagram: companyInfo.instagram || '',
                   twitter: companyInfo.twitter || '',
@@ -1471,8 +1506,12 @@ export default function Properties() {
                   property: {
                     id: p.id,
                     name: p.adTitle || p.name,
+                    adTitle: p.adTitle || p.name,
+                    adTitleAr: p.adTitleAr,
+                    nameAr: p.adTitleAr,
                     status: p.status,
                     project: p.project,
+                    category: p.category,
                     purpose: p.purpose,
                     unitCode: p.unitCode || p.code,
                     building: p.building,
@@ -1485,12 +1524,15 @@ export default function Properties() {
                     bathrooms: p.bathrooms ?? p.doors,
                     area: p.area ?? p.totalArea,
                     areaUnit: p.areaUnit,
+                    finishing: p.finishing,
+                    view: p.view,
                     ownerMobile: p.ownerMobile,
                     propertyType: p.propertyType || p.type,
                     mainImage: (typeof p.mainImage === 'string' ? getFileUrl(p.mainImage) : p.mainImage) || '',
-                    images: galleryImages,
+                    images: galleryOnly,
                     floorPlans,
                     documents,
+                    pdfs,
                     videoUrl: p.videoUrl,
                     virtualTourUrl: p.virtualTourUrl,
                     locationUrl: p.locationUrl,
@@ -1563,100 +1605,14 @@ export default function Properties() {
       {/* صف فاضي تحت الكروت */}
       <div className="h-4" />
 
-      {shareSheet && (
-        <div className="fixed inset-0 z-[12000] flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShareSheet(null)} />
-          <div className="relative z-[12010] w-full max-w-xl rounded-3xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{isRTL ? 'مشاركة الرابط' : 'Share link'}</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{shareSheet.title}</p>
-              </div>
-              <button
-                type="button"
-                className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
-                onClick={() => setShareSheet(null)}
-              >
-                <FaTimes />
-              </button>
-            </div>
-
-            <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-sm break-all text-gray-700 dark:border-gray-700 dark:bg-gray-800/70 dark:text-gray-200">
-              {shareSheet.url}
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-blue-700"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(shareSheet.url)
-                    const evt = new CustomEvent('app:toast', { detail: { type: 'success', message: (isRTL ? 'تم نسخ رابط المشاركة' : 'Share link copied') } })
-                    window.dispatchEvent(evt)
-                    setShareSheet(null)
-                  } catch {}
-                }}
-              >
-                <FaCopy /> {isRTL ? 'نسخ الرابط' : 'Copy link'}
-              </button>
-
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
-                href={shareSheet.url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => setShareSheet(null)}
-              >
-                <FaSearch /> {isRTL ? 'فتح الرابط' : 'Open link'}
-              </a>
-
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
-                href={`https://wa.me/?text=${encodeURIComponent(`${shareSheet.title}\n${shareSheet.url}`)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaWhatsapp /> WhatsApp
-              </a>
-
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
-                href={`https://t.me/share/url?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaTelegramPlane /> Telegram
-              </a>
-
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
-                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareSheet.url)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaFacebookF /> Facebook
-              </a>
-
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
-                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareSheet.url)}&text=${encodeURIComponent(shareSheet.title)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FaTwitter /> X / Twitter
-              </a>
-
-              <a
-                className="sm:col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-800 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-white/5"
-                href={`mailto:?subject=${encodeURIComponent(shareSheet.title)}&body=${encodeURIComponent(shareSheet.url)}`}
-              >
-                <FaEnvelope /> {isRTL ? 'مشاركة بالبريد' : 'Share by email'}
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+      <ShareLinkSheet
+        sheet={shareSheet}
+        isRTL={isRTL}
+        isLight={isLight}
+        onClose={() => setShareSheet(null)}
+        onCopied={() => toast.success(isRTL ? 'تم نسخ رابط المشاركة' : 'Share link copied')}
+        onCopyError={() => toast.error(isRTL ? 'تعذر نسخ الرابط' : 'Unable to copy link')}
+      />
 
       {/* Pagination Footer */}
       <div className="mt-2 flex items-center justify-between rounded-xl p-2 glass-panel">
@@ -1985,7 +1941,7 @@ function PropertyDetailsModal({ p, isRTL, onClose }) {
                   {isRTL ? p.description : p.descriptionAr}
                 </div>
               )}
-              <SectionTitle>{isRTL ? 'المواصفات' : 'Amenities'}</SectionTitle>
+              <SectionTitle>{isRTL ? 'المواصفات' : 'Facilities'}</SectionTitle>
               {Array.isArray(p.amenities) && p.amenities.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {p.amenities.map((item, idx) => (
@@ -1993,7 +1949,7 @@ function PropertyDetailsModal({ p, isRTL, onClose }) {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 text-[var(--muted-text)]">{isRTL ? 'لا توجد مواصفات' : 'No amenities'}</div>
+                <div className="text-center py-8 text-[var(--muted-text)]">{isRTL ? 'لا توجد مواصفات' : 'No facilities'}</div>
               )}
             </div>
           )}

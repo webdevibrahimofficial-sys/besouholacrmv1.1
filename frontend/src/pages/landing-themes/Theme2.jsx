@@ -358,7 +358,7 @@ export default function Theme2({ data }) {
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-sm space-y-6">
                 {Array.isArray(project.amenities) && project.amenities.length > 0 && (
                   <div>
-                    <div className="text-sm font-bold text-white mb-3">{lang === 'ar' ? 'مرافق المشروع' : 'Amenities'}</div>
+                    <div className="text-sm font-bold text-white mb-3">{lang === 'ar' ? 'مرافق المشروع' : 'Project Facilities'}</div>
                     <div className="grid grid-cols-2 gap-2">
                       {project.amenities.slice(0, 12).map((a, idx) => (
                         <div key={idx} className="flex items-center gap-2 p-2 rounded-xl bg-white/5 border border-white/10 text-sm text-gray-200">

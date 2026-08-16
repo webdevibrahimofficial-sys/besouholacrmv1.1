@@ -265,11 +265,18 @@ export default function SearchableSelect({
             const color = typeof opt === 'object' && opt !== null && 'color' in opt ? opt.color : null
             const iconValue = typeof opt === 'object' && opt !== null && 'icon' in opt ? opt.icon : null
 
+            const disabled = typeof opt === 'object' && opt !== null && Boolean(opt.disabled)
+
             return (
               <div
                 key={idx}
-                className={`mx-1 rounded-lg px-3 py-2 cursor-pointer text-sm transition-colors ${isSelected(opt) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`}
+                className={`mx-1 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  disabled
+                    ? 'cursor-not-allowed opacity-50 text-[var(--muted-text)]'
+                    : `cursor-pointer ${isSelected(opt) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`
+                }`}
                 onClick={() => {
+                  if (disabled) return
                   if (multiple) {
                     const current = Array.isArray(value) ? value : []
                     const exists = current.some(

@@ -863,7 +863,7 @@ export default function CreateProjectModal({ onClose, isRTL, onSave, mode = 'cre
       </div>
 
       <div className="space-y-4">
-        <h3 className="font-semibold text-lg">{inputLanguage === 'ar' ? 'مرافق المشروع' : 'Project Amenities'}</h3>
+        <h3 className="font-semibold text-lg">{inputLanguage === 'ar' ? 'مرافق المشروع' : 'Project Facilities'}</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {AMENITIES.map(item => (
             <label key={item} className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
