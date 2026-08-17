@@ -16,6 +16,14 @@ import DateRangePicker from '../shared/components/DateRangePicker'
 import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
 import { Filter, User, Users, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react'
 import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
+import {
+  calculateAchievementPercent,
+  formatAchievementPercent,
+  resolveCompanyPeriodTarget,
+  resolveReportKpiTarget,
+  resolveSalespersonRowTarget,
+  shouldIncludeInSalespersonRows,
+} from '../utils/targetRevenueReport'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
@@ -60,7 +68,14 @@ export default function ClosedDealsReport() {
   const [sourcesCatalog, setSourcesCatalog] = useState([])
   const [projectOptions, setProjectOptions] = useState(['all'])
   const [projectsList, setProjectsList] = useState([])
+  const [propertiesList, setPropertiesList] = useState([])
   const [itemsList, setItemsList] = useState([])
+  const [targetHistory, setTargetHistory] = useState([])
+  const [companyTargetHistory, setCompanyTargetHistory] = useState([])
+  const [tenantCreatedYear, setTenantCreatedYear] = useState(new Date().getFullYear())
+  const [reportCurrentYear, setReportCurrentYear] = useState(new Date().getFullYear())
+  const reportNow = useMemo(() => new Date(), [])
+  const currentYear = Number(reportCurrentYear || reportNow.getFullYear())
 
   const [salesPersonFilter, setSalesPersonFilter] = useState('all')
   const [managerFilter, setManagerFilter] = useState('all')
@@ -141,6 +156,38 @@ export default function ClosedDealsReport() {
     return sourceLabelMap.get(key) || key
   }
 
+  const isNumericId = (value) => {
+    if (typeof value === 'number') return Number.isFinite(value)
+    if (typeof value !== 'string') return false
+    const text = value.trim()
+    return text !== '' && /^\d+$/.test(text)
+  }
+
+  const catalogItemName = (id) => {
+    if (id == null || id === '') return ''
+    const found = itemsList.find(it => String(it.id) === String(id))
+    return String(found?.name || found?.title || found?.product || '').trim()
+  }
+
+  const displayItemName = (...candidates) => {
+    for (const value of candidates) {
+      if (value == null || value === '') continue
+      if (typeof value === 'object') {
+        const fromObj = String(value.name || value.title || value.product || value.name_ar || '').trim()
+        if (fromObj && !isNumericId(fromObj)) return fromObj
+        const fromId = catalogItemName(value.id ?? value.item_id ?? value.item)
+        if (fromId) return fromId
+        continue
+      }
+      const text = String(value).trim()
+      if (!text || text === '-') continue
+      if (!isNumericId(text)) return text
+      const fromCatalog = catalogItemName(text)
+      if (fromCatalog) return fromCatalog
+    }
+    return ''
+  }
+
   const resolveProjectOrItem = (lead) => {
     if (isRealEstate) {
       return (
@@ -153,37 +200,59 @@ export default function ClosedDealsReport() {
       )
     }
 
-    return (
-      (lead.item && (lead.item.name || lead.item.title || lead.item.product)) ||
-      lead.item_name ||
-      (lead.meta_data && (lead.meta_data.lead_item_name || lead.meta_data.item_name)) ||
-      itemsList.find(it => String(it.id) === String(lead.item_id || ''))?.name ||
-      lead.project ||
-      ''
+    return displayItemName(
+      lead.item,
+      lead.item_name,
+      lead.meta_data?.lead_item_name,
+      lead.meta_data?.item_name,
+      lead.item_id,
+      lead.project
     )
   }
 
+  const propertyUnitLabel = (property) => String(
+    property?.unit_number ||
+    property?.unitNumber ||
+    property?.unit_code ||
+    property?.unitCode ||
+    property?.name ||
+    property?.title ||
+    ''
+  ).trim()
+
   const resolveUnitOrItemName = (lead, details) => {
     if (isRealEstate) {
-      return (
-        details?.unit ||
-        details?.unit_number ||
-        details?.unitNumber ||
-        details?.property_unit ||
-        lead?.meta_data?.payment_plan?.unitNo ||
-        lead?.meta_data?.payment_plan?.unit_no ||
-        ''
-      )
+      const explicit = [
+        details?.unit,
+        details?.unit_number,
+        details?.unitNumber,
+        details?.unit_code,
+        details?.unitCode,
+        details?.property_unit,
+        lead?.meta_data?.payment_plan?.unitNo,
+        lead?.meta_data?.payment_plan?.unit_no,
+      ]
+        .map((value) => String(value || '').trim())
+        .find((value) => value && value !== '-' && !isNumericId(value))
+
+      if (explicit) return explicit
+
+      const propertyId = details?.property_id ?? details?.reservationUnit ?? details?.reservation_unit ?? ''
+      const found = propertiesList.find((property) => String(property.id) === String(propertyId))
+      return propertyUnitLabel(found)
     }
 
-    return (
-      details?.item_name ||
-      details?.product ||
-      (lead?.item && (lead.item.name || lead.item.title || lead.item.product)) ||
-      lead?.item_name ||
-      (lead?.meta_data && (lead.meta_data.lead_item_name || lead.meta_data.item_name)) ||
-      itemsList.find(it => String(it.id) === String(lead?.item_id || ''))?.name ||
-      ''
+    return displayItemName(
+      details?.item_name,
+      details?.product,
+      lead?.item,
+      lead?.item_name,
+      lead?.meta_data?.lead_item_name,
+      lead?.meta_data?.item_name,
+      details?.reservationItem,
+      details?.item_id,
+      details?.item,
+      lead?.item_id
     )
   }
 
@@ -192,7 +261,7 @@ export default function ClosedDealsReport() {
   const buildGeneralItemDetails = (rows = [], fallback = {}) => {
     const sourceRows = Array.isArray(rows) && rows.length > 0 ? rows : []
     if (sourceRows.length === 0) {
-      const name = String(fallback.name || '').trim()
+      const name = displayItemName(fallback.name)
       if (!name) return []
       const quantity = parseMoney(fallback.quantity || 1) || 1
       const amount = parseMoney(fallback.price || 0)
@@ -222,8 +291,8 @@ export default function ClosedDealsReport() {
         Math.max(0, (quantity * amount) + addonsTotal - discount)
 
       return {
-        name: row?.item_name || row?.name || row?.item || '-',
-        category: row?.category_name || row?.category || '-',
+        name: displayItemName(row?.item_name, row?.name, row?.label, row?.item, row?.item_id) || '-',
+        category: displayItemName(row?.category_name) || (isNumericId(row?.category) ? '-' : (row?.category || '-')),
         quantity,
         amount,
         addons,
@@ -318,6 +387,40 @@ export default function ClosedDealsReport() {
   }, [])
 
   useEffect(() => {
+    const fetchTargets = async () => {
+      try {
+        const res = await api.get('/api/user-targets?year=all')
+        const rows = Array.isArray(res.data?.data) ? res.data.data : []
+        setTargetHistory(rows)
+        if (res.data?.tenant_created_year) {
+          setTenantCreatedYear(Number(res.data.tenant_created_year))
+        }
+        if (res.data?.current_year) {
+          setReportCurrentYear(Number(res.data.current_year))
+        }
+      } catch (e) {
+        console.error('Failed to fetch user targets for closed deals report', e)
+        setTargetHistory([])
+      }
+    }
+    fetchTargets()
+  }, [])
+
+  useEffect(() => {
+    const fetchCompanyTargets = async () => {
+      try {
+        const res = await api.get('/api/company-targets?year=all')
+        const rows = Array.isArray(res.data?.data) ? res.data.data : []
+        setCompanyTargetHistory(rows)
+      } catch (e) {
+        console.error('Failed to fetch company targets for closed deals report', e)
+        setCompanyTargetHistory([])
+      }
+    }
+    fetchCompanyTargets()
+  }, [])
+
+  useEffect(() => {
     const fetchDeals = async () => {
       try {
         const res = await api.get('/api/lead-actions', {
@@ -378,7 +481,9 @@ export default function ClosedDealsReport() {
             value,
             dealType: dealTypeValue,
             project: resolveProjectOrItem(lead),
-            unitOrItemName: getItemsSummary(itemDetails, resolveUnitOrItemName(lead, details)),
+            unitOrItemName: isRealEstate
+              ? resolveUnitOrItemName(lead, details)
+              : getItemsSummary(itemDetails, resolveUnitOrItemName(lead, details)),
             itemDetails,
             source: lead.source || '',
             closedDateTime: closedDateRaw,
@@ -398,7 +503,27 @@ export default function ClosedDealsReport() {
       }
     }
     fetchDeals()
-  }, [dealTypeValue, itemsList, isRealEstate])
+  }, [dealTypeValue, itemsList, isRealEstate, propertiesList])
+
+  useEffect(() => {
+    const fetchProperties = async () => {
+      if (!isRealEstate) {
+        setPropertiesList([])
+        return
+      }
+
+      try {
+        const res = await api.get('/api/properties?all=1')
+        const data = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+        setPropertiesList(data)
+      } catch (e) {
+        console.error('Failed to fetch properties for closed deals report', e)
+        setPropertiesList([])
+      }
+    }
+
+    fetchProperties()
+  }, [isRealEstate])
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -605,27 +730,102 @@ export default function ClosedDealsReport() {
     const set = new Set(filtered.map(d => d.leadName))
     return set.size
   }, [filtered])
-  const target = useMemo(() => {
-    if (!usersList || usersList.length === 0) return 0
 
-    let relevantUsers = []
-
-    if (salesPersonFilter !== 'all') {
-      const u = usersList.find(user => String(user.id) === String(salesPersonFilter))
-      if (u) relevantUsers = [u]
-    } else if (managerFilter !== 'all') {
-       const mgr = usersList.find(u => String(u.id) === String(managerFilter))
-       if (mgr) {
-           relevantUsers = [mgr, ...getDescendants(mgr.id, usersList)]
-       }
-    } else {
-       relevantUsers = usersList
+  const targetPeriod = useMemo(() => {
+    const from = String(closedDealDateFrom || '').slice(0, 10)
+    const to = String(closedDealDateTo || '').slice(0, 10)
+    if (!from && !to) {
+      return { yearFilter: String(currentYear), type: 'yearly' }
     }
 
-    return relevantUsers.reduce((sum, user) => sum + (parseFloat(user.monthly_target) || 0), 0)
-  }, [usersList, salesPersonFilter, managerFilter])
+    const start = from || to
+    const end = to || from
+    const startYear = Number(start.slice(0, 4))
+    const endYear = Number(end.slice(0, 4))
+    if (!startYear || !endYear || startYear !== endYear) {
+      return { yearFilter: 'all', type: 'yearly' }
+    }
 
-  const achievedPercent = target ? Math.round((totalRevenue / target) * 100) : 0
+    const startMonth = Number(start.slice(5, 7)) - 1
+    const endMonth = Number(end.slice(5, 7)) - 1
+    if (startMonth === endMonth) return { yearFilter: String(startYear), type: 'monthly' }
+    if (Math.floor(startMonth / 3) === Math.floor(endMonth / 3)) {
+      return { yearFilter: String(startYear), type: 'quarterly' }
+    }
+    if (Math.floor(startMonth / 6) === Math.floor(endMonth / 6)) {
+      return { yearFilter: String(startYear), type: 'semi_annual' }
+    }
+    return { yearFilter: String(startYear), type: 'yearly' }
+  }, [closedDealDateFrom, closedDealDateTo, currentYear])
+
+  const targetHistoryByUser = useMemo(() => {
+    const map = new Map()
+    ;(targetHistory || []).forEach((row) => {
+      const uid = String(row.user_id || row.user?.id || '')
+      if (!uid) return
+      if (!map.has(uid)) map.set(uid, [])
+      map.get(uid).push(row)
+    })
+    return map
+  }, [targetHistory])
+
+  const companyPeriodTarget = useMemo(() => (
+    resolveCompanyPeriodTarget({
+      rows: companyTargetHistory,
+      yearFilter: targetPeriod.yearFilter,
+      type: targetPeriod.type,
+      currentYear,
+      tenantCreatedYear,
+      now: reportNow,
+    })
+  ), [companyTargetHistory, targetPeriod, currentYear, tenantCreatedYear, reportNow])
+
+  const target = useMemo(() => {
+    const personalTarget = (person) => resolveSalespersonRowTarget({
+      user: person,
+      rows: targetHistoryByUser.get(String(person?.id || '')) || [],
+      yearFilter: targetPeriod.yearFilter,
+      type: targetPeriod.type,
+      currentYear,
+      tenantCreatedYear,
+      now: reportNow,
+    })
+
+    let relevantUsers = []
+    if (salesPersonFilter !== 'all') {
+      const selected = usersList.find(person => String(person.id) === String(salesPersonFilter))
+      if (selected) relevantUsers = [selected]
+    } else if (managerFilter !== 'all') {
+      const mgr = usersList.find(person => String(person.id) === String(managerFilter))
+      if (mgr) relevantUsers = [mgr, ...getDescendants(mgr.id, usersList)]
+    } else {
+      const revenueUserIds = new Set(filtered.map(deal => String(deal.salespersonId || '')).filter(Boolean))
+      relevantUsers = usersList.filter(person => shouldIncludeInSalespersonRows(person, {
+        personalTarget: personalTarget(person),
+        hasRevenue: revenueUserIds.has(String(person.id)),
+      }))
+    }
+
+    return resolveReportKpiTarget({
+      managerFilter,
+      salesPersonFilter,
+      visibleTargets: relevantUsers.map(personalTarget),
+      companyTarget: companyPeriodTarget,
+    })
+  }, [
+    usersList,
+    salesPersonFilter,
+    managerFilter,
+    targetHistoryByUser,
+    targetPeriod,
+    currentYear,
+    tenantCreatedYear,
+    reportNow,
+    companyPeriodTarget,
+    filtered,
+  ])
+
+  const achievedPercent = calculateAchievementPercent(totalRevenue, target)
 
   const closedByChannelSegments = useMemo(() => {
     const map = new Map()
@@ -643,17 +843,42 @@ export default function ClosedDealsReport() {
 
   const closedByProjectSegments = useMemo(() => {
     const map = new Map()
+    const unknownLabel = t('Unknown')
+
     filtered.forEach(d => {
-      const key = d.project || t('Unknown')
-      map.set(key, (map.get(key) || 0) + 1)
+      if (isRealEstate) {
+        const key = d.project || unknownLabel
+        map.set(key, (map.get(key) || 0) + 1)
+        return
+      }
+
+      const itemNames = Array.isArray(d.itemDetails)
+        ? [...new Set(
+          d.itemDetails
+            .map(row => String(row?.name || '').trim())
+            .filter(name => name && name !== '-' && !isNumericId(name))
+        )]
+        : []
+
+      if (itemNames.length === 0) {
+        const fallback = String(d.unitOrItemName || '').trim()
+        const key = fallback && fallback !== '-' && !isNumericId(fallback) ? fallback : unknownLabel
+        map.set(key, (map.get(key) || 0) + 1)
+        return
+      }
+
+      itemNames.forEach((name) => {
+        map.set(name, (map.get(name) || 0) + 1)
+      })
     })
+
     const baseColors = ['#8b5cf6', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#22c55e']
     return Array.from(map.entries()).map(([label, value], idx) => ({
       label,
       value,
       color: baseColors[idx % baseColors.length]
     }))
-  }, [filtered, t])
+  }, [filtered, isRealEstate, t])
 
   const barData = useMemo(() => {
     const map = new Map()
@@ -964,7 +1189,7 @@ export default function ClosedDealsReport() {
           { label: isRTL ? '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629' : 'Total Closed Deals', value: totalDeals, accent: 'bg-emerald-500' },
           { label: t('Total Leads'), value: totalLeads, accent: 'bg-indigo-500' },
           { label: t('Total Revenue'), value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-blue-500' },
-          { label: isRTL ? '\u0627\u0644\u0645\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0647\u062f\u0641' : 'Achieved of Target', value: `${achievedPercent}%`, accent: 'bg-orange-500' }
+          { label: isRTL ? '\u0627\u0644\u0645\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0647\u062f\u0641' : 'Achieved of Target', value: formatAchievementPercent(achievedPercent), accent: 'bg-orange-500' }
         ].map(card => (
           <div
             key={card.label}

@@ -56,18 +56,82 @@ const loadArabicFont = async (doc) => {
   }
 }
 
+const EXPORT_INLINE_PROPS = ['background-color', 'color', 'backdrop-filter', '-webkit-backdrop-filter']
+const EXPORT_CSS_VARS = [
+  '--color-text-primary',
+  '--color-text-secondary',
+  '--color-text-muted',
+  '--theme-text',
+  '--content-text',
+  '--muted-text',
+  '--glass-bg',
+  '--card-bg',
+]
+
+const clearExportInlineStyles = (node) => {
+  if (!node?.style) return
+  EXPORT_INLINE_PROPS.forEach((prop) => node.style.removeProperty(prop))
+  EXPORT_CSS_VARS.forEach((key) => node.style.removeProperty(key))
+  node.querySelectorAll('.text-primary').forEach((el) => {
+    el.style.removeProperty('color')
+  })
+}
+
+const isDarkUi = () =>
+  typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+
+const getExportTheme = () => {
+  if (isDarkUi()) {
+    return {
+      backgroundColor: '#0f172a',
+      color: '#f3f4f6',
+      cssVars: {
+        '--color-text-primary': '#f3f4f6',
+        '--color-text-secondary': '#e5e7eb',
+        '--color-text-muted': '#9ca3af',
+        '--theme-text': '#f3f4f6',
+        '--content-text': '#f3f4f6',
+        '--muted-text': '#9ca3af',
+        '--glass-bg': '#0f172a',
+        '--card-bg': '#0f172a',
+      },
+    }
+  }
+
+  return {
+    backgroundColor: '#ffffff',
+    color: '#111827',
+    cssVars: {
+      '--color-text-primary': '#111827',
+      '--color-text-secondary': '#1f2937',
+      '--color-text-muted': '#4b5563',
+      '--theme-text': '#111827',
+      '--content-text': '#111827',
+      '--muted-text': '#4b5563',
+      '--glass-bg': '#ffffff',
+      '--card-bg': '#ffffff',
+    },
+  }
+}
+
+const applyClonedExportTheme = (target, theme) => {
+  if (!target?.style) return
+  target.style.backgroundColor = theme.backgroundColor
+  target.style.color = theme.color
+  target.style.backdropFilter = 'none'
+  target.style.webkitBackdropFilter = 'none'
+  Object.entries(theme.cssVars).forEach(([key, value]) => {
+    target.style.setProperty(key, value)
+  })
+  target.querySelectorAll('.text-primary').forEach((el) => {
+    el.style.color = theme.color
+  })
+}
+
 const applyCaptureStyles = (node) => {
   if (!node) return () => {}
 
-  const previous = {
-    width: node.style.width,
-    minWidth: node.style.minWidth,
-    maxWidth: node.style.maxWidth,
-    overflow: node.style.overflow,
-    height: node.style.height,
-    backgroundColor: node.style.backgroundColor,
-    color: node.style.color,
-  }
+  clearExportInlineStyles(node)
 
   const hiddenNodes = []
   node.querySelectorAll('[data-export-ignore="true"]').forEach((el) => {
@@ -80,30 +144,8 @@ const applyCaptureStyles = (node) => {
     el.style.visibility = 'hidden'
   })
 
-  const computedWidth = Math.max(node.scrollWidth || 0, node.clientWidth || 0, node.offsetWidth || 0)
-  const computedHeight = Math.max(node.scrollHeight || 0, node.clientHeight || 0, node.offsetHeight || 0)
-
-  if (computedWidth) {
-    node.style.width = `${computedWidth}px`
-    node.style.minWidth = `${computedWidth}px`
-    node.style.maxWidth = 'none'
-  }
-  if (computedHeight) {
-    node.style.height = `${computedHeight}px`
-  }
-  node.style.overflow = 'visible'
-  node.style.backgroundColor = '#ffffff'
-  node.style.color = '#111827'
-
   return () => {
-    node.style.width = previous.width
-    node.style.minWidth = previous.minWidth
-    node.style.maxWidth = previous.maxWidth
-    node.style.overflow = previous.overflow
-    node.style.height = previous.height
-    node.style.backgroundColor = previous.backgroundColor
-    node.style.color = previous.color
-
+    clearExportInlineStyles(node)
     hiddenNodes.forEach(({ el, display, visibility }) => {
       el.style.display = display
       el.style.visibility = visibility
@@ -113,17 +155,34 @@ const applyCaptureStyles = (node) => {
 
 const captureNodeAsPng = async (node) => {
   const { toPng } = await import('html-to-image')
+  const theme = getExportTheme()
   const restore = applyCaptureStyles(node)
   try {
     await nextFrame()
-    await wait(120)
+    await wait(160)
     return await toPng(node, {
       cacheBust: true,
       pixelRatio: 3,
-      backgroundColor: '#ffffff',
-      // Avoid reading cross-origin cssRules from Google Fonts during export.
+      backgroundColor: theme.backgroundColor,
       skipFonts: true,
       filter: (domNode) => !(domNode?.dataset?.exportIgnore === 'true'),
+      onclone: (_clonedDoc, clonedNode) => {
+        if (!clonedNode) return
+        applyClonedExportTheme(clonedNode, theme)
+        const originalCanvases = node.querySelectorAll('canvas')
+        const clonedCanvases = clonedNode.querySelectorAll('canvas')
+        originalCanvases.forEach((source, index) => {
+          const dest = clonedCanvases[index]
+          if (!dest) return
+          dest.style.maxWidth = 'none'
+          dest.width = source.width
+          dest.height = source.height
+          dest.style.width = `${source.clientWidth || source.width}px`
+          dest.style.height = `${source.clientHeight || source.height}px`
+          const ctx = dest.getContext('2d')
+          if (ctx) ctx.drawImage(source, 0, 0)
+        })
+      },
     })
   } finally {
     restore()
@@ -220,7 +279,7 @@ export async function exportDashboardChartsToPdf({
 
       await nextFrame()
       await nextFrame()
-      await wait(180)
+      await wait(280)
 
       const node = chart.ref?.current || chart.ref
       if (!node) {

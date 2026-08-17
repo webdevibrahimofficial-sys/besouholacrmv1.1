@@ -20,19 +20,28 @@ import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
 import {
-  bucketDateRange,
   effectiveDateRange,
   getPeriodBounds,
   isDateInRange,
   matchCommissionRate,
   periodsCoveredInYear,
-  rangesOverlap,
-  resolvePeriodTarget,
   resolveRevenueProjectOrItem,
   extractRevenueDealItems,
   resolveTargetForYear,
+  resolveCompanyPeriodTarget,
+  resolveSalespersonRowTarget,
   resolveTiersForYear,
-  timeBucketIndex,
+  calculateAchievementPercent,
+  formatAchievementPercent,
+  formatCompactMoney,
+  indexUsersById,
+  resolveManagerName,
+  usesCompanyTarget,
+  isManagerFilterRole,
+  shouldIncludeInSalespersonRows,
+  matchesManagerFilter,
+  resolveReportKpiTarget,
+  countClosedDeals,
 } from '../utils/targetRevenueReport'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
@@ -67,12 +76,14 @@ export default function RevenueReport() {
   const autoExportDoneRef = useRef(false)
   const [usersList, setUsersList] = useState([])
   const [targetHistory, setTargetHistory] = useState([])
+  const [companyTargetHistory, setCompanyTargetHistory] = useState([])
   const [targetYears, setTargetYears] = useState([new Date().getFullYear()])
   const [tenantCreatedYear, setTenantCreatedYear] = useState(new Date().getFullYear())
   const [reportCurrentYear, setReportCurrentYear] = useState(new Date().getFullYear())
   const [sourcesCatalog, setSourcesCatalog] = useState([])
   const [projectOptions, setProjectOptions] = useState(['all'])
   const [records, setRecords] = useState([])
+  const [closedDealActions, setClosedDealActions] = useState([])
   const [itemsCatalog, setItemsCatalog] = useState([])
   const projectLabel = companyType === 'general' ? t('Item') : t('Project')
   const revenueByProjectLabel = companyType === 'general' ? t('Revenue by Item') : t('Revenue by Project')
@@ -80,6 +91,8 @@ export default function RevenueReport() {
   const formatMoney = (value) => `${Number(value || 0).toLocaleString()} EGP`
   const reportNow = useMemo(() => new Date(), [])
   const currentYear = Number(reportCurrentYear || reportNow.getFullYear())
+
+  const usersById = useMemo(() => indexUsersById(usersList), [usersList])
 
   const targetHistoryByUser = useMemo(() => {
     const map = new Map()
@@ -112,7 +125,7 @@ export default function RevenueReport() {
   }, [targetHistoryByUser])
 
   const getUserTarget = useCallback((user, type = targetTypeFilter, selectedYear = yearFilter) => (
-    resolvePeriodTarget({
+    resolveSalespersonRowTarget({
       user,
       rows: getUserRows(user),
       yearFilter: selectedYear,
@@ -124,10 +137,22 @@ export default function RevenueReport() {
   ), [getUserRows, targetTypeFilter, yearFilter, currentYear, tenantCreatedYear, reportNow])
 
   const getUserYearScopedTarget = useCallback((user, year, type = targetTypeFilter) => {
+    if (usesCompanyTarget(user)) return 0
     const unit = resolveTargetForYear(user, getUserRows(user), year, type, currentYear)
     if (yearFilter !== 'all') return unit
     return unit * periodsCoveredInYear(year, type, { now: reportNow, tenantCreatedYear })
   }, [getUserRows, targetTypeFilter, yearFilter, currentYear, reportNow, tenantCreatedYear])
+
+  const companyPeriodTarget = useMemo(() => (
+    resolveCompanyPeriodTarget({
+      rows: companyTargetHistory,
+      yearFilter,
+      type: targetTypeFilter,
+      currentYear,
+      tenantCreatedYear,
+      now: reportNow,
+    })
+  ), [companyTargetHistory, yearFilter, targetTypeFilter, currentYear, tenantCreatedYear, reportNow])
 
   const sourceLabelMap = useMemo(() => {
     const map = new Map()
@@ -190,52 +215,49 @@ export default function RevenueReport() {
         processedUserIds.add(uid)
         
         // Check if this is a sales/manager/relevant user
-        const role = String(u.role || '').toLowerCase()
-        const isSales = role.includes('sales') || role.includes('agent') || role.includes('broker')
         const resolvedTarget = getUserTarget(u)
-        const hasTarget = resolvedTarget > 0
         const hasRevenue = revenueMap.has(uid)
 
-        // Include user if they are Sales/Agent OR have a Target OR have Revenue
-        if (isSales || hasTarget || hasRevenue) {
-             const userRevenues = revenueMap.get(uid) || []
-             if (userRevenues.length > 0) {
-                 userRevenues.forEach(r => {
-                     const rowYear = r.date ? r.date.slice(0, 4) : String(currentYear)
-                     const rowTarget = yearFilter === 'all' && r.date
-                       ? getUserYearScopedTarget(u, rowYear)
-                       : resolvedTarget
-                     allRows.push({
-                         ...r,
-                         salesperson: u.name,
-                         manager: u.manager ? u.manager.name : (r.manager || ''),
-                         target: rowTarget,
-                        monthlyTarget: getUserTarget(u, 'monthly'),
-                        quarterlyTarget: getUserTarget(u, 'quarterly'),
-                        semiAnnualTarget: getUserTarget(u, 'semi_annual'),
-                        yearlyTarget: getUserTarget(u, 'yearly')
-                     })
-                 })
-             } else {
-                 // Add dummy row for users with no revenue
-                 allRows.push({
-                    id: `empty-${uid}`,
+        if (!shouldIncludeInSalespersonRows(u, { personalTarget: resolvedTarget, hasRevenue })) {
+          return
+        }
+
+        const userRevenues = revenueMap.get(uid) || []
+        if (userRevenues.length > 0) {
+            userRevenues.forEach(r => {
+                const rowYear = r.date ? r.date.slice(0, 4) : String(currentYear)
+                const rowTarget = yearFilter === 'all' && r.date
+                  ? getUserYearScopedTarget(u, rowYear)
+                  : resolvedTarget
+                allRows.push({
+                    ...r,
                     salesperson: u.name,
-                    salespersonId: u.id,
-                    manager: u.manager ? u.manager.name : '',
-                    source: '-',
-                    project: '-',
-                    dealType: '-',
-                    status: 'No Sales',
-                    date: '', // Empty date
-                    target: resolvedTarget,
+                    manager: resolveManagerName(u, usersById) || r.manager || resolveManagerName({ manager_id: r.lead?.manager_id }, usersById),
+                    target: rowTarget,
                     monthlyTarget: getUserTarget(u, 'monthly'),
                     quarterlyTarget: getUserTarget(u, 'quarterly'),
                     semiAnnualTarget: getUserTarget(u, 'semi_annual'),
-                    yearlyTarget: getUserTarget(u, 'yearly'),
-                    revenue: 0
-                 })
-             }
+                    yearlyTarget: getUserTarget(u, 'yearly')
+                })
+            })
+        } else {
+            allRows.push({
+               id: `empty-${uid}`,
+               salesperson: u.name,
+               salespersonId: u.id,
+               manager: resolveManagerName(u, usersById),
+               source: '-',
+               project: '-',
+               dealType: '-',
+               status: 'No Sales',
+               date: '',
+               target: resolvedTarget,
+               monthlyTarget: getUserTarget(u, 'monthly'),
+               quarterlyTarget: getUserTarget(u, 'quarterly'),
+               semiAnnualTarget: getUserTarget(u, 'semi_annual'),
+               yearlyTarget: getUserTarget(u, 'yearly'),
+               revenue: 0
+            })
         }
     })
 
@@ -254,7 +276,7 @@ export default function RevenueReport() {
     })
 
     return allRows
-  }, [resolvedRecords, usersList, getUserTarget, getUserYearScopedTarget, yearFilter, currentYear])
+  }, [resolvedRecords, usersList, usersById, getUserTarget, getUserYearScopedTarget, yearFilter, currentYear])
 
   useEffect(() => {
     const fetchRevenueRecords = async () => {
@@ -266,7 +288,7 @@ export default function RevenueReport() {
           const user = r.user || {}
           
           const salesperson = user.name || lead.sales_person || lead.salesperson || ''
-          const manager = user.manager ? user.manager.name : '' // Ideally we need manager info. User object might have it if eager loaded or we map from usersList
+          const manager = resolveManagerName(user, usersById)
           const source = r.source || lead.source || ''
           const project = resolveRevenueProjectOrItem(lead, {
             companyType,
@@ -292,6 +314,7 @@ export default function RevenueReport() {
             id: r.id,
             salesperson,
             salespersonId: r.user_id,
+            lead_id: r.lead_id || lead.id || null,
             manager,
             source,
             project,
@@ -317,6 +340,22 @@ export default function RevenueReport() {
 
     fetchRevenueRecords()
   }, [companyType])
+
+  useEffect(() => {
+    const fetchClosedDeals = async () => {
+      try {
+        const res = await api.get('/api/lead-actions', {
+          params: { next_action_type: 'closing_deals' },
+        })
+        const raw = Array.isArray(res.data) ? res.data : (res.data?.data || [])
+        setClosedDealActions(raw)
+      } catch (e) {
+        console.error('Failed to fetch closed deals for revenue report', e)
+        setClosedDealActions([])
+      }
+    }
+    fetchClosedDeals()
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = event => {
@@ -376,6 +415,20 @@ export default function RevenueReport() {
   }, [])
 
   useEffect(() => {
+    const fetchCompanyTargets = async () => {
+      try {
+        const res = await api.get('/api/company-targets?year=all')
+        const rows = Array.isArray(res.data?.data) ? res.data.data : []
+        setCompanyTargetHistory(rows)
+      } catch (e) {
+        console.error('Failed to fetch company targets for revenue report', e)
+        setCompanyTargetHistory([])
+      }
+    }
+    fetchCompanyTargets()
+  }, [])
+
+  useEffect(() => {
     const fetchSources = async () => {
       try {
         const res = await api.get('/api/sources?active=1')
@@ -431,10 +484,7 @@ export default function RevenueReport() {
     const uniqueUsers = Array.from(new Map(usersList.map(u => [u.id, u])).values())
     
     // Filter by manager if selected
-    const filteredUsers = uniqueUsers.filter(u => {
-        if (managerFilter === 'all') return true
-        return u.manager && u.manager.name === managerFilter
-    })
+    const filteredUsers = uniqueUsers.filter(u => matchesManagerFilter(u, managerFilter, usersById))
 
     return [
       { value: 'all', label: t('All') },
@@ -448,19 +498,13 @@ export default function RevenueReport() {
           }
         })
     ]
-  }, [usersList, records, managerFilter, t])
+  }, [usersList, usersById, records, managerFilter, t])
 
   const managerOptions = useMemo(() => {
     if (!usersList.length) {
       return [{ value: 'all', label: t('All') }]
     }
-    const managers = usersList.filter(u => {
-      const role = String(u.role || '').toLowerCase()
-      // Exclude salespersons and high-level roles from Manager filter
-      const isSalesPerson = role.includes('sales person') || role.includes('salesperson')
-      const isHighLevel = role.includes('sales admin') || role.includes('director') || role.includes('operator') || role.includes('tenant admin') || role.includes('tenant-admin')
-      return !isSalesPerson && !isHighLevel
-    })
+    const managers = usersList.filter(isManagerFilterRole)
     const uniqueManagers = Array.from(new Map(managers.map(m => [m.id, m])).values())
     
     return [
@@ -544,7 +588,7 @@ export default function RevenueReport() {
     return rows.map(row => {
       const yearKey = yearKeyOf(row)
       const aggregate = aggregateByUserYear.get(`${userKeyOf(row)}:${yearKey}`) || { revenue: row.revenue || 0, target: row.target || 0 }
-      const aggregateAchievement = aggregate.target ? Math.round((aggregate.revenue / aggregate.target) * 100) : 0
+      const aggregateAchievement = calculateAchievementPercent(aggregate.revenue, aggregate.target)
       const user = usersList.find(u => String(u.id) === String(row.salespersonId)) || row
       const commissionRate = matchCommissionRate(
         resolveTiersForYear(user, getUserRows(user), yearKey, currentYear),
@@ -600,7 +644,7 @@ export default function RevenueReport() {
           id: `user-${key}`,
           salespersonId: row.salespersonId,
           salesperson: row.salesperson,
-          manager: row.manager || '',
+          manager: row.manager || resolveManagerName(usersById.get(String(row.salespersonId || '')), usersById),
           projects: new Map(),
           sources: new Map(),
           dealTypes: [],
@@ -649,7 +693,7 @@ export default function RevenueReport() {
     return Array.from(map.values()).map(item => {
       const user = usersList.find(u => String(u.id) === String(item.salespersonId))
       const target = user ? getUserTarget(user) : (item.target || 0)
-      const aggregateAchievement = target ? Math.round((item.revenue / target) * 100) : 0
+      const aggregateAchievement = calculateAchievementPercent(item.revenue, target)
       const yearKey = yearFilter === 'all' ? String(currentYear) : String(yearFilter)
       const matchedRate = matchCommissionRate(
         resolveTiersForYear(user || item, getUserRows(user || item), yearKey, currentYear),
@@ -672,7 +716,7 @@ export default function RevenueReport() {
         id: item.id,
         salespersonId: item.salespersonId,
         salesperson: item.salesperson,
-        manager: item.manager,
+        manager: resolveManagerName(user, usersById) || item.manager || '',
         project: uniqueDisplay(projectItems.map(entry => entry.label)),
         source: uniqueDisplay(sourceItems.map(entry => entry.label)),
         projectItems,
@@ -687,7 +731,7 @@ export default function RevenueReport() {
         aggregateAchievement,
       }
     }).sort((a, b) => String(a.salesperson || '').localeCompare(String(b.salesperson || '')))
-  }, [filtered, usersList, getUserTarget, getUserRows, yearFilter, currentYear, localizeSourceLabel])
+  }, [filtered, usersList, usersById, getUserTarget, getUserRows, yearFilter, currentYear, localizeSourceLabel])
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
@@ -703,14 +747,50 @@ export default function RevenueReport() {
     currentPage * entriesPerPage
   )
 
+  const peopleScopedView = managerFilter !== 'all' || salesPersonFilter !== 'all'
   const totalTarget = useMemo(
-    () => overviewRows.reduce((sum, r) => sum + (r.target || 0), 0),
-    [overviewRows]
+    () => resolveReportKpiTarget({
+      managerFilter,
+      salesPersonFilter,
+      visibleTargets: overviewRows.map((row) => row.target),
+      companyTarget: companyPeriodTarget,
+    }),
+    [managerFilter, salesPersonFilter, overviewRows, companyPeriodTarget]
   )
 
   const totalRevenue = overviewRows.reduce((sum, r) => sum + (r.revenue || 0), 0)
   const totalCommission = overviewRows.reduce((sum, r) => sum + (r.commission || 0), 0)
-  const achievementPercent = totalTarget ? Math.round((totalRevenue / totalTarget) * 100) : 0
+  const achievementPercent = calculateAchievementPercent(totalRevenue, totalTarget)
+  const closedDealRows = useMemo(() => (
+    closedDealActions.map((action) => {
+      const lead = action.lead || {}
+      const details = action.details || {}
+      const salesperson =
+        lead.assigned_agent?.name
+        || lead.assignedAgent?.name
+        || lead.sales_person
+        || lead.salesperson
+        || action.user?.name
+        || ''
+      const salespersonId = lead.assigned_to ?? lead.assignedTo ?? action.user_id ?? action.user?.id
+      const user = salespersonId != null ? usersById.get(String(salespersonId)) : null
+      return {
+        id: action.id,
+        salesperson,
+        manager: resolveManagerName(user, usersById),
+        source: lead.source || '',
+        project: lead.project || lead.project_name || lead.item?.name || lead.item?.title || '',
+        date: String(action.created_at || details.date || '').slice(0, 10),
+      }
+    })
+  ), [closedDealActions, usersById])
+  const dealsCount = useMemo(() => countClosedDeals(closedDealRows, {
+    periodRange,
+    salesPersonFilter,
+    managerFilter,
+    sourceFilter,
+    projectFilter,
+  }), [closedDealRows, periodRange, salesPersonFilter, managerFilter, sourceFilter, projectFilter])
 
   const [chartMode, setChartMode] = useState('salesperson')
   const [salesGrouping, setSalesGrouping] = useState('salesperson')
@@ -720,27 +800,62 @@ export default function RevenueReport() {
     setTimeGrouping(targetTypeFilter)
   }, [targetTypeFilter])
 
+  const selectSalesChart = (grouping = salesGrouping) => {
+    setChartMode('salesperson')
+    setSalesGrouping(grouping)
+    setShowSalesGroupingMenu(false)
+    setShowTimeGroupingMenu(false)
+  }
+
+  const selectTargetPeriod = (grouping = timeGrouping) => {
+    setTargetTypeFilter(grouping)
+    setTimeGrouping(grouping)
+    setShowTimeGroupingMenu(false)
+    setShowSalesGroupingMenu(false)
+  }
+
+  const makeTargetRevenueDatasets = useCallback((targets, revenues) => ([
+    {
+      label: isRTL ? 'الهدف' : 'Target',
+      data: targets,
+      backgroundColor: 'rgba(148, 163, 184, 0.8)',
+      borderRadius: 6,
+      barPercentage: 1,
+      categoryPercentage: 0.22,
+      maxBarThickness: 48,
+      skipNull: true,
+      yAxisID: 'y',
+    },
+    {
+      label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
+      data: revenues,
+      backgroundColor: 'rgba(59, 130, 246, 0.85)',
+      borderRadius: 6,
+      barPercentage: 1,
+      categoryPercentage: 0.22,
+      maxBarThickness: 48,
+      skipNull: true,
+      yAxisID: 'yRevenue',
+    },
+  ]), [isRTL])
+
   const barData = useMemo(() => {
-    if (chartMode === 'salesperson') {
-      const map = new Map()
+    const userInPeopleScope = (u) => (
+      matchesManagerFilter(u, managerFilter, usersById)
+      && (salesPersonFilter === 'all' || String(u.name || '').trim() === salesPersonFilter)
+      && !usesCompanyTarget(u)
+    )
+
+    const map = new Map()
 
       // Initialize with all salespersons/teams from usersList
       if (salesGrouping === 'salesperson') {
           usersList.forEach(u => {
-              // Apply Manager Filter
-              if (managerFilter !== 'all') {
-                  const mgrName = u.manager?.name || ''
-                  if (mgrName !== managerFilter) return
-              }
+              if (!userInPeopleScope(u)) return
 
-              const roleName = (Array.isArray(u.roles) && u.roles[0]?.name) || u.role || ''
-              const role = String(roleName).toLowerCase()
-              const isSales = role.includes('sales person') || role.includes('salesperson') || role.includes('agent')
-              
               const userTarget = getUserTarget(u)
-              if (isSales || userTarget > 0) {
-                  const key = String(u.id)
-                  map.set(key, {
+              if (shouldIncludeInSalespersonRows(u, { personalTarget: userTarget, hasRevenue: false })) {
+                  map.set(String(u.id), {
                       label: u.name,
                       target: userTarget,
                       revenue: 0
@@ -748,57 +863,35 @@ export default function RevenueReport() {
               }
           })
       } else if (salesGrouping === 'team') {
-          // Initialize map with managers and their TOTAL targets
-          const managerNames = new Set()
           usersList.forEach(u => {
-              // Find users who are managers (referenced by others or have manager roles)
-              const isReferencedAsManager = usersList.some(child => child.manager && (child.manager.id === u.id || child.manager.name === u.name))
-              
-              if (isReferencedAsManager) {
-                  managerNames.add(u.name)
-                  const key = u.name
-                  if (!map.has(key)) {
-                      map.set(key, {
-                          label: key,
-                          target: getUserTarget(u),
-                          revenue: 0
-                      })
-                  }
-              }
-          })
+              if (!isManagerFilterRole(u)) return
+              if (managerFilter !== 'all' && String(u.name || '').trim() !== managerFilter) return
 
-          // Fallback: If some managers are not in usersList but referenced in 'manager' field of children
-          usersList.forEach(u => {
-              if (u.manager && u.manager.name && !managerNames.has(u.manager.name)) {
-                  // We found a manager name that wasn't in our usersList logic above
-                  // We can't get their total_monthly_target easily if they aren't in usersList
-                  // So we might need to sum up children for them
-                  const key = u.manager.name
-                  if (!map.has(key)) {
-                       map.set(key, {
-                          label: key,
-                          target: 0, 
-                          revenue: 0
-                      })
-                  }
-                  // Add child's target to this unknown manager? 
-                  // Instruction says "display total aggregate targets for managers". 
-                  // If we don't have the manager object, we can only sum children.
-                  const current = map.get(key)
-                  current.target += getUserTarget(u)
-              }
+              const reports = usersList.filter((child) => (
+                String(child.id) !== String(u.id)
+                && resolveManagerName(child, usersById) === u.name
+              ))
+              map.set(u.name, {
+                  label: u.name,
+                  target: getUserTarget(u) + reports.reduce((sum, child) => sum + getUserTarget(child), 0),
+                  revenue: 0
+              })
           })
       }
       
-      // Add revenue from filtered records
       filtered.forEach(r => {
         const id = r.salespersonId
         const name = r.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
         const manager = r.manager || (isRTL ? 'غير معروف' : 'Unknown')
+        const salespersonUser = id
+          ? usersList.find(u => String(u.id) === String(id))
+          : usersList.find(u => u.name === name)
         
         let key
         if (salesGrouping === 'team') {
-            key = manager
+            key = (salespersonUser && map.has(salespersonUser.name))
+              ? salespersonUser.name
+              : manager
         } else {
             key = id ? String(id) : name
         }
@@ -814,203 +907,59 @@ export default function RevenueReport() {
         current.revenue += r.revenue || 0
       })
 
-      // Filter out entries with no activity and no target
-      const entries = Array.from(map.values()).filter(v => v.target > 0 || v.revenue > 0)
+      const entries = Array.from(map.values())
+        .sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')))
 
       const labels = entries.map(v => v.label)
-      const targets = entries.map(v => v.target)
-      const revenues = entries.map(v => v.revenue)
+      const targets = entries.map(v => (v.target > 0 ? v.target : null))
+      const revenues = entries.map(v => (v.revenue > 0 ? v.revenue : null))
 
       return {
         labels,
-        datasets: [
-          {
-            label: isRTL ? 'الهدف' : 'Target',
-            data: targets,
-            backgroundColor: 'rgba(148, 163, 184, 0.8)'
-          },
-          {
-            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
-            data: revenues,
-            backgroundColor: 'rgba(59, 130, 246, 0.85)'
-          }
-        ]
+        datasets: makeTargetRevenueDatasets(targets, revenues)
       }
-    }
-
-    const chartYears = yearFilter === 'all'
-      ? (targetYears.length ? [...targetYears].map(Number).sort((a, b) => a - b) : [currentYear])
-      : [Number(yearFilter)]
-
-    const addUniqueBucketTarget = (targets, seen, bucket, userId, year, amount) => {
-      if (!amount) return
-      const key = `${bucket}:${userId}:${year}`
-      if (seen.has(key)) return
-      seen.add(key)
-      targets[bucket] += amount
-    }
-
-    const fillFixedBuckets = (bucketCount) => {
-      const targets = new Array(bucketCount).fill(0)
-      const revenues = new Array(bucketCount).fill(0)
-      const seen = new Set()
-
-      usersList.forEach(u => {
-        chartYears.forEach(year => {
-          const unit = resolveTargetForYear(u, getUserRows(u), year, timeGrouping, currentYear)
-          if (!unit) return
-          for (let index = 0; index < bucketCount; index += 1) {
-            if (!rangesOverlap(bucketDateRange(year, timeGrouping, index), periodRange)) continue
-            addUniqueBucketTarget(targets, seen, index, u.id, year, unit)
-          }
-        })
-      })
-
-      filtered.forEach(r => {
-        const index = timeBucketIndex(r.date, timeGrouping)
-        if (index >= 0 && index < bucketCount) revenues[index] += r.revenue || 0
-      })
-
-      return { targets, revenues }
-    }
-
-    if (timeGrouping === 'monthly') {
-      const monthLabels = isRTL 
-        ? ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
-        : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-      const { targets, revenues } = fillFixedBuckets(12)
-
-      return {
-        labels: monthLabels,
-        datasets: [
-          {
-            label: isRTL ? 'الهدف' : 'Target',
-            data: targets,
-            backgroundColor: 'rgba(148, 163, 184, 0.8)'
-          },
-          {
-            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
-            data: revenues,
-            backgroundColor: 'rgba(59, 130, 246, 0.85)'
-          }
-        ]
-      }
-    }
-
-    if (timeGrouping === 'quarterly') {
-      const labels = isRTL 
-        ? ['الربع الأول', 'الربع الثاني', 'الربع الثالث', 'الربع الرابع']
-        : ['Q1', 'Q2', 'Q3', 'Q4']
-      const { targets, revenues } = fillFixedBuckets(4)
-
-      return {
-        labels,
-        datasets: [
-          {
-            label: isRTL ? 'الهدف' : 'Target',
-            data: targets,
-            backgroundColor: 'rgba(148, 163, 184, 0.8)'
-          },
-          {
-            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
-            data: revenues,
-            backgroundColor: 'rgba(59, 130, 246, 0.85)'
-          }
-        ]
-      }
-    }
-
-    if (timeGrouping === 'semi_annual') {
-      const labels = isRTL 
-        ? ['النصف الأول', 'النصف الثاني']
-        : ['H1', 'H2']
-      const { targets, revenues } = fillFixedBuckets(2)
-
-      return {
-        labels,
-        datasets: [
-          {
-            label: isRTL ? 'الهدف' : 'Target',
-            data: targets,
-            backgroundColor: 'rgba(148, 163, 184, 0.8)'
-          },
-          {
-            label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
-            data: revenues,
-            backgroundColor: 'rgba(59, 130, 246, 0.85)'
-          }
-        ]
-      }
-    }
-
-    const map = new Map()
-    const seenYears = new Set()
-    chartYears.forEach(year => {
-      const yearKey = String(year)
-      map.set(yearKey, { target: 0, revenue: 0 })
-      usersList.forEach(u => {
-        const unit = resolveTargetForYear(u, getUserRows(u), year, 'yearly', currentYear)
-        if (!unit) return
-        if (!rangesOverlap(bucketDateRange(year, 'yearly', 0), periodRange)) return
-        const seenKey = `${yearKey}:${u.id}`
-        if (seenYears.has(seenKey)) return
-        seenYears.add(seenKey)
-        map.get(yearKey).target += unit
-      })
-    })
-    filtered.forEach(r => {
-      if (!r.date) return
-      const yearKey = r.date.substring(0, 4)
-      if (!map.has(yearKey)) {
-        map.set(yearKey, { target: 0, revenue: 0 })
-      }
-      map.get(yearKey).revenue += r.revenue || 0
-    })
-    const labels = Array.from(map.keys()).sort()
-    const targets = labels.map(key => map.get(key).target)
-    const revenues = labels.map(key => map.get(key).revenue)
-    return {
-      labels,
-      datasets: [
-        {
-          label: isRTL ? 'الهدف' : 'Target',
-          data: targets,
-          backgroundColor: 'rgba(148, 163, 184, 0.8)'
-        },
-        {
-          label: isRTL ? 'الإيرادات الفعلية' : 'Actual Revenue',
-          data: revenues,
-          backgroundColor: 'rgba(59, 130, 246, 0.85)'
-        }
-      ]
-    }
-  }, [filtered, isRTL, chartMode, salesGrouping, timeGrouping, usersList, managerFilter, getUserTarget, getUserRows, currentYear, targetYears, yearFilter, periodRange])
+  }, [filtered, isRTL, salesGrouping, usersList, usersById, managerFilter, salesPersonFilter, getUserTarget, makeTargetRevenueDatasets])
 
   const barOptions = useMemo(() => {
-    const xTitle =
-      chartMode === 'salesperson'
-        ? salesGrouping === 'team'
-          ? (isRTL ? 'الفريق' : 'Team')
-          : (isRTL ? 'موظف المبيعات' : 'Sales Person')
-        : timeGrouping === 'monthly'
-          ? (isRTL ? 'الشهر' : 'Month')
-          : timeGrouping === 'quarterly'
-            ? (isRTL ? 'الربع' : 'Quarter')
-            : timeGrouping === 'semi_annual'
-              ? (isRTL ? 'نصف السنة' : 'Half Year')
-              : (isRTL ? 'السنة' : 'Year')
+    const xTitle = salesGrouping === 'team'
+      ? (isRTL ? 'الفريق' : 'Team')
+      : (isRTL ? 'موظف المبيعات' : 'Sales Person')
+
+    const tickColor = isLight ? '#111827' : '#e5e7eb'
+    const mutedColor = isLight ? '#6b7280' : '#9ca3af'
+    const fontFamily = isRTL ? 'Cairo' : 'Inter'
+    const compactTick = (value) => formatCompactMoney(value, { rtl: isRTL })
+
+    const categoryCount = barData?.labels?.length || 1
+    const categoryPercentage = categoryCount <= 1
+      ? 0.16
+      : categoryCount === 2
+        ? 0.28
+        : categoryCount <= 4
+          ? 0.4
+          : categoryCount <= 8
+            ? 0.55
+            : 0.7
 
     return {
       responsive: true,
       maintainAspectRatio: false,
+      datasets: {
+        bar: {
+          barPercentage: 1,
+          categoryPercentage,
+        },
+      },
       plugins: {
         legend: {
           position: 'top',
           align: 'center',
           labels: {
             usePointStyle: true,
+            color: tickColor,
             font: {
-              family: isRTL ? 'Cairo' : 'Inter'
+              family: fontFamily,
+              size: 12,
             }
           },
           rtl: isRTL,
@@ -1020,10 +969,16 @@ export default function RevenueReport() {
           rtl: isRTL,
           textDirection: isRTL ? 'rtl' : 'ltr',
           titleFont: {
-            family: isRTL ? 'Cairo' : 'Inter'
+            family: fontFamily
           },
           bodyFont: {
-            family: isRTL ? 'Cairo' : 'Inter'
+            family: fontFamily
+          },
+          callbacks: {
+            label: (context) => {
+              const amount = Number(context.parsed?.y || 0)
+              return `${context.dataset.label}: ${amount.toLocaleString()} EGP`
+            }
           }
         }
       },
@@ -1032,13 +987,19 @@ export default function RevenueReport() {
           title: {
             display: true,
             text: xTitle,
+            color: mutedColor,
             font: {
-              family: isRTL ? 'Cairo' : 'Inter'
+              family: fontFamily,
+              size: 12,
             }
           },
           ticks: {
+            color: tickColor,
+            maxRotation: 0,
+            minRotation: 0,
             font: {
-              family: isRTL ? 'Cairo' : 'Inter'
+              family: fontFamily,
+              size: 12,
             }
           },
           reverse: isRTL
@@ -1046,15 +1007,43 @@ export default function RevenueReport() {
         y: {
           beginAtZero: true,
           position: isRTL ? 'right' : 'left',
+          title: {
+            display: true,
+            text: isRTL ? 'الهدف' : 'Target',
+            color: mutedColor,
+            font: { family: fontFamily, size: 11 },
+          },
           ticks: {
+            color: tickColor,
+            callback: compactTick,
             font: {
-              family: isRTL ? 'Cairo' : 'Inter'
+              family: fontFamily,
+              size: 11,
+            }
+          }
+        },
+        yRevenue: {
+          beginAtZero: true,
+          position: isRTL ? 'left' : 'right',
+          grid: { drawOnChartArea: false },
+          title: {
+            display: true,
+            text: isRTL ? 'الإيرادات' : 'Revenue',
+            color: mutedColor,
+            font: { family: fontFamily, size: 11 },
+          },
+          ticks: {
+            color: tickColor,
+            callback: compactTick,
+            font: {
+              family: fontFamily,
+              size: 11,
             }
           }
         }
       }
     }
-  }, [chartMode, salesGrouping, timeGrouping, isRTL])
+  }, [barData, salesGrouping, isRTL, isLight])
 
   const revenueByProjectSegments = useMemo(() => {
     const map = new Map()
@@ -1093,11 +1082,11 @@ export default function RevenueReport() {
 
       const key = r.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
       const uid = r.salespersonId ? String(r.salespersonId) : key
+      const user = usersList.find(u => String(u.id) === uid) || usersList.find(u => u.name === key)
+      if (usesCompanyTarget(user)) return
 
       if (!map.has(key)) {
-        const user = usersList.find(u => String(u.id) === uid) || usersList.find(u => u.name === key)
         const role = user ? (Array.isArray(user.roles) ? user.roles[0]?.name : user.role) : ''
-        
         map.set(key, { name: key, role: role || '', target: 0, revenue: 0 })
       }
       const item = map.get(key)
@@ -1105,14 +1094,13 @@ export default function RevenueReport() {
 
       if (!processedUsers.has(uid)) {
           processedUsers.add(uid)
-          const user = usersList.find(u => String(u.id) === uid)
           item.target = user ? getUserTarget(user) : (r.target || 0)
       }
     })
     
     const list = Array.from(map.values()).map(item => ({
       ...item,
-      achievement: item.target ? Math.round((item.revenue / item.target) * 100) : 0
+      achievement: calculateAchievementPercent(item.revenue, item.target)
     }))
     return list.sort((a, b) => {
       if (b.achievement !== a.achievement) return b.achievement - a.achievement
@@ -1133,7 +1121,8 @@ export default function RevenueReport() {
       [isRTL ? 'الهدف' : 'Target']: r.target,
       [isRTL ? 'الإيرادات' : 'Revenue']: r.revenue,
       [isRTL ? 'نسبة العمولة' : 'Commission %']: r.commissionRate,
-      [isRTL ? 'العمولة' : 'Commission']: r.commission
+      [isRTL ? 'العمولة' : 'Commission']: r.commission,
+      [isRTL ? 'نسبة الإنجاز' : 'Achievement %']: formatAchievementPercent(r.aggregateAchievement),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -1162,7 +1151,8 @@ export default function RevenueReport() {
       isRTL ? 'الهدف' : 'Target',
       isRTL ? 'الإيرادات' : 'Revenue',
       isRTL ? 'نسبة العمولة' : 'Commission %',
-      isRTL ? 'العمولة' : 'Commission'
+      isRTL ? 'العمولة' : 'Commission',
+      isRTL ? 'نسبة الإنجاز' : 'Achievement %',
     ]
     const tableRows = []
 
@@ -1178,7 +1168,8 @@ export default function RevenueReport() {
         r.target,
         r.revenue,
         r.commissionRate,
-        r.commission
+        r.commission,
+        formatAchievementPercent(r.aggregateAchievement),
       ]
       tableRows.push(rowData)
     })
@@ -1469,11 +1460,17 @@ export default function RevenueReport() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
-          { label: isRTL ? 'إجمالي الهدف' : 'Total Target', value: `${totalTarget.toLocaleString()} EGP`, accent: 'bg-slate-500' },
+          {
+            label: peopleScopedView || companyPeriodTarget <= 0
+              ? (isRTL ? 'إجمالي الهدف' : 'Total Target')
+              : (isRTL ? 'تارجت الشركة' : 'Company Target'),
+            value: `${totalTarget.toLocaleString()} EGP`,
+            accent: 'bg-slate-500',
+          },
           { label: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue', value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-emerald-500' },
-          { label: isRTL ? 'نسبة الإنجاز' : 'Achievement %', value: `${achievementPercent}%`, accent: 'bg-indigo-500' },
+          { label: isRTL ? 'نسبة الإنجاز' : 'Achievement %', value: formatAchievementPercent(achievementPercent), accent: 'bg-indigo-500' },
           { label: isRTL ? 'إجمالي العمولة' : 'Total Commission', value: `${totalCommission.toLocaleString()} EGP`, accent: 'bg-fuchsia-500' },
-          { label: isRTL ? 'عدد الصفقات' : 'Deals Count', value: filtered.length, accent: 'bg-amber-500' }
+          { label: isRTL ? 'عدد الصفقات' : 'Deals Count', value: dealsCount, accent: 'bg-amber-500' }
         ].map(card => (
           <div
             key={card.label}
@@ -1493,26 +1490,16 @@ export default function RevenueReport() {
           <div className="flex items-center justify-between mb-4">
             <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2`}>
               <Target size={18} className="text-blue-500" />
-              {chartMode === 'salesperson'
-                ? salesGrouping === 'team'
-                  ? (isRTL ? 'الأهداف والإيرادات حسب الفريق' : 'Targets & Revenue by Team')
-                  : (isRTL ? 'الأهداف والإيرادات حسب موظف المبيعات' : 'Targets & Revenue by Salesperson')
-                : timeGrouping === 'monthly'
-                  ? (isRTL ? 'الأهداف والإيرادات حسب الشهر' : 'Targets & Revenue by Month')
-                  : timeGrouping === 'quarterly'
-                    ? (isRTL ? 'الأهداف والإيرادات حسب الربع' : 'Targets & Revenue by Quarter')
-                    : timeGrouping === 'semi_annual'
-                      ? (isRTL ? 'الأهداف والإيرادات حسب نصف السنة' : 'Targets & Revenue by Half Year')
-                      : (isRTL ? 'الأهداف والإيرادات حسب السنة' : 'Targets & Revenue by Year')}
+              {salesGrouping === 'team'
+                ? (isRTL ? 'الأهداف والإيرادات حسب الفريق' : 'Targets & Revenue by Team')
+                : (isRTL ? 'الأهداف والإيرادات حسب موظف المبيعات' : 'Targets & Revenue by Salesperson')}
             </div>
             <div className="flex items-center gap-3">
               <div className="inline-flex items-center gap-2 bg-black/5 dark:bg-white/5 rounded-full p-1">
                 <div ref={salesMenuRef} className="relative flex items-stretch">
                   <button
                     type="button"
-                    onClick={() => {
-                      setChartMode('salesperson')
-                    }}
+                    onClick={() => selectSalesChart(salesGrouping)}
                     className={`px-3 py-1 text-xs rounded-l-full transition-colors border-r border-theme-border dark:border-gray-700/50 ${
                       chartMode === 'salesperson'
                         ? 'bg-blue-600 text-white'
@@ -1524,6 +1511,8 @@ export default function RevenueReport() {
                   <button
                     type="button"
                     onClick={() => {
+                      setChartMode('salesperson')
+                      setShowTimeGroupingMenu(false)
                       setShowSalesGroupingMenu(prev => !prev)
                     }}
                     className={`px-2 py-1 text-xs rounded-r-full transition-colors ${
@@ -1540,14 +1529,11 @@ export default function RevenueReport() {
                     />
                   </button>
                   {showSalesGroupingMenu && (
-                    <div className="absolute top-full left-0 mt-1  dark:bg-gray-50 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 py-1 z-30 min-w-[140px]">
+                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 py-1 z-30 min-w-[140px]">
                       <button
                         type="button"
-                        onClick={() => {
-                          setSalesGrouping('salesperson')
-                          setShowSalesGroupingMenu(false)
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] dark:hover:bg-gray-700/60 ${
+                        onClick={() => selectSalesChart('salesperson')}
+                        className={`w-full text-left rtl:text-right px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] dark:hover:bg-gray-700/60 ${
                           salesGrouping === 'salesperson'
                             ? 'text-blue-600 dark:text-blue-400'
                             : `${isLight ? 'text-black' : 'text-white'}`
@@ -1557,11 +1543,8 @@ export default function RevenueReport() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setSalesGrouping('team')
-                          setShowSalesGroupingMenu(false)
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] dark:hover:bg-gray-700/60 ${
+                        onClick={() => selectSalesChart('team')}
+                        className={`w-full text-left rtl:text-right px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] dark:hover:bg-gray-700/60 ${
                           salesGrouping === 'team'
                             ? 'text-blue-600 dark:text-blue-400'
                             : `${isLight ? 'text-black' : 'text-white'}`
@@ -1577,16 +1560,13 @@ export default function RevenueReport() {
                   <button
                     type="button"
                     onClick={() => {
-                      setChartMode('month')
+                      setShowSalesGroupingMenu(false)
+                      setShowTimeGroupingMenu(prev => !prev)
                     }}
-                    className={`px-3 py-1 text-xs rounded-l-full transition-colors border-r border-theme-border dark:border-gray-700/50 ${
-                      chartMode === 'month'
-                        ? 'bg-blue-600 text-white'
-                        : `${isLight ? 'text-black' : 'text-white'}`
-                    }`}
+                    className={`px-3 py-1 text-xs rounded-l-full transition-colors border-r border-theme-border dark:border-gray-700/50 ${isLight ? 'text-black' : 'text-white'}`}
                   >
                     {timeGrouping === 'monthly'
-                      ? (isRTL ? 'شهري' : 'Months')
+                      ? (isRTL ? 'شهري' : 'Monthly')
                       : timeGrouping === 'quarterly'
                         ? (isRTL ? 'ربع سنوي' : 'Quarterly')
                         : timeGrouping === 'semi_annual'
@@ -1596,30 +1576,24 @@ export default function RevenueReport() {
                   <button
                     type="button"
                     onClick={() => {
+                      setShowSalesGroupingMenu(false)
                       setShowTimeGroupingMenu(prev => !prev)
                     }}
-                    className={`px-2 py-1 text-xs rounded-r-full transition-colors ${
-                      chartMode === 'month'
-                        ? 'bg-blue-600 text-white'
-                        : `${isLight ? 'text-black' : 'text-white'}`
-                    }`}
+                    className={`px-2 py-1 text-xs rounded-r-full transition-colors ${isLight ? 'text-black' : 'text-white'}`}
                   >
                     <ChevronDown
                       size={10}
                       className={`transition-transform duration-200 ${
-                        showTimeGroupingMenu && chartMode === 'month' ? 'rotate-180' : 'rotate-0'
+                        showTimeGroupingMenu ? 'rotate-180' : 'rotate-0'
                       }`}
                     />
                   </button>
                   {showTimeGroupingMenu && (
-                    <div className="absolute top-full left-0 mt-1  dark:bg-gray-800 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 py-1 z-30 min-w-[150px]">
+                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 py-1 z-30 min-w-[150px]">
                       <button
                         type="button"
-                        onClick={() => {
-                          setTimeGrouping('monthly')
-                          setShowTimeGroupingMenu(false)
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)]  ${
+                        onClick={() => selectTargetPeriod('monthly')}
+                        className={`w-full text-left rtl:text-right px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] ${
                           timeGrouping === 'monthly'
                             ? 'text-blue-600 dark:text-blue-400'
                             : `${isLight ? 'text-black' : 'text-white'}`
@@ -1629,11 +1603,8 @@ export default function RevenueReport() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setTimeGrouping('quarterly')
-                          setShowTimeGroupingMenu(false)
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] ${
+                        onClick={() => selectTargetPeriod('quarterly')}
+                        className={`w-full text-left rtl:text-right px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] ${
                           timeGrouping === 'quarterly'
                             ? 'text-blue-600 dark:text-blue-400'
                             : `${isLight ? 'text-black' : 'text-white'}`
@@ -1643,11 +1614,8 @@ export default function RevenueReport() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setTimeGrouping('semi_annual')
-                          setShowTimeGroupingMenu(false)
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] ${
+                        onClick={() => selectTargetPeriod('semi_annual')}
+                        className={`w-full text-left rtl:text-right px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] ${
                           timeGrouping === 'semi_annual'
                             ? 'text-blue-600 dark:text-blue-400'
                             : `${isLight ? 'text-black' : 'text-white'}`
@@ -1657,11 +1625,8 @@ export default function RevenueReport() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setTimeGrouping('yearly')
-                          setShowTimeGroupingMenu(false)
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] ${
+                        onClick={() => selectTargetPeriod('yearly')}
+                        className={`w-full text-left rtl:text-right px-3 py-1.5 text-xs hover:bg-[rgba(37,99,235,0.28)] ${
                           timeGrouping === 'yearly'
                             ? 'text-blue-600 dark:text-blue-400'
                             : `${isLight ? 'text-black' : 'text-white'}`
@@ -1676,7 +1641,10 @@ export default function RevenueReport() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <div className="h-72 min-w-[720px]">
+            <div
+              className="h-72"
+              style={{ minWidth: Math.max(280, (barData.labels?.length || 1) * 140) }}
+            >
               <Bar data={barData} options={barOptions} />
             </div>
           </div>
@@ -1746,7 +1714,7 @@ export default function RevenueReport() {
                     </div>
                   </div>
                 </div>
-                <div className="text-sm font-semibold text-emerald-500">{user.achievement}%</div>
+                <div className="text-sm font-semibold text-emerald-500">{formatAchievementPercent(user.achievement)}</div>
               </div>
             ))}
             {bestAchievers.length === 0 && (
@@ -1801,7 +1769,7 @@ export default function RevenueReport() {
               const effectiveTarget = row.target || 0
               const achievement = Number.isFinite(row.aggregateAchievement)
                 ? row.aggregateAchievement
-                : (effectiveTarget ? Math.round((row.revenue / effectiveTarget) * 100) : 0)
+                : calculateAchievementPercent(row.revenue, effectiveTarget)
               
               const dealTypeLabel = {
                 'Reservation': isRTL ? 'حجز' : 'Reservation',
@@ -1827,7 +1795,7 @@ export default function RevenueReport() {
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className={`font-semibold ${isLight ? 'text-black' : 'text-white'} text-lg`}>{row.salesperson}</h3>
-                    <p className={`text-xs ${isLight ? 'text-black' : 'text-white'} mt-1`}>{row.manager}</p>
+                    <p className={`text-xs ${isLight ? 'text-black' : 'text-white'} mt-1`}>{row.manager || '-'}</p>
                   </div>
                   <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusColors}`}>
                     {statusLabel}
@@ -1889,7 +1857,7 @@ export default function RevenueReport() {
                   <div className="space-y-1 pt-1">
                       <div className="flex justify-between text-xs">
                           <span className={`${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نسبة الإنجاز' : 'Achievement'}</span>
-                          <span className={`${achievement >= 100 ? 'text-emerald-600' : 'text-blue-600'} font-medium`}>{achievement}%</span>
+                          <span className={`${achievement >= 100 ? 'text-emerald-600' : 'text-blue-600'} font-medium`}>{formatAchievementPercent(achievement)}</span>
                       </div>
                       <div className="w-full  rounded-full h-1.5 overflow-hidden">
                           <div 
@@ -1932,7 +1900,7 @@ export default function RevenueReport() {
               {paginatedData.map(row => {
                 const achievement = Number.isFinite(row.aggregateAchievement)
                   ? row.aggregateAchievement
-                  : (row.target ? Math.round((row.revenue / row.target) * 100) : 0)
+                  : calculateAchievementPercent(row.revenue, row.target)
                 
                 const dealTypeLabel = {
                   'Reservation': isRTL ? 'حجز' : 'Reservation',
@@ -1949,7 +1917,7 @@ export default function RevenueReport() {
                 return (
                     <tr key={row.id} className="hover:bg-white/30 dark:hover:bg-gray-900/40 transition-colors">
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.salesperson}</td>
-                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.manager}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.manager || '-'}</td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
                         <ListHoverPopover
                           id={`${row.id}-item`}
@@ -1988,7 +1956,7 @@ export default function RevenueReport() {
                         {(row.commission || 0).toLocaleString()} EGP
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
-                        {achievement}%
+                        {formatAchievementPercent(achievement)}
                       </td>
                     </tr>
                 )

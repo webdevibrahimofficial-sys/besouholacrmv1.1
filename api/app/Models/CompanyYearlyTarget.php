@@ -31,4 +31,16 @@ class CompanyYearlyTarget extends Model
             'semi_annual_target' => 'decimal:2',
         ];
     }
+
+    public static function currentForTenant(?int $tenantId, ?int $year = null): ?self
+    {
+        if (!$tenantId) {
+            return null;
+        }
+
+        return static::query()
+            ->where('tenant_id', $tenantId)
+            ->where('year', $year ?: (int) now()->year)
+            ->first();
+    }
 }

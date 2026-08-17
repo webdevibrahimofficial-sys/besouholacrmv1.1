@@ -1569,6 +1569,7 @@ export const Dashboard = () => {
                   data={analysisData ? analysisData.monthly : null}
                   chartType={leadsChartType}
                   totalValue={leadsAnalysisTotal}
+                  exportMode={isExportingLeadsAnalysis}
                   filters={{ dataType: 'monthly', status: activeFilter, year: normalizedLeadsAnalysisYear, employee: selectedEmployee || selectedManager, dateFrom: leadsAnalysisDateRange.from, dateTo: leadsAnalysisDateRange.to }}
                 />
               </div>

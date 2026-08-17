@@ -9,6 +9,7 @@ import { Phone, Activity, DollarSign, Target, Filter, ChevronDown, User, Users, 
 import { FaFileExport, FaChevronDown, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '../utils/api'
+import { usesCompanyTarget } from '../utils/targetRevenueReport'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
 import DateRangePicker from '../shared/components/DateRangePicker'
@@ -987,16 +988,17 @@ export default function SalesActivitiesReport() {
       // Revenue = current filtered period/actions only
       row.revenue = revenueBySalesCurrent.get(salespersonName) || 0
 
-      // Update Target
-      if (targetMap[salespersonName] !== undefined) {
-        row.target = targetMap[salespersonName]
-      }
-
-      // Total Revenue = cumulative historical revenue
       const matchedUser = usersList.find(u => {
         const name = u.name || u.full_name || u.fullName || ''
         return name === salespersonName
       })
+
+      if (usesCompanyTarget(matchedUser)) {
+        row.target = 0
+      } else if (targetMap[salespersonName] !== undefined) {
+        row.target = targetMap[salespersonName]
+      }
+
       row.totalRevenue = matchedUser ? (totalRevenueByUserId[matchedUser.id] || 0) : 0
 
       // Total Achievement = Revenue / Target for current filtered period

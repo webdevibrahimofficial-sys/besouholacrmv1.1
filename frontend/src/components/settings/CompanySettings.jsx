@@ -27,6 +27,17 @@ const formatCompanyTarget = (value, locale = 'en-US') => {
   }).format(normalized)
 }
 
+const parseTargetAmount = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '')
+
+const formatTargetAmountInput = (value) => {
+  const raw = parseTargetAmount(value)
+  if (!raw) return ''
+  const [integerPart, ...fractionParts] = raw.split('.')
+  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (!raw.includes('.')) return formattedInteger
+  return `${formattedInteger}.${fractionParts.join('').slice(0, 2)}`
+}
+
 const normalizeWebsiteUrl = (value) => {
   const trimmed = String(value ?? '').trim()
   if (!trimmed) return ''
@@ -71,7 +82,7 @@ export default function CompanySettings() {
   const [targetEditorOpen, setTargetEditorOpen] = useState(false)
   const [targetSaving, setTargetSaving] = useState(false)
   const [targetForm, setTargetForm] = useState(() => ({
-    year: new Date().getFullYear() + 1,
+    year: new Date().getFullYear(),
     yearly_target: '',
   }))
 
@@ -373,9 +384,8 @@ export default function CompanySettings() {
   }
 
   const openAddTargetEditor = () => {
-    const nextYear = new Date().getFullYear() + 1
     setTargetForm({
-      year: nextYear,
+      year: new Date().getFullYear(),
       yearly_target: '',
     })
     setTargetEditorOpen(true)
@@ -400,7 +410,7 @@ export default function CompanySettings() {
     try {
       await api.post('/api/company-targets', {
         year: Number(targetForm.year),
-        yearly_target: Number(targetForm.yearly_target || 0),
+        yearly_target: Number(parseTargetAmount(targetForm.yearly_target) || 0),
       })
       setTargetEditorOpen(false)
       await fetchCompanyTargets()
@@ -924,13 +934,15 @@ export default function CompanySettings() {
                   <label className="space-y-1">
                     <span className="text-xs font-semibold text-theme-text/70">{isArabic ? 'التارجت السنوي' : 'Yearly Target'}</span>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={targetForm.yearly_target}
-                      onChange={(e) => setTargetForm(prev => ({ ...prev, yearly_target: e.target.value }))}
-                      className="input input-bordered w-full bg-transparent"
-                      placeholder="0.00"
+                      type="text"
+                      inputMode="decimal"
+                      dir="ltr"
+                      lang="en"
+                      style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
+                      value={formatTargetAmountInput(targetForm.yearly_target)}
+                      onChange={(e) => setTargetForm(prev => ({ ...prev, yearly_target: parseTargetAmount(e.target.value) }))}
+                      className="input input-bordered w-full bg-transparent font-mono"
+                      placeholder="100,000,000"
                     />
                   </label>
                 </div>

@@ -51,7 +51,7 @@ export const PipelineAnalysis = ({
   const lang = i18n.language || 'en'
   const { theme, resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light'
-  const useLightColors = exportMode || isLight
+  const useLightColors = isLight
 
 
   // Toolbar state
@@ -403,8 +403,8 @@ export const PipelineAnalysis = ({
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480;
   const tickColor = useLightColors ? '#0f172a' : '#e5e7eb';
-  const tickFontSize = exportMode ? 13 : (isMobile ? 10 : 13)
-  const axisTitleFontSize = exportMode ? 14 : (isMobile ? 10 : 13)
+  const tickFontSize = isMobile ? 10 : 13
+  const axisTitleFontSize = isMobile ? 10 : 13
   const measureDisplay = selectedMeasure === 'count'
     ? (lang === 'ar' ? 'عدد العملاء المحتملين' : 'No. of Leads')
     : selectedMeasure === 'value'

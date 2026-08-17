@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import DatePicker from 'react-datepicker'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -1077,7 +1077,9 @@ export default function TelesalesDashboard() {
   const handleExportDashboardPdf = async () => {
     if (!canExportTelesales || !leadsAnalysisChartRef.current) return
     try {
-      setExportingChartKey('leads-analysis')
+      flushSync(() => {
+        setExportingChartKey('leads-analysis')
+      })
       await exportDashboardChartsToPdf({
         charts: [
           {
@@ -2065,6 +2067,7 @@ export default function TelesalesDashboard() {
               filters={{ year: Number(normalizedLeadsAnalysisYear) }}
               legendLabel={t('Telesales Leads')}
               totalValue={stageCounts.total}
+              exportMode={exportingChartKey === 'leads-analysis'}
             />
           </div>
         </section>

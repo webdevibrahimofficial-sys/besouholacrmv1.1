@@ -75,6 +75,269 @@ export function matchCommissionRate(tiers, achievementPercent) {
   return Number(matched?.commission_percentage || 0) || 0
 }
 
+export function calculateAchievementPercent(revenue, target) {
+  const amount = Number(revenue) || 0
+  const goal = Number(target) || 0
+  if (goal <= 0) return 0
+  const raw = (amount / goal) * 100
+  if (!Number.isFinite(raw)) return 0
+  return Math.round(raw * 100) / 100
+}
+
+export function formatAchievementPercent(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0%'
+  return `${Number(amount.toFixed(2))}%`
+}
+
+export function formatCompactMoney(value, { rtl = false } = {}) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0'
+  const abs = Math.abs(amount)
+  if (abs >= 1_000_000) {
+    const compact = Number((amount / 1_000_000).toFixed(1))
+    return rtl ? `${compact} مليون` : `${compact}M`
+  }
+  if (abs >= 1_000) {
+    const compact = Number((amount / 1_000).toFixed(1))
+    return rtl ? `${compact} ألف` : `${compact}K`
+  }
+  return String(Math.round(amount))
+}
+
+export function normalizeRoleName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+}
+
+export function collectUserRoles(user) {
+  const values = [
+    user?.role,
+    user?.job_title,
+    user?.jobTitle,
+    ...(Array.isArray(user?.roles) ? user.roles.map((role) => role?.name || role) : []),
+  ]
+  return values.map(normalizeRoleName).filter(Boolean)
+}
+
+export function usesCompanyTarget(user) {
+  if (
+    user?.uses_company_target === true
+    || user?.usesCompanyTarget === true
+    || user?.is_primary_admin === true
+    || user?.isPrimaryAdmin === true
+    || user?.is_tenant_admin === true
+    || user?.is_super_admin === true
+  ) return true
+  return collectUserRoles(user).some((role) => {
+    if (role === 'sales admin' || role.includes('sales admin')) return false
+    return (
+      role === 'admin'
+      || role === 'owner'
+      || role === 'tenant admin'
+      || role.includes('tenant admin')
+      || role === 'director'
+      || role === 'operation manager'
+      || role === 'operations manager'
+    )
+  })
+}
+
+export function resolveSalespersonRowTarget(params) {
+  if (usesCompanyTarget(params?.user)) return 0
+  return resolvePeriodTarget(params)
+}
+
+export function isFieldSalesRole(user) {
+  return collectUserRoles(user).some((role) => {
+    if (
+      role.includes('manager')
+      || role.includes('admin')
+      || role.includes('director')
+      || role.includes('leader')
+    ) return false
+    return (
+      role.includes('sales person')
+      || role === 'salesperson'
+      || role.includes('telesales agent')
+      || role.includes('sales agent')
+      || role.includes('broker')
+      || role.endsWith(' agent')
+    )
+  })
+}
+
+export function isMidLevelManagerRole(user) {
+  if (usesCompanyTarget(user)) return false
+  return collectUserRoles(user).some((role) => (
+    role.includes('team leader')
+    || role === 'teamleader'
+    || role.includes('sales manager')
+    || role.includes('branch manager')
+    || role.includes('telesales manager')
+  ))
+}
+
+export function isManagerFilterRole(user) {
+  if (!user) return false
+  if (usesCompanyTarget(user)) return false
+  if (isFieldSalesRole(user)) return false
+  return !collectUserRoles(user).some((role) => role.includes('sales admin'))
+}
+
+export function shouldIncludeInSalespersonRows(user, { personalTarget = 0, hasRevenue = false } = {}) {
+  if (usesCompanyTarget(user)) return Boolean(hasRevenue)
+  if (isFieldSalesRole(user) || isMidLevelManagerRole(user)) return true
+  return Number(personalTarget) > 0 || Boolean(hasRevenue)
+}
+
+export function matchesManagerFilter(user, managerFilter, usersById) {
+  if (!managerFilter || managerFilter === 'all') return true
+  const selfName = String(user?.name || '').trim()
+  if (selfName === managerFilter) return true
+  return resolveManagerName(user, usersById) === managerFilter
+}
+
+export function resolveReportKpiTarget({
+  managerFilter,
+  salesPersonFilter,
+  visibleTargets,
+  companyTarget,
+}) {
+  const peopleScoped = (
+    (managerFilter && managerFilter !== 'all')
+    || (salesPersonFilter && salesPersonFilter !== 'all')
+  )
+  const visibleSum = (visibleTargets || []).reduce((sum, value) => sum + (Number(value) || 0), 0)
+  if (peopleScoped) return visibleSum
+  const company = Number(companyTarget) || 0
+  return company > 0 ? company : visibleSum
+}
+
+export function countClosedDeals(rows, {
+  periodRange,
+  salesPersonFilter = 'all',
+  managerFilter = 'all',
+  sourceFilter = 'all',
+  projectFilter = 'all',
+} = {}) {
+  return (rows || []).filter((row) => {
+    if (String(row?.id || '').startsWith('empty-')) return false
+    if (String(row?.status || '') === 'No Sales') return false
+    if (salesPersonFilter !== 'all' && row.salesperson !== salesPersonFilter) return false
+    if (managerFilter !== 'all' && row.manager !== managerFilter && row.salesperson !== managerFilter) return false
+    if (sourceFilter !== 'all' && row.source !== sourceFilter) return false
+    if (projectFilter !== 'all' && row.project !== projectFilter) return false
+    if (periodRange && row.date && !isDateInRange(row.date, periodRange)) return false
+    return true
+  }).length
+}
+
+export function resolveCompanyTargetForYear(rows, year, type) {
+  const row = snapshotForYear(rows, year)
+  if (!row) return 0
+  return Number(row[targetField(type)] || 0) || 0
+}
+
+export function resolveCompanyPeriodTarget({
+  rows,
+  yearFilter,
+  type,
+  currentYear,
+  tenantCreatedYear,
+  now,
+}) {
+  if (yearFilter === 'all') {
+    const startYear = Number(tenantCreatedYear || currentYear)
+    const endYear = Number(currentYear)
+    let total = 0
+    for (let year = startYear; year <= endYear; year += 1) {
+      const unit = resolveCompanyTargetForYear(rows, year, type)
+      total += unit * periodsCoveredInYear(year, type, { now, tenantCreatedYear })
+    }
+    return total
+  }
+
+  return resolveCompanyTargetForYear(rows, yearFilter, type)
+}
+
+export function resolveEffectivePeriodTarget({
+  user,
+  rows,
+  companyRows,
+  yearFilter,
+  type,
+  currentYear,
+  tenantCreatedYear,
+  now,
+}) {
+  if (usesCompanyTarget(user)) {
+    return resolveCompanyPeriodTarget({
+      rows: companyRows,
+      yearFilter,
+      type,
+      currentYear,
+      tenantCreatedYear,
+      now,
+    })
+  }
+
+  return resolvePeriodTarget({
+    user,
+    rows,
+    yearFilter,
+    type,
+    currentYear,
+    tenantCreatedYear,
+    now,
+  })
+}
+
+export function indexUsersById(users) {
+  const map = new Map()
+  ;(users || []).forEach((user) => {
+    if (user?.id == null) return
+    map.set(String(user.id), user)
+  })
+  return map
+}
+
+export function resolveManagerName(user, usersById) {
+  if (!user) return ''
+
+  const nested = user.manager
+  if (nested && typeof nested === 'object') {
+    const nestedName = String(nested.name || nested.full_name || nested.fullName || '').trim()
+    if (nestedName) return nestedName
+  }
+  if (typeof nested === 'string' && nested.trim() && Number.isNaN(Number(nested))) {
+    return nested.trim()
+  }
+
+  const managerId = user.manager_id
+    ?? user.managerId
+    ?? (typeof nested === 'number' || (typeof nested === 'string' && nested.trim() !== '' && !Number.isNaN(Number(nested)))
+      ? nested
+      : nested?.id)
+
+  if (managerId != null && managerId !== '' && usersById) {
+    const manager = usersById.get(String(managerId))
+    const lookedUp = String(manager?.name || '').trim()
+    if (lookedUp) return lookedUp
+  }
+
+  const teamLeader = user.team?.leader
+  if (teamLeader && typeof teamLeader === 'object') {
+    const leaderName = String(teamLeader.name || '').trim()
+    if (leaderName) return leaderName
+  }
+
+  return ''
+}
+
 export function periodsCoveredInYear(year, type, { now, tenantCreatedYear } = {}) {
   const current = now || new Date()
   const currentYear = current.getFullYear()

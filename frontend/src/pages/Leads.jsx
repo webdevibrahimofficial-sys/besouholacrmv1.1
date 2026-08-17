@@ -34,6 +34,16 @@ import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 import { formatCrmCalendarDateTime, formatCrmDateTime } from '@shared/utils/crmDateTime'
 import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
 import { resolveDuplicateOriginalLead } from '../utils/resolveDuplicateOriginalLead'
+import {
+  clearStoredLeadsListState,
+  loadStoredLeadsListState,
+  mergeLeadsListState,
+  readLeadsFiltersFromSearch,
+  sameStringArray,
+  saveStoredLeadsListState,
+  stripDashboardSrcParam,
+  stripLeadPreviewParams,
+} from '../utils/leadsListPersistence'
 
 export const Leads = () => {
   const { t, i18n } = useTranslation()
@@ -378,40 +388,51 @@ export const Leads = () => {
   const canUseBulkAssign = canAssignLeads;
   const canUseBulkMultiActions = canUseBulkActions;
   const MEET_ICON_URL = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'><rect x='2' y='4' width='12' height='16' rx='3' fill='%23ffffff'/><rect x='2' y='4' width='12' height='4' rx='2' fill='%234285F4'/><rect x='2' y='4' width='4' height='16' rx='2' fill='%2334A853'/><rect x='10' y='4' width='4' height='16' rx='2' fill='%23FBBC05'/><rect x='2' y='16' width='12' height='4' rx='2' fill='%23EA4335'/><polygon points='14,9 22,5 22,19 14,15' fill='%2334A853'/></svg>"
+
+  const initialLeadsListStateRef = useRef(null)
+  if (initialLeadsListStateRef.current == null) {
+    initialLeadsListStateRef.current = mergeLeadsListState({
+      urlFilters: readLeadsFiltersFromSearch(location.search),
+      stored: loadStoredLeadsListState(location.pathname),
+      pathname: location.pathname,
+      userId: user?.id,
+    })
+  }
+  const initialLeadsListState = initialLeadsListStateRef.current
   
   const [leads, setLeads] = useState([])
   const [filteredLeads, setFilteredLeads] = useState([])
-  const [searchTerm, setSearchTerm] = useState('')
-  const [sourceFilter, setSourceFilter] = useState([])
-  const [agencyFilter, setAgencyFilter] = useState([])
-  const [priorityFilter, setPriorityFilter] = useState([])
+  const [searchTerm, setSearchTerm] = useState(initialLeadsListState.searchTerm)
+  const [sourceFilter, setSourceFilter] = useState(initialLeadsListState.sourceFilter)
+  const [agencyFilter, setAgencyFilter] = useState(initialLeadsListState.agencyFilter)
+  const [priorityFilter, setPriorityFilter] = useState(initialLeadsListState.priorityFilter)
   // New filter states
-  const [projectFilter, setProjectFilter] = useState([])
-  const [stageFilter, setStageFilter] = useState([])
-  const [managerFilter, setManagerFilter] = useState([])
-  const [salesPersonFilter, setSalesPersonFilter] = useState([])
-  const [createdByFilter, setCreatedByFilter] = useState([])
-  const [assignDateFrom, setAssignDateFrom] = useState('')
-  const [assignDateTo, setAssignDateTo] = useState('')
-  const [lastActionFrom, setLastActionFrom] = useState('')
-  const [lastActionTo, setLastActionTo] = useState('')
-  const [actionDateFrom, setActionDateFrom] = useState('')
-  const [actionDateTo, setActionDateTo] = useState('')
-  const [creationDateFrom, setCreationDateFrom] = useState('')
-  const [creationDateTo, setCreationDateTo] = useState('')
-  const [oldStageFilter, setOldStageFilter] = useState([])
-  const [cancelReasonFilter, setCancelReasonFilter] = useState('')
-  const [closedDateFrom, setClosedDateFrom] = useState('')
-  const [closedDateTo, setClosedDateTo] = useState('')
-  const [campaignFilter, setCampaignFilter] = useState([])
-  const [countryFilter, setCountryFilter] = useState([])
-  const [expectedRevenueFilter, setExpectedRevenueFilter] = useState('')
-  const [emailFilter, setEmailFilter] = useState('')
-  const [whatsappIntentsFilter, setWhatsappIntentsFilter] = useState([])
-  const [actionTypeFilter, setActionTypeFilter] = useState([])
-  const [duplicateStatusFilter, setDuplicateStatusFilter] = useState([])
-  const [sortBy, setSortBy] = useState('')
-  const [sortOrder, setSortOrder] = useState('desc')
+  const [projectFilter, setProjectFilter] = useState(initialLeadsListState.projectFilter)
+  const [stageFilter, setStageFilter] = useState(initialLeadsListState.stageFilter)
+  const [managerFilter, setManagerFilter] = useState(initialLeadsListState.managerFilter)
+  const [salesPersonFilter, setSalesPersonFilter] = useState(initialLeadsListState.salesPersonFilter)
+  const [createdByFilter, setCreatedByFilter] = useState(initialLeadsListState.createdByFilter)
+  const [assignDateFrom, setAssignDateFrom] = useState(initialLeadsListState.assignDateFrom)
+  const [assignDateTo, setAssignDateTo] = useState(initialLeadsListState.assignDateTo)
+  const [lastActionFrom, setLastActionFrom] = useState(initialLeadsListState.lastActionFrom)
+  const [lastActionTo, setLastActionTo] = useState(initialLeadsListState.lastActionTo)
+  const [actionDateFrom, setActionDateFrom] = useState(initialLeadsListState.actionDateFrom)
+  const [actionDateTo, setActionDateTo] = useState(initialLeadsListState.actionDateTo)
+  const [creationDateFrom, setCreationDateFrom] = useState(initialLeadsListState.creationDateFrom)
+  const [creationDateTo, setCreationDateTo] = useState(initialLeadsListState.creationDateTo)
+  const [oldStageFilter, setOldStageFilter] = useState(initialLeadsListState.oldStageFilter)
+  const [cancelReasonFilter, setCancelReasonFilter] = useState(initialLeadsListState.cancelReasonFilter)
+  const [closedDateFrom, setClosedDateFrom] = useState(initialLeadsListState.closedDateFrom)
+  const [closedDateTo, setClosedDateTo] = useState(initialLeadsListState.closedDateTo)
+  const [campaignFilter, setCampaignFilter] = useState(initialLeadsListState.campaignFilter)
+  const [countryFilter, setCountryFilter] = useState(initialLeadsListState.countryFilter)
+  const [expectedRevenueFilter, setExpectedRevenueFilter] = useState(initialLeadsListState.expectedRevenueFilter)
+  const [emailFilter, setEmailFilter] = useState(initialLeadsListState.emailFilter)
+  const [whatsappIntentsFilter, setWhatsappIntentsFilter] = useState(initialLeadsListState.whatsappIntentsFilter)
+  const [actionTypeFilter, setActionTypeFilter] = useState(initialLeadsListState.actionTypeFilter)
+  const [duplicateStatusFilter, setDuplicateStatusFilter] = useState(initialLeadsListState.duplicateStatusFilter)
+  const [sortBy, setSortBy] = useState(initialLeadsListState.sortBy)
+  const [sortOrder, setSortOrder] = useState(initialLeadsListState.sortOrder)
   const [selectedLeads, setSelectedLeads] = useState([])
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
   const [showBulkDuplicateMenu, setShowBulkDuplicateMenu] = useState(false)
@@ -419,8 +440,8 @@ export const Leads = () => {
   const [activeRowId, setActiveRowId] = useState(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingLead, setEditingLead] = useState(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [currentPage, setCurrentPage] = useState(initialLeadsListState.currentPage)
+  const [itemsPerPage, setItemsPerPage] = useState(initialLeadsListState.itemsPerPage)
   const [pageSearch, setPageSearch] = useState('')
   const [exportFrom, setExportFrom] = useState(1)
   const [exportTo, setExportTo] = useState(1)
@@ -502,9 +523,8 @@ export const Leads = () => {
             setShowLeadModal(true);
             emitCopilotLeadOpened(lead);
 
-            // Clear via React Router (not history.replaceState) so a second
-            // Open lead navigation still changes location.search and re-opens.
-            navigate({ pathname: location.pathname, search: '' }, { replace: true });
+            // Keep saved list filters in the URL; only drop the preview deep-link params.
+            navigate({ pathname: location.pathname, search: stripLeadPreviewParams(location.search) }, { replace: true });
           }
         } catch (error) {
           console.error('Failed to fetch lead from URL:', error);
@@ -515,11 +535,12 @@ export const Leads = () => {
     }
   }, [location.pathname, location.search, navigate]);
 
-  // Handle search query from URL
+  // Handle search query from URL without wiping a locally typed search.
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
-    const search = searchParams.get('s') || searchParams.get('search');
-    setSearchTerm(search || '');
+    if (!searchParams.has('s') && !searchParams.has('search')) return;
+    const search = searchParams.get('s') || searchParams.get('search') || '';
+    setSearchTerm((prev) => (prev === search ? prev : search));
   }, [location.search]);
   
   // Dynamic Options States
@@ -1253,6 +1274,7 @@ if (!s) {
     queryFn: fetchLeadsApi,
     placeholderData: keepPreviousData,
     staleTime: 1000 * 60 * 5, // 5 minutes
+    refetchOnWindowFocus: false,
   });
 
   const fetchLeads = () => {
@@ -1260,8 +1282,13 @@ if (!s) {
     queryClient.invalidateQueries({ queryKey: ['leads'] });
   };
 
-  // Reset page when filters change
+  // Reset page when filters change, but keep the restored page on first mount.
+  const skipFilterPageResetRef = useRef(true)
   useEffect(() => {
+    if (skipFilterPageResetRef.current) {
+      skipFilterPageResetRef.current = false
+      return
+    }
     setCurrentPage(1);
   }, [
     searchTerm,
@@ -1425,6 +1452,7 @@ if (!s) {
       const params = new URLSearchParams(location.search || '');
       const src = String(params.get('src') || '').toLowerCase().trim();
       const fromDashboard = src === 'dashboard';
+      const urlFilters = readLeadsFiltersFromSearch(location.search);
 
       const readIds = (key) => {
         const all = params.getAll(key).map(v => String(v || '').trim()).filter(Boolean);
@@ -1436,19 +1464,19 @@ if (!s) {
       };
 
       if (location.pathname === '/leads/my-leads') {
-        if (user && user.id) {
+        if (user?.id) {
             const idStr = String(user.id)
             setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 1 && String(prev[0]) === idStr ? prev : [idStr]))
         }
       } else if (location.pathname === '/leads') {
-        // If we came from Dashboard, apply Dashboard filters (including clearing).
+        // Dashboard deep-links can explicitly clear assigned_to. Regular tab
+        // focus / profile heartbeat must not wipe a filter the user still has.
         if (fromDashboard) {
           if (params.has('assigned_to')) {
             const ids = readIds('assigned_to');
             setSalesPersonFilter(prev => {
               const next = ids.length ? ids : [];
-              const same = Array.isArray(prev) && prev.length === next.length && prev.every((v, i) => String(v) === String(next[i]));
-              return same ? prev : next;
+              return sameStringArray(prev, next) ? prev : next;
             });
           } else {
             setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []));
@@ -1456,64 +1484,74 @@ if (!s) {
 
           if (params.has('manager_id')) {
             const ids = readIds('manager_id');
-            setManagerFilter(prev => {
-              const next = ids.length ? ids : [];
-              const same = Array.isArray(prev) && prev.length === next.length && prev.every((v, i) => String(v) === String(next[i]));
-              return same ? prev : next;
-            });
+            setManagerFilter(prev => (sameStringArray(prev, ids) ? prev : ids));
           }
 
           if (params.has('created_from')) {
             const v = String(params.get('created_from') || '').trim();
             setCreationDateFrom(prev => (String(prev || '') === v ? prev : v));
+          } else {
+            setCreationDateFrom(prev => (prev ? '' : prev));
           }
           if (params.has('created_to')) {
             const v = String(params.get('created_to') || '').trim();
             setCreationDateTo(prev => (String(prev || '') === v ? prev : v));
+          } else {
+            setCreationDateTo(prev => (prev ? '' : prev));
           }
           if (params.has('action_date_from')) {
             const v = String(params.get('action_date_from') || '').trim();
             setActionDateFrom(prev => (String(prev || '') === v ? prev : v));
+          } else {
+            setActionDateFrom(prev => (prev ? '' : prev));
           }
           if (params.has('action_date_to')) {
             const v = String(params.get('action_date_to') || '').trim();
             setActionDateTo(prev => (String(prev || '') === v ? prev : v));
+          } else {
+            setActionDateTo(prev => (prev ? '' : prev));
           }
-        } else {
-          setSalesPersonFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []))
+          if (!params.has('s') && !params.has('search')) {
+            setSearchTerm(prev => (prev === '' ? prev : ''));
+          }
+        } else if (params.has('assigned_to')) {
+          const ids = readIds('assigned_to');
+          setSalesPersonFilter(prev => (sameStringArray(prev, ids) ? prev : ids));
         }
       }
 
-      const s = params.get('stage')
-      if (s) {
-        const raw = String(s || '').trim()
-        const normalized = normStageKey(raw)
-        const mapped = stageAliasMap[normalized] || raw
-        const mappedLower = String(mapped).toLowerCase().trim()
-        const resolvedStageRaw =
-          mappedLower === 'cold calls' || normalized === 'coldcalls' || normalized === 'coldcall'
-            ? 'coldCall'
-            : mappedLower === 'new'
-              ? 'new lead'
-              : mapped
-        const resolvedStage = normalizeStageFilterValue(resolvedStageRaw)
-        setStageFilter(prev => (Array.isArray(prev) && prev.length === 1 && String(prev[0]) === String(resolvedStage) ? prev : [resolvedStage]))
-      } else {
-        // Only reset stage filter if we are not on my-leads (or maybe my-leads can also have stage?)
-        // The original code reset stage filter if no param. 
-        // We should keep this behavior but be careful not to conflict.
-        // The original code was:
-        // if (s) setStageFilter([s]) else setStageFilter([])
-        // This runs on location.search change.
-        
-        // If we are on /leads/my-leads, location.search might be empty.
-        // So stage filter is cleared. That's fine.
-        setStageFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []))
-    }
+      if (Object.prototype.hasOwnProperty.call(urlFilters.present, 'stageFilter')) {
+        const raw = String(urlFilters.present.stageFilter?.[0] || params.get('stage') || '').trim()
+        if (!raw) {
+          setStageFilter(prev => (Array.isArray(prev) && prev.length === 0 ? prev : []))
+        } else {
+          const normalized = normStageKey(raw)
+          const mapped = stageAliasMap[normalized] || raw
+          const mappedLower = String(mapped).toLowerCase().trim()
+          const resolvedStageRaw =
+            mappedLower === 'cold calls' || normalized === 'coldcalls' || normalized === 'coldcall'
+              ? 'coldCall'
+              : mappedLower === 'new'
+                ? 'new lead'
+                : mapped
+          const resolvedStage = normalizeStageFilterValue(resolvedStageRaw)
+          const nextStages = urlFilters.present.stageFilter.length > 1
+            ? urlFilters.present.stageFilter.map((value) => normalizeStageFilterValue(value)).filter(Boolean)
+            : [resolvedStage].filter(Boolean)
+          setStageFilter(prev => (sameStringArray(prev, nextStages) ? prev : nextStages))
+        }
+      }
+
+      if (fromDashboard) {
+        const nextSearch = stripDashboardSrcParam(location.search)
+        if (nextSearch !== (location.search || '')) {
+          navigate({ pathname: location.pathname, search: nextSearch }, { replace: true })
+        }
+      }
     } catch (e) {
-      console.error('Error parsing URL for stage filter:', e) // FIX 4: Added console.error
+      console.error('Error parsing URL for stage filter:', e)
     }
-  }, [location.search, location.pathname, stageAliasMap, user])
+  }, [location.search, location.pathname, stageAliasMap, user?.id, navigate])
 
   const handleCompareLead = async (duplicateLead) => {
     const originalLead = await resolveDuplicateOriginalLead({
@@ -1560,6 +1598,133 @@ if (!s) {
   const activeRowRef = useRef(null)
 
   const scrollXRef = useRef(null)
+  const restoreScrollRef = useRef({
+    x: initialLeadsListState.scrollX || 0,
+    y: initialLeadsListState.scrollY || 0,
+    done: !(initialLeadsListState.scrollX || initialLeadsListState.scrollY),
+  })
+  const leadsListPersistRef = useRef(null)
+
+  leadsListPersistRef.current = {
+    searchTerm,
+    sourceFilter,
+    agencyFilter,
+    priorityFilter,
+    projectFilter,
+    stageFilter,
+    managerFilter,
+    salesPersonFilter,
+    createdByFilter,
+    assignDateFrom,
+    assignDateTo,
+    lastActionFrom,
+    lastActionTo,
+    actionDateFrom,
+    actionDateTo,
+    creationDateFrom,
+    creationDateTo,
+    oldStageFilter,
+    cancelReasonFilter,
+    closedDateFrom,
+    closedDateTo,
+    campaignFilter,
+    countryFilter,
+    expectedRevenueFilter,
+    emailFilter,
+    whatsappIntentsFilter,
+    actionTypeFilter,
+    duplicateStatusFilter,
+    sortBy,
+    sortOrder,
+    currentPage,
+    itemsPerPage,
+    scrollY: typeof window === 'undefined' ? 0 : window.scrollY,
+    scrollX: scrollXRef.current?.scrollLeft || 0,
+  }
+
+  useEffect(() => {
+    saveStoredLeadsListState(location.pathname, leadsListPersistRef.current)
+  }, [
+    location.pathname,
+    searchTerm,
+    sourceFilter,
+    agencyFilter,
+    priorityFilter,
+    projectFilter,
+    stageFilter,
+    managerFilter,
+    salesPersonFilter,
+    createdByFilter,
+    assignDateFrom,
+    assignDateTo,
+    lastActionFrom,
+    lastActionTo,
+    actionDateFrom,
+    actionDateTo,
+    creationDateFrom,
+    creationDateTo,
+    oldStageFilter,
+    cancelReasonFilter,
+    closedDateFrom,
+    closedDateTo,
+    campaignFilter,
+    countryFilter,
+    expectedRevenueFilter,
+    emailFilter,
+    whatsappIntentsFilter,
+    actionTypeFilter,
+    duplicateStatusFilter,
+    sortBy,
+    sortOrder,
+    currentPage,
+    itemsPerPage,
+  ])
+
+  useEffect(() => {
+    const persistSnapshot = () => {
+      saveStoredLeadsListState(location.pathname, {
+        ...leadsListPersistRef.current,
+        scrollY: window.scrollY || 0,
+        scrollX: scrollXRef.current?.scrollLeft || 0,
+      })
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') persistSnapshot()
+    }
+    window.addEventListener('pagehide', persistSnapshot)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      persistSnapshot()
+      window.removeEventListener('pagehide', persistSnapshot)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [location.pathname])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    if (params.has('lead_id')) return
+    const nextStage = Array.isArray(stageFilter) && stageFilter.length ? stageFilter.join(',') : ''
+    const currentStage = params.get('stage') || ''
+    if (currentStage === nextStage) return
+    if (nextStage) params.set('stage', nextStage)
+    else params.delete('stage')
+    const nextSearch = params.toString()
+    navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
+  }, [stageFilter, location.pathname, location.search, navigate])
+
+  useEffect(() => {
+    if (restoreScrollRef.current.done) return
+    if (!leadsQueryData && isLoading) return
+    const { x, y } = restoreScrollRef.current
+    restoreScrollRef.current.done = true
+    const apply = () => {
+      window.scrollTo(0, y)
+      if (scrollXRef.current) scrollXRef.current.scrollLeft = x
+    }
+    apply()
+    const frame = window.requestAnimationFrame(apply)
+    return () => window.cancelAnimationFrame(frame)
+  }, [isLoading, leadsQueryData])
 
 
   
@@ -3679,9 +3844,12 @@ if (!s) {
                 setEmailFilter('')
                 setActionTypeFilter([])
                 setDuplicateStatusFilter([])
+                setWhatsappIntentsFilter([])
                 setSortBy('')
                 setSortOrder('desc')
                 setCurrentPage(1)
+                clearStoredLeadsListState(location.pathname)
+                navigate({ pathname: location.pathname, search: '' }, { replace: true })
               }}
               className={`px-3 py-1.5 text-sm ${isLight ? 'text-black' : 'text-white'} hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors`}
             >

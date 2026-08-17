@@ -266,6 +266,23 @@ class LeadActionController extends Controller
         return is_array($controlPerms) ? $controlPerms : [];
     }
 
+    private function isClosingDealType(?string $type): bool
+    {
+        $normalized = strtolower(trim((string) $type));
+        $normalized = str_replace(['-', ' '], '_', $normalized);
+        $normalized = preg_replace('/_+/', '_', $normalized) ?: '';
+
+        return in_array($normalized, [
+            'closing_deals',
+            'closing_deal',
+            'close_deal',
+            'close_deals',
+            'done_deal',
+            'done_deals',
+            'deal',
+        ], true);
+    }
+
     private function findLatestReservationAction(int $leadId): ?LeadAction
     {
         return LeadAction::query()
@@ -980,11 +997,20 @@ class LeadActionController extends Controller
         $mainColumns = ['lead_id', 'type', 'description', 'stage_id', 'next_action_type'];
         $details = $request->except($mainColumns);
 
-        $isClosing = ($request->type === 'closing_deals' || $request->next_action_type === 'closing_deals');
+        $isClosing = $this->isClosingDealType($request->type) || $this->isClosingDealType($request->next_action_type);
         $reservationSourceAction = null;
         if ($isClosing) {
             $reservationSourceAction = $this->findLatestReservationAction((int) $lead->id);
             $details = $this->mergeReservationSnapshotIntoDetails($details, $reservationSourceAction);
+
+            $revenueAmount = $details['closingRevenue'] ?? $details['revenue'] ?? null;
+            if ($revenueAmount === null || $revenueAmount === '') {
+                $reservationAmount = $details['reservationAmount'] ?? $request->reservationAmount ?? null;
+                if ($reservationAmount !== null && $reservationAmount !== '') {
+                    $details['closingRevenue'] = $reservationAmount;
+                    $details['revenue'] = $reservationAmount;
+                }
+            }
         }
 
         $reservationTypeEarly = (string) ($details['reservationType'] ?? $request->reservationType ?? '');
@@ -1333,10 +1359,8 @@ class LeadActionController extends Controller
 
             $reservationUnitId = $details['reservationUnit'] ?? $request->reservationUnit;
             if (!empty($reservationUnitId)) {
+                $targetProperty = Property::find($reservationUnitId);
                 $targetUnit = \App\Models\Unit::find($reservationUnitId);
-                if (!$targetUnit) {
-                    $targetProperty = Property::find($reservationUnitId);
-                }
             }
 
             if (!$targetProperty) {
@@ -1356,7 +1380,10 @@ class LeadActionController extends Controller
 
             if ($targetProperty) {
                 $details['property_id'] = (int) $targetProperty->id;
-                $details['unit'] = $details['unit'] ?? ($targetProperty->unit_number ?? $targetProperty->unit_code ?? $targetProperty->name ?? $targetProperty->title ?? null);
+                $details['unit'] = $details['unit']
+                    ?: ($targetProperty->unit_code ?? $targetProperty->unit_number ?? $targetProperty->name ?? $targetProperty->title ?? null);
+                $details['unit_number'] = $details['unit_number'] ?? $details['unit'];
+                $details['unit_code'] = $details['unit_code'] ?? ($targetProperty->unit_code ?? $details['unit']);
                 $details['report_status'] = $details['report_status'] ?? 'done';
                 $targetProperty->status = 'Sold';
                 $targetProperty->sold_at = now();

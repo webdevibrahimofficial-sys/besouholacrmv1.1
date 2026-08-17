@@ -7,6 +7,7 @@ import { User, Info, Bell, X, Settings, Target, AlertCircle, Eye, EyeOff, Upload
 import SearchableSelect from '@components/SearchableSelect';
 import ListHoverPopover from '@components/ListHoverPopover';
 import { mapSourceToOption } from '@shared/utils/sourceDisplay';
+import { usesCompanyTarget } from '../../utils/targetRevenueReport';
 import { 
   ROLES, 
   STATUSES, 
@@ -455,12 +456,37 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
   const isManager = useMemo(() => {
     const r = String(form.role || '').toLowerCase()
-    // If role is empty, assume not manager yet or default
     if (!r) return false
-    // Sales roles are not managers in this context
     const isSales = r.includes('sales person') || r.includes('salesperson') || r.includes('telesales agent') || r.includes('agent') || r.includes('broker')
     return !isSales
   }, [form.role])
+
+  const inheritsCompanyTarget = useMemo(
+    () => usesCompanyTarget({ ...user, role: form.role }),
+    [user, form.role]
+  )
+
+  const [companyTargetCurrent, setCompanyTargetCurrent] = useState(null)
+
+  useEffect(() => {
+    if (!inheritsCompanyTarget) {
+      setCompanyTargetCurrent(null)
+      return
+    }
+    let cancelled = false
+    const fetchCompanyTarget = async () => {
+      try {
+        const res = await api.get('/api/company-targets?year=all')
+        const rows = Array.isArray(res.data?.data) ? res.data.data : []
+        const current = rows.find((row) => Number(row.year) === Number(currentYear)) || res.data?.current_target || null
+        if (!cancelled) setCompanyTargetCurrent(current)
+      } catch {
+        if (!cancelled) setCompanyTargetCurrent(null)
+      }
+    }
+    fetchCompanyTarget()
+    return () => { cancelled = true }
+  }, [inheritsCompanyTarget, currentYear])
 
   const getTargetLabel = (periodAr, periodEn) => {
       if (isManager) {
@@ -1866,11 +1892,25 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                   <Info className="text-blue-400 mt-0.5" size={20} />
                   <div>
                      <p className="text-sm text-blue-400 font-bold mb-1">
-                       {isArabic ? 'نصيحة ذكية:' : 'Smart Tip:'}
+                       {inheritsCompanyTarget
+                         ? (isArabic ? 'تارجت الشركة:' : 'Company target:')
+                         : (isArabic ? 'نصيحة ذكية:' : 'Smart Tip:')}
                      </p>
                      <p className="text-sm text-blue-400/90">
-                       {isArabic ? 'أدخل قيمة واحدة وسنقوم بحساب التوزيع التلقائي لبقية الفترات.' : 'Enter one value and we will automatically calculate the distribution for the rest of the periods.'}
+                       {inheritsCompanyTarget
+                         ? (isArabic
+                           ? 'Tenant Admin و Director و Operation Manager بياخدوا تارجت الشركة من بيانات الشركة، ومش بيتكتب لهم تارجت شخصي في التقارير.'
+                           : 'Tenant Admin, Director, and Operation Manager inherit the company target from Company Details. Personal targets are not used in reports.')
+                         : (isArabic ? 'أدخل قيمة واحدة وسنقوم بحساب التوزيع التلقائي لبقية الفترات.' : 'Enter one value and we will automatically calculate the distribution for the rest of the periods.')}
                      </p>
+                     {inheritsCompanyTarget && companyTargetCurrent && (
+                       <p className="text-sm text-blue-300 mt-2 font-mono">
+                         {isArabic ? 'تارجت السنة الحالية:' : 'Current year:'}{' '}
+                         {formatNumericDisplay(companyTargetCurrent.monthly_target, numericLocale)} {currencySymbol} / {isArabic ? 'شهر' : 'month'}
+                         {' · '}
+                         {formatNumericDisplay(companyTargetCurrent.yearly_target, numericLocale)} {currencySymbol} / {isArabic ? 'سنة' : 'year'}
+                       </p>
+                     )}
                   </div>
                 </div>
               </div>
@@ -1902,6 +1942,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
                         value={formatNumericDisplay(form.monthlyTarget, numericLocale)} 
                         onChange={(e) => calculateTargets(e.target.value, 'monthly')}
+                        disabled={inheritsCompanyTarget}
                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
                         placeholder="0.00" 
                       />
@@ -1941,6 +1982,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
                         value={formatNumericDisplay(form.quarterlyTarget, numericLocale)} 
                         onChange={(e) => calculateTargets(e.target.value, 'quarterly')}
+                        disabled={inheritsCompanyTarget}
                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
                         placeholder="0.00" 
                       />
@@ -1977,6 +2019,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
                         value={formatNumericDisplay(form.semiAnnualTarget, numericLocale)}
                         onChange={(e) => calculateTargets(e.target.value, 'semi_annual')}
+                        disabled={inheritsCompanyTarget}
                         className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12"
                         placeholder="0.00"
                       />
@@ -2014,8 +2057,9 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                         dir="ltr"
                         style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}
                         value={formatNumericDisplay(form.yearlyTarget, numericLocale)} 
-                        onChange={(e) => calculateTargets(e.target.value, 'yearly')} 
-                        className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12" 
+                        onChange={(e) => calculateTargets(e.target.value, 'yearly')}
+                        disabled={inheritsCompanyTarget}
+                        className="input input-bordered w-full bg-base-100/50 focus:bg-base-100 transition-all font-mono text-lg pr-12"
                         placeholder="0.00" 
                       />
                        <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-base-content/30 text-xs font-mono">

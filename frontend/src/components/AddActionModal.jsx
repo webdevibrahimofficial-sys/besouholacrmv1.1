@@ -15,6 +15,22 @@ import { flip, offset, shift, size } from '@floating-ui/react';
 import './AddActionModalDatepicker.css';
 import SearchableSelect from './SearchableSelect.jsx';
 
+const toNumericAmountString = (value) => {
+  if (value === '' || value == null) return '';
+  const parsed = String(value).replace(/,/g, '').replace(/[^\d.-]/g, '');
+  if (parsed === '' || parsed === '-' || parsed === '.' || parsed === '-.') return '';
+  return Number.isFinite(Number(parsed)) ? parsed : '';
+};
+
+const getUnitSellingPrice = (property) => toNumericAmountString(
+  property?.price
+  ?? property?.total_price
+  ?? property?.totalPrice
+  ?? property?.unit_price
+  ?? property?.total_after_discount
+  ?? property?.totalAfterDiscount
+);
+
 const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initialType = 'call', initialDate, isOwnerProp, isSuperAdminProp: _isSuperAdminProp }) => {
   const { i18n } = useTranslation();
   const { theme: _theme, resolvedTheme } = useTheme();
@@ -54,6 +70,19 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   };
   const normalizeStageToken = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const normalizeStageBehaviorToken = (value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const isReservationAction = (value) => normalizeStageBehaviorToken(value) === 'reservation';
+  const isClosingDealAction = (value) => {
+    const normalized = normalizeStageBehaviorToken(value);
+    return [
+      'closing_deals',
+      'closing_deal',
+      'close_deal',
+      'close_deals',
+      'done_deal',
+      'done_deals',
+      'deal',
+    ].includes(normalized);
+  };
   const companyTypeLower = String(company?.company_type || '').toLowerCase();
   const isRealEstateTenant = companyTypeLower.includes('real');
   const defaultReservationType = isRealEstateTenant ? 'project' : 'general';
@@ -79,6 +108,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const cancelNotesTouchedRef = useRef(false);
   const notInterestAutoNotesRef = useRef('');
   const notInterestNotesTouchedRef = useRef(false);
+  const closingRevenueAutoRef = useRef('');
   const [transferFilterRole, setTransferFilterRole] = useState('All');
   const [transferSearchQuery, setTransferSearchQuery] = useState('');
   const [transferSelectedUser, setTransferSelectedUser] = useState(null);
@@ -111,7 +141,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       : ['convert', 'transfer', 'transferred'].includes(fallbackKey);
     const isTerminal = typeof serverBehavior.is_terminal === 'boolean'
       ? serverBehavior.is_terminal
-      : ['closing_deals', 'cancel', 'not_interested'].includes(fallbackKey);
+      : (isClosingDealAction(fallbackKey) || ['cancel', 'not_interested'].includes(fallbackKey));
 
     return {
       stage_key: String(fallbackKey || ''),
@@ -124,7 +154,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       requires_answer_toggle: typeof serverBehavior.requires_answer_toggle === 'boolean' ? serverBehavior.requires_answer_toggle : (!isTransfer && !['cancel', 'not_interested'].includes(fallbackKey)),
       comment_required: typeof serverBehavior.comment_required === 'boolean' ? serverBehavior.comment_required : !['cancel', 'not_interested'].includes(fallbackKey),
       reason_type: reasonType,
-      default_action_type: serverBehavior.default_action_type || (fallbackKey === 'cancel' ? 'cancel' : (['proposal', 'reservation', 'closing_deals', 'rent', 'meeting'].includes(fallbackKey) ? fallbackKey : 'call')),
+      default_action_type: serverBehavior.default_action_type || (fallbackKey === 'cancel' ? 'cancel' : (isClosingDealAction(fallbackKey) ? 'closing_deals' : (['proposal', 'reservation', 'rent', 'meeting'].includes(fallbackKey) ? fallbackKey : 'call'))),
       auto_answer_status: serverBehavior.auto_answer_status || (fallbackKey === 'cancel' ? 'cancelled' : (fallbackKey === 'not_interested' ? 'answer' : null)),
     };
   };
@@ -199,7 +229,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             id: p.id,
             name: p.unit_code || p.name || p.title || `#${p.id}`,
             project_id: projectMatch ? projectMatch.id : (p.project_id ?? undefined),
-            rent_amount: p.rent_cost ?? p.rent_amount ?? p.total_price ?? 0
+            rent_amount: p.rent_cost ?? p.rent_amount ?? p.total_price ?? 0,
+            price: getUnitSellingPrice(p),
           };
         });
 
@@ -266,6 +297,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   useEffect(() => {
     if (!isOpen) return;
+    closingRevenueAutoRef.current = '';
     setActionData(buildInitialActionData());
     setTransferFilterRole('All');
     setTransferSearchQuery('');
@@ -277,7 +309,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   // Reservation type is automatic based on tenant (Real Estate => project, otherwise general).
   useEffect(() => {
     if (!isOpen) return;
-    if (actionData.nextAction !== 'reservation') return;
+    if (!isReservationAction(actionData.nextAction) && !isClosingDealAction(actionData.nextAction)) return;
     if (actionData.reservationType === defaultReservationType) return;
     setActionData((prev) => ({ ...prev, reservationType: defaultReservationType }));
   }, [isOpen, actionData.nextAction, actionData.reservationType, defaultReservationType]);
@@ -661,7 +693,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const selectedStageBehavior = useMemo(() => getStageUiBehavior(selectedStage), [selectedStage]);
 
   const isTransferStageSelected = Boolean(selectedStageBehavior?.is_transfer);
-  const showReservationFields = actionData.nextAction === 'reservation' || actionData.nextAction === 'closing_deals';
+  const showReservationFields = isReservationAction(actionData.nextAction) || isClosingDealAction(actionData.nextAction);
 
   const transferRoleOptions = useMemo(
     () => ['All', ...Array.from(new Set((Array.isArray(salesAssignees) ? salesAssignees : []).map((entry) => String(entry?.role || entry?.job_title || '').trim()).filter(Boolean)))],
@@ -912,7 +944,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   // Auto-calculate Total Amount for General Reservation
   useEffect(() => {
-    if (['reservation', 'closing_deals'].includes(actionData.nextAction) && actionData.reservationType === 'general') {
+    if ((isReservationAction(actionData.nextAction) || isClosingDealAction(actionData.nextAction)) && actionData.reservationType === 'general') {
       const total = actionData.reservationGeneralItems.reduce((sum, item) => {
         const quantity = Number(item.quantity || 0);
         const price = Number(item.price || 0);
@@ -933,7 +965,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       }, 0);
 
       setActionData(prev => {
-        const shouldSyncRevenue = prev.nextAction === 'closing_deals';
+        const shouldSyncRevenue = isClosingDealAction(prev.nextAction);
         if (
           prev.reservationAmount === total &&
           (!shouldSyncRevenue || String(prev.closingRevenue ?? '') === String(total))
@@ -949,18 +981,68 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     }
   }, [actionData.reservationGeneralItems, actionData.nextAction, actionData.reservationType, items]);
 
-  // Keep Revenue in sync with Total Amount / Reservation Amount for closing deals
+  // Fetch a reserved/sold unit missing from the selectable dropdown so we can read its price.
   useEffect(() => {
-    if (actionData.nextAction !== 'closing_deals') return;
-    if (actionData.reservationType === 'general') return; // handled above with line-item totals
+    if (!isOpen) return;
+    if (!isClosingDealAction(actionData.nextAction)) return;
+    if (actionData.reservationType === 'general') return;
+    const unitId = actionData.reservationUnit;
+    if (!unitId) return;
+    if (units.some((unit) => String(unit.id) === String(unitId))) return;
 
-    const total = actionData.reservationAmount;
-    setActionData(prev => {
-      if (prev.nextAction !== 'closing_deals') return prev;
-      if (String(prev.closingRevenue ?? '') === String(total ?? '')) return prev;
-      return { ...prev, closingRevenue: total ?? '' };
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get(`/api/properties/${unitId}`);
+        const property = response?.data?.data ?? response?.data;
+        if (cancelled || !property?.id) return;
+        setUnits((prev) => {
+          if (prev.some((unit) => String(unit.id) === String(property.id))) return prev;
+          return [
+            ...prev,
+            {
+              id: property.id,
+              name: property.unit_code || property.name || property.title || `#${property.id}`,
+              project_id: property.project_id ?? undefined,
+              rent_amount: property.rent_cost ?? property.rent_amount ?? property.total_price ?? 0,
+              price: getUnitSellingPrice(property),
+            },
+          ];
+        });
+      } catch (error) {
+        console.error('Failed to fetch selected unit price:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, actionData.nextAction, actionData.reservationType, actionData.reservationUnit, units]);
+
+  // Auto-fill Revenue from the selected unit's selling price for real-estate closing deals.
+  // Do not copy Reservation Amount, and do not overwrite a value the user already typed.
+  useEffect(() => {
+    if (!isClosingDealAction(actionData.nextAction)) return;
+    if (actionData.reservationType === 'general') return;
+
+    const selectedUnit = units.find((unit) => String(unit.id) === String(actionData.reservationUnit));
+    const unitPrice = selectedUnit ? (selectedUnit.price || getUnitSellingPrice(selectedUnit)) : '';
+
+    setActionData((prev) => {
+      if (!isClosingDealAction(prev.nextAction)) return prev;
+      const current = String(prev.closingRevenue ?? '');
+      const lastAuto = String(closingRevenueAutoRef.current ?? '');
+      const next = String(unitPrice ?? '');
+      const shouldFill = current === '' || current === lastAuto;
+      if (!shouldFill) return prev;
+      if (current === next) {
+        closingRevenueAutoRef.current = next;
+        return prev;
+      }
+      closingRevenueAutoRef.current = next;
+      return { ...prev, closingRevenue: next };
     });
-  }, [actionData.nextAction, actionData.reservationAmount, actionData.reservationType]);
+  }, [actionData.nextAction, actionData.reservationType, actionData.reservationUnit, units]);
 
   const actionTypes = [
     { value: 'call', label: isArabic ? 'مكالمة' : 'Call', icon: FaPhone, color: 'bg-blue-500' },
@@ -1252,6 +1334,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       }))
       : [{ category: '', item: '', quantity: 1, price: 0, addon_ids: [], discount_type: 'value', discount_value: '' }];
 
+    const snapshotAmount = snapshot?.reservationAmount ?? snapshot?.reservation_amount ?? snapshot?.amount ?? '';
+
     setActionData(prev => ({
       ...prev,
       reservationType: nextType,
@@ -1259,11 +1343,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
       reservationItem: snapshot?.reservationItem ?? '',
       reservationGeneralItems: nextType === 'general' ? normalizedRows : prev.reservationGeneralItems,
       reservationNotes: snapshot?.reservationNotes ?? '',
-      reservationProject: snapshot?.reservationProject ?? '',
-      reservationUnit: snapshot?.reservationUnit ?? '',
-      reservationAmount: snapshot?.reservationAmount ?? '',
-      closingRevenue: prev.nextAction === 'closing_deals'
-        ? (snapshot?.reservationAmount ?? prev.closingRevenue ?? '')
+      reservationProject: snapshot?.reservationProject ?? snapshot?.reservation_project ?? '',
+      reservationUnit: snapshot?.reservationUnit ?? snapshot?.reservation_unit ?? '',
+      reservationAmount: snapshotAmount,
+      closingRevenue: isClosingDealAction(prev.nextAction) && nextType === 'general'
+        ? (snapshotAmount || prev.closingRevenue || '')
         : prev.closingRevenue,
       sourceReservationActionId: snapshot?.sourceReservationActionId ? String(snapshot.sourceReservationActionId) : '',
       sourceReservationLoadedAt: new Date().toISOString(),
@@ -1322,7 +1406,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   useEffect(() => {
     if (!isOpen) return;
-    if (actionData.nextAction !== 'closing_deals') return;
+    if (!isClosingDealAction(actionData.nextAction)) return;
     if (isLoadingReservationSnapshot) return;
     if (actionData.sourceReservationLoadedAt || actionData.sourceReservationActionId) return;
 
@@ -1533,7 +1617,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
     // Clean up data based on reservation type to avoid confusion
     const cleanedData = { ...actionData };
-    if (['reservation', 'closing_deals'].includes(cleanedData.nextAction)) {
+    if (isReservationAction(cleanedData.nextAction) || isClosingDealAction(cleanedData.nextAction)) {
       if (cleanedData.reservationType === 'general') {
         // If General, remove Project/Unit fields
         cleanedData.reservationProject = '';
@@ -1604,7 +1688,31 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         cleanedData.reservationCategory = '';
         cleanedData.reservationItem = '';
         cleanedData.reservationType = 'project'; // Ensure type is explicit
+        const selectedUnit = units.find((unit) => String(unit.id) === String(cleanedData.reservationUnit));
+        const unitLabel = String(selectedUnit?.name || '').trim();
+        if (unitLabel) {
+          cleanedData.unit = unitLabel;
+          cleanedData.unit_number = unitLabel;
+          cleanedData.unit_code = unitLabel;
+        }
+        if (selectedUnit?.id) {
+          cleanedData.property_id = selectedUnit.id;
+        }
       }
+    }
+
+    if (isClosingDealAction(cleanedData.nextAction)) {
+      let syncedRevenue = String(cleanedData.closingRevenue ?? '').trim();
+      if (syncedRevenue === '') {
+        if (cleanedData.reservationType === 'general') {
+          syncedRevenue = String(cleanedData.reservationAmount ?? '').trim();
+        } else {
+          const selectedUnit = units.find((unit) => String(unit.id) === String(cleanedData.reservationUnit));
+          syncedRevenue = String(selectedUnit?.price || getUnitSellingPrice(selectedUnit) || '').trim();
+        }
+      }
+      cleanedData.closingRevenue = syncedRevenue;
+      cleanedData.revenue = syncedRevenue;
     }
 
     // Helper to convert file to base64
@@ -1709,7 +1817,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         }
       }
 
-      const isTerminalNextAction = ['closing_deals', 'cancel', 'not_interested'].includes(String(cleanedData.nextAction || '').trim());
+      const isTerminalNextAction = isClosingDealAction(cleanedData.nextAction) || ['cancel', 'not_interested'].includes(String(cleanedData.nextAction || '').trim());
       if (isTerminalNextAction) {
         cleanedData.date = '';
         cleanedData.time = '';
@@ -2334,7 +2442,6 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                         setActionData(prev => ({
                           ...prev,
                           reservationAmount: rawValue,
-                          ...(prev.nextAction === 'closing_deals' ? { closingRevenue: rawValue } : {}),
                         }));
                       }}
                       {...numericFieldProps}
@@ -2519,7 +2626,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Closing Deals fields */}
-          {actionData.nextAction === 'closing_deals' && (
+          {isClosingDealAction(actionData.nextAction) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإيرادات' : 'Revenue'}</label>

@@ -14,16 +14,16 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
   const { theme, resolvedTheme } = useTheme()
   const isLight = resolvedTheme === 'light'
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480
-  const useLightColors = exportMode || isLight
+  const useLightColors = isLight
   const tickColor = useLightColors ? '#0f172a' : '#ffffff'
   const gridColor = useLightColors ? 'rgba(15, 23, 42, 0.12)' : 'rgba(255, 255, 255, 0.12)'
-  const tickFontSize = exportMode ? 13 : (isMobile ? 10 : 12)
-  const axisTitleFontSize = exportMode ? 14 : (isMobile ? 10 : 13)
+  const tickFontSize = isMobile ? 10 : 12
+  const axisTitleFontSize = isMobile ? 10 : 13
   const xAxisLabel = lang === 'ar' ? 'الأشهر' : 'Months'
   const yAxisLabel = lang === 'ar' ? 'عدد العملاء المحتملين' : 'No. of Leads'
-  const containerHeightPx = exportMode ? 420 : 192
-  const chartHeightClass = exportMode ? 'h-[420px]' : 'h-40 sm:h-48'
-  const pieSize = exportMode ? 260 : 192
+  const containerHeightPx = 192
+  const chartHeightClass = 'h-40 sm:h-48'
+  const pieSize = 192
   const monthLabelsEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
   const translateMonthLabel = (label) => {
@@ -352,14 +352,15 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     const options = {
       responsive: true,
       maintainAspectRatio: false,
+      animation: exportMode ? false : undefined,
       devicePixelRatio: exportMode ? 3 : 2,
       plugins: {
         legend: { display: false },
         tooltip: { enabled: true }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
-        y: { beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
+        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
+        y: { beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
       }
     }
 
@@ -390,14 +391,15 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     const options = {
       responsive: true,
       maintainAspectRatio: false,
+      animation: exportMode ? false : undefined,
       devicePixelRatio: exportMode ? 3 : 2,
       plugins: {
-        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } } },
+        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: tickColor, font: { size: tickFontSize } } },
         tooltip: { enabled: true }
       },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
-        y: { stacked: true, beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
+        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
+        y: { stacked: true, beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
       }
     }
 
@@ -433,14 +435,15 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     const options = {
       responsive: true,
       maintainAspectRatio: false,
+      animation: exportMode ? false : undefined,
       devicePixelRatio: exportMode ? 3 : 2,
       plugins: {
-        legend: { display: false, position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } } },
+        legend: { display: false, position: 'top', labels: { usePointStyle: true, boxWidth: 8, color: tickColor, font: { size: tickFontSize } } },
         tooltip: { enabled: true }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
-        y: { beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize, weight: exportMode ? 600 : 400 } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
+        x: { grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0, color: tickColor, font: { size: tickFontSize } }, title: { display: true, text: xAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } },
+        y: { beginAtZero: true, grid: { display: true, color: gridColor }, ticks: { precision: 0, color: tickColor, font: { size: tickFontSize } }, title: { display: true, text: yAxisLabel, color: tickColor, font: { size: axisTitleFontSize, weight: 700 } } }
       }
     }
 
@@ -476,7 +479,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
     const useFourColumnLegend = !isMobile && segments.length > 4
 
     return (
-      <div className={`flex flex-col items-center justify-center gap-4 md:flex-row md:items-center ${exportMode ? 'min-h-[420px]' : 'h-auto min-h-48'}`}>
+      <div className={`flex flex-col items-center justify-center gap-4 md:flex-row md:items-center h-auto min-h-48`}>
         <PieChart
           segments={segments}
           centerValue={total}
@@ -484,7 +487,7 @@ export const LeadsAnalysisChart = ({ data, chartType = 'bar', filters = {}, lege
           size={pieSize}
         />
         <div
-          className={`w-full md:w-auto ${exportMode ? 'md:ml-8' : 'md:ml-6'} ${
+          className={`w-full md:w-auto md:ml-6 ${
             useFourColumnLegend
               ? 'grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2'
               : 'space-y-2'

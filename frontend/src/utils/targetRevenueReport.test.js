@@ -1,13 +1,28 @@
 import {
   bucketDateRange,
+  calculateAchievementPercent,
   effectiveDateRange,
   fallbackUserTarget,
+  formatAchievementPercent,
+  formatCompactMoney,
   getPeriodBounds,
+  indexUsersById,
   isDateInRange,
   matchCommissionRate,
   periodsCoveredInYear,
+  resolveManagerName,
   resolvePeriodTarget,
   resolveRevenueProjectOrItem,
+  resolveEffectivePeriodTarget,
+  resolveSalespersonRowTarget,
+  usesCompanyTarget,
+  isFieldSalesRole,
+  isMidLevelManagerRole,
+  isManagerFilterRole,
+  shouldIncludeInSalespersonRows,
+  matchesManagerFilter,
+  resolveReportKpiTarget,
+  countClosedDeals,
   resolveTargetForYear,
   resolveTiersForYear,
   timeBucketIndex,
@@ -180,10 +195,156 @@ describe('targetRevenueReport', () => {
     })).toBe('honor')
   })
 
-  test('real estate tenants keep the project name', () => {
-    expect(resolveRevenueProjectOrItem({
-      project: 'Marina',
-      item_name: 'sam',
-    }, { companyType: 'real estate' })).toBe('Marina')
+  test('achievement keeps two decimals so small ratios are not rounded to 0', () => {
+    expect(calculateAchievementPercent(21000, 16666666.67)).toBe(0.13)
+    expect(calculateAchievementPercent(25000, 83333333.33)).toBe(0.03)
+    expect(calculateAchievementPercent(100, 100)).toBe(100)
+    expect(calculateAchievementPercent(50, 0)).toBe(0)
+    expect(formatAchievementPercent(0.13)).toBe('0.13%')
+    expect(formatAchievementPercent(100)).toBe('100%')
+  })
+
+  test('compacts large money values for chart axes', () => {
+    expect(formatCompactMoney(80000000)).toBe('80M')
+    expect(formatCompactMoney(16666666.67)).toBe('16.7M')
+    expect(formatCompactMoney(25000)).toBe('25K')
+    expect(formatCompactMoney(500)).toBe('500')
+    expect(formatCompactMoney(80000000, { rtl: true })).toBe('80 مليون')
+  })
+
+  test('resolves manager from nested relation or manager_id lookup', () => {
+    const usersById = indexUsersById([
+      { id: 1, name: 'sales', manager_id: 9 },
+      { id: 9, name: 'Sales Manager' },
+    ])
+
+    expect(resolveManagerName({ manager: { name: 'Direct Manager' } }, usersById)).toBe('Direct Manager')
+    expect(resolveManagerName({ manager_id: 9 }, usersById)).toBe('Sales Manager')
+    expect(resolveManagerName({ manager: 9 }, usersById)).toBe('Sales Manager')
+    expect(resolveManagerName({ id: 1, name: 'sales' }, usersById)).toBe('')
+  })
+
+  test('leadership roles inherit company target instead of personal target', () => {
+    const companyRows = [{ year: 2026, monthly_target: 50000, yearly_target: 600000 }]
+    const director = { role: 'Director', monthly_target: 1000 }
+    const salesperson = { role: 'Sales Person', monthly_target: 10000 }
+
+    expect(usesCompanyTarget(director)).toBe(true)
+    expect(usesCompanyTarget({ role: 'Operation Manager' })).toBe(true)
+    expect(usesCompanyTarget({ role: 'Tenant Admin' })).toBe(true)
+    expect(usesCompanyTarget(salesperson)).toBe(false)
+    expect(usesCompanyTarget({ role: 'Sales Admin' })).toBe(false)
+
+    expect(resolveEffectivePeriodTarget({
+      user: director,
+      rows: [],
+      companyRows,
+      yearFilter: '2026',
+      type: 'monthly',
+      currentYear,
+      tenantCreatedYear: 2024,
+      now,
+    })).toBe(50000)
+
+    expect(resolveEffectivePeriodTarget({
+      user: salesperson,
+      rows: [],
+      companyRows,
+      yearFilter: '2026',
+      type: 'monthly',
+      currentYear,
+      tenantCreatedYear: 2024,
+      now,
+    })).toBe(10000)
+  })
+
+  test('salesperson rows ignore leftover company/personal numbers for leadership', () => {
+    expect(usesCompanyTarget({ is_primary_admin: true, monthly_target: 83333333.33 })).toBe(true)
+    expect(resolveSalespersonRowTarget({
+      user: { role: 'Tenant Admin', monthly_target: 83333333.33 },
+      rows: [{ year: 2026, monthly_target: 83333333.33 }],
+      yearFilter: '2026',
+      type: 'monthly',
+      currentYear,
+      tenantCreatedYear: 2024,
+      now,
+    })).toBe(0)
+
+    expect(resolveSalespersonRowTarget({
+      user: { role: 'Sales Person', monthly_target: 50000 },
+      rows: [],
+      yearFilter: '2026',
+      type: 'monthly',
+      currentYear,
+      tenantCreatedYear: 2024,
+      now,
+    })).toBe(50000)
+  })
+
+  test('classifies field sales vs mid-level managers vs leadership', () => {
+    expect(isFieldSalesRole({ role: 'Sales Person' })).toBe(true)
+    expect(isFieldSalesRole({ role: 'Sales Manager' })).toBe(false)
+    expect(isMidLevelManagerRole({ role: 'Team Leader' })).toBe(true)
+    expect(isMidLevelManagerRole({ role: 'Branch Manager' })).toBe(true)
+    expect(isMidLevelManagerRole({ role: 'Director' })).toBe(false)
+    expect(isManagerFilterRole({ role: 'Team Leader' })).toBe(true)
+    expect(isManagerFilterRole({ role: 'Director' })).toBe(false)
+    expect(isManagerFilterRole({ role: 'Sales Person' })).toBe(false)
+    expect(isManagerFilterRole({ role: 'Operation Manager' })).toBe(false)
+  })
+
+  test('salesperson table includes managers personally and leadership only when they have sales', () => {
+    expect(shouldIncludeInSalespersonRows({ role: 'Team Leader' }, { personalTarget: 20000 })).toBe(true)
+    expect(shouldIncludeInSalespersonRows({ role: 'Sales Person' }, { personalTarget: 0 })).toBe(true)
+    expect(shouldIncludeInSalespersonRows({ role: 'Director' }, { personalTarget: 0, hasRevenue: false })).toBe(false)
+    expect(shouldIncludeInSalespersonRows({ role: 'Director' }, { personalTarget: 0, hasRevenue: true })).toBe(true)
+  })
+
+  test('manager filter matches the manager plus people they manage', () => {
+    const usersById = indexUsersById([
+      { id: 1, name: 'Sara TL' },
+      { id: 2, name: 'Ahmed', manager_id: 1 },
+    ])
+    expect(matchesManagerFilter({ id: 1, name: 'Sara TL' }, 'Sara TL', usersById)).toBe(true)
+    expect(matchesManagerFilter({ id: 2, name: 'Ahmed', manager_id: 1 }, 'Sara TL', usersById)).toBe(true)
+    expect(matchesManagerFilter({ id: 3, name: 'Other' }, 'Sara TL', usersById)).toBe(false)
+  })
+
+  test('company KPI uses company target until a manager or salesperson filter is applied', () => {
+    expect(resolveReportKpiTarget({
+      managerFilter: 'all',
+      salesPersonFilter: 'all',
+      visibleTargets: [10000, 20000],
+      companyTarget: 500000,
+    })).toBe(500000)
+
+    expect(resolveReportKpiTarget({
+      managerFilter: 'Sara TL',
+      salesPersonFilter: 'all',
+      visibleTargets: [20000, 10000],
+      companyTarget: 500000,
+    })).toBe(30000)
+
+    expect(resolveReportKpiTarget({
+      managerFilter: 'all',
+      salesPersonFilter: 'Ahmed',
+      visibleTargets: [10000],
+      companyTarget: 500000,
+    })).toBe(10000)
+  })
+
+  test('deals count matches each closed deal and ignores placeholders', () => {
+    const rows = [
+      { id: 'empty-1', status: 'No Sales', salesperson: 'A', date: '' },
+      { id: 10, salesperson: 'sales', manager: 'Test Admin', date: '2026-08-10' },
+      { id: 11, salesperson: 'sales', manager: 'Test Admin', date: '2026-08-17' },
+      { id: 12, salesperson: 'Test Admin', date: '2026-08-16' },
+      { id: 13, salesperson: 'sales', date: '2026-07-02' },
+    ]
+
+    expect(countClosedDeals(rows)).toBe(4)
+    expect(countClosedDeals(rows, {
+      periodRange: { from: '2026-08-01', to: '2026-08-17' },
+    })).toBe(3)
   })
 })

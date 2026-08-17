@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { PERM_LABELS_AR, getPermissionDisplayLabel } from './constants'
 import { api } from '@utils/api'
+import { usesCompanyTarget } from '../../utils/targetRevenueReport'
 import ListHoverPopover from '@components/ListHoverPopover'
 import { Percent } from 'lucide-react'
 import { FaTimes, FaIdCard, FaUser, FaTag, FaPhone, FaEnvelope, FaBuilding, FaLayerGroup, FaMapMarkerAlt, FaChartLine, FaBell, FaShieldAlt } from 'react-icons/fa';
@@ -49,6 +50,18 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
 
   const currentYear = new Date().getFullYear()
   const currentTarget = useMemo(() => {
+    if (usesCompanyTarget(user)) {
+      return {
+        year: currentYear,
+        monthly_target: user?.company_monthly_target ?? user?.total_monthly_target ?? 0,
+        quarterly_target: user?.company_quarterly_target ?? 0,
+        semi_annual_target: user?.company_semi_annual_target ?? 0,
+        yearly_target: user?.company_yearly_target ?? user?.total_yearly_target ?? 0,
+        commission_tiers: user?.commission_tiers || [],
+        commissionTiers: user?.commissionTiers || [],
+      }
+    }
+
     const current = targetHistory.find(row => Number(row.year) === currentYear)
     if (current) return current
 
@@ -365,7 +378,7 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
                 <div>
-                  <label className={labelClass}>{isRTL ? 'التارجت الموروث (الفريق)' : 'Inherited Target (Team)'}</label>
+                  <label className={labelClass}>{usesCompanyTarget(user) ? (isRTL ? 'تارجت الشركة' : 'Company Target') : (isRTL ? 'التارجت الموروث (الفريق)' : 'Inherited Target (Team)')}</label>
                   <div className={`w-full px-3 py-2 rounded-lg border flex flex-col gap-1 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'شهري' : 'Monthly'}</span>

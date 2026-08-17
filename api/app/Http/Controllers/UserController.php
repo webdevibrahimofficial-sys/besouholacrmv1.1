@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Agency;
 use App\Models\Broker;
+use App\Models\CompanyYearlyTarget;
 use App\Models\Lead;
 use App\Models\User;
 use App\Models\Tenant;
@@ -448,10 +449,30 @@ class UserController extends Controller
             $this->calculateUserTarget($user->id, $userMap, $byManager, $calculated);
         }
 
-        // Special Logic for Top-Level Roles (Director, Sales Admin, Operator, Tenant Admin)
-        // Their Total Target = Sum of Personal Targets of ALL users in the tenant.
-        
-        // 1. Calculate Tenant Total Personal Targets
+        $tenantId = $users->first()?->tenant_id ? (int) $users->first()->tenant_id : null;
+        $companyTarget = CompanyYearlyTarget::currentForTenant($tenantId);
+        $companyMonthly = (float) ($companyTarget->monthly_target ?? 0);
+        $companyQuarterly = (float) ($companyTarget->quarterly_target ?? 0);
+        $companySemiAnnual = (float) ($companyTarget->semi_annual_target ?? 0);
+        $companyYearly = (float) ($companyTarget->yearly_target ?? 0);
+
+        foreach ($users as $user) {
+            $usesCompany = $user->usesCompanyTarget();
+            $user->uses_company_target = $usesCompany;
+            $user->company_monthly_target = $usesCompany ? $companyMonthly : 0;
+            $user->company_quarterly_target = $usesCompany ? $companyQuarterly : 0;
+            $user->company_semi_annual_target = $usesCompany ? $companySemiAnnual : 0;
+            $user->company_yearly_target = $usesCompany ? $companyYearly : 0;
+
+            if ($usesCompany) {
+                $user->inherited_monthly_target = $companyMonthly;
+                $user->inherited_yearly_target = $companyYearly;
+                $user->total_monthly_target = $companyMonthly;
+                $user->total_yearly_target = $companyYearly;
+            }
+        }
+
+        // Remaining top-level roles still roll up the tenant's personal targets.
         $tenantTotalMonthly = 0;
         $tenantTotalYearly = 0;
 
@@ -461,12 +482,8 @@ class UserController extends Controller
         }
 
         $superManagerRoles = [
-            'director',
             'sales admin',
             'operator',
-            'tenant admin',
-            'tenant-admin',
-            'admin' // Sometimes just 'admin' is used for tenant admin
         ];
 
         foreach ($users as $user) {
@@ -492,7 +509,7 @@ class UserController extends Controller
                 }
             }
 
-            if ($isSuperManager) {
+            if ($isSuperManager && !$user->usesCompanyTarget()) {
                 // Override Total Target
                 $user->total_monthly_target = $tenantTotalMonthly;
                 $user->total_yearly_target = $tenantTotalYearly;
@@ -677,7 +694,7 @@ class UserController extends Controller
         
         // Optimization: Fetch all users of the same tenant to build tree, then pick this user.
         // This ensures O(N) instead of N+1 recursive queries, and N is small per tenant.
-        $allUsers = User::where('tenant_id', $user->tenant_id)->get();
+        $allUsers = User::where('tenant_id', $user->tenant_id)->with('roles')->get();
         $this->calculateTargets($allUsers);
         
         // Find the user in the calculated collection to get the values
@@ -687,6 +704,11 @@ class UserController extends Controller
             $user->inherited_yearly_target = $calculatedUser->inherited_yearly_target;
             $user->total_monthly_target = $calculatedUser->total_monthly_target;
             $user->total_yearly_target = $calculatedUser->total_yearly_target;
+            $user->uses_company_target = (bool) ($calculatedUser->uses_company_target ?? false);
+            $user->company_monthly_target = $calculatedUser->company_monthly_target ?? 0;
+            $user->company_quarterly_target = $calculatedUser->company_quarterly_target ?? 0;
+            $user->company_semi_annual_target = $calculatedUser->company_semi_annual_target ?? 0;
+            $user->company_yearly_target = $calculatedUser->company_yearly_target ?? 0;
         }
 
         $user->setAttribute('is_primary_admin', $this->isPrimaryAdmin($user));
@@ -823,7 +845,7 @@ class UserController extends Controller
         $this->storeModulePermissions($request, $user);
 
         // Recalculate targets for the updated user
-        $allUsers = User::where('tenant_id', $user->tenant_id)->get();
+        $allUsers = User::where('tenant_id', $user->tenant_id)->with('roles')->get();
         // We need to update the user in the collection with the new values we just saved
         // but $allUsers already has the fresh data from DB because we just saved $user
         $this->calculateTargets($allUsers);
@@ -834,6 +856,11 @@ class UserController extends Controller
             $user->inherited_yearly_target = $calculatedUser->inherited_yearly_target;
             $user->total_monthly_target = $calculatedUser->total_monthly_target;
             $user->total_yearly_target = $calculatedUser->total_yearly_target;
+            $user->uses_company_target = (bool) ($calculatedUser->uses_company_target ?? false);
+            $user->company_monthly_target = $calculatedUser->company_monthly_target ?? 0;
+            $user->company_quarterly_target = $calculatedUser->company_quarterly_target ?? 0;
+            $user->company_semi_annual_target = $calculatedUser->company_semi_annual_target ?? 0;
+            $user->company_yearly_target = $calculatedUser->company_yearly_target ?? 0;
         }
 
         return response()->json($user->load(['roles', 'manager', 'team.department']));

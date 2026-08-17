@@ -142,6 +142,41 @@ class User extends Authenticatable
         return $isMarketingRole && filled($this->agency_id);
     }
 
+    public function usesCompanyTarget(): bool
+    {
+        $roleValues = collect([
+            $this->job_title,
+            $this->getRoleAttribute(),
+        ]);
+
+        if ($this->relationLoaded('roles')) {
+            $roleValues = $roleValues->merge($this->roles->pluck('name'));
+        }
+
+        $normalized = $roleValues
+            ->filter()
+            ->map(function ($value) {
+                return strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) $value))));
+            })
+            ->unique()
+            ->values();
+
+        return $normalized->contains(function ($role) {
+            if ($role === 'sales admin' || str_contains($role, 'sales admin')) {
+                return false;
+            }
+
+            return in_array($role, [
+                'admin',
+                'owner',
+                'tenant admin',
+                'director',
+                'operation manager',
+                'operations manager',
+            ], true) || str_contains($role, 'tenant admin');
+        }) || (bool) ($this->is_super_admin ?? false) || (bool) ($this->is_primary_admin ?? false);
+    }
+
     public function team(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(Team::class);
