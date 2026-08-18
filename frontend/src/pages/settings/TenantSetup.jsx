@@ -11,7 +11,6 @@ import { useSubscriptionPlans, getPlanModulesForCompany } from '../../hooks/useS
 import { useAppState } from '../../shared/context/AppStateProvider';
 import { useTheme } from '../../shared/context/ThemeProvider';
 import { AVAILABLE_MODULES, AVAILABLE_TENANT_FEATURES } from '../../hooks/useTenants';
-import { TENANT_FEATURE_KEYS } from '@features/tenant-features/utils/featureKeys';
 import {
   Plus, 
   Filter, 
@@ -205,6 +204,15 @@ const buildTransactionPayload = (data, fallbackBillingCycle = 'monthly') => {
 };
 
 const getTenantFeatureEnabled = (tenant, featureKey) => Boolean(tenant?.features?.[featureKey]);
+
+const defaultTenantFeatureState = (tenant = null) => (
+  Object.fromEntries(
+    AVAILABLE_TENANT_FEATURES.map((feature) => [
+      feature.key,
+      tenant ? getTenantFeatureEnabled(tenant, feature.key) : false,
+    ])
+  )
+);
 
 const serializeTenantFeaturesPayload = (featureState = {}) => (
   AVAILABLE_TENANT_FEATURES.map((feature) => ({
@@ -424,7 +432,7 @@ const TenantSetup = () => {
     setShowCreateModal(false);
     reset();
     setCustomModules([]);
-    setCreateFeatures({ [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: false });
+    setCreateFeatures(defaultTenantFeatureState());
 
     if (isCreateRoute) {
       navigate('/system/tenants', { replace: true });
@@ -671,9 +679,7 @@ const TenantSetup = () => {
   const transactionCurrency = watch('transaction_currency');
   const tenancyType = watch('tenancy_type');
   const [customModules, setCustomModules] = useState([]);
-  const [createFeatures, setCreateFeatures] = useState({
-    [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: false,
-  });
+  const [createFeatures, setCreateFeatures] = useState(() => defaultTenantFeatureState());
 
   const handleModuleToggle = (moduleId) => {
     setCustomModules(prev => 
@@ -758,7 +764,7 @@ const TenantSetup = () => {
       toast.success(`URL: ${fullUrl}`, { duration: 6000 });
 
       reset();
-      setCreateFeatures({ [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: false });
+      setCreateFeatures(defaultTenantFeatureState());
       closeCreateModal();
       fetchTenants();
     } catch (error) {
@@ -2526,9 +2532,7 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
       ? normalizeCustomModulesForEditor(tenant.modules, tenant.company_type || 'General')
       : []
   );
-  const [featureState, setFeatureState] = useState({
-    [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: getTenantFeatureEnabled(tenant, TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT),
-  });
+  const [featureState, setFeatureState] = useState(() => defaultTenantFeatureState(tenant));
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
     defaultValues: {
@@ -2597,9 +2601,7 @@ const EditTenantModal = ({ tenant, plans, planPrices, onClose, onSave, onTenantC
         ? normalizeCustomModulesForEditor(tenant.modules, tenant.company_type || 'General')
         : []
     );
-    setFeatureState({
-      [TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT]: getTenantFeatureEnabled(tenant, TENANT_FEATURE_KEYS.BESOUHOLA_COPILOT),
-    });
+    setFeatureState(defaultTenantFeatureState(tenant));
   }, [tenant, reset, setValue]);
 
   const selectedPlan = watch('plan');

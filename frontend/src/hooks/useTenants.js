@@ -34,6 +34,11 @@ export const AVAILABLE_TENANT_FEATURES = [
     name: 'Besouhola Copilot',
     description: 'Enable Besouhola Copilot for reports, filters, delayed leads, and tasks.',
   },
+  {
+    key: 'financial_decision_engine',
+    name: 'Financial Decision Engine',
+    description: 'Evaluate commercial offers with NPV, policy, and a backend-owned decision inside Copilot.',
+  },
 ]
 
 export const PLAN_COLOR = {

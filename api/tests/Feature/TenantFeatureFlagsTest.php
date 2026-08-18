@@ -153,6 +153,42 @@ class TenantFeatureFlagsTest extends TestCase
         ], 'landlord');
     }
 
+    public function test_super_admin_can_toggle_financial_decision_engine_via_update(): void
+    {
+        $financialFeature = Feature::firstOrCreate([
+            'key' => 'financial_decision_engine',
+        ], [
+            'name' => 'Financial Decision Engine',
+            'description' => 'NPV policy engine',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($this->superAdmin);
+
+        $response = $this->putJson("/api/super-admin/tenants/{$this->tenant->id}", [
+            'subscription_plan' => 'basic',
+            'features' => [
+                [
+                    'key' => 'besouhola_copilot',
+                    'is_enabled' => true,
+                ],
+                [
+                    'key' => 'financial_decision_engine',
+                    'is_enabled' => true,
+                ],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('tenant.features.financial_decision_engine', true);
+
+        $this->assertDatabaseHas('tenant_features', [
+            'tenant_id' => $this->tenant->id,
+            'feature_id' => $financialFeature->id,
+            'is_enabled' => true,
+        ], 'landlord');
+    }
+
     public function test_update_without_features_keeps_existing_feature_state(): void
     {
         $this->tenant->features()->syncWithoutDetaching([
