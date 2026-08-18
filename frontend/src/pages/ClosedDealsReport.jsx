@@ -13,6 +13,7 @@ import { PieChart } from '../shared/components/PieChart'
 import SearchableSelect from '../components/SearchableSelect'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
+import ItemDetailsHoverTooltip from '../components/ItemDetailsHoverTooltip'
 import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
 import { Filter, User, Users, Tag, Briefcase, Calendar, Trophy, ChevronLeft, ChevronRight, Eye, Trash2 } from 'lucide-react'
 import { FaChevronDown, FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
@@ -309,38 +310,6 @@ export default function ClosedDealsReport() {
     return detailRows.length === 1 ? first : `${first} + ${detailRows.length - 1} more`
   }
 
-  const renderItemDetailsTooltip = (detailRows = [], totalValue = 0) => {
-    if (!Array.isArray(detailRows) || detailRows.length === 0) return null
-
-    return (
-      <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden w-[360px] max-w-[80vw] rounded-lg border border-gray-200 bg-white p-3 text-xs text-slate-900 shadow-xl group-hover:block dark:border-gray-700 dark:bg-gray-900 dark:text-white">
-        <div className="max-h-80 overflow-y-auto pr-1">
-          {detailRows.map((row, index) => (
-            <div key={`${row.name}-${index}`} className={`${index > 0 ? 'mt-2 border-t border-gray-200 pt-2 dark:border-gray-700' : ''}`}>
-              <div className="font-semibold">{row.name}</div>
-              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                <span>Category: {row.category}</span>
-                <span>Qty: {row.quantity}</span>
-                <span>Amount: {row.amount.toLocaleString()} EGP</span>
-                <span>Discount: {row.discount.toLocaleString()} EGP</span>
-                <span className="col-span-2">
-                  Add-ons: {row.addons.length > 0
-                    ? row.addons.map(addon => `${addon?.name || '-'} x${addon?.quantity || 0} (${parseMoney(addon?.total || (parseMoney(addon?.quantity) * parseMoney(addon?.price))).toLocaleString()} EGP)`).join(', ')
-                    : '-'}
-                </span>
-                <span>Add-ons Amount: {row.addonsTotal.toLocaleString()} EGP</span>
-                <span className="font-semibold">Sub Total: {row.subTotal.toLocaleString()} EGP</span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-2 border-t border-gray-200 pt-2 font-semibold dark:border-gray-700">
-          Total: {Number(totalValue || 0).toLocaleString()} EGP
-        </div>
-      </div>
-    )
-  }
-
   const openPropertyByUnit = (deal) => {
     const unitValue = String(deal?.unitOrItemName || '').trim()
     if (!isRealEstate || !unitValue) return
@@ -364,11 +333,15 @@ export default function ClosedDealsReport() {
     }
 
     const detailRows = Array.isArray(deal?.itemDetails) ? deal.itemDetails : []
+    const summary = getItemsSummary(detailRows, value)
     return (
-      <div className="group relative inline-flex max-w-[220px]">
-        <span className="truncate" title={getItemsSummary(detailRows, value)}>{getItemsSummary(detailRows, value)}</span>
-        {renderItemDetailsTooltip(detailRows, deal?.value)}
-      </div>
+      <ItemDetailsHoverTooltip
+        detailRows={detailRows}
+        totalValue={deal?.value}
+        summary={summary}
+      >
+        {summary}
+      </ItemDetailsHoverTooltip>
     )
   }
 

@@ -59,20 +59,20 @@ class PropertyController extends Controller
             ->exists();
     }
 
-    private function generateNextUnitCode(string $prefix, ?int $tenantId = null): string
+    private function generateNextUnitCode(string $startCode, string $fallbackPrefix, ?int $tenantId = null): string
     {
-        $lastId = (int) (Property::query()
+        $existing = Property::query()
             ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
-            ->max('id') ?? 0);
+            ->whereNotNull('unit_code')
+            ->pluck('unit_code');
 
-        for ($i = $lastId + 1; $i < $lastId + 10000; $i++) {
-            $candidate = $prefix . str_pad((string) $i, 5, '0', STR_PAD_LEFT);
-            if (!$this->isActiveUnitCodeTaken($candidate, $tenantId) && !$this->isHistoricalUnitCodeTaken($candidate, $tenantId)) {
-                return $candidate;
-            }
-        }
-
-        return $prefix . now()->format('YmdHis');
+        return \App\Support\StartCodeGenerator::next(
+            $existing,
+            $startCode,
+            $fallbackPrefix,
+            fn (string $candidate) => $this->isActiveUnitCodeTaken($candidate, $tenantId)
+                || $this->isHistoricalUnitCodeTaken($candidate, $tenantId)
+        );
     }
 
     private function rememberRetiredUnitCode(?string $unitCode, ?int $tenantId, ?int $propertyId, string $reason = 'deleted'): void
@@ -593,8 +593,11 @@ class PropertyController extends Controller
                 : true;
 
             if (empty($data['unit_code']) && $autoGenerateUnitCode) {
-                $prefix = $settings['unitCodePrefix'] ?? 'U-';
-                $data['unit_code'] = $this->generateNextUnitCode($prefix, $data['tenant_id'] ?? null);
+                $data['unit_code'] = $this->generateNextUnitCode(
+                    (string) ($settings['startUnitCode'] ?? '0001'),
+                    (string) ($settings['unitCodePrefix'] ?? 'U-'),
+                    $data['tenant_id'] ?? null
+                );
             }
 
             $checkDup = (bool) ($settings['duplicationSystem'] ?? true);

@@ -17,6 +17,7 @@ import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { Filter, User, Tag, Briefcase, Trophy, ChevronDown, ChevronLeft, ChevronRight, Eye, Phone, Calendar, Trash } from 'lucide-react'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
+import ItemDetailsHoverTooltip from '../components/ItemDetailsHoverTooltip'
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 const normalizeCompanyType = (...values) => {
@@ -245,38 +246,6 @@ export default function ReservationsReport() {
     return detailRows.length === 1 ? first : `${first} + ${detailRows.length - 1} more`
   }
 
-  const renderItemDetailsTooltip = (detailRows = [], totalValue = 0) => {
-    if (!Array.isArray(detailRows) || detailRows.length === 0) return null
-
-    return (
-      <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden w-[360px] max-w-[80vw] rounded-lg border border-gray-200 bg-white p-3 text-xs text-slate-900 shadow-xl group-hover:block dark:border-gray-700 dark:bg-gray-900 dark:text-white">
-        <div className="max-h-80 overflow-y-auto pr-1">
-          {detailRows.map((row, index) => (
-            <div key={`${row.name}-${index}`} className={`${index > 0 ? 'mt-2 border-t border-gray-200 pt-2 dark:border-gray-700' : ''}`}>
-              <div className="font-semibold">{row.name}</div>
-              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                <span>Category: {row.category}</span>
-                <span>Qty: {row.quantity}</span>
-                <span>Amount: {row.amount.toLocaleString()} EGP</span>
-                <span>Discount: {row.discount.toLocaleString()} EGP</span>
-                <span className="col-span-2">
-                  Add-ons: {row.addons.length > 0
-                    ? row.addons.map(addon => `${addon?.name || '-'} x${addon?.quantity || 0} (${parseMoney(addon?.total || (parseMoney(addon?.quantity) * parseMoney(addon?.price))).toLocaleString()} EGP)`).join(', ')
-                    : '-'}
-                </span>
-                <span>Add-ons Amount: {row.addonsTotal.toLocaleString()} EGP</span>
-                <span className="font-semibold">Sub Total: {row.subTotal.toLocaleString()} EGP</span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-2 border-t border-gray-200 pt-2 font-semibold dark:border-gray-700">
-          Total: {Number(totalValue || 0).toLocaleString()} EGP
-        </div>
-      </div>
-    )
-  }
-
   const resolveReservationValue = (item) => {
     const meta = item?.meta_data || item?.metaData || {}
     const rows = Array.isArray(meta?.reservationGeneralItems) ? meta.reservationGeneralItems : []
@@ -377,11 +346,15 @@ export default function ReservationsReport() {
       )
     }
     const detailRows = Array.isArray(row?.itemDetails) ? row.itemDetails : []
+    const summary = getItemsSummary(detailRows, value)
     return (
-      <div className="group relative inline-flex max-w-[220px]">
-        <span className="truncate" title={getItemsSummary(detailRows, value)}>{getItemsSummary(detailRows, value)}</span>
-        {renderItemDetailsTooltip(detailRows, row?.value)}
-      </div>
+      <ItemDetailsHoverTooltip
+        detailRows={detailRows}
+        totalValue={row?.value}
+        summary={summary}
+      >
+        {summary}
+      </ItemDetailsHoverTooltip>
     )
   }
 
@@ -471,10 +444,50 @@ export default function ReservationsReport() {
         meta_data: item.meta_data || null
       })) : []
 
-      const inventoryRows = Array.isArray(inventory) ? inventory.map(item => {
+      const groupedInventory = (() => {
+        const groups = new Map()
+        ;(Array.isArray(inventory) ? inventory : []).forEach((item) => {
+          const meta = item.meta_data || item.metaData || {}
+          const actionId = meta.source_action_id
+          const key = actionId ? `ACT-${actionId}` : `INV-${item.id}`
+          if (!groups.has(key)) groups.set(key, [])
+          groups.get(key).push(item)
+        })
+        return Array.from(groups.values())
+      })()
+
+      const inventoryRows = groupedInventory.map((group) => {
+        const item = group[0]
         const meta = item.meta_data || item.metaData || {}
-        const value = resolveReservationValue(item)
-        const itemDetails = buildGeneralItemDetails(meta.reservationGeneralItems, {
+        const richEntry = group.find((entry) => {
+          const entryMeta = entry.meta_data || entry.metaData || {}
+          return Array.isArray(entryMeta.reservationGeneralItems) && entryMeta.reservationGeneralItems.length > 1
+        })
+        const mergedRows = richEntry
+          ? ((richEntry.meta_data || richEntry.metaData || {}).reservationGeneralItems || [])
+          : group.flatMap((entry) => {
+              const entryMeta = entry.meta_data || entry.metaData || {}
+              const rows = Array.isArray(entryMeta.reservationGeneralItems) ? entryMeta.reservationGeneralItems : []
+              if (rows.length > 0) return rows
+              return [{
+                item_name: entry.product || entry.property_unit || entryMeta.product || '',
+                quantity: entry.quantity || entryMeta.quantity || 1,
+                price: entryMeta.price || entry.price || 0,
+                line_total: entryMeta.line_total ?? entryMeta.total ?? entryMeta.reservationAmount ?? 0,
+              }]
+            })
+        const value = mergedRows.reduce((sum, row) => {
+          const explicitTotal = row?.line_total ?? row?.total ?? row?.sub_total ?? row?.subtotal
+          if (explicitTotal !== null && explicitTotal !== undefined && explicitTotal !== '') {
+            return sum + (parseFloat(explicitTotal) || 0)
+          }
+          const qty = parseFloat(row?.quantity ?? 1) || 1
+          const price = parseFloat(row?.price ?? 0) || 0
+          const addonsTotal = parseFloat(row?.addons_total ?? 0) || 0
+          const discountAmount = parseFloat(row?.discount_amount ?? 0) || 0
+          return sum + Math.max(0, (qty * price) + addonsTotal - discountAmount)
+        }, 0) || resolveReservationValue(item)
+        const itemDetails = buildGeneralItemDetails(mergedRows, {
           name: item.product || item.property_unit || meta.product || '',
           quantity: item.quantity || meta.quantity || 1,
           price: meta.price || item.price || 0,
@@ -483,6 +496,7 @@ export default function ReservationsReport() {
 
         return {
           id: `INV-${item.id}`,
+          relatedInventoryRequestIds: group.map((entry) => entry.id).filter(Boolean),
           leadId: item.lead_id || item.leadId || meta.lead_id || null,
           customer: item.customer_name || '',
           contact: item.phone || item.customer_phone || meta.customer_phone || '',
@@ -498,9 +512,15 @@ export default function ReservationsReport() {
           project: item.project || meta.project || '',
           unitOrItemName: getItemsSummary(itemDetails, item.product || item.property_unit || meta.product || ''),
           itemDetails,
-          meta_data: item.meta_data || null
+          meta_data: {
+            ...meta,
+            reservationGeneralItems: mergedRows,
+            reservationAmount: value,
+            total: value,
+            line_total: value,
+          }
         }
-      }) : []
+      })
 
       setRaw([...realEstateRows, ...inventoryRows])
     } catch (e) {
@@ -564,7 +584,11 @@ export default function ReservationsReport() {
     setDeletingReservationId(reservation.id)
 
     try {
-      await api.delete(`/api/${target.resource}/${target.id}`)
+      const relatedIds = Array.isArray(reservation.relatedInventoryRequestIds)
+        && reservation.relatedInventoryRequestIds.length > 0
+        ? reservation.relatedInventoryRequestIds
+        : [target.id]
+      await Promise.all(relatedIds.map((id) => api.delete(`/api/${target.resource}/${id}`)))
       setRaw((prev) => prev.filter((row) => row.id !== reservation.id))
       window.dispatchEvent(new Event(target.eventName))
       window.dispatchEvent(new CustomEvent('app:toast', {

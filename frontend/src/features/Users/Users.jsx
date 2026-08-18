@@ -1242,6 +1242,7 @@ export default function UserManagementUsers() {
             isOpen={showPreviewModal}
             onClose={() => setShowPreviewModal(false)}
             user={selectedUser}
+            users={users}
           />
         )}
         {showChangePasswordModal && (
@@ -1805,7 +1806,7 @@ export default function UserManagementUsers() {
              <div className="w-full max-w-5xl h-[90vh] flex flex-col relative animate-in fade-in zoom-in-95 duration-200">
                 <button 
                   onClick={() => setShowCreateModal(false)}
-                  className="absolute top-6 right-6 z-20 btn btn-circle btn-sm btn-ghost bg-base-100/50 hover:bg-base-100"
+                  className="absolute top-6 right-6 rtl:right-auto rtl:left-6 z-20 btn btn-circle btn-sm btn-ghost bg-base-100/50 hover:bg-base-100"
                 >
                   <X size={20} />
                 </button>

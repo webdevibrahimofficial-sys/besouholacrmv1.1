@@ -35,6 +35,7 @@ class TenantBootstrapperTest extends TestCase
         $this->assertTrue($admin->hasRole('Tenant Admin'));
         $this->assertSame('Tenant Admin', $admin->job_title);
         $this->assertSame('Tenant Admin', $admin->role);
+        $this->assertContains('addLead', data_get($admin->meta_data, 'module_permissions.Leads', []));
     }
 
     public function test_ensure_tenant_admin_role_repairs_missing_assignment(): void
@@ -107,5 +108,92 @@ class TenantBootstrapperTest extends TestCase
         $this->assertSame('Tenant Admin', $payload['role']);
         $this->assertTrue($payload['is_primary_admin']);
         $this->assertNotEmpty($payload['roles']);
+        $this->assertContains('addLead', $payload['meta_data']['module_permissions']['Leads'] ?? []);
+    }
+
+    public function test_serialize_auth_user_expands_empty_admin_permissions(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'slug' => 'serialize-empty-perms',
+            'status' => 'active',
+        ]);
+
+        $admin = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'email' => 'owner@serialize-empty-perms.test',
+            'job_title' => 'Tenant Admin',
+            'meta_data' => [],
+        ]);
+
+        app()->instance('tenant', $tenant);
+        setPermissionsTeamId($tenant->id);
+        app(TenantBootstrapper::class)->ensureTenantRolesExist($tenant);
+        $admin->assignRole('Tenant Admin');
+        $admin->forceFill(['meta_data' => []])->save();
+
+        $controller = app(AuthController::class);
+        $method = new \ReflectionMethod(AuthController::class, 'serializeAuthUser');
+        $method->setAccessible(true);
+
+        /** @var array $payload */
+        $payload = $method->invoke($controller, $admin->fresh());
+
+        $this->assertContains('addLead', $payload['meta_data']['module_permissions']['Leads'] ?? []);
+        $this->assertContains('importLeads', $payload['meta_data']['module_permissions']['Leads'] ?? []);
+        $this->assertSame([], $admin->fresh()->meta_data ?? []);
+    }
+
+    public function test_serialize_auth_user_does_not_expand_sales_person_permissions(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'slug' => 'serialize-sales-perms',
+            'status' => 'active',
+        ]);
+
+        User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'email' => 'first@serialize-sales-perms.test',
+            'job_title' => 'Tenant Admin',
+        ]);
+
+        $sales = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'email' => 'sales@serialize-sales-perms.test',
+            'job_title' => 'Sales Person',
+            'meta_data' => [
+                'module_permissions' => [
+                    'Leads' => ['addAction'],
+                ],
+            ],
+        ]);
+
+        app()->instance('tenant', $tenant);
+        setPermissionsTeamId($tenant->id);
+
+        $controller = app(AuthController::class);
+        $method = new \ReflectionMethod(AuthController::class, 'serializeAuthUser');
+        $method->setAccessible(true);
+
+        /** @var array $payload */
+        $payload = $method->invoke($controller, $sales->fresh());
+
+        $this->assertSame(['addAction'], $payload['meta_data']['module_permissions']['Leads'] ?? []);
+    }
+
+    public function test_bootstrap_persists_add_lead_permission_for_tenant_admin(): void
+    {
+        $tenant = Tenant::factory()->create([
+            'slug' => 'bootstrap-add-lead',
+            'status' => 'active',
+        ]);
+
+        $admin = app(TenantBootstrapper::class)->bootstrap($tenant, [
+            'name' => 'Tenant Owner',
+            'email' => 'owner@bootstrap-add-lead.test',
+            'password' => 'password123',
+        ]);
+
+        $leadPerms = data_get($admin->fresh()->meta_data, 'module_permissions.Leads', []);
+        $this->assertContains('addLead', $leadPerms);
     }
 }

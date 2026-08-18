@@ -9,6 +9,7 @@ use App\Models\Tenant;
 use App\Services\TenantFeatureService;
 use App\Services\AdminEventNotificationService;
 use App\Services\TenantBootstrapper;
+use App\Services\TenantAdminModulePermissionService;
 use App\Services\UserPanelContextService;
 use App\Mail\TwoFactorCodeEmail;
 use Illuminate\Support\Facades\Mail;
@@ -20,7 +21,8 @@ class AuthController extends Controller
     public function __construct(
         private readonly UserPanelContextService $panelContext,
         private readonly \App\Services\AdminImpersonationService $impersonationService,
-        private readonly TenantFeatureService $tenantFeatureService
+        private readonly TenantFeatureService $tenantFeatureService,
+        private readonly TenantAdminModulePermissionService $tenantAdminPermissions
     ) {
     }
 
@@ -626,6 +628,12 @@ class AuthController extends Controller
 
         if (empty($data['role']) && !empty($data['is_primary_admin'])) {
             $data['role'] = 'Tenant Admin';
+        }
+
+        if ($this->tenantAdminPermissions->isTenantAdminLike($user, (bool) $data['is_primary_admin'])) {
+            $data['meta_data'] = $this->tenantAdminPermissions->expandMetaData(
+                is_array($data['meta_data'] ?? null) ? $data['meta_data'] : []
+            );
         }
 
         return $data;

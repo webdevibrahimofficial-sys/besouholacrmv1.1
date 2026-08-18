@@ -62,4 +62,9 @@ class Order extends Model
     {
         return $this->belongsTo(Customer::class);
     }
+
+    public function lines()
+    {
+        return $this->hasMany(OrderRequestItem::class);
+    }
 }

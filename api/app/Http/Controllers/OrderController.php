@@ -2,19 +2,29 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Lead;
 use App\Models\Order;
 use App\Models\CrmSetting;
 use App\Models\SalesInvoice;
+use App\Services\GeneralInventory\GeneralInventoryOrderService;
+use App\Support\StartCodeGenerator;
 use App\Traits\UserHierarchyTrait;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
     use UserHierarchyTrait;
+
+    public function __construct(
+        private readonly GeneralInventoryOrderService $generalInventoryOrders,
+    ) {
+    }
 
     /**
      * Display a listing of the resource.
@@ -23,7 +33,7 @@ class OrderController extends Controller
     {
         $user = $request->user();
         // Explicitly bypass global scope for debugging, and manually filter
-        $query = Order::withoutGlobalScope('tenant');
+        $query = Order::withoutGlobalScope('tenant')->with('lines');
         
         // Manual Tenant Scope
         if (Auth::check() && !$user->is_super_admin) {
@@ -89,7 +99,25 @@ class OrderController extends Controller
             'tax' => 'nullable|numeric',
             'discount_rate' => 'nullable|numeric',
             'notes' => 'nullable|string',
+            'lead_id' => 'nullable|exists:leads,id',
+            'workflow' => 'nullable|string',
+            'meta_data' => 'nullable|array',
         ]);
+
+        if (($validated['workflow'] ?? null) === 'general_inventory_order_request') {
+            $lead = Lead::query()->findOrFail($validated['lead_id'] ?? null);
+            $meta = is_array($validated['meta_data'] ?? null) ? $validated['meta_data'] : [];
+            $reservationSourceActionId = (int) ($meta['general_inventory']['reservation_source_action_id'] ?? $validated['reservation_source_action_id'] ?? 0);
+
+            $details = [
+                'reservationNotes' => $validated['notes'] ?? null,
+                'reservationGeneralItems' => $validated['items'],
+            ];
+
+            $order = $this->generalInventoryOrders->syncFromReservation($lead, $details, $reservationSourceActionId, $request->user());
+
+            return response()->json($order->load('lines'), 201);
+        }
 
         if (!isset($validated['amount'])) {
             $validated['amount'] = $validated['total']; // Default amount to total if missing
@@ -104,19 +132,17 @@ class OrderController extends Controller
         // Or if 'uuid' field is used for SO number.
         
         $order = Order::create($validated);
-        $crm = CrmSetting::first();
-        $settings = is_array($crm?->settings) ? $crm->settings : [];
-        $rawStart = (string) ($settings['startOrderCode'] ?? '0001');
-        $start = (int) $rawStart;
-        $numberWidth = max(1, strlen(preg_replace('/\D/', '', $rawStart)));
+        $settings = CrmSetting::resolved();
         if (empty($order->uuid)) {
-            // Use Start Code + (ID - 1) to ensure uniqueness
-            $next = $start + (int)$order->id - 1;
-            $order->uuid = 'SO-' . str_pad((string) $next, $numberWidth, '0', STR_PAD_LEFT);
+            $order->uuid = StartCodeGenerator::next(
+                Order::query()->whereNotNull('uuid')->pluck('uuid'),
+                (string) ($settings['startOrderCode'] ?? '0001'),
+                'SO-'
+            );
             $order->save();
         }
 
-        return response()->json($order, 201);
+        return response()->json($order->load('lines'), 201);
     }
 
     /**
@@ -124,7 +150,7 @@ class OrderController extends Controller
      */
     public function show(Order $order) // Route binding automatically handles tenant scope
     {
-        return $order;
+        return $order->load('lines');
     }
 
     /**
@@ -146,6 +172,7 @@ class OrderController extends Controller
             'shipped_at' => 'nullable',
             'cancel_reason' => 'nullable|string',
             'hold_reason' => 'nullable|string',
+            'meta_data' => 'nullable|array',
         ]);
 
         // Enforce CRM setting: allowCustomerPaymentPlan
@@ -158,6 +185,17 @@ class OrderController extends Controller
 
         if (! $order->exists) {
             abort(404);
+        }
+
+        try {
+            $validated = $this->generalInventoryOrders->prepareOrderUpdate($order, $validated, $request->user());
+        } catch (AuthorizationException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => collect($e->errors())->flatten()->first() ?: 'Order request validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
         }
 
         if (array_key_exists('confirmed_at', $validated)) {
@@ -176,7 +214,11 @@ class OrderController extends Controller
 
         $order->save();
 
-        return response()->json($order->fresh());
+        if (isset($validated['items']) && is_array($validated['items'])) {
+            $this->generalInventoryOrders->replaceOrderLines($order, $validated['items']);
+        }
+
+        return response()->json($order->fresh()->load('lines'));
     }
 
     /**

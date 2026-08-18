@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Quotation;
+use App\Models\CrmSetting;
 use App\Services\ItemStockService;
+use App\Support\StartCodeGenerator;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -130,32 +132,23 @@ class QuotationController extends Controller
             $meta['attachment_size'] = $request->file('attachment')->getSize();
         }
 
-        // Generate Code
-        $crm = \App\Models\CrmSetting::first();
-        $settings = is_array($crm?->settings) ? $crm->settings : [];
-        $rawStart = (string) ($settings['startQuotationCode'] ?? '0001');
-        $start = (int) $rawStart;
-        $numberWidth = max(1, strlen(preg_replace('/\D/', '', $rawStart)));
-        
-        // Use transaction to ensure code uniqueness if possible, or just generate
-        // For now, simple logic as before
-        // Create first to get ID
-        
         $quotation = new Quotation($data);
         $quotation->meta_data = $meta;
         $quotation->save();
-        
-        // Code Generation
-        // Logic: Start Code + (ID - 1) to ensure unique incremental codes starting from the setting value
-        $startCode = (int) $rawStart;
-        // If we want the first ID (1) to be Start Code (1000):
-        // Code = 1000 + 1 - 1 = 1000.
-        // If ID is 100, Code = 1000 + 100 - 1 = 1099.
-        $next = $startCode + (int)$quotation->id - 1;
-        
-        $meta = $quotation->meta_data ?? []; // Refresh meta
+
+        $settings = CrmSetting::resolved();
+        $meta = $quotation->meta_data ?? [];
         if (empty($meta['quotation_code'])) {
-            $meta['quotation_code'] = 'Q-' . str_pad((string) $next, $numberWidth, '0', STR_PAD_LEFT);
+            $existingCodes = Quotation::query()
+                ->whereNotNull('meta_data')
+                ->get()
+                ->map(fn ($row) => data_get($row->meta_data, 'quotation_code'))
+                ->filter();
+            $meta['quotation_code'] = StartCodeGenerator::next(
+                $existingCodes,
+                (string) ($settings['startQuotationCode'] ?? '0001'),
+                'Q-'
+            );
             $quotation->meta_data = $meta;
             $quotation->save();
         }

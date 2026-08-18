@@ -3,18 +3,22 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '../../shared/context/ThemeProvider'
 import { PERM_LABELS_AR, getPermissionDisplayLabel } from './constants'
 import { api } from '@utils/api'
-import { usesCompanyTarget } from '../../utils/targetRevenueReport'
+import { usesCompanyTarget, isFieldSalesRole, filterTiersByScope, COMMISSION_SCOPE_PERSONAL, COMMISSION_SCOPE_INHERITED, resolveInheritedTargetForYear, resolveCompanyTargetForYear } from '../../utils/targetRevenueReport'
 import ListHoverPopover from '@components/ListHoverPopover'
 import { Percent } from 'lucide-react'
 import { FaTimes, FaIdCard, FaUser, FaTag, FaPhone, FaEnvelope, FaBuilding, FaLayerGroup, FaMapMarkerAlt, FaChartLine, FaBell, FaShieldAlt } from 'react-icons/fa';
 
-const UserPreviewModal = ({ isOpen, onClose, user }) => {
+const UserPreviewModal = ({ isOpen, onClose, user, users = [] }) => {
   const { i18n } = useTranslation()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const isRTL = i18n.language === 'ar'
   const [targetHistory, setTargetHistory] = useState([])
   const [targetsLoading, setTargetsLoading] = useState(false)
+  const [targetHistoryByUser, setTargetHistoryByUser] = useState(() => new Map())
+  const [companyTargetHistory, setCompanyTargetHistory] = useState([])
+  const canBeManager = Boolean(user && !isFieldSalesRole(user))
+  const usesCompany = Boolean(user && usesCompanyTarget(user))
 
   useEffect(() => {
     let cancelled = false
@@ -48,9 +52,59 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
     }
   }, [isOpen, user?.id])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchInheritedSources = async () => {
+      if (!isOpen || !user?.id || !canBeManager) {
+        setTargetHistoryByUser(new Map())
+        setCompanyTargetHistory([])
+        return
+      }
+
+      try {
+        const requests = [api.get('/api/user-targets?year=all')]
+        if (usesCompany) {
+          requests.push(api.get('/api/company-targets?year=all'))
+        }
+        const [allTargetsRes, companyRes] = await Promise.all(requests)
+        if (cancelled) return
+
+        const rows = Array.isArray(allTargetsRes?.data?.data) ? allTargetsRes.data.data : []
+        const map = new Map()
+        rows.forEach((row) => {
+          const uid = String(row.user_id || row.user?.id || '')
+          if (!uid) return
+          if (!map.has(uid)) map.set(uid, [])
+          map.get(uid).push(row)
+        })
+        setTargetHistoryByUser(map)
+
+        if (usesCompany) {
+          const companyRows = Array.isArray(companyRes?.data?.data) ? companyRes.data.data : []
+          setCompanyTargetHistory(companyRows)
+        } else {
+          setCompanyTargetHistory([])
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to fetch inherited target sources', error)
+          setTargetHistoryByUser(new Map())
+          setCompanyTargetHistory([])
+        }
+      }
+    }
+
+    fetchInheritedSources()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, user?.id, canBeManager, usesCompany])
+
   const currentYear = new Date().getFullYear()
   const currentTarget = useMemo(() => {
-    if (usesCompanyTarget(user)) {
+    if (usesCompany) {
       return {
         year: currentYear,
         monthly_target: user?.company_monthly_target ?? user?.total_monthly_target ?? 0,
@@ -63,7 +117,18 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
     }
 
     const current = targetHistory.find(row => Number(row.year) === currentYear)
-    if (current) return current
+    if (current) {
+      const historyYearly = Number(current.yearly_target || 0)
+      const userYearly = Number(user?.yearly_target || 0)
+      if (historyYearly > 0 || userYearly <= 0) return current
+      return {
+        ...current,
+        monthly_target: user?.monthly_target || 0,
+        quarterly_target: user?.quarterly_target || 0,
+        semi_annual_target: user?.semi_annual_target || (userYearly ? userYearly / 2 : 0),
+        yearly_target: userYearly,
+      }
+    }
 
     return {
       year: currentYear,
@@ -74,20 +139,31 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
       commission_tiers: user?.commission_tiers || [],
       commissionTiers: user?.commissionTiers || [],
     }
-  }, [currentYear, targetHistory, user])
+  }, [currentYear, targetHistory, user, usesCompany])
 
   const currentCommissionTiers = useMemo(() => {
     const tiers = currentTarget?.commission_tiers || currentTarget?.commissionTiers || []
-    if (Array.isArray(tiers) && tiers.length) return tiers
+    const personal = filterTiersByScope(tiers, COMMISSION_SCOPE_PERSONAL)
+    if (personal.length) return personal
     if (user?.commission_percentage) {
       return [{
         from_percentage: 0,
         to_percentage: null,
         commission_percentage: user.commission_percentage,
+        scope: COMMISSION_SCOPE_PERSONAL,
       }]
     }
     return []
   }, [currentTarget, user?.commission_percentage])
+
+  const currentInheritedCommissionTiers = useMemo(() => {
+    const explicit = currentTarget?.inherited_commission_tiers || currentTarget?.inheritedCommissionTiers || []
+    if (Array.isArray(explicit) && explicit.length) {
+      return filterTiersByScope(explicit, COMMISSION_SCOPE_INHERITED)
+    }
+    const tiers = currentTarget?.commission_tiers || currentTarget?.commissionTiers || []
+    return filterTiersByScope(tiers, COMMISSION_SCOPE_INHERITED)
+  }, [currentTarget])
 
   if (!isOpen || !user) return null
 
@@ -152,12 +228,74 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
     })
   }
 
+  const inheritedFallbackForType = (type) => {
+    const monthly = Number(user?.inherited_monthly_target || 0) || 0
+    const yearly = Number(user?.inherited_yearly_target || 0) || 0
+    if (type === 'monthly') return monthly
+    if (type === 'yearly') return yearly
+    if (type === 'quarterly') {
+      const explicit = Number(user?.inherited_quarterly_target || 0) || 0
+      if (explicit) return explicit
+      return yearly ? yearly / 4 : monthly * 3
+    }
+    if (type === 'semi_annual') {
+      const explicit = Number(user?.inherited_semi_annual_target || 0) || 0
+      if (explicit) return explicit
+      return yearly ? yearly / 2 : monthly * 6
+    }
+    return 0
+  }
+
+  const getInheritedAmount = (year, type) => {
+    const computed = usesCompany
+      ? resolveCompanyTargetForYear(companyTargetHistory, year, type)
+      : resolveInheritedTargetForYear(user, users, targetHistoryByUser, year, type, currentYear)
+    if (Number(year) === Number(currentYear) && !computed) {
+      return inheritedFallbackForType(type)
+    }
+    return computed
+  }
+
   const formatPercent = (value) => {
     const numeric = Number(value || 0)
     return numeric.toLocaleString(isRTL ? 'ar-EG' : 'en-US', {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     })
+  }
+
+  const renderCommissionTiers = (tiers, emptyLabel) => {
+    if (!tiers.length) {
+      return (
+        <div className={`px-3 py-2.5 rounded-lg border border-dashed text-xs md:text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+          {emptyLabel}
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-2">
+        {tiers.map((tier, index) => (
+          <div
+            key={`${tier.id || index}-${tier.from_percentage}-${tier.to_percentage}-${tier.scope || 'personal'}`}
+            className={`grid grid-cols-3 gap-2 rounded-lg border px-3 py-2 text-xs md:text-sm ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}
+          >
+            <div>
+              <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'من' : 'From'}</span>
+              <strong dir="ltr">{formatPercent(tier.from_percentage)}%</strong>
+            </div>
+            <div>
+              <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'إلى' : 'To'}</span>
+              <strong dir="ltr">{tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === '' ? (isRTL ? 'بدون حد' : 'No cap') : `${formatPercent(tier.to_percentage)}%`}</strong>
+            </div>
+            <div>
+              <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'العمولة' : 'Commission'}</span>
+              <strong className={isDark ? 'text-green-400' : 'text-green-600'} dir="ltr">{formatPercent(tier.commission_percentage)}%</strong>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   const targetMetricClass = `rounded-lg md:rounded-xl border p-3 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`
@@ -378,7 +516,7 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
                 <div>
-                  <label className={labelClass}>{usesCompanyTarget(user) ? (isRTL ? 'تارجت الشركة' : 'Company Target') : (isRTL ? 'التارجت الموروث (الفريق)' : 'Inherited Target (Team)')}</label>
+                  <label className={labelClass}>{usesCompany ? (isRTL ? 'تارجت الشركة' : 'Company Target') : (isRTL ? 'التارجت الموروث (الفريق)' : 'Inherited Target (Team)')}</label>
                   <div className={`w-full px-3 py-2 rounded-lg border flex flex-col gap-1 ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] md:text-xs opacity-70">{isRTL ? 'شهري' : 'Monthly'}</span>
@@ -409,41 +547,28 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
               </div>
 
               <div>
-                <label className={labelClass}>{isRTL ? 'شرائح العمولة حسب تحقيق التارجت' : 'Commission tiers by achievement'}</label>
-                {currentCommissionTiers.length > 0 ? (
-                  <div className="space-y-2">
-                    {currentCommissionTiers.map((tier, index) => (
-                      <div
-                        key={`${tier.id || index}-${tier.from_percentage}-${tier.to_percentage}`}
-                        className={`grid grid-cols-3 gap-2 rounded-lg border px-3 py-2 text-xs md:text-sm ${isDark ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-200'}`}
-                      >
-                        <div>
-                          <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'من' : 'From'}</span>
-                          <strong dir="ltr">{formatPercent(tier.from_percentage)}%</strong>
-                        </div>
-                        <div>
-                          <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'إلى' : 'To'}</span>
-                          <strong dir="ltr">{tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === '' ? (isRTL ? 'بدون حد' : 'No cap') : `${formatPercent(tier.to_percentage)}%`}</strong>
-                        </div>
-                        <div>
-                          <span className="block text-[9px] md:text-[10px] opacity-60">{isRTL ? 'العمولة' : 'Commission'}</span>
-                          <strong className={isDark ? 'text-green-400' : 'text-green-600'} dir="ltr">{formatPercent(tier.commission_percentage)}%</strong>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={`px-3 py-2.5 rounded-lg border border-dashed text-xs md:text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
-                    {isRTL ? 'لا توجد شرائح عمولة للسنة الحالية.' : 'No commission tiers for the current year.'}
-                  </div>
+                <label className={labelClass}>{isRTL ? 'شرائح عمولة التارجت الشخصي' : 'Personal commission tiers'}</label>
+                {renderCommissionTiers(
+                  currentCommissionTiers,
+                  isRTL ? 'لا توجد شرائح عمولة شخصية للسنة الحالية.' : 'No personal commission tiers for the current year.'
                 )}
               </div>
+
+              {currentInheritedCommissionTiers.length > 0 && (
+                <div>
+                  <label className={labelClass}>{isRTL ? 'شرائح عمولة التارجت الموروث' : 'Inherited team commission tiers'}</label>
+                  {renderCommissionTiers(
+                    currentInheritedCommissionTiers,
+                    isRTL ? 'لا توجد شرائح عمولة موروثة للسنة الحالية.' : 'No inherited commission tiers for the current year.'
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className={labelClass}>{isRTL ? 'تاريخ التارجت' : 'Target history'}</label>
                 {targetHistory.length > 0 ? (
                   <div className={`overflow-x-auto rounded-xl border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                    <table className="w-full min-w-[720px] text-xs md:text-sm">
+                    <table className={`w-full text-xs md:text-sm ${canBeManager ? 'min-w-[1080px]' : 'min-w-[720px]'}`}>
                       <thead className={isDark ? 'bg-gray-800/70 text-gray-400' : 'bg-gray-50 text-gray-500'}>
                         <tr>
                           <th className="px-3 py-2.5 text-start whitespace-nowrap">{isRTL ? 'السنة' : 'Year'}</th>
@@ -451,6 +576,14 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
                           <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'ربع سنوي' : 'Quarterly'}</th>
                           <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'نصف سنوي' : 'Semi Annual'}</th>
                           <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'سنوي' : 'Yearly'}</th>
+                          {canBeManager && (
+                            <>
+                              <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'موروث شهري' : 'Inherited Monthly'}</th>
+                              <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'موروث ربع سنوي' : 'Inherited Quarterly'}</th>
+                              <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'موروث نصف سنوي' : 'Inherited Semi Annual'}</th>
+                              <th className="px-3 py-2.5 text-end whitespace-nowrap">{isRTL ? 'موروث سنوي' : 'Inherited Yearly'}</th>
+                            </>
+                          )}
                           <th className="px-3 py-2.5 text-center whitespace-nowrap">{isRTL ? 'العمولة' : 'Commission'}</th>
                         </tr>
                       </thead>
@@ -462,13 +595,18 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
                             const tiers = Array.isArray(row.commission_tiers)
                               ? row.commission_tiers
                               : (Array.isArray(row.commissionTiers) ? row.commissionTiers : [])
+                            const hasInherited = tiers.some((tier) => String(tier?.scope || '').toLowerCase() === COMMISSION_SCOPE_INHERITED)
                             const tierItems = tiers.map((tier) => {
                               const from = Number(tier.from_percentage ?? 0)
                               const to = tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === ''
                                 ? (isRTL ? 'بدون حد' : 'No cap')
                                 : `${Number(tier.to_percentage)}%`
+                              const isInherited = String(tier?.scope || '').toLowerCase() === COMMISSION_SCOPE_INHERITED
+                              const scopeLabel = isInherited
+                                ? (isRTL ? 'موروث' : 'Team')
+                                : (isRTL ? 'شخصي' : 'Personal')
                               return {
-                                label: `${from}% → ${to}`,
+                                label: hasInherited ? `${scopeLabel}: ${from}% → ${to}` : `${from}% → ${to}`,
                                 value: Number(tier.commission_percentage ?? 0) || 0,
                               }
                             })
@@ -491,6 +629,14 @@ const UserPreviewModal = ({ isOpen, onClose, user }) => {
                                 <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(row.quarterly_target)}</td>
                                 <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(row.semi_annual_target)}</td>
                                 <td className="px-3 py-2.5 text-end font-mono font-semibold whitespace-nowrap" dir="ltr">{formatAmount(row.yearly_target)}</td>
+                                {canBeManager && (
+                                  <>
+                                    <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(getInheritedAmount(row.year, 'monthly'))}</td>
+                                    <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(getInheritedAmount(row.year, 'quarterly'))}</td>
+                                    <td className="px-3 py-2.5 text-end font-mono whitespace-nowrap" dir="ltr">{formatAmount(getInheritedAmount(row.year, 'semi_annual'))}</td>
+                                    <td className="px-3 py-2.5 text-end font-mono font-semibold whitespace-nowrap" dir="ltr">{formatAmount(getInheritedAmount(row.year, 'yearly'))}</td>
+                                  </>
+                                )}
                                 <td className="px-3 py-2.5">
                                   <div className="flex justify-center">
                                     <ListHoverPopover

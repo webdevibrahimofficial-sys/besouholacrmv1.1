@@ -4,6 +4,7 @@ import { useTheme } from '../../shared/context/ThemeProvider'
 import { useTranslation } from 'react-i18next'
 import { logExportEvent, logImportEvent } from '../../utils/api'
 import { FaDownload, FaFileExcel, FaTimes } from 'react-icons/fa'
+import { CATEGORY_TYPE_PRODUCTS } from '../../features/inventory/categoryType'
 
 export default function CategoriesImportModal({ isOpen, onClose, onImport }) {
   const { theme } = useTheme()
@@ -24,7 +25,7 @@ export default function CategoriesImportModal({ isOpen, onClose, onImport }) {
       : 'Download the template and fill in the required data',
     downloadButton: isRTL ? 'تحميل نموذج' : 'Download Template',
     requiredFields: isRTL ? 'الحقول المطلوبة:' : 'Required fields:',
-    requiredFieldsValue: isRTL ? 'الاسم، النوع، الحالة، الوصف' : 'Name, Category Type, Status, Description',
+    requiredFieldsValue: isRTL ? 'اسم التصنيف، نوع التصنيف (Products أو Services)' : 'Category Name, Category Type (Products or Services)',
     fileLabel: isRTL ? 'ملف Excel' : 'Excel file',
     dropzone: isRTL ? 'اسحب الملف هنا أو اضغط لاختيار الملف' : 'Drag and drop or click to choose file',
     browseButton: isRTL ? 'اختيار ملف' : 'Choose File',
@@ -97,7 +98,7 @@ export default function CategoriesImportModal({ isOpen, onClose, onImport }) {
     const templateData = [
       {
         Name: isRTL ? 'اسم التصنيف' : 'Category Name',
-        'Category Type': 'Product',
+        'Category Type': CATEGORY_TYPE_PRODUCTS,
         Status: 'Active',
         Description: isRTL ? 'وصف اختياري' : 'Optional description',
       },

@@ -14,6 +14,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import { flip, offset, shift, size } from '@floating-ui/react';
 import './AddActionModalDatepicker.css';
 import SearchableSelect from './SearchableSelect.jsx';
+import { CATEGORY_TYPE_SERVICES, categoryTypeFromRecord } from '../features/inventory/categoryType';
 
 const toNumericAmountString = (value) => {
   if (value === '' || value == null) return '';
@@ -206,7 +207,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           api.get('/api/properties?all=1&selectable=1&fields=dropdown'),
           api.get('/api/projects'),
           api.get('/api/item-categories'),
-          api.get('/api/items')
+          api.get('/api/items?all=1')
         ]);
 
         const rawProjects = Array.isArray(projectsRes.data)
@@ -927,6 +928,27 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     return Array.isArray(selectedItem?.addons) ? selectedItem.addons : [];
   };
 
+  const isServiceCatalogItem = (item) => {
+    if (!item) return false;
+    if (String(item.business_type || '').toLowerCase() === 'service') return true;
+    return categoryTypeFromRecord(item) === CATEGORY_TYPE_SERVICES
+      || categoryTypeFromRecord(item.category) === CATEGORY_TYPE_SERVICES;
+  };
+
+  const categoryTypeLabel = (record) => {
+    const type = categoryTypeFromRecord(record);
+    if (type === CATEGORY_TYPE_SERVICES) return isArabic ? 'خدمة' : 'Service';
+    return isArabic ? 'منتج' : 'Product';
+  };
+
+  const isServiceReservationRow = (row) => {
+    if (String(row?.business_type || row?.item_type || '').toLowerCase() === 'service') return true;
+    const selected = items.find((opt) => String(opt.id) === String(row?.item));
+    if (selected) return isServiceCatalogItem(selected);
+    const category = categories.find((opt) => String(opt.id) === String(row?.category));
+    return categoryTypeFromRecord(category) === CATEGORY_TYPE_SERVICES;
+  };
+
   const getRowAddonIds = (row) => Array.isArray(row?.addon_ids)
     ? row.addon_ids
     : (Array.isArray(row?.addons) ? row.addons.map(addon => addon?.id ?? addon?.addon_id).filter(Boolean) : []);
@@ -936,9 +958,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
     return getItemAddons(row?.item).filter((addon) => selectedIds.has(String(addon.id)));
   };
 
-  const getAddonAmount = (addon) => {
-    const quantity = Number(addon?.quantity || 0);
+  const getAddonAmount = (addon, isService = false) => {
     const price = Number(addon?.price || 0);
+    if (isService) return Number.isFinite(price) ? price : 0;
+    const quantity = Number(addon?.quantity || 0);
     return (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(price) ? price : 0);
   };
 
@@ -946,22 +969,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   useEffect(() => {
     if ((isReservationAction(actionData.nextAction) || isClosingDealAction(actionData.nextAction)) && actionData.reservationType === 'general') {
       const total = actionData.reservationGeneralItems.reduce((sum, item) => {
-        const quantity = Number(item.quantity || 0);
-        const price = Number(item.price || 0);
-        const baseAmount = quantity * price;
-        const addonsAmount = getRowSelectedAddons(item).reduce((addonSum, addon) => addonSum + getAddonAmount(addon), 0);
-        const subTotal = baseAmount + addonsAmount;
-
-        const discountType = (item.discount_type || 'value');
-        const rawDiscount = Number(item.discount_value || 0);
-        const discountValue = Number.isFinite(rawDiscount) ? rawDiscount : 0;
-
-        const discountAmount = discountType === 'percent'
-          ? (subTotal * clamp(discountValue, 0, 100)) / 100
-          : clamp(discountValue, 0, subTotal);
-
-        const lineTotal = Math.max(0, subTotal - discountAmount);
-        return sum + lineTotal;
+        return sum + getGeneralRowTotals(item).total;
       }, 0);
 
       setActionData(prev => {
@@ -1221,6 +1229,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const remainingAvailableForRow = (row, index, rows = actionData.reservationGeneralItems) => {
     const selected = items.find(opt => String(opt.id) === String(row?.item));
     if (!selected) return 0;
+    if (isServiceCatalogItem(selected) || isServiceReservationRow(row)) return 1;
     const usedElsewhere = (rows || []).reduce((sum, r, i) => {
       if (i === index) return sum;
       if (String(r.item) !== String(row.item)) return sum;
@@ -1242,31 +1251,46 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           if (!matches) {
             newItems[index].item = '';
             newItems[index].addon_ids = [];
+            newItems[index].billing_type = '';
           }
         }
       }
 
       if (field === 'item') {
-        if (value) {
+        const selectedItem = items.find(opt => String(opt.id) === String(value));
+        const service = isServiceCatalogItem(selectedItem);
+        if (value && !service) {
           const remaining = remainingAvailableForRow({ ...newItems[index], item: value }, index, prev.reservationGeneralItems);
           if (remaining < 1) {
             return prev;
           }
         }
-        const selectedItem = items.find(opt => opt.id == value);
         if (selectedItem) {
-          newItems[index].price = selectedItem.price;
+          newItems[index].price = selectedItem.service_amount ?? selectedItem.catalog_amount ?? selectedItem.price;
+          newItems[index].billing_type = selectedItem.billing_cycle || selectedItem.billingCycle || '';
+          newItems[index].business_type = service ? 'service' : 'product';
+        } else {
+          newItems[index].billing_type = '';
+          newItems[index].business_type = '';
         }
         newItems[index].addon_ids = [];
-        const remaining = remainingAvailableForRow(newItems[index], index, newItems);
-        const currentQty = Math.max(1, Number(newItems[index].quantity || 1) || 1);
-        newItems[index].quantity = remaining > 0 ? Math.min(currentQty, remaining) : 0;
+        if (service) {
+          newItems[index].quantity = 1;
+        } else {
+          const remaining = remainingAvailableForRow(newItems[index], index, newItems);
+          const currentQty = Math.max(1, Number(newItems[index].quantity || 1) || 1);
+          newItems[index].quantity = remaining > 0 ? Math.min(currentQty, remaining) : 0;
+        }
       }
 
       if (field === 'quantity') {
-        const remaining = remainingAvailableForRow(newItems[index], index, newItems);
-        const nextQty = Math.max(0, Number(value || 0) || 0);
-        newItems[index].quantity = remaining > 0 ? Math.min(nextQty, remaining) : 0;
+        if (isServiceReservationRow(newItems[index])) {
+          newItems[index].quantity = 1;
+        } else {
+          const remaining = remainingAvailableForRow(newItems[index], index, newItems);
+          const nextQty = Math.max(0, Number(value || 0) || 0);
+          newItems[index].quantity = remaining > 0 ? Math.min(nextQty, remaining) : 0;
+        }
       }
 
       return { ...prev, reservationGeneralItems: newItems };
@@ -1274,10 +1298,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   };
 
   const getGeneralRowTotals = (row) => {
-    const quantity = Number(row?.quantity || 0);
+    const service = isServiceReservationRow(row);
+    const quantity = service ? 1 : Number(row?.quantity || 0);
     const price = Number(row?.price || 0);
     const baseAmount = (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(price) ? price : 0);
-    const addonsAmount = getRowSelectedAddons(row).reduce((sum, addon) => sum + getAddonAmount(addon), 0);
+    const addonsAmount = getRowSelectedAddons(row).reduce((sum, addon) => sum + getAddonAmount(addon, service), 0);
     const subTotal = baseAmount + addonsAmount;
 
     const discountType = row?.discount_type || 'value';
@@ -1331,6 +1356,8 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         addon_ids: getRowAddonIds(row),
         discount_type: row?.discount_type || 'value',
         discount_value: row?.discount_value ?? '',
+        billing_type: row?.billing_type || row?.billingCycle || '',
+        business_type: row?.business_type || row?.item_type || '',
       }))
       : [{ category: '', item: '', quantity: 1, price: 0, addon_ids: [], discount_type: 'value', discount_value: '' }];
 
@@ -1625,10 +1652,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         const needed = {};
         for (const row of cleanedData.reservationGeneralItems || []) {
           const itemId = String(row?.item ?? row?.item_id ?? '');
-          const qty = Math.max(0, Number(row?.quantity || 0) || 0);
+          const selected = items.find((i) => String(i.id) === String(itemId));
+          const service = isServiceCatalogItem(selected) || isServiceReservationRow(row);
+          const qty = service ? 1 : Math.max(0, Number(row?.quantity || 0) || 0);
           if (!itemId) continue;
-          if (qty < 1) {
-            const selected = items.find((i) => String(i.id) === String(itemId));
+          if (!service && qty < 1) {
             alert(
               isArabic
                 ? `لا يمكن حجز ${selected?.name || itemId} لأن الكمية المتاحة صفر`
@@ -1636,7 +1664,9 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             );
             return;
           }
-          needed[itemId] = (needed[itemId] || 0) + qty;
+          if (!service) {
+            needed[itemId] = (needed[itemId] || 0) + qty;
+          }
         }
         for (const [itemId, qty] of Object.entries(needed)) {
           const selected = items.find((i) => String(i.id) === String(itemId));
@@ -1653,20 +1683,23 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         cleanedData.reservationGeneralItems = (cleanedData.reservationGeneralItems || []).map((row) => {
           const categoryId = row?.category ?? row?.category_id ?? '';
           const itemId = row?.item ?? row?.item_id ?? '';
+          const selectedItem = items.find((i) => String(i.id) === String(itemId));
+          const service = isServiceCatalogItem(selectedItem) || isServiceReservationRow(row);
           const categoryName =
             row?.category_name ||
             categories.find((c) => String(c.id) === String(categoryId))?.name ||
             '';
           const itemName =
             row?.item_name ||
-            items.find((i) => String(i.id) === String(itemId))?.name ||
+            selectedItem?.name ||
             '';
           const selectedAddons = getRowSelectedAddons(row).map((addon) => ({
             id: addon.id,
             name: addon.name || '',
-            quantity: Number(addon.quantity || 0),
+            quantity: service ? 1 : Number(addon.quantity || 0),
             price: Number(addon.price || 0),
-            total: getAddonAmount(addon),
+            period: addon.period || '',
+            total: getAddonAmount(addon, service),
           }));
           const { addonsAmount, subTotal, discountAmount, total } = getGeneralRowTotals(row);
           return {
@@ -1675,6 +1708,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
             item: itemId,
             category_name: categoryName,
             item_name: itemName,
+            quantity: service ? 1 : row.quantity,
+            business_type: service ? 'service' : 'product',
+            item_type: service ? 'service' : 'product',
+            billing_type: service ? (row.billing_type || selectedItem?.billing_cycle || selectedItem?.billingCycle || '') : undefined,
             addon_ids: getRowAddonIds(row),
             addons: selectedAddons,
             addons_total: addonsAmount,
@@ -2459,6 +2496,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                   {/* Dynamic Rows */}
                   <div>
                     {actionData.reservationGeneralItems.map((row, index) => {
+                      const serviceRow = isServiceReservationRow(row);
                       const availableQty = remainingAvailableForRow(row, index);
                       const rowControlClass = isLight
                         ? 'h-10 w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900'
@@ -2471,7 +2509,10 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                         <div className="min-w-[140px] flex-1">
                           <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الفئة' : 'Category'}</label>
                           <SearchableSelect
-                            options={categories.map((opt) => ({ value: String(opt.id), label: opt.name }))}
+                            options={categories.map((opt) => ({
+                              value: String(opt.id),
+                              label: `${opt.name} (${categoryTypeLabel(opt)})`,
+                            }))}
                             value={row.category ? String(row.category) : ''}
                             onChange={(value) => handleGeneralRowChange(index, 'category', value || '')}
                             placeholder={isArabic ? 'اختر' : 'Select'}
@@ -2481,7 +2522,9 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                           />
                         </div>
                         <div className="min-w-[160px] flex-1">
-                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'العنصر' : 'Item'}</label>
+                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                            {serviceRow ? (isArabic ? 'الخدمة' : 'Service') : (isArabic ? 'العنصر' : 'Item')}
+                          </label>
                           <SearchableSelect
                             options={items
                               .filter(item => {
@@ -2490,11 +2533,14 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                                 return String(item.category_id) === String(row.category) || (catName && item.category === catName);
                               })
                               .map((opt) => {
+                                const serviceItem = isServiceCatalogItem(opt);
                                 const available = remainingAvailableForRow({ ...row, item: opt.id }, index);
                                 return {
                                   value: String(opt.id),
-                                  label: `${opt.name} (${available} ${isArabic ? 'متاح' : 'avail.'})`,
-                                  disabled: available < 1,
+                                  label: serviceItem
+                                    ? opt.name
+                                    : `${opt.name} (${available} ${isArabic ? 'متاح' : 'avail.'})`,
+                                  disabled: serviceItem ? false : available < 1,
                                 };
                               })}
                             value={row.item ? String(row.item) : ''}
@@ -2505,23 +2551,37 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                             className={`${isLight ? 'bg-white border-gray-300 text-slate-900' : 'bg-gray-700 border-gray-600 text-white'} h-10 min-h-10 rounded-md`}
                           />
                         </div>
-                        <div className="w-[88px] shrink-0">
-                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
-                            {isArabic ? 'الكمية' : 'Qty'}
-                            {row.item ? ` (${availableQty})` : ''}
-                          </label>
-                          <input
-                            type="text"
-                            min="1"
-                            max={availableQty}
-                            value={row.quantity}
-                            onChange={(e) => handleGeneralRowChange(index, 'quantity', parseDisplayNumber(e.target.value))}
-                            {...numericFieldProps}
-                            inputMode="numeric"
-                            title={row.item ? `${isArabic ? 'المتاح' : 'Available'}: ${availableQty}` : undefined}
-                            className={rowControlClass}
-                          />
-                        </div>
+                        {serviceRow ? (
+                          <div className="w-[120px] shrink-0">
+                            <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                              {isArabic ? 'نوع الفوترة' : 'Billing'}
+                            </label>
+                            <input
+                              type="text"
+                              value={row.billing_type || items.find((opt) => String(opt.id) === String(row.item))?.billing_cycle || items.find((opt) => String(opt.id) === String(row.item))?.billingCycle || ''}
+                              readOnly
+                              className={`${isLight ? 'h-10 w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'h-10 w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-[88px] shrink-0">
+                            <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                              {isArabic ? 'الكمية' : 'Qty'}
+                              {row.item ? ` (${availableQty})` : ''}
+                            </label>
+                            <input
+                              type="text"
+                              min="1"
+                              max={availableQty}
+                              value={row.quantity}
+                              onChange={(e) => handleGeneralRowChange(index, 'quantity', parseDisplayNumber(e.target.value))}
+                              {...numericFieldProps}
+                              inputMode="numeric"
+                              title={row.item ? `${isArabic ? 'المتاح' : 'Available'}: ${availableQty}` : undefined}
+                              className={rowControlClass}
+                            />
+                          </div>
+                        )}
                         <div className="w-[110px] shrink-0">
                           <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'المبلغ' : 'Amount'}</label>
                           <input
@@ -2537,7 +2597,9 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                           <SearchableSelect
                             options={getItemAddons(row.item).map((addon) => ({
                               value: addon.id,
-                              label: `${addon.name || ''}${Number(addon.price || 0) ? ` (${formatDisplayNumber(getAddonAmount(addon))})` : ''}`,
+                              label: serviceRow
+                                ? `${addon.name || ''}${addon.period ? ` · ${addon.period}` : ''}${Number(addon.price || 0) ? ` (${formatDisplayNumber(getAddonAmount(addon, true))})` : ''}`
+                                : `${addon.name || ''}${Number(addon.price || 0) ? ` (${formatDisplayNumber(getAddonAmount(addon))})` : ''}`,
                             }))}
                             value={getRowAddonIds(row)}
                             onChange={(value) => handleGeneralRowChange(index, 'addon_ids', value)}

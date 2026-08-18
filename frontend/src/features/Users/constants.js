@@ -23,6 +23,49 @@ export const ROLES = [
 
 export const STATUSES = ['Active', 'Inactive', 'Suspended'];
 
+export const ROLE_LABELS_AR = {
+  Director: 'مدير',
+  'Operation Manager': 'مدير العمليات',
+  'Sales Admin': 'أدمن المبيعات',
+  'Branch Manager': 'مدير فرع',
+  'Sales Manager': 'مدير مبيعات',
+  'Team Leader': 'قائد فريق',
+  'Sales Person': 'مندوب مبيعات',
+  'Telesales Manager': 'مدير تليسييلز',
+  'Telesales Team Leader': 'قائد فريق تليسييلز',
+  'Telesales Agent': 'وكيل تليسييلز',
+  'Customer Manager': 'مدير العملاء',
+  'Customer Team Leader': 'قائد فريق العملاء',
+  'Customer Agent': 'وكيل العملاء',
+  'Marketing Manager': 'مدير التسويق',
+  'Marketing Moderator': 'مشرف تسويق',
+  'Support Manager': 'مدير الدعم',
+  'Support Team Leader': 'قائد فريق الدعم',
+  'Support Agent': 'وكيل الدعم',
+  Accountant: 'محاسب',
+  Custom: 'مخصص',
+};
+
+export const STATUS_LABELS_AR = {
+  Active: 'نشط',
+  Inactive: 'غير نشط',
+  Suspended: 'موقوف',
+};
+
+export const getRoleDisplayLabel = (role, isArabic = false) => {
+  const value = String(role || '').trim();
+  if (!value) return '';
+  if (!isArabic) return value;
+  return ROLE_LABELS_AR[value] || value;
+};
+
+export const getStatusDisplayLabel = (status, isArabic = false) => {
+  const value = String(status || '').trim();
+  if (!value) return '';
+  if (!isArabic) return value;
+  return STATUS_LABELS_AR[value] || value;
+};
+
 export const ROLE_HIERARCHY = {
   'Branch Manager': ['Sales Admin'],
   'Sales Manager': ['Sales Admin', 'Branch Manager'],

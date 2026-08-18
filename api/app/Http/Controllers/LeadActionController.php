@@ -8,6 +8,11 @@ use App\Models\User;
 use App\Models\Property;
 use App\Models\Item;
 use App\Models\InventoryRequest;
+use App\Services\GeneralInventory\GeneralInventoryClosingService;
+use App\Services\GeneralInventory\GeneralInventoryOrderService;
+use App\Services\GeneralInventory\GeneralInventoryRequestService;
+use App\Services\GeneralInventory\GeneralInventoryReservationLineService;
+use App\Services\GeneralInventory\GeneralInventoryRevenueService;
 use App\Services\MeetingActionService;
 use App\Services\ItemStockService;
 use App\Notifications\LeadActionCreated;
@@ -30,7 +35,12 @@ class LeadActionController extends Controller
     use ResolvesNotificationRecipients, UserHierarchyTrait;
 
     public function __construct(
-        private readonly MeetingActionService $meetingActionService
+        private readonly MeetingActionService $meetingActionService,
+        private readonly GeneralInventoryOrderService $generalInventoryOrders,
+        private readonly GeneralInventoryRequestService $generalInventoryRequests,
+        private readonly GeneralInventoryRevenueService $generalInventoryRevenues,
+        private readonly GeneralInventoryClosingService $generalInventoryClosing,
+        private readonly GeneralInventoryReservationLineService $generalInventoryReservationLines,
     ) {
     }
 
@@ -346,7 +356,9 @@ class LeadActionController extends Controller
         $meta = is_array($requestModel->meta_data) ? $requestModel->meta_data : [];
         $metaSourceActionId = isset($meta['source_action_id']) ? (int) $meta['source_action_id'] : null;
         $metaLeadId = isset($meta['lead_id']) ? (int) $meta['lead_id'] : null;
-        $metaLineIndex = isset($meta['source_action_line']) ? (int) $meta['source_action_line'] : null;
+        $metaLineIndex = array_key_exists('source_action_line', $meta)
+            ? (int) $meta['source_action_line']
+            : null;
 
         if ($metaSourceActionId !== $reservationActionId) {
             return false;
@@ -356,7 +368,7 @@ class LeadActionController extends Controller
             return false;
         }
 
-        if ($lineIndex !== null && $metaLineIndex !== $lineIndex) {
+        if ($lineIndex !== null && $metaLineIndex !== null && $metaLineIndex !== $lineIndex) {
             return false;
         }
 
@@ -428,7 +440,7 @@ class LeadActionController extends Controller
             : (is_array($request->reservationGeneralItems) ? $request->reservationGeneralItems : []);
 
         $needed = [];
-        foreach ($rows as $index => $row) {
+        foreach ($this->generalInventoryReservationLines->stockCheckRows($rows) as $index => $row) {
             $itemId = (int) ($row['item'] ?? $row['item_id'] ?? 0);
             $qty = max(0, (int) ($row['quantity'] ?? 1));
             if ($itemId < 1 || $qty < 1) {
@@ -1013,8 +1025,38 @@ class LeadActionController extends Controller
             }
         }
 
-        $reservationTypeEarly = (string) ($details['reservationType'] ?? $request->reservationType ?? '');
         $isReservationAction = ($request->type === 'reservation' || $request->next_action_type === 'reservation');
+        $reservationTypeEarly = (string) ($details['reservationType'] ?? $request->reservationType ?? '');
+        if ($isClosing && $reservationTypeEarly === 'general') {
+            $orderSnapshot = $this->generalInventoryOrders->orderSnapshotForClosing(
+                (int) $lead->tenant_id,
+                (int) $lead->id,
+                (int) ($details['reservation_source_action_id'] ?? $reservationSourceAction?->id ?? 0)
+            );
+            if ($orderSnapshot) {
+                $existingRows = $details['reservationGeneralItems'] ?? null;
+                if (! is_array($existingRows) || $existingRows === []) {
+                    $details['reservationGeneralItems'] = $orderSnapshot['lines'];
+                }
+                $details['subtotal'] = $details['subtotal'] ?? $orderSnapshot['subtotal'];
+                $details['tax'] = $details['tax'] ?? $orderSnapshot['tax'];
+                $details['finalAmount'] = $details['finalAmount'] ?? $orderSnapshot['total'];
+                $details['general_order_id'] = $orderSnapshot['order_id'];
+            }
+        }
+        if (($isReservationAction || $isClosing) && $reservationTypeEarly === 'general') {
+            try {
+                $details = $this->generalInventoryReservationLines->normalizeDetails($details);
+            } catch (ValidationException $e) {
+                return response()->json([
+                    'message' => collect($e->errors())->flatten()->first() ?: 'Invalid reservation items.',
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+        }
+        if ($isClosing && $reservationTypeEarly === 'general') {
+            $details = $this->generalInventoryClosing->normalizeClosingDetails($details);
+        }
         if (($isReservationAction || $isClosing) && $reservationTypeEarly === 'general') {
             try {
                 $this->assertGeneralItemStock($lead, $details, $request, $isClosing);
@@ -1301,7 +1343,7 @@ class LeadActionController extends Controller
 
         // Revenue Creation Logic: Attribute to Salesperson (Lead Assignee)
         $revenueAmount = $details['closingRevenue'] ?? $details['revenue'] ?? 0;
-        if ($isClosing && $revenueAmount > 0) {
+        if ($isClosing && $revenueAmount > 0 && $reservationTypeEarly !== 'general') {
             $dealItems = [];
             foreach (($details['reservationGeneralItems'] ?? []) as $row) {
                 if (!is_array($row)) {
@@ -1337,6 +1379,9 @@ class LeadActionController extends Controller
                     'deal_items' => $dealItems,
                 ]
             ]);
+        }
+        if ($isClosing && $reservationTypeEarly === 'general' && $this->generalInventoryRevenues->finalAmountFromDetails($details) > 0) {
+            $this->generalInventoryRevenues->createForClosingOnce($lead, $leadAction, $details);
         }
 
         // Reservation hold settings (hours). null = lifetime (no auto-expiry).
@@ -1497,87 +1542,24 @@ class LeadActionController extends Controller
                     }
                 }
                 elseif ($reservationType === 'general') {
-                    $stockService = app(ItemStockService::class);
-                    $items = is_array($details['reservationGeneralItems'] ?? null)
-                        ? ($details['reservationGeneralItems'] ?? [])
-                        : (is_array($request->reservationGeneralItems) ? $request->reservationGeneralItems : []);
-                    $reservationNotes = $details['reservationNotes'] ?? $request->reservationNotes;
                     $isReservationNow = ($request->next_action_type === 'reservation' || $request->type === 'reservation');
-
-                    foreach ($items as $index => $itemData) {
-                        $itemModel = Item::find($itemData['item'] ?? $itemData['item_id'] ?? null);
-
-                        $qty = intval($itemData['quantity'] ?? 1);
-                        $price = floatval($itemData['price'] ?? 0);
-                        $addonsTotal = floatval($itemData['addons_total'] ?? 0);
-                        $discountAmount = floatval($itemData['discount_amount'] ?? 0);
-                        $lineTotal = isset($itemData['line_total']) && $itemData['line_total'] !== ''
-                            ? floatval($itemData['line_total'])
-                            : max(0, ($qty * $price) + $addonsTotal - $discountAmount);
-                        $productName = $itemModel ? $itemModel->name : (string) ($itemData['item'] ?? '');
-
-                        if ($productName === '') {
-                            continue;
-                        }
-
-                        $existingRequest = $this->findMatchingInventoryRequest(
+                    $this->generalInventoryRequests->syncReservationRequests(
+                        $reservationLead,
+                        $details,
+                        $reservationActionId,
+                        $isReservationNow,
+                        $isClosing,
+                        $reservationExpiresAt,
+                        (int) $leadAction->id,
+                        Auth::user()
+                    );
+                    if ($isReservationNow) {
+                        $this->generalInventoryOrders->syncFromReservation(
                             $reservationLead,
+                            $details,
                             $reservationActionId,
-                            (int) $index,
-                            $productName,
-                            $qty
+                            Auth::user()
                         );
-
-                        if ($isClosing && $existingRequest) {
-                            $stockService->sellRequest($existingRequest, 'lead_action', (int) $leadAction->id);
-                            continue;
-                        }
-
-                        if ($this->hasMatchingInventoryRequest($reservationLead, $reservationActionId, (int) $index, $productName, $qty)) {
-                            continue;
-                        }
-
-                        $inventoryRequest = InventoryRequest::create([
-                            'tenant_id' => $reservationLead->tenant_id ?? Auth::user()->tenant_id,
-                            'customer_name' => $reservationLead->name,
-                            'product' => $productName,
-                            'quantity' => $qty,
-                            'description' => $reservationNotes,
-                            'status' => 'Pending',
-                            'type' => 'Booking',
-                            'source' => $reservationLead->source ?? '',
-                            'meta_data' => [
-                                'lead_id' => $reservationLead->id,
-                                'price' => $price,
-                                'total' => $lineTotal,
-                                'line_total' => $lineTotal,
-                                'addons_total' => $addonsTotal,
-                                'discount_amount' => $discountAmount,
-                                'reservationAmount' => $lineTotal,
-                                'reservationGeneralItems' => [$itemData],
-                                'source_action_id' => $reservationActionId,
-                                'source_action_line' => (int) $index,
-                                'source_action_type' => $isClosing ? 'closing_deals' : 'reservation',
-                                'customer_phone' => $reservationLead->phone,
-                                'created_by_name' => Auth::user()->name ?? '',
-                                'created_by_id' => Auth::id()
-                            ]
-                        ]);
-
-                        if ($itemModel && $isReservationNow && !$isClosing) {
-                            $stockService->reserveForRequest($inventoryRequest, $itemModel, $qty, $reservationExpiresAt);
-                        } elseif ($itemModel && $isClosing) {
-                            $stockService->sellFromAvailable($itemModel, $qty, 'lead_action', (int) $leadAction->id);
-                            $meta = is_array($inventoryRequest->meta_data) ? $inventoryRequest->meta_data : [];
-                            $meta['stock'] = [
-                                'item_id' => (int) $itemModel->id,
-                                'quantity' => $qty,
-                                'state' => ItemStockService::STATE_SOLD,
-                                'frozen' => true,
-                            ];
-                            $inventoryRequest->meta_data = $meta;
-                            $inventoryRequest->save();
-                        }
                     }
                 }
             }

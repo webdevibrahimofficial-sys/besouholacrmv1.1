@@ -3,15 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Broker;
+use App\Models\CrmSetting;
 use App\Models\Entity;
 use App\Models\FieldValue;
 use App\Models\Visit;
+use App\Support\StartCodeGenerator;
 use App\Traits\InventoryDeleteAuthorization;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -206,6 +209,17 @@ class BrokerController extends Controller
                 if (!is_array($meta)) $meta = [];
                 $meta['assigned_sales_person_ids'] = $assignedIds;
                 $data['meta_data'] = $meta;
+            }
+
+            if ($request->filled('code')) {
+                $data['code'] = $request->input('code');
+            } elseif (Schema::hasColumn((new Broker)->getTable(), 'code')) {
+                $settings = CrmSetting::resolved();
+                $data['code'] = StartCodeGenerator::next(
+                    Broker::query()->whereNotNull('code')->pluck('code'),
+                    (string) ($settings['startBrokerCode'] ?? 'BRK-0001'),
+                    'BRK-'
+                );
             }
 
             $broker = Broker::create($data);

@@ -49,11 +49,14 @@ class ItemStockService
         }
 
         foreach ($needed as $itemId => $qty) {
-            $item = Item::query()->find($itemId);
+            $item = Item::query()->with('category')->find($itemId);
             if (!$item) {
                 throw ValidationException::withMessages([
                     'item' => "Item #{$itemId} was not found.",
                 ]);
+            }
+            if (($item->business_type ?? 'product') === 'service') {
+                continue;
             }
             if ($this->availableOf($item) < $qty) {
                 throw ValidationException::withMessages([
@@ -94,88 +97,128 @@ class ItemStockService
             'product' => $item->name,
         ]);
 
-        $meta = is_array($request->meta_data) ? $request->meta_data : [];
-        $meta['stock'] = [
+        $this->appendStockLine($request, [
             'item_id' => (int) $item->id,
             'quantity' => $qty,
             'state' => self::STATE_RESERVED,
             'reserved_expires_at' => $expiresAt ? $expiresAt->format('Y-m-d H:i:s') : null,
             'frozen' => false,
-        ];
-        $request->meta_data = $meta;
-        $request->save();
+        ]);
+    }
+
+    public function markSoldFromAvailableForRequest(
+        InventoryRequest $request,
+        Item $item,
+        int $qty,
+        string $sourceType = 'lead_action',
+        ?int $sourceId = null
+    ): void {
+        $this->sellFromAvailable($item, $qty, $sourceType, $sourceId);
+        $this->appendStockLine($request, [
+            'item_id' => (int) $item->id,
+            'quantity' => $qty,
+            'state' => self::STATE_SOLD,
+            'reserved_expires_at' => null,
+            'frozen' => true,
+        ]);
     }
 
     public function freezeRequest(InventoryRequest $request): void
     {
         $meta = is_array($request->meta_data) ? $request->meta_data : [];
-        $stock = is_array($meta['stock'] ?? null) ? $meta['stock'] : [];
-        if (($stock['state'] ?? '') !== self::STATE_RESERVED) {
+        $lines = $this->stockLinesFromMeta($meta);
+        if ($lines === []) {
             return;
         }
-        $stock['frozen'] = true;
-        $stock['reserved_expires_at'] = null;
-        $meta['stock'] = $stock;
-        $request->meta_data = $meta;
-        $request->save();
+
+        $changed = false;
+        foreach ($lines as $index => $stock) {
+            if (($stock['state'] ?? '') !== self::STATE_RESERVED) {
+                continue;
+            }
+            $stock['frozen'] = true;
+            $stock['reserved_expires_at'] = null;
+            $lines[$index] = $stock;
+            $changed = true;
+        }
+
+        if ($changed) {
+            $this->writeStockLines($request, $meta, $lines);
+        }
     }
 
     public function releaseRequest(InventoryRequest $request, string $reason = 'released'): void
     {
         $meta = is_array($request->meta_data) ? $request->meta_data : [];
-        $stock = is_array($meta['stock'] ?? null) ? $meta['stock'] : [];
-        $state = (string) ($stock['state'] ?? '');
-        $qty = (int) ($stock['quantity'] ?? $request->quantity ?? 0);
-        $itemId = (int) ($stock['item_id'] ?? 0);
-
-        if ($qty < 1 || $itemId < 1) {
+        $lines = $this->stockLinesFromMeta($meta);
+        if ($lines === []) {
             return;
         }
 
-        if ($state !== self::STATE_RESERVED) {
-            return;
+        $changed = false;
+        foreach ($lines as $index => $stock) {
+            $state = (string) ($stock['state'] ?? '');
+            $qty = (int) ($stock['quantity'] ?? 0);
+            $itemId = (int) ($stock['item_id'] ?? 0);
+
+            if ($qty < 1 || $itemId < 1 || $state !== self::STATE_RESERVED) {
+                continue;
+            }
+
+            $item = Item::query()->find($itemId);
+            if ($item) {
+                $this->release($item, $qty, 'inventory_request', (int) $request->id, ['reason' => $reason]);
+            }
+
+            $stock['state'] = $reason === 'expired' ? self::STATE_EXPIRED : self::STATE_RELEASED;
+            $stock['frozen'] = false;
+            $lines[$index] = $stock;
+            $changed = true;
         }
 
-        $item = Item::query()->find($itemId);
-        if ($item) {
-            $this->release($item, $qty, 'inventory_request', (int) $request->id, ['reason' => $reason]);
+        if ($changed) {
+            $this->writeStockLines($request, $meta, $lines);
         }
-
-        $stock['state'] = $reason === 'expired' ? self::STATE_EXPIRED : self::STATE_RELEASED;
-        $stock['frozen'] = false;
-        $meta['stock'] = $stock;
-        $request->meta_data = $meta;
-        $request->save();
     }
 
     public function sellRequest(InventoryRequest $request, string $sourceType = 'sales_invoice', ?int $sourceId = null): void
     {
         $meta = is_array($request->meta_data) ? $request->meta_data : [];
-        $stock = is_array($meta['stock'] ?? null) ? $meta['stock'] : [];
-        $state = (string) ($stock['state'] ?? '');
-        $qty = (int) ($stock['quantity'] ?? $request->quantity ?? 0);
-        $itemId = (int) ($stock['item_id'] ?? 0);
-
-        if ($qty < 1 || $itemId < 1 || $state === self::STATE_SOLD) {
+        $lines = $this->stockLinesFromMeta($meta);
+        if ($lines === []) {
             return;
         }
 
-        $item = Item::query()->find($itemId);
-        if (!$item) {
-            return;
+        $changed = false;
+        foreach ($lines as $index => $stock) {
+            $state = (string) ($stock['state'] ?? '');
+            $qty = (int) ($stock['quantity'] ?? 0);
+            $itemId = (int) ($stock['item_id'] ?? 0);
+
+            if ($qty < 1 || $itemId < 1 || $state === self::STATE_SOLD) {
+                continue;
+            }
+
+            $item = Item::query()->find($itemId);
+            if (! $item) {
+                continue;
+            }
+
+            if ($state === self::STATE_RESERVED) {
+                $this->sellFromReserved($item, $qty, $sourceType, $sourceId);
+            } else {
+                $this->sellFromAvailable($item, $qty, $sourceType, $sourceId);
+            }
+
+            $stock['state'] = self::STATE_SOLD;
+            $stock['frozen'] = true;
+            $lines[$index] = $stock;
+            $changed = true;
         }
 
-        if ($state === self::STATE_RESERVED) {
-            $this->sellFromReserved($item, $qty, $sourceType, $sourceId);
-        } else {
-            $this->sellFromAvailable($item, $qty, $sourceType, $sourceId);
+        if ($changed) {
+            $this->writeStockLines($request, $meta, $lines);
         }
-
-        $stock['state'] = self::STATE_SOLD;
-        $stock['frozen'] = true;
-        $meta['stock'] = $stock;
-        $request->meta_data = $meta;
-        $request->save();
     }
 
     public function expireDueRequests(): int
@@ -571,5 +614,67 @@ class ItemStockService
         }
 
         return Item::query()->where('name', $name)->first();
+    }
+
+    /**
+     * @param  array<string,mixed>  $meta
+     * @return list<array<string,mixed>>
+     */
+    private function stockLinesFromMeta(array $meta): array
+    {
+        if (is_array($meta['stock_lines'] ?? null) && $meta['stock_lines'] !== []) {
+            return array_values(array_filter(
+                $meta['stock_lines'],
+                fn ($line) => is_array($line) && (int) ($line['item_id'] ?? 0) > 0
+            ));
+        }
+
+        $stock = is_array($meta['stock'] ?? null) ? $meta['stock'] : [];
+        if ((int) ($stock['item_id'] ?? 0) > 0) {
+            return [$stock];
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  array<string,mixed>  $line
+     */
+    private function appendStockLine(InventoryRequest $request, array $line): void
+    {
+        $meta = is_array($request->meta_data) ? $request->meta_data : [];
+        $lines = $this->stockLinesFromMeta($meta);
+        $lines[] = $line;
+        $this->writeStockLines($request, $meta, $lines);
+    }
+
+    /**
+     * @param  array<string,mixed>  $meta
+     * @param  list<array<string,mixed>>  $lines
+     */
+    private function writeStockLines(InventoryRequest $request, array $meta, array $lines): void
+    {
+        $lines = array_values($lines);
+        $meta['stock_lines'] = $lines;
+
+        if (count($lines) === 1) {
+            $meta['stock'] = $lines[0];
+        } elseif (count($lines) > 1) {
+            $states = array_map(fn (array $line) => (string) ($line['state'] ?? ''), $lines);
+            $state = in_array(self::STATE_RESERVED, $states, true)
+                ? self::STATE_RESERVED
+                : (in_array(self::STATE_SOLD, $states, true) ? self::STATE_SOLD : ($states[0] ?? null));
+
+            $meta['stock'] = [
+                'state' => $state,
+                'quantity' => array_sum(array_map(fn (array $line) => (int) ($line['quantity'] ?? 0), $lines)),
+                'frozen' => collect($lines)->every(fn (array $line) => ! empty($line['frozen'])),
+                'reserved_expires_at' => $lines[0]['reserved_expires_at'] ?? null,
+                'multi' => true,
+            ];
+        }
+
+        $request->meta_data = $meta;
+        $request->save();
     }
 }

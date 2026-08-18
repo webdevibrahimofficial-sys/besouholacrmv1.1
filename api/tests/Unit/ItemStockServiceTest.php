@@ -167,6 +167,41 @@ class ItemStockServiceTest extends TestCase
         $this->assertSame('Expired', $request->status);
     }
 
+    public function test_reserve_and_sell_request_handles_multiple_item_lines(): void
+    {
+        $first = $this->makeItem(5, ['name' => 'Laptop']);
+        $second = $this->makeItem(7, ['name' => 'Printer']);
+        $request = InventoryRequest::create([
+            'tenant_id' => $this->tenant->id,
+            'product' => $first->name,
+            'quantity' => 3,
+            'status' => 'Pending',
+        ]);
+
+        $this->stock->reserveForRequest($request, $first, 1);
+        $this->stock->reserveForRequest($request->fresh(), $second, 2);
+        $first->refresh();
+        $second->refresh();
+        $request->refresh();
+
+        $this->assertCount(2, $request->meta_data['stock_lines'] ?? []);
+        $this->assertSame(4, (int) $first->quantity);
+        $this->assertSame(5, (int) $second->quantity);
+
+        $this->stock->sellRequest($request->fresh(), 'lead_action', 12);
+        $first->refresh();
+        $second->refresh();
+        $request->refresh();
+
+        $this->assertSame(4, (int) $first->quantity);
+        $this->assertSame(0, (int) $first->reserved_quantity);
+        $this->assertSame(1, (int) $first->sold_quantity);
+        $this->assertSame(5, (int) $second->quantity);
+        $this->assertSame(0, (int) $second->reserved_quantity);
+        $this->assertSame(2, (int) $second->sold_quantity);
+        $this->assertSame(ItemStockService::STATE_SOLD, $request->meta_data['stock']['state'] ?? null);
+    }
+
     public function test_posted_invoice_sells_available_and_return_restores_it(): void
     {
         $item = $this->makeItem(10);

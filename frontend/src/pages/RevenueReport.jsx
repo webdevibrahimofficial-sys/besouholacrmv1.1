@@ -42,6 +42,7 @@ import {
   matchesManagerFilter,
   resolveReportKpiTarget,
   countClosedDeals,
+  calculateInheritedCommission,
 } from '../utils/targetRevenueReport'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
@@ -699,11 +700,25 @@ export default function RevenueReport() {
         resolveTiersForYear(user || item, getUserRows(user || item), yearKey, currentYear),
         aggregateAchievement
       )
-      const commission = yearFilter === 'all'
+      const personalCommission = yearFilter === 'all'
         ? (item.commission || 0)
         : ((item.revenue || 0) * matchedRate) / 100
+      const inherited = user
+        ? calculateInheritedCommission({
+            user,
+            users: usersList,
+            targetHistoryByUser,
+            revenueRows: filtered,
+            yearFilter,
+            type: targetTypeFilter,
+            currentYear,
+            tenantCreatedYear,
+            now: reportNow,
+          })
+        : { commission: 0, rate: 0, revenue: 0, target: 0, achievement: 0 }
+      const commission = personalCommission + (inherited.commission || 0)
       const commissionRate = yearFilter === 'all' && item.revenue
-        ? Number((((item.commission || 0) / item.revenue) * 100).toFixed(2))
+        ? Number((((personalCommission || 0) / item.revenue) * 100).toFixed(2))
         : matchedRate
       const hasRevenue = (item.revenue || 0) > 0
       const projectItems = Array.from(item.projects.values())
@@ -727,11 +742,16 @@ export default function RevenueReport() {
         target,
         revenue: item.revenue || 0,
         commissionRate,
+        personalCommission,
+        inheritedCommission: inherited.commission || 0,
+        inheritedCommissionRate: inherited.rate || 0,
+        inheritedRevenue: inherited.revenue || 0,
+        inheritedTarget: inherited.target || 0,
         commission,
         aggregateAchievement,
       }
     }).sort((a, b) => String(a.salesperson || '').localeCompare(String(b.salesperson || '')))
-  }, [filtered, usersList, usersById, getUserTarget, getUserRows, yearFilter, currentYear, localizeSourceLabel])
+  }, [filtered, usersList, usersById, getUserTarget, getUserRows, yearFilter, currentYear, localizeSourceLabel, targetHistoryByUser, targetTypeFilter, tenantCreatedYear, reportNow])
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
@@ -1121,6 +1141,8 @@ export default function RevenueReport() {
       [isRTL ? 'الهدف' : 'Target']: r.target,
       [isRTL ? 'الإيرادات' : 'Revenue']: r.revenue,
       [isRTL ? 'نسبة العمولة' : 'Commission %']: r.commissionRate,
+      [isRTL ? 'عمولة شخصية' : 'Personal Commission']: r.personalCommission || 0,
+      [isRTL ? 'عمولة الفريق' : 'Team Commission']: r.inheritedCommission || 0,
       [isRTL ? 'العمولة' : 'Commission']: r.commission,
       [isRTL ? 'نسبة الإنجاز' : 'Achievement %']: formatAchievementPercent(r.aggregateAchievement),
     }))
@@ -1850,7 +1872,16 @@ export default function RevenueReport() {
                   </div>
                   <div className="flex justify-between items-center">
                       <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'العمولة' : 'Commission'}</span>
-                      <span className={`font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{(row.commission || 0).toLocaleString()} EGP {(row.commissionRate || 0) ? `(${row.commissionRate}%)` : ''}</span>
+                      <span className={`font-semibold text-right ${isLight ? 'text-black' : 'text-white'}`}>
+                        {(row.commission || 0).toLocaleString()} EGP {(row.commissionRate || 0) ? `(${row.commissionRate}%)` : ''}
+                        {(row.inheritedCommission || 0) > 0 && (
+                          <span className={`block text-[10px] font-normal ${isLight ? 'text-black/70' : 'text-white/70'}`}>
+                            {isRTL
+                              ? `شخصي ${(row.personalCommission || 0).toLocaleString()} · فريق ${(row.inheritedCommission || 0).toLocaleString()}`
+                              : `Personal ${(row.personalCommission || 0).toLocaleString()} · Team ${(row.inheritedCommission || 0).toLocaleString()}`}
+                          </span>
+                        )}
+                      </span>
                   </div>
                   
                   {/* Progress Bar */}
@@ -1954,6 +1985,13 @@ export default function RevenueReport() {
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
                         {(row.commission || 0).toLocaleString()} EGP
+                        {(row.inheritedCommission || 0) > 0 && (
+                          <div className={`text-[10px] ${isLight ? 'text-black/60' : 'text-white/60'}`}>
+                            {isRTL
+                              ? `شخصي ${(row.personalCommission || 0).toLocaleString()} · فريق ${(row.inheritedCommission || 0).toLocaleString()}`
+                              : `Personal ${(row.personalCommission || 0).toLocaleString()} · Team ${(row.inheritedCommission || 0).toLocaleString()}`}
+                          </div>
+                        )}
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
                         {formatAchievementPercent(achievement)}

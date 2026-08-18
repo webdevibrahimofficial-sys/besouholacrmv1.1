@@ -600,6 +600,10 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('sources', \App\Http\Controllers\SourceController::class);
     Route::post('items/bulk-delete', [ItemController::class, 'bulkDestroy']);
     Route::apiResource('items', ItemController::class);
+    Route::get('inventory-lookups/service-types', [\App\Http\Controllers\InventoryLookupController::class, 'serviceTypes']);
+    Route::post('inventory-lookups/service-types', [\App\Http\Controllers\InventoryLookupController::class, 'storeServiceType']);
+    Route::put('inventory-lookups/service-types/{id}', [\App\Http\Controllers\InventoryLookupController::class, 'updateServiceType']);
+    Route::delete('inventory-lookups/service-types/{id}', [\App\Http\Controllers\InventoryLookupController::class, 'destroyServiceType']);
     Route::apiResource('real-estate-requests', \App\Http\Controllers\RealEstateRequestController::class);
     Route::post('real-estate-requests/{realEstateRequest}/convert-to-deal', [\App\Http\Controllers\RealEstateRequestController::class, 'convertToDeal']);
     Route::apiResource('countries', \App\Http\Controllers\CountryController::class);

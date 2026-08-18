@@ -7,6 +7,7 @@ import { useAppState } from '../shared/context/AppStateProvider'
 import { FaFileImport, FaPlus, FaFileExport, FaFileCsv, FaFilePdf, FaFilter, FaSearch, FaEdit, FaTrash, FaChevronLeft, FaChevronRight, FaTimes } from 'react-icons/fa'
 import SearchableSelect from '../components/SearchableSelect'
 import CategoriesImportModal from './inventory/CategoriesImportModal'
+import { CATEGORY_TYPE_PRODUCTS, CATEGORY_TYPE_SERVICES, categoryTypeFromRecord, normalizeCategoryType } from '../features/inventory/categoryType'
 
 const normalizeTenantCompanyType = (...values) => {
   const normalized = values
@@ -61,10 +62,8 @@ export default function Categories() {
     active: isArabic ? 'نشط' : 'Active',
     inactive: isArabic ? 'غير نشط' : 'Inactive',
     all: isArabic ? 'الكل' : 'All',
-    product: isArabic ? 'منتج' : 'Product',
-    service: isArabic ? 'خدمة' : 'Service',
-    subscription: isArabic ? 'اشتراك' : 'Subscription',
-    package: isArabic ? 'باقة' : 'Package',
+    product: isArabic ? 'منتجات' : 'Products',
+    service: isArabic ? 'خدمات' : 'Services',
     brandName: isArabic ? 'اسم العلامة التجارية' : 'Brand Name',
     productName: isArabic ? 'اسم المنتج' : 'Product Name',
     itemName: isArabic ? 'اسم الصنف' : 'Item Name',
@@ -79,16 +78,14 @@ export default function Categories() {
   }), [isArabic])
 
   const appliesToOptions = useMemo(() => ([
-    { value: 'Product', label: labels.product },
-    { value: 'Service', label: labels.service },
-    { value: 'Subscription', label: labels.subscription },
-    { value: 'Package', label: labels.package },
-  ]), [labels.product, labels.service, labels.subscription, labels.package])
+    { value: CATEGORY_TYPE_PRODUCTS, label: labels.product },
+    { value: CATEGORY_TYPE_SERVICES, label: labels.service },
+  ]), [labels.product, labels.service])
 
   const [form, setForm] = useState({
     id: null,
     name: '',
-    appliesTo: 'Product',
+    appliesTo: CATEGORY_TYPE_PRODUCTS,
     status: 'Active',
     description: ''
   })
@@ -163,7 +160,7 @@ export default function Categories() {
       // Map backend fields to frontend state
       const mapped = data.map(c => ({
         ...c,
-        appliesTo: c.applies_to || c.appliesTo || 'Product',
+        appliesTo: categoryTypeFromRecord(c) || CATEGORY_TYPE_PRODUCTS,
         code: c.code || '',
         status: c.status || 'Active',
         description: c.description || '',
@@ -202,11 +199,16 @@ export default function Categories() {
   async function onSubmit(e) {
     e.preventDefault()
     const name = form.name.trim()
-    if (!name) return
+    const categoryType = normalizeCategoryType(form.appliesTo)
+    if (!name || !categoryType) {
+      alert(isArabic ? 'اسم التصنيف ونوع التصنيف مطلوبان' : 'Category Name and Category Type are required')
+      return
+    }
 
     const payload = {
         name,
-        applies_to: form.appliesTo, // Map to snake_case
+        applies_to: categoryType,
+        category_type: categoryType,
         status: form.status,
         description: form.description
     }
@@ -220,7 +222,7 @@ export default function Categories() {
         }
         await fetchCategories()
         setShowForm(false)
-        setForm({ id: null, name: '', appliesTo: 'Product', status: 'Active', description: '' })
+        setForm({ id: null, name: '', appliesTo: CATEGORY_TYPE_PRODUCTS, status: 'Active', description: '' })
     } catch (error) {
         console.error('Error saving category:', error)
         alert(isArabic ? 'فشل الحفظ' : 'Failed to save')
@@ -258,7 +260,7 @@ export default function Categories() {
     setForm({ 
       id: cat.id,
       name: cat.name || '', 
-      appliesTo: cat.appliesTo || 'Product',
+      appliesTo: categoryTypeFromRecord(cat) || CATEGORY_TYPE_PRODUCTS,
       status: cat.status || 'Active',
       description: cat.description || '' 
     })
@@ -268,11 +270,9 @@ export default function Categories() {
   }
 
   const appliesToFilterOptions = useMemo(() => ([
-    { value: 'Product', label: labels.product },
-    { value: 'Service', label: labels.service },
-    { value: 'Subscription', label: labels.subscription },
-    { value: 'Package', label: labels.package },
-  ]), [labels.product, labels.service, labels.subscription, labels.package])
+    { value: CATEGORY_TYPE_PRODUCTS, label: labels.product },
+    { value: CATEGORY_TYPE_SERVICES, label: labels.service },
+  ]), [labels.product, labels.service])
   const statusFilterOptions = useMemo(() => ([
     { value: 'Active', label: labels.active },
     { value: 'Inactive', label: labels.inactive },
@@ -283,18 +283,10 @@ export default function Categories() {
   }, [categories])
 
   const getAppliesToLabel = (value) => {
-    switch (value) {
-      case 'Product':
-        return labels.product
-      case 'Service':
-        return labels.service
-      case 'Subscription':
-        return labels.subscription
-      case 'Package':
-        return labels.package
-      default:
-        return value || '-'
-    }
+    const normalized = normalizeCategoryType(value)
+    if (normalized === CATEGORY_TYPE_PRODUCTS) return labels.product
+    if (normalized === CATEGORY_TYPE_SERVICES) return labels.service
+    return value || '-'
   }
 
   // Reset pagination when filters change
@@ -309,7 +301,7 @@ export default function Categories() {
         if (!c.name.toLowerCase().includes(q) && !(c.description || '').toLowerCase().includes(q) && !(c.code || '').toLowerCase().includes(q)) return false
       }
       if (filters.name && c.name !== filters.name) return false
-      if (filters.appliesTo && c.appliesTo !== filters.appliesTo) return false
+      if (filters.appliesTo && categoryTypeFromRecord(c) !== filters.appliesTo) return false
       if (filters.status && c.status !== filters.status) return false
       
       return true
@@ -342,7 +334,7 @@ export default function Categories() {
             await api.post('/api/item-categories', {
                 name: item.name,
                 code: item.code,
-                applies_to: item.appliesTo || 'Product',
+                applies_to: normalizeCategoryType(item.appliesTo || item['Category Type'] || item.applies_to) || CATEGORY_TYPE_PRODUCTS,
                 status: item.status || 'Active',
                 description: item.description
             })
@@ -422,7 +414,7 @@ export default function Categories() {
               </button>
             )}
             {canManageCategories && (
-              <button className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-green-500 text-white border-none gap-2" onClick={() => { setShowForm(true); setActiveTab('basic'); }}>
+              <button className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-green-500 text-white border-none gap-2" onClick={() => { setForm({ id: null, name: '', appliesTo: CATEGORY_TYPE_PRODUCTS, status: 'Active', description: '' }); setShowForm(true); setActiveTab('basic'); }}>
                 <FaPlus className="text-white" /><span className="text-white">{labels.add}</span>
               </button>
             )}
@@ -651,7 +643,7 @@ export default function Categories() {
                 </div>
                 
                 <div className="form-control">
-                  <label className="label text-sm font-medium mb-1">{labels.appliesTo}</label>
+                  <label className="label text-sm font-medium mb-1">{labels.appliesTo} <span className="text-red-500">*</span></label>
                   <SearchableSelect
                     options={appliesToOptions}
                     value={form.appliesTo}

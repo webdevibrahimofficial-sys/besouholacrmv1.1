@@ -26,6 +26,12 @@ import {
   resolveTargetForYear,
   resolveTiersForYear,
   timeBucketIndex,
+  filterTiersByScope,
+  COMMISSION_SCOPE_PERSONAL,
+  COMMISSION_SCOPE_INHERITED,
+  collectDescendantIds,
+  resolveInheritedTargetForYear,
+  calculateInheritedCommission,
 } from './targetRevenueReport'
 
 describe('targetRevenueReport', () => {
@@ -346,5 +352,70 @@ describe('targetRevenueReport', () => {
     expect(countClosedDeals(rows, {
       periodRange: { from: '2026-08-01', to: '2026-08-17' },
     })).toBe(3)
+  })
+
+  test('splits personal and inherited commission tiers', () => {
+    const mixed = [
+      { from_percentage: 0, to_percentage: 100, commission_percentage: 3 },
+      { from_percentage: 0, to_percentage: null, commission_percentage: 1, scope: 'inherited' },
+    ]
+    expect(filterTiersByScope(mixed, COMMISSION_SCOPE_PERSONAL)).toEqual([mixed[0]])
+    expect(filterTiersByScope(mixed, COMMISSION_SCOPE_INHERITED)).toEqual([mixed[1]])
+
+    const snapshot = [{
+      year: 2026,
+      commission_tiers: mixed,
+      inherited_commission_tiers: [mixed[1]],
+    }]
+    expect(resolveTiersForYear(user, snapshot, 2026, currentYear, COMMISSION_SCOPE_PERSONAL)[0].commission_percentage).toBe(3)
+    expect(resolveTiersForYear(user, snapshot, 2026, currentYear, COMMISSION_SCOPE_INHERITED)[0].commission_percentage).toBe(1)
+  })
+
+  test('inherited target and commission stay independent from personal deals', () => {
+    const manager = { id: 1, name: 'Manager', role: 'Sales Manager', yearly_target: 120000, monthly_target: 10000 }
+    const agentA = { id: 2, name: 'A', role: 'Sales Person', manager_id: 1, yearly_target: 60000, monthly_target: 5000 }
+    const agentB = { id: 3, name: 'B', role: 'Sales Person', manager_id: 1, yearly_target: 36000, monthly_target: 3000 }
+    const users = [manager, agentA, agentB]
+    const history = new Map([
+      ['1', [{
+        year: 2026,
+        monthly_target: 10000,
+        yearly_target: 120000,
+        commission_tiers: [
+          { from_percentage: 0, to_percentage: null, commission_percentage: 4, scope: 'personal' },
+          { from_percentage: 0, to_percentage: null, commission_percentage: 2, scope: 'inherited' },
+        ],
+        inherited_commission_tiers: [
+          { from_percentage: 0, to_percentage: null, commission_percentage: 2, scope: 'inherited' },
+        ],
+      }]],
+      ['2', [{ year: 2026, monthly_target: 5000, yearly_target: 60000 }]],
+      ['3', [{ year: 2026, monthly_target: 3000, yearly_target: 36000 }]],
+    ])
+
+    expect(collectDescendantIds(1, users)).toEqual(expect.arrayContaining(['2', '3']))
+    expect(resolveInheritedTargetForYear(manager, users, history, 2026, 'monthly', currentYear)).toBe(8000)
+
+    const inherited = calculateInheritedCommission({
+      user: manager,
+      users,
+      targetHistoryByUser: history,
+      revenueRows: [
+        { salespersonId: 1, revenue: 20000, date: '2026-08-10' },
+        { salespersonId: 2, revenue: 4000, date: '2026-08-10' },
+        { salespersonId: 3, revenue: 4000, date: '2026-08-12' },
+      ],
+      yearFilter: '2026',
+      type: 'monthly',
+      currentYear,
+      tenantCreatedYear: 2024,
+      now,
+    })
+
+    expect(inherited.revenue).toBe(8000)
+    expect(inherited.target).toBe(8000)
+    expect(inherited.achievement).toBe(100)
+    expect(inherited.rate).toBe(2)
+    expect(inherited.commission).toBe(160)
   })
 })

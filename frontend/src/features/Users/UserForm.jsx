@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '@shared/context/AppStateProvider'
 import { api } from '@utils/api';
@@ -7,7 +7,13 @@ import { User, Info, Bell, X, Settings, Target, AlertCircle, Eye, EyeOff, Upload
 import SearchableSelect from '@components/SearchableSelect';
 import ListHoverPopover from '@components/ListHoverPopover';
 import { mapSourceToOption } from '@shared/utils/sourceDisplay';
-import { usesCompanyTarget } from '../../utils/targetRevenueReport';
+import { usesCompanyTarget, COMMISSION_SCOPE_PERSONAL, COMMISSION_SCOPE_INHERITED } from '../../utils/targetRevenueReport';
+import {
+  emptyCommissionTier,
+  resolveCommissionHydrationFromTarget,
+  shouldApplyApiCommissions,
+  shouldApplyApiTargetAmounts,
+} from './userFormTargetHydration';
 import { 
   ROLES, 
   STATUSES, 
@@ -16,6 +22,8 @@ import {
   PERM_LABELS_AR, 
   ROLE_HIERARCHY,
   getPermissionDisplayLabel,
+  getRoleDisplayLabel,
+  getStatusDisplayLabel,
 } from '@features/Users/constants.js';
 
 const normalizeRoleValue = (value) => {
@@ -193,9 +201,19 @@ const normalizeNumericInput = (value) => {
   return String(value)
     .trim()
     .replace(/[\u0660-\u0669]/g, (digit) => ARABIC_DIGIT_MAP[digit] || digit)
+    .replace(/[\u066B]/g, '.')
     .replace(/[,\u066C]/g, '')
     .replace(/[^\d.-]/g, '');
 };
+
+const numericOrZero = (value) => Number(normalizeNumericInput(value) || 0) || 0;
+
+const resolveYearlyTargetValue = (formValues) => (
+  numericOrZero(formValues?.yearlyTarget)
+  || (numericOrZero(formValues?.monthlyTarget) * 12)
+  || (numericOrZero(formValues?.quarterlyTarget) * 4)
+  || (numericOrZero(formValues?.semiAnnualTarget) * 2)
+);
 
 const formatNumericDisplay = (value, locale = 'en-US', options = {}) => {
   const normalized = normalizeNumericInput(value);
@@ -209,6 +227,107 @@ const formatNumericDisplay = (value, locale = 'en-US', options = {}) => {
     maximumFractionDigits,
   }).format(parsed);
 };
+
+const serializeCommissionTiers = (tiers, scope) => (
+  (Array.isArray(tiers) ? tiers : []).map((tier) => ({
+    from_percentage: normalizeNumericInput(tier.from_percentage) || 0,
+    to_percentage: normalizeNumericInput(tier.to_percentage) || null,
+    commission_percentage: normalizeNumericInput(tier.commission_percentage) || 0,
+    scope,
+  }))
+);
+
+function CommissionTiersEditor({
+  title,
+  hint,
+  tiers,
+  onAdd,
+  onRemove,
+  onChange,
+  inputStyle,
+  isArabic,
+  numericLocale,
+  onFirstCommissionChange,
+}) {
+  return (
+    <div className="mt-8 glass-panel rounded-xl border border-base-content/10 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-base-content/10">
+        <div>
+          <div className="flex items-center gap-2 font-semibold">
+            <Percent size={18} className="text-warning" />
+            <span>{title}</span>
+          </div>
+          {hint ? <p className="text-xs text-base-content/50 mt-1">{hint}</p> : null}
+        </div>
+        <button
+          type="button"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-content shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/35"
+          onClick={onAdd}
+          title={isArabic ? 'إضافة شريحة' : 'Add tier'}
+          aria-label={isArabic ? 'إضافة شريحة' : 'Add tier'}
+        >
+          <Plus size={20} strokeWidth={2.5} />
+        </button>
+      </div>
+      <div className="divide-y divide-base-content/10">
+        {tiers.map((tier, index) => (
+          <div key={`${title}-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-3 p-4 items-end">
+            <div>
+              <label className="label-text text-xs">{isArabic ? 'من تحقيق %' : 'From achievement %'}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                dir="ltr"
+                value={formatNumericDisplay(tier.from_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                onChange={(e) => onChange(index, 'from_percentage', e.target.value)}
+                className={inputStyle}
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <label className="label-text text-xs">{isArabic ? 'إلى تحقيق %' : 'To achievement %'}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                dir="ltr"
+                value={formatNumericDisplay(tier.to_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                onChange={(e) => onChange(index, 'to_percentage', e.target.value)}
+                className={inputStyle}
+                placeholder={isArabic ? 'بدون حد' : 'No cap'}
+              />
+            </div>
+            <div>
+              <label className="label-text text-xs">{isArabic ? 'نسبة العمولة %' : 'Commission %'}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                dir="ltr"
+                value={formatNumericDisplay(tier.commission_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                onChange={(e) => {
+                  onChange(index, 'commission_percentage', e.target.value);
+                  if (index === 0 && onFirstCommissionChange) {
+                    onFirstCommissionChange(normalizeNumericInput(e.target.value));
+                  }
+                }}
+                className={inputStyle}
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-error transition-all duration-200 hover:-translate-y-0.5 hover:bg-error/10 hover:text-error hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-error/25"
+              onClick={() => onRemove(index)}
+              title={isArabic ? 'حذف الشريحة' : 'Remove tier'}
+              aria-label={isArabic ? 'حذف الشريحة' : 'Remove tier'}
+            >
+              <Trash2 size={18} strokeWidth={2.25} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const buildSelectAllPermissions = (filterInventoryPermsByTenantType, activeModules = []) => {
   const enabledModules = Array.isArray(activeModules) ? activeModules : []
@@ -318,13 +437,11 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const [errors, setErrors] = useState({});
   const [activeTab, setActiveTab] = useState('info'); // 'info' | 'account' | 'notifications'
   const [commissionTiers, setCommissionTiers] = useState([
-    {
-      from_percentage: '0',
-      to_percentage: '',
-      commission_percentage: user?.commission_percentage || '',
-    },
+    emptyCommissionTier(user?.commission_percentage || ''),
   ]);
-  const [targetHistory, setTargetHistory] = useState([]);
+  const [inheritedCommissionTiers, setInheritedCommissionTiers] = useState([
+    emptyCommissionTier(),
+  ]);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialForm, setInitialForm] = useState({ ...form });
@@ -337,6 +454,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   const [projects, setProjects] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [avatarFile, setAvatarFile] = useState(null);
+  const targetsHydratedRef = useRef(false);
+  const commissionsHydratedRef = useRef(false);
+  const targetsEditedRef = useRef(false);
+  const commissionsEditedRef = useRef(false);
+  const commissionTiersRef = useRef(commissionTiers);
+  const inheritedCommissionTiersRef = useRef(inheritedCommissionTiers);
+  commissionTiersRef.current = commissionTiers;
+  inheritedCommissionTiersRef.current = inheritedCommissionTiers;
 
   const fetchData = useCallback(async () => {
     try {
@@ -400,6 +525,13 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   }, [fetchData]);
 
   useEffect(() => {
+    targetsHydratedRef.current = false;
+    commissionsHydratedRef.current = false;
+    targetsEditedRef.current = false;
+    commissionsEditedRef.current = false;
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!isEdit || !user?.id) return;
 
     let cancelled = false;
@@ -409,33 +541,56 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         if (cancelled) return;
 
         const rows = Array.isArray(res.data?.data) ? res.data.data : [];
-        setTargetHistory(rows);
+        const current = rows.find(row => Number(row.year) === currentYear) || null;
+        const fallbackCommission = current?.commission_percentage || user?.commission_percentage || '';
 
-        const current = rows.find(row => Number(row.year) === currentYear);
-        if (!current) return;
+        if (current && !targetsHydratedRef.current) {
+          const apiYearly = numericOrZero(current.yearly_target);
+          const apiMonthly = numericOrZero(current.monthly_target);
+          if (shouldApplyApiTargetAmounts({
+            targetsEdited: targetsEditedRef.current,
+            apiYearly,
+            apiMonthly,
+          })) {
+            setForm(prev => {
+              if (targetsEditedRef.current) return prev;
+              const formYearly = resolveYearlyTargetValue(prev);
+              if (apiYearly <= 0 && apiMonthly <= 0) return prev;
+              if (formYearly > 0 && apiYearly <= 0) return prev;
+              return {
+                ...prev,
+                yearlyTarget: String(current.yearly_target ?? prev.yearlyTarget ?? ''),
+                semiAnnualTarget: String(current.semi_annual_target ?? prev.semiAnnualTarget ?? ''),
+                quarterlyTarget: String(current.quarterly_target ?? prev.quarterlyTarget ?? ''),
+                monthlyTarget: String(current.monthly_target ?? prev.monthlyTarget ?? ''),
+              };
+            });
+          }
+          targetsHydratedRef.current = true;
+        }
 
-        setForm(prev => ({
-          ...prev,
-          yearlyTarget: String(current.yearly_target ?? prev.yearlyTarget ?? ''),
-          semiAnnualTarget: String(current.semi_annual_target ?? prev.semiAnnualTarget ?? ''),
-          quarterlyTarget: String(current.quarterly_target ?? prev.quarterlyTarget ?? ''),
-          monthlyTarget: String(current.monthly_target ?? prev.monthlyTarget ?? ''),
-        }));
-
-        const tiers = Array.isArray(current.commission_tiers)
-          ? current.commission_tiers
-          : [];
-        if (tiers.length > 0) {
-          const mappedTiers = tiers.map(tier => ({
-            from_percentage: String(tier.from_percentage ?? 0),
-            to_percentage: tier.to_percentage === null || tier.to_percentage === undefined ? '' : String(tier.to_percentage),
-            commission_percentage: String(tier.commission_percentage ?? ''),
-          }));
-          setCommissionTiers(mappedTiers);
+        const source = current || {
+          commission_tiers: user?.commission_tiers,
+          commissionTiers: user?.commissionTiers,
+          inherited_commission_tiers: user?.inherited_commission_tiers,
+          inheritedCommissionTiers: user?.inheritedCommissionTiers,
+          commission_percentage: user?.commission_percentage,
+        };
+        if (shouldApplyApiCommissions({
+          commissionsEdited: commissionsEditedRef.current,
+          commissionsHydrated: commissionsHydratedRef.current,
+          currentTiers: commissionTiersRef.current,
+          inheritedTiers: inheritedCommissionTiersRef.current,
+          fallbackCommission,
+        })) {
+          const { personal, inherited } = resolveCommissionHydrationFromTarget(source, fallbackCommission);
+          setCommissionTiers(personal);
+          setInheritedCommissionTiers(inherited);
           setForm(prev => ({
             ...prev,
-            commissionPercentage: mappedTiers[0]?.commission_percentage || prev.commissionPercentage,
+            commissionPercentage: personal[0]?.commission_percentage || prev.commissionPercentage,
           }));
+          commissionsHydratedRef.current = true;
         }
       } catch (err) {
         console.error('Failed to fetch user target history', err);
@@ -814,6 +969,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
   }, [form.directManager, managers])
 
   const calculateTargets = (value, type) => {
+    targetsEditedRef.current = true;
     const normalizedValue = normalizeNumericInput(value);
     const num = parseFloat(normalizedValue);
     
@@ -844,27 +1000,34 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     }));
   };
 
-  const updateCommissionTier = (index, field, value) => {
+  const patchCommissionTiers = (setter) => (index, field, value) => {
+    commissionsEditedRef.current = true;
     const normalizedValue = normalizeNumericInput(value);
-    setCommissionTiers(prev => prev.map((tier, tierIndex) => (
+    setter(prev => prev.map((tier, tierIndex) => (
       tierIndex === index ? { ...tier, [field]: normalizedValue } : tier
     )));
   };
 
-  const addCommissionTier = () => {
-    setCommissionTiers(prev => [
-      ...prev,
-      { from_percentage: '', to_percentage: '', commission_percentage: '' },
-    ]);
+  const addCommissionTierRow = (setter) => () => {
+    commissionsEditedRef.current = true;
+    setter(prev => [...prev, emptyCommissionTier()]);
   };
 
-  const removeCommissionTier = (index) => {
-    setCommissionTiers(prev => (
+  const removeCommissionTierRow = (setter) => (index) => {
+    commissionsEditedRef.current = true;
+    setter(prev => (
       prev.length === 1
-        ? [{ from_percentage: '0', to_percentage: '', commission_percentage: '' }]
+        ? [emptyCommissionTier()]
         : prev.filter((_, tierIndex) => tierIndex !== index)
     ));
   };
+
+  const updateCommissionTier = patchCommissionTiers(setCommissionTiers);
+  const addCommissionTier = addCommissionTierRow(setCommissionTiers);
+  const removeCommissionTier = removeCommissionTierRow(setCommissionTiers);
+  const updateInheritedCommissionTier = patchCommissionTiers(setInheritedCommissionTiers);
+  const addInheritedCommissionTier = addCommissionTierRow(setInheritedCommissionTiers);
+  const removeInheritedCommissionTier = removeCommissionTierRow(setInheritedCommissionTiers);
 
   const togglePerm = (group, perm) => {
     setCustomPerms((prev) => {
@@ -975,14 +1138,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
   const validate = () => {
     const e = {};
-    if (!form.fullName?.trim()) e.fullName = 'Full Name is required';
-    if (!form.email?.trim()) e.email = 'Email is required';
-    if (!form.role?.trim()) e.role = 'Role is required';
+    if (!form.fullName?.trim()) e.fullName = isArabic ? 'الاسم الكامل مطلوب' : 'Full Name is required';
+    if (!form.email?.trim()) e.email = isArabic ? 'البريد الإلكتروني مطلوب' : 'Email is required';
+    if (!form.role?.trim()) e.role = isArabic ? 'الدور مطلوب' : 'Role is required';
     if (['Marketing Manager', 'Marketing Moderator'].includes(form.role) && !String(form.agencyId || '').trim()) {
       e.agencyId = isArabic ? 'الوكالة مطلوبة لهذا الدور' : 'Agency is required for this role';
     }
-    if (!isPrimaryAdmin && !isEdit && (form.password?.length || 0) < 8) e.password = 'Password must be at least 8 characters';
-    if (!isPrimaryAdmin && isEdit && form.password && form.password.length < 8) e.password = 'Password must be at least 8 characters';
+    if (!isPrimaryAdmin && !isEdit && (form.password?.length || 0) < 8) e.password = isArabic ? 'كلمة المرور يجب ألا تقل عن 8 أحرف' : 'Password must be at least 8 characters';
+    if (!isPrimaryAdmin && isEdit && form.password && form.password.length < 8) e.password = isArabic ? 'كلمة المرور يجب ألا تقل عن 8 أحرف' : 'Password must be at least 8 characters';
     
     if (form.phone && form.phone.trim()) {
       const phoneRegex = /^[+]?[(]?[0-9]{1,4}[)]?[-\s./0-9]*$/;
@@ -1034,9 +1197,15 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
         sms: !!form.notifSms,
         app: !!form.notifApp,
       }));
-      formData.append('monthly_target', normalizeNumericInput(form.monthlyTarget) || '');
-      formData.append('quarterly_target', normalizeNumericInput(form.quarterlyTarget) || '');
-      formData.append('yearly_target', normalizeNumericInput(form.yearlyTarget) || '');
+      const yearlyTargetValue = resolveYearlyTargetValue(form);
+      const monthlyTargetValue = numericOrZero(form.monthlyTarget) || (yearlyTargetValue ? yearlyTargetValue / 12 : 0);
+      const quarterlyTargetValue = numericOrZero(form.quarterlyTarget) || (yearlyTargetValue ? yearlyTargetValue / 4 : 0);
+
+      if (yearlyTargetValue > 0 || targetsEditedRef.current) {
+        formData.append('monthly_target', String(monthlyTargetValue || 0));
+        formData.append('quarterly_target', String(quarterlyTargetValue || 0));
+        formData.append('yearly_target', String(yearlyTargetValue || 0));
+      }
       formData.append('commission_percentage', normalizeNumericInput(form.commissionPercentage) || '');
       const allowedCountries = Array.isArray(form.allowedCountries) ? form.allowedCountries.filter(Boolean) : [];
       const allowedRegions = Array.isArray(form.allowedRegions) ? form.allowedRegions.filter(Boolean) : [];
@@ -1080,16 +1249,27 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       const savedUser = response.data?.data || response.data;
       const savedUserId = savedUser?.id || user?.id;
       if (savedUserId) {
-        await api.post('/api/user-targets', {
+        const persistedYearly = yearlyTargetValue || numericOrZero(savedUser?.yearly_target);
+        const shouldSyncCommissions = commissionsEditedRef.current || commissionsHydratedRef.current;
+        const targetPayload = {
           user_id: savedUserId,
           year: currentYear,
-          yearly_target: normalizeNumericInput(form.yearlyTarget) || 0,
-          commission_tiers: commissionTiers.map(tier => ({
-            from_percentage: normalizeNumericInput(tier.from_percentage) || 0,
-            to_percentage: normalizeNumericInput(tier.to_percentage) || '',
-            commission_percentage: normalizeNumericInput(tier.commission_percentage) || 0,
-          })),
-        });
+        };
+        if (persistedYearly > 0 || targetsEditedRef.current) {
+          targetPayload.yearly_target = persistedYearly || 0;
+        }
+        if (shouldSyncCommissions) {
+          targetPayload.commission_tiers = serializeCommissionTiers(commissionTiers, COMMISSION_SCOPE_PERSONAL);
+          if (isManager) {
+            targetPayload.inherited_commission_tiers = serializeCommissionTiers(
+              inheritedCommissionTiers,
+              COMMISSION_SCOPE_INHERITED
+            );
+          }
+        }
+        if (targetPayload.yearly_target !== undefined || shouldSyncCommissions) {
+          await api.post('/api/user-targets', targetPayload);
+        }
       }
 
       if (onSuccess) {
@@ -1237,14 +1417,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 <div>
                   <label className="label pt-0">
                     <span className="label-text font-medium text-base-content/80">
-                      Full Name <span className="text-[#FF6B6B]">*</span>
+                      {isArabic ? 'الاسم الكامل' : 'Full Name'} <span className="text-[#FF6B6B]">*</span>
                     </span>
                   </label>
                   <input
                     className={inputStyle}
                     value={form.fullName}
                     onChange={(e) => updateField('fullName', e.target.value)}
-                    placeholder="e.g. John Doe"
+                    placeholder={isArabic ? 'مثال: أحمد محمد' : 'e.g. John Doe'}
                   />
                   {errors.fullName && (
                     <div className="flex items-center gap-1 mt-1.5 text-[#FF6B6B] text-xs">
@@ -1258,7 +1438,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                   <div>
                     <label className="label pt-0">
                       <span className="label-text font-medium text-base-content/80">
-                        Username (Optional)
+                        {isArabic ? 'اسم المستخدم (اختياري)' : 'Username (Optional)'}
                       </span>
                     </label>
                     <input 
@@ -1269,7 +1449,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     />
                   </div>
                   <div>
-                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Email <span className="text-[#FF6B6B]">*</span></span></label>
+                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'البريد الإلكتروني' : 'Email'} <span className="text-[#FF6B6B]">*</span></span></label>
                     <input 
                         type="email" 
                         className={inputStyle} 
@@ -1284,12 +1464,12 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 {/* Row 3: Phone & Birth Date */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Phone (Optional)</span></label>
+                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'الهاتف (اختياري)' : 'Phone (Optional)'}</span></label>
                     <input className={inputStyle} value={form.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="+1 234 567 890" />
                     {errors.phone && <div className="flex items-center gap-1 mt-1.5 text-[#FF6B6B] text-xs"><AlertCircle size={12}/> {errors.phone}</div>}
                   </div>
                   <div>
-                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Birth Date (Optional)</span></label>
+                    <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'تاريخ الميلاد (اختياري)' : 'Birth Date (Optional)'}</span></label>
                     <div className="w-full relative">
                       <input 
                         type="date"
@@ -1322,7 +1502,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 </div>
               ) : (
               <div className="max-w-md">
-                <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Password {!isEdit && <span className="text-[#FF6B6B]">*</span>}</span></label>
+                <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'كلمة المرور' : 'Password'} {!isEdit && <span className="text-[#FF6B6B]">*</span>}</span></label>
                 <div className="relative">
                   <input 
                     type={showPassword ? "text" : "password"} 
@@ -1357,7 +1537,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 
                 <div className="mt-2 text-xs text-base-content/50 flex items-start gap-1.5 bg-base-200/50 p-2 rounded-lg">
                   <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                  <span>Minimum 8 characters, at least one number and one symbol recommended.</span>
+                  <span>{isArabic ? '٨ أحرف على الأقل، ويفضّل رقم ورمز.' : 'Minimum 8 characters, at least one number and one symbol recommended.'}</span>
                 </div>
 
                 {errors.password && <div className="flex items-center gap-1 mt-1.5 text-[#FF6B6B] text-xs"><AlertCircle size={12}/> {errors.password}</div>}
@@ -1428,14 +1608,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
             <div>
               <div className="flex items-center gap-2 mb-6 border-b border-base-content/10 pb-4">
                 <div className="w-1 h-6 bg-info rounded-full"></div>
-                <h2 className="card-title text-lg">2. Account Settings</h2>
+                <h2 className="card-title text-lg">{isArabic ? '2. إعدادات الحساب' : '2. Account Settings'}</h2>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-3">
                 <div className="md:order-1">
-                  <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Role <span className="text-[#FF6B6B]">*</span></span></label>
+                  <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'الدور' : 'Role'} <span className="text-[#FF6B6B]">*</span></span></label>
                   <SearchableSelect
                     className="w-full"
-                    options={ROLES}
+                    options={ROLES.map((role) => ({ value: role, label: getRoleDisplayLabel(role, isArabic) }))}
                     value={form.role}
                     onChange={(val) => updateField('role', val)}
                     placeholder={isArabic ? 'اختر الدور' : 'Select role'}
@@ -1485,7 +1665,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
                         return source.map(m => ({
                           value: String(m.id),
-                          label: `${m.full_name || m.name} (${m.role || m.job_title || ''})`,
+                          label: `${m.full_name || m.name} (${getRoleDisplayLabel(m.role || m.job_title || '', isArabic)})`,
                         }));
                       })()}
                       value={normalizeSelectValue(form.directManager)}
@@ -1495,10 +1675,10 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                   </div>
                 )}
                 <div className="md:order-2">
-                  <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Status <span className="text-[#FF6B6B]">*</span></span></label>
+                  <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'الحالة' : 'Status'} <span className="text-[#FF6B6B]">*</span></span></label>
                   <SearchableSelect
                     className="w-full"
-                    options={STATUSES}
+                    options={STATUSES.map((status) => ({ value: status, label: getStatusDisplayLabel(status, isArabic) }))}
                     value={form.status}
                     onChange={(val) => updateField('status', val)}
                     placeholder={isArabic ? 'نشط' : 'Active'}
@@ -1526,7 +1706,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                   </div>
                 )}
                 <div className="md:order-3">
-                  <label className="label pt-0"><span className="label-text font-medium text-base-content/80">Department (Optional)</span></label>
+                  <label className="label pt-0"><span className="label-text font-medium text-base-content/80">{isArabic ? 'القسم (اختياري)' : 'Department (Optional)'}</span></label>
                   <SearchableSelect
                     className="w-full"
                     options={departments.map(d => ({ value: d.id, label: d.name }))}
@@ -1605,7 +1785,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                 <div>
                   <label className="label pt-0">
                     <span className="label-text font-medium text-base-content/80">
-                      {isArabic ? 'Projects (Optional)' : 'Projects (Optional)'}
+                      {isArabic ? 'المشاريع (اختياري)' : 'Projects (Optional)'}
                     </span>
                   </label>
                   <SearchableSelect
@@ -1613,7 +1793,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     options={projectOptions}
                     value={form.allowedProjects}
                     onChange={(vals) => updateField('allowedProjects', vals)}
-                    placeholder={isArabic ? 'Select projects' : 'Select projects'}
+                    placeholder={isArabic ? 'اختر المشاريع' : 'Select projects'}
                     multiple
                   />
                 </div>
@@ -1636,7 +1816,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
               <div>
                 <div className="flex items-center gap-2 mb-6 border-b border-base-content/10 pb-4">
                   <div className="w-1 h-6 bg-warning rounded-full"></div>
-                  <h2 className="card-title text-lg">3. Permissions</h2>
+                  <h2 className="card-title text-lg">{isArabic ? '3. الصلاحيات' : '3. Permissions'}</h2>
                 </div>
                 <div className="flex flex-col gap-4 mt-3">
                   {Object.entries(PERMISSIONS)
@@ -1859,19 +2039,19 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
               <div>
                 <div className="flex items-center gap-2 mb-6 border-b border-base-content/10 pb-4">
                   <div className="w-1 h-6 bg-secondary rounded-full"></div>
-                  <h2 className="card-title text-lg">3. Notifications</h2>
+                  <h2 className="card-title text-lg">{isArabic ? '3. الإشعارات' : '3. Notifications'}</h2>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                   <div className="form-control">
                     <label className="label cursor-pointer justify-start gap-4">
                       <input type="checkbox" className="toggle toggle-primary" checked={form.notifEmail} onChange={(e)=>updateField('notifEmail', e.target.checked)} />
-                      <span className="label-text font-medium">Email Notifications</span>
+                      <span className="label-text font-medium">{isArabic ? 'إشعارات البريد' : 'Email Notifications'}</span>
                     </label>
                   </div>
                   <div className="form-control">
                     <label className="label cursor-pointer justify-start gap-4">
                       <input type="checkbox" className="toggle toggle-primary" checked={form.notifSms} onChange={(e)=>updateField('notifSms', e.target.checked)} />
-                      <span className="label-text font-medium">SMS Notifications</span>
+                      <span className="label-text font-medium">{isArabic ? 'إشعارات الرسائل' : 'SMS Notifications'}</span>
                     </label>
                   </div>
                   <div className="form-control">
@@ -1952,7 +2132,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     </div>
                     
                     <div className="mt-3 text-xs text-base-content/40 flex justify-between pt-3 border-t border-base-content/5">
-                      <span>Base Value</span>
+                      <span>{isArabic ? 'القيمة الأساسية' : 'Base Value'}</span>
                       <span className="font-mono">1x</span>
                     </div>
                   </div>
@@ -1992,8 +2172,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                     </div>
 
                      <div className="mt-3 text-xs text-base-content/40 flex justify-between pt-3 border-t border-base-content/5">
-                       <span>Accumulated</span>
-                       <span className="font-mono">3 Months</span>
+                       <span>{isArabic ? 'تراكمي' : 'Accumulated'}</span>
+                       <span className="font-mono">{isArabic ? '3 أشهر' : '3 Months'}</span>
                      </div>
                    </div>
                  </div>
@@ -2008,7 +2188,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                          <Calendar size={16} />
                        </div>
                        <span className="label-text font-medium text-base-content/80">
-                         {isArabic ? 'تارجت نصف سنوي' : 'Semi Annual Target'}
+                         {getTargetLabel('نصف سنوي', 'Semi Annual')}
                        </span>
                      </label>
                      <div className="relative mt-2">
@@ -2028,8 +2208,8 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                       </div>
                     </div>
                     <div className="mt-3 text-xs text-base-content/40 flex justify-between pt-3 border-t border-base-content/5">
-                      <span>Accumulated</span>
-                      <span className="font-mono">6 Months</span>
+                      <span>{isArabic ? 'تراكمي' : 'Accumulated'}</span>
+                      <span className="font-mono">{isArabic ? '6 أشهر' : '6 Months'}</span>
                     </div>
                   </div>
                 </div>
@@ -2068,173 +2248,73 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
                      </div>
 
                      <div className="mt-3 text-xs text-base-content/40 flex justify-between pt-3 border-t border-base-content/5">
-                       <span>Total Goal</span>
-                       <span className="font-mono">12 Months</span>
+                       <span>{isArabic ? 'الهدف الكلي' : 'Total Goal'}</span>
+                       <span className="font-mono">{isArabic ? '12 شهر' : '12 Months'}</span>
                      </div>
                    </div>
                  </div>
 
               </div>
 
-              <div className="mt-8 glass-panel rounded-xl border border-base-content/10 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-base-content/10">
-                  <div className="flex items-center gap-2 font-semibold">
-                    <Percent size={18} className="text-warning" />
-                    <span>{isArabic ? 'شرائح العمولة حسب تحقيق التارجت' : 'Commission tiers by achievement'}</span>
+              {isManager && (
+                <div className="mt-8 rounded-xl border border-base-content/10 bg-base-200/20 p-4">
+                  <div className="flex items-center gap-2 font-semibold mb-3">
+                    <Target size={16} className="text-info" />
+                    <span>{isArabic ? 'التارجت الموروث من الفريق' : 'Inherited team target'}</span>
                   </div>
-                  <button
-                    type="button"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-content shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/35"
-                    onClick={addCommissionTier}
-                    title={isArabic ? 'إضافة شريحة' : 'Add tier'}
-                    aria-label={isArabic ? 'إضافة شريحة' : 'Add tier'}
-                  >
-                    <Plus size={20} strokeWidth={2.5} />
-                  </button>
-                </div>
-                <div className="divide-y divide-base-content/10">
-                  {commissionTiers.map((tier, index) => (
-                    <div key={index} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-3 p-4 items-end">
-                      <div>
-                        <label className="label-text text-xs">{isArabic ? 'من تحقيق %' : 'From achievement %'}</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={formatNumericDisplay(tier.from_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                          onChange={(e) => updateCommissionTier(index, 'from_percentage', e.target.value)}
-                          className={inputStyle}
-                          placeholder="0"
-                        />
-                      </div>
-                      <div>
-                        <label className="label-text text-xs">{isArabic ? 'إلى تحقيق %' : 'To achievement %'}</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={formatNumericDisplay(tier.to_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                          onChange={(e) => updateCommissionTier(index, 'to_percentage', e.target.value)}
-                          className={inputStyle}
-                          placeholder={isArabic ? 'بدون حد' : 'No cap'}
-                        />
-                      </div>
-                      <div>
-                        <label className="label-text text-xs">{isArabic ? 'نسبة العمولة %' : 'Commission %'}</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={formatNumericDisplay(tier.commission_percentage, numericLocale, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                          onChange={(e) => {
-                            updateCommissionTier(index, 'commission_percentage', e.target.value)
-                            if (index === 0) updateField('commissionPercentage', normalizeNumericInput(e.target.value))
-                          }}
-                          className={inputStyle}
-                          placeholder="0"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-error transition-all duration-200 hover:-translate-y-0.5 hover:bg-error/10 hover:text-error hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-error/25"
-                        onClick={() => removeCommissionTier(index)}
-                        title={isArabic ? 'حذف الشريحة' : 'Remove tier'}
-                        aria-label={isArabic ? 'حذف الشريحة' : 'Remove tier'}
-                      >
-                        <Trash2 size={18} strokeWidth={2.25} />
-                      </button>
+                  <p className="text-xs text-base-content/50 mb-3">
+                    {isArabic
+                      ? 'محسوب تلقائيًا من تارجت اليوزرز اللي تحت المانجر في الإدارة، ومش بيتعدل من هنا.'
+                      : 'Calculated automatically from users under this manager. It is read-only here.'}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div className="flex justify-between gap-3 rounded-lg border border-base-content/10 px-3 py-2">
+                      <span className="text-base-content/60">{isArabic ? 'شهري' : 'Monthly'}</span>
+                      <span className="font-mono" dir="ltr">
+                        {formatNumericDisplay(user?.inherited_monthly_target || 0, numericLocale)} {currencySymbol}
+                      </span>
                     </div>
-                  ))}
+                    <div className="flex justify-between gap-3 rounded-lg border border-base-content/10 px-3 py-2">
+                      <span className="text-base-content/60">{isArabic ? 'سنوي' : 'Yearly'}</span>
+                      <span className="font-mono font-semibold" dir="ltr">
+                        {formatNumericDisplay(user?.inherited_yearly_target || 0, numericLocale)} {currencySymbol}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {targetHistory.length > 0 && (
-                <div className="mt-8 rounded-2xl border border-base-content/10 bg-base-100/40 overflow-hidden">
-                  <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-base-content/10">
-                    <div className="flex items-center gap-2 font-semibold">
-                      <Calendar size={16} className="text-primary" />
-                      <span>{isArabic ? 'تاريخ التارجت' : 'Target history'}</span>
-                    </div>
-                    <span className="text-xs text-base-content/50">
-                      {isArabic ? `${targetHistory.length} سنة` : `${targetHistory.length} years`}
-                    </span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] text-xs">
-                      <thead className="bg-base-content/5 text-base-content/60 uppercase tracking-wide">
-                        <tr>
-                          <th className="px-4 py-3 text-start whitespace-nowrap">{isArabic ? 'السنة' : 'Year'}</th>
-                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'شهري' : 'Monthly'}</th>
-                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'ربع سنوي' : 'Quarterly'}</th>
-                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'نصف سنوي' : 'Semi Annual'}</th>
-                          <th className="px-4 py-3 text-end whitespace-nowrap">{isArabic ? 'سنوي' : 'Yearly'}</th>
-                          <th className="px-4 py-3 text-center whitespace-nowrap">{isArabic ? 'العمولة' : 'Commission'}</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-base-content/10">
-                        {[...targetHistory]
-                          .sort((a, b) => Number(b.year) - Number(a.year))
-                          .map(row => {
-                            const isCurrent = Number(row.year) === currentYear
-                            const tiers = Array.isArray(row.commission_tiers)
-                              ? row.commission_tiers
-                              : (Array.isArray(row.commissionTiers) ? row.commissionTiers : [])
-                            const tierItems = tiers.map(tier => {
-                              const from = Number(tier.from_percentage ?? 0)
-                              const to = tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === ''
-                                ? (isArabic ? 'بدون حد' : 'No cap')
-                                : `${Number(tier.to_percentage)}%`
-                              return {
-                                label: `${from}% → ${to}`,
-                                value: Number(tier.commission_percentage ?? 0) || 0,
-                              }
-                            })
-                            return (
-                              <tr
-                                key={`${row.user_id}-${row.year}`}
-                                className={isCurrent ? 'bg-primary/5' : 'hover:bg-base-content/5'}
-                              >
-                                <td className="px-4 py-3 whitespace-nowrap">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold">{row.year}</span>
-                                    {isCurrent && (
-                                      <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                                        {isArabic ? 'الحالية' : 'Current'}
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 text-end font-mono whitespace-nowrap" dir="ltr">
-                                  {formatNumericDisplay(row.monthly_target, numericLocale)} {currencySymbol}
-                                </td>
-                                <td className="px-4 py-3 text-end font-mono whitespace-nowrap" dir="ltr">
-                                  {formatNumericDisplay(row.quarterly_target, numericLocale)} {currencySymbol}
-                                </td>
-                                <td className="px-4 py-3 text-end font-mono whitespace-nowrap" dir="ltr">
-                                  {formatNumericDisplay(row.semi_annual_target, numericLocale)} {currencySymbol}
-                                </td>
-                                <td className="px-4 py-3 text-end font-mono font-semibold whitespace-nowrap" dir="ltr">
-                                  {formatNumericDisplay(row.yearly_target, numericLocale)} {currencySymbol}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex justify-center">
-                                    <ListHoverPopover
-                                      icon={Percent}
-                                      items={tierItems}
-                                      title={isArabic ? 'شرائح العمولة' : 'Commission tiers'}
-                                      isRTL={isArabic}
-                                      formatValue={(value) => `${value}%`}
-                                      emptyTitle={isArabic ? 'لا توجد شرائح' : 'No tiers'}
-                                    />
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+              <CommissionTiersEditor
+                title={isManager
+                  ? (isArabic ? 'شرائح عمولة التارجت الشخصي' : 'Personal target commission tiers')
+                  : (isArabic ? 'شرائح العمولة حسب تحقيق التارجت' : 'Commission tiers by achievement')}
+                hint={isManager
+                  ? (isArabic ? 'تتحسب على صفقات المانجر نفسه مقابل تارجته الشخصي.' : 'Applies to this manager\'s own deals against the personal target.')
+                  : null}
+                tiers={commissionTiers}
+                onAdd={addCommissionTier}
+                onRemove={removeCommissionTier}
+                onChange={updateCommissionTier}
+                inputStyle={inputStyle}
+                isArabic={isArabic}
+                numericLocale={numericLocale}
+                onFirstCommissionChange={(value) => updateField('commissionPercentage', value)}
+              />
+
+              {isManager && (
+                <CommissionTiersEditor
+                  title={isArabic ? 'شرائح عمولة التارجت الموروث' : 'Inherited team commission tiers'}
+                  hint={isArabic
+                    ? 'تتحسب على إيراد الفريق اللي تحت المانجر مقابل التارجت الموروث، بشكل مستقل عن العمولة الشخصية.'
+                    : 'Applies to team revenue under this manager against the inherited target, independently from personal commission.'}
+                  tiers={inheritedCommissionTiers}
+                  onAdd={addInheritedCommissionTier}
+                  onRemove={removeInheritedCommissionTier}
+                  onChange={updateInheritedCommissionTier}
+                  inputStyle={inputStyle}
+                  isArabic={isArabic}
+                  numericLocale={numericLocale}
+                />
               )}
             </div>
           )}

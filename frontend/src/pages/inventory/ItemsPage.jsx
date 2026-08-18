@@ -1,12 +1,59 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDynamicFields } from '../../hooks/useDynamicFields'
 import { api } from '../../utils/api'
 import { useAppState } from '../../shared/context/AppStateProvider'
-import { FaFileImport, FaPlus, FaFileExport, FaFileCsv, FaFilePdf, FaTimes, FaFilter, FaSearch, FaLayerGroup, FaCube, FaCheckCircle, FaEdit, FaTrash, FaChevronLeft, FaChevronRight, FaChevronDown, FaChevronUp } from 'react-icons/fa'
+import { FaFileImport, FaPlus, FaFileExport, FaFileCsv, FaFilePdf, FaTimes, FaFilter, FaSearch, FaLayerGroup, FaCube, FaCheckCircle, FaEdit, FaTrash, FaChevronLeft, FaChevronRight, FaChevronDown, FaChevronUp, FaInfoCircle, FaCalendarAlt } from 'react-icons/fa'
 import ItemsImportModal from './ItemsImportModal'
 import SearchableSelect from '../../components/SearchableSelect'
 import DynamicFieldRenderer from '../../components/DynamicFieldRenderer'
+import DateRangePicker from '../../shared/components/DateRangePicker'
+import { CATEGORY_TYPE_PRODUCTS, CATEGORY_TYPE_SERVICES, categoryTypeFromRecord, normalizeCategoryType } from '../../features/inventory/categoryType'
+import 'react-datepicker/dist/react-datepicker.css'
+
+const mergeKnownValues = (prev, incoming) => {
+  const source = Array.isArray(prev) ? prev : []
+  const seen = new Set(source.map((value) => String(value).toLowerCase()))
+  const next = [...source]
+  incoming.forEach((raw) => {
+    const value = String(raw || '').trim()
+    if (!value || seen.has(value.toLowerCase())) return
+    seen.add(value.toLowerCase())
+    next.push(value)
+  })
+  return next
+}
+
+const uniqueSelectOptions = (...lists) => {
+  const names = []
+  const seen = new Set()
+  lists.flat().forEach((raw) => {
+    const name = String(raw || '').trim()
+    const key = name.toLowerCase()
+    if (!name || seen.has(key)) return
+    seen.add(key)
+    names.push(name)
+  })
+  return names.map((name) => ({ value: name, label: name }))
+}
+
+const emptyKnownNamesByTab = () => ({
+  [CATEGORY_TYPE_PRODUCTS]: [],
+  [CATEGORY_TYPE_SERVICES]: [],
+})
+
+const distinctFromItemCode = (value, code) => {
+  const text = String(value || '').trim()
+  const itemCode = String(code || '').trim()
+  if (!text) return ''
+  if (itemCode && text.toLowerCase() === itemCode.toLowerCase()) return ''
+  return text
+}
+
+const getItemBarcodeValue = (item) => (
+  distinctFromItemCode(item?.barcode, item?.code)
+  || distinctFromItemCode(item?.sku, item?.code)
+)
 
 export default function ItemsPage() {
   const { i18n } = useTranslation()
@@ -61,29 +108,62 @@ export default function ItemsPage() {
     add: isArabic ? 'إضافة صنف' : 'Add Item',
     close: isArabic ? 'إغلاق' : 'Close',
     filter: isArabic ? 'تصفية' : 'Filter',
+    productFilters: isArabic ? 'فلاتر المنتجات' : 'Product filters',
+    serviceFilters: isArabic ? 'فلاتر الخدمات' : 'Service filters',
     search: isArabic ? 'بحث' : 'Search',
     clearFilters: isArabic ? 'مسح المرشحات' : 'Clear Filters',
     reset: isArabic ? 'إعادة تعيين' : 'Reset',
     name: isArabic ? 'اسم الصنف' : 'Item Name',
+    itemOrServiceName: isArabic ? 'اسم الصنف / الخدمة' : 'Item / Service Name',
+    productName: isArabic ? 'اسم المنتج' : 'Product Name',
+    serviceName: isArabic ? 'اسم الخدمة' : 'Service Name',
+    productsTab: isArabic ? 'منتجات' : 'Products',
+    servicesTab: isArabic ? 'خدمات' : 'Services',
+    productsListTitle: isArabic ? 'قائمة المنتجات' : 'Products List',
+    servicesListTitle: isArabic ? 'قائمة الخدمات' : 'Services List',
+    emptyProducts: isArabic ? 'لا توجد منتجات بعد' : 'No products yet',
+    emptyServices: isArabic ? 'لا توجد خدمات بعد' : 'No services yet',
+    identity: isArabic ? 'العلامة / نوع الخدمة' : 'Brand / Service Type',
+    itemOrBillingType: isArabic ? 'نوع الصنف / الفوترة' : 'Item / Billing Type',
+    notApplicable: '—',
+    moreDetails: isArabic ? 'تفاصيل إضافية' : 'More details',
     family: isArabic ? 'العائلة' : 'Family',
     category: isArabic ? 'اسم التصنيف' : 'Category Name',
     group: isArabic ? 'المجموعة' : 'Group',
-    brand: isArabic ? 'العلامة التجارية' : 'Brand',
-    supplier: isArabic ? 'المورد' : 'Supplier',
+    brand: isArabic ? 'اسم العلامة التجارية' : 'Brand Name',
+    model: isArabic ? 'الموديل' : 'Model',
+    supplier: isArabic ? 'المورد' : 'Supplier / Vendor',
     type: isArabic ? 'النوع' : 'Type',
     categoryType: isArabic ? 'نوع التصنيف' : 'Category Type',
     itemType: isArabic ? 'نوع الصنف' : 'Item Type',
     price: isArabic ? 'المبلغ' : 'Amount',
+    unitPrice: isArabic ? 'المبلغ' : 'Amount',
+    serviceAmount: isArabic ? 'المبلغ' : 'Amount',
     quantity: isArabic ? 'الكمية' : 'Quantity',
     qtyAvailable: isArabic ? 'متاح' : 'Available',
     qtyReserved: isArabic ? 'محجوز' : 'Reserved',
     qtySold: isArabic ? 'مباع' : 'Sold',
-    qtyTotal: isArabic ? 'الإجمالي' : 'Total',
+    qtyTotal: isArabic ? 'إجمالي الكمية' : 'Qty Total',
     status: isArabic ? 'الحالة' : 'Status',
     stock: isArabic ? 'المخزون' : 'Stock',
     minStock: isArabic ? 'الحد الأدنى للكمية' : 'Minimum Quantity',
-    unit: isArabic ? 'نوع الكمية' : 'Quantity Type',
-    sku: isArabic ? 'كود الصنف' : 'Item Code',
+    unit: isArabic ? 'وحدة القياس' : 'Unit of Measure',
+    barcode: isArabic ? 'باركود' : 'Barcode',
+    itemCode: isArabic ? 'كود الصنف' : 'Item Code',
+    additionalInfo: isArabic ? 'معلومات إضافية' : 'Additional Information',
+    taxRate: isArabic ? 'نسبة الضريبة' : 'Tax Rate',
+    taxIncluded: isArabic ? 'شامل الضريبة' : 'Tax Included',
+    warehouse: isArabic ? 'الموقع / المستودع' : 'Location / Warehouse',
+    notes: isArabic ? 'ملاحظات' : 'Notes',
+    serviceType: isArabic ? 'نوع الخدمة' : 'Service Type',
+    serviceTypePlaceholder: isArabic ? 'اختر أو اكتب نوع الخدمة' : 'Select or type a service type',
+    serviceBillingType: isArabic ? 'نوع فوترة الخدمة' : 'Service Billing Type',
+    serviceDuration: isArabic ? 'مدة الخدمة' : 'Service Duration',
+    startDate: isArabic ? 'تاريخ البداية' : 'Start Date',
+    endDate: isArabic ? 'تاريخ النهاية' : 'End Date',
+    createdAt: isArabic ? 'تاريخ الإنشاء' : 'Creation Date',
+    renewalRequired: isArabic ? 'يتطلب تجديد' : 'Renewal Required',
+    lowStock: isArabic ? 'مخزون منخفض' : 'Low Stock',
     description: isArabic ? 'الوصف' : 'Description',
     save: isArabic ? 'حفظ' : 'Save',
     listTitle: isArabic ? 'قائمة الأصناف' : 'Items List',
@@ -110,7 +190,8 @@ export default function ItemsPage() {
     monthly: isArabic ? 'شهري' : 'Monthly',
     semiAnnually: isArabic ? 'نصف سنوي' : 'Semi Annually',
     annually: isArabic ? 'سنوي' : 'Annually',
-    billingCycle: isArabic ? 'دورة الفوترة' : 'Billing Cycle',
+    billingCycle: isArabic ? 'نوع فوترة الخدمة' : 'Service Billing Type',
+    selectCategoryFirst: isArabic ? 'اختر التصنيف أولاً لفتح فورم المنتج أو الخدمة' : 'Select a category first to open the Products or Services form',
     isActive: isArabic ? 'نشط' : 'Is Active',
     on: isArabic ? 'On' : 'On',
     off: isArabic ? 'Off' : 'Off',
@@ -119,30 +200,45 @@ export default function ItemsPage() {
     exportCsv: isArabic ? 'تصدير CSV' : 'Export CSV',
     exportPdf: isArabic ? 'تصدير PDF' : 'Export PDF',
     code: isArabic ? 'كود الصنف' : 'Item Code',
-    openAddons: isArabic ? 'الإضافات +' : 'Add-ons +',
     addonsSection: isArabic ? 'الإضافات' : 'Add-ons',
     addonName: isArabic ? 'اسم الإضافة' : 'Add-on Name',
+    addonPeriod: isArabic ? 'الفترة' : 'Period',
     addonsName: isArabic ? 'أسماء الإضافات' : 'Add-ons Name',
     addAddon: isArabic ? 'إضافة إضافة' : 'Add Add-on',
     removeAddon: isArabic ? 'حذف' : 'Remove',
     addonsQty: isArabic ? 'كمية الإضافات' : 'Add-ons Qty',
+    addonsPeriod: isArabic ? 'فترة الإضافات' : 'Add-ons Period',
+    addonsQtyOrPeriod: isArabic ? 'كمية / فترة الإضافات' : 'Add-ons Qty / Period',
     addonsPrice: isArabic ? 'مبلغ الإضافات' : 'Add-ons Amount',
     totalPrice: isArabic ? 'الإجمالي' : 'Total Amount',
     addonsDetails: isArabic ? 'تفاصيل الإضافات' : 'Add-ons Details',
     noAddons: isArabic ? 'لا توجد إضافات' : 'No add-ons',
   }), [isArabic])
 
-  const [form, setForm] = useState({
+  const emptyItemForm = () => ({
     id: null,
     name: '',
     category: '',
     category_id: '',
-    type: 'Product',
+    type: '',
     itemType: 'Fixed',
     sku: '',
+    code: '',
+    barcode: '',
+    brand: '',
+    model: '',
     price: '',
     pricingType: 'Fixed',
     billingCycle: 'Monthly',
+    serviceType: '',
+    serviceDuration: '',
+    startDate: '',
+    endDate: '',
+    renewalRequired: false,
+    taxRate: '',
+    taxIncluded: false,
+    warehouse: '',
+    notes: '',
     stock: 0,
     minStock: 0,
     unit: 'Piece',
@@ -154,29 +250,81 @@ export default function ItemsPage() {
     custom_fields: {}
   })
 
+  const applySelectedCategory = (prev, cat) => {
+    const categoryType = categoryTypeFromRecord(cat)
+    const isService = categoryType === CATEGORY_TYPE_SERVICES
+    return {
+      ...prev,
+      category_id: cat?.id ? String(cat.id) : '',
+      category: cat?.name || '',
+      type: categoryType,
+      itemType: isService
+        ? (['Monthly', 'Semi Annually', 'Annually'].includes(prev.itemType) ? prev.itemType : 'Monthly')
+        : (['Fixed', 'Per Unit'].includes(prev.itemType) ? prev.itemType : 'Fixed'),
+      billingCycle: isService ? (prev.billingCycle || 'Monthly') : prev.billingCycle,
+      stock: isService ? 0 : prev.stock,
+      minStock: isService ? 0 : prev.minStock,
+      addons: (normalizeCategoryType(prev.type) && normalizeCategoryType(prev.type) !== categoryType)
+        ? []
+        : (prev.addons || []),
+    }
+  }
+
+  const emptyListFilters = () => ({
+    search: '',
+    name: '',
+    category: '',
+    sku: '',
+    status: '',
+    type: '',
+    itemType: '',
+    serviceType: '',
+    brand: '',
+    code: '',
+    model: '',
+    warehouse: '',
+    supplier: '',
+    unit: '',
+    serviceDuration: '',
+    renewalRequired: '',
+    startDate: '',
+    endDate: '',
+    createdFrom: '',
+    createdTo: '',
+    lowStock: false,
+  })
+
+  const [form, setForm] = useState(emptyItemForm)
+
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
+  const [serviceTypes, setServiceTypes] = useState([])
   const [showForm, setShowForm] = useState(false)
 
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [showAddons, setShowAddons] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [activeAddonsTooltip, setActiveAddonsTooltip] = useState(null)
+  const [activeNotesTooltip, setActiveNotesTooltip] = useState(null)
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [selectedItemIds, setSelectedItemIds] = useState([])
   const [selectedAddonByItemId, setSelectedAddonByItemId] = useState({})
   const [deleteDialog, setDeleteDialog] = useState(null)
   const [replacementItemId, setReplacementItemId] = useState('')
 
-  const [filters, setFilters] = useState({
-    search: '',
-    category: '',
-    sku: '',
-    status: '',
-    type: '',
-    itemType: '',
-  })
+  const [filters, setFilters] = useState(emptyListFilters)
+  const [listTab, setListTab] = useState(CATEGORY_TYPE_PRODUCTS)
+  const [knownBrands, setKnownBrands] = useState([])
+  const [knownNamesByTab, setKnownNamesByTab] = useState(emptyKnownNamesByTab)
+  const [knownCodes, setKnownCodes] = useState([])
+  const [knownModels, setKnownModels] = useState([])
+  const [knownWarehouses, setKnownWarehouses] = useState([])
+  const [knownSuppliers, setKnownSuppliers] = useState([])
+  const [knownDurations, setKnownDurations] = useState([])
+  const [knownSkus, setKnownSkus] = useState([])
+  const [replacementCatalog, setReplacementCatalog] = useState([])
+  const isProductsTab = listTab === CATEGORY_TYPE_PRODUCTS
+  const isServicesTab = listTab === CATEGORY_TYPE_SERVICES
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1)
@@ -184,23 +332,87 @@ export default function ItemsPage() {
 
   const formatAmount = (value) => `${moneyFormatter.format(Number(value || 0))} ${currencySymbol}`
   const formatNumber = (value) => numberFormatter.format(Number(value || 0))
+  const toDateInputValue = (value) => {
+    if (!value) return ''
+    const text = String(value).trim()
+    if (!text || text.toLowerCase() === 'null') return ''
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
+    const parsed = new Date(text)
+    if (!Number.isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear()
+      const month = String(parsed.getMonth() + 1).padStart(2, '0')
+      const day = String(parsed.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+    const match = text.match(/^(\d{4}-\d{2}-\d{2})/)
+    return match ? match[1] : ''
+  }
+  const formatListDate = (value) => {
+    const date = toDateInputValue(value)
+    return date || labels.notApplicable
+  }
+  const previewText = (value, limit = 48) => {
+    const text = String(value || '').trim()
+    if (!text) return labels.notApplicable
+    return text.length > limit ? `${text.slice(0, limit)}…` : text
+  }
+  const yesNo = (value) => (value ? (isArabic ? 'نعم' : 'Yes') : (isArabic ? 'لا' : 'No'))
   const normalizeQuantityType = (value) => {
     const normalized = String(value || '').trim().toLowerCase()
     if (normalized === 'piece' || normalized === 'pcs' || normalized === 'pc' || normalized === 'per unit' || normalized === 'per-unit') return 'Piece'
     if (normalized === 'box') return 'Box'
     if (normalized === 'kg' || normalized === 'kilogram' || normalized === 'kilograms') return 'Kg'
+    if (normalized === 'set') return 'Set'
+    if (normalized === 'other') return 'Other'
     if (normalized === 'liter' || normalized === 'litre' || normalized === 'l') return 'Liter'
     if (normalized === 'meter' || normalized === 'metre' || normalized === 'm') return 'Meter'
     if (normalized === 'hour' || normalized === 'hr' || normalized === 'h') return 'Hour'
     return 'Piece'
   }
-  const normalizeItemType = (value) => {
+  const isServiceItem = (item) => {
+    if (String(item?.business_type || '').toLowerCase() === 'service') return true
+    return categoryTypeFromRecord(item) === CATEGORY_TYPE_SERVICES
+  }
+  const normalizeProductItemType = (value) => {
     const normalized = String(value || '').trim().toLowerCase()
-    if (normalized === 'semi annually' || normalized === 'semi-annually' || normalized === 'semiannual') return 'Semi Annually'
-    if (normalized === 'annually' || normalized === 'annual' || normalized === 'yearly') return 'Annually'
-    if (normalized === 'monthly') return 'Monthly'
     if (normalized === 'per unit' || normalized === 'per-unit') return 'Per Unit'
     return 'Fixed'
+  }
+  const normalizeServiceBillingType = (value) => {
+    const normalized = String(value || '').trim().toLowerCase()
+    if (['one-time', 'onetime', 'one time'].includes(normalized)) return 'One-time'
+    if (normalized === 'subscription') return 'Subscription'
+    if (normalized === 'monthly') return 'Monthly'
+    if (normalized === 'quarterly') return 'Quarterly'
+    if (['semi-annual', 'semi annual', 'semi-annually', 'semi annually', 'semiannual'].includes(normalized)) return 'Semi-annual'
+    if (['annually', 'annual', 'yearly'].includes(normalized)) return 'Annually'
+    return String(value || '').trim()
+  }
+  const getServiceBillingType = (item) => {
+    const fromBilling = normalizeServiceBillingType(item?.billingCycle || item?.billing_cycle || '')
+    if (fromBilling) return fromBilling
+    const fromItemType = String(item?.item_type || item?.itemType || '').trim()
+    const normalizedItemType = normalizeServiceBillingType(fromItemType)
+    if (['One-time', 'Subscription', 'Monthly', 'Quarterly', 'Semi-annual', 'Annually'].includes(normalizedItemType)) {
+      return normalizedItemType
+    }
+    return ''
+  }
+  const getItemIdentityValue = (item) => {
+    if (isServiceItem(item)) {
+      return String(item.serviceType || item.service_type || '').trim()
+    }
+    return String(item.brand || '').trim()
+  }
+  const getItemCodeValue = (item) => String(item.code || item.sku || '').trim()
+  const getCatalogAmount = (item) => {
+    if (isServiceItem(item) && item.service_amount != null && item.service_amount !== '') {
+      return item.service_amount
+    }
+    if (item.catalog_amount != null && item.catalog_amount !== '') {
+      return item.catalog_amount
+    }
+    return item.price
   }
   const getAddonTooltipData = (item) => Array.isArray(item.addons) ? item.addons.filter(addon => String(addon.name || '').trim() !== '') : []
   const showAddonsTooltip = (event, item) => {
@@ -212,6 +424,23 @@ export default function ItemsPage() {
     })
   }
   const hideAddonsTooltip = () => setActiveAddonsTooltip(null)
+  const fieldText = (item, field) => String(item?.[field] || '').trim()
+  const hasNotesOrDescription = (item) => Boolean(fieldText(item, 'notes') || fieldText(item, 'description'))
+  const showNotesTooltip = (event, item, field = 'both') => {
+    const notes = fieldText(item, 'notes')
+    const description = fieldText(item, 'description')
+    if (field === 'notes' && !notes) return
+    if (field === 'description' && !description) return
+    if (field === 'both' && !notes && !description) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    setActiveNotesTooltip({
+      item,
+      field,
+      top: rect.top - 14,
+      left: rect.left + (rect.width / 2),
+    })
+  }
+  const hideNotesTooltip = () => setActiveNotesTooltip(null)
   const getAddonNames = (item) => getAddonTooltipData(item).map(addon => addon.name).filter(Boolean)
   const formatAddonNames = (item) => {
     const names = getAddonNames(item)
@@ -226,13 +455,61 @@ export default function ItemsPage() {
   const getSelectedAddonAmount = (item) => {
     const addon = getSelectedAddon(item)
     if (!addon) return 0
+    if (isServiceItem(item)) return Number(addon.price || 0)
     return Number(addon.quantity || 0) * Number(addon.price || 0)
   }
+  const getSelectedAddonPeriod = (item) => {
+    const addon = getSelectedAddon(item)
+    return String(addon?.period || '').trim()
+  }
 
-  const fetchItems = async () => {
-    setLoading(true)
+  const buildItemListParams = (activeFilters = filters, activeTab = listTab) => {
+    const params = { all: 1, category_type: activeTab }
+    const assignText = (key, param = key) => {
+      const value = String(activeFilters[key] ?? '').trim()
+      if (value) params[param] = value
+    }
+    const isProducts = activeTab === CATEGORY_TYPE_PRODUCTS
+
+    assignText('search')
+    assignText('name')
+    assignText('category')
+    assignText('status')
+    assignText('itemType', 'item_type')
+    assignText('code')
+    assignText('createdFrom', 'created_from')
+    assignText('createdTo', 'created_to')
+    if (isProducts) {
+      assignText('sku')
+      assignText('brand')
+      assignText('model')
+      assignText('warehouse')
+      assignText('supplier')
+      assignText('unit')
+      if (activeFilters.lowStock) params.low_stock = 1
+    } else {
+      assignText('serviceType', 'service_type')
+      assignText('serviceDuration', 'service_duration')
+      assignText('startDate', 'start_date')
+      assignText('endDate', 'end_date')
+      if (activeFilters.renewalRequired === '1' || activeFilters.renewalRequired === '0') {
+        params.renewal_required = activeFilters.renewalRequired
+      }
+    }
+
+    return params
+  }
+
+  const skipItemFilterDebounceRef = useRef(true)
+  const itemsFetchIdRef = useRef(0)
+  const hasLoadedItemsRef = useRef(false)
+
+  const fetchItems = async (activeFilters = filters, activeTab = listTab) => {
+    const fetchId = ++itemsFetchIdRef.current
+    if (!hasLoadedItemsRef.current) setLoading(true)
     try {
-      const response = await api.get('/api/items')
+      const response = await api.get('/api/items', { params: buildItemListParams(activeFilters, activeTab) })
+      if (fetchId !== itemsFetchIdRef.current) return
       let data = []
       if (Array.isArray(response.data)) {
         data = response.data
@@ -240,55 +517,138 @@ export default function ItemsPage() {
         data = response.data.data
       }
 
-      const mappedData = data.map(item => ({
-        ...item,
-        category: typeof item.category === 'object' ? item.category?.name || '' : item.category || '',
-        category_id: item.category_id || '',
-        stock: item.quantity !== undefined ? item.quantity : (item.stock || 0),
-        reservedQuantity: item.reserved_quantity ?? item.reservedQuantity ?? 0,
-        soldQuantity: item.sold_quantity ?? item.soldQuantity ?? 0,
-        totalQuantity: item.total_quantity ?? (
-          (item.quantity || 0) + (item.reserved_quantity || 0) + (item.sold_quantity || 0)
-        ),
-        minStock: item.min_alert !== undefined ? item.min_alert : (item.minStock || 0),
-        itemType: normalizeItemType(item.item_type || item.itemType || ''),
-        pricingType: item.pricing_type || item.pricingType || 'Fixed',
-        billingCycle: item.billing_cycle || item.billingCycle || 'Monthly',
-        unit: normalizeQuantityType(item.unit),
-        allowDiscount: item.allow_discount !== undefined ? Boolean(item.allow_discount) : (item.allowDiscount || false),
-        maxDiscount: item.max_discount || item.maxDiscount || '',
-        addons: Array.isArray(item.addons) ? item.addons.map(addon => ({
-          id: addon.id,
-          name: addon.name || '',
-          quantity: addon.quantity ?? 1,
-          price: addon.price ?? '',
-        })) : [],
-        addonsTotalQuantity: Number(item.addons_total_quantity ?? item.addonsTotalQuantity ?? 0),
-        addonsTotalPrice: Number(item.addons_total_price ?? item.addonsTotalPrice ?? 0),
-        totalPrice: Number(item.total_price ?? item.totalPrice ?? 0),
-      }))
+      const mappedData = data.map(item => {
+        const categoryType = categoryTypeFromRecord(item.category)
+          || categoryTypeFromRecord(item)
+          || item.category_type
+          || item.type
+          || ''
+        const isService = String(item.business_type || '').toLowerCase() === 'service'
+          || normalizeCategoryType(categoryType) === CATEGORY_TYPE_SERVICES
+        const billingCycle = getServiceBillingType(item) || (isService ? '' : (item.billing_cycle || item.billingCycle || ''))
+
+        return {
+          ...item,
+          name: item.name || '',
+          business_type: item.business_type || (isService ? 'service' : 'product'),
+          category_type: item.category_type || (isService ? CATEGORY_TYPE_SERVICES : CATEGORY_TYPE_PRODUCTS),
+          category: typeof item.category === 'object' ? item.category?.name || '' : item.category || '',
+          category_id: item.category_id || '',
+          type: categoryType,
+          stock: item.quantity !== undefined ? item.quantity : (item.stock || 0),
+          reservedQuantity: item.reserved_quantity ?? item.reservedQuantity ?? 0,
+          soldQuantity: item.sold_quantity ?? item.soldQuantity ?? 0,
+          totalQuantity: item.total_quantity ?? (
+            (item.quantity || 0) + (item.reserved_quantity || 0) + (item.sold_quantity || 0)
+          ),
+          minStock: item.min_alert !== undefined ? item.min_alert : (item.minStock || 0),
+          itemType: isService ? '' : normalizeProductItemType(item.item_type || item.itemType || ''),
+          pricingType: item.pricing_type || item.pricingType || 'Fixed',
+          billingCycle,
+          unit: normalizeQuantityType(item.unit),
+          code: item.code || '',
+          barcode: getItemBarcodeValue(item),
+          sku: getItemBarcodeValue(item),
+          brand: item.brand || '',
+          model: item.model || '',
+          serviceType: item.service_type || item.serviceType || '',
+          service_type: item.service_type || item.serviceType || '',
+          billing_cycle: billingCycle || item.billing_cycle || item.billingCycle || '',
+          serviceDuration: item.service_duration || item.serviceDuration || '',
+          startDate: toDateInputValue(item.service_start_date || item.startDate),
+          endDate: toDateInputValue(item.service_end_date || item.endDate),
+          renewalRequired: Boolean(item.renewal_required ?? item.renewalRequired),
+          taxRate: item.tax_rate ?? item.taxRate ?? '',
+          taxIncluded: Boolean(item.tax_included ?? item.taxIncluded),
+          warehouse: item.warehouse || '',
+          supplier: item.supplier || '',
+          notes: item.notes || '',
+          description: item.description || '',
+          catalog_amount: item.catalog_amount ?? item.price,
+          service_amount: isService ? (item.service_amount ?? item.catalog_amount ?? item.price) : null,
+          allowDiscount: item.allow_discount !== undefined ? Boolean(item.allow_discount) : (item.allowDiscount || false),
+          maxDiscount: item.max_discount || item.maxDiscount || '',
+          addons: Array.isArray(item.addons) ? item.addons.map(addon => ({
+            id: addon.id,
+            name: addon.name || '',
+            quantity: addon.quantity ?? 1,
+            price: addon.price ?? '',
+            period: addon.period || '',
+          })) : [],
+          addonsTotalQuantity: Number(item.addons_total_quantity ?? item.addonsTotalQuantity ?? 0),
+          addonsTotalPrice: Number(item.addons_total_price ?? item.addonsTotalPrice ?? 0),
+          totalPrice: Number(item.total_price ?? item.totalPrice ?? 0),
+        }
+      })
 
       setItems(mappedData)
+      hasLoadedItemsRef.current = true
+      setKnownBrands((prev) => mergeKnownValues(prev, mappedData.map((item) => item.brand)))
+      setKnownNamesByTab((prev) => {
+        const current = prev && !Array.isArray(prev)
+          ? prev
+          : emptyKnownNamesByTab()
+        return {
+          ...emptyKnownNamesByTab(),
+          ...current,
+          [activeTab]: mergeKnownValues(current[activeTab] || [], mappedData.map((item) => item.name)),
+        }
+      })
+      setKnownCodes((prev) => mergeKnownValues(prev, mappedData.map((item) => item.code)))
+      setKnownModels((prev) => mergeKnownValues(prev, mappedData.map((item) => item.model)))
+      setKnownWarehouses((prev) => mergeKnownValues(prev, mappedData.map((item) => item.warehouse)))
+      setKnownSuppliers((prev) => mergeKnownValues(prev, mappedData.map((item) => item.supplier)))
+      setKnownDurations((prev) => mergeKnownValues(prev, mappedData.map((item) => item.serviceDuration)))
+      setKnownSkus((prev) => mergeKnownValues(prev, mappedData.map((item) => getItemBarcodeValue(item))))
     } catch (error) {
+      if (fetchId !== itemsFetchIdRef.current) return
       console.error('Error fetching items:', error)
     } finally {
-      setLoading(false)
+      if (fetchId === itemsFetchIdRef.current) {
+        setLoading(false)
+      }
     }
   }
 
-  useEffect(() => {
-    fetchItems()
-    fetchAuxiliaryData()
-  }, [])
+  const extractCollection = (payload) => {
+    if (Array.isArray(payload)) return payload
+    if (Array.isArray(payload?.data)) return payload.data
+    return []
+  }
+
+  const fetchServiceTypes = async () => {
+    try {
+      const serviceTypesRes = await api.get('/api/inventory-lookups/service-types', { params: { active_only: 1 } })
+      setServiceTypes(extractCollection(serviceTypesRes.data))
+    } catch (error) {
+      console.error('Error fetching service types:', error)
+      setServiceTypes([])
+    }
+  }
 
   const fetchAuxiliaryData = async () => {
     try {
       const categoriesRes = await api.get('/api/item-categories')
-      setCategories(Array.isArray(categoriesRes.data) ? categoriesRes.data : [])
+      setCategories(extractCollection(categoriesRes.data))
     } catch (error) {
-      console.error('Error fetching auxiliary data:', error)
+      console.error('Error fetching categories:', error)
     }
+
+    await fetchServiceTypes()
   }
+
+  useEffect(() => {
+    fetchAuxiliaryData()
+  }, [])
+
+  useEffect(() => {
+    const delay = skipItemFilterDebounceRef.current ? 0 : 300
+    skipItemFilterDebounceRef.current = false
+    const timer = window.setTimeout(() => {
+      fetchItems(filters, listTab)
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [filters, listTab])
 
   // Dynamic fields state for Items
   const [dynamicValues, setDynamicValues] = useState({})
@@ -307,10 +667,9 @@ export default function ItemsPage() {
     setDynamicValues(prev => ({ ...prev, [key]: value }))
   }
 
-  const createEmptyAddon = () => ({ name: '', quantity: 1, price: '' })
+  const createEmptyAddon = () => ({ name: '', quantity: 1, price: '', period: '' })
 
   const addAddonRow = () => {
-    setShowAddons(true)
     setForm(prev => ({ ...prev, addons: [...(prev.addons || []), createEmptyAddon()] }))
   }
 
@@ -332,18 +691,7 @@ export default function ItemsPage() {
 
   function onChange(e) {
     const { name, value } = e.target
-    setForm(prev => {
-      const next = { ...prev, [name]: value }
-      if (name === 'type') {
-        // Reset category if not compatible with selected type
-        const ok = categories.some(c => c.name === next.category && (!c.applies_to || c.applies_to === value))
-        if (!ok) {
-          next.category = ''
-          next.category_id = ''
-        }
-      }
-      return next
-    })
+    setForm(prev => ({ ...prev, [name]: value }))
   }
 
   async function onSubmit(e) {
@@ -352,40 +700,84 @@ export default function ItemsPage() {
       alert(isArabic ? 'لا تملك صلاحية تعديل الأصناف' : 'You do not have permission to modify items')
       return
     }
+    if (!form.category_id) {
+      alert(isArabic ? 'التصنيف مطلوب' : 'Category is required')
+      return
+    }
+    const categoryType = normalizeCategoryType(form.type) || categoryTypeFromRecord(categories.find(c => String(c.id) === String(form.category_id)))
+    const isService = categoryType === CATEGORY_TYPE_SERVICES
+    if (!isService && !form.brand) {
+      alert(isArabic ? 'اسم العلامة التجارية مطلوب' : 'Brand Name is required')
+      return
+    }
     if (!form.name) {
-      alert(isArabic ? 'اسم الصنف مطلوب' : 'Item Name is required')
+      alert(isArabic ? (isService ? 'اسم الخدمة مطلوب' : 'اسم المنتج مطلوب') : (isService ? 'Service Name is required' : 'Product Name is required'))
       return
     }
     if (!form.price) {
       alert(isArabic ? 'المبلغ مطلوب' : 'Amount is required')
       return
     }
-    // Pricing Type is now optional
-    // if (!form.pricingType) {
-    //   alert(isArabic ? 'نوع التسعير مطلوب' : 'Pricing Type is required')
-    //   return
-    // }
+    if (!isService && (form.stock === '' || form.stock === null || form.stock === undefined)) {
+      alert(isArabic ? 'كمية المنتج مطلوبة' : 'Product quantity is required')
+      return
+    }
+    if (isService && !String(form.serviceType || '').trim()) {
+      alert(isArabic ? 'نوع الخدمة مطلوب' : 'Service Type is required')
+      return
+    }
+    if (isService && !form.billingCycle) {
+      alert(isArabic ? 'نوع فوترة الخدمة مطلوب' : 'Service Billing Type is required')
+      return
+    }
 
     const dataToSave = {
-      ...form,
-      quantity: Number(form.stock),
-      min_alert: Number(form.minStock),
-      item_type: form.itemType || '',
-      unit: form.itemType === 'Per Unit' ? normalizeQuantityType(form.unit) : 'Piece',
+      name: form.name,
+      category: form.category,
+      category_id: form.category_id,
+      type: categoryType,
+      category_type: categoryType,
+      code: form.code || form.itemCode || '',
+      brand: form.brand || '',
+      model: form.model || '',
+      quantity: isService ? 0 : Number(form.stock),
+      min_alert: isService ? 0 : (form.minStock === '' || form.minStock === null || form.minStock === undefined ? 0 : Number(form.minStock)),
+      price: form.price,
+      item_type: isService ? (form.billingCycle || 'Monthly') : (form.itemType || 'Fixed'),
+      billingCycle: form.billingCycle || undefined,
+      service_type: String(form.serviceType || '').trim() || undefined,
+      service_duration: form.serviceDuration || undefined,
+      service_start_date: toDateInputValue(form.startDate) || undefined,
+      service_end_date: toDateInputValue(form.endDate) || undefined,
+      renewal_required: Boolean(form.renewalRequired),
+      tax_rate: form.taxRate === '' ? undefined : form.taxRate,
+      tax_included: Boolean(form.taxIncluded),
+      barcode: form.barcode || undefined,
+      sku: form.barcode || undefined,
+      unit: isService ? 'Piece' : normalizeQuantityType(form.unit),
+      warehouse: form.warehouse || undefined,
+      supplier: form.supplier || undefined,
+      notes: form.notes || undefined,
+      description: form.description || undefined,
+      status: form.status || 'Active',
       addons: (form.addons || [])
         .filter(addon => String(addon.name || '').trim() !== '')
-        .map(addon => ({
-          name: String(addon.name || '').trim(),
-          quantity: Number(addon.quantity || 1),
-          price: Number(addon.price || 0),
-        })),
+        .map(addon => (
+          isService
+            ? {
+                name: String(addon.name || '').trim(),
+                period: String(addon.period || '').trim() || undefined,
+                quantity: 1,
+                price: Number(addon.price || 0),
+              }
+            : {
+                name: String(addon.name || '').trim(),
+                quantity: Number(addon.quantity || 1),
+                price: Number(addon.price || 0),
+              }
+        )),
       custom_fields: dynamicValues
     }
-    delete dataToSave.reserved_quantity
-    delete dataToSave.sold_quantity
-    delete dataToSave.reservedQuantity
-    delete dataToSave.soldQuantity
-    delete dataToSave.totalQuantity
 
     setLoading(true)
     try {
@@ -395,23 +787,23 @@ export default function ItemsPage() {
         await api.post('/api/items', dataToSave)
       }
       await fetchItems()
-      setForm({
-        id: null, name: '', category: '', category_id: '', type: 'Product', itemType: 'Fixed', sku: '', price: '', pricingType: 'Fixed', billingCycle: 'Monthly', stock: 0, minStock: 0, unit: 'Piece', status: 'Active', allowDiscount: false, maxDiscount: '', description: '', addons: [], custom_fields: {}
-      })
+      await fetchServiceTypes()
+      setForm(emptyItemForm())
       setDynamicValues({})
-      setShowAddons(false)
       setShowForm(false)
     } catch (error) {
       console.error('Error saving item:', error)
       const status = error?.response?.status
       const msg = error?.response?.data?.message
+                 || error?.response?.data?.error
+                 || error?.response?.data?.errors?.code?.[0]
                  || error?.response?.data?.errors?.sku?.[0]
                  || error?.message
                  || (isArabic ? 'حدث خطأ أثناء الحفظ' : 'Error saving item')
       if (status === 409 || status === 422) {
         alert(isArabic ? `خطأ في البيانات: ${msg}` : `Validation error: ${msg}`)
       } else {
-        alert(isArabic ? 'فشل الاتصال بالخادم أو إعدادات قاعدة البيانات' : 'Server/DB error. Please try again later.')
+        alert(isArabic ? `فشل الحفظ: ${msg}` : `Save failed: ${msg}`)
       }
     } finally {
       setLoading(false)
@@ -514,21 +906,63 @@ export default function ItemsPage() {
   }
 
   function onEdit(item) {
-    setForm({
+    const cat = categories.find(c => String(c.id) === String(item.category_id)) || {
+      id: item.category_id,
+      name: item.category,
+      category_type: item.type || item.category_type,
+      applies_to: item.type,
+    }
+    setForm(applySelectedCategory({
+      ...emptyItemForm(),
       ...item,
       category_id: item.category_id || '',
-      itemType: normalizeItemType(item.itemType || item.item_type || ''),
+      itemType: normalizeProductItemType(item.itemType || item.item_type || ''),
+      billingCycle: getServiceBillingType(item) || item.billingCycle || item.billing_cycle || 'Monthly',
       unit: normalizeQuantityType(item.unit),
+      startDate: toDateInputValue(item.startDate || item.service_start_date),
+      endDate: toDateInputValue(item.endDate || item.service_end_date),
+      notes: item.notes || '',
+      description: item.description || '',
       addons: Array.isArray(item.addons) ? item.addons : [],
-    })
-    setShowAddons(Array.isArray(item.addons) && item.addons.length > 0)
+    }, cat))
     setShowForm(true)
   }
 
-  // Reset pagination when filters change
+  // Reset pagination when filters or tab change
   useEffect(() => {
     setCurrentPage(1)
-  }, [filters])
+  }, [filters, listTab])
+
+  useEffect(() => {
+    if (!deleteDialog) {
+      setReplacementCatalog([])
+      return
+    }
+
+    let cancelled = false
+    api.get('/api/items', { params: { all: 1 } })
+      .then((response) => {
+        if (cancelled) return
+        let data = []
+        if (Array.isArray(response.data)) {
+          data = response.data
+        } else if (response.data && Array.isArray(response.data.data)) {
+          data = response.data.data
+        }
+        setReplacementCatalog(data.map((item) => ({
+          id: item.id,
+          name: item.name || '',
+          sku: item.sku || item.barcode || item.code || '',
+        })))
+      })
+      .catch(() => {
+        if (!cancelled) setReplacementCatalog([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [deleteDialog])
 
   const itemsWithComputedTotals = useMemo(() => {
     return items.map(item => {
@@ -549,27 +983,60 @@ export default function ItemsPage() {
     })
   }, [items])
 
-  const filtered = useMemo(() => {
-    return itemsWithComputedTotals.filter(item => {
-      if (filters.search) {
-        const q = filters.search.toLowerCase()
-        if (!item.name.toLowerCase().includes(q)) return false
-      }
-      if (filters.sku) {
-        const skuQuery = filters.sku.toLowerCase()
-        if (!(item.sku || '').toLowerCase().includes(skuQuery)) return false
-      }
-      if (filters.status && item.status !== filters.status) return false
-      if (filters.type && item.type !== filters.type) return false
-      if (filters.itemType && (item.itemType || '') !== filters.itemType) return false
-      if (filters.category && item.category !== filters.category) return false
-      return true
-    })
-  }, [itemsWithComputedTotals, filters])
+  const filtered = itemsWithComputedTotals
 
   function clearFilters() {
-    setFilters({ search: '', category: '', sku: '', status: '', type: '', itemType: '' })
+    setFilters(emptyListFilters())
     setShowAllFilters(false)
+  }
+
+  const categoryTypeForRecord = (record) => (
+    categoryTypeFromRecord(record) || CATEGORY_TYPE_PRODUCTS
+  )
+
+  function switchListTab(tab) {
+    if (tab === listTab) return
+    setListTab(tab)
+    setCurrentPage(1)
+    setSelectedItemIds([])
+    setFilters((prev) => {
+      const next = emptyListFilters()
+      next.search = prev.search
+      next.status = prev.status
+      next.createdFrom = prev.createdFrom
+      next.createdTo = prev.createdTo
+      const selectedCategory = categories.find((category) => category.name === prev.category)
+      if (selectedCategory && categoryTypeForRecord(selectedCategory) === tab) {
+        next.category = prev.category
+      }
+      if (tab === CATEGORY_TYPE_PRODUCTS) {
+        next.brand = prev.brand
+        next.code = prev.code
+        next.sku = prev.sku
+        next.model = prev.model
+        next.warehouse = prev.warehouse
+        next.supplier = prev.supplier
+        next.unit = prev.unit
+        next.lowStock = Boolean(prev.lowStock)
+        if (['Fixed', 'Per Unit'].includes(prev.itemType)) next.itemType = prev.itemType
+      } else if (['One-time', 'Subscription', 'Monthly', 'Quarterly', 'Semi-annual', 'Annually'].includes(prev.itemType)) {
+        next.itemType = prev.itemType
+        next.serviceType = prev.serviceType
+        next.code = prev.code
+        next.serviceDuration = prev.serviceDuration
+        next.renewalRequired = prev.renewalRequired
+        next.startDate = prev.startDate
+        next.endDate = prev.endDate
+      } else {
+        next.serviceType = prev.serviceType
+        next.code = prev.code
+        next.serviceDuration = prev.serviceDuration
+        next.renewalRequired = prev.renewalRequired
+        next.startDate = prev.startDate
+        next.endDate = prev.endDate
+      }
+      return next
+    })
   }
 
   // Pagination Logic
@@ -582,62 +1049,154 @@ export default function ItemsPage() {
   const isAllPageSelected = allPageItemIds.length > 0 && allPageItemIds.every(id => selectedItemIds.includes(id))
   const replacementOptions = useMemo(() => {
     const excluded = new Set((deleteDialog?.itemIds || []).map(id => String(id)))
-    return items
+    const source = replacementCatalog.length > 0 ? replacementCatalog : items
+    return source
       .filter(item => !excluded.has(String(item.id)))
       .map(item => ({ value: item.id, label: `${item.name}${item.sku ? ` (${item.sku})` : ''}` }))
-  }, [items, deleteDialog])
+  }, [items, replacementCatalog, deleteDialog])
 
-  const TYPE_OPTIONS = ['Product', 'Service', 'Subscription', 'Package']
-  const ITEM_TYPE_OPTIONS = ['Fixed', 'Per Unit', 'Monthly', 'Semi Annually', 'Annually']
-  const QUANTITY_TYPE_OPTIONS = ['Piece', 'Box', 'Kg', 'Liter', 'Meter', 'Hour']
-  const showQuantityType = form.itemType === 'Per Unit'
+  const PRODUCT_ITEM_TYPE_OPTIONS = ['Fixed', 'Per Unit']
+  const SERVICE_BILLING_OPTIONS = ['One-time', 'Subscription', 'Monthly', 'Quarterly', 'Semi-annual', 'Annually']
+  const QUANTITY_TYPE_OPTIONS = ['Piece', 'Box', 'Set', 'Meter', 'Kg', 'Hour', 'Other']
+  const selectedCategory = categories.find(c => String(c.id) === String(form.category_id))
+  const selectedCategoryType = normalizeCategoryType(form.type) || categoryTypeFromRecord(selectedCategory)
+  const isServiceForm = selectedCategoryType === CATEGORY_TYPE_SERVICES
+  const isProductForm = selectedCategoryType === CATEGORY_TYPE_PRODUCTS
+
+  useEffect(() => {
+    if (showForm && isServiceForm) {
+      fetchServiceTypes()
+    }
+  }, [showForm, isServiceForm])
+  const showQuantityType = isProductForm
   const getCategoryTypeOptionLabel = (option) => {
-    if (!isArabic) return option
-    if (option === 'Product') return 'منتج'
-    if (option === 'Service') return 'خدمة'
-    if (option === 'Subscription') return 'اشتراك'
-    if (option === 'Package') return 'باقة'
+    const normalized = normalizeCategoryType(option) || option
+    if (normalized === CATEGORY_TYPE_PRODUCTS) return isArabic ? 'منتجات' : 'Products'
+    if (normalized === CATEGORY_TYPE_SERVICES) return isArabic ? 'خدمات' : 'Services'
     return option
   }
   const getItemTypeOptionLabel = (option) => {
     if (!isArabic) return option
     if (option === 'Fixed') return 'ثابت'
     if (option === 'Per Unit') return 'لكل وحدة'
+    if (option === 'One-time') return 'مرة واحدة'
+    if (option === 'Subscription') return 'اشتراك'
     if (option === 'Monthly') return 'شهري'
-    if (option === 'Semi Annually') return 'نصف سنوي'
+    if (option === 'Quarterly') return 'ربع سنوي'
+    if (option === 'Semi-annual' || option === 'Semi Annually') return 'نصف سنوي'
     if (option === 'Annually') return 'سنوي'
     return option
+  }
+  const getItemKindLabel = (item) => {
+    if (isServiceItem(item)) {
+      const billing = getServiceBillingType(item)
+      return billing ? getItemTypeOptionLabel(billing) : labels.notApplicable
+    }
+    return getItemTypeOptionLabel(item.itemType || 'Fixed')
   }
   const getQuantityTypeOptionLabel = (option) => {
     if (!isArabic) return option
     if (option === 'Piece') return 'قطعة'
     if (option === 'Box') return 'بوكس'
+    if (option === 'Set') return 'طقم'
     if (option === 'Kg') return 'كيلو'
     if (option === 'Liter') return 'لتر'
     if (option === 'Meter') return 'متر'
     if (option === 'Hour') return 'ساعة'
+    if (option === 'Other') return 'أخرى'
     return option
   }
 
   const getAllSuffix = () => (isArabic ? '(الكل)' : '(All)')
   // Use full category objects for form
-  const categoryOptionsForForm = useMemo(() => {
-    return categories
-      .filter(c => !form.type || !c.applies_to || c.applies_to === form.type)
-  }, [categories, form.type])
+  const categoryOptionsForForm = useMemo(() => categories, [categories])
+  const serviceTypeOptions = useMemo(() => {
+    const names = []
+    const seen = new Set()
+    serviceTypes.forEach((type) => {
+      const name = String(type?.name || '').trim()
+      const key = name.toLowerCase()
+      if (!name || seen.has(key)) return
+      seen.add(key)
+      names.push(name)
+    })
+    const current = String(form.serviceType || '').trim()
+    if (current && !seen.has(current.toLowerCase())) {
+      names.push(current)
+    }
+    return names.map((name) => ({ value: name, label: name }))
+  }, [serviceTypes, form.serviceType])
   
   // Use names for filter for backward compatibility
   const categoryOptionsForFilter = useMemo(() => {
     return categories
-      .filter(c => !filters.type || !c.applies_to || c.applies_to === filters.type)
+      .filter(c => categoryTypeForRecord(c) === listTab)
       .map(c => ({ label: c.name, value: c.name }))
-  }, [categories, filters.type])
+  }, [categories, listTab])
 
-  const categoryTypeOptionsForFilter = TYPE_OPTIONS.map(type => ({
-    label: getCategoryTypeOptionLabel(type),
-    value: type,
+  const serviceTypeOptionsForFilter = useMemo(() => {
+    const names = []
+    const seen = new Set()
+    const addName = (value) => {
+      const name = String(value || '').trim()
+      const key = name.toLowerCase()
+      if (!name || seen.has(key)) return
+      seen.add(key)
+      names.push(name)
+    }
+    serviceTypes.forEach((type) => addName(type?.name))
+    items.forEach((item) => addName(item.serviceType || item.service_type))
+    addName(filters.serviceType)
+    return names.map((name) => ({ value: name, label: name }))
+  }, [serviceTypes, items, filters.serviceType])
+
+  const brandOptionsForFilter = useMemo(() => {
+    const names = []
+    const seen = new Set()
+    const addName = (value) => {
+      const name = String(value || '').trim()
+      const key = name.toLowerCase()
+      if (!name || seen.has(key)) return
+      seen.add(key)
+      names.push(name)
+    }
+    knownBrands.forEach(addName)
+    items.forEach((item) => addName(item.brand))
+    addName(filters.brand)
+    return names.map((name) => ({ value: name, label: name }))
+  }, [knownBrands, items, filters.brand])
+
+  const nameOptionsForFilter = useMemo(() => {
+    return uniqueSelectOptions(knownNamesByTab?.[listTab] || [], items.map((item) => item.name), filters.name)
+  }, [knownNamesByTab, listTab, items, filters.name])
+  const codeOptionsForFilter = useMemo(() => {
+    return uniqueSelectOptions(knownCodes, items.map((item) => item.code), filters.code)
+  }, [knownCodes, items, filters.code])
+  const modelOptionsForFilter = useMemo(() => {
+    return uniqueSelectOptions(knownModels, items.map((item) => item.model), filters.model)
+  }, [knownModels, items, filters.model])
+  const warehouseOptionsForFilter = useMemo(() => {
+    return uniqueSelectOptions(knownWarehouses, items.map((item) => item.warehouse), filters.warehouse)
+  }, [knownWarehouses, items, filters.warehouse])
+  const supplierOptionsForFilter = useMemo(() => {
+    return uniqueSelectOptions(knownSuppliers, items.map((item) => item.supplier), filters.supplier)
+  }, [knownSuppliers, items, filters.supplier])
+  const durationOptionsForFilter = useMemo(() => {
+    return uniqueSelectOptions(knownDurations, items.map((item) => item.serviceDuration), filters.serviceDuration)
+  }, [knownDurations, items, filters.serviceDuration])
+  const skuOptionsForFilter = useMemo(() => {
+    return uniqueSelectOptions(knownSkus, items.map((item) => getItemBarcodeValue(item)), filters.sku)
+  }, [knownSkus, items, filters.sku])
+  const unitOptionsForFilter = QUANTITY_TYPE_OPTIONS.map(option => ({
+    label: getQuantityTypeOptionLabel(option),
+    value: option,
   }))
-  const itemTypeOptionsForFilter = ITEM_TYPE_OPTIONS.map(type => ({
+  const renewalOptionsForFilter = [
+    { label: isArabic ? 'نعم' : 'Yes', value: '1' },
+    { label: isArabic ? 'لا' : 'No', value: '0' },
+  ]
+
+  const itemTypeOptionsForFilter = (isProductsTab ? PRODUCT_ITEM_TYPE_OPTIONS : SERVICE_BILLING_OPTIONS).map(type => ({
     label: getItemTypeOptionLabel(type),
     value: type,
   }))
@@ -647,30 +1206,90 @@ export default function ItemsPage() {
   ]
 
   const exportItemsCsv = () => {
-    const headers = ['Item Code', 'Item Name', 'Category Name', 'Category Type', 'Item Type', 'Amount', 'Quantity', 'Add-ons Name', 'Add-ons Qty', 'Add-ons Amount', 'Total Amount', 'Status']
+    const headers = isProductsTab
+      ? [
+          'Item Name',
+          'Item Code',
+          'Category Name',
+          'Brand',
+          'Item Type',
+          'Amount',
+          'Add-ons Name',
+          'Add-ons Qty',
+          'Add-ons Amount',
+          'Total Amount',
+          'Qty Total',
+          'Reserved',
+          'Sold',
+          'Available',
+          'Status',
+        ]
+      : [
+          'Service Name',
+          'Item Code',
+          'Category Name',
+          'Service Type',
+          'Service Billing Type',
+          'Amount',
+          'Service Duration',
+          'Start Date',
+          'End Date',
+          'Renewal Required',
+          'Add-ons Name',
+          'Add-ons Period',
+          'Add-ons Amount',
+          'Total Amount',
+          'Status',
+        ]
     const csvContent = [
       headers.join(','),
-      ...filtered.map(item => [
-        `"${item.sku || ''}"`,
-        `"${item.name}"`,
-        `"${item.category || ''}"`,
-        `"${item.type}"`,
-        `"${item.itemType || ''}"`,
-        `"${item.price || 0}"`,
-        `"${item.stock || 0}"`,
-        `"${formatAddonNames(item)}"`,
-        `"${item.addonsTotalQuantity || 0}"`,
-        `"${item.addonsTotalPrice || 0}"`,
-        `"${item.totalPrice || 0}"`,
-        `"${item.status}"`
-      ].join(','))
+      ...filtered.map(item => {
+        const selectedAddon = getSelectedAddon(item)
+        const shared = [
+          `"${item.name || ''}"`,
+          `"${item.code || ''}"`,
+          `"${item.category || ''}"`,
+        ]
+        const addonCols = [
+          `"${formatAddonNames(item)}"`,
+          `"${isProductsTab ? (selectedAddon?.quantity || item.addonsTotalQuantity || 0) : (selectedAddon?.period || '')}"`,
+          `"${item.addonsTotalPrice || 0}"`,
+          `"${item.totalPrice || getCatalogAmount(item) || 0}"`,
+        ]
+        const row = isProductsTab
+          ? [
+              ...shared,
+              `"${item.brand || ''}"`,
+              `"${item.itemType || ''}"`,
+              `"${getCatalogAmount(item) || 0}"`,
+              ...addonCols,
+              `"${item.totalQuantity || 0}"`,
+              `"${item.reservedQuantity || 0}"`,
+              `"${item.soldQuantity || 0}"`,
+              `"${item.stock || 0}"`,
+              `"${item.status || ''}"`,
+            ]
+          : [
+              ...shared,
+              `"${item.serviceType || ''}"`,
+              `"${getServiceBillingType(item) || ''}"`,
+              `"${getCatalogAmount(item) || 0}"`,
+              `"${item.serviceDuration || ''}"`,
+              `"${formatListDate(item.startDate) === labels.notApplicable ? '' : formatListDate(item.startDate)}"`,
+              `"${formatListDate(item.endDate) === labels.notApplicable ? '' : formatListDate(item.endDate)}"`,
+              `"${yesNo(item.renewalRequired)}"`,
+              ...addonCols,
+              `"${item.status || ''}"`,
+            ]
+        return row.join(',')
+      })
     ].join('\n')
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'items.csv'
+    a.download = isProductsTab ? 'products.csv' : 'services.csv'
     a.click(); URL.revokeObjectURL(url)
     setShowExportMenu(false)
   }
@@ -681,29 +1300,75 @@ export default function ItemsPage() {
       const autoTable = await import('jspdf-autotable')
       const doc = new jsPDF()
 
-      const tableColumn = ["Item Code", "Name", "Category Name", "Category Type", "Item Type", "Amount", "Qty", "Add-ons Name", "Add-ons Qty", "Add-ons Amount", "Total Amount", "Status"]
+      const tableColumn = isProductsTab
+        ? [
+            'Item Name',
+            'Item Code',
+            'Category Name',
+            'Brand',
+            'Item Type',
+            'Amount',
+            'Add-ons Name',
+            'Total Amount',
+            'Qty Total',
+            'Reserved',
+            'Sold',
+            'Available',
+            'Status',
+          ]
+        : [
+            'Service Name',
+            'Item Code',
+            'Category Name',
+            'Service Type',
+            'Service Billing Type',
+            'Amount',
+            'Duration',
+            'Start Date',
+            'End Date',
+            'Renewal',
+            'Add-ons Name',
+            'Total Amount',
+            'Status',
+          ]
       const tableRows = []
 
       items.forEach(item => {
-        const rowData = [
-          item.sku || '',
-          item.name,
-          item.category || '',
-          item.type,
-          item.itemType || '',
-          item.price || 0,
-          item.stock || 0
-          ,
-          formatAddonNames(item),
-          item.addonsTotalQuantity || 0,
-          item.addonsTotalPrice || 0,
-          item.totalPrice || 0,
-          item.status,
-        ]
+        const rowData = isProductsTab
+          ? [
+              item.name || '',
+              item.code || '',
+              item.category || '',
+              item.brand || '',
+              item.itemType || '',
+              getCatalogAmount(item) || 0,
+              formatAddonNames(item),
+              item.totalPrice || getCatalogAmount(item) || 0,
+              item.totalQuantity || 0,
+              item.reservedQuantity || 0,
+              item.soldQuantity || 0,
+              item.stock || 0,
+              item.status || '',
+            ]
+          : [
+              item.name || '',
+              item.code || '',
+              item.category || '',
+              item.serviceType || '',
+              getServiceBillingType(item) || '',
+              getCatalogAmount(item) || 0,
+              item.serviceDuration || '',
+              formatListDate(item.startDate) === labels.notApplicable ? '' : formatListDate(item.startDate),
+              formatListDate(item.endDate) === labels.notApplicable ? '' : formatListDate(item.endDate),
+              yesNo(item.renewalRequired),
+              formatAddonNames(item),
+              item.totalPrice || getCatalogAmount(item) || 0,
+              item.status || '',
+            ]
         tableRows.push(rowData)
       })
 
-      doc.text("Items List", 14, 15)
+      doc.text(isProductsTab ? 'Products List' : 'Services List', 14, 15)
       autoTable.default(doc, {
         head: [tableColumn],
         body: tableRows,
@@ -711,7 +1376,7 @@ export default function ItemsPage() {
         styles: { font: 'helvetica', fontSize: 8 },
         headStyles: { fillColor: [66, 139, 202] }
       })
-      doc.save("items_list.pdf")
+      doc.save(isProductsTab ? 'products_list.pdf' : 'services_list.pdf')
       setShowExportMenu(false)
     } catch (error) {
       console.error("Export PDF Error:", error)
@@ -756,6 +1421,21 @@ export default function ItemsPage() {
     }
   }
 
+  const createdDateRangeFilter = (
+    <div>
+      <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+        <FaCalendarAlt className="text-blue-500" /> {labels.createdAt}
+      </label>
+      <DateRangePicker
+        from={filters.createdFrom}
+        to={filters.createdTo}
+        onChange={({ from, to }) => setFilters({ ...filters, createdFrom: from, createdTo: to })}
+        isRTL={isArabic}
+        className="input input-sm h-8 text-xs w-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+      />
+    </div>
+  )
+
   return (
     <div className="space-y-6 pt-4 px-4 sm:px-6">
       <div className="flex flex-wrap lg:flex-row lg:items-center justify-between gap-4">
@@ -774,30 +1454,10 @@ export default function ItemsPage() {
           </button>
           {canManageItems && (
             <button className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-green-500 text-white border-none gap-2" onClick={() => {
-              setForm({
-                id: null,
-                name: '',
-                category: '',
-                category_id: '',
-                type: 'Product',
-                itemType: 'Fixed',
-                sku: '',
-                price: '',
-                pricingType: 'Fixed',
-                billingCycle: 'Monthly',
-                stock: 0,
-                minStock: 0,
-                unit: 'Piece',
-                status: 'Active',
-                allowDiscount: false,
-                maxDiscount: '',
-                description: '',
-                addons: [],
-                custom_fields: {}
-              });
+              setForm(emptyItemForm());
               setDynamicValues({});
-              setShowAddons(false);
               setShowForm(true);
+              fetchAuxiliaryData();
             }}>
               <FaPlus className='text-white' /><span className="text-white">{labels.add}</span>
             </button>
@@ -847,35 +1507,16 @@ export default function ItemsPage() {
                   </div>
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                   <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.categoryType}</label>
-                    <select
-                      name="type"
-                      value={form.type}
-                      onChange={onChange}
-                      className="select w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 min-h-0 rounded-md"
-                    >
-                      {TYPE_OPTIONS.map(t => (
-                        <option key={t} value={t}>{getCategoryTypeOptionLabel(t)}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.category}</label>
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.category} <span className="text-red-500">*</span></label>
                     <select
                       name="category"
                       value={form.category_id || ''}
                       onChange={(e) => {
-                        const catId = e.target.value
-                        const cat = categories.find(c => String(c.id) === String(catId))
-                        setForm(prev => ({
-                          ...prev,
-                          category_id: catId,
-                          category: cat ? cat.name : '',
-                          group: ''
-                        }))
+                        const cat = categories.find(c => String(c.id) === String(e.target.value))
+                        setForm(prev => applySelectedCategory(prev, cat))
                       }}
                       className="select w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 min-h-0 rounded-md"
+                      required
                     >
                       <option value="">{labels.category}</option>
                       {categoryOptionsForForm.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -883,41 +1524,100 @@ export default function ItemsPage() {
                   </div>
 
                   <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.itemType}</label>
-                    <select
-                      name="itemType"
-                      value={form.itemType}
-                      onChange={(e) => {
-                        const nextItemType = e.target.value
-                        setForm(prev => ({
-                          ...prev,
-                          itemType: nextItemType,
-                          unit: nextItemType === 'Per Unit' ? normalizeQuantityType(prev.unit) : 'Piece',
-                        }))
-                      }}
-                      className="select w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 min-h-0 rounded-md"
-                    >
-                      {ITEM_TYPE_OPTIONS.map(option => (
-                        <option key={option} value={option}>{getItemTypeOptionLabel(option)}</option>
-                      ))}
-                    </select>
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.categoryType} <span className="text-red-500">*</span></label>
+                    <input
+                      type="text"
+                      value={selectedCategoryType ? getCategoryTypeOptionLabel(selectedCategoryType) : ''}
+                      readOnly
+                      className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md opacity-70 cursor-not-allowed"
+                      placeholder={labels.selectCategoryFirst}
+                    />
                   </div>
 
+                  {!selectedCategoryType ? (
+                    <div className="form-control xl:col-span-3">
+                      <p className="text-sm text-theme/80">{labels.selectCategoryFirst}</p>
+                    </div>
+                  ) : (
+                    <>
+                  {isProductForm && (
+                    <div className="form-control">
+                      <label className="label text-xs font-semibold text-theme mb-1.5">{labels.brand} <span className="text-red-500">*</span></label>
+                      <input type="text" name="brand" value={form.brand} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" required />
+                    </div>
+                  )}
+
+                  {isProductForm && (
+                    <div className="form-control">
+                      <label className="label text-xs font-semibold text-theme mb-1.5">{labels.model}</label>
+                      <input type="text" name="model" value={form.model} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" />
+                    </div>
+                  )}
+
                   <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.name} <span className="text-red-500">*</span></label>
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{isServiceForm ? labels.serviceName : labels.productName} <span className="text-red-500">*</span></label>
                     <input
                       type="text"
                       name="name"
                       value={form.name}
                       onChange={onChange}
                       className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 placeholder-gray-600 h-10 rounded-md"
-                      placeholder={labels.name}
+                      placeholder={isServiceForm ? labels.serviceName : labels.productName}
                       required
                     />
                   </div>
 
+                  {isProductForm && (
+                    <div className="form-control">
+                      <label className="label text-xs font-semibold text-theme mb-1.5">{labels.itemCode} <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        name="code"
+                        value={form.code}
+                        onChange={onChange}
+                        className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md"
+                        placeholder={isArabic ? 'APPLE-IPH15-128 أو اتركه للتوليد' : 'APPLE-IPH15-128 or leave blank to auto-generate'}
+                      />
+                    </div>
+                  )}
+
+                  {isServiceForm && (
+                    <div className="form-control">
+                      <label className="label text-xs font-semibold text-theme mb-1.5">{labels.serviceType} <span className="text-red-500">*</span></label>
+                      <SearchableSelect
+                        options={serviceTypeOptions}
+                        value={form.serviceType || ''}
+                        onChange={(val) => setForm(prev => ({ ...prev, serviceType: val }))}
+                        placeholder={labels.serviceTypePlaceholder}
+                        className="h-10 min-h-0 rounded-md bg-transparent border border-gray-600 text-theme"
+                        isRTL={isArabic}
+                        showAllOption={false}
+                        creatable
+                        dropdownZIndex={30050}
+                      />
+                    </div>
+                  )}
+
+                  {isServiceForm && (
+                    <div className="form-control">
+                      <label className="label text-xs font-semibold text-theme mb-1.5">{labels.serviceBillingType} <span className="text-red-500">*</span></label>
+                      <select
+                        name="billingCycle"
+                        value={form.billingCycle}
+                        onChange={onChange}
+                        className="select w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 min-h-0 rounded-md"
+                        required
+                      >
+                        {SERVICE_BILLING_OPTIONS.map(option => (
+                          <option key={option} value={option}>{getItemTypeOptionLabel(option)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {isProductForm && (
                   <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.qtyAvailable}</label>
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity} <span className="text-red-500">*</span></label>
                     <input
                       type="number"
                       name="stock"
@@ -927,8 +1627,23 @@ export default function ItemsPage() {
                       placeholder="0"
                     />
                   </div>
+                  )}
 
-                  {form.id ? (
+                  {isProductForm && (
+                  <div className="form-control">
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.minStock}</label>
+                    <input
+                      type="number"
+                      name="minStock"
+                      value={form.minStock}
+                      onChange={onChange}
+                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
+                      placeholder="0"
+                    />
+                  </div>
+                  )}
+
+                  {isProductForm && form.id ? (
                     <>
                       <div className="form-control">
                         <label className="label text-xs font-semibold text-theme mb-1.5">{labels.qtyReserved}</label>
@@ -951,22 +1666,6 @@ export default function ItemsPage() {
                     </>
                   ) : null}
 
-                  {showQuantityType && (
-                    <div className="form-control">
-                      <label className="label text-xs font-semibold text-theme mb-1.5">{labels.unit}</label>
-                      <select
-                        name="unit"
-                        value={form.unit}
-                        onChange={onChange}
-                        className="select w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 min-h-0 rounded-md"
-                      >
-                        {QUANTITY_TYPE_OPTIONS.map(option => (
-                          <option key={option} value={option}>{getQuantityTypeOptionLabel(option)}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
                   <div className="form-control">
                     <label className="label text-xs font-semibold text-theme mb-1.5">{labels.price} <span className="text-red-500">*</span></label>
                     <input
@@ -980,36 +1679,105 @@ export default function ItemsPage() {
                   </div>
 
                   <div className="form-control xl:col-span-3">
-                    <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-white/10 p-4">
-                      <span className="text-xs font-bold uppercase tracking-wider text-blue-400">{labels.addonsSection}</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!showAddons && (!form.addons || form.addons.length === 0)) {
-                              setForm(prev => ({ ...prev, addons: [createEmptyAddon()] }))
-                            }
-                            setShowAddons(prev => !prev)
-                          }}
-                          className="btn btn-sm bg-blue-600 hover:bg-blue-700 !text-white border-none"
-                        >
-                          <span className="text-white">{labels.openAddons}</span>
-                        </button>
-
-                        {showAddons && (
-                          <button
-                            type="button"
-                            onClick={addAddonRow}
-                            className="btn btn-sm bg-green-600 hover:bg-green-700 text-white border-none"
-                          >
-                            <FaPlus className="text-white" /> {labels.addAddon}
-                          </button>
-                        )}
+                    <div className="mb-3 text-xs font-bold uppercase tracking-wider text-blue-400">{labels.additionalInfo}</div>
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                      {isProductForm && (
+                        <div className="form-control">
+                          <label className="label text-xs font-semibold text-theme mb-1.5">{labels.unit}</label>
+                          <select name="unit" value={form.unit} onChange={onChange} className="select w-full bg-transparent border border-gray-600 text-theme h-10 min-h-0 rounded-md">
+                            {QUANTITY_TYPE_OPTIONS.map(option => (
+                              <option key={option} value={option}>{getQuantityTypeOptionLabel(option)}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {isProductForm && (
+                        <div className="form-control">
+                          <label className="label text-xs font-semibold text-theme mb-1.5">{labels.supplier}</label>
+                          <input type="text" name="supplier" value={form.supplier || ''} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" />
+                        </div>
+                      )}
+                      {isProductForm && (
+                        <div className="form-control">
+                          <label className="label text-xs font-semibold text-theme mb-1.5">{labels.barcode}</label>
+                          <input type="text" name="barcode" value={form.barcode} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" />
+                        </div>
+                      )}
+                      {isProductForm && (
+                        <div className="form-control">
+                          <label className="label text-xs font-semibold text-theme mb-1.5">{labels.warehouse}</label>
+                          <input type="text" name="warehouse" value={form.warehouse} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" />
+                        </div>
+                      )}
+                      {isServiceForm && (
+                        <div className="form-control">
+                          <label className="label text-xs font-semibold text-theme mb-1.5">{labels.serviceDuration}</label>
+                          <input type="text" name="serviceDuration" value={form.serviceDuration} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" placeholder={isArabic ? 'مثال: 3 Months' : 'e.g. 3 Months'} />
+                        </div>
+                      )}
+                      {isServiceForm && (
+                        <div className="form-control">
+                          <label className="label text-xs font-semibold text-theme mb-1.5">{labels.startDate}</label>
+                          <input type="date" name="startDate" value={toDateInputValue(form.startDate)} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" />
+                        </div>
+                      )}
+                      {isServiceForm && (
+                        <div className="form-control">
+                          <label className="label text-xs font-semibold text-theme mb-1.5">{labels.endDate}</label>
+                          <input type="date" name="endDate" value={toDateInputValue(form.endDate)} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" />
+                        </div>
+                      )}
+                      <div className="form-control">
+                        <label className="label text-xs font-semibold text-theme mb-1.5">{labels.taxRate}</label>
+                        <input type="number" name="taxRate" value={form.taxRate} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" placeholder="0" />
+                      </div>
+                      <div className="form-control flex flex-row items-center gap-3 pt-6">
+                        <label className="label-text font-medium text-theme">{labels.taxIncluded}</label>
+                        <input type="checkbox" className="checkbox" checked={Boolean(form.taxIncluded)} onChange={(e) => setForm(prev => ({ ...prev, taxIncluded: e.target.checked }))} />
+                      </div>
+                      {isServiceForm && (
+                        <div className="form-control flex flex-row items-center gap-3 pt-6">
+                          <label className="label-text font-medium text-theme">{labels.renewalRequired}</label>
+                          <input type="checkbox" className="checkbox" checked={Boolean(form.renewalRequired)} onChange={(e) => setForm(prev => ({ ...prev, renewalRequired: e.target.checked }))} />
+                        </div>
+                      )}
+                      <div className="form-control xl:col-span-3">
+                        <label className="label text-xs font-semibold text-theme mb-1.5">{labels.notes}</label>
+                        <textarea
+                          name="notes"
+                          value={form.notes || ''}
+                          onChange={onChange}
+                          className="textarea w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 placeholder-gray-600 h-20 rounded-md"
+                          placeholder={labels.notes}
+                        />
+                      </div>
+                      <div className="form-control xl:col-span-3">
+                        <label className="label text-xs font-semibold text-theme mb-1.5">{labels.description}</label>
+                        <textarea
+                          name="description"
+                          value={form.description || ''}
+                          onChange={onChange}
+                          className="textarea w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 placeholder-gray-600 h-24 rounded-md"
+                          placeholder={labels.description}
+                        />
                       </div>
                     </div>
+                  </div>
 
-                    {showAddons && (
-                      <div className="mt-3 space-y-3">
+                  {(isProductForm || isServiceForm) && (
+                  <div className="form-control xl:col-span-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-white/10 p-4">
+                      <span className="text-xs font-bold uppercase tracking-wider text-blue-400">{labels.addonsSection}</span>
+                      <button
+                        type="button"
+                        onClick={addAddonRow}
+                        className="btn btn-sm bg-green-600 hover:bg-green-700 text-white border-none"
+                      >
+                        <FaPlus className="text-white" /> {labels.addAddon}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 space-y-3">
                         {(form.addons || []).map((addon, index) => (
                           <div key={`addon-${index}`} className="rounded-lg border border-white/10 p-4 grid grid-cols-1 xl:grid-cols-4 gap-3 items-end">
                             <div className="form-control xl:col-span-2">
@@ -1023,17 +1791,34 @@ export default function ItemsPage() {
                               />
                             </div>
 
-                            <div className="form-control">
-                              <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity}</label>
-                              <input
-                                type="number"
-                                min="1"
-                                value={addon.quantity ?? 1}
-                                onChange={(e) => updateAddonRow(index, 'quantity', e.target.value)}
-                                className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                                placeholder="1"
-                              />
-                            </div>
+                            {isServiceForm ? (
+                              <div className="form-control">
+                                <label className="label text-xs font-semibold text-theme mb-1.5">{labels.addonPeriod}</label>
+                                <SearchableSelect
+                                  options={SERVICE_BILLING_OPTIONS.map(option => ({ value: option, label: getItemTypeOptionLabel(option) }))}
+                                  value={addon.period || ''}
+                                  onChange={(val) => updateAddonRow(index, 'period', val)}
+                                  placeholder={labels.addonPeriod}
+                                  className="h-10 min-h-0 rounded-md bg-transparent border border-gray-600 text-theme"
+                                  isRTL={isArabic}
+                                  showAllOption={false}
+                                  creatable
+                                  dropdownZIndex={30050}
+                                />
+                              </div>
+                            ) : (
+                              <div className="form-control">
+                                <label className="label text-xs font-semibold text-theme mb-1.5">{labels.quantity}</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={addon.quantity ?? 1}
+                                  onChange={(e) => updateAddonRow(index, 'quantity', e.target.value)}
+                                  className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
+                                  placeholder="1"
+                                />
+                              </div>
+                            )}
 
                             <div className="flex items-end gap-2">
                               <div className="form-control flex-1">
@@ -1058,44 +1843,11 @@ export default function ItemsPage() {
                             </div>
                           </div>
                         ))}
-                      </div>
-                    )}
+                    </div>
                   </div>
-
-                  <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.sku}</label>
-                    <input
-                      type="text"
-                      name="sku"
-                      value={form.sku}
-                      onChange={onChange}
-                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 placeholder-gray-600 h-10 rounded-md"
-                      placeholder={isArabic ? 'اتركه فارغًا للتوليد التلقائي' : 'Leave blank to auto-generate'}
-                    />
-                  </div>
-
-                  <div className="form-control">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.minStock}</label>
-                    <input
-                      type="number"
-                      name="minStock"
-                      value={form.minStock}
-                      onChange={onChange}
-                      className="input w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 h-10 rounded-md"
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div className="form-control xl:col-span-3">
-                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.description}</label>
-                    <textarea
-                      name="description"
-                      value={form.description}
-                      onChange={onChange}
-                      className="textarea w-full bg-transparent border border-gray-600 text-theme focus:ring-1 focus:ring-blue-500 placeholder-gray-600 h-24 rounded-md"
-                      placeholder="Description"
-                    ></textarea>
-                  </div>
+                  )}
+                    </>
+                  )}
                 </div>
                 </div>
 
@@ -1222,9 +1974,14 @@ export default function ItemsPage() {
       <div className="card rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden mb-6">
         <div className="p-4">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <div className="flex items-center gap-2 text-lg font-medium text-theme">
+            <div className="flex items-center gap-3 text-lg font-medium text-theme">
               <FaFilter className="text-blue-500" />
               {labels.filter}
+              <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                isProductsTab ? 'bg-blue-500/15 text-blue-400' : 'bg-indigo-500/15 text-indigo-400'
+              }`}>
+                {isProductsTab ? labels.productFilters : labels.serviceFilters}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1241,66 +1998,62 @@ export default function ItemsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <div>
-              <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
-                <FaSearch className="text-blue-500" /> {labels.search}
-              </label>
-              <div className="relative">
-                <FaSearch className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-xs ${isArabic ? 'right-3' : 'left-3'}`} />
-                <input
-                  type="text"
-                  placeholder={labels.search}
-                  className={`input input-sm h-8 text-xs w-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${isArabic ? 'pr-8' : 'pl-8'}`}
-                  value={filters.search}
-                  onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+          {isProductsTab ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaSearch className="text-blue-500" /> {labels.search}
+                </label>
+                <div className="relative">
+                  <FaSearch className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-xs ${isArabic ? 'right-3' : 'left-3'}`} />
+                  <input
+                    type="text"
+                    placeholder={labels.search}
+                    className={`input input-sm h-8 text-xs w-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${isArabic ? 'pr-8' : 'pl-8'}`}
+                    value={filters.search}
+                    onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaSearch className="text-blue-500" /> {labels.productName}
+                </label>
+                <SearchableSelect
+                  options={nameOptionsForFilter}
+                  value={filters.name}
+                  onChange={val => setFilters({ ...filters, name: val })}
+                  placeholder={`${labels.productName} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
-                <FaLayerGroup className="text-blue-500" /> {labels.category}
-              </label>
-              <SearchableSelect
-                options={categoryOptionsForFilter}
-                value={filters.category}
-                onChange={val => setFilters({ ...filters, category: val })}
-                placeholder={labels.category}
-                className="input-sm h-8 text-xs min-h-0"
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
-                <FaCube className="text-blue-500" /> {labels.categoryType}
-              </label>
-              <SearchableSelect
-                options={categoryTypeOptionsForFilter}
-                value={filters.type}
-                onChange={val => setFilters({ ...filters, type: val, category: '' })}
-                placeholder={`${labels.categoryType} ${getAllSuffix()}`}
-                className="input-sm h-8 text-xs min-h-0"
-                isRTL={isArabic}
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
-                <FaSearch className="text-blue-500" /> {labels.sku}
-              </label>
-              <input
-                type="text"
-                placeholder={labels.sku}
-                className="input input-sm h-8 text-xs w-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                value={filters.sku}
-                onChange={(e) => setFilters(prev => ({ ...prev, sku: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          {showAllFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaLayerGroup className="text-blue-500" /> {labels.category}
+                </label>
+                <SearchableSelect
+                  options={categoryOptionsForFilter}
+                  value={filters.category}
+                  onChange={val => setFilters({ ...filters, category: val })}
+                  placeholder={labels.category}
+                  className="input-sm h-8 text-xs min-h-0"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaLayerGroup className="text-blue-500" /> {labels.brand}
+                </label>
+                <SearchableSelect
+                  options={brandOptionsForFilter}
+                  value={filters.brand}
+                  onChange={val => setFilters({ ...filters, brand: val })}
+                  placeholder={`${labels.brand} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
+                  creatable
+                />
+              </div>
               <div>
                 <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
                   <FaCube className="text-blue-500" /> {labels.itemType}
@@ -1314,7 +2067,81 @@ export default function ItemsPage() {
                   isRTL={isArabic}
                 />
               </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaSearch className="text-blue-500" /> {labels.search}
+                </label>
+                <div className="relative">
+                  <FaSearch className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-xs ${isArabic ? 'right-3' : 'left-3'}`} />
+                  <input
+                    type="text"
+                    placeholder={labels.search}
+                    className={`input input-sm h-8 text-xs w-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${isArabic ? 'pr-8' : 'pl-8'}`}
+                    value={filters.search}
+                    onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaSearch className="text-blue-500" /> {labels.serviceName}
+                </label>
+                <SearchableSelect
+                  options={nameOptionsForFilter}
+                  value={filters.name}
+                  onChange={val => setFilters({ ...filters, name: val })}
+                  placeholder={`${labels.serviceName} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaLayerGroup className="text-blue-500" /> {labels.category}
+                </label>
+                <SearchableSelect
+                  options={categoryOptionsForFilter}
+                  value={filters.category}
+                  onChange={val => setFilters({ ...filters, category: val })}
+                  placeholder={labels.category}
+                  className="input-sm h-8 text-xs min-h-0"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaCube className="text-blue-500" /> {labels.serviceType}
+                </label>
+                <SearchableSelect
+                  options={serviceTypeOptionsForFilter}
+                  value={filters.serviceType}
+                  onChange={val => setFilters({ ...filters, serviceType: val })}
+                  placeholder={`${labels.serviceType} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
+                  creatable
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaCube className="text-blue-500" /> {labels.serviceBillingType}
+                </label>
+                <SearchableSelect
+                  options={itemTypeOptionsForFilter}
+                  value={filters.itemType}
+                  onChange={val => setFilters({ ...filters, itemType: val })}
+                  placeholder={`${labels.serviceBillingType} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
+                />
+              </div>
+            </div>
+          )}
 
+          {showAllFilters && (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mt-4 pt-4 border-t border-white/10">
               <div>
                 <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
                   <FaCheckCircle className="text-blue-500" /> {labels.status}
@@ -1328,6 +2155,152 @@ export default function ItemsPage() {
                   isRTL={isArabic}
                 />
               </div>
+              <div>
+                <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                  <FaSearch className="text-blue-500" /> {labels.itemCode}
+                </label>
+                <SearchableSelect
+                  options={codeOptionsForFilter}
+                  value={filters.code}
+                  onChange={val => setFilters({ ...filters, code: val })}
+                  placeholder={`${labels.itemCode} ${getAllSuffix()}`}
+                  className="input-sm h-8 text-xs min-h-0"
+                  isRTL={isArabic}
+                />
+              </div>
+              {isProductsTab ? (
+                <>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaCube className="text-blue-500" /> {labels.model}
+                    </label>
+                    <SearchableSelect
+                      options={modelOptionsForFilter}
+                      value={filters.model}
+                      onChange={val => setFilters({ ...filters, model: val })}
+                      placeholder={`${labels.model} ${getAllSuffix()}`}
+                      className="input-sm h-8 text-xs min-h-0"
+                      isRTL={isArabic}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaSearch className="text-blue-500" /> {labels.barcode}
+                    </label>
+                    <SearchableSelect
+                      options={skuOptionsForFilter}
+                      value={filters.sku}
+                      onChange={val => setFilters({ ...filters, sku: val })}
+                      placeholder={`${labels.barcode} ${getAllSuffix()}`}
+                      className="input-sm h-8 text-xs min-h-0"
+                      isRTL={isArabic}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaLayerGroup className="text-blue-500" /> {labels.warehouse}
+                    </label>
+                    <SearchableSelect
+                      options={warehouseOptionsForFilter}
+                      value={filters.warehouse}
+                      onChange={val => setFilters({ ...filters, warehouse: val })}
+                      placeholder={`${labels.warehouse} ${getAllSuffix()}`}
+                      className="input-sm h-8 text-xs min-h-0"
+                      isRTL={isArabic}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaLayerGroup className="text-blue-500" /> {labels.supplier}
+                    </label>
+                    <SearchableSelect
+                      options={supplierOptionsForFilter}
+                      value={filters.supplier}
+                      onChange={val => setFilters({ ...filters, supplier: val })}
+                      placeholder={`${labels.supplier} ${getAllSuffix()}`}
+                      className="input-sm h-8 text-xs min-h-0"
+                      isRTL={isArabic}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaCube className="text-blue-500" /> {labels.unit}
+                    </label>
+                    <SearchableSelect
+                      options={unitOptionsForFilter}
+                      value={filters.unit}
+                      onChange={val => setFilters({ ...filters, unit: val })}
+                      placeholder={`${labels.unit} ${getAllSuffix()}`}
+                      className="input-sm h-8 text-xs min-h-0"
+                      isRTL={isArabic}
+                    />
+                  </div>
+                  {createdDateRangeFilter}
+                  <div className="flex items-end">
+                    <label className="inline-flex items-center gap-2 h-8 text-xs font-bold text-theme cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        checked={Boolean(filters.lowStock)}
+                        onChange={(e) => setFilters(prev => ({ ...prev, lowStock: e.target.checked }))}
+                      />
+                      {labels.lowStock}
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaCube className="text-blue-500" /> {labels.serviceDuration}
+                    </label>
+                    <SearchableSelect
+                      options={durationOptionsForFilter}
+                      value={filters.serviceDuration}
+                      onChange={val => setFilters({ ...filters, serviceDuration: val })}
+                      placeholder={`${labels.serviceDuration} ${getAllSuffix()}`}
+                      className="input-sm h-8 text-xs min-h-0"
+                      isRTL={isArabic}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaCheckCircle className="text-blue-500" /> {labels.renewalRequired}
+                    </label>
+                    <SearchableSelect
+                      options={renewalOptionsForFilter}
+                      value={filters.renewalRequired}
+                      onChange={val => setFilters({ ...filters, renewalRequired: val })}
+                      placeholder={`${labels.renewalRequired} ${getAllSuffix()}`}
+                      className="input-sm h-8 text-xs min-h-0"
+                      isRTL={isArabic}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaCalendarAlt className="text-blue-500" /> {labels.startDate}
+                    </label>
+                    <input
+                      type="date"
+                      className="input input-sm h-8 text-xs w-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      value={filters.startDate}
+                      onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold mb-1 flex items-center gap-1.5 text-theme">
+                      <FaCalendarAlt className="text-blue-500" /> {labels.endDate}
+                    </label>
+                    <input
+                      type="date"
+                      className="input input-sm h-8 text-xs w-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      value={filters.endDate}
+                      onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                    />
+                  </div>
+                  {createdDateRangeFilter}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1338,7 +2311,35 @@ export default function ItemsPage() {
         {/* Table Title */}
         <div className="p-4 border-b border-gray-100 dark:border-gray-700">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-theme">{labels.listTitle}</h2>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              <h2 className="text-lg font-semibold text-theme">
+                {isProductsTab ? labels.productsListTitle : labels.servicesListTitle}
+              </h2>
+              <div className="bg-gray-100 dark:bg-gray-800 p-1 rounded-xl inline-flex">
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all duration-200 ${
+                    isProductsTab
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-transparent border-transparent text-theme hover:bg-white/5 dark:hover:bg-gray-700'
+                  }`}
+                  onClick={() => switchListTab(CATEGORY_TYPE_PRODUCTS)}
+                >
+                  {labels.productsTab}
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all duration-200 ${
+                    isServicesTab
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-transparent border-transparent text-theme hover:bg-white/5 dark:hover:bg-gray-700'
+                  }`}
+                  onClick={() => switchListTab(CATEGORY_TYPE_SERVICES)}
+                >
+                  {labels.servicesTab}
+                </button>
+              </div>
+            </div>
             {canManageItems && selectedItemIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-theme">
@@ -1372,7 +2373,7 @@ export default function ItemsPage() {
               <div className="bg-gray-50 rounded-full p-4 mb-3">
                 <FaSearch size={24} className="text-theme" />
               </div>
-              <p>{labels.empty}</p>
+              <p>{isProductsTab ? labels.emptyProducts : labels.emptyServices}</p>
             </div>
           ) : (
             <>
@@ -1391,26 +2392,52 @@ export default function ItemsPage() {
                           />
                         </th>
                       )}
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.code}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.name}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{isProductsTab ? labels.name : labels.serviceName}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.category}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.categoryType}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.itemType}</th>
+                      {isProductsTab ? (
+                        <>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.brand}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.itemType}</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.serviceType}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.serviceBillingType}</th>
+                        </>
+                      )}
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.price}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyAvailable}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyReserved}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtySold}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyTotal}</th>
+                      {isServicesTab ? (
+                        <>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.serviceDuration}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.startDate}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.endDate}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.renewalRequired}</th>
+                        </>
+                      ) : null}
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsName}</th>
-                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsQty}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{isProductsTab ? labels.addonsQty : labels.addonPeriod}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.addonsPrice}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.totalPrice}</th>
+                      {isProductsTab ? (
+                        <>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyTotal}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyReserved}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtySold}</th>
+                          <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.qtyAvailable}</th>
+                        </>
+                      ) : null}
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.notes}</th>
+                      <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.description}</th>
                       <th className="text-start px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider">{labels.status}</th>
                       <th className="text-end px-4 py-3 text-xs font-semibold text-theme uppercase tracking-wider pr-6">{labels.actions}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedItems.map((item) => (
+                    {paginatedItems.map((item) => {
+                      const service = isServiceItem(item)
+                      const identity = getItemIdentityValue(item)
+                      const itemCode = getItemCodeValue(item)
+                      return (
                       <tr key={item.id} className="group cursor-pointer transition-colors duration-150 hover:bg-blue-50/80 dark:hover:bg-blue-900/20">
                         {canManageItems && (
                           <td className="px-4 py-3 text-start">
@@ -1422,22 +2449,67 @@ export default function ItemsPage() {
                             />
                           </td>
                         )}
-                        <td className="px-4 py-3 text-start text-theme font-mono text-xs text-nowrap">
-                          {item.sku || '-'}
-                        </td>
                         <td className="px-4 py-3 text-start font-medium text-theme">
-                          <span>{item.name}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="flex flex-col">
+                              <span>{item.name || labels.notApplicable}</span>
+                              {itemCode ? <span className="font-mono text-[10px] opacity-70">{itemCode}</span> : null}
+                            </div>
+                            {hasNotesOrDescription(item) ? (
+                              <button
+                                type="button"
+                                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-blue-400 hover:bg-blue-500/10"
+                                title={labels.moreDetails}
+                                onMouseEnter={(event) => showNotesTooltip(event, item, 'both')}
+                                onMouseLeave={hideNotesTooltip}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  if (activeNotesTooltip?.item?.id === item.id && activeNotesTooltip?.field === 'both') {
+                                    hideNotesTooltip()
+                                    return
+                                  }
+                                  showNotesTooltip(event, item, 'both')
+                                }}
+                              >
+                                <FaInfoCircle size={12} />
+                              </button>
+                            ) : null}
+                            {isProductsTab && item.is_low_stock ? (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{labels.lowStock}</span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-start text-theme">
-                          <span className="text-xs text-nowrap">{item.category || '-'}</span>
+                          <span className="text-xs text-nowrap">{item.category || labels.notApplicable}</span>
                         </td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{getCategoryTypeOptionLabel(item.type || '-')}</td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{getItemTypeOptionLabel(item.itemType || '-')}</td>
-                        <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(item.price)}</td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.stock ?? 0)}</td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.reservedQuantity ?? 0)}</td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.soldQuantity ?? 0)}</td>
-                        <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.totalQuantity ?? ((item.stock || 0) + (item.reservedQuantity || 0) + (item.soldQuantity || 0)))}</td>
+                        {isProductsTab ? (
+                          <>
+                            <td className="px-4 py-3 text-start text-theme text-xs">
+                              <span className="text-nowrap">{identity || labels.notApplicable}</span>
+                            </td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">
+                              {getItemKindLabel(item)}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-4 py-3 text-start text-theme text-xs">
+                              <span className="text-nowrap">{identity || labels.notApplicable}</span>
+                            </td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">
+                              {getItemKindLabel(item)}
+                            </td>
+                          </>
+                        )}
+                        <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(getCatalogAmount(item))}</td>
+                        {isServicesTab ? (
+                          <>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{item.serviceDuration || labels.notApplicable}</td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatListDate(item.startDate)}</td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatListDate(item.endDate)}</td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{yesNo(item.renewalRequired)}</td>
+                          </>
+                        ) : null}
                         <td className="px-4 py-3 text-start text-theme">
                           {getAddonNames(item).length > 0 ? (
                             <select
@@ -1453,20 +2525,50 @@ export default function ItemsPage() {
                               ))}
                             </select>
                           ) : (
-                            <span className="text-xs">-</span>
+                            <span className="text-xs">{labels.notApplicable}</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-start">
-                          <span
-                            className="badge badge-sm border-0 bg-blue-100 text-blue-700 cursor-default"
-                            onMouseEnter={(event) => showAddonsTooltip(event, item)}
-                            onMouseLeave={hideAddonsTooltip}
-                          >
-                            {formatNumber(getSelectedAddon(item)?.quantity || 0)}
-                          </span>
+                          {service ? (
+                            <span className="text-xs text-theme">{getSelectedAddonPeriod(item) ? getItemTypeOptionLabel(getSelectedAddonPeriod(item)) : labels.notApplicable}</span>
+                          ) : getAddonNames(item).length > 0 ? (
+                            <span
+                              className="badge badge-sm border-0 bg-blue-100 text-blue-700 cursor-default"
+                              onMouseEnter={(event) => showAddonsTooltip(event, item)}
+                              onMouseLeave={hideAddonsTooltip}
+                            >
+                              {formatNumber(getSelectedAddon(item)?.quantity || 0)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-theme">{labels.notApplicable}</span>
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-start font-medium text-theme">{formatAmount(getSelectedAddonAmount(item))}</td>
-                        <td className="px-4 py-3 text-start font-semibold text-theme">{formatAmount(item.totalPrice)}</td>
+                        <td className="px-4 py-3 text-start font-medium text-theme">
+                          {getAddonNames(item).length > 0 ? formatAmount(getSelectedAddonAmount(item)) : labels.notApplicable}
+                        </td>
+                        <td className="px-4 py-3 text-start font-semibold text-theme">{formatAmount(item.totalPrice || getCatalogAmount(item))}</td>
+                        {isProductsTab ? (
+                          <>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.totalQuantity ?? ((item.stock || 0) + (item.reservedQuantity || 0) + (item.soldQuantity || 0)))}</td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.reservedQuantity ?? 0)}</td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.soldQuantity ?? 0)}</td>
+                            <td className="px-4 py-3 text-start text-theme text-xs text-nowrap">{formatNumber(item.stock ?? 0)}</td>
+                          </>
+                        ) : null}
+                        <td
+                          className="px-4 py-3 text-start text-theme text-xs max-w-[180px]"
+                          onMouseEnter={(event) => showNotesTooltip(event, item, 'notes')}
+                          onMouseLeave={hideNotesTooltip}
+                        >
+                          <span className="block truncate">{previewText(item.notes)}</span>
+                        </td>
+                        <td
+                          className="px-4 py-3 text-start text-theme text-xs max-w-[180px]"
+                          onMouseEnter={(event) => showNotesTooltip(event, item, 'description')}
+                          onMouseLeave={hideNotesTooltip}
+                        >
+                          <span className="block truncate">{previewText(item.description)}</span>
+                        </td>
                         <td className="px-4 py-3 text-start">
                           <span className={`badge badge-sm border-0 ${item.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-theme'}`}>
                             {item.status === 'Active' ? labels.active : labels.inactive}
@@ -1495,14 +2597,19 @@ export default function ItemsPage() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
 
               {/* Mobile Cards */}
               <div className="md:hidden grid grid-cols-1 gap-3 p-3">
-                {paginatedItems.map((item) => (
+                {paginatedItems.map((item) => {
+                  const service = isServiceItem(item)
+                  const identity = getItemIdentityValue(item)
+                  const itemCode = getItemCodeValue(item)
+                  return (
                   <div key={item.id} className="card p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 relative">
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-start gap-2">
@@ -1516,8 +2623,13 @@ export default function ItemsPage() {
                           />
                         )}
                         <div className="flex flex-col">
-                          <span className="font-semibold text-theme text-base">{item.name}</span>
-                          <span className="text-xs text-theme">{item.sku || '-'}</span>
+                          <span className="font-semibold text-theme text-base">{item.name || labels.notApplicable}</span>
+                          {!service && item.is_low_stock ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{labels.lowStock}</span>
+                          ) : null}
+                          {itemCode ? (
+                            <span className="text-xs text-theme font-mono">{itemCode}</span>
+                          ) : null}
                         </div>
                       </div>
                       <span className={`badge badge-sm border-0 ${item.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-theme'}`}>
@@ -1528,32 +2640,40 @@ export default function ItemsPage() {
                     <div className="grid grid-cols-2 gap-2 text-sm text-theme mb-3">
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.category}</span>
-                        <span>{item.category || '-'}</span>
+                        <span>{item.category || labels.notApplicable}</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.categoryType}</span>
-                        <span>{getCategoryTypeOptionLabel(item.type || '-')}</span>
+                        <span className="text-xs text-theme">{isProductsTab ? labels.brand : labels.serviceType}</span>
+                        <span>{identity || labels.notApplicable}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-theme">{isProductsTab ? labels.itemType : labels.serviceBillingType}</span>
+                        <span>{getItemKindLabel(item)}</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.price}</span>
-                        <span className="font-medium">{formatAmount(item.price)}</span>
+                        <span className="font-medium">{formatAmount(getCatalogAmount(item))}</span>
                       </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.qtyAvailable}</span>
-                        <span>{formatNumber(item.stock ?? 0)}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.qtyReserved}</span>
-                        <span>{formatNumber(item.reservedQuantity ?? 0)}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.qtySold}</span>
-                        <span>{formatNumber(item.soldQuantity ?? 0)}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.qtyTotal}</span>
-                        <span>{formatNumber(item.totalQuantity ?? ((item.stock || 0) + (item.reservedQuantity || 0) + (item.soldQuantity || 0)))}</span>
-                      </div>
+                      {isServicesTab ? (
+                        <>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.serviceDuration}</span>
+                            <span>{item.serviceDuration || labels.notApplicable}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.startDate}</span>
+                            <span>{formatListDate(item.startDate)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.endDate}</span>
+                            <span>{formatListDate(item.endDate)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.renewalRequired}</span>
+                            <span>{yesNo(item.renewalRequired)}</span>
+                          </div>
+                        </>
+                      ) : null}
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.addonsName}</span>
                         {getAddonNames(item).length > 0 ? (
@@ -1568,26 +2688,63 @@ export default function ItemsPage() {
                             ))}
                           </select>
                         ) : (
-                          <span>-</span>
+                          <span>{labels.notApplicable}</span>
                         )}
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.addonsQty}</span>
-                        <span>{formatNumber(getSelectedAddon(item)?.quantity || 0)}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs text-theme">{labels.itemType}</span>
-                      <span>{getItemTypeOptionLabel(item.itemType || '-')}</span>
+                        <span className="text-xs text-theme">{isProductsTab ? labels.addonsQty : labels.addonPeriod}</span>
+                        <span>
+                          {isProductsTab
+                            ? (getAddonNames(item).length > 0 ? formatNumber(getSelectedAddon(item)?.quantity || 0) : labels.notApplicable)
+                            : (getSelectedAddonPeriod(item) ? getItemTypeOptionLabel(getSelectedAddonPeriod(item)) : labels.notApplicable)}
+                        </span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.addonsPrice}</span>
-                        <span>{formatAmount(getSelectedAddonAmount(item))}</span>
+                        <span>{getAddonNames(item).length > 0 ? formatAmount(getSelectedAddonAmount(item)) : labels.notApplicable}</span>
                       </div>
-                      <div className="flex flex-col col-span-2">
+                      <div className="flex flex-col">
                         <span className="text-xs text-theme">{labels.totalPrice}</span>
-                        <span className="font-semibold">{formatAmount(item.totalPrice)}</span>
+                        <span className="font-semibold">{formatAmount(item.totalPrice || getCatalogAmount(item))}</span>
                       </div>
+                      {isProductsTab ? (
+                        <>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.qtyTotal}</span>
+                            <span>{formatNumber(item.totalQuantity ?? ((item.stock || 0) + (item.reservedQuantity || 0) + (item.soldQuantity || 0)))}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.qtyReserved}</span>
+                            <span>{formatNumber(item.reservedQuantity ?? 0)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.qtySold}</span>
+                            <span>{formatNumber(item.soldQuantity ?? 0)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.qtyAvailable}</span>
+                            <span>{formatNumber(item.stock ?? 0)}</span>
+                          </div>
+                        </>
+                      ) : null}
                     </div>
+
+                    {hasNotesOrDescription(item) ? (
+                      <div className="mb-3 space-y-2 text-sm text-theme">
+                        {item.notes ? (
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.notes}</span>
+                            <span>{item.notes}</span>
+                          </div>
+                        ) : null}
+                        {item.description ? (
+                          <div className="flex flex-col">
+                            <span className="text-xs text-theme">{labels.description}</span>
+                            <span>{item.description}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="flex justify-end items-center gap-2 border-t border-gray-100 dark:border-gray-700 pt-3">
                       {canManageItems && (
@@ -1602,9 +2759,10 @@ export default function ItemsPage() {
                       )}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
-            </>
+              </>
           )}
         </div>
 
@@ -1613,8 +2771,8 @@ export default function ItemsPage() {
           <div className="mt-2 flex flex-wrap items-center justify-between rounded-xl p-2 border border-gray-100 dark:border-gray-700  gap-4">
             <div className="text-xs text-theme">
               {isArabic
-                ? `عرض ${formatNumber((currentPage - 1) * itemsPerPage + 1)} إلى ${formatNumber(Math.min(currentPage * itemsPerPage, filtered.length))} من ${formatNumber(filtered.length)} صنف`
-                : `Showing ${formatNumber((currentPage - 1) * itemsPerPage + 1)} to ${formatNumber(Math.min(currentPage * itemsPerPage, filtered.length))} of ${formatNumber(filtered.length)} items`
+                ? `عرض ${formatNumber((currentPage - 1) * itemsPerPage + 1)} إلى ${formatNumber(Math.min(currentPage * itemsPerPage, filtered.length))} من ${formatNumber(filtered.length)} ${isProductsTab ? 'منتج' : 'خدمة'}`
+                : `Showing ${formatNumber((currentPage - 1) * itemsPerPage + 1)} to ${formatNumber(Math.min(currentPage * itemsPerPage, filtered.length))} of ${formatNumber(filtered.length)} ${isProductsTab ? 'products' : 'services'}`
               }
             </div>
 
@@ -1654,6 +2812,38 @@ export default function ItemsPage() {
         )}
       </div>
 
+      {activeNotesTooltip && (
+        <div
+          className="pointer-events-none fixed z-[9999] -translate-x-1/2 -translate-y-full"
+          style={{ top: activeNotesTooltip.top, left: activeNotesTooltip.left }}
+        >
+          <div className="relative w-max min-w-[220px] max-w-[280px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-start shadow-2xl shadow-black/40">
+            <div className="mb-2 text-[11px] font-semibold tracking-wide text-blue-300">
+              {activeNotesTooltip.field === 'notes'
+                ? labels.notes
+                : activeNotesTooltip.field === 'description'
+                  ? labels.description
+                  : labels.moreDetails}
+            </div>
+            <div className="space-y-2 text-xs text-slate-200">
+              {(activeNotesTooltip.field === 'both' || activeNotesTooltip.field === 'notes') && fieldText(activeNotesTooltip.item, 'notes') ? (
+                <div>
+                  {activeNotesTooltip.field === 'both' ? <div className="opacity-70">{labels.notes}</div> : null}
+                  <div className="whitespace-pre-wrap break-words">{activeNotesTooltip.item.notes}</div>
+                </div>
+              ) : null}
+              {(activeNotesTooltip.field === 'both' || activeNotesTooltip.field === 'description') && fieldText(activeNotesTooltip.item, 'description') ? (
+                <div>
+                  {activeNotesTooltip.field === 'both' ? <div className="opacity-70">{labels.description}</div> : null}
+                  <div className="whitespace-pre-wrap break-words">{activeNotesTooltip.item.description}</div>
+                </div>
+              ) : null}
+            </div>
+            <div className="absolute left-1/2 top-full h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border-r border-b border-slate-700 bg-slate-950"></div>
+          </div>
+        </div>
+      )}
+
       {activeAddonsTooltip && (
         <div
           className="pointer-events-none fixed z-[9999] -translate-x-1/2 -translate-y-full"
@@ -1667,7 +2857,11 @@ export default function ItemsPage() {
                   <div key={`${activeAddonsTooltip.item.id}-addon-${index}`} className="rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs">
                     <div className="truncate font-medium text-white">{addon.name}</div>
                     <div className="mt-1 flex items-center justify-between gap-4 text-slate-300">
-                      <span>{labels.quantity}: {formatNumber(addon.quantity || 0)}</span>
+                      {isServiceItem(activeAddonsTooltip.item) ? (
+                        <span>{labels.addonPeriod}: {addon.period ? getItemTypeOptionLabel(addon.period) : labels.notApplicable}</span>
+                      ) : (
+                        <span>{labels.quantity}: {formatNumber(addon.quantity || 0)}</span>
+                      )}
                       <span>{labels.price}: {formatAmount(addon.price)}</span>
                     </div>
                   </div>

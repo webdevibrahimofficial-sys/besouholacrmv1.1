@@ -1045,7 +1045,7 @@ export default function CompanySettings() {
 
                 <div className="mt-3 text-xs text-theme-text/40 flex justify-between pt-3 border-t border-theme-text/5">
                   <span>{isArabic ? 'تراكمي' : 'Accumulated'}</span>
-                  <span className="font-mono">3 Months</span>
+                  <span className="font-mono">{isArabic ? '3 أشهر' : '3 Months'}</span>
                 </div>
               </div>
             </div>
@@ -1073,7 +1073,7 @@ export default function CompanySettings() {
                 </div>
                 <div className="mt-3 text-xs text-theme-text/40 flex justify-between pt-3 border-t border-theme-text/5">
                   <span>{isArabic ? 'تراكمي' : 'Accumulated'}</span>
-                  <span className="font-mono">6 Months</span>
+                  <span className="font-mono">{isArabic ? '6 أشهر' : '6 Months'}</span>
                 </div>
               </div>
             </div>
@@ -1105,7 +1105,7 @@ export default function CompanySettings() {
 
                  <div className="mt-3 text-xs text-theme-text/40 flex justify-between pt-3 border-t border-theme-text/5">
                    <span>{isArabic ? 'الهدف الكلي' : 'Total Goal'}</span>
-                   <span className="font-mono">12 Months</span>
+                   <span className="font-mono">{isArabic ? '12 شهر' : '12 Months'}</span>
                  </div>
                </div>
              </div>

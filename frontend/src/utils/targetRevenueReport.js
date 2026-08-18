@@ -14,9 +14,24 @@ export function targetField(type) {
   return type === 'semi_annual' ? 'semi_annual_target' : `${type}_target`
 }
 
+export const COMMISSION_SCOPE_PERSONAL = 'personal'
+export const COMMISSION_SCOPE_INHERITED = 'inherited'
+
 export function getCommissionTiers(record) {
   const tiers = record?.commission_tiers || record?.commissionTiers || []
   return Array.isArray(tiers) ? tiers : []
+}
+
+export function normalizeCommissionScope(value) {
+  return String(value || COMMISSION_SCOPE_PERSONAL).trim().toLowerCase() === COMMISSION_SCOPE_INHERITED
+    ? COMMISSION_SCOPE_INHERITED
+    : COMMISSION_SCOPE_PERSONAL
+}
+
+export function filterTiersByScope(tiers, scope = COMMISSION_SCOPE_PERSONAL) {
+  const list = Array.isArray(tiers) ? tiers : []
+  const wanted = normalizeCommissionScope(scope)
+  return list.filter((tier) => normalizeCommissionScope(tier?.scope) === wanted)
 }
 
 export function fallbackUserTarget(user, type) {
@@ -30,12 +45,25 @@ export function fallbackUserTarget(user, type) {
   return Number(user?.monthly_target || 0) || 0
 }
 
-export function fallbackUserTiers(user) {
-  const direct = getCommissionTiers(user)
+export function fallbackUserTiers(user, scope = COMMISSION_SCOPE_PERSONAL) {
+  const wanted = normalizeCommissionScope(scope)
+  const inheritedDirect = Array.isArray(user?.inherited_commission_tiers)
+    ? user.inherited_commission_tiers
+    : (Array.isArray(user?.inheritedCommissionTiers) ? user.inheritedCommissionTiers : [])
+  const source = wanted === COMMISSION_SCOPE_INHERITED
+    ? [...inheritedDirect, ...getCommissionTiers(user)]
+    : getCommissionTiers(user)
+  const direct = filterTiersByScope(source, wanted)
   if (direct.length) return direct
+  if (wanted === COMMISSION_SCOPE_INHERITED) return []
   const rate = Number(user?.commission_percentage || 0) || 0
   if (!rate) return []
-  return [{ from_percentage: 0, to_percentage: null, commission_percentage: rate }]
+  return [{
+    from_percentage: 0,
+    to_percentage: null,
+    commission_percentage: rate,
+    scope: COMMISSION_SCOPE_PERSONAL,
+  }]
 }
 
 export function snapshotForYear(rows, year) {
@@ -49,15 +77,21 @@ export function resolveTargetForYear(user, rows, year, type, currentYear) {
   return 0
 }
 
-export function resolveTiersForYear(user, rows, year, currentYear) {
+export function resolveTiersForYear(user, rows, year, currentYear, scope = COMMISSION_SCOPE_PERSONAL) {
+  const wanted = normalizeCommissionScope(scope)
   const row = snapshotForYear(rows, year)
   if (row) {
-    const tiers = getCommissionTiers(row)
+    const explicitInherited = Array.isArray(row.inherited_commission_tiers)
+      ? row.inherited_commission_tiers
+      : (Array.isArray(row.inheritedCommissionTiers) ? row.inheritedCommissionTiers : [])
+    const tiers = wanted === COMMISSION_SCOPE_INHERITED && explicitInherited.length
+      ? filterTiersByScope(explicitInherited, COMMISSION_SCOPE_INHERITED)
+      : filterTiersByScope(getCommissionTiers(row), wanted)
     if (tiers.length) return tiers
-    if (Number(year) === Number(currentYear)) return fallbackUserTiers(user)
+    if (Number(year) === Number(currentYear)) return fallbackUserTiers(user, wanted)
     return []
   }
-  if (Number(year) === Number(currentYear)) return fallbackUserTiers(user)
+  if (Number(year) === Number(currentYear)) return fallbackUserTiers(user, wanted)
   return []
 }
 
@@ -73,6 +107,179 @@ export function matchCommissionRate(tiers, achievementPercent) {
     return Number(achievementPercent) >= from && Number(achievementPercent) <= to
   })
   return Number(matched?.commission_percentage || 0) || 0
+}
+
+export function usersListFrom(users) {
+  if (Array.isArray(users)) return users
+  if (users instanceof Map) return Array.from(users.values())
+  return []
+}
+
+export function indexUsersByManager(users) {
+  const map = new Map()
+  usersListFrom(users).forEach((user) => {
+    if (user?.id == null) return
+    const managerId = user.manager_id
+      ?? user.managerId
+      ?? (user.manager && typeof user.manager === 'object' ? user.manager.id : null)
+    if (managerId == null || managerId === '') return
+    const key = String(managerId)
+    if (!map.has(key)) map.set(key, [])
+    map.get(key).push(String(user.id))
+  })
+  return map
+}
+
+export function collectDescendantIds(userId, users, seen = new Set()) {
+  const rootId = String(userId || '')
+  if (!rootId) return []
+  const byManager = indexUsersByManager(users)
+  const result = []
+  const stack = [...(byManager.get(rootId) || [])]
+  while (stack.length) {
+    const childId = String(stack.pop())
+    if (!childId || seen.has(childId) || childId === rootId) continue
+    seen.add(childId)
+    result.push(childId)
+    const nested = byManager.get(childId) || []
+    for (let i = 0; i < nested.length; i += 1) stack.push(nested[i])
+  }
+  return result
+}
+
+export function resolveInheritedTargetForYear(user, users, targetHistoryByUser, year, type, currentYear) {
+  const usersById = indexUsersById(usersListFrom(users))
+  const descendantIds = collectDescendantIds(user?.id, users)
+  let total = 0
+  descendantIds.forEach((id) => {
+    const descendant = usersById.get(String(id))
+    if (!descendant || usesCompanyTarget(descendant)) return
+    const rows = targetHistoryByUser instanceof Map
+      ? (targetHistoryByUser.get(String(id)) || [])
+      : []
+    total += resolveTargetForYear(descendant, rows, year, type, currentYear)
+  })
+  return total
+}
+
+export function resolveInheritedPeriodTarget({
+  user,
+  users,
+  targetHistoryByUser,
+  yearFilter,
+  type,
+  currentYear,
+  tenantCreatedYear,
+  now,
+}) {
+  if (yearFilter === 'all') {
+    const startYear = Number(tenantCreatedYear || currentYear)
+    const endYear = Number(currentYear)
+    let total = 0
+    for (let year = startYear; year <= endYear; year += 1) {
+      const unit = resolveInheritedTargetForYear(user, users, targetHistoryByUser, year, type, currentYear)
+      total += unit * periodsCoveredInYear(year, type, { now, tenantCreatedYear })
+    }
+    return total
+  }
+
+  return resolveInheritedTargetForYear(user, users, targetHistoryByUser, yearFilter, type, currentYear)
+}
+
+export function sumRevenueForUserIds(rows, userIds) {
+  const ids = new Set((userIds || []).map((id) => String(id)))
+  return (rows || []).reduce((sum, row) => {
+    const uid = String(row?.salespersonId ?? row?.user_id ?? row?.userId ?? '')
+    if (!ids.has(uid)) return sum
+    return sum + (Number(row?.revenue) || 0)
+  }, 0)
+}
+
+export function calculateInheritedCommission({
+  user,
+  users,
+  targetHistoryByUser,
+  revenueRows,
+  yearFilter,
+  type,
+  currentYear,
+  tenantCreatedYear,
+  now,
+}) {
+  const empty = {
+    revenue: 0,
+    target: 0,
+    achievement: 0,
+    rate: 0,
+    commission: 0,
+  }
+  if (!user?.id || isFieldSalesRole(user)) return empty
+
+  const descendantIds = collectDescendantIds(user.id, users)
+  if (!descendantIds.length) return empty
+
+  const managerRows = targetHistoryByUser instanceof Map
+    ? (targetHistoryByUser.get(String(user.id)) || [])
+    : []
+
+  if (yearFilter === 'all') {
+    const revenueByYear = new Map()
+    ;(revenueRows || []).forEach((row) => {
+      const uid = String(row?.salespersonId ?? row?.user_id ?? '')
+      if (!descendantIds.includes(uid)) return
+      const year = row?.date ? String(row.date).slice(0, 4) : String(currentYear)
+      revenueByYear.set(year, (revenueByYear.get(year) || 0) + (Number(row?.revenue) || 0))
+    })
+
+    let commission = 0
+    let revenue = 0
+    let target = 0
+    revenueByYear.forEach((yearRevenue, year) => {
+      const unit = resolveInheritedTargetForYear(user, users, targetHistoryByUser, year, type, currentYear)
+      const yearTarget = unit * periodsCoveredInYear(year, type, { now, tenantCreatedYear })
+      const achievement = calculateAchievementPercent(yearRevenue, yearTarget)
+      const rate = matchCommissionRate(
+        resolveTiersForYear(user, managerRows, year, currentYear, COMMISSION_SCOPE_INHERITED),
+        achievement
+      )
+      commission += (yearRevenue * rate) / 100
+      revenue += yearRevenue
+      target += yearTarget
+    })
+
+    return {
+      revenue,
+      target,
+      achievement: calculateAchievementPercent(revenue, target),
+      rate: revenue ? Number(((commission / revenue) * 100).toFixed(2)) : 0,
+      commission,
+    }
+  }
+
+  const revenue = sumRevenueForUserIds(revenueRows, descendantIds)
+  const target = resolveInheritedPeriodTarget({
+    user,
+    users,
+    targetHistoryByUser,
+    yearFilter,
+    type,
+    currentYear,
+    tenantCreatedYear,
+    now,
+  })
+  const achievement = calculateAchievementPercent(revenue, target)
+  const rate = matchCommissionRate(
+    resolveTiersForYear(user, managerRows, yearFilter, currentYear, COMMISSION_SCOPE_INHERITED),
+    achievement
+  )
+
+  return {
+    revenue,
+    target,
+    achievement,
+    rate,
+    commission: (revenue * rate) / 100,
+  }
 }
 
 export function calculateAchievementPercent(revenue, target) {

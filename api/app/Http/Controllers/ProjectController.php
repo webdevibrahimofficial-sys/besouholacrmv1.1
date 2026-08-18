@@ -5,10 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Project;
 use App\Models\Lead;
 use App\Models\Property;
+use App\Models\CrmSetting;
+use App\Support\StartCodeGenerator;
 use App\Traits\InventoryDeleteAuthorization;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use App\Jobs\SyncProjectToWebsiteJob;
 
@@ -135,6 +138,15 @@ class ProjectController extends Controller
         unset($data['gallery_files']);
         unset($data['master_plan_files']);
         unset($data['cil_attachments_files']);
+
+        if (Schema::hasColumn((new Project)->getTable(), 'code') && empty($data['code'])) {
+            $settings = CrmSetting::resolved();
+            $data['code'] = StartCodeGenerator::next(
+                Project::query()->whereNotNull('code')->pluck('code'),
+                (string) ($settings['startProjectCode'] ?? 'PRJ-0001'),
+                'PRJ-'
+            );
+        }
 
         $project = Project::create($data);
 

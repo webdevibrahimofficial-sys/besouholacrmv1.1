@@ -3,16 +3,23 @@
 namespace App\Http\Controllers;
 
 use App\Models\Item;
+use App\Models\ItemCategory;
+use App\Models\CrmSetting;
 use App\Models\Entity;
 use App\Models\FieldValue;
 use App\Models\Lead;
 use App\Models\User;
 use App\Notifications\SystemNotification;
+use App\Services\GeneralInventory\GeneralInventoryItemCatalogService;
+use App\Services\GeneralInventory\GeneralInventoryItemTypeService;
+use App\Services\GeneralInventory\InventoryLookupService;
+use App\Support\StartCodeGenerator;
 use App\Traits\InventoryDeleteAuthorization;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
@@ -20,10 +27,20 @@ class ItemController extends Controller
 {
     use InventoryDeleteAuthorization;
 
-    protected array $allowedItemTypes = ['Fixed', 'Per Unit', 'Monthly', 'Semi Annually', 'Annually'];
-    protected array $allowedQuantityTypes = ['Piece', 'Box', 'Kg', 'Liter', 'Meter', 'Hour'];
+    public function __construct(
+        private readonly GeneralInventoryItemTypeService $itemTyping,
+        private readonly GeneralInventoryItemCatalogService $catalog,
+        private readonly InventoryLookupService $lookups,
+    ) {
+    }
+
+    protected array $allowedItemTypes = [
+        'Fixed', 'Per Unit',
+        'One-time', 'Subscription', 'Monthly', 'Quarterly', 'Semi-annual', 'Semi Annually', 'Annually',
+    ];
+    protected array $allowedQuantityTypes = ['Piece', 'Box', 'Set', 'Meter', 'Kg', 'Hour', 'Liter', 'Other'];
     protected array $allowedQuantityTypeInputs = [
-        'Piece', 'Box', 'Kg', 'Liter', 'Meter', 'Hour',
+        'Piece', 'Box', 'Set', 'Meter', 'Kg', 'Hour', 'Liter', 'Other',
         'Per Unit', 'pcs', 'pc', 'kilogram', 'kilograms', 'litre', 'l', 'metre', 'm', 'hr', 'h',
     ];
 
@@ -118,25 +135,13 @@ class ItemController extends Controller
             $query->where('tenant_id', $tenantId);
         }
 
-        $codes = $query
-            ->whereNotNull('code')
-            ->pluck('code');
+        $settings = CrmSetting::resolved();
 
-        $maxNum = 0;
-
-        foreach ($codes as $code) {
-            $normalized = strtolower(trim((string) $code));
-            if (!str_starts_with($normalized, 'item-')) {
-                continue;
-            }
-
-            $number = (int) substr($normalized, 5);
-            if ($number > $maxNum) {
-                $maxNum = $number;
-            }
-        }
-
-        return 'item-' . str_pad((string) ($maxNum + 1), 3, '0', STR_PAD_LEFT);
+        return StartCodeGenerator::next(
+            $query->whereNotNull('code')->pluck('code'),
+            (string) ($settings['startItemCode'] ?? 'ITM-0001'),
+            'ITM-'
+        );
     }
 
     protected function userHasCustomerModule(User $user): bool
@@ -236,37 +241,104 @@ class ItemController extends Controller
 
     protected function normalizeQuantityTypeForItemType(array $data): array
     {
-        if (($data['item_type'] ?? null) !== 'Per Unit') {
-            $data['unit'] = 'Piece';
-            return $data;
-        }
-
-        $normalized = strtolower(trim((string) ($data['unit'] ?? '')));
-        $data['unit'] = match ($normalized) {
-            'box' => 'Box',
-            'kg', 'kilogram', 'kilograms' => 'Kg',
-            'liter', 'litre', 'l' => 'Liter',
-            'meter', 'metre', 'm' => 'Meter',
-            'hour', 'hr', 'h' => 'Hour',
-            default => 'Piece',
-        };
-
-        if (!in_array($data['unit'], $this->allowedQuantityTypes, true)) {
-            $data['unit'] = 'Piece';
-        }
+        $data['unit'] = $this->catalog->normalizeUnitOfMeasure($data['unit'] ?? null);
 
         return $data;
+    }
+
+    private function assertUniqueItemCode(?int $tenantId, ?string $code, ?int $ignoreId = null): void
+    {
+        $code = trim((string) $code);
+        if ($code === '') {
+            return;
+        }
+
+        $query = Item::query()->where('code', $code);
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+        if ($ignoreId) {
+            $query->where('id', '!=', $ignoreId);
+        }
+
+        if ($query->exists()) {
+            throw ValidationException::withMessages([
+                'code' => 'Item Code must be unique within this inventory.',
+            ]);
+        }
+    }
+
+    private function resolveCategoryForBusinessRules(?int $categoryId): ?ItemCategory
+    {
+        if (! $categoryId) {
+            return null;
+        }
+
+        return ItemCategory::query()->find($categoryId);
+    }
+
+    /**
+     * @param  array<string,mixed>  $input
+     */
+    private function validateBusinessTypeRules(array $input, ?ItemCategory $category, bool $isCreate = true): void
+    {
+        $this->catalog->assertBusinessRules($input, $category, $isCreate);
+    }
+
+    /**
+     * @param  array<int,mixed>  $addons
+     * @return list<array{tenant_id:mixed,name:string,quantity:int,price:float,period:?string}>
+     */
+    private function mapAddonPayloads(array $addons, mixed $tenantId, string $businessType): array
+    {
+        $isService = $businessType === GeneralInventoryItemTypeService::BUSINESS_TYPE_SERVICE;
+
+        return collect($addons)
+            ->filter(fn ($addon) => filled($addon['name'] ?? null))
+            ->map(function ($addon) use ($tenantId, $isService) {
+                $period = trim((string) ($addon['period'] ?? ''));
+
+                return [
+                    'tenant_id' => $tenantId,
+                    'name' => trim((string) ($addon['name'] ?? '')),
+                    'quantity' => $isService ? 1 : max(1, (int) ($addon['quantity'] ?? 1)),
+                    'price' => (float) ($addon['price'] ?? 0),
+                    'period' => $isService && $period !== '' ? $period : null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function rememberServiceTypeLookup(?int $tenantId, string $businessType, array $data): void
+    {
+        if ($businessType !== GeneralInventoryItemTypeService::BUSINESS_TYPE_SERVICE) {
+            return;
+        }
+
+        $name = trim((string) ($data['service_type'] ?? ''));
+        if ($name === '') {
+            return;
+        }
+
+        try {
+            $this->lookups->rememberServiceType($tenantId, $name);
+        } catch (\Throwable) {
+            // Item save already succeeded; growing the lookup list is optional.
+        }
     }
 
     public function index(Request $request)
     {
         $user = $request->user();
-        $query = Item::with(['customFieldValues.field', 'addons'])->latest();
+        $query = Item::with(['customFieldValues.field', 'addons', 'category'])->latest();
 
         // Ensure we only retrieve items for the current user's tenant
         if ($user && $user->tenant_id) {
             $query->where('tenant_id', $user->tenant_id);
         }
+
+        $this->catalog->applyListFilters($query, $request->all());
 
         if ($request->has('all')) {
             return $query->get()->each->append(['addons_total_quantity', 'addons_total_price', 'total_price']);
@@ -281,24 +353,21 @@ class ItemController extends Controller
     public function store(Request $request)
     {
         $tenantId = $request->user()?->tenant_id;
-        $sku = trim((string) $request->input('sku', ''));
-        $sku = $sku === '' ? null : $sku;
+        $itemCode = $this->catalog->resolveItemCode($request->all()) ?: $this->nextItemCode($tenantId);
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'sku' => [
-                'nullable',
-                'string',
-                'max:255',
-                Rule::unique('items', 'code')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
-            ],
+            'code' => 'nullable|string|max:255',
+            'item_code' => 'nullable|string|max:255',
+            'sku' => 'nullable|string|max:255',
+            'barcode' => 'nullable|string|max:255',
             'quantity' => 'nullable|integer',
             'reserved_quantity' => 'nullable|integer',
             'sold_quantity' => 'nullable|integer',
             'min_alert' => 'nullable|integer',
             'warehouse' => 'nullable|string',
             'category' => 'nullable|string',
-            'category_id' => 'nullable|exists:item_categories,id',
+            'category_id' => 'required|exists:item_categories,id',
             'brand' => 'nullable|string',
             'supplier' => 'nullable|string',
             'price' => 'nullable|numeric',
@@ -311,12 +380,15 @@ class ItemController extends Controller
             'description' => 'nullable|string',
             'pricing_type' => 'nullable|string',
             'billing_cycle' => 'nullable|string',
+            'service_type' => 'nullable|string|max:255',
+            'serviceType' => 'nullable|string|max:255',
             'allow_discount' => 'nullable|boolean',
             'maxDiscount' => 'nullable|numeric',
             'addons' => 'nullable|array',
             'addons.*.name' => 'required_with:addons|string|max:255',
             'addons.*.quantity' => 'nullable|integer|min:1',
             'addons.*.price' => 'nullable|numeric|min:0',
+            'addons.*.period' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -343,6 +415,9 @@ class ItemController extends Controller
 
         try {
             DB::beginTransaction();
+            $category = $this->resolveCategoryForBusinessRules($request->filled('category_id') ? (int) $request->input('category_id') : null);
+            $this->validateBusinessTypeRules($request->all() + ['code' => $itemCode], $category, true);
+            $this->assertUniqueItemCode($tenantId, $itemCode);
 
             // Handle mapping sku to code if needed
             $data = $request->only([
@@ -350,15 +425,28 @@ class ItemController extends Controller
                 'warehouse', 'family', 'category', 'category_id', 'group', 'brand', 'supplier', 'price', 'cost',
                 'type', 'item_type', 'status', 'unit', 'description'
             ]);
-            $data['code'] = $sku ?? $request->input('code') ?? $this->nextItemCode($tenantId);
-            $data['sku'] = $data['code']; // Sync sku column
+            $data['code'] = $itemCode;
             
             // Map camelCase to snake_case, provide defaults for optional fields to avoid NULL violation
             $data['pricing_type'] = $request->input('pricingType') ?: 'Fixed';
-            $data['billing_cycle'] = $request->input('billingCycle') ?: 'Monthly';
+            $data['billing_cycle'] = $request->input('billingCycle') ?: $request->input('billing_cycle') ?: 'Monthly';
             $data['allow_discount'] = $request->boolean('allowDiscount');
-            $data['max_discount'] = $request->input('maxDiscount');
+            $maxDiscount = $request->input('maxDiscount');
+            if ($maxDiscount !== null && $maxDiscount !== '') {
+                $data['max_discount'] = $maxDiscount;
+            }
             $data = $this->normalizeQuantityTypeForItemType($data);
+            $businessType = $this->itemTyping->businessTypeFromCategory($category);
+            $data['type'] = $this->itemTyping->normalizeAppliesTo($category?->applies_to);
+            $data = array_merge($data, $this->catalog->catalogAttributes($request->all() + ['code' => $itemCode], $businessType));
+            if (! array_key_exists('min_alert', $data) || $data['min_alert'] === null || $data['min_alert'] === '') {
+                $data['min_alert'] = 0;
+            }
+            $data['meta_data'] = $this->itemTyping->withBusinessTypeMeta(
+                is_array($request->input('meta_data')) ? $request->input('meta_data') : [],
+                $businessType,
+                $category
+            );
             
             // Set tenant_id if not present
             if (!isset($data['tenant_id'])) {
@@ -368,20 +456,13 @@ class ItemController extends Controller
                 }
             }
 
-            $item = Item::create($data);
+            $item = Item::create($this->catalog->persistableAttributes($data));
 
-            $addons = collect($request->input('addons', []))
-                ->filter(fn ($addon) => filled($addon['name'] ?? null))
-                ->map(function ($addon) use ($data) {
-                    return [
-                        'tenant_id' => $data['tenant_id'] ?? null,
-                        'name' => trim((string) ($addon['name'] ?? '')),
-                        'quantity' => max(1, (int) ($addon['quantity'] ?? 1)),
-                        'price' => (float) ($addon['price'] ?? 0),
-                    ];
-                })
-                ->values()
-                ->all();
+            $addons = $this->mapAddonPayloads(
+                $request->input('addons', []),
+                $data['tenant_id'] ?? null,
+                $businessType
+            );
 
             if (!empty($addons)) {
                 $item->addons()->createMany($addons);
@@ -402,9 +483,16 @@ class ItemController extends Controller
             }
 
             DB::commit();
+            $this->rememberServiceTypeLookup($tenantId, $businessType, $data);
             $this->notifyMinimumQuantityIfNeeded($item->fresh());
-            return response()->json($item->load(['customFieldValues.field', 'addons']), 201);
+            return response()->json($item->load(['customFieldValues.field', 'addons', 'category']), 201);
 
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => collect($e->errors())->flatten()->first() ?: 'Item validation failed',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             \Illuminate\Support\Facades\Log::error('Error creating item: ' . $e->getMessage());
@@ -414,7 +502,7 @@ class ItemController extends Controller
 
     public function show($id)
     {
-        return Item::with(['customFieldValues.field', 'addons'])->findOrFail($id);
+        return Item::with(['customFieldValues.field', 'addons', 'category'])->findOrFail($id);
     }
 
     public function update(Request $request, $id)
@@ -422,21 +510,15 @@ class ItemController extends Controller
         try {
             $item = Item::findOrFail($id);
             $tenantId = $request->user()?->tenant_id;
-            $sku = trim((string) $request->input('sku', ''));
-            $sku = $sku === '' ? null : $sku;
             $oldQuantity = (int) ($item->quantity ?? 0);
             $oldMinimum = (int) ($item->min_alert ?? 0);
             
             $validator = Validator::make($request->all(), [
                 'name' => 'sometimes|required|string|max:255',
-                'sku' => [
-                    'nullable',
-                    'string',
-                    'max:255',
-                    Rule::unique('items', 'code')
-                        ->ignore($item->id)
-                        ->where(fn ($query) => $query->where('tenant_id', $tenantId)),
-                ],
+                'code' => 'nullable|string|max:255',
+                'item_code' => 'nullable|string|max:255',
+                'sku' => 'nullable|string|max:255',
+                'barcode' => 'nullable|string|max:255',
                 'quantity' => 'nullable|integer',
                 'reserved_quantity' => 'nullable|integer',
                 'sold_quantity' => 'nullable|integer',
@@ -456,12 +538,15 @@ class ItemController extends Controller
                 'description' => 'nullable|string',
                 'pricingType' => 'nullable|string',
                 'billingCycle' => 'nullable|string',
+                'service_type' => 'nullable|string|max:255',
+                'serviceType' => 'nullable|string|max:255',
                 'allowDiscount' => 'nullable|boolean',
                 'maxDiscount' => 'nullable|numeric',
                 'addons' => 'nullable|array',
                 'addons.*.name' => 'required_with:addons|string|max:255',
                 'addons.*.quantity' => 'nullable|integer|min:1',
                 'addons.*.price' => 'nullable|numeric|min:0',
+                'addons.*.period' => 'nullable|string|max:255',
             ]);
 
             if ($validator->fails()) {
@@ -469,43 +554,63 @@ class ItemController extends Controller
             }
 
             DB::beginTransaction();
+            $categoryId = array_key_exists('category_id', $request->all())
+                ? ($request->filled('category_id') ? (int) $request->input('category_id') : null)
+                : (int) ($item->category_id ?? 0);
+            $category = $this->resolveCategoryForBusinessRules($categoryId ?: null);
+            $this->validateBusinessTypeRules(array_merge([
+                'name' => $item->name,
+                'price' => $item->price,
+                'quantity' => $item->quantity,
+                'min_alert' => $item->min_alert,
+                'billing_cycle' => $item->billing_cycle,
+                'brand' => $item->brand,
+                'service_type' => $item->service_type,
+                'code' => $item->code,
+            ], $request->all()), $category, false);
+
+            $nextCode = $this->catalog->resolveItemCode($request->all(), $item->code);
+            $this->assertUniqueItemCode($tenantId, $nextCode, (int) $item->id);
 
             $data = $request->only([
                 'name', 'quantity', 'reserved_quantity', 'sold_quantity', 'min_alert', 
                 'warehouse', 'family', 'category', 'category_id', 'group', 'brand', 'supplier', 'price', 'cost',
                 'type', 'item_type', 'status', 'unit', 'description'
             ]);
-            
-            if ($request->has('sku')) {
-                if ($sku !== null) {
-                    $data['code'] = $sku;
-                    $data['sku'] = $sku;
-                }
-            }
 
             // Map camelCase to snake_case, handle nulls by defaulting if necessary (since columns are not nullable)
             if ($request->has('pricingType')) $data['pricing_type'] = $request->input('pricingType') ?: 'Fixed';
-            if ($request->has('billingCycle')) $data['billing_cycle'] = $request->input('billingCycle') ?: 'Monthly';
+            if ($request->has('billingCycle') || $request->has('billing_cycle') || $request->has('service_billing_type')) {
+                $data['billing_cycle'] = $request->input('billingCycle') ?: $request->input('billing_cycle') ?: $request->input('service_billing_type');
+            }
             if ($request->has('allowDiscount')) $data['allow_discount'] = $request->boolean('allowDiscount');
-            if ($request->has('maxDiscount')) $data['max_discount'] = $request->input('maxDiscount');
+            if ($request->has('maxDiscount')) {
+                $maxDiscount = $request->input('maxDiscount');
+                $data['max_discount'] = ($maxDiscount === '' || $maxDiscount === null) ? null : $maxDiscount;
+            }
             if (!array_key_exists('item_type', $data)) $data['item_type'] = $item->item_type;
             $data = $this->normalizeQuantityTypeForItemType($data);
+            $businessType = $this->itemTyping->businessTypeFromCategory($category);
+            $data['type'] = $this->itemTyping->normalizeAppliesTo($category?->applies_to);
+            $data = array_merge($data, $this->catalog->catalogAttributes($request->all(), $businessType, $item->code));
+            if (array_key_exists('min_alert', $data) && ($data['min_alert'] === null || $data['min_alert'] === '')) {
+                $data['min_alert'] = 0;
+            }
+            $existingMeta = is_array($item->meta_data) ? $item->meta_data : [];
+            $data['meta_data'] = $this->itemTyping->withBusinessTypeMeta(
+                array_replace_recursive($existingMeta, is_array($request->input('meta_data')) ? $request->input('meta_data') : []),
+                $businessType,
+                $category
+            );
 
-            $item->update($data);
+            $item->update($this->catalog->persistableAttributes($data));
 
             if ($request->has('addons')) {
-                $addons = collect($request->input('addons', []))
-                    ->filter(fn ($addon) => filled($addon['name'] ?? null))
-                    ->map(function ($addon) use ($item) {
-                        return [
-                            'tenant_id' => $item->tenant_id,
-                            'name' => trim((string) ($addon['name'] ?? '')),
-                            'quantity' => max(1, (int) ($addon['quantity'] ?? 1)),
-                            'price' => (float) ($addon['price'] ?? 0),
-                        ];
-                    })
-                    ->values()
-                    ->all();
+                $addons = $this->mapAddonPayloads(
+                    $request->input('addons', []),
+                    $item->tenant_id,
+                    $businessType
+                );
 
                 $item->addons()->delete();
 
@@ -529,8 +634,15 @@ class ItemController extends Controller
             }
             
             DB::commit();
+            $this->rememberServiceTypeLookup($tenantId, $businessType, $data);
             $this->notifyMinimumQuantityIfNeeded($item->fresh(), $oldQuantity, $oldMinimum);
             return response()->json($item->load(['customFieldValues.field', 'addons']));
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => collect($e->errors())->flatten()->first() ?: 'Item validation failed',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             \Illuminate\Support\Facades\Log::error('Error updating item: ' . $e->getMessage());

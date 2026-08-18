@@ -87,7 +87,7 @@ export default function UserManagementUserProfile({ userProp, idProp, asModal = 
         <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col bg-[var(--content-bg)] text-[var(--content-text)] border border-base-300 shadow-xl rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
            <button 
              onClick={onClose}
-             className="absolute top-6 right-6 z-20 btn btn-circle btn-sm btn-ghost bg-base-100/50 hover:bg-base-100"
+             className="absolute top-6 right-6 rtl:right-auto rtl:left-6 z-20 btn btn-circle btn-sm btn-ghost bg-base-100/50 hover:bg-base-100"
            >
              <X size={20} />
            </button>

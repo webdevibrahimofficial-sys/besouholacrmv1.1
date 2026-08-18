@@ -6,8 +6,10 @@ use App\Models\SalesInvoice;
 use App\Models\SalesInvoicePayment;
 use App\Models\Order;
 use App\Models\User;
+use App\Models\CrmSetting;
 use App\Notifications\InvoiceCreated;
 use App\Services\ItemStockService;
+use App\Support\StartCodeGenerator;
 use App\Traits\ResolvesNotificationRecipients;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -232,14 +234,13 @@ class SalesInvoiceController extends Controller
             'payment_status' => 'Unpaid',
             'balance_due' => max(0, (float) ($validated['total'] ?? 0) - (float) ($validated['advance_applied_amount'] ?? 0)),
         ]));
-        $crm = \App\Models\CrmSetting::first();
-        $settings = is_array($crm?->settings) ? $crm->settings : [];
-        $rawStart = (string) ($settings['startInvoiceCode'] ?? '0001');
-        $start = (int) $rawStart;
-        $numberWidth = max(1, strlen(preg_replace('/\D/', '', $rawStart)));
+        $settings = CrmSetting::resolved();
         if (empty($invoice->invoice_number)) {
-            $next = max($start, (int)$invoice->id);
-            $invoice->invoice_number = 'INV-' . str_pad((string) $next, $numberWidth, '0', STR_PAD_LEFT);
+            $invoice->invoice_number = StartCodeGenerator::next(
+                SalesInvoice::query()->whereNotNull('invoice_number')->pluck('invoice_number'),
+                (string) ($settings['startInvoiceCode'] ?? '0001'),
+                'INV-'
+            );
             $invoice->save();
         }
 

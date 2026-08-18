@@ -14,6 +14,7 @@ export default function SearchableSelect({
   multiple = false,
   className = '',
   showAllOption = true,
+  creatable = false,
   dropdownZIndex = 20050,
   placement = 'auto',
 }) {
@@ -173,10 +174,35 @@ export default function SearchableSelect({
     )
 
   const isSingleAllValue = !multiple && allSentinelValues.has(normalizeComparableValue(value))
+  const isCreatable = Boolean(creatable) && !multiple
+  const showDropdownSearch = !isCreatable
 
   const isEmpty = multiple
     ? !Array.isArray(value) || value.length === 0 || (shouldRenderBuiltInAllOption && allSelected)
     : !value || isSingleAllValue
+
+  const creatableQuery = String(isOpen ? search : value || '').trim()
+  const hasExactOption = (options || []).some(
+    (opt) => String(getOptionLabel(opt)).toLowerCase() === creatableQuery.toLowerCase()
+  )
+  const showCreateRow = isCreatable && creatableQuery !== '' && !hasExactOption
+
+  const commitCreatableValue = (raw) => {
+    const next = String(raw ?? '').trim()
+    if (!next) {
+      onChange('')
+      setSearch('')
+      setIsOpen(false)
+      return
+    }
+
+    const match = (options || []).find(
+      (opt) => String(getOptionLabel(opt)).toLowerCase() === next.toLowerCase()
+    )
+    onChange(match ? getOptionValue(match) : next)
+    setSearch('')
+    setIsOpen(false)
+  }
 
   const getDisplayValue = () => {
     if (multiple) {
@@ -222,6 +248,7 @@ export default function SearchableSelect({
       className="rounded-xl shadow-xl bg-[var(--card-bg)] border border-[var(--panel-border)] backdrop-blur-md overflow-hidden flex flex-col"
       dir={isRTL ? 'rtl' : 'ltr'}
     >
+      {showDropdownSearch ? (
       <div className="p-2 border-b border-[var(--panel-border)]/70">
         <div className="relative">
           <FaSearch
@@ -239,8 +266,9 @@ export default function SearchableSelect({
           />
         </div>
       </div>
+      ) : null}
 
-      <div className="overflow-y-auto py-1 scrollbar-thin-blue" style={{ maxHeight: Math.max(0, coords.maxHeight - 58) }}>
+      <div className="overflow-y-auto py-1 scrollbar-thin-blue" style={{ maxHeight: Math.max(0, coords.maxHeight - (showDropdownSearch ? 58 : 8)) }}>
         {shouldRenderBuiltInAllOption && (
           <div
             className={`mx-1 rounded-lg px-3 py-2 cursor-pointer text-sm transition-colors ${(!multiple && value === '') || (multiple && allSelected) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`}
@@ -257,6 +285,16 @@ export default function SearchableSelect({
             {isRTL ? 'الكل' : 'All'}
           </div>
         )}
+
+        {showCreateRow ? (
+          <div
+            className="mx-1 rounded-lg px-3 py-2 cursor-pointer text-sm text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => commitCreatableValue(creatableQuery)}
+          >
+            {isRTL ? `إضافة "${creatableQuery}"` : `Add "${creatableQuery}"`}
+          </div>
+        ) : null}
 
         {filteredOptions.length > 0 ? (
           filteredOptions.map((opt, idx) => {
@@ -275,6 +313,7 @@ export default function SearchableSelect({
                     ? 'cursor-not-allowed opacity-50 text-[var(--muted-text)]'
                     : `cursor-pointer ${isSelected(opt) ? 'bg-[rgba(37,99,235,0.28)] text-white' : 'text-[var(--theme-text)] hover:bg-[rgba(37,99,235,0.18)]'}`
                 }`}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   if (disabled) return
                   if (multiple) {
@@ -301,17 +340,85 @@ export default function SearchableSelect({
               </div>
             )
           })
-        ) : (
+        ) : !showCreateRow ? (
           <div className="px-3 py-4 text-center text-sm text-[var(--muted-text)]">
-            {isRTL ? 'لا توجد نتائج' : 'No results found'}
+            {isCreatable
+              ? (isRTL ? 'اكتب نوعاً جديداً أو اختر من القائمة' : 'Type a custom value or pick from the list')
+              : (isRTL ? 'لا توجد نتائج' : 'No results found')}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )
 
+  const clearButton = (( !multiple && value && !isSingleAllValue) || (multiple && Array.isArray(value) && value.length > 0)) ? (
+    <FaTimes
+      className="text-[var(--theme-text)] hover:text-red-500 z-10 shrink-0"
+      size={12}
+      onClick={(e) => {
+        e.stopPropagation()
+        clearValue()
+        setSearch('')
+      }}
+    />
+  ) : null
+
   return (
     <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={wrapperRef}>
+      {isCreatable ? (
+        <div className={`input w-full flex items-center justify-between gap-2 bg-[var(--card-bg)] border border-[var(--panel-border)] text-[var(--theme-text)] ${className}`}>
+          <input
+            type="text"
+            className="min-w-0 flex-1 bg-transparent border-0 p-0 text-sm text-[var(--theme-text)] placeholder:text-[var(--muted-text)] focus:outline-none focus:ring-0"
+            value={isOpen ? search : (value || '')}
+            placeholder={placeholder || ''}
+            onFocus={() => {
+              setSearch(String(value || ''))
+              setIsOpen(true)
+              updatePosition()
+              if (rafRef.current) cancelAnimationFrame(rafRef.current)
+              rafRef.current = requestAnimationFrame(() => updatePosition())
+            }}
+            onChange={(e) => {
+              const next = e.target.value
+              setSearch(next)
+              onChange(next)
+              if (!isOpen) {
+                setIsOpen(true)
+                updatePosition()
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                e.stopPropagation()
+                commitCreatableValue(isOpen ? search : value)
+              }
+              if (e.key === 'Escape') {
+                setIsOpen(false)
+              }
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setIsOpen(true)
+                updatePosition()
+              }
+            }}
+          />
+          <div className="flex items-center gap-2">
+            {clearButton}
+            <FaChevronDown
+              className={`text-[var(--theme-text)] transition-transform cursor-pointer shrink-0 ${isOpen ? 'rotate-180' : ''}`}
+              size={10}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                toggleOpen()
+                if (!isOpen) setSearch(String(value || ''))
+              }}
+            />
+          </div>
+        </div>
+      ) : (
       <div
         className={`input w-full flex items-center justify-between cursor-pointer bg-[var(--card-bg)] border border-[var(--panel-border)] text-[var(--theme-text)] ${className}`}
         onClick={toggleOpen}
@@ -320,19 +427,11 @@ export default function SearchableSelect({
           {getDisplayValue()}
         </span>
         <div className="flex items-center gap-2">
-          {((!multiple && value && !isSingleAllValue) || (multiple && Array.isArray(value) && value.length > 0)) ? (
-            <FaTimes
-              className="text-[var(--theme-text)] hover:text-red-500 z-10"
-              size={12}
-              onClick={(e) => {
-                e.stopPropagation()
-                clearValue()
-              }}
-            />
-          ) : null}
+          {clearButton}
           <FaChevronDown className={`text-[var(--theme-text)] transition-transform ${isOpen ? 'rotate-180' : ''}`} size={10} />
         </div>
       </div>
+      )}
 
       {isOpen && createPortal(dropdownContent, document.body)}
     </div>

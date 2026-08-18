@@ -7,6 +7,8 @@ import { COUNTRY_CODES } from '../../hooks/usePhoneValidation'
 import { PipelineStagesManager } from './ConfigurationManager'
 import SearchableSelect from '../../components/SearchableSelect'
 import { mapSourceToOption } from '../../shared/utils/sourceDisplay'
+import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '../../shared/utils/tenantCompanyType'
+import { crmStartCodeFields } from '../../features/settings/crmStartCodeFields'
 
 const DEFAULTS = {
   requestApprovals: false,
@@ -24,6 +26,10 @@ const DEFAULTS = {
   startInvoiceCode: '0001',
   startOrderCode: '0001',
   startQuotationCode: '0001',
+  startCategoryCode: 'CAT-0001',
+  startItemCode: 'ITM-0001',
+  startProjectCode: 'PRJ-0001',
+  startBrokerCode: 'BRK-0001',
   allowConvertToCustomers: true,
   enableTwoFactorAuth: false,
   defaultCountryCode: 'EG',
@@ -54,12 +60,40 @@ function Section({ id, title, children }) {
   )
 }
 
+function CodeField({ label, value, onChange, placeholder }) {
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-theme-text">{label}</label>
+      <input
+        type="text"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-theme-text"
+        placeholder={placeholder}
+      />
+    </div>
+  )
+}
+
+const CODE_FIELD_META = {
+  startUnitCode: { label: 'Start Unit Code (Properties)', placeholder: 'U-0001' },
+  startProjectCode: { label: 'Start Project Code', placeholder: 'PRJ-0001' },
+  startBrokerCode: { label: 'Start Broker Code', placeholder: 'BRK-0001' },
+  startCategoryCode: { label: 'Start Category Code', placeholder: 'CAT-0001' },
+  startItemCode: { label: 'Start Item Code', placeholder: 'ITM-0001' },
+  startCustomerCode: { label: 'Start Customer Code', placeholder: '0001' },
+  startInvoiceCode: { label: 'Start Invoice Code', placeholder: '0001' },
+  startOrderCode: { label: 'Start Sales Order Code', placeholder: '0001' },
+  startQuotationCode: { label: 'Start Quotation Code', placeholder: '0001' },
+}
+
 export default function CRMSettings() {
   const { t, i18n } = useTranslation()
-  const { setCrmSettings } = useAppState()
+  const { setCrmSettings, company, crmSettings } = useAppState()
   const isRTL = String(i18n.language || '').startsWith('ar')
   const [settings, setSettings] = useState(DEFAULTS)
   const [sourcesList, setSourcesList] = useState([])
+  const isRealEstate = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings, settings))
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -198,6 +232,33 @@ export default function CRMSettings() {
           <Toggle label={t('Show Developer')} value={settings.showDeveloper} onChange={(v) => setField('showDeveloper', v)} />
           <Toggle label={t('Show Cold Calls Stage (Pipeline)')} value={settings.showColdCallsStage} onChange={(v) => setField('showColdCallsStage', v)} />
           <Toggle label={t('Mask Mobile Number')} value={settings.maskMobileNumber} onChange={(v) => setField('maskMobileNumber', v)} />
+        </div>
+      </Section>
+
+      <Section title={t('Conversions & Codes')}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {crmStartCodeFields(isRealEstate).map((key) => {
+            if (key === 'allowConvertToCustomers') {
+              return (
+                <Toggle
+                  key={key}
+                  label={t('Allow Convert to Customers')}
+                  value={settings.allowConvertToCustomers}
+                  onChange={(v) => setField('allowConvertToCustomers', v)}
+                />
+              )
+            }
+            const meta = CODE_FIELD_META[key]
+            return (
+              <CodeField
+                key={key}
+                label={t(meta.label)}
+                value={settings[key]}
+                onChange={(value) => setField(key, value)}
+                placeholder={meta.placeholder}
+              />
+            )
+          })}
         </div>
       </Section>
 

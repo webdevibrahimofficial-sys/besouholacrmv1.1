@@ -93,7 +93,10 @@ class UserTargetController extends Controller
             ->groupBy(fn ($tier) => $tier->user_id . ':' . $tier->year);
 
         $targets->each(function ($target) use ($tiers) {
-            $target->setRelation('commissionTiers', $tiers->get($target->user_id . ':' . $target->year, collect())->values());
+            $this->decorateTargetTiers(
+                $target,
+                $tiers->get($target->user_id . ':' . $target->year, collect())->values()
+            );
         });
 
         $tenant = $tenantId ? Tenant::find($tenantId) : null;
@@ -126,14 +129,19 @@ class UserTargetController extends Controller
             'commission_tiers.*.from_percentage' => 'required_with:commission_tiers|numeric|min:0|max:1000',
             'commission_tiers.*.to_percentage' => 'nullable|numeric|min:0|max:1000',
             'commission_tiers.*.commission_percentage' => 'required_with:commission_tiers|numeric|min:0|max:100',
+            'commission_tiers.*.scope' => 'nullable|in:personal,inherited',
+            'inherited_commission_tiers' => 'nullable|array',
+            'inherited_commission_tiers.*.from_percentage' => 'required_with:inherited_commission_tiers|numeric|min:0|max:1000',
+            'inherited_commission_tiers.*.to_percentage' => 'nullable|numeric|min:0|max:1000',
+            'inherited_commission_tiers.*.commission_percentage' => 'required_with:inherited_commission_tiers|numeric|min:0|max:100',
         ]);
 
-        $yearlyTarget = round((float) ($validated['yearly_target'] ?? 0), 2);
+        $hasYearlyTarget = array_key_exists('yearly_target', $validated);
         $year = (int) $validated['year'];
         $userId = (int) $validated['user_id'];
         $actorId = $request->user()?->id;
 
-        $target = DB::transaction(function () use ($tenantId, $userId, $year, $yearlyTarget, $actorId, $validated) {
+        $target = DB::transaction(function () use ($tenantId, $userId, $year, $hasYearlyTarget, $validated, $actorId) {
             $target = UserYearlyTarget::query()->firstOrNew([
                 'tenant_id' => $tenantId,
                 'user_id' => $userId,
@@ -144,74 +152,136 @@ class UserTargetController extends Controller
                 $target->created_by_id = $actorId;
             }
 
-            $target->fill([
-                'yearly_target' => $yearlyTarget,
-                'monthly_target' => round($yearlyTarget / 12, 2),
-                'quarterly_target' => round($yearlyTarget / 4, 2),
-                'semi_annual_target' => round($yearlyTarget / 2, 2),
-                'updated_by_id' => $actorId,
-            ]);
+            $yearlyTarget = $hasYearlyTarget
+                ? round((float) ($validated['yearly_target'] ?? 0), 2)
+                : round((float) ($target->yearly_target ?? 0), 2);
+
+            if ($hasYearlyTarget || !$target->exists) {
+                $target->fill([
+                    'yearly_target' => $yearlyTarget,
+                    'monthly_target' => round($yearlyTarget / 12, 2),
+                    'quarterly_target' => round($yearlyTarget / 4, 2),
+                    'semi_annual_target' => round($yearlyTarget / 2, 2),
+                ]);
+            }
+
+            $target->updated_by_id = $actorId;
             $target->save();
 
-            $tiers = collect();
-            $shouldSyncCommissionTiers = array_key_exists('commission_tiers', $validated);
+            $shouldSyncPersonalTiers = array_key_exists('commission_tiers', $validated);
+            $shouldSyncInheritedTiers = array_key_exists('inherited_commission_tiers', $validated);
+            $personalTiers = collect();
 
-            if ($shouldSyncCommissionTiers) {
-                UserCommissionTier::query()
-                    ->where('tenant_id', $tenantId)
-                    ->where('user_id', $userId)
-                    ->where('year', $year)
-                    ->delete();
+            if ($shouldSyncPersonalTiers || $shouldSyncInheritedTiers) {
+                $incomingTiers = $this->normalizeIncomingTiers($validated['commission_tiers'] ?? []);
+                $explicitInherited = $this->normalizeIncomingTiers(
+                    $validated['inherited_commission_tiers'] ?? [],
+                    UserCommissionTier::SCOPE_INHERITED
+                );
 
-                $tiers = collect($validated['commission_tiers'] ?? [])
-                    ->map(function ($tier) {
-                        return [
-                            'from_percentage' => round((float) ($tier['from_percentage'] ?? 0), 2),
-                            'to_percentage' => isset($tier['to_percentage']) && $tier['to_percentage'] !== ''
-                                ? round((float) $tier['to_percentage'], 2)
-                                : null,
-                            'commission_percentage' => round((float) ($tier['commission_percentage'] ?? 0), 2),
-                        ];
-                    })
-                    ->filter(fn ($tier) => $tier['commission_percentage'] > 0 || $tier['from_percentage'] > 0 || $tier['to_percentage'] !== null)
-                    ->sortBy('from_percentage')
+                $personalTiers = $incomingTiers
+                    ->filter(fn ($tier) => $tier['scope'] === UserCommissionTier::SCOPE_PERSONAL)
+                    ->values();
+                $inheritedFromMixed = $incomingTiers
+                    ->filter(fn ($tier) => $tier['scope'] === UserCommissionTier::SCOPE_INHERITED)
                     ->values();
 
-                foreach ($tiers as $tier) {
-                    UserCommissionTier::query()->create(array_merge([
-                        'tenant_id' => $tenantId,
-                        'user_id' => $userId,
-                        'year' => $year,
-                    ], $tier));
+                if ($shouldSyncPersonalTiers) {
+                    $this->syncTiersForScope($tenantId, $userId, $year, UserCommissionTier::SCOPE_PERSONAL, $personalTiers);
+                }
+
+                if ($shouldSyncInheritedTiers) {
+                    $this->syncTiersForScope($tenantId, $userId, $year, UserCommissionTier::SCOPE_INHERITED, $explicitInherited);
+                } elseif ($shouldSyncPersonalTiers && $inheritedFromMixed->isNotEmpty()) {
+                    $this->syncTiersForScope($tenantId, $userId, $year, UserCommissionTier::SCOPE_INHERITED, $inheritedFromMixed);
                 }
             }
 
             if ($year === (int) now()->year) {
-                $currentYearUserUpdates = [
-                    'yearly_target' => $yearlyTarget,
-                    'quarterly_target' => round($yearlyTarget / 4, 2),
-                    'monthly_target' => round($yearlyTarget / 12, 2),
-                ];
+                $currentYearUserUpdates = [];
 
-                if ($shouldSyncCommissionTiers) {
-                    $fallbackCommission = (float) ($tiers->first()['commission_percentage'] ?? 0);
+                if ($hasYearlyTarget) {
+                    $currentYearUserUpdates['yearly_target'] = $yearlyTarget;
+                    $currentYearUserUpdates['quarterly_target'] = round($yearlyTarget / 4, 2);
+                    $currentYearUserUpdates['monthly_target'] = round($yearlyTarget / 12, 2);
+                }
+
+                if ($shouldSyncPersonalTiers) {
+                    $fallbackCommission = (float) ($personalTiers->first()['commission_percentage'] ?? 0);
                     $currentYearUserUpdates['commission_percentage'] = $fallbackCommission ?: null;
                 }
 
-                User::query()->whereKey($userId)->update($currentYearUserUpdates);
+                if (!empty($currentYearUserUpdates)) {
+                    User::query()->whereKey($userId)->update($currentYearUserUpdates);
+                }
             }
 
             $target = $target->fresh(['user:id,name,email,tenant_id,manager_id,job_title', 'user.manager:id,name']);
-            $target->setRelation('commissionTiers', UserCommissionTier::query()
-                ->where('tenant_id', $tenantId)
-                ->where('user_id', $userId)
-                ->where('year', $year)
-                ->orderBy('from_percentage')
-                ->get());
+            $this->decorateTargetTiers(
+                $target,
+                UserCommissionTier::query()
+                    ->where('tenant_id', $tenantId)
+                    ->where('user_id', $userId)
+                    ->where('year', $year)
+                    ->orderBy('scope')
+                    ->orderBy('from_percentage')
+                    ->get()
+            );
 
             return $target;
         });
 
         return response()->json(['data' => $target]);
+    }
+
+    protected function decorateTargetTiers(UserYearlyTarget $target, $tiers): void
+    {
+        $collection = collect($tiers)->values();
+        $inherited = $collection
+            ->filter(fn ($tier) => UserCommissionTier::normalizeScope($tier->scope ?? null) === UserCommissionTier::SCOPE_INHERITED)
+            ->values();
+
+        $target->setRelation('commissionTiers', $collection);
+        $target->setAttribute('inherited_commission_tiers', $inherited);
+    }
+
+    protected function normalizeIncomingTiers(array $tiers, ?string $forcedScope = null)
+    {
+        return collect($tiers)
+            ->map(function ($tier) use ($forcedScope) {
+                return [
+                    'from_percentage' => round((float) ($tier['from_percentage'] ?? 0), 2),
+                    'to_percentage' => isset($tier['to_percentage']) && $tier['to_percentage'] !== ''
+                        ? round((float) $tier['to_percentage'], 2)
+                        : null,
+                    'commission_percentage' => round((float) ($tier['commission_percentage'] ?? 0), 2),
+                    'scope' => $forcedScope ?: UserCommissionTier::normalizeScope($tier['scope'] ?? null),
+                ];
+            })
+            ->filter(fn ($tier) => $tier['commission_percentage'] > 0 || $tier['from_percentage'] > 0 || $tier['to_percentage'] !== null)
+            ->sortBy('from_percentage')
+            ->values();
+    }
+
+    protected function syncTiersForScope(?int $tenantId, int $userId, int $year, string $scope, $tiers): void
+    {
+        UserCommissionTier::query()
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $userId)
+            ->where('year', $year)
+            ->where('scope', $scope)
+            ->delete();
+
+        foreach (collect($tiers) as $tier) {
+            UserCommissionTier::query()->create([
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'year' => $year,
+                'scope' => $scope,
+                'from_percentage' => $tier['from_percentage'],
+                'to_percentage' => $tier['to_percentage'],
+                'commission_percentage' => $tier['commission_percentage'],
+            ]);
+        }
     }
 }

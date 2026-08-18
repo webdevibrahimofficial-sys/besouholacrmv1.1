@@ -8,17 +8,28 @@ use App\Models\LeadAction;
 use App\Models\CrmSetting;
 use App\Models\User;
 use App\Notifications\RequestCreated;
+use App\Services\GeneralInventory\GeneralInventoryApprovalService;
+use App\Services\GeneralInventory\GeneralInventoryDecisionService;
 use App\Services\ItemStockService;
 use App\Traits\InventoryDeleteAuthorization;
 use App\Traits\ResolvesNotificationRecipients;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class InventoryRequestController extends Controller
 {
     use ResolvesNotificationRecipients, UserHierarchyTrait, InventoryDeleteAuthorization;
+
+    public function __construct(
+        private readonly GeneralInventoryApprovalService $approvals,
+        private readonly GeneralInventoryDecisionService $decisions,
+    ) {
+    }
     /**
      * Display a listing of the resource.
      */
@@ -172,20 +183,27 @@ class InventoryRequestController extends Controller
                 continue;
             }
 
-            $lineIndex = isset($meta['source_action_line']) ? (int) $meta['source_action_line'] : null;
-            $row = $lineIndex !== null && array_key_exists($lineIndex, $rows) ? $rows[$lineIndex] : null;
-            if (!is_array($row)) {
+            $hasLineIndex = array_key_exists('source_action_line', $meta);
+            $lineIndex = $hasLineIndex ? (int) $meta['source_action_line'] : null;
+            if ($hasLineIndex && array_key_exists($lineIndex, $rows) && is_array($rows[$lineIndex])) {
+                $row = $rows[$lineIndex];
+                $lineTotal = $this->resolveReservationLineTotal($row);
+                $meta['reservationGeneralItems'] = [$row];
+                $meta['reservationAmount'] = $lineTotal;
+                $meta['line_total'] = $lineTotal;
+                $meta['total'] = $lineTotal;
+                $meta['addons_total'] = (float) ($row['addons_total'] ?? 0);
+                $meta['discount_amount'] = (float) ($row['discount_amount'] ?? 0);
+                $item->meta_data = $meta;
                 continue;
             }
 
-            $lineTotal = $this->resolveReservationLineTotal($row);
-            $meta['reservationGeneralItems'] = [$row];
-            $meta['reservationAmount'] = $lineTotal;
-            $meta['line_total'] = $lineTotal;
-            $meta['total'] = $lineTotal;
-            $meta['addons_total'] = (float) ($row['addons_total'] ?? 0);
-            $meta['discount_amount'] = (float) ($row['discount_amount'] ?? 0);
-
+            $meta['reservationGeneralItems'] = $rows;
+            $meta['reservationAmount'] = $this->resolveReservationRowsTotal($rows);
+            $meta['line_total'] = $meta['reservationAmount'];
+            $meta['total'] = $meta['reservationAmount'];
+            $meta['addons_total'] = (float) collect($rows)->sum(fn ($row) => (float) ($row['addons_total'] ?? 0));
+            $meta['discount_amount'] = (float) collect($rows)->sum(fn ($row) => (float) ($row['discount_amount'] ?? 0));
             $item->meta_data = $meta;
         }
     }
@@ -204,6 +222,16 @@ class InventoryRequestController extends Controller
         $discountAmount = (float) ($row['discount_amount'] ?? 0);
 
         return max(0, ($quantity * $price) + $addonsTotal - $discountAmount);
+    }
+
+    /**
+     * @param  list<array<string,mixed>>  $rows
+     */
+    private function resolveReservationRowsTotal(array $rows): float
+    {
+        return (float) collect($rows)
+            ->filter(fn ($row) => is_array($row))
+            ->sum(fn (array $row) => $this->resolveReservationLineTotal($row));
     }
 
     public function store(Request $request)
@@ -294,25 +322,57 @@ class InventoryRequestController extends Controller
             'assigned_to' => 'nullable|string|max:255',
             'payment_plan' => 'nullable|string|max:255',
             'source' => 'nullable|string|max:255',
+            'rejection_reason' => 'nullable|string',
+            'change_request_reason' => 'nullable|string',
+            'meta_data' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $previousStatus = (string) $inventoryRequest->status;
-        $inventoryRequest->update($request->all());
+        try {
+            $prepared = $this->approvals->prepareUpdate($inventoryRequest, $request->all(), $request->user());
+        } catch (AuthorizationException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => collect($e->errors())->flatten()->first() ?: 'Inventory request validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
+        }
 
-        $nextStatus = (string) $inventoryRequest->status;
+        $previousStatus = $prepared['previous_status'];
+        $updateData = Arr::only($prepared['data'], [
+            'customer_name',
+            'property_unit',
+            'product',
+            'quantity',
+            'status',
+            'priority',
+            'type',
+            'description',
+            'assigned_to',
+            'payment_plan',
+            'source',
+            'meta_data',
+        ]);
+        $inventoryRequest->fill($updateData);
+        $inventoryRequest->save();
+
+        $nextStatus = $prepared['next_status'];
         $stock = app(ItemStockService::class);
-        if (strcasecmp($nextStatus, 'Rejected') === 0 && strcasecmp($previousStatus, 'Rejected') !== 0) {
+        if ($this->decisions->isRejectedLike($nextStatus) && ! $this->decisions->isRejectedLike($previousStatus)) {
             $stock->releaseRequest($inventoryRequest, 'rejected');
         }
-        if (strcasecmp($nextStatus, 'Converted') === 0 && strcasecmp($previousStatus, 'Converted') !== 0) {
+        if ($this->decisions->isConvertedLike($nextStatus) && ! $this->decisions->isConvertedLike($previousStatus)) {
             $stock->freezeRequest($inventoryRequest);
         }
 
-        return response()->json($inventoryRequest);
+        return response()->json([
+            'data' => $inventoryRequest->fresh(),
+            'decision' => $prepared['decision'],
+        ]);
     }
 
     /**
