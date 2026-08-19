@@ -8,7 +8,9 @@ use App\Services\ItemStockService;
 use App\Support\StartCodeGenerator;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class QuotationController extends Controller
 {
@@ -101,6 +103,10 @@ class QuotationController extends Controller
             'valid_until' => 'nullable|date',
             'subtotal' => 'nullable|numeric',
             'tax' => 'nullable|numeric',
+            'tax_rate' => 'nullable|numeric',
+            'taxRate' => 'nullable|numeric',
+            'is_tax_enabled' => 'nullable',
+            'isTaxEnabled' => 'nullable',
             'total' => 'nullable|numeric',
             'items' => 'nullable|array',
             'notes' => 'nullable|string',
@@ -112,8 +118,9 @@ class QuotationController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $data = $request->except('attachment');
-        $incomingMeta = is_array($data['meta_data'] ?? null) ? $data['meta_data'] : [];
+        $data = $request->except(['attachment', 'attachments', '_method', '_token']);
+        unset($data['meta_data']);
+        $meta = $this->decodeMetaData($request->input('meta_data'));
 
         $subtotal = isset($data['subtotal']) ? (float) $data['subtotal'] : 0.0;
         $total = isset($data['total']) ? (float) $data['total'] : 0.0;
@@ -122,22 +129,14 @@ class QuotationController extends Controller
             $data['tax'] = max(0, $total - $subtotal);
         }
 
-        // Handle File Upload
-        $meta = $incomingMeta;
-        if ($request->hasFile('attachment')) {
-            $path = $request->file('attachment')->store('quotations', 'public');
-            $meta['attachment'] = $path;
-            $meta['attachment_name'] = $request->file('attachment')->getClientOriginalName();
-            $meta['attachment_type'] = $request->file('attachment')->getClientMimeType();
-            $meta['attachment_size'] = $request->file('attachment')->getSize();
-        }
+        $meta = $this->applyAttachmentToMeta($request, $meta);
+        $data = $this->filterQuotationAttributes($data, $meta);
 
         $quotation = new Quotation($data);
         $quotation->meta_data = $meta;
         $quotation->save();
 
         $settings = CrmSetting::resolved();
-        $meta = $quotation->meta_data ?? [];
         if (empty($meta['quotation_code'])) {
             $existingCodes = Quotation::query()
                 ->whereNotNull('meta_data')
@@ -176,12 +175,22 @@ class QuotationController extends Controller
         return response()->json($quotation);
     }
 
+    public function attachmentsIndex(Quotation $quotation)
+    {
+        return response()->json($this->normalizedAttachments($this->decodeMetaData($quotation->meta_data)));
+    }
+
     /**
      * Update the specified resource in storage.
      */
     public function update(Request $request, Quotation $quotation)
     {
-        $data = $request->all();
+        if ($request->has('items') && is_string($request->input('items'))) {
+            $request->merge(['items' => json_decode($request->input('items'), true)]);
+        }
+
+        $data = $request->except(['attachment', 'attachments', '_method', '_token']);
+        unset($data['meta_data']);
         $subtotal = isset($data['subtotal']) ? (float) $data['subtotal'] : (float) ($quotation->subtotal ?? 0);
         $total = isset($data['total']) ? (float) $data['total'] : (float) ($quotation->total ?? 0);
         $taxMissing = !array_key_exists('tax', $data) || $data['tax'] === null || $data['tax'] === '';
@@ -189,14 +198,23 @@ class QuotationController extends Controller
             $data['tax'] = max(0, $total - $subtotal);
         }
 
+        $meta = $this->decodeMetaData($quotation->meta_data);
+        if ($request->exists('meta_data')) {
+            $meta = array_merge($meta, $this->decodeMetaData($request->input('meta_data')));
+        }
+        $meta = $this->applyAttachmentToMeta($request, $meta);
+        $data = $this->filterQuotationAttributes($data, $meta);
+
         $previousStatus = strtolower((string) $quotation->status);
-        $quotation->update($data);
+        $quotation->fill($data);
+        $quotation->meta_data = $meta;
+        $quotation->save();
         $nextStatus = strtolower((string) $quotation->status);
         if (in_array($nextStatus, ['cancelled', 'canceled', 'lost', 'rejected'], true)
             && !in_array($previousStatus, ['cancelled', 'canceled', 'lost', 'rejected'], true)) {
             app(ItemStockService::class)->releaseQuotation($quotation->fresh());
         }
-        return response()->json($quotation);
+        return response()->json($quotation->fresh());
     }
 
     /**
@@ -207,5 +225,94 @@ class QuotationController extends Controller
         app(ItemStockService::class)->releaseQuotation($quotation);
         $quotation->delete();
         return response()->json(null, 204);
+    }
+
+    private function filterQuotationAttributes(array $data, array &$meta): array
+    {
+        $columns = Schema::getColumnListing('quotations');
+        if (array_key_exists('tax', $data) && !in_array('tax', $columns, true)) {
+            $meta['tax'] = $data['tax'];
+        }
+
+        $taxRate = $data['tax_rate'] ?? $data['taxRate'] ?? null;
+        if ($taxRate !== null && $taxRate !== '') {
+            $meta['tax_rate'] = (float) $taxRate;
+        }
+
+        $isTaxEnabled = $data['is_tax_enabled'] ?? $data['isTaxEnabled'] ?? null;
+        if ($isTaxEnabled !== null && $isTaxEnabled !== '') {
+            $meta['is_tax_enabled'] = filter_var($isTaxEnabled, FILTER_VALIDATE_BOOLEAN);
+        }
+
+        $filtered = array_intersect_key($data, array_flip($columns));
+        unset($filtered['id']);
+
+        return $filtered;
+    }
+
+    private function decodeMetaData(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && trim($value) !== '') {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [];
+    }
+
+    private function applyAttachmentToMeta(Request $request, array $meta): array
+    {
+        if (!$request->hasFile('attachment')) {
+            return $meta;
+        }
+
+        $file = $request->file('attachment');
+        $path = $file->store('quotations', 'public');
+        $meta['attachment'] = $path;
+        $meta['attachment_name'] = $file->getClientOriginalName();
+        $meta['attachment_type'] = $file->getClientMimeType();
+        $meta['attachment_size'] = $file->getSize();
+
+        $attachments = is_array($meta['attachments'] ?? null) ? $meta['attachments'] : [];
+        $attachments[] = [
+            'id' => (string) Str::uuid(),
+            'name' => $meta['attachment_name'],
+            'path' => $path,
+            'url' => asset('storage/' . ltrim((string) $path, '/')),
+            'size' => $meta['attachment_size'],
+            'mime' => $meta['attachment_type'],
+            'created_at' => now()->toISOString(),
+        ];
+        $meta['attachments'] = array_values($attachments);
+
+        return $meta;
+    }
+
+    private function normalizedAttachments(array $meta): array
+    {
+        $attachments = is_array($meta['attachments'] ?? null) ? array_values($meta['attachments']) : [];
+        if ($attachments) {
+            return $attachments;
+        }
+
+        $path = $meta['attachment'] ?? null;
+        if (!$path) {
+            return [];
+        }
+
+        return [[
+            'id' => 'legacy',
+            'name' => $meta['attachment_name'] ?? basename((string) $path),
+            'path' => $path,
+            'url' => asset('storage/' . ltrim((string) $path, '/')),
+            'size' => $meta['attachment_size'] ?? null,
+            'mime' => $meta['attachment_type'] ?? null,
+        ]];
     }
 }

@@ -1,10 +1,19 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReactToPrint } from 'react-to-print'
 import { FaDownload, FaPaperclip, FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { extractTenantCompanyProfile } from '@shared/utils/tenantCompanyProfile'
 import { useTheme } from '@shared/context/ThemeProvider'
+import { api } from '../utils/api'
+
+function resolveQuotationAttachmentUrl(pathOrUrl) {
+  if (!pathOrUrl) return ''
+  const value = String(pathOrUrl)
+  if (/^https?:\/\//i.test(value) || value.startsWith('blob:') || value.startsWith('data:')) return value
+  const clean = value.replace(/^\/+/, '').replace(/^storage\//, '')
+  return `/storage/${clean}`
+}
 
 function QuotationPreviewModal({ isOpen, onClose, quotation }) {
   const { i18n } = useTranslation()
@@ -13,6 +22,9 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
   const { resolvedTheme } = useTheme()
   const printRef = useRef()
   const [showAttachments, setShowAttachments] = useState(false)
+  const [attachments, setAttachments] = useState([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  const [attachmentsError, setAttachmentsError] = useState('')
   const currencyCode = crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP'
   const isDark = resolvedTheme === 'dark'
 
@@ -28,11 +40,18 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
     const computedTax = Math.max(0, total - subtotal)
     const tax = storedTax > 0 ? storedTax : computedTax
 
+    const taxRate = Number(quotation.taxRate ?? quotation.tax_rate ?? quotation.meta_data?.tax_rate ?? 0)
+    const taxLabel = taxRate > 0
+      ? (isRTL ? `الضريبة (${taxRate}%)` : `Tax (${taxRate}%)`)
+      : (isRTL ? 'الضريبة' : 'Tax')
+
     return {
       ...quotation,
       items,
       subtotal,
       tax,
+      taxRate,
+      taxLabel,
       total,
       quotationNumber: quotation.quotationCode || quotation.quotation_code || quotation.id || 'Q-NEW',
       issueDate: quotation.createdAt || quotation.created_at || quotation.date || null,
@@ -42,10 +61,66 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
       paymentTerms: quotation.paymentTerms || quotation.payment_terms || '',
       currency: currencyCode,
       notes: quotation.notes || '',
-      attachment: quotation.attachment || '',
-      attachmentName: quotation.attachmentName || quotation.attachment_name || 'Attachment',
+      attachment: quotation.attachment || quotation.meta_data?.attachment || quotation.metaData?.attachment || '',
+      attachmentName: quotation.attachmentName || quotation.attachment_name || quotation.meta_data?.attachment_name || quotation.metaData?.attachment_name || 'Attachment',
+      attachments: Array.isArray(quotation.attachments) ? quotation.attachments : (Array.isArray(quotation.meta_data?.attachments) ? quotation.meta_data.attachments : []),
     }
   }, [currencyCode, isRTL, quotation])
+
+  useEffect(() => {
+    if (!isOpen) setShowAttachments(false)
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!showAttachments) return
+
+    const fallbackFromQuotation = () => {
+      const meta = quotation?.meta_data || quotation?.metaData || {}
+      const listed = Array.isArray(quotation?.attachments)
+        ? quotation.attachments
+        : (Array.isArray(meta.attachments) ? meta.attachments : [])
+      if (listed.length) return listed
+      const path = quotation?.attachment || meta.attachment
+      if (!path) return []
+      return [{
+        id: 'legacy',
+        name: quotation?.attachmentName || quotation?.attachment_name || meta.attachment_name || 'Attachment',
+        path,
+        url: resolveQuotationAttachmentUrl(path),
+      }]
+    }
+
+    if (!quotation?.id) {
+      setAttachments(fallbackFromQuotation())
+      setAttachmentsError('')
+      setAttachmentsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const loadAttachments = async () => {
+      setAttachmentsLoading(true)
+      setAttachmentsError('')
+      try {
+        const res = await api.get(`/api/quotations/${quotation.id}/attachments`)
+        const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : [])
+        if (!cancelled) setAttachments(list.length ? list : fallbackFromQuotation())
+      } catch {
+        if (!cancelled) {
+          const fallback = fallbackFromQuotation()
+          setAttachments(fallback)
+          if (!fallback.length) {
+            setAttachmentsError(isRTL ? 'فشل تحميل المرفقات' : 'Failed to load attachments')
+          }
+        }
+      } finally {
+        if (!cancelled) setAttachmentsLoading(false)
+      }
+    }
+
+    loadAttachments()
+    return () => { cancelled = true }
+  }, [isRTL, quotation, showAttachments])
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -230,23 +305,36 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
               </button>
             </div>
             <div className="p-5">
-              {normalizedQuotation.attachment ? (
-                <button
-                  type="button"
-                  onClick={() => window.open(`${import.meta.env.VITE_API_URL || ''}/storage/${normalizedQuotation.attachment}`, '_blank')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
-                      <FaPaperclip />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">{normalizedQuotation.attachmentName}</div>
-                      <div className="text-xs text-slate-500">{isRTL ? 'انقر للتحميل' : 'Click to download'}</div>
-                    </div>
-                  </div>
-                  <FaDownload className="text-slate-400" />
-                </button>
+              {attachmentsLoading ? (
+                <div className="py-8 text-center text-sm text-slate-500">{isRTL ? 'جاري تحميل المرفقات...' : 'Loading attachments...'}</div>
+              ) : attachmentsError ? (
+                <div className="py-8 text-center text-sm text-rose-600">{attachmentsError}</div>
+              ) : attachments.length ? (
+                <div className="space-y-3">
+                  {attachments.map((attachment, index) => {
+                    const name = attachment?.name || attachment?.file_name || attachment?.filename || normalizedQuotation.attachmentName || (isRTL ? 'ملف' : 'File')
+                    const url = resolveQuotationAttachmentUrl(attachment?.url || attachment?.download_url || attachment?.path)
+                    return (
+                      <button
+                        key={attachment?.id || `${name}-${index}`}
+                        type="button"
+                        onClick={() => url && window.open(url, '_blank')}
+                        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+                            <FaPaperclip />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">{name}</div>
+                            <div className="text-xs text-slate-500">{isRTL ? 'انقر للتحميل' : 'Click to download'}</div>
+                          </div>
+                        </div>
+                        <FaDownload className="text-slate-400" />
+                      </button>
+                    )
+                  })}
+                </div>
               ) : (
                 <div className="py-8 text-center text-sm text-slate-500">{isRTL ? 'لا توجد مرفقات' : 'No attachments found'}</div>
               )}
@@ -412,7 +500,7 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
                         </tr>
                         <tr className={`${summaryRowClass} print-light-row print-light-text print-light-border`}>
                           <td colSpan="4" className={`px-4 py-3 text-sm font-medium ${mainTextClass}`}>
-                            {isRTL ? 'الضريبة' : 'Tax'}
+                            {normalizedQuotation.taxLabel}
                           </td>
                           <td colSpan="2" className={`px-4 py-3 text-end text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-950'}`}>
                             {formatMoney(normalizedQuotation.tax)}

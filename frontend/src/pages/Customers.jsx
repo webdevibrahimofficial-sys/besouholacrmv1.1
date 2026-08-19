@@ -630,6 +630,8 @@ export const Customers = () => {
         valid_until: data.expiryDate,
         subtotal: data.subtotal,
         tax: data.tax,
+        tax_rate: data.taxRate,
+        is_tax_enabled: data.isTaxEnabled,
         total: data.total,
         items: data.items,
         notes: data.notes,
@@ -1105,7 +1107,7 @@ export const Customers = () => {
         
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead className={` text-xs uppercase ${isLight ? 'text-black' : 'text-white'} font-semibold backdrop-blur-sm`}>
+            <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 border-b border-black/10 dark:border-white/15 ${isLight ? 'text-black' : 'text-white'} font-semibold`}>
               <tr>
                 <th className="p-4 w-10">
                   <input 
@@ -1160,7 +1162,7 @@ export const Customers = () => {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-sm">
+            <tbody className="divide-y divide-white/10 dark:divide-gray-700/50 text-sm">
               {paginatedItems.length === 0 ? (
                 <tr>
                   <td colSpan="15" className={`p-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>

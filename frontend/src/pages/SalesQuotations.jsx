@@ -14,7 +14,28 @@ import QuotationPreviewModal from '../components/QuotationPreviewModal'
 import SalesOrdersFormModal from '../components/SalesOrdersFormModal'
 import * as XLSX from 'xlsx'
 
-// Mock data removed
+function parseQuotationMeta(quotation) {
+  let meta = quotation?.meta_data ?? quotation?.metaData ?? null
+  if (typeof meta === 'string') {
+    try {
+      meta = JSON.parse(meta)
+    } catch {
+      meta = null
+    }
+  }
+  return meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {}
+}
+
+function mapQuotationAttachment(quotation) {
+  const meta = parseQuotationMeta(quotation)
+  const list = Array.isArray(meta.attachments) ? meta.attachments : []
+  const first = list[0] || null
+  return {
+    attachment: quotation?.attachment || meta.attachment || first?.path || first?.url || null,
+    attachmentName: quotation?.attachmentName || quotation?.attachment_name || meta.attachment_name || first?.name || null,
+    attachments: list,
+  }
+}
 
 export default function SalesQuotations() {
   const { t, i18n } = useTranslation()
@@ -104,18 +125,22 @@ export default function SalesQuotations() {
 
         const subtotal = Number(q.subtotal || 0)
         const total = Number(q.total || 0)
-        const storedTax = q.tax ?? q.tax_amount
+        const meta = parseQuotationMeta(q)
+        const attachmentFields = mapQuotationAttachment(q)
+        const storedTax = q.tax ?? q.tax_amount ?? meta.tax
         const fallbackTax = Math.max(0, total - subtotal)
 
         return {
         id: q.id,
-        quotationCode: q.meta_data?.quotation_code || q.id, // Prefer code from meta_data
+        quotationCode: meta.quotation_code || q.quotation_code || q.quotationCode || q.id,
         customerCode: q.customer?.customer_code || q.customer_id || q.customer_code || q.customerCode || '',
         customerName: q.customer_name || q.customerName || '',
         status: q.status || 'Draft',
         items: Array.isArray(q.items) ? q.items : [],
         subtotal,
          tax: Number(storedTax ?? fallbackTax ?? 0),
+         taxRate: Number(meta.tax_rate ?? q.tax_rate ?? q.taxRate ?? 0),
+         isTaxEnabled: meta.is_tax_enabled ?? Number(storedTax ?? fallbackTax ?? 0) > 0,
          discount: Number(q.discount || q.discount_amount || 0),
          total,
         createdBy: q.created_by_name || usersById[q.created_by] || (q.created_by ? String(q.created_by) : '') || 'System', // Fallback to 'System' or ID if name not found
@@ -123,8 +148,8 @@ export default function SalesQuotations() {
         createdAt: q.created_at || q.date || new Date().toISOString(),
         expiryDate: q.valid_until || q.expiryDate || '',
         notes: q.notes || '',
-        attachment: q.meta_data?.attachment || null,
-        attachmentName: q.meta_data?.attachment_name || null
+        ...attachmentFields,
+        meta_data: meta,
       }})
       setItems(mapped)
       setCustomersList(Array.isArray(customersData) ? customersData : [])
@@ -1103,6 +1128,8 @@ export default function SalesQuotations() {
             if (data.notes) formData.append('notes', data.notes);
             if (salesPerson) formData.append('sales_person', String(salesPerson));
             if (data.tax !== undefined) formData.append('tax', data.tax);
+            if (data.taxRate !== undefined) formData.append('tax_rate', data.taxRate);
+            if (data.isTaxEnabled !== undefined) formData.append('is_tax_enabled', data.isTaxEnabled ? 1 : 0);
             
             // Attachment
             if (data.attachment instanceof File) {
@@ -1111,15 +1138,11 @@ export default function SalesQuotations() {
 
             if (editingItem) {
               formData.append('_method', 'PUT'); // Laravel method spoofing for FormData
-              await api.post(`/api/quotations/${editingItem.id}`, formData, {
-                  headers: { 'Content-Type': 'multipart/form-data' }
-              });
+              await api.post(`/api/quotations/${editingItem.id}`, formData);
               await load();
               showSuccess(isRTL ? 'تم تحديث عرض السعر' : 'Quotation updated successfully');
             } else {
-              await api.post('/api/quotations', formData, {
-                  headers: { 'Content-Type': 'multipart/form-data' }
-              });
+              await api.post('/api/quotations', formData);
               await load();
               showSuccess(isRTL ? 'تم إضافة عرض السعر' : 'Quotation added successfully');
             }

@@ -5,6 +5,17 @@ import { api } from '../utils/api'
 import { FaFileInvoiceDollar, FaTimes, FaHashtag, FaUser, FaCalendarAlt, FaPlus, FaTrash, FaStickyNote, FaPaperclip, FaSave } from 'react-icons/fa'
 import SearchableSelect from './SearchableSelect'
 
+const DEFAULT_TAX_RATE = 14
+
+const resolveQuotationTaxRate = (data) => {
+  const stored = Number(data?.taxRate ?? data?.tax_rate ?? data?.meta_data?.tax_rate)
+  if (Number.isFinite(stored) && stored > 0) return stored
+  const subtotal = Number(data?.subtotal || 0)
+  const tax = Number(data?.tax || 0)
+  if (subtotal > 0 && tax > 0) return Math.round((tax / subtotal) * 10000) / 100
+  return DEFAULT_TAX_RATE
+}
+
 const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL }) => {
   const { t } = useTranslation()
   const { theme } = useTheme()
@@ -19,6 +30,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
     expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     items: [], // Array of line items
     tax: 0,
+    taxRate: DEFAULT_TAX_RATE,
     notes: '',
     attachment: null,
     salesPerson: '',
@@ -108,10 +120,13 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
         expiryDate: initialData.expiryDate ? new Date(initialData.expiryDate).toISOString().split('T')[0] : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         items: initialData.items || [],
         tax: Number(initialData.tax || 0),
+        taxRate: resolveQuotationTaxRate(initialData),
         notes: initialData.notes || '',
         attachment: initialData.attachment || null,
         salesPerson: initialData.salesPerson || '',
-        isTaxEnabled: Number(initialData.tax || 0) > 0 
+        isTaxEnabled: initialData.isTaxEnabled
+          ?? initialData.meta_data?.is_tax_enabled
+          ?? (Array.isArray(initialData.items) ? Number(initialData.tax || 0) > 0 : true)
       })
     } else {
       setFormData({
@@ -123,6 +138,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
         expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         items: [],
         tax: 0,
+        taxRate: DEFAULT_TAX_RATE,
         notes: '',
         attachment: null,
         salesPerson: '',
@@ -157,12 +173,15 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
   // Auto-calculate tax effect
   useEffect(() => {
     if (formData.isTaxEnabled) {
-      const calculatedTax = subtotal * 0.14
+      const rate = Math.max(0, Number(formData.taxRate) || 0)
+      const calculatedTax = subtotal * (rate / 100)
       if (Math.abs(formData.tax - calculatedTax) > 0.01) {
         setFormData(prev => ({ ...prev, tax: calculatedTax }))
       }
+    } else if (Number(formData.tax) !== 0) {
+      setFormData(prev => ({ ...prev, tax: 0 }))
     }
-  }, [subtotal, formData.isTaxEnabled])
+  }, [subtotal, formData.isTaxEnabled, formData.taxRate])
 
   const taxAmount = parseFloat(formData.tax) || 0
   const total = subtotal + taxAmount
@@ -703,11 +722,15 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
               <div>
                 <label className={labelClass}>{isRTL ? 'المرفقات' : 'Attachment'}</label>
                 <div className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${isDark ? 'border-gray-700' : 'border-gray-300'}`}>
-                  <input type="file" className="hidden" id="file-upload" onChange={e => setFormData({...formData, attachment: e.target.files[0]})} />
-                  <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2">
+                  <input type="file" className="hidden" id="quotation-file-upload" onChange={e => setFormData({...formData, attachment: e.target.files[0]})} />
+                  <label htmlFor="quotation-file-upload" className="cursor-pointer flex flex-col items-center gap-2">
                     <FaPaperclip className="text-gray-400" size={24} />
                     <span className="text-sm text-gray-500">
-                      {formData.attachment ? formData.attachment.name : (isRTL ? 'انقر لرفع ملف' : 'Click to upload file')}
+                      {formData.attachment instanceof File
+                        ? formData.attachment.name
+                        : (typeof formData.attachment === 'string' && formData.attachment
+                          ? formData.attachment.split('/').pop()
+                          : (isRTL ? 'انقر لرفع ملف' : 'Click to upload file'))}
                     </span>
                   </label>
                 </div>
@@ -722,9 +745,9 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
                   <span className="font-medium">{subtotal.toLocaleString()}</span>
                 </div>
                 
-                <div className="flex justify-between items-center text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-theme-text">{isRTL ? 'الضريبة' : 'Tax'}</span>
+                <div className="flex justify-between items-center text-sm gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-theme-text whitespace-nowrap">{isRTL ? 'الضريبة' : 'Tax'}</span>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input 
                         type="checkbox" 
@@ -732,33 +755,37 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
                         checked={formData.isTaxEnabled}
                         onChange={(e) => {
                            const isEnabled = e.target.checked
+                           const rate = Math.max(0, Number(formData.taxRate) || DEFAULT_TAX_RATE)
                            setFormData(prev => ({ 
                              ...prev, 
                              isTaxEnabled: isEnabled,
-                             tax: isEnabled ? subtotal * 0.14 : 0
+                             taxRate: prev.taxRate || DEFAULT_TAX_RATE,
+                             tax: isEnabled ? subtotal * (rate / 100) : 0
                            }))
                         }}
                       />
-                      <span className="text-xs text-gray-500">{isRTL ? 'تطبيق 14%' : 'Apply 14%'}</span>
+                      <span className="text-xs text-gray-500">{isRTL ? 'تطبيق' : 'Apply'}</span>
                     </label>
                   </div>
-                  <div className="flex items-center gap-2 w-1/3">
-                    {formData.isTaxEnabled ? (
-                      <input
-                        type="text"
-                        value={(Number(formData.tax) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        className="input input-sm w-full text-right opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700"
-                        readOnly
-                      />
-                    ) : (
+                  <div className="flex items-center gap-2 w-1/2 justify-end">
+                    <div className="relative w-20">
                       <input
                         type="number"
-                        value={Number(formData.tax) || 0}
-                        onChange={e => setFormData({...formData, tax: Number(e.target.value)})}
-                        className="input input-sm w-full text-right"
-                        placeholder="0.00"
+                        min="0"
+                        step="0.01"
+                        value={formData.taxRate ?? DEFAULT_TAX_RATE}
+                        onChange={(e) => setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) }))}
+                        className="input input-sm w-full text-right pr-6"
+                        disabled={!formData.isTaxEnabled}
                       />
-                    )}
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">%</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={(Number(formData.tax) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      className="input input-sm w-28 text-right opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700"
+                      readOnly
+                    />
                   </div>
                 </div>
 
