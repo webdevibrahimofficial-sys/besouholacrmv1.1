@@ -177,8 +177,6 @@ final class GeneralInventoryItemCatalogService
             'model' => $this->nullableString($input['model'] ?? null),
             'barcode' => $barcode,
             'sku' => $barcode,
-            'tax_rate' => $this->nullableDecimal($input['tax_rate'] ?? $input['taxRate'] ?? null),
-            'tax_included' => $this->toBoolean($input['tax_included'] ?? $input['taxIncluded'] ?? false),
             'notes' => $this->nullableString($input['notes'] ?? null),
             'warehouse' => $this->nullableString($input['warehouse'] ?? $input['location'] ?? null),
             'supplier' => $this->nullableString($input['supplier'] ?? $input['vendor'] ?? null),

@@ -18,10 +18,13 @@ use App\Traits\InventoryDeleteAuthorization;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\UploadedFile;
 
 class ItemController extends Controller
 {
@@ -116,6 +119,7 @@ class ItemController extends Controller
                 ->update(['item_id' => $replacementItem->id]);
         }
 
+        $this->deleteStoredItemImage($item->image);
         $item->delete();
 
         return [
@@ -389,6 +393,8 @@ class ItemController extends Controller
             'addons.*.quantity' => 'nullable|integer|min:1',
             'addons.*.price' => 'nullable|numeric|min:0',
             'addons.*.period' => 'nullable|string|max:255',
+            'image' => 'nullable',
+            'remove_image' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -447,6 +453,9 @@ class ItemController extends Controller
                 $businessType,
                 $category
             );
+
+            $imagePath = $this->persistItemImage($request);
+            $this->applyItemImageToPayload($data, $imagePath);
             
             // Set tenant_id if not present
             if (!isset($data['tenant_id'])) {
@@ -547,6 +556,8 @@ class ItemController extends Controller
                 'addons.*.quantity' => 'nullable|integer|min:1',
                 'addons.*.price' => 'nullable|numeric|min:0',
                 'addons.*.period' => 'nullable|string|max:255',
+                'image' => 'nullable',
+                'remove_image' => 'nullable|boolean',
             ]);
 
             if ($validator->fails()) {
@@ -602,6 +613,10 @@ class ItemController extends Controller
                 $businessType,
                 $category
             );
+
+            $existingImage = $item->image ?: data_get($item->meta_data, 'general_inventory.image');
+            $imagePath = $this->persistItemImage($request, is_string($existingImage) ? $existingImage : null);
+            $this->applyItemImageToPayload($data, $imagePath);
 
             $item->update($this->catalog->persistableAttributes($data));
 
@@ -745,5 +760,138 @@ class ItemController extends Controller
             'deleted_count' => count($results),
             'results' => $results,
         ]);
+    }
+
+    private function applyItemImageToPayload(array &$data, ?string $imagePath): void
+    {
+        if ($imagePath === null) {
+            return;
+        }
+
+        $data['image'] = $imagePath === '' ? null : $imagePath;
+        $meta = is_array($data['meta_data'] ?? null) ? $data['meta_data'] : [];
+        $general = is_array($meta['general_inventory'] ?? null) ? $meta['general_inventory'] : [];
+        if ($imagePath === '') {
+            unset($general['image']);
+        } else {
+            $general['image'] = $imagePath;
+        }
+        $meta['general_inventory'] = $general;
+        $data['meta_data'] = $meta;
+    }
+
+    private function persistItemImage(Request $request, ?string $existingPath = null): ?string
+    {
+        if ($request->boolean('remove_image')) {
+            $this->deleteStoredItemImage($existingPath);
+
+            return '';
+        }
+
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            if (! $file instanceof UploadedFile || ! $file->isValid()) {
+                return null;
+            }
+
+            $this->deleteStoredItemImage($existingPath);
+
+            return $file->store('items', 'public');
+        }
+
+        if (! $request->exists('image')) {
+            return null;
+        }
+
+        $raw = $request->input('image');
+        if (! is_string($raw) || trim($raw) === '') {
+            $this->deleteStoredItemImage($existingPath);
+
+            return '';
+        }
+
+        $raw = trim($raw);
+        if (str_starts_with($raw, 'data:image')) {
+            $stored = $this->storeItemImageFromDataUrl($raw);
+            if ($stored) {
+                $this->deleteStoredItemImage($existingPath);
+            }
+
+            return $stored ?: null;
+        }
+
+        return $this->normalizeStoredItemImagePath($raw) ?: $existingPath;
+    }
+
+    private function storeItemImageFromDataUrl(string $dataUrl): ?string
+    {
+        if (! preg_match('/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/', $dataUrl, $matches)) {
+            return null;
+        }
+
+        $extension = strtolower($matches[1]);
+        if ($extension === 'jpeg') {
+            $extension = 'jpg';
+        }
+        if (! in_array($extension, ['jpg', 'png', 'gif', 'webp', 'svg+xml', 'svg'], true)) {
+            $extension = 'png';
+        }
+        if ($extension === 'svg+xml') {
+            $extension = 'svg';
+        }
+
+        $binary = base64_decode($matches[2], true);
+        if ($binary === false || $binary === '') {
+            return null;
+        }
+
+        $path = 'items/'.Str::uuid().'.'.$extension;
+        Storage::disk('public')->put($path, $binary);
+
+        return $path;
+    }
+
+    private function normalizeStoredItemImagePath(string $value): ?string
+    {
+        if (str_starts_with($value, 'data:')) {
+            return null;
+        }
+
+        $path = $value;
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parts = parse_url($path);
+            $path = (string) ($parts['path'] ?? '');
+        }
+
+        $path = ltrim($path, '/');
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+        if (str_starts_with($path, 'api/public-files/')) {
+            $path = substr($path, strlen('api/public-files/'));
+        }
+
+        $path = ltrim($path, '/');
+        if ($path === '' || str_contains($path, '..')) {
+            return null;
+        }
+
+        return $path;
+    }
+
+    private function deleteStoredItemImage(?string $path): void
+    {
+        $normalized = $path ? $this->normalizeStoredItemImagePath($path) : null;
+        if (! $normalized) {
+            return;
+        }
+
+        try {
+            if (Storage::disk('public')->exists($normalized)) {
+                Storage::disk('public')->delete($normalized);
+            }
+        } catch (\Throwable) {
+            // Image cleanup is best-effort.
+        }
     }
 }

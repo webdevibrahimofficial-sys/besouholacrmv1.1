@@ -38,6 +38,7 @@ class Item extends Model
         'service_amount',
         'billing_kind',
         'is_recurring',
+        'image_url',
     ];
 
     public function category()
@@ -158,5 +159,37 @@ class Item extends Model
     public function getIsRecurringAttribute(): bool
     {
         return $this->billing_kind === 'recurring';
+    }
+
+    public function getImageUrlAttribute(): ?string
+    {
+        $path = trim((string) ($this->attributes['image'] ?? ''));
+        if ($path === '') {
+            $meta = is_array($this->meta_data) ? $this->meta_data : [];
+            $path = trim((string) ($meta['general_inventory']['image'] ?? $meta['image'] ?? ''));
+        }
+
+        if ($path === '') {
+            return null;
+        }
+
+        if (
+            str_starts_with($path, 'http://')
+            || str_starts_with($path, 'https://')
+            || str_starts_with($path, 'data:')
+        ) {
+            return $path;
+        }
+
+        $path = ltrim($path, '/');
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+        if (str_starts_with($path, 'api/public-files/')) {
+            $path = substr($path, strlen('api/public-files/'));
+        }
+        $path = ltrim($path, '/');
+
+        return $path === '' ? null : '/api/public-files/'.$path;
     }
 }

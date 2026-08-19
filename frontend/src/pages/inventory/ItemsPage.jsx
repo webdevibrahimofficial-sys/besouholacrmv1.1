@@ -42,6 +42,81 @@ const emptyKnownNamesByTab = () => ({
   [CATEGORY_TYPE_SERVICES]: [],
 })
 
+const resolveItemImageSrc = (item) => {
+  const raw = String(
+    item?.image_url
+    || item?.image
+    || item?.meta_data?.general_inventory?.image
+    || item?.meta_data?.image
+    || ''
+  ).trim()
+  if (!raw) return ''
+  if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw
+
+  const toPublicFiles = (pathname) => {
+    const storageIdx = pathname.indexOf('/storage/')
+    if (storageIdx !== -1) {
+      return `/api/public-files/${pathname.slice(storageIdx + '/storage/'.length).replace(/^\/+/, '')}`
+    }
+    const publicIdx = pathname.indexOf('/api/public-files/')
+    if (publicIdx !== -1) {
+      return `/api/public-files/${pathname.slice(publicIdx + '/api/public-files/'.length).replace(/^\/+/, '')}`
+    }
+    return ''
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      return toPublicFiles(new URL(raw).pathname) || raw
+    } catch {
+      return raw
+    }
+  }
+
+  return toPublicFiles(raw.startsWith('/') ? raw : `/${raw}`) || `/api/public-files/${raw.replace(/^\/+/, '')}`
+}
+
+const ItemAvatar = ({ item, sizeClass = 'h-9 w-9' }) => {
+  const src = resolveItemImageSrc(item)
+  const [preview, setPreview] = useState(null)
+  if (!src) return null
+
+  const showPreview = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const showAbove = rect.top > 220
+    setPreview({
+      top: showAbove ? rect.top - 12 : rect.bottom + 12,
+      left: rect.left + rect.width / 2,
+      showAbove,
+    })
+  }
+
+  return (
+    <>
+      <img
+        src={src}
+        alt={item?.name || ''}
+        className={`${sizeClass} shrink-0 rounded-full object-cover border border-white/10 bg-white/5 cursor-zoom-in transition-transform duration-150 hover:scale-110`}
+        onMouseEnter={showPreview}
+        onMouseMove={showPreview}
+        onMouseLeave={() => setPreview(null)}
+      />
+      {preview ? (
+        <div
+          className={`pointer-events-none fixed z-[9999] -translate-x-1/2 ${preview.showAbove ? '-translate-y-full' : ''}`}
+          style={{ top: preview.top, left: preview.left }}
+        >
+          <img
+            src={src}
+            alt={item?.name || ''}
+            className="h-44 w-44 rounded-2xl object-cover border border-slate-700 bg-slate-950 shadow-2xl shadow-black/50"
+          />
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 const distinctFromItemCode = (value, code) => {
   const text = String(value || '').trim()
   const itemCode = String(code || '').trim()
@@ -213,11 +288,15 @@ export default function ItemsPage() {
     totalPrice: isArabic ? 'الإجمالي' : 'Total Amount',
     addonsDetails: isArabic ? 'تفاصيل الإضافات' : 'Add-ons Details',
     noAddons: isArabic ? 'لا توجد إضافات' : 'No add-ons',
+    itemImage: isArabic ? 'صورة الصنف' : 'Item Image',
+    removeImage: isArabic ? 'إزالة الصورة' : 'Remove image',
   }), [isArabic])
 
   const emptyItemForm = () => ({
     id: null,
     name: '',
+    image: '',
+    remove_image: false,
     category: '',
     category_id: '',
     type: '',
@@ -235,8 +314,6 @@ export default function ItemsPage() {
     startDate: '',
     endDate: '',
     renewalRequired: false,
-    taxRate: '',
-    taxIncluded: false,
     warehouse: '',
     notes: '',
     stock: 0,
@@ -530,6 +607,8 @@ export default function ItemsPage() {
         return {
           ...item,
           name: item.name || '',
+          image: resolveItemImageSrc(item),
+          image_url: resolveItemImageSrc(item),
           business_type: item.business_type || (isService ? 'service' : 'product'),
           category_type: item.category_type || (isService ? CATEGORY_TYPE_SERVICES : CATEGORY_TYPE_PRODUCTS),
           category: typeof item.category === 'object' ? item.category?.name || '' : item.category || '',
@@ -694,6 +773,20 @@ export default function ItemsPage() {
     setForm(prev => ({ ...prev, [name]: value }))
   }
 
+  function handleItemImageChange(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      setForm(prev => ({ ...prev, image: String(reader.result || ''), remove_image: false }))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function clearItemImage() {
+    setForm(prev => ({ ...prev, image: '', remove_image: true }))
+  }
+
   async function onSubmit(e) {
     e.preventDefault()
     if (!canManageItems) {
@@ -750,8 +843,6 @@ export default function ItemsPage() {
       service_start_date: toDateInputValue(form.startDate) || undefined,
       service_end_date: toDateInputValue(form.endDate) || undefined,
       renewal_required: Boolean(form.renewalRequired),
-      tax_rate: form.taxRate === '' ? undefined : form.taxRate,
-      tax_included: Boolean(form.taxIncluded),
       barcode: form.barcode || undefined,
       sku: form.barcode || undefined,
       unit: isService ? 'Piece' : normalizeQuantityType(form.unit),
@@ -759,6 +850,8 @@ export default function ItemsPage() {
       supplier: form.supplier || undefined,
       notes: form.notes || undefined,
       description: form.description || undefined,
+      image: form.remove_image ? '' : (form.image || undefined),
+      remove_image: form.remove_image ? true : undefined,
       status: form.status || 'Active',
       addons: (form.addons || [])
         .filter(addon => String(addon.name || '').trim() !== '')
@@ -912,6 +1005,7 @@ export default function ItemsPage() {
       category_type: item.type || item.category_type,
       applies_to: item.type,
     }
+    const existingImage = resolveItemImageSrc(item)
     setForm(applySelectedCategory({
       ...emptyItemForm(),
       ...item,
@@ -923,9 +1017,26 @@ export default function ItemsPage() {
       endDate: toDateInputValue(item.endDate || item.service_end_date),
       notes: item.notes || '',
       description: item.description || '',
+      image: existingImage,
+      image_url: existingImage,
+      remove_image: false,
       addons: Array.isArray(item.addons) ? item.addons : [],
     }, cat))
     setShowForm(true)
+
+    if (!item?.id) return
+    api.get(`/api/items/${item.id}`)
+      .then((response) => {
+        const fresh = response?.data || {}
+        const freshImage = resolveItemImageSrc(fresh)
+        if (!freshImage) return
+        setForm((prev) => (
+          prev.id === item.id
+            ? { ...prev, image: freshImage, image_url: freshImage, remove_image: false }
+            : prev
+        ))
+      })
+      .catch(() => {})
   }
 
   // Reset pagination when filters or tab change
@@ -1567,6 +1678,39 @@ export default function ItemsPage() {
                     />
                   </div>
 
+                  <div className="form-control">
+                    <label className="label text-xs font-semibold text-theme mb-1.5">{labels.itemImage}</label>
+                    <div className="flex items-center gap-3">
+                      {resolveItemImageSrc(form) ? (
+                        <img
+                          src={resolveItemImageSrc(form)}
+                          alt={form.name || labels.itemImage}
+                          className="h-14 w-14 shrink-0 rounded-full object-cover border border-gray-600 bg-white/5"
+                        />
+                      ) : (
+                        <div className="h-14 w-14 shrink-0 rounded-full border border-dashed border-gray-600 bg-transparent" />
+                      )}
+                      <div className="flex flex-col gap-2">
+                        <input
+                          key={form.id ? `item-image-${form.id}` : 'item-image-new'}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleItemImageChange}
+                          className="block w-full text-sm text-theme file:mr-3 file:rounded-full file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-300"
+                        />
+                        {resolveItemImageSrc(form) ? (
+                          <button
+                            type="button"
+                            onClick={clearItemImage}
+                            className="text-xs text-red-400 hover:text-red-300 text-start"
+                          >
+                            {labels.removeImage}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
                   {isProductForm && (
                     <div className="form-control">
                       <label className="label text-xs font-semibold text-theme mb-1.5">{labels.itemCode} <span className="text-red-500">*</span></label>
@@ -1727,14 +1871,6 @@ export default function ItemsPage() {
                           <input type="date" name="endDate" value={toDateInputValue(form.endDate)} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" />
                         </div>
                       )}
-                      <div className="form-control">
-                        <label className="label text-xs font-semibold text-theme mb-1.5">{labels.taxRate}</label>
-                        <input type="number" name="taxRate" value={form.taxRate} onChange={onChange} className="input w-full bg-transparent border border-gray-600 text-theme h-10 rounded-md" placeholder="0" />
-                      </div>
-                      <div className="form-control flex flex-row items-center gap-3 pt-6">
-                        <label className="label-text font-medium text-theme">{labels.taxIncluded}</label>
-                        <input type="checkbox" className="checkbox" checked={Boolean(form.taxIncluded)} onChange={(e) => setForm(prev => ({ ...prev, taxIncluded: e.target.checked }))} />
-                      </div>
                       {isServiceForm && (
                         <div className="form-control flex flex-row items-center gap-3 pt-6">
                           <label className="label-text font-medium text-theme">{labels.renewalRequired}</label>
@@ -2451,6 +2587,7 @@ export default function ItemsPage() {
                         )}
                         <td className="px-4 py-3 text-start font-medium text-theme">
                           <div className="flex items-center gap-2">
+                            <ItemAvatar item={item} />
                             <div className="flex flex-col">
                               <span>{item.name || labels.notApplicable}</span>
                               {itemCode ? <span className="font-mono text-[10px] opacity-70">{itemCode}</span> : null}
@@ -2622,6 +2759,9 @@ export default function ItemsPage() {
                             aria-label={`${labels.bulkActions}: ${item.name}`}
                           />
                         )}
+                        {item.image_url || item.image ? (
+                          <ItemAvatar item={item} sizeClass="h-10 w-10" />
+                        ) : null}
                         <div className="flex flex-col">
                           <span className="font-semibold text-theme text-base">{item.name || labels.notApplicable}</span>
                           {!service && item.is_low_stock ? (
