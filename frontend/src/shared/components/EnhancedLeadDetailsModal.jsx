@@ -25,6 +25,13 @@ import { getPhoneDigits, getPhoneLines } from '../utils/phoneDisplay'
 import { buildLeadTransferPayload } from '../utils/leadTransfer'
 import { formatCrmDateTime, formatCrmCalendarDateTime, formatCrmDate } from '@shared/utils/crmDateTime'
 
+const stripStageChangedSuffix = (text) =>
+  String(text || '')
+    .replace(/\s*\(\s*Stage changed to [^)]+\)\s*/gi, ' ')
+    .replace(/^\s*Stage changed to .+$/gim, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+
 const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, theme: propTheme = 'light', assignees = [], usersList = [], onAssign, onUpdateLead, initialTab = 'all-actions', canAddAction: propCanAddAction, canShowCreator: propCanShowCreator, initialActionId, onImportHistory }) => {
   const { theme: contextTheme, resolvedTheme } = useTheme();
   const { user, company, crmSettings } = useAppState();
@@ -1180,12 +1187,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
     const isMeetingAction =
       normalizedType === 'meeting' ||
       String(action.next_action_type || details.next_action_type || '').toLowerCase() === 'meeting';
-    const actionNoteText =
+    const actionNoteText = stripStageChangedSuffix(
       normalizedType === 'note'
         ? (action.description || details.description || details.notes || action.notes || '')
         : isMeetingAction
           ? (details.notes || action.notes || details.description || action.description || '')
-          : (details.reservationNotes || details.reservation_notes || details.notes || action.notes || '');
+          : (details.reservationNotes || details.reservation_notes || details.notes || action.notes || '')
+    );
 
     return {
       ...action,
@@ -1193,7 +1201,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
       details: details,
       type: action.action_type || action.type || details.actionType || details.action_type || details.channel || details.selectedQuickOption || 'call',
       title: action.title || details.title || getTypeLabel(action.action_type || action.type),
-      description: action.description || details.description || '',
+      description: stripStageChangedSuffix(action.description || details.description || ''),
       date: details.date || action.date || '',
       time: details.time || action.time || '',
       user: action.creator?.name || action.user?.name || action.user || 'Unknown', // Handle object or string

@@ -6,6 +6,45 @@ import { FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '../shared/context/AppStateProvider'
 import { extractTenantCompanyProfile } from '../shared/utils/tenantCompanyProfile'
 
+const isServiceRequestLine = (item) => {
+  const token = String(item?.type || item?.itemType || item?.business_type || item?.category_type || '').toLowerCase()
+  return token.includes('service')
+}
+
+const formatAddonPeriodLabel = (period, isRTL) => {
+  const option = String(period || '').trim()
+  if (!option) return ''
+  if (!isRTL) return option
+  if (option === 'Monthly') return 'شهري'
+  if (option === 'Quarterly') return 'ربع سنوي'
+  if (option === 'Semi-annual' || option === 'Semi Annually') return 'نصف سنوي'
+  if (option === 'Annually') return 'سنوي'
+  if (option === 'One-time') return 'مرة واحدة'
+  if (option === 'Subscription') return 'اشتراك'
+  return option
+}
+
+const addonAmount = (addon, service) => {
+  const price = Number(addon?.price || 0)
+  if (service) return price
+  return Number(addon?.quantity || 0) * price
+}
+
+const lineAddons = (item) =>
+  (Array.isArray(item?.addons) ? item.addons : []).filter(a => String(a?.name || '').trim() !== '')
+
+const lineAmount = (item) => {
+  const price = Number(item?.price || 0)
+  const discount = Number(item?.discount || item?.discount_amount || 0)
+  const explicit = Number(item?.line_total ?? item?.total ?? NaN)
+  if (Number.isFinite(explicit) && explicit > 0) return explicit
+  const service = isServiceRequestLine(item)
+  const addonsSum = lineAddons(item).reduce((sum, addon) => sum + addonAmount(addon, service), 0)
+  if (service) return Math.max(0, price + addonsSum - discount)
+  const qty = Number(item?.quantity || 0)
+  return Math.max(0, (qty * price) + addonsSum - discount)
+}
+
 const RequestPreviewModal = ({ isOpen, onClose, request }) => {
   const { i18n } = useTranslation()
   const { company: tenant } = useAppState()
@@ -31,12 +70,7 @@ const RequestPreviewModal = ({ isOpen, onClose, request }) => {
   const taxId = companyInfo.taxId
 
   // Calculations
-  const calculatedSubtotal = (request?.items || []).reduce((acc, item) => {
-    const qty = item.quantity || 0
-    const price = Number(item.price || 0)
-    const discount = Number(item.discount || 0)
-    return acc + (qty * price) - discount
-  }, 0)
+  const calculatedSubtotal = (request?.items || []).reduce((acc, item) => acc + lineAmount(item), 0)
 
   const calculatedTax = calculatedSubtotal * 0.14
   const calculatedTotal = calculatedSubtotal + calculatedTax
@@ -210,18 +244,40 @@ const RequestPreviewModal = ({ isOpen, onClose, request }) => {
                 <tbody>
                   {request.items && request.items.length > 0 ? (
                     request.items.map((item, index) => {
-                      const qty = item.quantity || 0
+                      const service = isServiceRequestLine(item)
                       const price = Number(item.price || 0)
-                      const discount = Number(item.discount || 0)
-                      const total = (qty * price) - discount
+                      const discount = Number(item.discount || item.discount_amount || 0)
+                      const total = lineAmount(item)
+                      const addons = lineAddons(item)
 
                       return (
                         <tr key={index} className="print:bg-transparent">
                           <td className="border border-black px-3 py-2 text-center text-black">{index + 1}</td>
-                          <td className="border border-black px-3 py-2 text-black font-bold">{item.name}</td>
+                          <td className="border border-black px-3 py-2 text-black">
+                            <div className="font-bold">{item.name}</div>
+                            {addons.length > 0 && (
+                              <div className="mt-1 space-y-0.5 text-xs font-normal">
+                                {addons.map((addon, addonIndex) => {
+                                  const amount = addonAmount(addon, service)
+                                  const qtyOrPeriod = service
+                                    ? (formatAddonPeriodLabel(addon.period, isRTL) || '—')
+                                    : String(Number(addon.quantity || 0))
+                                  return (
+                                    <div key={`${index}-addon-${addonIndex}`}>
+                                      {isRTL ? 'إضافة' : 'Add-on'}: {addon.name}
+                                      {' · '}
+                                      {service ? (isRTL ? 'الفترة' : 'Period') : (isRTL ? 'الكمية' : 'Qty')}: {qtyOrPeriod}
+                                      {' · '}
+                                      {amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </td>
                           <td className="border border-black px-3 py-2 text-center text-black">{item.type || '-'}</td>
                           <td className="border border-black px-3 py-2 text-center text-black">{item.category || '-'}</td>
-                          <td className="border border-black px-3 py-2 text-center text-black">{qty}</td>
+                          <td className="border border-black px-3 py-2 text-center text-black">{service ? '—' : (item.quantity || 0)}</td>
                           <td className="border border-black px-3 py-2 text-right text-black">{price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                           <td className="border border-black px-3 py-2 text-right text-black">{discount > 0 ? discount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
                           <td className="border border-black px-3 py-2 text-right font-bold text-black">{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>

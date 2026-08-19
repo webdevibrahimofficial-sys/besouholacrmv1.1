@@ -774,9 +774,23 @@ class LeadActionController extends Controller
 
         if ($request->has('type') && $request->type) {
             $type = $request->type;
-            $query->where(function ($q) use ($type) {
-                $q->where('action_type', $type);
-            });
+            if ($this->isClosingDealType($type)) {
+                $closingTypes = [
+                    'closing_deals',
+                    'closing_deal',
+                    'close_deal',
+                    'close_deals',
+                    'done_deal',
+                    'done_deals',
+                    'deal',
+                ];
+                $query->where(function ($q) use ($closingTypes) {
+                    $q->whereIn('action_type', $closingTypes)
+                        ->orWhereIn('next_action_type', $closingTypes);
+                });
+            } else {
+                $query->where('action_type', $type);
+            }
         }
 
         if ($request->has('next_action_type') && $request->next_action_type) {
@@ -994,14 +1008,8 @@ class LeadActionController extends Controller
                  }
              }
 
-             if ($stageName && (stripos($stageName, 'won') !== false || stripos($stageName, 'deal') !== false)) {
-                 $specialLog = "Stage changed to {$stageName} by {$actor->name}";
-                 if (empty($description)) {
-                     $description = $specialLog;
-                 } else {
-                     $description .= " ({$specialLog})";
-                 }
-             } else {
+             $isDealOrWonStage = $stageName && (stripos($stageName, 'won') !== false || stripos($stageName, 'deal') !== false);
+             if (! $isDealOrWonStage) {
                  $description .= " (Performed by {$actor->name})";
              }
         }
@@ -1513,10 +1521,11 @@ class LeadActionController extends Controller
                         $unit->save();
                     }
 
+                    $isReservationNow = ($request->next_action_type === 'reservation' || $request->type === 'reservation');
                     $projectName = $project ? $project->name : (string) $reservationProjectId;
                     $finalUnitName = $unitName ?? (string) $reservationUnitId;
 
-                    if (!$this->hasMatchingRealEstateRequest($reservationLead, $reservationActionId, $projectName, $finalUnitName)) {
+                    if ($isReservationNow && !$this->hasMatchingRealEstateRequest($reservationLead, $reservationActionId, $projectName, $finalUnitName)) {
                         \App\Models\RealEstateRequest::create([
                             'tenant_id' => $reservationLead->tenant_id ?? Auth::user()->tenant_id,
                             'customer_name' => $reservationLead->name,

@@ -157,29 +157,46 @@ class InventoryRequestController extends Controller
         }
 
         $actionIds = array_values(array_unique(array_filter($actionIds)));
-        if (empty($actionIds)) {
-            return;
-        }
-
-        $actions = LeadAction::query()
-            ->whereIn('id', $actionIds)
-            ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
-            ->get()
-            ->keyBy('id');
+        $actions = empty($actionIds)
+            ? collect()
+            : LeadAction::query()
+                ->whereIn('id', $actionIds)
+                ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+                ->get()
+                ->keyBy('id');
 
         foreach ($items as $item) {
             $meta = $item->meta_data ?? $item->metaData ?? null;
             if (is_string($meta) && $meta !== '') {
                 $meta = json_decode($meta, true) ?: [];
             }
-            if (!is_array($meta) || empty($meta['source_action_id'])) {
+            if (!is_array($meta)) {
                 continue;
             }
 
-            $action = $actions[(int) $meta['source_action_id']] ?? null;
+            $action = !empty($meta['source_action_id'])
+                ? ($actions[(int) $meta['source_action_id']] ?? null)
+                : null;
+            $stageType = $this->normalizeInventoryStageType(
+                $meta['stage_type']
+                ?? $meta['source_action_type']
+                ?? data_get($meta, 'general_inventory.stage_type')
+                ?? $action?->type
+                ?? $action?->next_action_type
+            );
+            if ($stageType !== '') {
+                $meta['stage_type'] = $stageType;
+                $item->meta_data = $meta;
+            }
+
+            if (empty($meta['source_action_id'])) {
+                continue;
+            }
+
             $details = is_array($action?->details ?? null) ? $action->details : [];
             $rows = is_array($details['reservationGeneralItems'] ?? null) ? $details['reservationGeneralItems'] : [];
             if (empty($rows)) {
+                $item->meta_data = $meta;
                 continue;
             }
 
@@ -387,5 +404,21 @@ class InventoryRequestController extends Controller
         $inventoryRequest->delete();
 
         return response()->noContent();
+    }
+
+    private function normalizeInventoryStageType(mixed $value): string
+    {
+        $token = strtolower(trim((string) $value));
+        $token = str_replace([' ', '-'], '_', $token);
+
+        if (in_array($token, ['closing_deal', 'closing_deals', 'closing', 'deal', 'closed'], true)) {
+            return 'closing_deal';
+        }
+
+        if (in_array($token, ['reservation', 'booking', 'reserved'], true)) {
+            return 'reservation';
+        }
+
+        return '';
     }
 }

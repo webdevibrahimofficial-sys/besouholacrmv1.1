@@ -40,6 +40,7 @@ final class GeneralInventoryOrderService
             'workflow' => 'general_inventory_order_request',
             'lead_id' => $lead->id,
             'reservation_source_action_id' => $reservationSourceActionId,
+            'stage_type' => 'reservation',
             'reservation_snapshot' => $details['reservationGeneralItems'] ?? [],
             'decision' => $this->decisions->result(
                 GeneralInventoryDecisionService::DECISION_PENDING_APPROVAL,

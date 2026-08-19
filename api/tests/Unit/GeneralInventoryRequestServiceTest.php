@@ -57,7 +57,10 @@ class GeneralInventoryRequestServiceTest extends TestCase
         $item->refresh();
 
         $this->assertSame('Booking', $request->type);
+        $this->assertSame((string) $actor->id, (string) $request->assigned_to);
+        $this->assertSame($actor->id, $request->meta_data['created_by_id'] ?? null);
         $this->assertSame(77, (int) ($request->meta_data['source_action_id'] ?? 0));
+        $this->assertSame('reservation', $request->meta_data['stage_type'] ?? null);
         $this->assertSame('reserved', $request->meta_data['stock']['state'] ?? null);
         $this->assertSame(8, (int) $item->quantity);
         $this->assertSame(2, (int) $item->reserved_quantity);

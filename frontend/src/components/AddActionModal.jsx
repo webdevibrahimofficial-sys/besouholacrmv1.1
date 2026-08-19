@@ -2498,14 +2498,20 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                     {actionData.reservationGeneralItems.map((row, index) => {
                       const serviceRow = isServiceReservationRow(row);
                       const availableQty = remainingAvailableForRow(row, index);
+                      const selectedAddons = getRowSelectedAddons(row);
+                      const rowTotals = getGeneralRowTotals(row);
                       const rowControlClass = isLight
                         ? 'h-10 w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900'
                         : 'h-10 w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white';
+                      const mutedBoxClass = isLight
+                        ? 'h-10 w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed'
+                        : 'h-10 w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed';
                       return (
                       <div
                         key={index}
-                        className={`flex flex-nowrap items-end gap-2 overflow-x-auto py-3 ${index < actionData.reservationGeneralItems.length - 1 ? (isLight ? 'border-b border-gray-200' : 'border-b border-gray-700') : ''}`}
+                        className={`space-y-3 py-3 ${index < actionData.reservationGeneralItems.length - 1 ? (isLight ? 'border-b border-gray-200' : 'border-b border-gray-700') : ''}`}
                       >
+                        <div className="flex flex-wrap items-end gap-2 overflow-visible">
                         <div className="min-w-[140px] flex-1">
                           <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الفئة' : 'Category'}</label>
                           <SearchableSelect
@@ -2560,7 +2566,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                               type="text"
                               value={row.billing_type || items.find((opt) => String(opt.id) === String(row.item))?.billing_cycle || items.find((opt) => String(opt.id) === String(row.item))?.billingCycle || ''}
                               readOnly
-                              className={`${isLight ? 'h-10 w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'h-10 w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
+                              className={mutedBoxClass}
                             />
                           </div>
                         ) : (
@@ -2592,14 +2598,16 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                             className={rowControlClass}
                           />
                         </div>
-                        <div className="min-w-[170px] flex-1">
-                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإضافات' : 'Add-ons'}</label>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className={`block text-sm font-medium whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>
+                            {isArabic ? 'تفاصيل الإضافات' : 'Add-ons Details'}
+                          </label>
                           <SearchableSelect
                             options={getItemAddons(row.item).map((addon) => ({
                               value: addon.id,
-                              label: serviceRow
-                                ? `${addon.name || ''}${addon.period ? ` · ${addon.period}` : ''}${Number(addon.price || 0) ? ` (${formatDisplayNumber(getAddonAmount(addon, true))})` : ''}`
-                                : `${addon.name || ''}${Number(addon.price || 0) ? ` (${formatDisplayNumber(getAddonAmount(addon))})` : ''}`,
+                              label: addon.name || '',
                             }))}
                             value={getRowAddonIds(row)}
                             onChange={(value) => handleGeneralRowChange(index, 'addon_ids', value)}
@@ -2609,49 +2617,89 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                             showAllOption={false}
                             className={`${isLight ? 'bg-white border-gray-300 text-slate-900' : 'bg-gray-700 border-gray-600 text-white'} h-10 min-h-10 rounded-md`}
                           />
+                          {selectedAddons.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {selectedAddons.map((addon) => (
+                                <div
+                                  key={addon.id}
+                                  className={`flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2 text-xs ${isLight ? 'bg-gray-50 border border-gray-200 text-slate-700' : 'bg-gray-800/80 border border-gray-700 text-gray-300'}`}
+                                >
+                                  <span className={`font-medium ${isLight ? 'text-slate-900' : 'text-white'}`}>{addon.name || '-'}</span>
+                                  <span className="flex flex-wrap items-center gap-3">
+                                    {serviceRow
+                                      ? <span>{isArabic ? 'الفترة' : 'Period'}: {addon.period || '-'}</span>
+                                      : <span>{isArabic ? 'الكمية' : 'Qty'}: {formatDisplayNumber(addon.quantity || 0)}</span>}
+                                    <span>{isArabic ? 'السعر' : 'Price'}: {formatDisplayNumber(addon.price || 0)}</span>
+                                    <span className="font-semibold">{isArabic ? 'الإجمالي' : 'Total'}: {formatDisplayNumber(getAddonAmount(addon, serviceRow))}</span>
+                                  </span>
+                                </div>
+                              ))}
+                              <div className={`text-xs font-medium ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                                {isArabic ? 'مبلغ الإضافات' : 'Add-ons Amount'}: {formatDisplayNumber(rowTotals.addonsAmount)}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className={`text-xs ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                              {isArabic ? 'لا توجد إضافات مختارة' : 'No add-ons selected'}
+                            </div>
+                          )}
                         </div>
-                        <div className="w-[168px] shrink-0">
-                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'خصم' : 'Discount'}</label>
-                          <div className="flex gap-2">
-                            <select
-                              value={row.discount_type || 'value'}
-                              onChange={(e) => handleGeneralRowChange(index, 'discount_type', e.target.value)}
-                              className={`${isLight ? 'h-10 w-[84px] appearance-none px-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'h-10 w-[84px] appearance-none px-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
-                              aria-label={isArabic ? 'النوع' : 'Discount type'}
-                            >
-                              <option value="value">{isArabic ? 'قيمة' : 'Value'}</option>
-                              <option value="percent">{isArabic ? 'نسبة' : '%'}</option>
-                            </select>
+
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="w-[220px] shrink-0">
+                            <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'خصم' : 'Discount'}</label>
+                            <div className="flex gap-2">
+                              <select
+                                value={row.discount_type || 'value'}
+                                onChange={(e) => handleGeneralRowChange(index, 'discount_type', e.target.value)}
+                                className={`${isLight ? 'h-10 w-[84px] appearance-none px-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'h-10 w-[84px] appearance-none px-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                                aria-label={isArabic ? 'النوع' : 'Discount type'}
+                              >
+                                <option value="value">{isArabic ? 'قيمة' : 'Value'}</option>
+                                <option value="percent">{isArabic ? 'نسبة' : '%'}</option>
+                              </select>
+                              <input
+                                type="text"
+                                min="0"
+                                value={formatDisplayNumber(row.discount_value ?? '')}
+                                onChange={(e) => handleGeneralRowChange(index, 'discount_value', parseDisplayNumber(e.target.value))}
+                                {...numericFieldProps}
+                                className={`${isLight ? 'h-10 flex-1 px-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'h-10 flex-1 px-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
+                                placeholder={row.discount_type === 'percent' ? '0-100' : '0'}
+                              />
+                            </div>
+                          </div>
+                          <div className="w-[140px] shrink-0">
+                            <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'المجموع الفرعي' : 'Sub Total'}</label>
                             <input
                               type="text"
-                              min="0"
-                              value={formatDisplayNumber(row.discount_value ?? '')}
-                              onChange={(e) => handleGeneralRowChange(index, 'discount_value', parseDisplayNumber(e.target.value))}
+                              value={formatDisplayNumber(rowTotals.subTotal)}
+                              readOnly
                               {...numericFieldProps}
-                              className={`${isLight ? 'h-10 flex-1 px-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'h-10 flex-1 px-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`}
-                              placeholder={row.discount_type === 'percent' ? '0-100' : '0'}
+                              className={mutedBoxClass}
                             />
                           </div>
+                          <div className="w-[140px] shrink-0">
+                            <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإجمالي' : 'Total'}</label>
+                            <input
+                              type="text"
+                              value={formatDisplayNumber(rowTotals.total)}
+                              readOnly
+                              {...numericFieldProps}
+                              className={mutedBoxClass}
+                            />
+                          </div>
+                          {actionData.reservationGeneralItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveGeneralRow(index)}
+                              className="h-10 w-10 shrink-0 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                              title={isArabic ? 'حذف' : 'Remove'}
+                            >
+                              <FaTrash />
+                            </button>
+                          )}
                         </div>
-                        <div className="w-[110px] shrink-0">
-                          <label className={`block text-sm font-medium mb-1 whitespace-nowrap ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الإجمالي' : 'Sub Total'}</label>
-                          <input
-                            type="text"
-                            value={formatDisplayNumber(getGeneralRowTotals(row).total)}
-                            readOnly
-                            {...numericFieldProps}
-                            className={`${isLight ? 'h-10 w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-slate-700 cursor-not-allowed' : 'h-10 w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed'}`}
-                          />
-                        </div>
-                        {actionData.reservationGeneralItems.length > 1 && (
-                          <button
-                            onClick={() => handleRemoveGeneralRow(index)}
-                            className="h-10 w-10 shrink-0 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                            title={isArabic ? 'حذف' : 'Remove'}
-                          >
-                            <FaTrash />
-                          </button>
-                        )}
                       </div>
                       );
                     })}

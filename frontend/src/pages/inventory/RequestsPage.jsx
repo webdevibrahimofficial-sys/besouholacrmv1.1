@@ -1,13 +1,11 @@
-﻿﻿import { useState, useEffect, useMemo } from 'react'
+﻿import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import "react-datepicker/dist/react-datepicker.css"
 import { api } from '../../utils/api'
 import { useThemeClasses } from '../../utils/themeClasses'
 import { 
-  FaFileImport, 
   FaFileExport,
-  FaPlus, 
   FaShoppingCart, 
   FaEye, 
   FaCheck, 
@@ -15,7 +13,6 @@ import {
   FaEllipsisV, 
   FaExchangeAlt, 
   FaTrash,
-  FaTimes,
   FaChevronLeft,
   FaChevronRight
 } from 'react-icons/fa'
@@ -31,8 +28,8 @@ import {
 import SearchableSelect from '../../components/SearchableSelect'
 import DateRangePicker from '../../shared/components/DateRangePicker'
 import RequestPreviewModal from '../../components/RequestPreviewModal'
-import RequestsImportModal from './RequestsImportModal'
 import { useAppState } from '../../shared/context/AppStateProvider'
+import { CATEGORY_TYPE_PRODUCTS, CATEGORY_TYPE_SERVICES, normalizeCategoryType } from '../../features/inventory/categoryType'
 
 const CURRENCY_SYMBOLS = {
   EGP: 'E£', USD: '$', SAR: 'SAR', AED: 'AED',
@@ -42,6 +39,178 @@ const getCurrencySymbol = (code) =>
 
 const getUniqueTextList = (values = []) =>
   [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))]
+
+const normalizeRequestStageType = (value) => {
+  const token = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  if (['closing_deal', 'closing_deals', 'closing', 'deal', 'closed'].includes(token)) return 'closing_deal'
+  if (['reservation', 'booking', 'reserved'].includes(token)) return 'reservation'
+  return ''
+}
+
+const isServiceRequestLine = (row) => {
+  const token = String(row?.type || row?.itemType || row?.business_type || row?.category_type || '').toLowerCase()
+  return token.includes('service')
+}
+
+const toLocalDateKey = (value) => {
+  if (!value) return ''
+  const raw = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    const match = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+    return match ? match[1] : ''
+  }
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const hasFilledFilter = (value) => String(value ?? '').trim() !== ''
+
+const formatAddonPeriodLabel = (period, isRTL) => {
+  const option = String(period || '').trim()
+  if (!option) return ''
+  if (!isRTL) return option
+  if (option === 'Monthly') return 'شهري'
+  if (option === 'Quarterly') return 'ربع سنوي'
+  if (option === 'Semi-annual' || option === 'Semi Annually') return 'نصف سنوي'
+  if (option === 'Annually') return 'سنوي'
+  if (option === 'One-time') return 'مرة واحدة'
+  if (option === 'Subscription') return 'اشتراك'
+  return option
+}
+
+function SmartCellTooltip({ values = [], display, label, isRTL, isLight, className = '' }) {
+  const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState(null)
+  const [placeAbove, setPlaceAbove] = useState(false)
+  const triggerRef = useRef(null)
+  const tooltipRef = useRef(null)
+  const closeTimer = useRef(null)
+  const items = getUniqueTextList(values)
+  const text = display || items.join(', ') || '-'
+
+  const clearClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
+
+  const scheduleClose = () => {
+    clearClose()
+    closeTimer.current = setTimeout(() => setOpen(false), 120)
+  }
+
+  const positionTooltip = () => {
+    const trigger = triggerRef.current
+    const tooltip = tooltipRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const width = tooltip?.offsetWidth || 240
+    const height = tooltip?.offsetHeight || 88
+    const spaceBelow = window.innerHeight - rect.bottom - 12
+    const above = spaceBelow < height && rect.top > spaceBelow
+    let left = isRTL ? rect.right - width : rect.left
+    if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8
+    if (left < 8) left = 8
+    const top = above ? rect.top - height - 10 : rect.bottom + 10
+    setPlaceAbove(above)
+    setCoords({ top, left })
+  }
+
+  const showTooltip = () => {
+    if (items.length === 0 || text === '-') return
+    clearClose()
+    const trigger = triggerRef.current
+    if (trigger) {
+      const rect = trigger.getBoundingClientRect()
+      setCoords({ top: rect.bottom + 10, left: rect.left })
+    }
+    setOpen(true)
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    positionTooltip()
+  }, [open, items.length, isRTL])
+
+  useEffect(() => {
+    if (!open) return
+    const onReposition = () => positionTooltip()
+    window.addEventListener('scroll', onReposition, true)
+    window.addEventListener('resize', onReposition)
+    return () => {
+      window.removeEventListener('scroll', onReposition, true)
+      window.removeEventListener('resize', onReposition)
+    }
+  }, [open, items.length, isRTL])
+
+  useEffect(() => () => clearClose(), [])
+
+  const tooltip = open && coords && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          ref={tooltipRef}
+          className="fixed z-[9999] pointer-events-none"
+          style={{ top: coords.top, left: coords.left }}
+        >
+          <div
+            className={`relative min-w-[180px] max-w-[280px] rounded-xl border px-3 py-2.5 shadow-2xl backdrop-blur-md ${
+              isLight
+                ? 'border-slate-200/80 bg-white/95 text-slate-800'
+                : 'border-slate-700/80 bg-slate-900/95 text-slate-100'
+            }`}
+          >
+            <div
+              className={`absolute start-5 h-2.5 w-2.5 rotate-45 border ${
+                placeAbove
+                  ? `bottom-[-5px] ${isLight ? 'border-r border-b border-slate-200/80 bg-white/95' : 'border-r border-b border-slate-700/80 bg-slate-900/95'}`
+                  : `top-[-5px] ${isLight ? 'border-l border-t border-slate-200/80 bg-white/95' : 'border-l border-t border-slate-700/80 bg-slate-900/95'}`
+              }`}
+            />
+            {label && (
+              <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wider ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+                {label}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-1.5">
+              {items.map((value) => (
+                <span
+                  key={value}
+                  className={`inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                    isLight ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/15 text-blue-300'
+                  }`}
+                >
+                  {value}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )
+    : null
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        className={`max-w-full truncate cursor-default ${className}`}
+        onMouseEnter={showTooltip}
+        onMouseLeave={scheduleClose}
+        onFocus={showTooltip}
+        onBlur={scheduleClose}
+        tabIndex={items.length > 0 && text !== '-' ? 0 : undefined}
+      >
+        {text}
+      </div>
+      {tooltip}
+    </>
+  )
+}
 
 export default function RequestsPage() {
   const { t, i18n } = useTranslation()
@@ -64,20 +233,27 @@ export default function RequestsPage() {
   const canManageRequests =
     effectiveInventoryPerms.includes('showRequests') || user?.is_super_admin || isTenantAdmin
 
+  const stageTypeLabel = (value) => {
+    const key = normalizeRequestStageType(value)
+    if (key === 'closing_deal') return isRTL ? 'إغلاق صفقة' : 'Closing Deal'
+    if (key === 'reservation') return isRTL ? 'حجز' : 'Reservation'
+    return isRTL ? '—' : '—'
+  }
+  const stageTypeBadge = (value) => {
+    const key = normalizeRequestStageType(value)
+    const base = 'inline-flex items-center justify-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none'
+    if (key === 'closing_deal') return `${base} border border-emerald-200 text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-700`
+    if (key === 'reservation') return `${base} border border-amber-200 text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-700`
+    return `${base} border border-gray-200 text-[var(--muted-text)]`
+  }
+
   // ── State ─────────────────────────────────────────────────────────────────
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [showImportModal, setShowImportModal] = useState(false)
-  const [showForm, setShowForm] = useState(false)
-  const [formData, setFormData] = useState({
-    customer_name: '', customer_phone: '', product: '',
-    quantity: 1, price: 0, type: 'Inquiry', priority: 'Medium',
-    description: '', payment_plan: ''
-  })
-  const [saving, setSaving] = useState(false)
   const [previewItem, setPreviewItem] = useState(null)
   const [successMessage, setSuccessMessage] = useState('')
+  const [usersList, setUsersList] = useState([])
   const [openMenuId, setOpenMenuId] = useState(null)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
   const [selectedAddonByRequestId, setSelectedAddonByRequestId] = useState({})
@@ -99,8 +275,8 @@ export default function RequestsPage() {
   const [q, setQ] = useState('')
   const [filters, setFilters] = useState({
     item: '', category: '', categoryType: '', status: '',
-    dateFrom: '', dateTo: '', datePeriod: '', createdBy: '',
-    salesPerson: '', minTotal: '', maxTotal: '', minQuantity: '', maxQuantity: ''
+    dateFrom: '', dateTo: '', createdBy: '',
+    salesPerson: '', stageType: '', minTotal: '', maxTotal: '', minQuantity: '', maxQuantity: ''
   })
   const [showAllFilters, setShowAllFilters] = useState(false)
 
@@ -113,8 +289,10 @@ export default function RequestsPage() {
   // ── Selection ─────────────────────────────────────────────────────────────
   const [selectedItems, setSelectedItems] = useState([])
 
-  const formatAmount = (value) =>
-    `${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencySymbol}`
+  const formatAmount = (value) => {
+    const amount = Number(Number(value || 0).toFixed(2))
+    return `${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${currencySymbol}`
+  }
   const getRequestAddons = (item) => Array.isArray(item?.expandedAddons) ? item.expandedAddons : []
   const getSelectedRequestAddon = (item) => {
     const addons = getRequestAddons(item)
@@ -125,6 +303,26 @@ export default function RequestsPage() {
   const getSelectedRequestAddonAmount = (item) => {
     const addon = getSelectedRequestAddon(item)
     return addon ? Number(addon.totalPrice || 0) : 0
+  }
+  const getRequestAddonLabel = (item, addon) => {
+    const name = String(addon?.name || '').trim()
+    const parent = String(addon?.parentName || '').trim()
+    const mixed = (Array.isArray(item?.items) ? item.items : []).length > 1
+    if (mixed && parent && parent.toLowerCase() !== name.toLowerCase()) return `${parent} · ${name}`
+    return name
+  }
+  const getSelectedRequestAddonQtyOrPeriod = (item) => {
+    const addon = getSelectedRequestAddon(item)
+    if (!addon) return '—'
+    if (addon.isService) return formatAddonPeriodLabel(addon.period, isRTL) || '—'
+    const qty = Number(addon.quantity || 0)
+    return qty > 0 ? qty : '—'
+  }
+  const quantityDisplay = (item) => {
+    const rows = Array.isArray(item?.items) ? item.items : []
+    const hasProduct = rows.some((row) => !isServiceRequestLine(row))
+    if (!hasProduct) return '—'
+    return item.quantityTotal || 0
   }
 
   const showSuccess = (msg) => {
@@ -138,14 +336,17 @@ export default function RequestsPage() {
       setLoading(true); setError('')
       const [requestsRes, usersRes, itemsRes] = await Promise.allSettled([
         api.get('/api/inventory-requests'),
-        api.get('/api/users'),
+        api.get('/api/users?all=1'),
         api.get('/api/items?all=true')
       ])
       if (requestsRes.status !== 'fulfilled') throw requestsRes.reason
       if (usersRes.status !== 'fulfilled') throw usersRes.reason
 
       const requestsData = requestsRes.value.data
-      const usersData = usersRes.value.data.data || usersRes.value.data || []
+      const usersPayload = usersRes.value.data
+      const usersData = Array.isArray(usersPayload)
+        ? usersPayload
+        : (usersPayload?.data || usersPayload?.users || [])
       const itemsDbData = itemsRes.status === 'fulfilled'
         ? (itemsRes.value.data.data || itemsRes.value.data || []) : []
 
@@ -163,6 +364,7 @@ export default function RequestsPage() {
       const userNameById = new Map(
         usersData.map(u => [String(u?.id), u?.name || u?.full_name || u?.email || `User #${u?.id}`])
       )
+      setUsersList(Array.isArray(usersData) ? usersData : [])
 
       const mappedItems = (requestsData.data || []).map(item => {
         let requestItems = []
@@ -191,16 +393,24 @@ export default function RequestsPage() {
               name: reqItem?.name || reqItem?.item_name || matched?.name || item.product || '',
               quantity,
               price,
-              type: matched?.type || reqItem.type || '-',
-              itemType: matched?.item_type || matched?.itemType || reqItem.itemType || '-',
+              type: normalizeCategoryType(
+                reqItem.business_type || reqItem.type || matched?.category_type || matched?.type
+              ) || reqItem.business_type || reqItem.type || '-',
+              itemType: reqItem.item_type || reqItem.itemType || matched?.item_type || matched?.itemType || '-',
               category: reqItem?.category_name || (typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory),
-              addons: addonSource.map(a => ({
-                id: a?.id ?? a?.addon_id,
-                addon_id: a?.addon_id ?? a?.id,
-                name: a?.name || '',
-                quantity: Number(a?.quantity || 0),
-                price: Number(a?.price || 0),
-              }))
+              addons: addonSource.map(a => {
+                const catalog = matchedAddons.find(addon =>
+                  String(addon?.id ?? addon?.addon_id) === String(a?.id ?? a?.addon_id)
+                )
+                return {
+                  id: a?.id ?? a?.addon_id,
+                  addon_id: a?.addon_id ?? a?.id,
+                  name: a?.name || catalog?.name || '',
+                  quantity: Number(a?.quantity || 0),
+                  price: Number(a?.price ?? catalog?.price ?? 0),
+                  period: String(a?.period || catalog?.period || '').trim(),
+                }
+              })
             }
           })
         } else if (item.product) {
@@ -208,7 +418,7 @@ export default function RequestsPage() {
           const finalCategory = matchedItem?.category || '-'
           requestItems = [{
             id: 1, name: item.product,
-            type: matchedItem?.type || '-',
+            type: normalizeCategoryType(matchedItem?.category_type || matchedItem?.type) || matchedItem?.type || '-',
             itemType: matchedItem?.item_type || matchedItem?.itemType || '-',
             category: typeof finalCategory === 'object' ? finalCategory?.name || '-' : finalCategory,
             quantity: item.quantity || 0, price: item.meta_data?.price || 0,
@@ -220,29 +430,67 @@ export default function RequestsPage() {
         const categoryNames = getUniqueTextList(requestItems.map(r => r.category))
         const categoryTypes = getUniqueTextList(requestItems.map(r => r.type))
         const itemTypes = getUniqueTextList(requestItems.map(r => r.itemType))
-        const totalQuantity = requestItems.reduce((s, r) => s + Number(r.quantity || 0), 0)
-        const baseItemsPrice = requestItems.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.price || 0), 0)
+        const totalQuantity = requestItems.reduce((s, r) => (
+          isServiceRequestLine(r) ? s : s + Number(r.quantity || 0)
+        ), 0)
+        const baseItemsPrice = requestItems.reduce((s, r) => {
+          const price = Number(r.price || 0)
+          if (isServiceRequestLine(r)) return s + price
+          return s + Number(r.quantity || 0) * price
+        }, 0)
 
-        const expandedAddons = requestItems.flatMap((r, rowIndex) =>
-          (Array.isArray(r.addons) ? r.addons : [])
+        const expandedAddons = requestItems.flatMap((r, rowIndex) => {
+          const service = isServiceRequestLine(r)
+          const parentName = String(r.name || '').trim()
+          return (Array.isArray(r.addons) ? r.addons : [])
             .filter(a => String(a?.name || '').trim() !== '')
             .map((a, addonIndex) => {
-              const qty = Number(a.quantity || 0) * Number(r.quantity || 0)
+              const qty = service ? 0 : Number(a.quantity || 0) * Number(r.quantity || 0)
+              const price = Number(a.price || 0)
               return {
-                id: a.id ?? a.addon_id ?? `${rowIndex}-${addonIndex}-${String(a.name || '').trim()}`,
+                id: `${rowIndex}-${a.id ?? a.addon_id ?? addonIndex}`,
                 name: String(a.name).trim(),
+                parentName,
+                isService: service,
                 quantity: qty,
-                price: Number(a.price || 0),
-                totalPrice: qty * Number(a.price || 0),
+                period: String(a.period || '').trim(),
+                price,
+                totalPrice: service ? price : qty * price,
               }
             })
-        )
+        })
 
         const addonNames = getUniqueTextList(expandedAddons.map(a => a.name))
-        const addonsTotalQty = expandedAddons.reduce((s, a) => s + Number(a.quantity || 0), 0)
+        const addonsTotalQty = expandedAddons.reduce((s, a) => (
+          a.isService ? s : s + Number(a.quantity || 0)
+        ), 0)
+        const addonsQtyPeriodDisplay = expandedAddons.map(a => (
+          a.isService
+            ? (formatAddonPeriodLabel(a.period, isRTL) || '—')
+            : String(Number(a.quantity || 0))
+        )).join('; ')
         const addonsTotalPrice = expandedAddons.reduce((s, a) => s + Number(a.totalPrice || 0), 0)
-        const resolvedSalesPerson = userNameById.get(String(item.assigned_to)) || item.assigned_to_name || item.meta_data?.assigned_to_name || item.assigned_to || '-'
-        const resolvedCreatedBy = item.meta_data?.created_by_name || item.created_by_name || userNameById.get(String(item.meta_data?.created_by_id)) || '-'
+        const salesPersonId = String(
+          item.assigned_to
+          || meta.assigned_to_id
+          || meta.assigned_to
+          || ''
+        ).trim()
+        const createdById = String(
+          meta.created_by_id
+          || item.created_by
+          || item.created_by_id
+          || ''
+        ).trim()
+        const resolvedSalesPerson = userNameById.get(salesPersonId)
+          || item.assigned_to_name
+          || meta.assigned_to_name
+          || (salesPersonId && !userNameById.has(salesPersonId) ? salesPersonId : '')
+          || '-'
+        const resolvedCreatedBy = userNameById.get(createdById)
+          || meta.created_by_name
+          || item.created_by_name
+          || '-'
         const explicitTotal = Number(
           meta.line_total ??
           meta.reservationAmount ??
@@ -265,11 +513,22 @@ export default function RequestsPage() {
           quantityTotal: totalQuantity, itemsPriceTotal: baseItemsPrice,
           addonsNames: addonNames, addonsNamesDisplay: addonNames.join(', ') || '-',
           expandedAddons,
-          addonsTotalQuantity: addonsTotalQty, addonsTotalPrice,
+          addonsTotalQuantity: addonsTotalQty,
+          addonsQtyPeriodDisplay,
+          addonsTotalPrice,
           total: explicitTotal || baseItemsPrice + addonsTotalPrice,
           notes: item.description, salesPerson: resolvedSalesPerson,
-          createdBy: resolvedCreatedBy, orderBy: resolvedCreatedBy,
-          createdAt: item.created_at || new Date().toISOString()
+          salesPersonId,
+          createdBy: resolvedCreatedBy,
+          createdById,
+          orderBy: resolvedCreatedBy,
+          createdAt: item.created_at || new Date().toISOString(),
+          stageType: normalizeRequestStageType(
+            item.stage_type
+            || meta.stage_type
+            || meta.source_action_type
+            || meta.general_inventory?.stage_type
+          ),
         }
       })
       setItems(mappedItems)
@@ -283,80 +542,118 @@ export default function RequestsPage() {
   useEffect(() => { load() }, [])
   useEffect(() => { setCurrentPage(1) }, [q, filters])
 
-  const handleFormChange = (e) => {
-    const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
-
-  const handleSubmitForm = async (e) => {
-    e.preventDefault()
-    if (!formData.customer_name && !formData.product) {
-      alert(isRTL ? 'اسم العميل أو المنتج مطلوب' : 'Customer name or product is required')
-      return
-    }
-    setSaving(true)
-    try {
-      await api.post('/api/inventory-requests', {
-        ...formData,
-        quantity: formData.quantity ? Number(formData.quantity) : null,
-        meta_data: { price: Number(formData.price || 0), total: Number(formData.quantity || 1) * Number(formData.price || 0) }
-      })
-      await load()
-      showSuccess(isRTL ? 'تم حفظ الطلب بنجاح' : 'Request saved successfully')
-      setShowForm(false)
-      setFormData({ customer_name: '', customer_phone: '', product: '', quantity: 1, price: 0, type: 'Inquiry', priority: 'Medium', description: '', payment_plan: '' })
-    } catch (e) {
-      console.error('Failed to save request', e)
-      alert(isRTL ? 'فشل حفظ الطلب' : 'Failed to save request')
-    } finally { setSaving(false) }
-  }
-
   // ── Derived filter options ─────────────────────────────────────────────────
   const itemOptions = useMemo(() =>
-    getUniqueTextList(items.flatMap(r => r.itemNames || [])).map(n => ({ value: n, label: n })), [items])
+    getUniqueTextList(items.flatMap(r => r.itemNames || [])).filter(n => n !== '-').map(n => ({ value: n, label: n })), [items])
   const categoryOptions = useMemo(() =>
-    getUniqueTextList(items.flatMap(r => r.categoryNames || [])).map(n => ({ value: n, label: n })), [items])
-  const categoryTypeOptions = useMemo(() =>
-    getUniqueTextList(items.flatMap(r => r.categoryTypes || [])).map(n => ({ value: n, label: n })), [items])
-  const statusOptions = useMemo(() =>
-    getUniqueTextList(items.map(r => r.status)).map(n => ({ value: n, label: n })), [items])
-  const createdByOptions = useMemo(() =>
-    [...new Set(items.map(i => i.createdBy).filter(Boolean))].map(n => ({ value: n, label: n })), [items])
-  const salesPersonOptions = useMemo(() =>
-    getUniqueTextList(items.map(r => r.salesPerson)).map(n => ({ value: n, label: n })), [items])
+    getUniqueTextList(items.flatMap(r => r.categoryNames || [])).filter(n => n !== '-').map(n => ({ value: n, label: n })), [items])
+  const categoryTypeOptions = useMemo(() => ([
+    { value: CATEGORY_TYPE_PRODUCTS, label: isRTL ? 'منتجات' : 'Products' },
+    { value: CATEGORY_TYPE_SERVICES, label: isRTL ? 'خدمات' : 'Services' },
+  ]), [isRTL])
+  const statusOptions = useMemo(() => ([
+    { value: 'Pending', label: isRTL ? 'قيد الانتظار' : 'Pending' },
+    { value: 'Approved', label: isRTL ? 'موافق عليه' : 'Approved' },
+    { value: 'Rejected', label: isRTL ? 'مرفوض' : 'Rejected' },
+    { value: 'Converted', label: isRTL ? 'محوّل' : 'Converted' },
+  ]), [isRTL])
+  const stageTypeOptions = useMemo(() => ([
+    { value: 'reservation', label: isRTL ? 'حجز' : 'Reservation' },
+    { value: 'closing_deal', label: isRTL ? 'إغلاق صفقة' : 'Closing Deal' },
+  ]), [isRTL])
+  const tenantUserOptions = useMemo(() => {
+    return [...usersList]
+      .map((u) => ({
+        value: String(u?.id ?? ''),
+        label: String(u?.name || u?.full_name || u?.email || '').trim() || `User #${u?.id}`,
+      }))
+      .filter((opt) => opt.value)
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+  }, [usersList])
+  const createdByOptions = tenantUserOptions
+  const salesPersonOptions = tenantUserOptions
 
-  // ── Filtered items (unchanged logic) ──────────────────────────────────────
   const filteredItems = useMemo(() => items.filter(item => {
     if (q) {
-      const query = q.toLowerCase()
+      const query = q.toLowerCase().trim()
+      const paddedId = String(item.id || '').padStart(4, '0')
       const match =
         String(item.id || '').toLowerCase().includes(query) ||
+        paddedId.toLowerCase().includes(query) ||
         String(item.customerCode || '').toLowerCase().includes(query) ||
         String(item.customerName || '').toLowerCase().includes(query) ||
+        String(item.customerPhone || '').toLowerCase().includes(query) ||
         String(item.itemNamesDisplay || '').toLowerCase().includes(query) ||
         String(item.categoryNamesDisplay || '').toLowerCase().includes(query) ||
         String(item.categoryTypesDisplay || '').toLowerCase().includes(query) ||
+        String(item.addonsNamesDisplay || '').toLowerCase().includes(query) ||
         String(item.salesPerson || '').toLowerCase().includes(query) ||
-        String(item.orderBy || '').toLowerCase().includes(query)
+        String(item.orderBy || '').toLowerCase().includes(query) ||
+        String(item.status || '').toLowerCase().includes(query) ||
+        String(item.notes || '').toLowerCase().includes(query) ||
+        String(item.stageType || '').toLowerCase().includes(query) ||
+        String(stageTypeLabel(item.stageType) || '').toLowerCase().includes(query) ||
+        ({
+          Pending: 'pending قيد الانتظار',
+          Approved: 'approved موافق عليه',
+          Rejected: 'rejected مرفوض',
+          Converted: 'converted محول محوّل',
+        }[item.status] || '').includes(query) ||
+        (item.categoryTypes || []).some((type) => {
+          const normalized = normalizeCategoryType(type)
+          if (normalized === CATEGORY_TYPE_PRODUCTS) return 'products منتجات'.includes(query)
+          if (normalized === CATEGORY_TYPE_SERVICES) return 'services خدمات'.includes(query)
+          return String(type || '').toLowerCase().includes(query)
+        })
       if (!match) return false
     }
-    if (filters.dateFrom && new Date(item.createdAt) < new Date(filters.dateFrom)) return false
-    if (filters.dateTo) {
-      const end = new Date(filters.dateTo); end.setDate(end.getDate() + 1)
-      if (new Date(item.createdAt) >= end) return false
+
+    const itemDate = toLocalDateKey(item.createdAt)
+    if (hasFilledFilter(filters.dateFrom) && itemDate && itemDate < filters.dateFrom) return false
+    if (hasFilledFilter(filters.dateTo) && itemDate && itemDate > filters.dateTo) return false
+    if ((hasFilledFilter(filters.dateFrom) || hasFilledFilter(filters.dateTo)) && !itemDate) return false
+
+    if (hasFilledFilter(filters.item) && !(item.itemNames || []).includes(filters.item)) return false
+    if (hasFilledFilter(filters.category) && !(item.categoryNames || []).includes(filters.category)) return false
+
+    if (hasFilledFilter(filters.categoryType)) {
+      const wanted = normalizeCategoryType(filters.categoryType) || filters.categoryType
+      const types = (item.categoryTypes || [])
+        .map((type) => normalizeCategoryType(type) || type)
+        .filter(Boolean)
+      if (!types.includes(wanted)) return false
     }
-    if (filters.item && !(item.itemNames || []).includes(filters.item)) return false
-    if (filters.category && !(item.categoryNames || []).includes(filters.category)) return false
-    if (filters.categoryType && !(item.categoryTypes || []).includes(filters.categoryType)) return false
-    if (filters.createdBy && item.createdBy !== filters.createdBy) return false
-    if (filters.salesPerson && item.salesPerson !== filters.salesPerson) return false
-    if (filters.status && item.status !== filters.status) return false
-    if (filters.minTotal && Number(item.total) < Number(filters.minTotal)) return false
-    if (filters.maxTotal && Number(item.total) > Number(filters.maxTotal)) return false
-    if (filters.minQuantity && Number(item.quantityTotal || 0) < Number(filters.minQuantity)) return false
-    if (filters.maxQuantity && Number(item.quantityTotal || 0) > Number(filters.maxQuantity)) return false
+
+    if (hasFilledFilter(filters.createdBy)) {
+      const wanted = String(filters.createdBy)
+      const wantedName = tenantUserOptions.find(opt => opt.value === wanted)?.label
+      const matches = String(item.createdById || '') === wanted
+        || (wantedName && item.createdBy === wantedName)
+      if (!matches) return false
+    }
+    if (hasFilledFilter(filters.salesPerson)) {
+      const wanted = String(filters.salesPerson)
+      const wantedName = tenantUserOptions.find(opt => opt.value === wanted)?.label
+      const matches = String(item.salesPersonId || '') === wanted
+        || (wantedName && item.salesPerson === wantedName)
+      if (!matches) return false
+    }
+    if (hasFilledFilter(filters.status) && String(item.status || '') !== String(filters.status)) return false
+    if (hasFilledFilter(filters.stageType) && item.stageType !== filters.stageType) return false
+
+    if (hasFilledFilter(filters.minTotal) && Number(item.total || 0) < Number(filters.minTotal)) return false
+    if (hasFilledFilter(filters.maxTotal) && Number(item.total || 0) > Number(filters.maxTotal)) return false
+
+    if (hasFilledFilter(filters.minQuantity) || hasFilledFilter(filters.maxQuantity)) {
+      const hasProduct = (Array.isArray(item.items) ? item.items : []).some((row) => !isServiceRequestLine(row))
+      if (!hasProduct) return false
+      const qty = Number(item.quantityTotal || 0)
+      if (hasFilledFilter(filters.minQuantity) && qty < Number(filters.minQuantity)) return false
+      if (hasFilledFilter(filters.maxQuantity) && qty > Number(filters.maxQuantity)) return false
+    }
+
     return true
-  }), [items, q, filters])
+  }), [items, q, filters, isRTL, tenantUserOptions])
 
   const paginatedItems = useMemo(() => {
     const sorted = [...filteredItems].sort((a, b) => {
@@ -469,42 +766,13 @@ export default function RequestsPage() {
     } finally { setLoading(false) }
   }
 
-  const handleImport = async (rows) => {
-    setLoading(true)
-    let successCount = 0
-    for (const row of rows) {
-      try {
-        const price = Number(row['Amount'] || row['Price'] || row['المبلغ'] || row['السعر']) || 0
-        const quantity = Number(row['Quantity'] || row['الكمية']) || 1
-        const payload = {
-          customer_name: row['Customer Name'] || row['اسم العميل'],
-          customer_phone: row['Customer Phone'] || row['رقم الهاتف'],
-          product: row['Product'] || row['المنتج'],
-          quantity, price,
-          priority: row['Priority'] || row['الأولوية'] || 'Medium',
-          type: row['Type'] || row['نوع الطلب'] || 'Inquiry',
-          payment_plan: row['Payment Plan'] || row['خطة الدفع'] || '',
-          description: row['Notes'] || row['ملاحظات'] || '',
-          meta_data: { price, total: quantity * price }
-        }
-        if (!payload.customer_name) continue
-        await api.post('/api/inventory-requests', payload)
-        successCount++
-      } catch (e) { console.error('Import error', e) }
-    }
-    setLoading(false); setShowImportModal(false)
-    if (successCount > 0) {
-      showSuccess(isRTL ? `تم استيراد ${successCount} طلب بنجاح` : `Successfully imported ${successCount} requests`)
-      await load()
-    } else { alert(isRTL ? 'فشل الاستيراد' : 'Import failed') }
-  }
-
   const handleExportSelected = () => {
     const selected = items.filter(i => selectedItems.includes(i.id))
     if (!selected.length) { alert(isRTL ? 'اختر طلبًا واحدًا على الأقل' : 'Select at least one request'); return }
     const L = isRTL
-    const header = [L?'رقم الطلب':'Order ID',L?'اسم العميل':'Customer Name',L?'العناصر':'Items',L?'الكمية':'Quantity',L?'اسم الفئة':'Category Name',L?'نوع الفئة':'Category Type',L?'المبلغ':'Amount',L?'أسماء الإضافات':'Add-ons Name',L?'كمية الإضافات':'Add-ons Quantity',L?'مبلغ الإضافات':'Add-ons Amount',L?'إجمالي المبلغ':'Total Amount',L?'مندوب المبيعات':'Sales Person',L?'بواسطة':'Order By',L?'التاريخ':'Order Date',L?'الحالة':'Status',L?'ملاحظات':'Notes']
-    const rows = selected.map(i => [i.id,i.customerName||'',i.itemNamesDisplay||'',i.quantityTotal||0,i.categoryNamesDisplay||'',i.categoryTypesDisplay||'',Number(i.itemsPriceTotal||0).toFixed(2),i.addonsNamesDisplay||'',i.addonsTotalQuantity||0,Number(i.addonsTotalPrice||0).toFixed(2),Number(i.total||0).toFixed(2),i.salesPerson||'',i.orderBy||'',new Date(i.createdAt).toLocaleDateString(),i.status||'',i.notes||''])
+    const header = [L?'رقم الطلب':'Order ID',L?'اسم العميل':'Customer Name',L?'نوع المرحلة':'Stage Type',L?'العناصر':'Items',L?'الكمية':'Quantity',L?'اسم الفئة':'Category Name',L?'نوع الفئة':'Category Type',L?'المبلغ':'Amount',L?'أسماء الإضافات':'Add-ons Name',L?'كمية / فترة الإضافات':'Add-ons Qty / Period',L?'مبلغ الإضافات':'Add-ons Amount',L?'إجمالي المبلغ':'Total Amount',L?'مندوب المبيعات':'Sales Person',L?'بواسطة':'Order By',L?'التاريخ':'Order Date',L?'الحالة':'Status',L?'ملاحظات':'Notes']
+    const formatExportAmount = (value) => String(Number(Number(value || 0).toFixed(2)))
+    const rows = selected.map(i => [i.id,i.customerName||'',stageTypeLabel(i.stageType),i.itemNamesDisplay||'',quantityDisplay(i),i.categoryNamesDisplay||'',i.categoryTypesDisplay||'',formatExportAmount(i.itemsPriceTotal),i.addonsNamesDisplay||'',i.addonsQtyPeriodDisplay||'',formatExportAmount(i.addonsTotalPrice),formatExportAmount(i.total),i.salesPerson||'',i.orderBy||'',new Date(i.createdAt).toLocaleDateString(),i.status||'',i.notes||''])
     const csv = [header,...rows].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n')
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -515,7 +783,7 @@ export default function RequestsPage() {
 
   const clearFilters = () => {
     setQ('')
-    setFilters({ item:'',category:'',categoryType:'',status:'',dateFrom:'',dateTo:'',datePeriod:'',createdBy:'',salesPerson:'',minTotal:'',maxTotal:'',minQuantity:'',maxQuantity:'' })
+    setFilters({ item:'',category:'',categoryType:'',status:'',dateFrom:'',dateTo:'',createdBy:'',salesPerson:'',stageType:'',minTotal:'',maxTotal:'',minQuantity:'',maxQuantity:'' })
     setShowAllFilters(false)
   }
 
@@ -553,22 +821,6 @@ export default function RequestsPage() {
                 {isRTL ? 'إدارة طلبات الشراء' : 'Manage your order requests'}
               </p>
             </div>
-          </div>
-          <div className="w-full lg:w-auto flex flex-wrap lg:flex-row items-stretch lg:items-center gap-2 lg:gap-3">
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="btn btn-sm w-full lg:w-auto bg-blue-600 hover:bg-blue-700 !text-white border-none flex items-center justify-center gap-2"
-            >
-              <FaFileImport /> {isRTL ? 'استيراد' : 'Import'}
-            </button>
-            {canManageRequests && (
-              <button
-                onClick={() => setShowForm(true)}
-                className="btn btn-sm w-full lg:w-auto bg-green-600 hover:bg-green-500 !text-white border-none flex items-center justify-center gap-2"
-              >
-                <FaPlus /> {isRTL ? 'إضافة طلب' : 'Add Request'}
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -757,6 +1009,18 @@ export default function RequestsPage() {
                   isRTL={isRTL}
                 />
               </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
+                  <Filter className="text-blue-500" size={10} /> {isRTL ? 'نوع المرحلة' : 'Stage Type'}
+                </label>
+                <SearchableSelect
+                  options={stageTypeOptions}
+                  value={filters.stageType}
+                  onChange={(val) => setFilters(prev => ({ ...prev, stageType: val }))}
+                  placeholder={isRTL ? 'اختر النوع...' : 'Select type...'}
+                  isRTL={isRTL}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -788,13 +1052,14 @@ export default function RequestsPage() {
                 </th>
                 <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('id')}>{isRTL ? 'رقم الطلب' : 'Order ID'}</th>
                 <th className="p-4 cursor-pointer hover:text-blue-600" onClick={() => handleSort('customerName')}>{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
+                <th className="p-4 whitespace-nowrap cursor-pointer hover:text-blue-600" onClick={() => handleSort('stageType')}>{isRTL ? 'نوع المرحلة' : 'Stage Type'}</th>
                 <th className="p-4 min-w-[180px]">{isRTL ? 'العناصر' : 'Items'}</th>
                 <th className="p-4 text-center">{isRTL ? 'الكمية' : 'Quantity'}</th>
                 <th className="p-4 min-w-[160px]">{isRTL ? 'اسم الفئة' : 'Category Name'}</th>
                 <th className="p-4 min-w-[140px]">{isRTL ? 'نوع الفئة' : 'Category Type'}</th>
                 <th className="p-4 text-end">{isRTL ? 'المبلغ' : 'Amount'}</th>
                 <th className="p-4 min-w-[160px]">{isRTL ? 'أسماء الإضافات' : 'Add-ons Name'}</th>
-                <th className="p-4 text-center">{isRTL ? 'كمية الإضافات' : 'Add-ons Qty'}</th>
+                <th className="p-4 text-center whitespace-nowrap">{isRTL ? 'كمية / فترة الإضافات' : 'Add-ons Qty / Period'}</th>
                 <th className="p-4 text-end">{isRTL ? 'مبلغ الإضافات' : 'Add-ons Amount'}</th>
                 <th className="p-4 text-end cursor-pointer hover:text-blue-600" onClick={() => handleSort('total')}>{isRTL ? 'إجمالي المبلغ' : 'Total Amount'}</th>
                 <th className="p-4 min-w-[140px]">{isRTL ? 'مندوب المبيعات' : 'Sales Person'}</th>
@@ -829,22 +1094,51 @@ export default function RequestsPage() {
                       />
                     </td>
                     <td className="p-4 font-medium text-blue-600">
-                      {item.id}
+                      {String(item.id).padStart(4, '0')}
                     </td>
                     <td className="p-4 font-medium">
                       {item.customerName}
                     </td>
+                    <td className="p-4 whitespace-nowrap">
+                      <span className={stageTypeBadge(item.stageType)}>
+                        {stageTypeLabel(item.stageType)}
+                      </span>
+                    </td>
                     <td className="p-4 font-medium">
-                      <div className="max-w-[180px] truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</div>
+                      <div className="max-w-[180px]">
+                        <SmartCellTooltip
+                          values={item.itemNames}
+                          display={item.itemNamesDisplay}
+                          label={isRTL ? 'العناصر' : 'Items'}
+                          isRTL={isRTL}
+                          isLight={isLight}
+                        />
+                      </div>
                     </td>
                     <td className="p-4 text-center font-medium">
-                      {item.quantityTotal || 0}
+                      {quantityDisplay(item)}
                     </td>
                     <td className="p-4">
-                      <div className="max-w-[160px] truncate" title={item.categoryNamesDisplay}>{item.categoryNamesDisplay}</div>
+                      <div className="max-w-[160px]">
+                        <SmartCellTooltip
+                          values={item.categoryNames}
+                          display={item.categoryNamesDisplay}
+                          label={isRTL ? 'اسم الفئة' : 'Category Name'}
+                          isRTL={isRTL}
+                          isLight={isLight}
+                        />
+                      </div>
                     </td>
                     <td className="p-4">
-                      <div className="max-w-[140px] truncate" title={item.categoryTypesDisplay}>{item.categoryTypesDisplay}</div>
+                      <div className="max-w-[140px]">
+                        <SmartCellTooltip
+                          values={item.categoryTypes}
+                          display={item.categoryTypesDisplay}
+                          label={isRTL ? 'نوع الفئة' : 'Category Type'}
+                          isRTL={isRTL}
+                          isLight={isLight}
+                        />
+                      </div>
                     </td>
                     <td className="p-4 text-end font-mono font-medium">
                       {formatAmount(item.itemsPriceTotal)}
@@ -852,26 +1146,26 @@ export default function RequestsPage() {
                     <td className="p-4">
                       {getRequestAddons(item).length > 0 ? (
                         <select
-                          className="select select-xs h-8 min-h-0 w-40 max-w-full rounded-md border border-gray-300 bg-transparent text-xs text-theme"
+                          className="select select-xs h-8 min-h-0 w-44 max-w-full rounded-md border border-gray-300 bg-transparent text-xs text-theme"
                           value={String(getSelectedRequestAddon(item)?.id || '')}
                           onChange={(e) => setSelectedAddonByRequestId(prev => ({ ...prev, [item.id]: e.target.value }))}
                           title={item.addonsNamesDisplay}
                         >
                           {getRequestAddons(item).map((addon, index) => (
-                            <option key={`${item.id}-request-addon-${index}`} value={addon.id}>{addon.name}</option>
+                            <option key={`${item.id}-request-addon-${index}`} value={addon.id}>{getRequestAddonLabel(item, addon)}</option>
                           ))}
                         </select>
                       ) : (
-                        <span className="text-xs">-</span>
+                        <span className="text-xs">—</span>
                       )}
                     </td>
                     <td className="p-4 text-center">
-                      <span className={`${th.badgeNeutral} px-2 py-1 rounded text-xs`}>
-                        {getSelectedRequestAddon(item)?.quantity || 0}
+                      <span className={`${th.badgeNeutral} px-2 py-1 rounded text-xs whitespace-nowrap`}>
+                        {getSelectedRequestAddonQtyOrPeriod(item)}
                       </span>
                     </td>
                     <td className="p-4 text-end font-mono font-medium">
-                      {formatAmount(getSelectedRequestAddonAmount(item))}
+                      {getRequestAddons(item).length > 0 ? formatAmount(getSelectedRequestAddonAmount(item)) : '—'}
                     </td>
                     <td className="p-4 text-end font-mono font-semibold">
                       {formatAmount(item.total)}
@@ -1041,8 +1335,11 @@ export default function RequestsPage() {
             <div key={item.id} className={`${th.card} p-4 rounded-xl shadow-sm space-y-3`}>
               <div className="flex justify-between items-start">
                 <div className="flex flex-col">
-                  <span className="text-xs text-blue-600 font-mono">#{item.id}</span>
+                  <span className="text-xs text-blue-600 font-mono">#{String(item.id).padStart(4, '0')}</span>
                   <h3 className={`font-bold ${th.title}`}>{item.customerName}</h3>
+                  <span className={`mt-1 ${stageTypeBadge(item.stageType)}`}>
+                    {stageTypeLabel(item.stageType)}
+                  </span>
                 </div>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadgeMobile(item.status)}`}>
                   {item.status}
@@ -1052,7 +1349,14 @@ export default function RequestsPage() {
               <div className={`grid grid-cols-2 gap-2 text-sm ${th.text}`}>
                 <div className="flex flex-col col-span-2">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'العناصر' : 'Items'}</span>
-                  <span className="font-medium truncate" title={item.itemNamesDisplay}>{item.itemNamesDisplay}</span>
+                  <SmartCellTooltip
+                    values={item.itemNames}
+                    display={item.itemNamesDisplay}
+                    label={isRTL ? 'العناصر' : 'Items'}
+                    isRTL={isRTL}
+                    isLight={isLight}
+                    className="font-medium"
+                  />
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'إجمالي المبلغ' : 'Total Amount'}</span>
@@ -1064,15 +1368,27 @@ export default function RequestsPage() {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'الكمية' : 'Quantity'}</span>
-                  <span>{item.quantityTotal || 0}</span>
+                  <span>{quantityDisplay(item)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'اسم الفئة' : 'Category Name'}</span>
-                  <span className="truncate" title={item.categoryNamesDisplay}>{item.categoryNamesDisplay}</span>
+                  <SmartCellTooltip
+                    values={item.categoryNames}
+                    display={item.categoryNamesDisplay}
+                    label={isRTL ? 'اسم الفئة' : 'Category Name'}
+                    isRTL={isRTL}
+                    isLight={isLight}
+                  />
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'نوع الفئة' : 'Category Type'}</span>
-                  <span className="truncate" title={item.categoryTypesDisplay}>{item.categoryTypesDisplay}</span>
+                  <SmartCellTooltip
+                    values={item.categoryTypes}
+                    display={item.categoryTypesDisplay}
+                    label={isRTL ? 'نوع الفئة' : 'Category Type'}
+                    isRTL={isRTL}
+                    isLight={isLight}
+                  />
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'أسماء الإضافات' : 'Add-ons Name'}</span>
@@ -1084,20 +1400,20 @@ export default function RequestsPage() {
                       title={item.addonsNamesDisplay}
                     >
                       {getRequestAddons(item).map((addon, index) => (
-                        <option key={`${item.id}-mobile-request-addon-${index}`} value={addon.id}>{addon.name}</option>
+                        <option key={`${item.id}-mobile-request-addon-${index}`} value={addon.id}>{getRequestAddonLabel(item, addon)}</option>
                       ))}
                     </select>
                   ) : (
-                    <span>-</span>
+                    <span>—</span>
                   )}
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'كمية الإضافات' : 'Add-ons Qty'}</span>
-                  <span>{getSelectedRequestAddon(item)?.quantity || 0}</span>
+                  <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'كمية / فترة الإضافات' : 'Add-ons Qty / Period'}</span>
+                  <span>{getSelectedRequestAddonQtyOrPeriod(item)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'مبلغ الإضافات' : 'Add-ons Amount'}</span>
-                  <span className="font-mono">{formatAmount(getSelectedRequestAddonAmount(item))}</span>
+                  <span className="font-mono">{getRequestAddons(item).length > 0 ? formatAmount(getSelectedRequestAddonAmount(item)) : '—'}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-[var(--muted-text)]">{isRTL ? 'التاريخ' : 'Date'}</span>
@@ -1205,183 +1521,6 @@ export default function RequestsPage() {
           </div>
         </div>
       )}
-
-      {showForm && (
-        <div className="fixed inset-0 z-[200]">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowForm(false)}
-          />
-          <div className="absolute inset-0 flex items-start justify-center p-4 md:p-6">
-            <div className="card w-full max-w-xl mt-10 max-h-[85vh] overflow-y-auto">
-              <div className={`sticky top-0 z-10 flex items-center justify-between px-4 py-3 ${th.modalHeader}`}>
-                <h2 className={`text-lg font-semibold ${th.title}`}>
-                  {isRTL ? 'إضافة طلب جديد' : 'Add New Request'}
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center ${isLight ? 'bg-white' : 'bg-gray-700'} text-red-600 hover:bg-red-50 shadow-md`}
-                >
-                  <FaTimes size={18} />
-                </button>
-              </div>
-              <form onSubmit={handleSubmitForm} className="p-4 space-y-4">
-                <div className={`rounded-xl p-4 ${th.infoPanel}`}>
-                  <p className={`text-sm ${th.muted}`}>
-                    {isRTL
-                      ? 'املأ الحقول التالية لإضافة طلب جديد. الحقول الأساسية مثل اسم العميل أو المنتج والكمية والمبلغ مطلوبة.'
-                      : 'Fill in the form below to add a new request. Required fields include customer name or product, quantity, and amount.'
-                    }
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'اسم العميل' : 'Customer Name'}
-                    </label>
-                    <input
-                      name="customer_name"
-                      value={formData.customer_name}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                      placeholder={isRTL ? 'اكتب اسم العميل هنا' : 'Enter customer name'}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'رقم الهاتف' : 'Customer Phone'}
-                    </label>
-                    <input
-                      name="customer_phone"
-                      value={formData.customer_phone}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                      placeholder={isRTL ? '0100xxxxxxx' : 'e.g. +2010xxxxxxx'}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'المنتج / البند' : 'Product / Item'}
-                    </label>
-                    <input
-                      name="product"
-                      value={formData.product}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                      placeholder={isRTL ? 'اكتب اسم المنتج أو البند' : 'Enter product or item'}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'الكمية' : 'Quantity'}
-                    </label>
-                    <input
-                      type="number"
-                      name="quantity"
-                      value={formData.quantity}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                      min="1"
-                      placeholder={isRTL ? '1' : '1'}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'المبلغ' : 'Amount'}
-                    </label>
-                    <input
-                      type="number"
-                      name="price"
-                      value={formData.price}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                      min="0"
-                      placeholder={isRTL ? '0.00' : '0.00'}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'الأولوية' : 'Priority'}
-                    </label>
-                    <select
-                      name="priority"
-                      value={formData.priority}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                    >
-                      <option value="Low">{isRTL ? 'منخفضة' : 'Low'}</option>
-                      <option value="Medium">{isRTL ? 'متوسطة' : 'Medium'}</option>
-                      <option value="High">{isRTL ? 'مرتفعة' : 'High'}</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'نوع الطلب' : 'Request Type'}
-                    </label>
-                    <select
-                      name="type"
-                      value={formData.type}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                    >
-                      <option value="Inquiry">{isRTL ? 'استعلام' : 'Inquiry'}</option>
-                      <option value="Booking">{isRTL ? 'حجز' : 'Booking'}</option>
-                      <option value="Maintenance">{isRTL ? 'صيانة' : 'Maintenance'}</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className={`text-xs font-medium ${th.label}`}>
-                      {isRTL ? 'خطة الدفع' : 'Payment Plan'}
-                    </label>
-                    <input
-                      name="payment_plan"
-                      value={formData.payment_plan}
-                      onChange={handleFormChange}
-                      className={`input w-full ${th.input}`}
-                      placeholder={isRTL ? 'مثال: دفعة أولى، شهري' : 'e.g. Upfront, Monthly'}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className={`text-xs font-medium ${th.label}`}>
-                    {isRTL ? 'ملاحظات' : 'Notes'}
-                  </label>
-                  <textarea
-                    name="description"
-                    value={formData.description}
-                    onChange={handleFormChange}
-                    className={`textarea w-full h-20 ${th.input}`}
-                    placeholder={isRTL ? 'اكتب أي ملاحظات إضافية هنا' : 'Enter any additional notes here'}
-                  />
-                </div>
-                <div className={`flex justify-end gap-3 pt-2 border-t ${th.border} mt-2`}>
-                  <button
-                    type="button"
-                    onClick={() => setShowForm(false)}
-                    className="btn btn-ghost btn-sm"
-                  >
-                    {isRTL ? 'إغلاق' : 'Close'}
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-sm bg-green-600 hover:bg-green-500 text-white border-none"
-                    disabled={saving}
-                  >
-                    {saving ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : (isRTL ? 'حفظ الطلب' : 'Save Request')}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <RequestsImportModal
-        isOpen={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        onImport={handleImport}
-      />
 
       <RequestPreviewModal
         isOpen={!!previewItem}

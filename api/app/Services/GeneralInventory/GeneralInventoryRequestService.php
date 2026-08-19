@@ -125,6 +125,7 @@ final class GeneralInventoryRequestService
             'status' => GeneralInventoryDecisionService::STATUS_PENDING,
             'type' => 'Booking',
             'source' => $lead->source ?? '',
+            'assigned_to' => $lead->assigned_to ?: $actor?->id,
             'meta_data' => [
                 'lead_id' => $lead->id,
                 'price' => (float) $lines[0]['price'],
@@ -136,9 +137,12 @@ final class GeneralInventoryRequestService
                 'reservationGeneralItems' => $normalizedRows,
                 'source_action_id' => $reservationActionId,
                 'source_action_type' => $isClosing ? 'closing_deals' : 'reservation',
+                'stage_type' => $isClosing ? 'closing_deal' : 'reservation',
                 'customer_phone' => $lead->phone,
                 'created_by_name' => $actor?->name ?? '',
                 'created_by_id' => $actor?->id,
+                'assigned_to_id' => $lead->assigned_to ?: $actor?->id,
+                'assigned_to_name' => $lead->assignedUser?->name ?? $actor?->name ?? '',
                 'general_inventory' => [
                     'decision' => $this->decisions->result(
                         GeneralInventoryDecisionService::DECISION_APPROVED,
@@ -149,6 +153,7 @@ final class GeneralInventoryRequestService
                         [
                             'lead_id' => $lead->id,
                             'source_action_id' => $reservationActionId,
+                            'stage_type' => $isClosing ? 'closing_deal' : 'reservation',
                         ],
                         $isClosing
                             ? GeneralInventoryDecisionService::STATUS_CONVERTED
