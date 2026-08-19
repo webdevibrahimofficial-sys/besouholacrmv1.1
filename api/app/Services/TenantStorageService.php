@@ -13,6 +13,10 @@ class TenantStorageService
 {
     protected $disk = 'tenants';
 
+    public const DEFAULT_URL_MINUTES = 60;
+
+    public const AVATAR_URL_MINUTES = 60 * 24 * 7;
+
     /**
      * Upload a file for the current tenant.
      *
@@ -45,27 +49,25 @@ class TenantStorageService
     }
 
     /**
-     * Get a secure URL for the file.
-     * 
-     * @param string $path
-     * @return string
+     * Get a client-loadable signed URL for the file.
+     *
+     * Local disks are signed as a relative route (HMAC on path + expires) then prefixed
+     * with APP_URL so mobile/web can open an absolute https URL. TenantFileController
+     * validates with hasValidSignature(false), so signing the host into the HMAC breaks
+     * every /api/files request.
      */
-    public function getUrl(string $path)
+    public function getUrl(string $path, int $minutes = self::DEFAULT_URL_MINUTES)
     {
         if (config('filesystems.disks.tenants.driver') === 's3') {
-            // Generate S3 Signed URL (valid for 60 minutes)
             /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
             $disk = Storage::disk($this->disk);
             return $disk->temporaryUrl(
                 $path,
-                now()->addMinutes(60)
+                now()->addMinutes($minutes)
             );
         }
 
-        // Local: Generate Laravel Signed Route
-        // Route should be: /api/files/{path}
-        // We pass the full relative path: 1/avatars/xyz.jpg
-        return URL::signedRoute('tenant.files.show', ['path' => $path], now()->addMinutes(60));
+        return rtrim((string) config('app.url'), '/') . $this->signedLocalPath($path, $minutes);
     }
 
     /**
@@ -74,15 +76,20 @@ class TenantStorageService
      * signature stays valid when loaded from tenant subdomains via <img>/<video>.
      * Leave S3 / external URLs absolute.
      */
-    public function getBrowserUrl(string $path): string
+    public function getBrowserUrl(string $path, int $minutes = self::DEFAULT_URL_MINUTES): string
     {
         if (config('filesystems.disks.tenants.driver') === 's3') {
-            return $this->getUrl($path);
+            return $this->getUrl($path, $minutes);
         }
 
+        return $this->signedLocalPath($path, $minutes);
+    }
+
+    protected function signedLocalPath(string $path, int $minutes): string
+    {
         return URL::temporarySignedRoute(
             'tenant.files.show',
-            now()->addMinutes(60),
+            now()->addMinutes($minutes),
             ['path' => $path],
             absolute: false
         );

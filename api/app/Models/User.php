@@ -105,7 +105,10 @@ class User extends Authenticatable
         
         // Use TenantStorageService to generate secure signed URL
         try {
-            return app(\App\Services\TenantStorageService::class)->getUrl($this->avatar);
+            return app(\App\Services\TenantStorageService::class)->getUrl(
+                $this->avatar,
+                \App\Services\TenantStorageService::AVATAR_URL_MINUTES
+            );
         } catch (\Exception $e) {
             // Fallback for legacy or error cases
             return null;

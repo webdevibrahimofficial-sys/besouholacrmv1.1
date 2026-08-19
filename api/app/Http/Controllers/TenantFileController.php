@@ -11,10 +11,9 @@ class TenantFileController extends Controller
     public function show(Request $request, $path)
     {
         // 1. Validate Signature
-        // This is the primary security mechanism for "Private" files accessed via URL (e.g. <img> tags).
-        // Validate without the host so Vite/nginx same-origin /api proxies work
-        // even when APP_URL is an internal hostname like http://web.
-        if (!$request->hasValidSignature(false)) {
+        // Relative signatures work for SPA/nginx proxies when APP_URL is an internal host.
+        // Absolute signatures are what login avatar_url / mobile clients historically receive.
+        if (!$request->hasValidSignature(false) && !$request->hasValidSignature(true)) {
             abort(403, 'Invalid or expired signature.');
         }
 
