@@ -13,6 +13,7 @@ import {
   resolveManagerName,
   resolvePeriodTarget,
   resolveRevenueProjectOrItem,
+  aggregateRevenueByItem,
   resolveEffectivePeriodTarget,
   resolveSalespersonRowTarget,
   usesCompanyTarget,
@@ -32,6 +33,7 @@ import {
   collectDescendantIds,
   resolveInheritedTargetForYear,
   calculateInheritedCommission,
+  buildTargetsRevenuePdfTable,
 } from './targetRevenueReport'
 
 describe('targetRevenueReport', () => {
@@ -128,6 +130,35 @@ describe('targetRevenueReport', () => {
     expect(matchCommissionRate([], 80)).toBe(0)
   })
 
+  test('uses the last closed tier rate when achievement exceeds its cap', () => {
+    const tiers = [
+      { from_percentage: 0, to_percentage: 79.99, commission_percentage: 2 },
+      { from_percentage: 80, to_percentage: 100, commission_percentage: 5 },
+    ]
+    expect(matchCommissionRate(tiers, 80)).toBe(5)
+    expect(matchCommissionRate(tiers, 100)).toBe(5)
+    expect(matchCommissionRate(tiers, 101)).toBe(5)
+    expect(matchCommissionRate(tiers, 175)).toBe(5)
+  })
+
+  test('open-ended last tier still matches any achievement at or above from', () => {
+    const tiers = [
+      { from_percentage: 0, to_percentage: 79.99, commission_percentage: 2 },
+      { from_percentage: 80, to_percentage: null, commission_percentage: 7 },
+    ]
+    expect(matchCommissionRate(tiers, 80)).toBe(7)
+    expect(matchCommissionRate(tiers, 250)).toBe(7)
+  })
+
+  test('achievement below all tiers stays 0', () => {
+    const tiers = [
+      { from_percentage: 50, to_percentage: 80, commission_percentage: 2 },
+      { from_percentage: 80, to_percentage: 100, commission_percentage: 5 },
+    ]
+    expect(matchCommissionRate(tiers, 0)).toBe(0)
+    expect(matchCommissionRate(tiers, 49.99)).toBe(0)
+  })
+
   test('uses current-year user commission only when the selected year has no snapshot', () => {
     expect(resolveTiersForYear(user, [], 2026, currentYear)[0].commission_percentage).toBe(4)
     expect(resolveTiersForYear(user, [], 2025, currentYear)).toEqual([])
@@ -175,6 +206,30 @@ describe('targetRevenueReport', () => {
       project: '-',
       source: '-',
     }, { companyType: 'general' })).toBe('')
+  })
+
+  test('revenue by item splits mixed closing lines instead of joining names', () => {
+    const segments = aggregateRevenueByItem([
+      {
+        revenue: 42500,
+        project: 'tab samsung s7, اشتراك غسيل سيارات',
+        dealItems: [
+          { name: 'tab samsung s7', amount: 20000 },
+          { name: 'اشتراك غسيل سيارات', amount: 22500 },
+        ],
+      },
+      {
+        revenue: 50000,
+        project: 'honor',
+        dealItems: [{ name: 'honor', amount: 50000 }],
+      },
+    ])
+
+    expect(segments).toEqual([
+      { label: 'tab samsung s7', value: 20000 },
+      { label: 'اشتراك غسيل سيارات', value: 22500 },
+      { label: 'honor', value: 50000 },
+    ])
   })
 
   test('closing action item wins over the original lead item', () => {
@@ -297,6 +352,13 @@ describe('targetRevenueReport', () => {
     expect(isManagerFilterRole({ role: 'Director' })).toBe(false)
     expect(isManagerFilterRole({ role: 'Sales Person' })).toBe(false)
     expect(isManagerFilterRole({ role: 'Operation Manager' })).toBe(false)
+    expect(isManagerFilterRole({ role: 'Accountant' })).toBe(false)
+    expect(isManagerFilterRole({ role: 'Telesales Manager' })).toBe(false)
+    expect(isManagerFilterRole({ role: 'Telesales Team Leader' })).toBe(false)
+    expect(isManagerFilterRole({ role: 'Customer Manager' })).toBe(false)
+    expect(shouldIncludeInSalespersonRows({ role: 'Accountant' }, { personalTarget: 50000, hasRevenue: true })).toBe(false)
+    expect(shouldIncludeInSalespersonRows({ role: 'Telesales Manager' }, { personalTarget: 50000 })).toBe(false)
+    expect(shouldIncludeInSalespersonRows({ role: 'Telesales Agent' }, { personalTarget: 0 })).toBe(false)
   })
 
   test('salesperson table includes managers personally and leadership only when they have sales', () => {
@@ -314,6 +376,8 @@ describe('targetRevenueReport', () => {
     expect(matchesManagerFilter({ id: 1, name: 'Sara TL' }, 'Sara TL', usersById)).toBe(true)
     expect(matchesManagerFilter({ id: 2, name: 'Ahmed', manager_id: 1 }, 'Sara TL', usersById)).toBe(true)
     expect(matchesManagerFilter({ id: 3, name: 'Other' }, 'Sara TL', usersById)).toBe(false)
+    expect(matchesManagerFilter({ id: 1, name: 'Sara TL' }, '1', usersById)).toBe(true)
+    expect(matchesManagerFilter({ id: 2, name: 'Ahmed', manager_id: 1 }, '1', usersById)).toBe(true)
   })
 
   test('company KPI uses company target until a manager or salesperson filter is applied', () => {
@@ -417,5 +481,72 @@ describe('targetRevenueReport', () => {
     expect(inherited.achievement).toBe(100)
     expect(inherited.rate).toBe(2)
     expect(inherited.commission).toBe(160)
+  })
+
+  test('sales PDF columns match the overview table including commission', () => {
+    const { head, body } = buildTargetsRevenuePdfTable({
+      tableTab: 'sales',
+      salesRows: [{
+        salesperson: 'Ali',
+        manager: 'Sara',
+        project: 'Palm',
+        source: 'Facebook',
+        date: '2026-08-01',
+        target: 10000,
+        revenue: 8000,
+        commissionRate: 4,
+        commission: 320,
+        aggregateAchievement: 80,
+      }],
+    })
+    expect(head).toEqual([
+      'Sales Person', 'Manager', 'Project', 'Source', 'Deal Date',
+      'Target', 'Revenue', 'Commission %', 'Commission', 'Achievement %',
+    ])
+    expect(head).not.toEqual(expect.arrayContaining(['Deal Type', 'Status']))
+    expect(body).toHaveLength(1)
+    expect(body[0]).toHaveLength(head.length)
+    expect(body[0][7]).toBe(4)
+    expect(body[0][8]).toBe(320)
+    expect(body[0][9]).toBe('80%')
+  })
+
+  test('managers PDF flattens team rows with commission and without removed deal columns', () => {
+    const { head, body } = buildTargetsRevenuePdfTable({
+      tableTab: 'managers',
+      managerRows: [{
+        name: 'Sara',
+        date: '2026-08-01',
+        target: 20000,
+        revenue: 12000,
+        commissionRate: 3,
+        commission: 360,
+        achievement: 60,
+        members: [{
+          name: 'Ali',
+          date: '2026-08-02',
+          target: 10000,
+          revenue: 8000,
+          commissionRate: 4,
+          commission: 320,
+          achievement: 80,
+        }],
+      }],
+    })
+    expect(head).toEqual([
+      'Type', 'Name', 'Deal Date', 'Target', 'Revenue',
+      'Commission %', 'Commission', 'Achievement %',
+    ])
+    expect(head).not.toEqual(expect.arrayContaining(['Deal Type', 'Status']))
+    expect(body).toEqual([
+      ['Manager', 'Sara', '2026-08-01', 20000, 12000, 3, 360, '60%'],
+      ['Sales', 'Ali', '2026-08-02', 10000, 8000, 4, 320, '80%'],
+    ])
+    expect(body.every((row) => row.length === head.length)).toBe(true)
+  })
+
+  test('empty PDF source rows stay empty so the UI can toast instead of downloading', () => {
+    expect(buildTargetsRevenuePdfTable({ tableTab: 'sales', salesRows: [] }).body).toEqual([])
+    expect(buildTargetsRevenuePdfTable({ tableTab: 'managers', managerRows: [] }).body).toEqual([])
   })
 })

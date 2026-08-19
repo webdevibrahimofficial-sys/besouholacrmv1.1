@@ -1,13 +1,13 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useLocation } from 'react-router-dom'
-import * as XLSX from 'xlsx'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
 import { api, logExportEvent } from '../utils/api'
+import { downloadXlsx, joinExportNames, registerReportPdfFont, reportPdfAutoTableOptions } from '../utils/reportFileExport'
 import BackButton from '../components/BackButton'
 import { PieChart } from '../shared/components/PieChart'
 import SearchableSelect from '../components/SearchableSelect'
@@ -115,10 +115,19 @@ export default function ClosedDealsReport() {
     return descendants
   }
 
-  const normalizeDate = (value) => {
-    const raw = String(value || '').trim()
-    if (!raw) return ''
-    return raw.slice(0, 10)
+  const toLocalDateKey = (value) => {
+    if (!value) return ''
+    const raw = String(value).trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      const match = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+      return match ? match[1] : ''
+    }
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
   }
 
   const formatDateTime = (value) => {
@@ -310,6 +319,37 @@ export default function ClosedDealsReport() {
     return detailRows.length === 1 ? first : `${first} + ${detailRows.length - 1} more`
   }
 
+  const getItemsExportText = (detailRows = [], fallback = '-') => {
+    const names = Array.isArray(detailRows)
+      ? [...new Set(
+        detailRows
+          .map((row) => String(row?.name || '').trim())
+          .filter((name) => name && name !== '-' && !isNumericId(name))
+      )]
+      : []
+    if (names.length > 0) return joinExportNames(names)
+    const text = String(fallback || '').replace(/\s\+\s\d+\s+more\s*$/i, '').trim()
+    return text && !isNumericId(text) ? text : '-'
+  }
+
+  const resolveExportUnitOrItemName = (deal) => {
+    if (isRealEstate) {
+      return String(deal?.unitOrItemName || '').trim() || '-'
+    }
+    return getItemsExportText(deal?.itemDetails, deal?.unitOrItemName)
+  }
+
+  const notifyEmptyExport = () => {
+    window.dispatchEvent(new CustomEvent('app:toast', {
+      detail: {
+        type: 'error',
+        message: isRTL ? 'لا توجد بيانات للتصدير' : 'No data to export',
+      },
+    }))
+  }
+
+  const loadPdfFont = async (doc) => registerReportPdfFont(doc)
+
   const openPropertyByUnit = (deal) => {
     const unitValue = String(deal?.unitOrItemName || '').trim()
     if (!isRealEstate || !unitValue) return
@@ -398,7 +438,7 @@ export default function ClosedDealsReport() {
       try {
         const res = await api.get('/api/lead-actions', {
           params: {
-            next_action_type: 'closing_deals'
+            type: 'closing_deals'
           }
         })
         const raw = Array.isArray(res.data) ? res.data : (res.data?.data || [])
@@ -409,19 +449,22 @@ export default function ClosedDealsReport() {
             total: details.closingRevenue ?? details.revenue ?? a.revenue ?? 0,
           })
 
-          const valueRaw =
+          const parseMoney = (v) => {
+            if (v === null || v === undefined || v === '') return 0
+            return typeof v === 'number' ? v : (parseFloat(v) || 0)
+          }
+
+          const explicitValue = parseMoney(
             details.closingRevenue ??
+            details.finalAmount ??
+            details.final_amount ??
             details.revenue ??
-            a.revenue ??
-            (a.lead && a.lead.estimated_value) ??
-            0
+            a.revenue
+          )
 
           const valueFromRows = itemDetails.reduce((sum, row) => sum + Number(row.subTotal || 0), 0)
-          const value = valueFromRows || (
-            typeof valueRaw === 'number'
-              ? valueRaw
-              : parseFloat(valueRaw || '0') || 0
-          )
+          const leadValue = parseMoney(a.lead && a.lead.estimated_value)
+          const value = explicitValue > 0 ? explicitValue : (valueFromRows > 0 ? valueFromRows : leadValue)
 
           const closedDateRaw = a.created_at || details.date || ''
 
@@ -460,8 +503,8 @@ export default function ClosedDealsReport() {
             itemDetails,
             source: lead.source || '',
             closedDateTime: closedDateRaw,
-            closedDate: normalizeDate(closedDateRaw),
-            lastActionDate: normalizeDate(lastActionDateRaw),
+            closedDate: toLocalDateKey(closedDateRaw),
+            lastActionDate: toLocalDateKey(lastActionDateRaw),
             status: resolveDealReportStatus(details),
             salesperson,
             salespersonId: salespersonId !== null && salespersonId !== undefined && salespersonId !== ''
@@ -895,6 +938,12 @@ export default function ClosedDealsReport() {
   }
 
   const handleExportExcel = () => {
+    if (!filtered.length) {
+      notifyEmptyExport()
+      setShowExportMenu(false)
+      return
+    }
+
     const rows = filtered.map(d => {
       const row = {
         [isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person']: d.salesperson,
@@ -906,17 +955,14 @@ export default function ClosedDealsReport() {
       return {
         ...row,
         [isRTL ? '\u0646\u0648\u0639 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Type']: d.dealType,
-        [unitOrItemLabel]: d.unitOrItemName,
+        [unitOrItemLabel]: resolveExportUnitOrItemName(d),
         [isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value']: d.value,
         [isRTL ? '\u062a\u0627\u0631\u064a\u062e \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Closed Deal Date']: formatDateTime(d.closedDateTime),
         [isRTL ? '\u0627\u0644\u062d\u0627\u0644\u0629' : 'Status']: d.status
       }
     })
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'ClosedDeals')
     const fileName = 'Closed_Deals_Report.xlsx'
-    XLSX.writeFile(wb, fileName)
+    downloadXlsx({ rows, sheetName: 'ClosedDeals', fileName })
     logExportEvent({
       module: 'Closed Deals Report',
       fileName,
@@ -925,9 +971,76 @@ export default function ClosedDealsReport() {
     setShowExportMenu(false)
   }
 
-  const handleExportPdf = () => {
-    window.print()
-    setShowExportMenu(false)
+  const handleExportPdf = async () => {
+    if (!filtered.length) {
+      notifyEmptyExport()
+      setShowExportMenu(false)
+      return
+    }
+
+    try {
+      const jsPDF = (await import('jspdf')).default
+      const autoTable = await import('jspdf-autotable')
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      const tableFont = await loadPdfFont(doc)
+      const tableColumn = [
+        isRTL ? 'مسؤول المبيعات' : 'Sales Person',
+        isRTL ? 'اسم العميل' : 'Lead Name',
+        isRTL ? 'بيانات التواصل' : 'Contact',
+        isRTL ? 'المصدر' : 'Source',
+        ...(showProjectColumn ? [projectLabel] : []),
+        isRTL ? 'نوع الصفقة' : 'Deal Type',
+        unitOrItemLabel,
+        isRTL ? 'قيمة الصفقة' : 'Deal Value',
+        isRTL ? 'تاريخ إغلاق الصفقة' : 'Closed Deal Date',
+        isRTL ? 'الحالة' : 'Status',
+      ]
+      const tableRows = filtered.map((d) => ([
+        d.salesperson,
+        d.leadName,
+        d.contact,
+        d.source,
+        ...(showProjectColumn ? [d.project] : []),
+        d.dealType,
+        resolveExportUnitOrItemName(d),
+        d.value,
+        formatDateTime(d.closedDateTime),
+        d.status,
+      ]))
+      const pageWidth = doc.internal.pageSize.getWidth()
+      doc.text(isRTL ? 'تقرير الصفقات المغلقة' : 'Closed Deals Report', isRTL ? pageWidth - 40 : 40, 32, {
+        align: isRTL ? 'right' : 'left',
+      })
+      autoTable.default(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 48,
+        ...reportPdfAutoTableOptions({
+          fontName: tableFont,
+          isRTL,
+          columnStyles: {
+            [tableColumn.indexOf(unitOrItemLabel)]: { cellWidth: 160 },
+          },
+        }),
+      })
+      const fileName = 'Closed_Deals_Report.pdf'
+      doc.save(fileName)
+      logExportEvent({
+        module: 'Closed Deals Report',
+        fileName,
+        format: 'pdf',
+      })
+      setShowExportMenu(false)
+    } catch (error) {
+      console.error('Closed deals PDF export failed:', error)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRTL ? 'فشل تصدير ملف PDF' : 'PDF export failed',
+        },
+      }))
+      setShowExportMenu(false)
+    }
   }
 
   const handleExport = () => {
@@ -1299,7 +1412,7 @@ export default function ClosedDealsReport() {
         {/* Desktop View - Table */}
         <div className="hidden md:block overflow-x-auto">
           <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
-            <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
+            <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 border-b border-black/10 dark:border-white/15 ${isLight ? 'text-black' : 'text-white'}`}>
               <tr>
                 <th className="px-4 py-3">{isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person'}</th>
                 <th className="px-4 py-3">{isRTL ? '\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064a\u0644' : 'Lead Name'}</th>

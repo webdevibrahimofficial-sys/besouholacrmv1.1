@@ -1,7 +1,6 @@
 ﻿import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
-import * as XLSX from 'xlsx'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
 import { useTheme } from '@shared/context/ThemeProvider'
@@ -11,10 +10,11 @@ import { PieChart } from '../shared/components/PieChart'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
 import { api, logExportEvent } from '../utils/api'
+import { downloadXlsx, joinExportNames, registerReportPdfFont, reportPdfAutoTableOptions } from '../utils/reportFileExport'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../shared/components/SearchableSelect'
 import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
-import { Filter, User, Tag, Briefcase, Trophy, ChevronDown, ChevronLeft, ChevronRight, Eye, Phone, Calendar, Trash } from 'lucide-react'
+import { Filter, User, Tag, Briefcase, Trophy, ChevronDown, ChevronLeft, ChevronRight, Eye, Calendar, Trash } from 'lucide-react'
 import EnhancedLeadDetailsModal from '../shared/components/EnhancedLeadDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import ItemDetailsHoverTooltip from '../components/ItemDetailsHoverTooltip'
@@ -30,6 +30,40 @@ const normalizeCompanyType = (...values) => {
   if (normalized.includes('real')) return 'realestate'
 
   return normalized.replace(/[\s_]+/g, '')
+}
+
+const isClosingDealRecord = (item) => {
+  const meta = item?.meta_data || item?.metaData || {}
+  const token = String(
+    item?.stage_type
+    || meta.stage_type
+    || meta.source_action_type
+    || meta.general_inventory?.stage_type
+    || ''
+  ).toLowerCase().replace(/[\s-]+/g, '_')
+  return [
+    'closing_deal',
+    'closing_deals',
+    'close_deal',
+    'close_deals',
+    'done_deal',
+    'done_deals',
+  ].includes(token)
+}
+
+const toLocalDateKey = (value) => {
+  if (!value) return ''
+  const raw = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    const match = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+    return match ? match[1] : ''
+  }
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 export default function ReservationsReport() {
@@ -246,6 +280,37 @@ export default function ReservationsReport() {
     return detailRows.length === 1 ? first : `${first} + ${detailRows.length - 1} more`
   }
 
+  const getItemsExportText = (detailRows = [], fallback = '-') => {
+    const names = Array.isArray(detailRows)
+      ? [...new Set(
+        detailRows
+          .map((row) => String(row?.name || '').trim())
+          .filter((name) => name && name !== '-')
+      )]
+      : []
+    if (names.length > 0) return joinExportNames(names)
+    const text = String(fallback || '').replace(/\s\+\s\d+\s+more\s*$/i, '').trim()
+    return text || '-'
+  }
+
+  const resolveExportUnitOrItemName = (row) => {
+    if (isRealEstateReservationRow(row)) {
+      return String(row?.unitOrItemName || '').trim() || '-'
+    }
+    return getItemsExportText(row?.itemDetails, row?.unitOrItemName)
+  }
+
+  const notifyEmptyExport = () => {
+    window.dispatchEvent(new CustomEvent('app:toast', {
+      detail: {
+        type: 'error',
+        message: isRTL ? 'لا توجد بيانات للتصدير' : 'No data to export',
+      },
+    }))
+  }
+
+  const loadPdfFont = async (doc) => registerReportPdfFont(doc)
+
   const resolveReservationValue = (item) => {
     const meta = item?.meta_data || item?.metaData || {}
     const rows = Array.isArray(meta?.reservationGeneralItems) ? meta.reservationGeneralItems : []
@@ -358,7 +423,7 @@ export default function ReservationsReport() {
     )
   }
 
-  const resolveHandledBy = (item) => {
+  const resolveSalesAssignment = (item) => {
     const meta = item?.meta_data || item?.metaData || {}
 
     const assignedValue = item?.assigned_to
@@ -368,15 +433,29 @@ export default function ReservationsReport() {
         (u) => String(u.id) === assignedString || String(u.name).trim() === assignedString
       )
 
-      return matchedUser?.name || assignedString
+      return {
+        id: matchedUser
+          ? String(matchedUser.id)
+          : (/^\d+$/.test(assignedString) ? assignedString : ''),
+        name: matchedUser?.name || assignedString,
+      }
     }
-
-    if (meta?.assigned_to_name) return meta.assigned_to_name
 
     const assignedMetaId = meta?.assigned_to_id
     if (assignedMetaId !== null && assignedMetaId !== undefined && assignedMetaId !== '') {
       const matchedUser = usersList.find((u) => String(u.id) === String(assignedMetaId))
-      if (matchedUser?.name) return matchedUser.name
+      return {
+        id: String(assignedMetaId),
+        name: matchedUser?.name || meta?.assigned_to_name || '',
+      }
+    }
+
+    if (meta?.assigned_to_name) {
+      const matchedUser = usersList.find((u) => String(u.name).trim() === String(meta.assigned_to_name).trim())
+      return {
+        id: matchedUser ? String(matchedUser.id) : '',
+        name: meta.assigned_to_name,
+      }
     }
 
     const preferredActorName =
@@ -385,15 +464,24 @@ export default function ReservationsReport() {
       meta?.sales_person ||
       meta?.created_by_name
 
-    if (preferredActorName) return preferredActorName
-
     const actorId = meta?.sales_person_id || meta?.created_by_id
     if (actorId !== null && actorId !== undefined && actorId !== '') {
       const matchedUser = usersList.find((u) => String(u.id) === String(actorId))
-      if (matchedUser?.name) return matchedUser.name
+      return {
+        id: String(actorId),
+        name: matchedUser?.name || preferredActorName || '',
+      }
     }
 
-    return ''
+    if (preferredActorName) {
+      const matchedUser = usersList.find((u) => String(u.name).trim() === String(preferredActorName).trim())
+      return {
+        id: matchedUser ? String(matchedUser.id) : '',
+        name: preferredActorName,
+      }
+    }
+
+    return { id: '', name: '' }
   }
 
   const fetchData = async () => {
@@ -425,7 +513,11 @@ export default function ReservationsReport() {
 
       const propertyLookup = buildPropertyLookup(properties)
 
-      const realEstateRows = Array.isArray(realEstate) ? realEstate.map(item => ({
+      const realEstateRows = (Array.isArray(realEstate) ? realEstate : [])
+        .filter((item) => !isClosingDealRecord(item))
+        .map(item => {
+        const sales = resolveSalesAssignment(item)
+        return {
         id: `RE-${item.id}`,
         leadId: item.lead_id || item.leadId || item.meta_data?.lead_id || item.metaData?.lead_id || null,
         customer: item.customer || item.customer_name || '',
@@ -434,7 +526,8 @@ export default function ReservationsReport() {
         type: 'unit',
         status: resolveReservationReportStatus(item),
         value: typeof item.amount === 'number' ? item.amount : parseFloat(item.amount || '0') || 0,
-        handledBy: resolveHandledBy(item),
+        handledBy: sales.name,
+        handledById: sales.id,
         manager: '',
         createdOn: item.created_at || '',
         lastAction: item.updated_at || item.date || '',
@@ -442,11 +535,13 @@ export default function ReservationsReport() {
         project: item.project || '',
         unitOrItemName: resolveReservationUnitName(item, propertyLookup),
         meta_data: item.meta_data || null
-      })) : []
+      }
+      })
 
       const groupedInventory = (() => {
         const groups = new Map()
         ;(Array.isArray(inventory) ? inventory : []).forEach((item) => {
+          if (isClosingDealRecord(item)) return
           const meta = item.meta_data || item.metaData || {}
           const actionId = meta.source_action_id
           const key = actionId ? `ACT-${actionId}` : `INV-${item.id}`
@@ -493,6 +588,7 @@ export default function ReservationsReport() {
           price: meta.price || item.price || 0,
           total: value,
         })
+        const sales = resolveSalesAssignment(item)
 
         return {
           id: `INV-${item.id}`,
@@ -504,7 +600,8 @@ export default function ReservationsReport() {
           type: 'item',
           status: resolveReservationReportStatus(item),
           value,
-          handledBy: resolveHandledBy(item),
+          handledBy: sales.name,
+          handledById: sales.id,
           manager: '',
           createdOn: item.created_at || '',
           lastAction: item.updated_at || '',
@@ -743,6 +840,12 @@ export default function ReservationsReport() {
   };
 
   const exportToExcel = () => {
+    if (!filtered.length) {
+      notifyEmptyExport()
+      setShowExportMenu(false)
+      return
+    }
+
     const dataToExport = filtered.map(r => {
       const row = {
         [isRTL ? 'مسؤول المبيعات' : 'Sales Person']: resolveSalesPersonDisplay(r),
@@ -754,18 +857,15 @@ export default function ReservationsReport() {
       return {
         ...row,
         [isRTL ? 'نوع الحجز' : 'Reservation Type']: formatReservationType(r),
-        [unitNumberColumnLabel]: r.unitOrItemName,
+        [unitNumberColumnLabel]: resolveExportUnitOrItemName(r),
         [isRTL ? 'إجمالي المبلغ' : 'Total Amount']: r.value,
         [isRTL ? 'تاريخ الحجز' : 'Reservation Date']: new Date(r.reservationDateTime).toLocaleString(),
         [isRTL ? 'الحالة' : 'Status']: r.status
       }
     })
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Reservations")
     const fileName = "Reservations_Report.xlsx"
-    XLSX.writeFile(wb, fileName)
+    downloadXlsx({ rows: dataToExport, sheetName: 'Reservations', fileName })
     logExportEvent({
       module: "Reservations Report",
       fileName,
@@ -775,10 +875,17 @@ export default function ReservationsReport() {
   }
 
   const exportToPdf = async () => {
+    if (!filtered.length) {
+      notifyEmptyExport()
+      setShowExportMenu(false)
+      return
+    }
+
     try {
       const jsPDF = (await import('jspdf')).default
       const autoTable = await import('jspdf-autotable')
-      const doc = new jsPDF()
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      const tableFont = await loadPdfFont(doc)
       
       const tableColumn = [
         isRTL ? 'مسؤول المبيعات' : 'Sales Person',
@@ -793,31 +900,34 @@ export default function ReservationsReport() {
         isRTL ? 'الحالة' : 'Status'
       ]
       
-      const tableRows = []
+      const tableRows = filtered.map(r => ([
+        resolveSalesPersonDisplay(r),
+        r.customer,
+        r.contact,
+        r.source,
+        ...(showProjectColumn ? [r.project] : []),
+        formatReservationType(r),
+        resolveExportUnitOrItemName(r),
+        r.value,
+        new Date(r.reservationDateTime).toLocaleString(),
+        r.status
+      ]))
 
-      filtered.forEach(r => {
-        const rowData = [
-          resolveSalesPersonDisplay(r),
-          r.customer,
-          r.contact,
-          r.source,
-          ...(showProjectColumn ? [r.project] : []),
-          formatReservationType(r),
-          r.unitOrItemName,
-          r.value,
-          new Date(r.reservationDateTime).toLocaleString(),
-          r.status
-        ]
-        tableRows.push(rowData)
+      const pageWidth = doc.internal.pageSize.getWidth()
+      doc.text(isRTL ? 'تقرير الحجوزات' : "Reservations Report", isRTL ? pageWidth - 40 : 40, 32, {
+        align: isRTL ? 'right' : 'left',
       })
-
-      doc.text(isRTL ? 'تقرير الحجوزات' : "Reservations Report", 14, 15)
       autoTable.default(doc, {
         head: [tableColumn],
         body: tableRows,
-        startY: 20,
-        styles: { font: 'helvetica', fontSize: 8 },
-        headStyles: { fillColor: [66, 139, 202] }
+        startY: 48,
+        ...reportPdfAutoTableOptions({
+          fontName: tableFont,
+          isRTL,
+          columnStyles: {
+            [tableColumn.indexOf(unitNumberColumnLabel)]: { cellWidth: 160 },
+          },
+        }),
       })
       doc.save("reservations_report.pdf")
       logExportEvent({
@@ -828,6 +938,12 @@ export default function ReservationsReport() {
       setShowExportMenu(false)
     } catch (error) {
       console.error("Export PDF Error:", error)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRTL ? 'فشل تصدير ملف PDF' : 'PDF export failed',
+        },
+      }))
     }
   }
 
@@ -879,14 +995,30 @@ export default function ReservationsReport() {
   }, [location.search])
 
   const staffList = useMemo(() => {
+    const allOption = { id: 'all', name: isRTL ? 'الكل' : 'All' }
+
     if (!usersList || usersList.length === 0) {
-      const set = new Set(raw.map(r => r.handledBy).filter(Boolean))
-      return ['all', ...Array.from(set)]
+      const map = new Map()
+      raw.forEach((r) => {
+        const id = String(r.handledById || r.handledBy || '')
+        if (!id) return
+        if (!map.has(id)) map.set(id, { id, name: r.handledBy || id })
+      })
+      return [allOption, ...Array.from(map.values())]
     }
+
+    const toOptions = (users) => [
+      allOption,
+      ...Array.from(new Map(
+        users
+          .filter(u => String(u?.name || '').trim() !== '')
+          .map(u => [String(u.id), { id: String(u.id), name: u.name }])
+      ).values())
+    ]
 
     if (!manager || manager === 'all') {
       const uniqueUsers = Array.from(new Map(usersList.map(u => [u.id, u])).values())
-      return ['all', ...uniqueUsers.map(u => u.name).filter(Boolean)]
+      return toOptions(uniqueUsers)
     }
 
     const selectedManagers = usersList.filter(u => String(u.id) === String(manager))
@@ -914,9 +1046,8 @@ export default function ReservationsReport() {
       candidates = Array.from(map.values())
     }
 
-    const names = candidates.map(u => u.name).filter(Boolean)
-    return ['all', ...Array.from(new Set(names))]
-  }, [raw, usersList, manager])
+    return toOptions(candidates)
+  }, [raw, usersList, manager, isRTL])
 
   const managerList = useMemo(() => {
     if (!usersList || usersList.length === 0) {
@@ -946,7 +1077,9 @@ export default function ReservationsReport() {
 
   const filtered = useMemo(() => {
     return raw.filter(r => {
-      const byStaff = staff === 'all' ? true : r.handledBy === staff
+      const byStaff = staff === 'all'
+        ? true
+        : String(r.handledById || '') === String(staff) || (!r.handledById && r.handledBy === staff)
       const byStatus = statusFilter === 'all'
         ? true
         : String(r.status || '').toLowerCase() === String(statusFilter).toLowerCase()
@@ -955,18 +1088,20 @@ export default function ReservationsReport() {
         const mgr = usersList.find(u => String(u.id) === String(manager))
         if (!mgr) return true
         const all = [mgr, ...getDescendants(mgr.id, usersList)]
+        const salesIds = new Set(all.map(u => String(u.id)).filter(Boolean))
         const salesNames = new Set(all.map(u => u.name).filter(Boolean))
-        return !r.handledBy || salesNames.has(r.handledBy)
+        if (!r.handledById && !r.handledBy) return true
+        return salesIds.has(String(r.handledById || '')) || salesNames.has(r.handledBy)
       })()
       const bySource = source === 'all' ? true : r.source === source
       const byProject = !showProjectColumn || project === 'all' ? true : r.project === project
       const byUnit = unitFilter === 'all'
         ? true
         : String(r.unitOrItemName || '').trim() === String(unitFilter).trim()
-      const byLastAction = !lastActionDate ? true : String(r.lastAction || '').slice(0, 10) === lastActionDate
+      const byLastAction = !lastActionDate ? true : toLocalDateKey(r.lastAction) === lastActionDate
       const byReservationDate = (() => {
         if (!reservationDateFrom && !reservationDateTo) return true
-        const d = String(r.reservationDateTime || '').slice(0, 10)
+        const d = toLocalDateKey(r.reservationDateTime)
         if (!d) return false
         if (reservationDateFrom && d < reservationDateFrom) return false
         if (reservationDateTo && d > reservationDateTo) return false
@@ -1234,7 +1369,11 @@ export default function ReservationsReport() {
                     setCurrentPage(1)
                   }}
                 >
-                  {staffList.map(s => <option key={s} value={s}>{s === 'all' ? (isRTL ? 'الكل' : 'All') : s}</option>)}
+                  {staffList.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.id === 'all' ? (isRTL ? 'الكل' : 'All') : s.name}
+                    </option>
+                  ))}
                 </SearchableSelect>
               </div>
               <div className="space-y-1">
@@ -1505,26 +1644,26 @@ export default function ReservationsReport() {
         </div>
           
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className={`text-xs uppercase bg-theme-bg dark:bg-white/5 ${isLight ? 'text-black' : 'text-white'}`}>
-                <tr className="text-left border-b border-theme-border dark:border-gray-700">
-                  <th className="py-3 px-4 md:hidden"></th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
-                  <th className="py-2 px-3">{isRTL ? 'اسم العميل' : 'Lead Name'}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'رقم الهاتف' : 'Contact'}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'المصدر' : 'Source'}</th>
+            <table className={`w-full text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
+              <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 border-b border-black/10 dark:border-white/15 ${isLight ? 'text-black' : 'text-white'}`}>
+                <tr>
+                  <th className="px-4 py-3 md:hidden"></th>
+                  <th className="px-4 py-3 hidden md:table-cell">{isRTL ? 'مسؤول المبيعات' : 'Sales Person'}</th>
+                  <th className="px-4 py-3">{isRTL ? 'اسم العميل' : 'Lead Name'}</th>
+                  <th className="px-4 py-3 hidden md:table-cell">{isRTL ? 'رقم الهاتف' : 'Contact'}</th>
+                  <th className="px-4 py-3 hidden md:table-cell">{isRTL ? 'المصدر' : 'Source'}</th>
                   {showProjectColumn && (
-                    <th className="py-2 px-3 hidden md:table-cell">{projectColumnLabel}</th>
+                    <th className="px-4 py-3 hidden md:table-cell">{projectColumnLabel}</th>
                   )}
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'نوع الحجز' : 'Reservation Type'}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{unitNumberColumnLabel}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{totalAmountColumnLabel}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'تاريخ الحجز' : 'Reservation Date'}</th>
-                  <th className="py-2 px-3 hidden md:table-cell">{isRTL ? 'الحالة' : 'Status'}</th>
-                  <th className="py-2 px-3">{isRTL ? 'إجراءات' : 'Actions'}</th>
+                  <th className="px-4 py-3 hidden md:table-cell">{isRTL ? 'نوع الحجز' : 'Reservation Type'}</th>
+                  <th className="px-4 py-3 hidden md:table-cell">{unitNumberColumnLabel}</th>
+                  <th className="px-4 py-3 hidden md:table-cell">{totalAmountColumnLabel}</th>
+                  <th className="px-4 py-3 hidden md:table-cell">{isRTL ? 'تاريخ الحجز' : 'Reservation Date'}</th>
+                  <th className="px-4 py-3 hidden md:table-cell">{isRTL ? 'الحالة' : 'Status'}</th>
+                  <th className="px-4 py-3">{isRTL ? 'إجراءات' : 'Actions'}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
+              <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={showProjectColumn ? 12 : 11} className={`py-6 text-center ${isLight ? 'text-black' : 'text-white'}`}>
@@ -1541,7 +1680,7 @@ export default function ReservationsReport() {
                 )}
                 {paginatedRows.map(r => (
                   <React.Fragment key={r.id}>
-                    <tr className="hover:bg-theme-bg/50 dark:hover:bg-white/5 transition-colors">
+                    <tr className="hover:bg-white/5 dark:hover:bg-white/5 transition-colors">
                       <td className="py-3 px-4 md:hidden">
                         <button 
                           onClick={() => toggleRow(r.id)} 
@@ -1553,28 +1692,28 @@ export default function ReservationsReport() {
                           />
                         </button>
                       </td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</td>
-                      <td className={`py-2 px-3 font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                      <td className={`px-4 py-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{resolveSalesPersonDisplay(r)}</td>
+                      <td className={`px-4 py-3 font-medium ${isLight ? 'text-black' : 'text-white'}`}>
                         <div className="flex flex-col">
                           <span>{r.customer}</span>
                           <span className="md:hidden text-xs opacity-60">{r.contact}</span>
                         </div>
                       </td>
-                      <td className="py-2 px-3 hidden md:table-cell">
+                      <td className="px-4 py-3 hidden md:table-cell">
                         <div className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{r.contact}</div>
                       </td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.source}</td>
+                      <td className={`px-4 py-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.source}</td>
                       {showProjectColumn && (
-                        <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</td>
+                        <td className={`px-4 py-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.project || '-'}</td>
                       )}
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{formatReservationType(r)}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(r)}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</td>
-                      <td className={`py-2 px-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{new Date(r.reservationDateTime).toLocaleString()}</td>
-                      <td className="py-2 px-3 hidden md:table-cell">
+                      <td className={`px-4 py-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{formatReservationType(r)}</td>
+                      <td className={`px-4 py-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{renderUnitOrItemCell(r)}</td>
+                      <td className={`px-4 py-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{r.value ? `${r.value.toLocaleString()} EGP` : '-'}</td>
+                      <td className={`px-4 py-3 hidden md:table-cell ${isLight ? 'text-black' : 'text-white'}`}>{new Date(r.reservationDateTime).toLocaleString()}</td>
+                      <td className="px-4 py-3 hidden md:table-cell">
                         <span className={`px-2 py-0.5 rounded-md w-fit inline-flex ${statusClass(r.status)}`}>{r.status}</span>
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <button 
                             title={isRTL ? 'معاينة' : 'Preview'} 
@@ -1582,16 +1721,6 @@ export default function ReservationsReport() {
                             onClick={() => openLeadPreview(r)}
                           >
                             <Eye size={16} className="text-blue-600 dark:text-blue-400" />
-                          </button>
-                          <button
-                            title={isRTL ? 'اتصال' : 'Call'}
-                            className="p-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
-                            onClick={() => {
-                              const digits = String(r.contact || '').replace(/[^0-9+]/g, '')
-                              if (digits) window.open(`tel:${digits}`, '_blank')
-                            }}
-                          >
-                            <Phone size={16} className="text-emerald-600 dark:text-emerald-400" />
                           </button>
                           {isAdminOrManager && (
                             <button

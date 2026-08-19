@@ -58,6 +58,8 @@ class GeneralInventoryRevenueServiceTest extends TestCase
 
         $this->assertSame($firstRevenue->id, $secondRevenue->id);
         $this->assertDatabaseCount('revenues', 1);
+        $this->assertSame('web', $firstRevenue->source);
+        $this->assertSame('general_inventory_closing', $firstRevenue->meta_data['general_inventory']['origin'] ?? null);
         $this->assertSame(901, (int) ($firstRevenue->meta_data['general_inventory']['reservation_source_action_id'] ?? 0));
     }
 }

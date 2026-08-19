@@ -932,22 +932,22 @@ export default function CustomersReport() {
 
           {/* Desktop View - Table */}
           <div className="hidden md:block overflow-x-auto">
-          <table className="w-full min-w-[960px] text-sm nova-table nova-table--glass">
-            <thead>
-              <tr className="text-start bg-[var(--table-header-bg)]">
-                <th className="px-3 py-3 text-start whitespace-nowrap min-w-[160px]">{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
-                <th className="px-3 py-3 text-start whitespace-nowrap">{isRTL ? 'النوع' : 'Type'}</th>
-                <th className="px-3 py-3 text-start whitespace-nowrap min-w-[120px]">{isRTL ? 'الهاتف' : 'Phone'}</th>
-                <th className="px-3 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'المفوتر' : 'Billed'}</th>
-                <th className="px-3 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'التحصيل' : 'Collected'}</th>
-                <th className="px-3 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'المتبقي' : 'Outstanding'}</th>
-                <th className="px-3 py-3 text-center whitespace-nowrap">{isRTL ? 'الطلبات' : 'Orders'}</th>
-                <th className="px-3 py-3 text-start whitespace-nowrap">{isRTL ? 'آخر نشاط' : 'Last Activity'}</th>
-                <th className="px-3 py-3 text-start whitespace-nowrap">{isRTL ? 'الحالة' : 'Status'}</th>
-                <th className="px-3 py-3 text-start whitespace-nowrap min-w-[140px]">{isRTL ? 'مسؤول المبيعات' : 'Salesperson'}</th>
+          <table className={`w-full min-w-[960px] text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
+            <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 border-b border-black/10 dark:border-white/15 ${isLight ? 'text-black' : 'text-white'}`}>
+              <tr>
+                <th className="px-4 py-3 text-start whitespace-nowrap min-w-[160px]">{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
+                <th className="px-4 py-3 text-start whitespace-nowrap">{isRTL ? 'النوع' : 'Type'}</th>
+                <th className="px-4 py-3 text-start whitespace-nowrap min-w-[120px]">{isRTL ? 'الهاتف' : 'Phone'}</th>
+                <th className="px-4 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'المفوتر' : 'Billed'}</th>
+                <th className="px-4 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'التحصيل' : 'Collected'}</th>
+                <th className="px-4 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'المتبقي' : 'Outstanding'}</th>
+                <th className="px-4 py-3 text-center whitespace-nowrap">{isRTL ? 'الطلبات' : 'Orders'}</th>
+                <th className="px-4 py-3 text-start whitespace-nowrap">{isRTL ? 'آخر نشاط' : 'Last Activity'}</th>
+                <th className="px-4 py-3 text-start whitespace-nowrap">{isRTL ? 'الحالة' : 'Status'}</th>
+                <th className="px-4 py-3 text-start whitespace-nowrap min-w-[140px]">{isRTL ? 'مسؤول المبيعات' : 'Salesperson'}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-theme-border dark:divide-gray-700/50">
+            <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={10} className="px-3 py-6 text-center text-[var(--muted-text)]">{isRTL ? 'لا توجد بيانات' : 'No data'}</td>
@@ -964,8 +964,8 @@ export default function CustomersReport() {
                 </tr>
               )}
               {paginatedRows.map(c => (
-                <tr key={c.id} className="border-t border-[var(--table-row-border)] odd:bg-[var(--table-row-bg)] hover:bg-[var(--table-row-hover)] transition-colors">
-                  <td className="px-3 py-3 font-medium">
+                <tr key={c.id} className="hover:bg-white/5 dark:hover:bg-white/5 transition-colors">
+                  <td className="px-4 py-3 font-medium">
                     <button
                       type="button"
                       onClick={() => openCustomerDetails(c)}
@@ -974,15 +974,15 @@ export default function CustomersReport() {
                       {c.name}
                     </button>
                   </td>
-                  <td className="px-3 py-3 whitespace-nowrap">{translateClientType(c.clientType || c.type, isRTL)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap" dir="ltr">{c.phone || '—'}</td>
-                  <td className="px-3 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.billedTotal)}</td>
-                  <td className="px-3 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.collectedTotal)}</td>
-                  <td className="px-3 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.outstandingTotal)}</td>
-                  <td className="px-3 py-3 text-center whitespace-nowrap">{c.orders}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{formatActivityDate(c.lastActivity)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{statusBadge(isActive(c))}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{displayUserName(c.salesperson) || '—'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{translateClientType(c.clientType || c.type, isRTL)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap" dir="ltr">{c.phone || '—'}</td>
+                  <td className="px-4 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.billedTotal)}</td>
+                  <td className="px-4 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.collectedTotal)}</td>
+                  <td className="px-4 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.outstandingTotal)}</td>
+                  <td className="px-4 py-3 text-center whitespace-nowrap">{c.orders}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{formatActivityDate(c.lastActivity)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{statusBadge(isActive(c))}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{displayUserName(c.salesperson) || '—'}</td>
                 </tr>
               ))}
             </tbody>

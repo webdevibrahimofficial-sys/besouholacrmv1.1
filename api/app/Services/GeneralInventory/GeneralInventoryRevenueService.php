@@ -79,6 +79,8 @@ final class GeneralInventoryRevenueService
 
         $finalAmount = $this->finalAmountFromDetails($details);
 
+        $leadSource = trim((string) ($lead->source ?? ''));
+
         return Revenue::create([
             'tenant_id' => $lead->tenant_id,
             'user_id' => $lead->assigned_to ?: $action->user_id,
@@ -86,13 +88,14 @@ final class GeneralInventoryRevenueService
             'action_id' => $action->id,
             'amount' => $finalAmount,
             'currency' => $details['currency'] ?? 'EGP',
-            'source' => 'general_inventory_closing',
+            'source' => $leadSource !== '' ? $leadSource : null,
             'meta_data' => [
                 'created_by_id' => $action->user_id,
                 'notes' => 'Generated automatically from General Inventory closing',
                 'item_name' => collect($dealItems)->pluck('name')->filter()->unique()->implode(', '),
                 'deal_items' => $dealItems,
                 'general_inventory' => [
+                    'origin' => 'general_inventory_closing',
                     'decision' => $this->decisions->result(
                         GeneralInventoryDecisionService::DECISION_APPROVED,
                         GeneralInventoryDecisionService::STATUS_CONVERTED,
@@ -117,11 +120,16 @@ final class GeneralInventoryRevenueService
         return Revenue::query()
             ->where('tenant_id', $tenantId)
             ->where('lead_id', $leadId)
-            ->where('source', 'general_inventory_closing')
             ->get()
             ->first(function (Revenue $revenue) use ($reservationSourceActionId) {
                 $meta = is_array($revenue->meta_data) ? $revenue->meta_data : [];
                 $general = is_array($meta['general_inventory'] ?? null) ? $meta['general_inventory'] : [];
+                $isInventoryClosing = ($revenue->source === 'general_inventory_closing')
+                    || (($general['origin'] ?? '') === 'general_inventory_closing');
+
+                if (! $isInventoryClosing) {
+                    return false;
+                }
 
                 return (int) ($general['reservation_source_action_id'] ?? 0) > 0
                     && (int) ($general['reservation_source_action_id'] ?? 0) === $reservationSourceActionId;

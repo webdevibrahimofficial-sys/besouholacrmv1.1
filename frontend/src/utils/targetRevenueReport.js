@@ -95,18 +95,39 @@ export function resolveTiersForYear(user, rows, year, currentYear, scope = COMMI
   return []
 }
 
+function commissionTierToBound(tier) {
+  const open = tier?.to_percentage === null || tier?.to_percentage === undefined || tier?.to_percentage === ''
+  return open ? Infinity : Number(tier.to_percentage)
+}
+
 export function matchCommissionRate(tiers, achievementPercent) {
+  const achievement = Number(achievementPercent)
   const sorted = [...(tiers || [])].sort(
     (a, b) => Number(a.from_percentage || 0) - Number(b.from_percentage || 0)
   )
   const matched = sorted.find((tier) => {
     const from = Number(tier.from_percentage || 0)
-    const to = tier.to_percentage === null || tier.to_percentage === undefined || tier.to_percentage === ''
-      ? Infinity
-      : Number(tier.to_percentage)
-    return Number(achievementPercent) >= from && Number(achievementPercent) <= to
+    const to = commissionTierToBound(tier)
+    return achievement >= from && achievement <= to
   })
-  return Number(matched?.commission_percentage || 0) || 0
+  if (matched) return Number(matched.commission_percentage || 0) || 0
+
+  let topClosed = null
+  let topTo = -Infinity
+  sorted.forEach((tier) => {
+    const to = commissionTierToBound(tier)
+    if (!Number.isFinite(to)) return
+    if (to > topTo) {
+      topTo = to
+      topClosed = tier
+    }
+  })
+
+  if (topClosed && Number.isFinite(achievement) && achievement > topTo) {
+    return Number(topClosed.commission_percentage || 0) || 0
+  }
+
+  return 0
 }
 
 export function usersListFrom(users) {
@@ -358,6 +379,26 @@ export function resolveSalespersonRowTarget(params) {
   return resolvePeriodTarget(params)
 }
 
+export function isOutsideLeadManagementModule(user) {
+  return collectUserRoles(user).some((role) => (
+    role.includes('telesales')
+    || role.includes('accountant')
+    || role.includes('customer')
+    || role.includes('support')
+    || role.includes('marketing')
+  ))
+}
+
+export function isLeadManagementManagerRole(user) {
+  if (!user || usesCompanyTarget(user) || isOutsideLeadManagementModule(user)) return false
+  return collectUserRoles(user).some((role) => (
+    role === 'team leader'
+    || role === 'teamleader'
+    || role.includes('sales manager')
+    || role.includes('branch manager')
+  ))
+}
+
 export function isFieldSalesRole(user) {
   return collectUserRoles(user).some((role) => {
     if (
@@ -391,21 +432,27 @@ export function isMidLevelManagerRole(user) {
 export function isManagerFilterRole(user) {
   if (!user) return false
   if (usesCompanyTarget(user)) return false
+  if (isOutsideLeadManagementModule(user)) return false
   if (isFieldSalesRole(user)) return false
-  return !collectUserRoles(user).some((role) => role.includes('sales admin'))
+  if (collectUserRoles(user).some((role) => role.includes('sales admin'))) return false
+  return isLeadManagementManagerRole(user)
 }
 
 export function shouldIncludeInSalespersonRows(user, { personalTarget = 0, hasRevenue = false } = {}) {
+  if (isOutsideLeadManagementModule(user)) return false
   if (usesCompanyTarget(user)) return Boolean(hasRevenue)
-  if (isFieldSalesRole(user) || isMidLevelManagerRole(user)) return true
-  return Number(personalTarget) > 0 || Boolean(hasRevenue)
+  if (isFieldSalesRole(user) || isLeadManagementManagerRole(user)) return true
+  return false
 }
 
 export function matchesManagerFilter(user, managerFilter, usersById) {
   if (!managerFilter || managerFilter === 'all') return true
+  const wanted = String(managerFilter)
+  if (user?.id !== null && user?.id !== undefined && String(user.id) === wanted) return true
+  if (user?.manager_id !== null && user?.manager_id !== undefined && String(user.manager_id) === wanted) return true
   const selfName = String(user?.name || '').trim()
-  if (selfName === managerFilter) return true
-  return resolveManagerName(user, usersById) === managerFilter
+  if (selfName === wanted) return true
+  return resolveManagerName(user, usersById) === wanted
 }
 
 export function resolveReportKpiTarget({
@@ -434,8 +481,20 @@ export function countClosedDeals(rows, {
   return (rows || []).filter((row) => {
     if (String(row?.id || '').startsWith('empty-')) return false
     if (String(row?.status || '') === 'No Sales') return false
-    if (salesPersonFilter !== 'all' && row.salesperson !== salesPersonFilter) return false
-    if (managerFilter !== 'all' && row.manager !== managerFilter && row.salesperson !== managerFilter) return false
+    if (salesPersonFilter !== 'all') {
+      const wanted = String(salesPersonFilter)
+      const matchesSales = String(row.salespersonId || '') === wanted || String(row.salesperson || '') === wanted
+      if (!matchesSales) return false
+    }
+    if (managerFilter !== 'all') {
+      const wanted = String(managerFilter)
+      const matchesManager =
+        String(row.managerId || '') === wanted ||
+        String(row.manager || '') === wanted ||
+        String(row.salespersonId || '') === wanted ||
+        String(row.salesperson || '') === wanted
+      if (!matchesManager) return false
+    }
     if (sourceFilter !== 'all' && row.source !== sourceFilter) return false
     if (projectFilter !== 'all' && row.project !== projectFilter) return false
     if (periodRange && row.date && !isDateInRange(row.date, periodRange)) return false
@@ -800,4 +859,130 @@ export function resolveRevenueProjectOrItem(lead = {}, {
   const type = String(companyType || '').toLowerCase()
   if (type === 'general') return itemName || projectName
   return projectName || itemName
+}
+
+export function aggregateRevenueByItem(rows = [], { unknownLabel = 'Unknown' } = {}) {
+  const map = new Map()
+  const bump = (label, amount) => {
+    const key = String(label || '').trim() || unknownLabel
+    const value = Number(amount) || 0
+    if (value === 0) return
+    map.set(key, (map.get(key) || 0) + value)
+  }
+
+  ;(rows || []).forEach((row) => {
+    const items = Array.isArray(row?.dealItems) ? row.dealItems : []
+    const named = items
+      .map((item) => ({
+        name: asDisplayName(item?.name || item?.label),
+        amount: Number(item?.amount ?? item?.revenue ?? 0) || 0,
+      }))
+      .filter((item) => item.name)
+
+    if (named.length > 1 || (named.length === 1 && named[0].name !== String(row?.project || '').trim())) {
+      const summed = named.reduce((sum, item) => sum + item.amount, 0)
+      const rowRevenue = Number(row?.revenue) || 0
+      if (summed > 0) {
+        named.forEach((item) => {
+          if (item.amount > 0) bump(item.name, item.amount)
+        })
+        const leftover = rowRevenue - summed
+        if (leftover > 0.009) {
+          const unpaid = named.filter((item) => item.amount <= 0)
+          if (unpaid.length) {
+            const share = leftover / unpaid.length
+            unpaid.forEach((item) => bump(item.name, share))
+          }
+        }
+        return
+      }
+      if (rowRevenue > 0 && named.length) {
+        const share = rowRevenue / named.length
+        named.forEach((item) => bump(item.name, share))
+        return
+      }
+    }
+
+    bump(row?.project || unknownLabel, row?.revenue || 0)
+  })
+
+  return Array.from(map.entries()).map(([label, value]) => ({ label, value }))
+}
+
+export function buildTargetsRevenuePdfTable({
+  tableTab,
+  isRTL = false,
+  projectLabel = 'Project',
+  salesRows = [],
+  managerRows = [],
+  formatAchievement = formatAchievementPercent,
+  localizeSource = (value) => value || '-',
+  formatName = (value) => value || '-',
+} = {}) {
+  const dealDateLabel = isRTL ? 'تاريخ الصفقة' : 'Deal Date'
+
+  if (tableTab === 'managers') {
+    const head = [
+      isRTL ? 'النوع' : 'Type',
+      isRTL ? 'الاسم' : 'Name',
+      dealDateLabel,
+      isRTL ? 'الهدف' : 'Target',
+      isRTL ? 'الإيرادات' : 'Revenue',
+      isRTL ? 'نسبة العمولة' : 'Commission %',
+      isRTL ? 'العمولة' : 'Commission',
+      isRTL ? 'نسبة الإنجاز' : 'Achievement %',
+    ]
+    const body = []
+    ;(managerRows || []).forEach((manager) => {
+      body.push([
+        isRTL ? 'مدير' : 'Manager',
+        formatName(manager?.name),
+        manager?.date || '-',
+        manager?.target ?? 0,
+        manager?.revenue ?? 0,
+        manager?.commissionRate ?? 0,
+        manager?.commission ?? 0,
+        formatAchievement(manager?.achievement),
+      ])
+      ;(manager?.members || []).forEach((member) => {
+        body.push([
+          isRTL ? 'مبيعات' : 'Sales',
+          formatName(member?.name),
+          member?.date || '-',
+          member?.target ?? 0,
+          member?.revenue ?? 0,
+          member?.commissionRate ?? 0,
+          member?.commission ?? 0,
+          formatAchievement(member?.achievement),
+        ])
+      })
+    })
+    return { head, body }
+  }
+
+  const head = [
+    isRTL ? 'موظف المبيعات' : 'Sales Person',
+    isRTL ? 'المدير' : 'Manager',
+    isRTL ? 'المشروع' : projectLabel,
+    isRTL ? 'المصدر' : 'Source',
+    dealDateLabel,
+    isRTL ? 'الهدف' : 'Target',
+    isRTL ? 'الإيرادات' : 'Revenue',
+    isRTL ? 'نسبة العمولة' : 'Commission %',
+    isRTL ? 'العمولة' : 'Commission',
+    isRTL ? 'نسبة الإنجاز' : 'Achievement %',
+  ]
+  const body = (salesRows || []).map((row) => [
+    formatName(row?.salesperson),
+    row?.manager || '-',
+    row?.project || '-',
+    localizeSource(row?.source),
+    row?.date || '-',
+    row?.target ?? 0,
+    row?.revenue ?? 0,
+    row?.commissionRate ?? 0,
+    row?.commission ?? 0,
+    formatAchievement(row?.aggregateAchievement),
+  ])
+  return { head, body }
 }

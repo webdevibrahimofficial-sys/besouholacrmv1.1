@@ -1,21 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
-import * as XLSX from 'xlsx'
-import jsPDF from 'jspdf'
-import 'jspdf-autotable'
-import { logExportEvent } from '../utils/api'
+import { downloadXlsx, joinExportNames, registerReportPdfFont, reportPdfAutoTableOptions } from '../utils/reportFileExport'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
 import { useAppState } from '@shared/context/AppStateProvider'
-import { api } from '../utils/api'
+import { api, logExportEvent } from '../utils/api'
 import BackButton from '../components/BackButton'
 import { PieChart } from '../shared/components/PieChart'
 import SearchableSelect from '../components/SearchableSelect'
 import ListHoverPopover from '../components/ListHoverPopover'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
-import { Filter, User, Users, Target, Tag, Briefcase, Package, Calendar, Trophy, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import { Filter, User, Users, Target, Tag, Briefcase, Package, Calendar, Trophy, ChevronLeft, ChevronRight, ChevronDown, Plus, Minus } from 'lucide-react'
 import { FaFileExport, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { canExportReport } from '../shared/utils/reportPermissions'
@@ -27,6 +24,7 @@ import {
   periodsCoveredInYear,
   resolveRevenueProjectOrItem,
   extractRevenueDealItems,
+  aggregateRevenueByItem,
   resolveTargetForYear,
   resolveCompanyPeriodTarget,
   resolveSalespersonRowTarget,
@@ -38,11 +36,16 @@ import {
   resolveManagerName,
   usesCompanyTarget,
   isManagerFilterRole,
+  isOutsideLeadManagementModule,
   shouldIncludeInSalespersonRows,
   matchesManagerFilter,
   resolveReportKpiTarget,
   countClosedDeals,
   calculateInheritedCommission,
+  collectDescendantIds,
+  sumRevenueForUserIds,
+  resolveInheritedPeriodTarget,
+  buildTargetsRevenuePdfTable,
 } from '../utils/targetRevenueReport'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
@@ -71,9 +74,12 @@ export default function RevenueReport() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showSalesGroupingMenu, setShowSalesGroupingMenu] = useState(false)
   const [showTimeGroupingMenu, setShowTimeGroupingMenu] = useState(false)
+  const [tableTab, setTableTab] = useState('sales')
+  const [expandedManagerIds, setExpandedManagerIds] = useState(() => new Set())
   const [revenuePieMode, setRevenuePieMode] = useState('project')
   const salesMenuRef = useRef(null)
   const timeMenuRef = useRef(null)
+  const exportMenuRef = useRef(null)
   const autoExportDoneRef = useRef(false)
   const [usersList, setUsersList] = useState([])
   const [targetHistory, setTargetHistory] = useState([])
@@ -165,9 +171,20 @@ export default function RevenueReport() {
     return map
   }, [isRTL, sourcesCatalog])
 
+  const INTERNAL_REVENUE_SOURCES = new Set(['general_inventory_closing'])
+
+  const resolveRecordSource = (revenue, lead) => {
+    const revenueSource = String(revenue?.source || '').trim()
+    const leadSource = String(lead?.source || '').trim()
+    if (!revenueSource || INTERNAL_REVENUE_SOURCES.has(revenueSource)) {
+      return leadSource
+    }
+    return revenueSource
+  }
+
   const localizeSourceLabel = (value) => {
     const key = String(value || '').trim()
-    if (!key) return key
+    if (!key || INTERNAL_REVENUE_SOURCES.has(key)) return ''
     return sourceLabelMap.get(key) || key
   }
 
@@ -290,15 +307,15 @@ export default function RevenueReport() {
           
           const salesperson = user.name || lead.sales_person || lead.salesperson || ''
           const manager = resolveManagerName(user, usersById)
-          const source = r.source || lead.source || ''
+          const source = resolveRecordSource(r, lead)
           const project = resolveRevenueProjectOrItem(lead, {
             companyType,
             action: r.action,
             dealItems: r.deal_items,
             revenueItemName: r.item_name,
           })
-          const dealType = 'Closed Won' // Revenue implies it's closed/won
-          const status = 'Closed Won'
+          const dealType = 'Closing Deal'
+          const status = 'Closing Deal'
 
           const revenue = parseFloat(r.amount || 0)
 
@@ -346,7 +363,7 @@ export default function RevenueReport() {
     const fetchClosedDeals = async () => {
       try {
         const res = await api.get('/api/lead-actions', {
-          params: { next_action_type: 'closing_deals' },
+          params: { type: 'closing_deals' },
         })
         const raw = Array.isArray(res.data) ? res.data : (res.data?.data || [])
         setClosedDealActions(raw)
@@ -359,18 +376,30 @@ export default function RevenueReport() {
   }, [])
 
   useEffect(() => {
-    const handleClickOutside = event => {
+    const handleClickOutside = (event) => {
       if (salesMenuRef.current && !salesMenuRef.current.contains(event.target)) {
         setShowSalesGroupingMenu(false)
       }
       if (timeMenuRef.current && !timeMenuRef.current.contains(event.target)) {
         setShowTimeGroupingMenu(false)
       }
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+        setShowExportMenu(false)
+      }
+    }
+
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return
+      setShowExportMenu(false)
+      setShowSalesGroupingMenu(false)
+      setShowTimeGroupingMenu(false)
     }
 
     document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleEscape)
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
     }
   }, [])
 
@@ -485,7 +514,9 @@ export default function RevenueReport() {
     const uniqueUsers = Array.from(new Map(usersList.map(u => [u.id, u])).values())
     
     // Filter by manager if selected
-    const filteredUsers = uniqueUsers.filter(u => matchesManagerFilter(u, managerFilter, usersById))
+    const filteredUsers = uniqueUsers
+      .filter(u => matchesManagerFilter(u, managerFilter, usersById))
+      .filter(u => shouldIncludeInSalespersonRows(u, { hasRevenue: false }))
 
     return [
       { value: 'all', label: t('All') },
@@ -494,7 +525,7 @@ export default function RevenueReport() {
         .map(u => {
           const roleName = (Array.isArray(u.roles) && u.roles[0]?.name) || u.role || ''
           return {
-            value: u.name,
+            value: String(u.id),
             label: u.name + (roleName ? ` (${roleName})` : '')
           }
         })
@@ -513,7 +544,7 @@ export default function RevenueReport() {
       ...uniqueManagers.map(m => {
         const roleName = (Array.isArray(m.roles) && m.roles[0]?.name) || m.role || ''
         return {
-          value: m.name || `#${m.id}`,
+          value: String(m.id),
           label: m.name + (roleName ? ` (${roleName})` : '')
         }
       })
@@ -539,22 +570,32 @@ export default function RevenueReport() {
 
   const dealTypeOptions = useMemo(() => ([
     { value: 'all', label: t('All') },
+    { value: 'Closing Deal', label: isRTL ? 'إغلاق صفقة' : 'Closing Deal' },
     { value: 'Proposal', label: t('Proposal') },
     { value: 'Reservation', label: t('Reservation') },
     { value: 'Contract', label: t('Contract') }
-  ]), [t])
+  ]), [t, isRTL])
 
   const statusOptions = useMemo(() => ([
     { value: 'all', label: t('All') },
-    { value: 'Closed Won', label: t('Closed Won') },
+    { value: 'Closing Deal', label: isRTL ? 'إغلاق صفقة' : 'Closing Deal' },
     { value: 'Closed Lost', label: t('Closed Lost') },
     { value: 'In Progress', label: t('In Progress') }
-  ]), [t])
+  ]), [t, isRTL])
 
   const filtered = useMemo(() => {
     const rows = enrichedRecords.filter(r => {
-      const bySales = salesPersonFilter === 'all' || r.salesperson === salesPersonFilter
-      const byManager = managerFilter === 'all' || r.manager === managerFilter || r.salesperson === managerFilter
+      const bySales = salesPersonFilter === 'all'
+        || String(r.salespersonId || '') === String(salesPersonFilter)
+        || r.salesperson === salesPersonFilter
+      const salespersonUser = r.salespersonId
+        ? usersList.find(u => String(u.id) === String(r.salespersonId))
+        : usersList.find(u => String(u.name || '').trim() === String(r.salesperson || '').trim())
+      const byManager = managerFilter === 'all'
+        || matchesManagerFilter(salespersonUser, managerFilter, usersById)
+        || String(r.salespersonId || '') === String(managerFilter)
+        || r.manager === managerFilter
+        || r.salesperson === managerFilter
       const bySource = sourceFilter === 'all' || r.source === sourceFilter
       const byProject = projectFilter === 'all' || r.project === projectFilter
       const byDealType = dealTypeFilter === 'all' || r.dealType === dealTypeFilter
@@ -606,6 +647,7 @@ export default function RevenueReport() {
   }, [
     enrichedRecords,
     usersList,
+    usersById,
     salesPersonFilter,
     managerFilter,
     sourceFilter,
@@ -629,11 +671,25 @@ export default function RevenueReport() {
     return unique.join(', ')
   }
 
-  const dateDisplay = (dates) => {
+  const lastDealDateDisplay = (dates) => {
     const valid = (dates || []).filter(Boolean).sort()
     if (!valid.length) return ''
-    if (valid[0] === valid[valid.length - 1]) return valid[0]
-    return `${valid[0]} → ${valid[valid.length - 1]}`
+    return valid[valid.length - 1]
+  }
+
+  const formatDisplayName = (value) => {
+    const name = String(value || '').trim()
+    if (!name) return ''
+    if (name !== name.toLowerCase()) return name
+    return name.replace(/(^|[\s._-])(\S)/g, (_, sep, ch) => sep + ch.toUpperCase())
+  }
+
+  const formatRowAchievement = (revenue, target, achievement) => {
+    if (!(Number(target) > 0)) return '—'
+    const value = Number.isFinite(achievement)
+      ? achievement
+      : calculateAchievementPercent(revenue, target)
+    return formatAchievementPercent(value)
   }
 
   const overviewRows = useMemo(() => {
@@ -737,8 +793,8 @@ export default function RevenueReport() {
         projectItems,
         sourceItems,
         dealType: hasRevenue ? uniqueDisplay(item.dealTypes) : '-',
-        status: hasRevenue ? 'Closed Won' : 'No Sales',
-        date: dateDisplay(item.dates),
+        status: hasRevenue ? 'Closing Deal' : 'No Sales',
+        date: lastDealDateDisplay(item.dates),
         target,
         revenue: item.revenue || 0,
         commissionRate,
@@ -750,22 +806,216 @@ export default function RevenueReport() {
         commission,
         aggregateAchievement,
       }
-    }).sort((a, b) => String(a.salesperson || '').localeCompare(String(b.salesperson || '')))
+    }).sort((a, b) => {
+      const dateA = String(a.date || '')
+      const dateB = String(b.date || '')
+      if (dateA !== dateB) {
+        if (!dateA) return 1
+        if (!dateB) return -1
+        return dateB.localeCompare(dateA)
+      }
+      return String(a.salesperson || '').localeCompare(String(b.salesperson || ''))
+    })
   }, [filtered, usersList, usersById, getUserTarget, getUserRows, yearFilter, currentYear, localizeSourceLabel, targetHistoryByUser, targetTypeFilter, tenantCreatedYear, reportNow])
+
+  const overviewByUserId = useMemo(() => {
+    const map = new Map()
+    overviewRows.forEach((row) => {
+      if (row.salespersonId == null || row.salespersonId === '') return
+      map.set(String(row.salespersonId), row)
+    })
+    return map
+  }, [overviewRows])
+
+  const managerOverviewRows = useMemo(() => {
+    return usersList
+      .filter(isManagerFilterRole)
+      .filter((manager) => {
+        if (managerFilter !== 'all' && !matchesManagerFilter(manager, managerFilter, usersById)
+          && String(manager.id) !== String(managerFilter)) {
+          return false
+        }
+        if (salesPersonFilter === 'all') return true
+        const descendantIds = collectDescendantIds(manager.id, usersList)
+        return descendantIds.includes(String(salesPersonFilter))
+          || String(manager.id) === String(salesPersonFilter)
+      })
+      .map((manager) => {
+        const descendantIds = collectDescendantIds(manager.id, usersList)
+        const inherited = calculateInheritedCommission({
+          user: manager,
+          users: usersList,
+          targetHistoryByUser,
+          revenueRows: filtered,
+          yearFilter,
+          type: targetTypeFilter,
+          currentYear,
+          tenantCreatedYear,
+          now: reportNow,
+        })
+        const teamTarget = inherited.target || resolveInheritedPeriodTarget({
+          user: manager,
+          users: usersList,
+          targetHistoryByUser,
+          yearFilter,
+          type: targetTypeFilter,
+          currentYear,
+          tenantCreatedYear,
+          now: reportNow,
+        })
+        const teamRevenue = inherited.revenue || sumRevenueForUserIds(filtered, descendantIds)
+        const personalRow = overviewByUserId.get(String(manager.id))
+        const personalTarget = personalRow?.target ?? getUserTarget(manager)
+        const personalRevenue = personalRow?.revenue ?? sumRevenueForUserIds(filtered, [String(manager.id)])
+        const personalDates = filtered
+          .filter((row) => String(row.salespersonId || '') === String(manager.id))
+          .map((row) => row.date)
+          .filter(Boolean)
+        const teamDates = filtered
+          .filter((row) => descendantIds.includes(String(row.salespersonId || '')))
+          .map((row) => row.date)
+          .filter(Boolean)
+        const yearKey = yearFilter === 'all' ? String(currentYear) : String(yearFilter)
+        const personalCommissionForUser = (user, revenue, target, overviewRow) => {
+          if (overviewRow) {
+            const rate = Number(overviewRow.commissionRate) || 0
+            const amount = Number(overviewRow.personalCommission)
+            return {
+              commissionRate: rate,
+              commission: Number.isFinite(amount) ? amount : (((Number(revenue) || 0) * rate) / 100),
+            }
+          }
+          const achievement = calculateAchievementPercent(revenue, target)
+          const rate = matchCommissionRate(
+            resolveTiersForYear(user, getUserRows(user), yearKey, currentYear),
+            achievement
+          )
+          return {
+            commissionRate: rate,
+            commission: ((Number(revenue) || 0) * rate) / 100,
+          }
+        }
+
+        const teamMembers = usersList
+          .filter((user) => descendantIds.includes(String(user.id)))
+          .filter((user) => !usesCompanyTarget(user) && !isOutsideLeadManagementModule(user) && String(user.id) !== String(manager.id))
+          .map((user) => {
+            const row = overviewByUserId.get(String(user.id))
+            const target = row?.target ?? getUserTarget(user)
+            const revenue = row?.revenue ?? sumRevenueForUserIds(filtered, [String(user.id)])
+            const dates = filtered
+              .filter((item) => String(item.salespersonId) === String(user.id))
+              .map((item) => item.date)
+            const commission = personalCommissionForUser(user, revenue, target, row)
+            return {
+              id: String(user.id),
+              name: user.name,
+              target,
+              revenue,
+              achievement: calculateAchievementPercent(revenue, target),
+              date: row?.date || lastDealDateDisplay(dates),
+              commissionRate: commission.commissionRate,
+              commission: commission.commission,
+            }
+          })
+          .sort((a, b) => {
+            const dateA = String(a.date || '')
+            const dateB = String(b.date || '')
+            if (dateA !== dateB) {
+              if (!dateA) return 1
+              if (!dateB) return -1
+              return dateB.localeCompare(dateA)
+            }
+            return String(a.name || '').localeCompare(String(b.name || ''))
+          })
+
+        const personalCommission = personalCommissionForUser(manager, personalRevenue, personalTarget, personalRow)
+        const inheritedCommission = Number(inherited.commission) || 0
+        const combinedCommission = (Number(personalCommission.commission) || 0) + inheritedCommission
+        const managerAsSales = {
+          id: String(manager.id),
+          name: manager.name,
+          target: personalTarget,
+          revenue: personalRevenue,
+          achievement: calculateAchievementPercent(personalRevenue, personalTarget),
+          date: lastDealDateDisplay(personalDates),
+          commissionRate: personalCommission.commissionRate,
+          commission: personalCommission.commission,
+        }
+
+        const combinedTarget = (Number(personalTarget) || 0) + (Number(teamTarget) || 0)
+        const combinedRevenue = (Number(personalRevenue) || 0) + (Number(teamRevenue) || 0)
+        const combinedCommissionRate = combinedRevenue
+          ? Number(((combinedCommission / combinedRevenue) * 100).toFixed(2))
+          : 0
+
+        return {
+          id: String(manager.id),
+          name: manager.name,
+          target: combinedTarget,
+          revenue: combinedRevenue,
+          achievement: calculateAchievementPercent(combinedRevenue, combinedTarget),
+          date: lastDealDateDisplay([...personalDates, ...teamDates]),
+          commissionRate: combinedCommissionRate,
+          commission: combinedCommission,
+          personalCommission: personalCommission.commission,
+          inheritedCommission,
+          inheritedCommissionRate: inherited.rate || 0,
+          members: [managerAsSales, ...teamMembers],
+        }
+      })
+      .filter((row) => row.members.length > 0 || row.revenue > 0 || row.target > 0)
+      .sort((a, b) => {
+        const dateA = String(a.date || '')
+        const dateB = String(b.date || '')
+        if (dateA !== dateB) {
+          if (!dateA) return 1
+          if (!dateB) return -1
+          return dateB.localeCompare(dateA)
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''))
+      })
+  }, [
+    usersList,
+    usersById,
+    managerFilter,
+    salesPersonFilter,
+    targetHistoryByUser,
+    filtered,
+    yearFilter,
+    targetTypeFilter,
+    currentYear,
+    tenantCreatedYear,
+    reportNow,
+    overviewByUserId,
+    getUserTarget,
+    getUserRows,
+  ])
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, dealTypeFilter, statusFilter, yearFilter, targetTypeFilter, dateFromFilter, dateToFilter])
+  }, [salesPersonFilter, managerFilter, sourceFilter, projectFilter, dealTypeFilter, statusFilter, yearFilter, targetTypeFilter, dateFromFilter, dateToFilter, tableTab])
 
-  const totalRecords = overviewRows.length
-  const pageCount = Math.ceil(totalRecords / entriesPerPage)
-  const paginatedData = overviewRows.slice(
+  const activeTableRows = tableTab === 'managers' ? managerOverviewRows : overviewRows
+  const totalRecords = activeTableRows.length
+  const pageCount = Math.max(1, Math.ceil(totalRecords / entriesPerPage) || 1)
+  const paginatedData = activeTableRows.slice(
     (currentPage - 1) * entriesPerPage,
     currentPage * entriesPerPage
   )
+
+  const toggleManagerExpanded = (managerId) => {
+    setExpandedManagerIds((prev) => {
+      const next = new Set(prev)
+      const key = String(managerId)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const peopleScopedView = managerFilter !== 'all' || salesPersonFilter !== 'all'
   const totalTarget = useMemo(
@@ -855,14 +1105,16 @@ export default function RevenueReport() {
       categoryPercentage: 0.22,
       maxBarThickness: 48,
       skipNull: true,
-      yAxisID: 'yRevenue',
+      yAxisID: 'y',
     },
   ]), [isRTL])
 
   const barData = useMemo(() => {
     const userInPeopleScope = (u) => (
       matchesManagerFilter(u, managerFilter, usersById)
-      && (salesPersonFilter === 'all' || String(u.name || '').trim() === salesPersonFilter)
+      && (salesPersonFilter === 'all'
+        || String(u.id) === String(salesPersonFilter)
+        || String(u.name || '').trim() === salesPersonFilter)
       && !usesCompanyTarget(u)
     )
 
@@ -885,7 +1137,9 @@ export default function RevenueReport() {
       } else if (salesGrouping === 'team') {
           usersList.forEach(u => {
               if (!isManagerFilterRole(u)) return
-              if (managerFilter !== 'all' && String(u.name || '').trim() !== managerFilter) return
+              if (managerFilter !== 'all'
+                && String(u.id) !== String(managerFilter)
+                && String(u.name || '').trim() !== managerFilter) return
 
               const reports = usersList.filter((child) => (
                 String(child.id) !== String(u.id)
@@ -961,6 +1215,13 @@ export default function RevenueReport() {
             ? 0.55
             : 0.7
 
+    const axisMax = Math.max(
+      0,
+      ...((barData?.datasets || []).flatMap((dataset) =>
+        (dataset.data || []).map((value) => Number(value) || 0)
+      ))
+    )
+
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -1026,29 +1287,11 @@ export default function RevenueReport() {
         },
         y: {
           beginAtZero: true,
+          suggestedMax: axisMax,
           position: isRTL ? 'right' : 'left',
           title: {
             display: true,
-            text: isRTL ? 'الهدف' : 'Target',
-            color: mutedColor,
-            font: { family: fontFamily, size: 11 },
-          },
-          ticks: {
-            color: tickColor,
-            callback: compactTick,
-            font: {
-              family: fontFamily,
-              size: 11,
-            }
-          }
-        },
-        yRevenue: {
-          beginAtZero: true,
-          position: isRTL ? 'left' : 'right',
-          grid: { drawOnChartArea: false },
-          title: {
-            display: true,
-            text: isRTL ? 'الإيرادات' : 'Revenue',
+            text: isRTL ? 'الهدف والإيرادات' : 'Target & Revenue',
             color: mutedColor,
             font: { family: fontFamily, size: 11 },
           },
@@ -1066,23 +1309,29 @@ export default function RevenueReport() {
   }, [barData, salesGrouping, isRTL, isLight])
 
   const revenueByProjectSegments = useMemo(() => {
-    const map = new Map()
-    filtered.forEach(r => {
-      const key = r.project || (isRTL ? 'غير معروف' : 'Unknown')
-      map.set(key, (map.get(key) || 0) + (r.revenue || 0))
-    })
+    const unknownLabel = isRTL ? 'غير معروف' : 'Unknown'
     const baseColors = ['#3b82f6', '#10b981', '#f97316', '#a855f7', '#ef4444', '#22c55e']
-    return Array.from(map.entries()).map(([label, value], idx) => ({
-      label,
-      value,
-      color: baseColors[idx % baseColors.length]
+    const segments = companyType === 'general'
+      ? aggregateRevenueByItem(filtered, { unknownLabel })
+      : (() => {
+          const map = new Map()
+          filtered.forEach((r) => {
+            const key = r.project || unknownLabel
+            map.set(key, (map.get(key) || 0) + (r.revenue || 0))
+          })
+          return Array.from(map.entries()).map(([label, value]) => ({ label, value }))
+        })()
+
+    return segments.map((segment, idx) => ({
+      ...segment,
+      color: baseColors[idx % baseColors.length],
     }))
-  }, [filtered, isRTL])
+  }, [filtered, isRTL, companyType])
 
   const revenueBySourceSegments = useMemo(() => {
     const map = new Map()
     filtered.forEach(r => {
-      const key = localizeSourceLabel(r.source || (isRTL ? 'غير معروف' : 'Unknown'))
+      const key = localizeSourceLabel(r.source) || (isRTL ? 'غير معروف' : 'Unknown')
       map.set(key, (map.get(key) || 0) + (r.revenue || 0))
     })
     const baseColors = ['#3b82f6', '#10b981', '#f97316', '#a855f7', '#ef4444', '#22c55e']
@@ -1100,16 +1349,23 @@ export default function RevenueReport() {
     enrichedRecords.forEach(r => {
       if (r.date && !isDateInRange(r.date, periodRange)) return
 
-      const key = r.salesperson || (isRTL ? 'غير معروف' : 'Unknown')
-      const uid = r.salespersonId ? String(r.salespersonId) : key
-      const user = usersList.find(u => String(u.id) === uid) || usersList.find(u => u.name === key)
-      if (usesCompanyTarget(user)) return
+      const uid = r.salespersonId ? String(r.salespersonId) : (r.salesperson || '')
+      if (!uid) return
+      const user = usersList.find(u => String(u.id) === uid) || usersList.find(u => u.name === r.salesperson)
+      if (usesCompanyTarget(user) || isOutsideLeadManagementModule(user)) return
+      if (user && !shouldIncludeInSalespersonRows(user, { hasRevenue: true })) return
 
-      if (!map.has(key)) {
+      if (!map.has(uid)) {
         const role = user ? (Array.isArray(user.roles) ? user.roles[0]?.name : user.role) : ''
-        map.set(key, { name: key, role: role || '', target: 0, revenue: 0 })
+        map.set(uid, {
+          id: uid,
+          name: formatDisplayName(user?.name || r.salesperson || uid),
+          role: role || '',
+          target: 0,
+          revenue: 0,
+        })
       }
-      const item = map.get(key)
+      const item = map.get(uid)
       item.revenue += r.revenue || 0
 
       if (!processedUsers.has(uid)) {
@@ -1128,29 +1384,47 @@ export default function RevenueReport() {
     }).slice(0, 5)
   }, [enrichedRecords, isRTL, periodRange, usersList, getUserTarget])
 
+  const notifyEmptyExport = () => {
+    window.dispatchEvent(new CustomEvent('app:toast', {
+      detail: {
+        type: 'error',
+        message: isRTL ? 'لا توجد بيانات للتصدير' : 'No data to export',
+      },
+    }))
+  }
+
+  const getTargetsRevenueExportTable = () => {
+    const isManagers = tableTab === 'managers'
+    const sourceRows = isManagers ? managerOverviewRows : overviewRows
+    const salesRows = overviewRows.map((row) => ({
+      ...row,
+      project: joinExportNames((row.projectItems || []).map((entry) => entry.label)) || row.project || '-',
+      source: joinExportNames((row.sourceItems || []).map((entry) => entry.label)) || localizeSourceLabel(row.source),
+    }))
+    const table = buildTargetsRevenuePdfTable({
+      tableTab,
+      isRTL,
+      projectLabel,
+      salesRows,
+      managerRows: managerOverviewRows,
+      formatAchievement: formatAchievementPercent,
+      localizeSource: localizeSourceLabel,
+      formatName: formatDisplayName,
+    })
+    return { isManagers, sourceRows, ...table }
+  }
+
   const handleExportExcel = () => {
     if (!canExport) return
-    const rows = overviewRows.map(r => ({
-      [isRTL ? 'موظف المبيعات' : 'Sales Person']: r.salesperson,
-      [isRTL ? 'المدير' : 'Manager']: r.manager,
-      [isRTL ? 'المصدر' : 'Source']: localizeSourceLabel(r.source),
-      [isRTL ? 'المشروع' : projectLabel]: r.project,
-      [isRTL ? 'نوع الصفقة' : 'Deal Type']: r.dealType,
-      [isRTL ? 'الحالة' : 'Status']: r.status,
-      [isRTL ? 'التاريخ' : 'Date']: r.date,
-      [isRTL ? 'الهدف' : 'Target']: r.target,
-      [isRTL ? 'الإيرادات' : 'Revenue']: r.revenue,
-      [isRTL ? 'نسبة العمولة' : 'Commission %']: r.commissionRate,
-      [isRTL ? 'عمولة شخصية' : 'Personal Commission']: r.personalCommission || 0,
-      [isRTL ? 'عمولة الفريق' : 'Team Commission']: r.inheritedCommission || 0,
-      [isRTL ? 'العمولة' : 'Commission']: r.commission,
-      [isRTL ? 'نسبة الإنجاز' : 'Achievement %']: formatAchievementPercent(r.aggregateAchievement),
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'TargetsRevenue')
-    const fileName = 'Targets_Revenue_Report.xlsx'
-    XLSX.writeFile(wb, fileName)
+    const { isManagers, sourceRows, head, body } = getTargetsRevenueExportTable()
+    if (!sourceRows.length) {
+      notifyEmptyExport()
+      setShowExportMenu(false)
+      return
+    }
+    const rows = body.map((cells) => Object.fromEntries(head.map((key, index) => [key, cells[index]])))
+    const fileName = isManagers ? 'Targets_Revenue_Managers.xlsx' : 'Targets_Revenue_Sales.xlsx'
+    downloadXlsx({ rows, sheetName: isManagers ? 'Managers' : 'Sales', fileName })
     logExportEvent({
       module: 'Targets & Revenue Report',
       fileName,
@@ -1159,67 +1433,56 @@ export default function RevenueReport() {
     setShowExportMenu(false)
   }
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (!canExport) return
-    const doc = new jsPDF(isRTL ? 'p' : 'p', 'pt', 'a4')
-    const tableColumn = [
-      isRTL ? 'موظف المبيعات' : 'Sales Person',
-      isRTL ? 'المدير' : 'Manager',
-      isRTL ? 'المشروع' : projectLabel,
-      isRTL ? 'المصدر' : 'Source',
-      isRTL ? 'نوع الصفقة' : 'Deal Type',
-      isRTL ? 'الحالة' : 'Status',
-      isRTL ? 'التاريخ' : 'Date',
-      isRTL ? 'الهدف' : 'Target',
-      isRTL ? 'الإيرادات' : 'Revenue',
-      isRTL ? 'نسبة العمولة' : 'Commission %',
-      isRTL ? 'العمولة' : 'Commission',
-      isRTL ? 'نسبة الإنجاز' : 'Achievement %',
-    ]
-    const tableRows = []
-
-    overviewRows.forEach(r => {
-      const rowData = [
-        r.salesperson,
-        r.manager,
-        r.project,
-        localizeSourceLabel(r.source),
-        r.dealType,
-        r.status,
-        r.date,
-        r.target,
-        r.revenue,
-        r.commissionRate,
-        r.commission,
-        formatAchievementPercent(r.aggregateAchievement),
-      ]
-      tableRows.push(rowData)
-    })
-
-    doc.text(isRTL ? 'تقرير الأهداف والإيرادات' : 'Targets & Revenue Report', 40, 40, {
-      align: isRTL ? 'right' : 'left'
-    })
-    
-    doc.autoTable({
-      head: [tableColumn],
-      body: tableRows,
-      startY: 60,
-      styles: {
-        font: isRTL ? 'Cairo' : 'helvetica',
-        halign: isRTL ? 'right' : 'left'
-      },
-      headStyles: {
-        halign: isRTL ? 'right' : 'left'
-      }
-    })
-
-    doc.save('Targets_Revenue_Report.pdf')
-    logExportEvent({
-      module: 'Targets & Revenue Report',
-      fileName: 'Targets_Revenue_Report.pdf',
-      format: 'pdf',
-    })
-    setShowExportMenu(false)
+    const { isManagers, sourceRows, head, body } = getTargetsRevenueExportTable()
+    if (!sourceRows.length) {
+      notifyEmptyExport()
+      setShowExportMenu(false)
+      return
+    }
+    try {
+      const jsPDF = (await import('jspdf')).default
+      const autoTable = await import('jspdf-autotable')
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'a4',
+      })
+      const tableFont = await registerReportPdfFont(doc)
+      const title = isRTL ? 'تقرير الأهداف والإيرادات' : 'Targets & Revenue Report'
+      const pageWidth = doc.internal.pageSize.getWidth()
+      doc.text(title, isRTL ? pageWidth - 40 : 40, 40, {
+        align: isRTL ? 'right' : 'left',
+      })
+      autoTable.default(doc, {
+        head: [head],
+        body,
+        startY: 60,
+        ...reportPdfAutoTableOptions({
+          fontName: tableFont,
+          isRTL,
+          fillColor: [37, 99, 235],
+        }),
+      })
+      const fileName = isManagers ? 'Targets_Revenue_Managers.pdf' : 'Targets_Revenue_Sales.pdf'
+      doc.save(fileName)
+      logExportEvent({
+        module: 'Targets & Revenue Report',
+        fileName,
+        format: 'pdf',
+      })
+      setShowExportMenu(false)
+    } catch (error) {
+      console.error('Targets & Revenue PDF export failed:', error)
+      window.dispatchEvent(new CustomEvent('app:toast', {
+        detail: {
+          type: 'error',
+          message: isRTL ? 'فشل تصدير ملف PDF' : 'PDF export failed',
+        },
+      }))
+      setShowExportMenu(false)
+    }
   }
 
   useEffect(() => {
@@ -1229,7 +1492,8 @@ export default function RevenueReport() {
       return
     }
 
-    if (!canExport || !overviewRows.length || autoExportDoneRef.current) return
+    const sourceRows = tableTab === 'managers' ? managerOverviewRows : overviewRows
+    if (!canExport || !sourceRows.length || autoExportDoneRef.current) return
 
     autoExportDoneRef.current = true
 
@@ -1245,7 +1509,7 @@ export default function RevenueReport() {
     params.delete('file_name')
     const nextSearch = params.toString()
     navigate({ pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' }, { replace: true })
-  }, [canExport, overviewRows, location.pathname, location.search, navigate])
+  }, [canExport, overviewRows, managerOverviewRows, tableTab, location.pathname, location.search, navigate])
 
   const clearFilters = () => {
     setSalesPersonFilter('all')
@@ -1705,53 +1969,62 @@ export default function RevenueReport() {
           </div>
         )}
 
-        <div className="group relative    backdrop-blur-md rounded-2xl shadow-sm hover:shadow-xl border border-theme-border dark:border-gray-700/50 p-4 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
+        <div className="group relative backdrop-blur-md rounded-2xl shadow-sm border border-theme-border dark:border-gray-700/50 p-4 overflow-hidden min-h-[280px] flex flex-col">
+          <div className="flex items-center justify-between mb-4 gap-3">
             <div className="flex items-center gap-2">
               <Trophy size={18} className="text-yellow-400" />
               <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الأفضل أداءً' : 'The Best Achiever'}</div>
             </div>
+            <div className={`w-24 shrink-0 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-text)] ${isRTL ? 'text-left' : 'text-right'}`}>
+              {isRTL ? 'الإنجاز' : 'Achievement'}
+            </div>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 flex-1">
             {bestAchievers.map((user, index) => (
               <div
-                key={user.name}
-                className="flex items-center justify-between px-3 py-2 rounded-lg  border border-white/60 dark:border-gray-700/60"
+                key={user.id || user.name}
+                className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03]"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full bg-emerald-500/10 flex items-center justify-center text-xs font-semibold text-emerald-500">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-7 h-7 shrink-0 rounded-full bg-emerald-500/10 flex items-center justify-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                     {index + 1}
                   </div>
-                  <div>
-                    <div className={`text-sm font-medium ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2`}>
-                      {user.name}
+                  <div className="min-w-0">
+                    <div className={`text-sm font-medium ${isLight ? 'text-black' : 'text-white'} flex items-center gap-2 flex-wrap`}>
+                      <span className="truncate">{formatDisplayName(user.name)}</span>
                       {user.role && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 whitespace-nowrap">
                           {user.role}
                         </span>
                       )}
                     </div>
                     <div className="text-xs text-[var(--muted-text)]">
-                      {isRTL ? 'الإيرادات' : 'Revenue'}: {user.revenue.toLocaleString()} EGP
+                      {isRTL ? 'الإيرادات' : 'Revenue'}: {(user.revenue || 0).toLocaleString()} EGP
                     </div>
                   </div>
                 </div>
-                <div className="text-sm font-semibold text-emerald-500">{formatAchievementPercent(user.achievement)}</div>
+                <div className={`w-24 shrink-0 ${isRTL ? 'text-left' : 'text-right'} text-sm font-semibold text-emerald-600 dark:text-emerald-400`}>
+                  {formatRowAchievement(user.revenue, user.target, user.achievement)}
+                </div>
               </div>
             ))}
             {bestAchievers.length === 0 && (
-              <div className="text-xs text-[var(--muted-text)]">{isRTL ? 'لا توجد بيانات للفلاتر الحالية' : 'No data for current filters'}</div>
+              <div className={`flex-1 min-h-[180px] flex items-center justify-center text-sm text-[var(--muted-text)]`}>
+                {isRTL ? 'لا توجد بيانات للفلاتر الحالية' : 'No data for current filters'}
+              </div>
             )}
           </div>
         </div>
       </div>
 
       <div className="backdrop-blur-md border border-theme-border dark:border-gray-700/50 shadow-sm rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-theme-border dark:border-gray-700/50 flex items-center justify-between">
-          <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نظرة عامة على الأهداف والإيرادات' : 'Targets & Revenue Overview'}</h2>
-          {canExport && (
-            <div className="relative">
+        <div className="p-4 border-b border-theme-border dark:border-gray-700/50 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className={`text-lg font-bold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نظرة عامة على الأهداف والإيرادات' : 'Targets & Revenue Overview'}</h2>
+            {canExport && (
+            <div className="relative shrink-0" ref={exportMenuRef}>
               <button
+                type="button"
                 onClick={() => setShowExportMenu(prev => !prev)}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >
@@ -1767,6 +2040,7 @@ export default function RevenueReport() {
                   className={`absolute top-full ${isRTL ? 'left-0' : 'right-0'} mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 z-50 w-48`}
                 >
                   <button
+                    type="button"
                     onClick={handleExportExcel}
                     className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/60 ${isLight ? 'text-black' : 'text-white'}`}
                   >
@@ -1774,6 +2048,7 @@ export default function RevenueReport() {
                     <span>{isRTL ? 'تصدير إلى Excel' : 'Export to Excel'}</span>
                   </button>
                   <button
+                    type="button"
                     onClick={handleExportPdf}
                     className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/60 ${isLight ? 'text-black' : 'text-white'}`}
                   >
@@ -1783,8 +2058,226 @@ export default function RevenueReport() {
                 </div>
               )}
             </div>
-          )}
+            )}
+          </div>
+          <div className="inline-flex items-center gap-1 bg-black/5 dark:bg-white/5 rounded-full p-1 w-fit">
+              <button
+                type="button"
+                onClick={() => {
+                  setTableTab('sales')
+                  setShowExportMenu(false)
+                }}
+                className={`px-3 py-1.5 text-xs rounded-full transition-colors ${
+                  tableTab === 'sales' ? 'bg-blue-600 text-white' : (isLight ? 'text-black' : 'text-white')
+                }`}
+              >
+                {isRTL ? 'المبيعات' : 'Sales'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTableTab('managers')
+                  setShowExportMenu(false)
+                }}
+                className={`px-3 py-1.5 text-xs rounded-full transition-colors ${
+                  tableTab === 'managers' ? 'bg-blue-600 text-white' : (isLight ? 'text-black' : 'text-white')
+                }`}
+              >
+                {isRTL ? 'تحقيقات المدراء' : 'Managers'}
+              </button>
+            </div>
         </div>
+        {tableTab === 'managers' && (
+          <>
+            <div className="md:hidden space-y-4 p-4">
+              {paginatedData.map((manager) => {
+                const expanded = expandedManagerIds.has(String(manager.id))
+                return (
+                  <div key={manager.id} className="rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className={`font-semibold ${isLight ? 'text-black' : 'text-white'} text-lg`}>{formatDisplayName(manager.name)}</h3>
+                        <p className={`text-xs text-[var(--muted-text)] mt-1`}>
+                          {isRTL ? 'إجمالي شخصي + فريق' : 'Personal + team total'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleManagerExpanded(manager.id)}
+                        className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0"
+                        title={expanded ? (isRTL ? 'إخفاء الفريق' : 'Hide team') : (isRTL ? 'عرض الفريق' : 'Show team')}
+                      >
+                        {expanded ? <Minus size={14} /> : <Plus size={14} />}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="flex flex-col gap-1">
+                        <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'تاريخ الصفقة' : 'Deal Date'}</span>
+                        <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{manager.date || '-'}</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نسبة الإنجاز' : 'Achievement'}</span>
+                        <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{formatRowAchievement(manager.revenue, manager.target, manager.achievement)}</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الهدف' : 'Target'}</span>
+                        <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{(manager.target || 0).toLocaleString()} EGP</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الإيرادات' : 'Revenue'}</span>
+                        <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{(manager.revenue || 0).toLocaleString()} EGP</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نسبة العمولة' : 'Commission %'}</span>
+                        <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{(manager.commissionRate || 0)}%</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'العمولة' : 'Commission'}</span>
+                        <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                          {(manager.commission || 0).toLocaleString()} EGP
+                          {(manager.inheritedCommission || 0) > 0 && (
+                            <span className={`block text-[10px] font-normal ${isLight ? 'text-black/70' : 'text-white/70'}`}>
+                              {isRTL
+                                ? `شخصي ${(manager.personalCommission || 0).toLocaleString()} · فريق ${(manager.inheritedCommission || 0).toLocaleString()}`
+                                : `Personal ${(manager.personalCommission || 0).toLocaleString()} · Team ${(manager.inheritedCommission || 0).toLocaleString()}`}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    {expanded && (
+                      <div className="space-y-2 pt-2 border-t border-theme-border dark:border-gray-700/50">
+                        {manager.members.map((member) => (
+                          <div key={member.id} className="rounded-lg p-3 bg-black/5 dark:bg-white/5">
+                            <div className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{formatDisplayName(member.name)}</div>
+                            <div className={`text-xs mt-1 ${isLight ? 'text-black/70' : 'text-white/70'}`}>
+                              {(isRTL ? 'تاريخ الصفقة' : 'Deal Date')}: {member.date || '-'}
+                            </div>
+                            <div className={`text-xs mt-1 ${isLight ? 'text-black/70' : 'text-white/70'}`}>
+                              {(member.target || 0).toLocaleString()} EGP · {(member.revenue || 0).toLocaleString()} EGP · {(member.commission || 0).toLocaleString()} EGP ({(member.commissionRate || 0)}%) · {formatAchievementPercent(member.achievement)}
+                            </div>
+                          </div>
+                        ))}
+                        {manager.members.length === 0 && (
+                          <div className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'لا يوجد سيلز تحت هذا المدير' : 'No sales under this manager'}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {paginatedData.length === 0 && (
+                <div className={`text-center py-8 ${isLight ? 'text-black' : 'text-white'}`}>
+                  {isRTL ? 'لا توجد بيانات' : 'No data'}
+                </div>
+              )}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
+              <table className={`w-full table-fixed text-sm text-left rtl:text-right ${isLight ? 'text-black' : 'text-white'}`}>
+                <colgroup>
+                  <col className="w-[22%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                </colgroup>
+                <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 border-b border-black/10 dark:border-white/15 ${isLight ? 'text-black' : 'text-white'}`}>
+                  <tr>
+                    <th className="px-4 py-3 font-medium">{isRTL ? 'المدير' : 'Manager'}</th>
+                    <th className="px-4 py-3 font-medium">{isRTL ? 'تاريخ الصفقة' : 'Deal Date'}</th>
+                    <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الهدف' : 'Target'}</th>
+                    <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الإيرادات' : 'Revenue'}</th>
+                    <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة العمولة' : 'Commission %'}</th>
+                    <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'العمولة' : 'Commission'}</th>
+                    <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة الإنجاز' : 'Achievement %'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
+                  {paginatedData.map((manager) => {
+                    const expanded = expandedManagerIds.has(String(manager.id))
+                    return (
+                      <Fragment key={manager.id}>
+                        <tr className="hover:bg-white/5 dark:hover:bg-white/5 transition-colors">
+                          <td className={`px-4 py-3 ${isLight ? 'text-black' : 'text-white'}`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleManagerExpanded(manager.id)}
+                                className="w-7 h-7 rounded-full bg-blue-600 text-white inline-flex items-center justify-center shrink-0"
+                                title={expanded ? (isRTL ? 'إخفاء الفريق' : 'Hide team') : (isRTL ? 'عرض الفريق' : 'Show team')}
+                              >
+                                {expanded ? <Minus size={14} /> : <Plus size={14} />}
+                              </button>
+                              <span className="font-medium truncate">{formatDisplayName(manager.name)}</span>
+                            </div>
+                          </td>
+                          <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{manager.date || '-'}</td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{(manager.target || 0).toLocaleString()} EGP</td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{(manager.revenue || 0).toLocaleString()} EGP</td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{(manager.commissionRate || 0)}%</td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
+                            {(manager.commission || 0).toLocaleString()} EGP
+                            {(manager.inheritedCommission || 0) > 0 && (
+                              <div className={`text-[10px] ${isLight ? 'text-black/60' : 'text-white/60'}`}>
+                                {isRTL
+                                  ? `شخصي ${(manager.personalCommission || 0).toLocaleString()} · فريق ${(manager.inheritedCommission || 0).toLocaleString()}`
+                                  : `Personal ${(manager.personalCommission || 0).toLocaleString()} · Team ${(manager.inheritedCommission || 0).toLocaleString()}`}
+                              </div>
+                            )}
+                          </td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{formatRowAchievement(manager.revenue, manager.target, manager.achievement)}</td>
+                        </tr>
+                        {expanded && (
+                          <>
+                            <tr className="bg-black/5 dark:bg-white/5">
+                              <td className={`px-4 py-2 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'موظف المبيعات' : 'Sales Person'}</td>
+                              <td className={`px-4 py-2 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'تاريخ الصفقة' : 'Deal Date'}</td>
+                              <td className={`px-4 py-2 text-xs font-medium text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الهدف' : 'Target'}</td>
+                              <td className={`px-4 py-2 text-xs font-medium text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'الإيرادات' : 'Revenue'}</td>
+                              <td className={`px-4 py-2 text-xs font-medium text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نسبة العمولة' : 'Commission %'}</td>
+                              <td className={`px-4 py-2 text-xs font-medium text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'العمولة' : 'Commission'}</td>
+                              <td className={`px-4 py-2 text-xs font-medium text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نسبة الإنجاز' : 'Achievement %'}</td>
+                            </tr>
+                            {manager.members.map((member) => (
+                              <tr key={`${manager.id}-${member.id}`} className="bg-black/5 dark:bg-white/5">
+                                <td className={`px-4 py-2 ps-12 ${isLight ? 'text-black' : 'text-white'}`}>{formatDisplayName(member.name)}</td>
+                                <td className={`px-4 py-2 ${isLight ? 'text-black' : 'text-white'}`}>{member.date || '-'}</td>
+                                <td className={`px-4 py-2 text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{(member.target || 0).toLocaleString()} EGP</td>
+                                <td className={`px-4 py-2 text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{(member.revenue || 0).toLocaleString()} EGP</td>
+                                <td className={`px-4 py-2 text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{(member.commissionRate || 0)}%</td>
+                                <td className={`px-4 py-2 text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{(member.commission || 0).toLocaleString()} EGP</td>
+                                <td className={`px-4 py-2 text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>{formatRowAchievement(member.revenue, member.target, member.achievement)}</td>
+                              </tr>
+                            ))}
+                            {manager.members.length === 0 && (
+                              <tr className="bg-black/5 dark:bg-white/5">
+                                <td colSpan={7} className="px-4 py-2 text-xs text-[var(--muted-text)]">
+                                  {isRTL ? 'لا يوجد سيلز تحت هذا المدير' : 'No sales under this manager'}
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                  {paginatedData.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-6 text-center text-xs text-[var(--muted-text)]">
+                        {isRTL ? 'لا توجد سجلات تطابق الفلاتر الحالية' : 'No records match current filters'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {tableTab === 'sales' && (
+        <>
         {/* Mobile View - Cards */}
         <div className="md:hidden space-y-4 p-4">
           {paginatedData.map(row => {
@@ -1792,36 +2285,15 @@ export default function RevenueReport() {
               const achievement = Number.isFinite(row.aggregateAchievement)
                 ? row.aggregateAchievement
                 : calculateAchievementPercent(row.revenue, effectiveTarget)
-              
-              const dealTypeLabel = {
-                'Reservation': isRTL ? 'حجز' : 'Reservation',
-                'Contract': isRTL ? 'عقد' : 'Contract',
-                'Proposal': isRTL ? 'عرض سعر' : 'Proposal'
-              }[row.dealType] || row.dealType
-
-              const statusLabel = {
-                'Closed Won': isRTL ? 'مغلق (فوز)' : 'Closed Won',
-                'Closed Lost': isRTL ? 'مغلق (خسارة)' : 'Closed Lost',
-                'In Progress': isRTL ? 'قيد التنفيذ' : 'In Progress'
-              }[row.status] || row.status
-
-              const statusColors = {
-                  'Closed Won': 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-                  'Closed Lost': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-                  'In Progress': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-              }[row.status] || 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
 
             return (
               <div key={row.id} className=" rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
                 {/* Header */}
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className={`font-semibold ${isLight ? 'text-black' : 'text-white'} text-lg`}>{row.salesperson}</h3>
+                    <h3 className={`font-semibold ${isLight ? 'text-black' : 'text-white'} text-lg`}>{formatDisplayName(row.salesperson)}</h3>
                     <p className={`text-xs ${isLight ? 'text-black' : 'text-white'} mt-1`}>{row.manager || '-'}</p>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusColors}`}>
-                    {statusLabel}
-                  </span>
                 </div>
 
                 {/* Details Grid */}
@@ -1851,11 +2323,7 @@ export default function RevenueReport() {
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نوع الصفقة' : 'Deal Type'}</span>
-                    <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{dealTypeLabel}</span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'التاريخ' : 'Date'}</span>
+                    <span className={`text-xs ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'تاريخ الصفقة' : 'Deal Date'}</span>
                     <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{row.date}</span>
                   </div>
                 </div>
@@ -1910,16 +2378,14 @@ export default function RevenueReport() {
 
         {/* Desktop View - Table */}
         <div className="hidden md:block overflow-x-auto">
-          <table className={`w-full text-xs text-left rtl:text-right ${isLight ? 'text-black' : 'text-white'}`}>
-            <thead className="text-[0.68rem] uppercase  bg-white/5 dark:bg-white/5 dark:te text-[var(--muted-text)]">
+          <table className={`w-full text-sm text-left rtl:text-right ${isLight ? 'text-black' : 'text-white'}`}>
+            <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 border-b border-black/10 dark:border-white/15 ${isLight ? 'text-black' : 'text-white'}`}>
               <tr>
                 <th className="px-4 py-3 font-medium">{isRTL ? 'موظف المبيعات' : 'Sales Person'}</th>
                 <th className="px-4 py-3 font-medium">{isRTL ? 'المدير' : 'Manager'}</th>
                 <th className="px-4 py-3 font-medium">{isRTL ? 'المشروع' : projectLabel}</th>
                 <th className="px-4 py-3 font-medium">{isRTL ? 'المصدر' : 'Source'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'نوع الصفقة' : 'Deal Type'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'الحالة' : 'Status'}</th>
-                <th className="px-4 py-3 font-medium">{isRTL ? 'التاريخ' : 'Date'}</th>
+                <th className="px-4 py-3 font-medium">{isRTL ? 'تاريخ الصفقة' : 'Deal Date'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الهدف' : 'Target'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'الإيرادات' : 'Revenue'}</th>
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة العمولة' : 'Commission %'}</th>
@@ -1927,27 +2393,15 @@ export default function RevenueReport() {
                 <th className="px-4 py-3 font-medium text-right rtl:text-left">{isRTL ? 'نسبة الإنجاز' : 'Achievement %'}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/30 dark:divide-gray-800">
+            <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
               {paginatedData.map(row => {
                 const achievement = Number.isFinite(row.aggregateAchievement)
                   ? row.aggregateAchievement
                   : calculateAchievementPercent(row.revenue, row.target)
-                
-                const dealTypeLabel = {
-                  'Reservation': isRTL ? 'حجز' : 'Reservation',
-                  'Contract': isRTL ? 'عقد' : 'Contract',
-                  'Proposal': isRTL ? 'عرض سعر' : 'Proposal'
-                }[row.dealType] || row.dealType
-
-                const statusLabel = {
-                  'Closed Won': isRTL ? 'مغلق (فوز)' : 'Closed Won',
-                  'Closed Lost': isRTL ? 'مغلق (خسارة)' : 'Closed Lost',
-                  'In Progress': isRTL ? 'قيد التنفيذ' : 'In Progress'
-                }[row.status] || row.status
 
                 return (
-                    <tr key={row.id} className="hover:bg-white/30 dark:hover:bg-gray-900/40 transition-colors">
-                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.salesperson}</td>
+                    <tr key={row.id} className="hover:bg-white/5 dark:hover:bg-white/5 transition-colors">
+                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{formatDisplayName(row.salesperson)}</td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.manager || '-'}</td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
                         <ListHoverPopover
@@ -1971,8 +2425,6 @@ export default function RevenueReport() {
                           emptyTitle={isRTL ? 'لا توجد بيانات' : 'No data'}
                         />
                       </td>
-                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{dealTypeLabel}</td>
-                      <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{statusLabel}</td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>{row.date}</td>
                       <td className={`px-4 py-3 whitespace-nowrap text-right rtl:text-left ${isLight ? 'text-black' : 'text-white'}`}>
                         {row.target.toLocaleString()} EGP
@@ -1999,10 +2451,10 @@ export default function RevenueReport() {
                     </tr>
                 )
               })}
-              {overviewRows.length === 0 && (
+              {tableTab === 'sales' && overviewRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={10}
                     className="px-4 py-6 text-center text-xs text-[var(--muted-text)]"
                   >
                     {isRTL ? 'لا توجد سجلات تطابق الفلاتر الحالية' : 'No records match current filters'}
@@ -2012,6 +2464,8 @@ export default function RevenueReport() {
             </tbody>
           </table>
         </div>
+        </>
+        )}
 
         <div className="px-6 py-3 bg-[var(--content-bg)]/80 border-t border-white/10 dark:border-gray-700/60 flex items-center justify-between gap-3">
           <div className="text-[11px] sm:text-xs text-[var(--muted-text)]">

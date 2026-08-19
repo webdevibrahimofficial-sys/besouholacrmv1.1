@@ -350,6 +350,46 @@ class ReportsController extends Controller
         return $resolved;
     }
 
+    private function isClosingDealRequestRecord($row): bool
+    {
+        $meta = is_array($row->meta_data ?? null) ? $row->meta_data : [];
+        $token = strtolower(trim((string) (
+            ($row->stage_type ?? null)
+            ?: ($meta['stage_type'] ?? null)
+            ?: ($meta['source_action_type'] ?? null)
+            ?: (data_get($meta, 'general_inventory.stage_type'))
+            ?: ''
+        )));
+        $token = preg_replace('/[\s-]+/', '_', $token) ?: '';
+
+        return in_array($token, [
+            'closing_deal',
+            'closing_deals',
+            'close_deal',
+            'close_deals',
+            'done_deal',
+            'done_deals',
+        ], true);
+    }
+
+    private function countGroupedReservationRecords($query): int
+    {
+        $groups = [];
+
+        foreach ((clone $query)->get(['id', 'meta_data']) as $row) {
+            if ($this->isClosingDealRequestRecord($row)) {
+                continue;
+            }
+
+            $meta = is_array($row->meta_data) ? $row->meta_data : [];
+            $actionId = $meta['source_action_id'] ?? null;
+            $key = $actionId ? ('ACT-'.$actionId) : ('ROW-'.$row->id);
+            $groups[$key] = true;
+        }
+
+        return count($groups);
+    }
+
     public function dashboardStats(Request $request)
     {
         $user = $request->user();
@@ -528,6 +568,12 @@ class ReportsController extends Controller
 
         // 4. Reservations Report
         $getReservationStats = function () use ($user, $companyType, $startOfMonth, $endOfMonth, $startOfLastMonth, $endOfLastMonth) {
+            $normalizedType = preg_replace('/[\s_]+/', '', strtolower((string) $companyType)) ?: '';
+            $isRealEstate = str_contains($normalizedType, 'real');
+            $isGeneral = str_contains($normalizedType, 'general');
+            $includeRealEstate = $isRealEstate || (! $isRealEstate && ! $isGeneral);
+            $includeInventory = $isGeneral || (! $isRealEstate && ! $isGeneral);
+
             $buildQuery = function (string $modelClass) use ($user) {
                 $query = $modelClass::query();
 
@@ -538,30 +584,30 @@ class ReportsController extends Controller
                 return $query;
             };
 
-            $countForRange = function ($from, $to) use ($buildQuery, $companyType) {
+            $countForRange = function ($from, $to) use ($buildQuery, $includeRealEstate, $includeInventory) {
                 $total = 0;
 
-                if ($companyType === 'real estate' || $companyType === '') {
-                    $total += (clone $buildQuery(RealEstateRequest::class))
-                        ->whereBetween('created_at', [$from, $to])
-                        ->count();
+                if ($includeRealEstate) {
+                    $total += $this->countGroupedReservationRecords(
+                        (clone $buildQuery(RealEstateRequest::class))->whereBetween('created_at', [$from, $to])
+                    );
                 }
 
-                if ($companyType === 'general' || $companyType === '') {
-                    $total += (clone $buildQuery(InventoryRequest::class))
-                        ->whereBetween('created_at', [$from, $to])
-                        ->count();
+                if ($includeInventory) {
+                    $total += $this->countGroupedReservationRecords(
+                        (clone $buildQuery(InventoryRequest::class))->whereBetween('created_at', [$from, $to])
+                    );
                 }
 
                 return $total;
             };
 
             $totalValue = 0;
-            if ($companyType === 'real estate' || $companyType === '') {
-                $totalValue += $buildQuery(RealEstateRequest::class)->count();
+            if ($includeRealEstate) {
+                $totalValue += $this->countGroupedReservationRecords($buildQuery(RealEstateRequest::class));
             }
-            if ($companyType === 'general' || $companyType === '') {
-                $totalValue += $buildQuery(InventoryRequest::class)->count();
+            if ($includeInventory) {
+                $totalValue += $this->countGroupedReservationRecords($buildQuery(InventoryRequest::class));
             }
 
             $currentValue = $countForRange($startOfMonth, $endOfMonth);
